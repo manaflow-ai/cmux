@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import Foundation
 import Testing
 @testable import CmuxMobileAgentChat
@@ -244,3 +245,69 @@ import UIKit
     }
 }
 #endif
+
+/// `RowOffsets` gives what a plain running sum gives, through sets, appends and removals, and finds
+/// the row at an offset; one row's change writes O(log n) nodes.
+@Suite struct RowOffsetsTests {
+    @Test func matchesAPlainSum() {
+        var generator = SystemRandomNumberGenerator()
+        var extents: [CGFloat] = (0..<1_000).map { _ in CGFloat(Int.random(in: 0...80, using: &generator)) }
+        var offsets = RowOffsets(extents)
+        func check(_ when: String) {
+            var sum: CGFloat = 0
+            for row in 0..<extents.count {
+                if row % 37 == 0 { #expect(abs(offsets.offset(of: row) - sum) < 0.001, "\(when): row \(row)") }
+                sum += extents[row]
+            }
+            #expect(abs(offsets.total - sum) < 0.001, "\(when): total")
+            #expect(offsets.count == extents.count)
+        }
+        check("built")
+        for step in 0..<2_000 {
+            switch step % 5 {
+            case 0, 1:
+                let row = Int.random(in: 0..<extents.count, using: &generator)
+                let extent = CGFloat(Int.random(in: 0...120, using: &generator))
+                let writes = offsets.writes
+                offsets.set(row, extent)
+                extents[row] = extent
+                #expect(offsets.writes - writes <= 12, "one set wrote \(offsets.writes - writes) nodes")
+            case 2:
+                let extent = CGFloat(Int.random(in: 1...60, using: &generator))
+                let writes = offsets.writes
+                offsets.append(extent)
+                extents.append(extent)
+                #expect(offsets.writes - writes == 1)
+            case 3:
+                let k = min(Int.random(in: 0...3, using: &generator), extents.count - 1)
+                offsets.removeLast(k)
+                extents.removeLast(k)
+            default:
+                // The first row ending at or after y.
+                let y = CGFloat(Int.random(in: 0...Int(offsets.total + 10), using: &generator))
+                var sum: CGFloat = 0
+                var expected = extents.count
+                for row in 0..<extents.count {
+                    sum += extents[row]
+                    if sum >= y { expected = row; break }
+                }
+                #expect(offsets.firstRow(endingAtOrAfter: y) == expected, "y \(y)")
+            }
+            if step % 400 == 399 { check("after \(step + 1) steps") }
+        }
+    }
+
+    @Test func emptyAndOne() {
+        var offsets = RowOffsets()
+        #expect(offsets.total == 0)
+        #expect(offsets.firstRow(endingAtOrAfter: 10) == 0)
+        offsets.append(20)
+        #expect(offsets.firstRow(endingAtOrAfter: 0) == 0)
+        #expect(offsets.firstRow(endingAtOrAfter: 20) == 0)
+        #expect(offsets.firstRow(endingAtOrAfter: 20.5) == 1)
+        offsets.set(0, 5)
+        #expect(offsets.total == 5)
+        offsets.removeLast(1)
+        #expect(offsets.isEmpty && offsets.total == 0)
+    }
+}
