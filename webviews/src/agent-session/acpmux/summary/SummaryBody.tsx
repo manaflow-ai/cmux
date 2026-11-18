@@ -1,5 +1,6 @@
 import React, { useMemo, type ReactNode } from "react";
 import { Counts } from "../changes/Counts";
+import { STUDIO } from "../../../look/studio";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -190,8 +191,9 @@ export function SummaryBody({
       />
       {subagents ??
         (summary.subagents.length > 0 && (
-          <section className="acpmux-summary-section" aria-label={t("summary.subagents")}>
-            <h3 className="acpmux-summary-title">{t("summary.subagents")}</h3>
+          // The studio look: the reference app's "Lineage" (look/studio.ts).
+          <section className="acpmux-summary-section" aria-label={STUDIO.lineage}>
+            <h3 className="acpmux-summary-title">{STUDIO.lineage}</h3>
             <ul className="acpmux-summary-list">
               <SubagentStack subagents={summary.subagents} />
             </ul>
