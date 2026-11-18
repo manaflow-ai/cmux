@@ -100,6 +100,9 @@ final class CEFRuntime {
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
     weak var lastShownHost: CEFPaneHost?
+    /// The last shown pane of a regular profile's web tabs (`CEFPaneHost.hostsExtensionWindows`): an
+    /// extension's popup window opens over it (`popupWindowOpener`).
+    weak var lastShownWebHost: CEFPaneHost?
     /// Off-the-record context keys created this launch, by profile.
     var offTheRecordContexts: [BrowserProfileID: Set<String>] = [:]
     /// Extension mirrors by profile.
