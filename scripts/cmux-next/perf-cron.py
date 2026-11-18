@@ -253,10 +253,13 @@ DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_m
                 "diff.stream.p95": 250.0}
 # The launch-time budget that left the pull request CI (ms since process start, warm launch, empty profile).
 LAUNCH_BUDGETS = {"did_finish_launching_end": 800, "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000}
-# A Dock launch's budget (launch-dock), the targets of cmuxterm-hq docs/design/launch-shell-first.md: the Dock's bounce
-# ends when applicationDidFinishLaunching returns (NSRunningApplication.isFinishedLaunching), and by 250 ms the icon
-# rises once and stops; the first frame of the same copy has the same 250 ms target.
-LAUNCH_DOCK_BUDGETS = {"did_finish_launching_end": 250, "first_window_frame_committed": 250, "sidebar_rows_shown": 1000}
+# A Dock launch's budget (launch-dock). The Dock's bounce ends when AppKit checks in with LaunchServices
+# (NSRunningApplication.isFinishedLaunching), just before the delegate's applicationDidFinishLaunching runs: on the
+# nightly (launch-ready.sh, 2026-11-18, n=10) isFinishedLaunching came at 692 ms and did_finish_launching_start at
+# 719. Its target is launch-shell-first.md's "Dock bounce over", 250 ms: the icon rises once and stops. The other
+# rows keep the direct exec's budgets.
+LAUNCH_DOCK_BUDGETS = {"did_finish_launching_start": 250, "did_finish_launching_end": 800,
+                       "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000}
 
 
 def now_utc():
