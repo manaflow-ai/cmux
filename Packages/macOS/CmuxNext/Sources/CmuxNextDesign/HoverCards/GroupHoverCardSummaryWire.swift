@@ -70,7 +70,9 @@ nonisolated struct GroupHoverCardSummaryWire {
 
     static func run(_ request: Request) -> Response? {
         guard let data = try? JSONEncoder().encode(request) else { return nil }
-        var capacity = 4096
+        // The reply is bounded (at most `maxMembersRange.upperBound` member lines, four listed values
+        // each): 16 KB holds it at the top of that range with 250-byte titles, so it never runs twice.
+        var capacity = 16384
         for _ in 0..<2 {
             var output = [UInt8](repeating: 0, count: capacity); var outputLength = 0
             let code: Int32 = data.withUnsafeBytes { requestBytes in "group_hover_summary".withCString { operation in output.withUnsafeMutableBytes { outputBytes in cmux_layout_reducer_json(requestBytes.bindMemory(to: UInt8.self).baseAddress, data.count, operation, outputBytes.bindMemory(to: UInt8.self).baseAddress, outputBytes.count, &outputLength) } } }
