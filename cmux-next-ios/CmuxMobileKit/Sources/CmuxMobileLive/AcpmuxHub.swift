@@ -128,6 +128,11 @@ public final class AcpmuxHub {
         case permissionResolved(sessionID: String)
         /// Every session, as the watch reported them on (re)connecting.
         case sessionsLoaded([AcpmuxSession])
+        /// A waiting chat's open asks could not be read (`seedPending`): why, and whether the hub
+        /// reads them again on its own (else pull to refresh or the next connection does).
+        case pendingUnread(sessionID: String, reason: String, retrying: Bool)
+        /// A waiting chat's open asks were read (after their `permissionPending` events).
+        case pendingRead(sessionID: String)
     }
 
     private struct WeakSource { weak var source: AcpmuxSessionSource? }
@@ -136,6 +141,15 @@ public final class AcpmuxHub {
     private var liveSources: [AcpmuxSessionSource] {
         sources.values.flatMap { $0.compactMap(\.source) }
     }
+
+    /// The reads again of chats whose open asks could not be read, by chat (`seedPending`);
+    /// cancelled when a new channel binds, which reads every waiting chat's asks again itself.
+    @ObservationIgnored private var seedRetries: [String: Task<Void, Never>] = [:]
+    /// The waits before each read again of a chat's open asks after a failed read: bounded, then
+    /// the Feed's row says to pull to refresh, and the next connection reads them again.
+    @ObservationIgnored var seedRetryDelays: [Duration] = [.seconds(2), .seconds(5), .seconds(15), .seconds(30), .seconds(60)]
+    /// Where the hub's failures are recorded (`ConnectivityTelemetry.shared`; a test's own).
+    @ObservationIgnored var telemetry: ConnectivityTelemetry = .shared
 
     public init() {}
 
@@ -149,6 +163,8 @@ public final class AcpmuxHub {
         pumpTask?.cancel()
         restOfList?.cancel()
         restOfList = nil
+        for retry in seedRetries.values { retry.cancel() }
+        seedRetries = [:]
         toldSinceWatch = []
         purgedSinceWatch = []
         droppedSinceWatch = false
@@ -257,22 +273,56 @@ public final class AcpmuxHub {
     func seedPending(_ connection: AcpmuxConnection, requestTimeout: Duration, among: Set<String>? = nil) async {
         for session in sessions.values where session.pendingPermissions > 0 && among.map({ $0.contains(session.id) }) != false {
             guard !Task.isCancelled, self.connection === connection else { return }
-            guard let page = try? await connection.request("_acpmux/events", .object([
+            await seedPending(of: session.id, on: connection, requestTimeout: requestTimeout, attempt: 0)
+        }
+    }
+
+    /// Reads one waiting chat's open asks. A failed read is never dropped (audit 17: the chat
+    /// read "Needs you" with no card, and nothing said why): it is logged and recorded with its
+    /// reason, the Feed says it in the chat's Needs you row (`pendingUnread`), and it is read
+    /// again after each of `seedRetryDelays`; a new connection reads it again as well.
+    func seedPending(of sessionID: String, on connection: AcpmuxConnection, requestTimeout: Duration, attempt: Int) async {
+        guard let session = sessions[sessionID], session.pendingPermissions > 0 else {
+            // No longer waiting (answered while the read was retried): nothing is left to load.
+            onWatchEvent?(.pendingRead(sessionID: sessionID))
+            return
+        }
+        let page: JSONValue
+        do {
+            page = try await connection.request("_acpmux/events", .object([
                 "sessionId": .string(session.id),
                 "beforeSeq": .number(Double(session.lastSeq + 1)),
                 "limit": .number(200),
                 "kinds": .array([.string("permission_request"), .string("permission_decision")]),
-            ]), timeout: requestTimeout) else { continue }
-            let records = page["events"]?.arrayValue ?? []
-            let decided = Set(records.compactMap { record -> String? in
-                record["kind"]?.stringValue == "permission_decision" ? record["msg"]?["permissionId"]?.stringValue : nil
-            })
-            for record in records where record["kind"]?.stringValue == "permission_request" {
-                guard let id = record["msg"]?["permissionId"]?.stringValue, !decided.contains(id),
-                      let request = record["msg"]?["request"] else { continue }
-                onWatchEvent?(.permissionPending(sessionID: session.id, permissionID: id, request: request))
+            ]), timeout: requestTimeout)
+        } catch {
+            // A read stopped by a newer connection is not a failure: that connection reads again.
+            guard !Task.isCancelled, !(error is CancellationError), self.connection === connection else { return }
+            let reason = AcpmuxSessionSource.message(error)
+            let retrying = attempt < seedRetryDelays.count
+            log.error("acpmux open asks unread, try \(attempt + 1, privacy: .public): \(String(describing: error), privacy: .public)")
+            let code: ConnectivityEvent.Value = (error as? LinkError).map { ConnectivityEvent.Value.safeCode($0.code) } ?? .code("other")
+            telemetry.record(.hub, "seed_pending_failed", outcome: .failure, fields: [
+                "attempt": .number(Double(attempt + 1)), "retrying": .flag(retrying),
+                "error_code": code, "reason": .text(reason),
+            ], detail: String(describing: error))
+            onWatchEvent?(.pendingUnread(sessionID: sessionID, reason: reason, retrying: retrying))
+            guard retrying else { return }
+            let delay = seedRetryDelays[attempt]
+            seedRetries[sessionID]?.cancel()
+            seedRetries[sessionID] = Task { [weak self] in
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled, let self, self.connection === connection else { return }
+                self.seedRetries[sessionID] = nil
+                await self.seedPending(of: sessionID, on: connection, requestTimeout: requestTimeout, attempt: attempt + 1)
             }
+            return
         }
+        seedRetries.removeValue(forKey: sessionID)?.cancel()
+        for (id, request) in LiveFeed.openRequests(page["events"]?.arrayValue ?? []) {
+            onWatchEvent?(.permissionPending(sessionID: session.id, permissionID: id, request: request))
+        }
+        onWatchEvent?(.pendingRead(sessionID: sessionID))
     }
 
     /// Waits until a channel is bound and watched (`isReady`), for at most

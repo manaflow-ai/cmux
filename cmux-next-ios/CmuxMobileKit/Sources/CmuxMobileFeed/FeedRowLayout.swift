@@ -413,6 +413,9 @@ private struct FeedRowBuilder {
             if let resolution = item.resolution { return secondaryLine("checkmark.circle", resolution) }
             // A Mac Feed request opens its page from the row (its link is in the text), not a terminal.
             if item.link != nil { return .none }
+            // Only a terminal agent's ask is answered in a terminal. Any other (a chat whose open ask
+            // could not be read, `LiveFeed.unreadAsks`) says its state in the text and opens its chat.
+            guard item.opensTerminal else { return .none }
             let font = styles.font(.headline)
             let title = symbolText("terminal", "Answer in Terminal", font: font, color: capsuleColor(.primary))
             let top = place(44)

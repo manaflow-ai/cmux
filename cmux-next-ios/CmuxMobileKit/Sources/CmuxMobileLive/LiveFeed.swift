@@ -92,11 +92,14 @@ public final class LiveFeed: FeedActions {
             openAsks[sessionID, default: []].insert(id)
             askSessions[id] = sessionID
             askKinds[id] = waits
+            // The card takes the place of the row that said its ask could not be read.
+            store.remove(Self.unreadAsksID(sessionID))
             guard store.item(id: id) == nil else { return }
             log.info("feed ask \(id, privacy: .public)")
             store.upsert(item(id: id, kind: kind, sessionID: sessionID, session: session, markdown: markdown,
                               quote: session?.lastPrompt.map { FeedItem.Quote($0) }), atTop: true)
         case .sessionChanged(let session, let recordKind, let seq):
+            if session.pendingPermissions == 0 { store.remove(Self.unreadAsksID(session.id)) }
             if session.pendingPermissions == 0, let asks = openAsks.removeValue(forKey: session.id) {
                 for id in asks { askKinds[id] = nil }
                 for id in asks { store.resolveElsewhere(id, text: "Answered") }
@@ -109,7 +112,37 @@ public final class LiveFeed: FeedActions {
             break
         case .sessionsLoaded(let sessions):
             hydrate(sessions)
+            // A row kept from before (an archive, an earlier connection) of a chat no longer waiting.
+            for session in sessions where session.pendingPermissions == 0 { store.remove(Self.unreadAsksID(session.id)) }
+        case .pendingUnread(let sessionID, let reason, let retrying):
+            unreadAsks(sessionID, reason: reason, retrying: retrying, session: sessions[sessionID])
+        case .pendingRead(let sessionID):
+            store.remove(Self.unreadAsksID(sessionID))
         }
+    }
+
+    /// The Feed id of the Needs you row of a waiting chat whose open asks could not be read.
+    static func unreadAsksID(_ sessionID: String) -> String { "asks-unread-\(sessionID)" }
+
+    /// What that row says: why the ask could not be read, and what comes next.
+    static func unreadAsksText(reason: String, retrying: Bool) -> String {
+        var reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        while reason.hasSuffix(".") { reason.removeLast() }
+        if reason.isEmpty { reason = "the Mac didn't send it" }
+        return "Couldn't load the question: \(reason). " + (retrying ? "Retrying." : "Pull to refresh to try again.")
+    }
+
+    /// A waiting chat whose open asks could not be read keeps a Needs you row that says so, in
+    /// the place its card takes once they are read, instead of "Needs you" with no card. It
+    /// opens the chat, where the ask can be answered. Nothing when a card of the chat is shown.
+    func unreadAsks(_ sessionID: String, reason: String, retrying: Bool, session: AcpmuxSession?) {
+        guard openAsks[sessionID]?.isEmpty != false else { return }
+        let id = Self.unreadAsksID(sessionID)
+        let row = item(id: id, kind: .needsInput, sessionID: sessionID, session: session,
+                       markdown: Self.unreadAsksText(reason: reason, retrying: retrying),
+                       quote: session?.lastPrompt.map { FeedItem.Quote($0) })
+        // Each failed read again says its own reason in the same row, which keeps its place.
+        store.upsert(row, atTop: true)
     }
 
     /// The watch reports only what happens after it starts, so a relaunched
@@ -186,6 +219,7 @@ public final class LiveFeed: FeedActions {
         let sessions = try await hub.wholeList("_acpmux/watch", ["enabled": .bool(true)], timeout: .seconds(20)).compactMap(AcpmuxSession.init)
         hydrate(sessions)
         let byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        for session in sessions where session.pendingPermissions == 0 { store.remove(Self.unreadAsksID(session.id)) }
         for (sessionID, asks) in openAsks where (byID[sessionID]?.pendingPermissions ?? 0) == 0 {
             openAsks[sessionID] = nil
             for id in asks { askKinds[id] = nil }
@@ -201,6 +235,7 @@ public final class LiveFeed: FeedActions {
             for (permissionID, request) in Self.openRequests(page["events"]?.arrayValue ?? []) {
                 handle(.permissionPending(sessionID: session.id, permissionID: permissionID, request: request), sessions: byID)
             }
+            handle(.pendingRead(sessionID: session.id), sessions: byID)
         }
     }
 
