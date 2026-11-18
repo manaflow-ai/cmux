@@ -12,7 +12,8 @@ import os
 /// installs on its own: a theme or snippet comes back as the CLI's consent card, shown here, and
 /// only the person's Install runs it with `--yes`; an extension asks with the app's own card.
 @MainActor
-public enum AppInstallLink {
+public struct AppInstallLink {
+    public init() {}
     private static let toastID = "app-install-link"
     /// The CLI fetches the repository at the pinned commit; an extension's card waits on the person.
     private static let timeout: Duration = .seconds(240)

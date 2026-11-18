@@ -212,9 +212,9 @@ pub(super) fn install_link(args: &[String]) -> Option<Result<Vec<String>, String
     // The verb and the link change in place; the globals before them stay.
     let verb = args.iter().position(|w| w == "install-link")?;
     let mut rewritten = args.to_vec();
-    rewritten[verb] = "install".to_owned();
+    *rewritten.get_mut(verb)? = "install".to_owned();
     let at = rewritten.iter().position(|w| w == *link)?;
-    rewritten[at] = reference;
+    *rewritten.get_mut(at)? = reference;
     Some(Ok(rewritten))
 }
 
