@@ -76,7 +76,7 @@ final class ChromiumPageHost: PageChromiumHosting {
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()
         guard await tab.agentRelay.browserCreated() else { tab.close(); throw Failure.browserNotCreated }
-        DebugTimings.markLaunch("chromium_page.browser_created")
+        for mark in cef.startStepLaunchMarks(first: "chromium_page.browser_created") { DebugTimings.markLaunch(mark.name, at: Date(timeIntervalSinceNow: mark.offset)) }
         return chromiumPage
     }
 }

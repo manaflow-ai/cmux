@@ -208,6 +208,29 @@ public final class CEFEngine: BrowserEngine {
     /// The timed steps of Chromium's start in this process (`debug.cef`).
     public var startMarks: [CEFStartMark] { CEFStartSteps.shared.marks }
 
+    /// Experiment (lane/rtc-alloy-experiment, not for merge): `first` (offset 0, now), then Chromium's start steps
+    /// as launch marks, offsets in seconds from now: `cef_step.<name>` at its start, `cef_step.<name>.end` at its
+    /// end, pump runs numbered (`cef_step.pump.<i>`), and their sum as the name `cef_step.pump_sum_ms.<ms>` (now).
+    public func startStepLaunchMarks(first: String) -> [(name: String, offset: Double)] {
+        let now = Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
+        var marks: [(name: String, offset: Double)] = [(first, 0)]
+        var pumps = 0
+        var pumpSum = 0.0
+        for step in startMarks {
+            let start = (Double(step.startUptimeNanos) - now) / 1e9
+            var name = "cef_step." + step.name
+            if step.name == "pump" {
+                pumps += 1
+                pumpSum += step.milliseconds
+                name += ".\(pumps)"
+            }
+            marks.append((name, start))
+            if step.milliseconds > 0 { marks.append((name + ".end", start + step.milliseconds / 1000)) }
+        }
+        marks.append(("cef_step.pump_sum_ms.\(Int(pumpSum.rounded()))", 0))
+        return marks
+    }
+
 
     /// The framework read before CefInitialize (`CEFFrameworkPrefetch`), `debug.cef`'s
     /// `prefetch` fields: bytes, files and milliseconds; nil before one ran. `map_ms` is the time
