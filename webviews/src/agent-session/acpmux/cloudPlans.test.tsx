@@ -9,7 +9,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import { CloudStartView } from "./CloudStartView";
 import { currentCloudPlan, readCloudPlanFresh, refreshCloudMachines, setCloudPlanForTest } from "./cloudMachines";
-import { cloudPlanFromReply, cloudPlanHoldsSend, cloudSizeLocked, type CloudPlanView } from "./cloudPlans";
+import {
+  cloudPlanFromReply,
+  cloudPlanHoldsSend,
+  cloudPlansNamed,
+  cloudSizeLocked,
+  type CloudPlanView,
+} from "./cloudPlans";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
 import { cloudStartEnded, cloudStartPlanHeld, type CloudStartProgress } from "./cloudStartProgress";
 import { settleReact } from "../../../test/support/domTeardown";
@@ -140,11 +146,42 @@ test("a send held for want of a plan and the platform's refusal both show the pr
   for (const start of [held, refused!]) {
     const html = renderToStaticMarkup(<CloudStartView start={start} onRunHere={() => undefined} />);
     expect(html).toContain('data-plans="true"');
-    expect(html).toContain('data-plan="pro"');
-    expect(html).toContain('data-plan="max"');
+    expect(html).toContain('data-plan="next_pro"');
+    expect(html).toContain('data-plan="next_max"');
+    expect(html).not.toContain('data-plan="pro"');
     expect(html).toContain('data-action="run-here"');
     expect(html).not.toContain("acpmux-cloud-start__retry");
   }
+});
+
+test("the pricing card offers the plans a refusal names: cmux NEXT's own by default, the classic ones as before", () => {
+  const classic = cloudStartEnded(begun, "k", {
+    ok: false,
+    code: "cloud_plan_required",
+    details: { plans: ["pro", "max"] },
+  });
+  expect(classic?.plans).toEqual(["pro", "max"]);
+  const html = renderToStaticMarkup(<CloudStartView start={classic!} onRunHere={() => undefined} />);
+  expect(html).toMatch(/data-action="subscribe" data-plan="pro"[^>]*data-role="default"/);
+  expect(html).toContain('data-plan="max"');
+  expect(html).toContain("$50 / month");
+  expect(html).not.toContain("next_pro");
+  // Both Pro plans cost $50: the classic one is told apart by its name.
+  expect(html).toMatch(/>Pro<\/span>/);
+  expect(html).not.toContain("cmux NEXT");
+  const next = cloudStartEnded(begun, "k", {
+    ok: false,
+    code: "cloud_plan_required",
+    details: { plans: ["next_pro", "next_max"] },
+  });
+  expect(next?.plans).toEqual(["next_pro", "next_max"]);
+  // Unknown or no plans: the card's own offer.
+  expect(cloudPlansNamed({ plans: ["ultra", 1] })).toBeUndefined();
+  expect(cloudPlansNamed({ plans: ["next_max", "next_max", "ultra"] })).toEqual(["next_max"]);
+  expect(cloudPlansNamed(null)).toBeUndefined();
+  // A later refusal that names none drops what an earlier one named.
+  const again = cloudStartEnded({ ...classic!, state: "starting" }, "k", { ok: false, code: "cloud_plan_required" });
+  expect(again?.plans).toBeUndefined();
 });
 
 test("Subscribe asks the host for its plan; a refusal says why under the buttons", async () => {
@@ -155,17 +192,17 @@ test("Subscribe asks the host for its plan; a refusal says why under the buttons
   root = createRoot(container);
   const held = cloudStartPlanHeld("plan-held-1", "fix the build", undefined);
   await act(async () => root?.render(<CloudStartView start={held} planStore={store} />));
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-plan="max"] button')?.click());
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-plan="pro"] button')?.click());
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-plan="next_max"] button')?.click());
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-plan="next_pro"] button')?.click());
   expect(host.calls).toEqual([
-    { method: "cloud.plan.subscribe", params: { plan: "max" } },
-    { method: "cloud.plan.subscribe", params: { plan: "pro" } },
+    { method: "cloud.plan.subscribe", params: { plan: "next_max" } },
+    { method: "cloud.plan.subscribe", params: { plan: "next_pro" } },
   ]);
   expect(store.snapshot().waiting).toBe(true);
   const refusing = fakeHost({ message: "Checkout isn't available for this team." });
   const refusedStore = createCloudPlanSubscribe({ ...refusing, ...fakePage() });
   await act(async () => root?.render(<CloudStartView start={held} planStore={refusedStore} />));
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-plan="pro"] button')?.click());
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-plan="next_pro"] button')?.click());
   expect(container.querySelector("[data-subscribe-error]")?.textContent).toBe(
     "Checkout isn't available for this team.",
   );
@@ -282,6 +319,19 @@ test("a folder that needs a larger machine names its size, offers the plan that 
   );
   expect(html).not.toContain('data-action="upgrade"');
   expect(html).toContain('data-action="run-here" data-role="default">Run on This Mac</button>');
+  // cmux NEXT Pro past its largest: Upgrade to cmux NEXT Max, by its product name.
+  const next = cloudStartEnded(begun, "k", {
+    ok: false,
+    code: "cloud_size_locked",
+    details: { needed: "xl", allowed: "lg", upgrade_plan: "next_max" },
+  });
+  expect(next?.sizeLocked?.upgradePlan).toBe("next_max");
+  expect(renderToStaticMarkup(<CloudStartView start={next!} onRunHere={() => undefined} />)).toContain(
+    'data-plan="next_max"',
+  );
+  expect(renderToStaticMarkup(<CloudStartView start={next!} onRunHere={() => undefined} />)).toContain(
+    "Upgrade to cmux NEXT Max",
+  );
   // Malformed details: no size card, the host's words and its own Retry.
   expect(cloudSizeLocked({ needed: "huge" })).toBeUndefined();
   expect(cloudSizeLocked({ needed: "md", upgrade_plan: "ultra" })).toEqual({

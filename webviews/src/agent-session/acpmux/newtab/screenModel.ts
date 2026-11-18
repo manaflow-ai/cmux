@@ -22,15 +22,7 @@ import type { DeviceChat } from "./deviceChats";
 import { DEFAULT_SUGGESTION_ORDER, type SuggestionOrder } from "./suggestionOrder";
 import { TOP_SITES } from "./topSites";
 import { translateNewTab, type NewTabTranslate } from "./strings";
-import {
-  chatRows,
-  type ChatRow,
-  type FolderListing,
-  launchRows,
-  type LaunchAgent,
-  type LaunchRow,
-  type OmnibarChat,
-} from "./launchRows";
+import { type FolderListing, launchRows, type LaunchAgent, type LaunchRow } from "./launchRows";
 
 export type ScreenAgent = { id: string; name: string };
 
@@ -59,20 +51,17 @@ export type ScreenRow =
   | { type: "newProfile"; url: string; name?: string }
   /// Open `url` in the browser profile `id` (a row of the profile search).
   | { type: "profile"; url: string; id: string; name: string; color?: string }
-  /// A chat that matches the text (launchRows.ts): opens it.
-  | ChatRow
   /// Start an agent in a folder (launchRows.ts): "Codex in ~/fun/cmux".
   | LaunchRow
   /// Run `command` in a terminal in the page's folder, as `!command` does (commandIntent.ts).
   | { type: "run"; command: string };
 
-/// The omnibar's agent sources: the chats to search, the folders and agents to start, and the
-/// disk's answer for a typed path (``FolderListing``). All optional: without them the rows are as
-/// before.
+/// The omnibar's agent sources: the folders and agents to start, and the disk's answer for a typed
+/// path (``FolderListing``). All optional: without them the rows are as before. No chats: the
+/// field starts things, the sidebar and All chats find chats (Lucas 2026-11-18).
 export type ScreenAgentSources = {
   translate?: NewTabTranslate;
   create?: readonly ("terminal" | "browser" | "chat")[];
-  chats?: readonly OmnibarChat[];
   folders?: readonly string[];
   agents?: readonly LaunchAgent[];
   defaultAgent?: string;
@@ -80,7 +69,7 @@ export type ScreenAgentSources = {
 };
 
 /// Groups used to rank suggestions before the web search.
-export type ScreenSection = "lead" | "open" | "chats" | "start" | "pages" | "actions" | "web";
+export type ScreenSection = "lead" | "open" | "start" | "pages" | "actions" | "web";
 
 /// The group a suggestion belongs to.
 export function rowSection(row: ScreenRow): ScreenSection {
@@ -88,8 +77,6 @@ export function rowSection(row: ScreenRow): ScreenSection {
     case "tab":
     case "workspace":
       return "open";
-    case "chat":
-      return "chats";
     case "launch":
       return "start";
     case "history":
@@ -294,7 +281,7 @@ function navigationRows(
   const top = addressTop ? found[0] : exactMatch(query, found, context.omnibar);
   const rest = found.filter((row) => row !== top);
   const cap = order === "minimal" ? MINIMAL_MATCH_ROWS : MAX_MATCH_ROWS;
-  // The open tabs and workspaces, then the chats and the agents to start, then the visited pages:
+  // The open tabs and workspaces, then the agents to start, then the visited pages:
   // each section ranked inside itself (`ranked` keeps tabs, workspaces, pages in that order).
   // An agent named with a folder ("codex ~/fun/cmux") leads: what Return starts. Never over an
   // address or an exact name ("claude" completing to claude.ai, a workspace named "codex"): those
@@ -328,7 +315,6 @@ function navigationRows(
   const below = share(
     [
       kept.filter((row) => rowSection(row) === "open"),
-      agent.chats,
       agent.named ? [] : agent.launch.slice(0, MAX_UNNAMED_LAUNCH_ROWS),
       kept.filter((row) => rowSection(row) !== "open"),
     ],
@@ -353,14 +339,13 @@ function share(sections: readonly (readonly ScreenRow[])[], room: number): Scree
   return sections.flatMap((rows, index) => rows.slice(0, counts[index]));
 }
 
-/// The chats the text finds and the agent starts it names (launchRows.ts); `named` when the text
-/// named an agent, so its starts lead.
+/// The agent starts the text names (launchRows.ts); `named` when the text named an agent, so its
+/// starts lead.
 function agentRows(
   query: string,
   context: ScreenAgentSources & { home?: string },
-): { chats: ScreenRow[]; launch: ScreenRow[]; named: boolean } {
-  const chats = context.chats?.length ? chatRows(query, context.chats) : [];
-  if (!context.agents?.length) return { chats, launch: [], named: false };
+): { launch: ScreenRow[]; named: boolean } {
+  if (!context.agents?.length) return { launch: [], named: false };
   const launch = launchRows(query, {
     agents: context.agents,
     folders: context.folders ?? [],
@@ -368,7 +353,7 @@ function agentRows(
     ...(context.home ? { home: context.home } : {}),
     ...(context.listing ? { listing: context.listing } : {}),
   });
-  return { chats, launch: launch.rows, named: launch.named && launch.rows.length > 0 };
+  return { launch: launch.rows, named: launch.named && launch.rows.length > 0 };
 }
 
 /// The Commands palette actions the text names, best match first (the palette's order breaks
