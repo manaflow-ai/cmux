@@ -192,6 +192,8 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.agentRetry"),
             // Whether an idle Claude chat is compacted while its prompt cache is warm.
             GroupSpec(group: "settings.group.agentCache"),
+            // Whether chats settle on their own when their pull requests merge or close, or after idle days.
+            GroupSpec(group: "settings.group.agentSettle"),
             // Folders that start an agent without the trust question.
             GroupSpec(group: "settings.group.folderTrust"),
         ],

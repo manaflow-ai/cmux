@@ -523,6 +523,8 @@ pub enum Command {
     #[command(hide = true)]
     TagCmd { session: String, assignments: Vec<String>, remove: Vec<String>, ttl: Option<u64> },
     #[command(hide = true)]
+    UnsettleCmd { session: String },
+    #[command(hide = true)]
     SessionSearch(crate::cli::session_search::SearchArgs),
     #[command(hide = true)]
     RulesCmd { session: String, rules: Option<String>, clear: bool },
@@ -974,6 +976,13 @@ pub enum SecretCmd {
     Set { id: String, key: String },
 }
 
+/// `session auto-settle`'s choice: the settings decide, or this chat never settles on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum AutoSettleMode {
+    Follow,
+    Never,
+}
+
 #[derive(Subcommand)]
 pub enum SessionCmd {
     /// Queue a new session on a mesh host; prints a receipt, not completed execution.
@@ -1146,6 +1155,16 @@ pub enum SessionCmd {
         /// Start after this cursor (`<sessionId>:<seq>` or a seq). A cursor past the log is an error.
         #[arg(long)]
         since: Option<String>,
+    },
+    /// Settle a chat now: archived, off every list, on the Settled shelf (`hub/auto_settle.rs`).
+    Settle { session: String },
+    /// Bring a settled (or archived) chat back to the lists.
+    Unsettle { session: String },
+    /// Whether the auto-settle settings (`agents.autoSettle.*`) apply to this chat.
+    AutoSettle {
+        session: String,
+        #[arg(value_enum)]
+        mode: AutoSettleMode,
     },
     /// Label a session: key=value pairs, `--remove key`, `--ttl seconds`.
     Tag {
@@ -1548,6 +1567,31 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Tag { session, assignments, remove, ttl } => {
                 Command::TagCmd { session, assignments, remove, ttl }
             }
+            // The tags `hub/auto_settle.rs` reads: archived with a reason, and the override.
+            SessionCmd::Settle { session } => Command::TagCmd {
+                session,
+                assignments: vec![
+                    format!("archived={}", crate::store::now_ms()),
+                    "settled=manual".into(),
+                ],
+                remove: vec!["unsettled".into()],
+                ttl: None,
+            },
+            SessionCmd::Unsettle { session } => Command::UnsettleCmd { session },
+            SessionCmd::AutoSettle { session, mode } => match mode {
+                AutoSettleMode::Never => Command::TagCmd {
+                    session,
+                    assignments: vec!["autoSettle=never".into()],
+                    remove: vec![],
+                    ttl: None,
+                },
+                AutoSettleMode::Follow => Command::TagCmd {
+                    session,
+                    assignments: vec![],
+                    remove: vec!["autoSettle".into()],
+                    ttl: None,
+                },
+            },
             SessionCmd::Limits { session, max, clear } => {
                 Command::LimitsCmd { session, max, clear }
             }

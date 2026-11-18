@@ -2974,7 +2974,8 @@ async fn dispatch_request_with_identity(
                 set.insert(ARCHIVED_TAG.into(), Value::String(crate::store::now_ms().to_string()));
                 hub.set_tags_answered(&s, Some(&set), &[], None)?;
             } else {
-                hub.set_tags_answered(&s, None, &[ARCHIVED_TAG.to_owned()], None)?;
+                // A settled chat also loses its reason (`hub/auto_settle.rs`).
+                hub.unarchive(&s)?;
             }
             Ok(hub.session_summary(&s))
         }

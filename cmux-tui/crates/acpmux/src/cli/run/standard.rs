@@ -16,6 +16,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::History { .. }
             | Command::SessionSearch(..)
             | Command::TagCmd { .. }
+            | Command::UnsettleCmd { .. }
             | Command::RulesCmd { .. }
             | Command::Compare { .. }
             | Command::Preset { .. }
@@ -120,6 +121,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::TagCmd { session, assignments, remove, ttl } => {
             orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out)
                 .await
+        }
+        Command::UnsettleCmd { session } => {
+            orchestrate::unsettle(connect(true).await?, &session, json_out).await
         }
         Command::RulesCmd { session, rules, clear } => {
             orchestrate::rules(connect(true).await?, &session, rules, clear, json_out).await

@@ -46,6 +46,10 @@ pub struct LsArgs {
     /// Only sessions carrying this tag (key or key=value).
     #[arg(long)]
     tag: Option<String>,
+    /// Only settled chats (archived with a reason, `hub/auto_settle.rs`): the same as
+    /// `--tag settled`.
+    #[arg(long, conflicts_with = "tag")]
+    settled: bool,
     /// Return at most N sessions, newest first. With `--json`, `nextCursor` names where the
     /// next ones start (`--cursor`); null when none is left.
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
@@ -82,7 +86,7 @@ pub struct LsArgs {
     /// `lane.reportsTo`), once, with `reports` (those sessions' names), most reports first
     /// (`ls_leads.rs`). The coordinator, its deputies and the area owners each are one.
     #[arg(long, conflicts_with_all = [
-        "patterns", "name_patterns", "status", "pending", "tag", "limit", "cursor", "since", "host", "all",
+        "patterns", "name_patterns", "status", "pending", "tag", "settled", "limit", "cursor", "since", "host", "all",
     ])]
     leads: bool,
 }
@@ -117,6 +121,7 @@ pub(crate) async fn output(
         status,
         pending,
         tag,
+        settled,
         limit,
         cursor,
         fields,
@@ -128,6 +133,7 @@ pub(crate) async fn output(
         wide,
         leads,
     } = args;
+    let tag = tag.or_else(|| settled.then(|| crate::hub::auto_settle::SETTLED_TAG.to_owned()));
     // The leaders need every live row: the sessions that report are read with them.
     let live = live || leads;
     patterns.extend(name_patterns);

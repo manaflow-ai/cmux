@@ -151,6 +151,9 @@ extension SettingsSchema {
         "agents.autoRetry.attempts": .userOnly,
         // Compacting on a timer spends the person's usage (one model call each): their call.
         "agents.cacheCompact.enabled": .userOnly, "agents.cacheCompact.minContextPercent": .userOnly,
+        // Settling moves the person's chats off their lists: whether and when is their call, not an agent's.
+        "agents.autoSettle.onMerge": .userOnly, "agents.autoSettle.onClose": .userOnly,
+        "agents.autoSettle.idleDays": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not widen what it may open without asking.
         "agents.trust.autoTrust": .userOnly, "agents.trust.projectRoots": .userOnly, "agents.trust.ownOrgs": .userOnly,
         // Which hosts an ssh:// link from another app connects to without asking: only the person trusts a host, so a page or an agent cannot add one and skip the confirmation.
