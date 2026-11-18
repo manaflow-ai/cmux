@@ -3,9 +3,10 @@
 // when it has several tool calls, I think sometimes it lags a bit"). Real Chromium opens "Ran N
 // commands" at the bottom of a chat (ToolGroupSize.gallery.ts) for N = 5, 20 and 100, many times,
 // and reads every painted frame from the click: when the first frame shows the opened body, when the
-// fold is over (the box at its full height, unclipped) and when every step is drawn. It asserts that
-// the click's frame draws only about a view's worth of steps, that the box is as tall as all of them
-// from the fold's end (no row pops in under the reader), and that every step is drawn soon after.
+// fold is over (the box at its full height, unclipped) and when the steps the run's box shows are
+// drawn. It asserts that the click's frame draws only about a view's worth of steps, that the box is
+// as tall from the fold's end as once settled (no row pops in under the reader), that the box's steps
+// are drawn soon after, and that a long run never draws more than its window (stepWindow.ts).
 // TOOL_GROUP_COST=1 prints the p50/p95 table (the before and after numbers for a fix).
 //
 // Real Chromium from Playwright on the agent pane's gallery scene.
@@ -91,14 +92,19 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
     first: number;
     /// ms from the click to the first painted frame with the fold over: the box unclipped at its height.
     expanded: number;
-    /// ms from the click to the first painted frame with every step drawn.
+    /// ms from the click to the first painted frame with the steps the run's box shows drawn.
     all: number;
     /// Steps drawn in the first frame that shows the body.
     firstSteps: number;
     /// The box's height on the fold's last frame and once every step is drawn.
     expandedHeight: number;
     finalHeight: number;
+    /// Steps drawn once settled.
+    finalSteps: number;
   };
+
+  /// The steps the run's box shows at once (RunScroll.tsx, 224px of 22px lines), or all of a short run.
+  const SHOWN = 10;
 
   /// Clicks the closed group's line and reads every painted frame until the fold is over and every
   /// step is drawn (or 3 s pass).
@@ -138,7 +144,7 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
               rep.expanded = at;
               rep.expandedHeight = height;
             }
-            if (rep.all === undefined && steps >= n) rep.all = at;
+            if (rep.all === undefined && steps >= Math.min(n, SHOWN)) rep.all = at;
             if ((rep.expanded !== undefined && rep.all !== undefined) || at > 3000) {
               rep.finalHeight = height;
               resolve(rep as Rep);
@@ -151,12 +157,15 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
     await page.mouse.click(point.x, point.y);
     const rep = await watching;
     await settled(page);
-    rep.finalHeight = await page.evaluate(
-      (row) =>
-        document.querySelector<HTMLElement>(`${row} [data-tool-group-items]`)!.parentElement!.getBoundingClientRect()
-          .height,
-      ROW,
-    );
+    const final = await page.evaluate((row) => {
+      const items = document.querySelector<HTMLElement>(`${row} [data-tool-group-items]`)!;
+      return {
+        height: items.parentElement!.getBoundingClientRect().height,
+        steps: items.querySelectorAll(".cv-step").length,
+      };
+    }, ROW);
+    rep.finalHeight = final.height;
+    rep.finalSteps = final.steps;
     return rep;
   };
 
@@ -186,7 +195,7 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
     console.log(
       [
         "tool-group-expand-cost (ms from click; p50 / p95)",
-        "N    | first frame   | fold over     | every step    | steps in first frame",
+        "N    | first frame   | fold over     | box's steps   | steps in first frame | steps settled",
         ...table,
       ].join("\n"),
     );
@@ -210,12 +219,17 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
         return `${pct(values, 50).toFixed(1).padStart(6)} / ${pct(values, 95).toFixed(1).padStart(6)}`;
       };
       table.push(
-        `${String(n).padEnd(4)} | ${col((r) => r.first)} | ${col((r) => r.expanded)} | ${col((r) => r.all)} | ${Math.max(...reps.map((r) => r.firstSteps))}`,
+        `${String(n).padEnd(4)} | ${col((r) => r.first)} | ${col((r) => r.expanded)} | ${col((r) => r.all)} | ${String(Math.max(...reps.map((r) => r.firstSteps))).padEnd(20)} | ${Math.max(...reps.map((r) => r.finalSteps))}`,
       );
       for (const [index, rep] of reps.entries()) {
         const at = { n, index, ...rep };
-        // Every step is drawn, soon after the fold.
+        // The steps the box shows are drawn, soon after the fold.
         expect({ at, all: rep.all !== undefined && rep.all < 2000 }).toEqual({ at, all: true });
+        // A long run draws its window and no more, at any length: a short one draws every step.
+        expect({ at, windowed: rep.finalSteps <= 40 && rep.finalSteps >= Math.min(n, SHOWN) }).toEqual({
+          at,
+          windowed: true,
+        });
         // The box the fold ends at is the box with every step: no row pops in under it after.
         expect({ at, whole: Math.abs(rep.expandedHeight - rep.finalHeight) <= 1 }).toEqual({ at, whole: true });
         // The click's frame draws about a view's worth of steps, never all of a long run.
@@ -223,103 +237,99 @@ await requireBrowserLane("tool-group-expand-cost.test.ts", async () => {
       }
     });
 
-  // Rows of mixed heights (a long lead thought, failures, later thoughts, images) drawn after the
-  // fold take their own heights: with the reader scrolled to the run's foot before they draw, nothing
-  // in view moves as each held draw lands (ToolGroupRow.tsx `StepList`, review of cmux#37152).
+  // Rows of mixed heights (a long lead thought, failures, later thoughts, images) that the run's box
+  // brings in as it scrolls take their own heights: 0 px of drift. Every transcript row in view stays
+  // where it is, and every step keeps its place in the box's content (its top in the box plus the
+  // box's offset) as rows mount and are measured (stepWindow.ts `measure`, review of cmux#37152).
   // (Reads never group since 2026-11-17, readPath.ts: no run of reads to open.)
   for (const variant of ["n100", "mixed-commands"] as const)
-    test(`${variant}: the rows drawn after the fold move nothing in view`, async () => {
+    test(`${variant}: scrolling the opened run's box moves nothing in view`, async () => {
       const page = await open(variant);
-      await page.evaluate(() => window.cmuxStepDraws!.hold(true));
       await page.locator(GROUP).click();
-      // The fold is over and the first deferred draw is waiting.
       await page.waitForFunction(
         (row) => {
           const body = document.querySelector<HTMLElement>(`${row} [data-tool-group-items]`)?.parentElement;
           return (
             body &&
             !body.hasAttribute("data-fold-clip") &&
-            body.getAnimations().every((each) => each.playState !== "running") &&
-            window.cmuxStepDraws!.held.length > 0
+            body.getAnimations().every((each) => each.playState !== "running")
           );
         },
         ROW,
         { timeout: 10_000 },
       );
-      // The reader scrolls to the run's foot: the reply under it in view, the rows still to draw above.
+      // The reader scrolls the transcript so the run's box sits mid-view, the reply under it in view.
       await page.evaluate((row) => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
-        const foot = document.querySelector<HTMLElement>(row)!.getBoundingClientRect().bottom;
+        const box = document.querySelector<HTMLElement>(`${row} .cv-run-scroll`)!.getBoundingClientRect();
         const view = scroller.getBoundingClientRect();
-        scroller.scrollTop += foot - (view.top + scroller.clientHeight / 2);
+        scroller.scrollTop += box.top + box.height / 2 - (view.top + scroller.clientHeight / 2);
       }, ROW);
       await settled(page);
       const seen = await page.evaluate(
         async ({ row, TRANSCRIPT_ROW }) => {
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-          /// The viewport top of every row and drawn step in view, by its id.
-          const inView = () => {
+          const box = document.querySelector<HTMLElement>(`${row} .cv-run-scroll`)!;
+          /// Every other transcript row in view by its viewport top, and every drawn step by its top in
+          /// the box's content.
+          const places = () => {
             const view = scroller.getBoundingClientRect();
+            const inside = box.getBoundingClientRect();
             const tops = new Map<string, number>();
-            const visible = (box: DOMRect) => box.bottom > view.top + 1 && box.top < view.bottom - 1 && box.height > 0;
             for (const each of scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)) {
-              const box = each.getBoundingClientRect();
-              if (each.matches(row) || !visible(box)) continue;
-              tops.set(`row:${each.dataset.rowId}`, box.top);
+              const rect = each.getBoundingClientRect();
+              if (each.matches(row) || rect.bottom <= view.top + 1 || rect.top >= view.bottom - 1) continue;
+              tops.set(`row:${each.dataset.rowId}`, rect.top);
             }
-            const steps = [...scroller.querySelectorAll<HTMLElement>(`${row} [data-tool-group-items] > .cv-step`)];
-            steps.forEach((step, index) => {
-              const box = step.getBoundingClientRect();
-              if (visible(box)) tops.set(`step:${index}`, box.top);
-            });
+            for (const step of box.querySelectorAll<HTMLElement>("[data-step]"))
+              tops.set(`step:${step.dataset.step}`, step.getBoundingClientRect().top - inside.top + box.scrollTop);
             return tops;
           };
           const moves: string[] = [];
-          let last = inView();
+          let last = places();
           const rowsInView = [...last.keys()].filter((key) => key.startsWith("row:")).length;
           const check = (what: string) => {
-            const now = inView();
+            const now = places();
             for (const [key, top] of now) {
               const before = last.get(key);
-              if (before !== undefined && Math.abs(top - before) > 1)
+              if (before !== undefined && Math.abs(top - before) > 0.5)
                 moves.push(`${what} ${key} ${before.toFixed(1)}->${top.toFixed(1)}`);
             }
             last = now;
           };
-          const held = window.cmuxStepDraws!.held;
-          let draws = 0;
-          for (let guard = 0; guard < 50; guard++) {
-            const draw = held.shift();
-            if (draw) {
-              draws += 1;
-              await window.cmuxPaintFrame(() => draw());
-            } else await window.cmuxPaintFrame();
-            check(`draw ${draws}`);
-            if (!held.length && !document.querySelector(`${row} [data-steps-rest]`)) break;
+          let scrolls = 0;
+          let mounted = 0;
+          // 60px a wheel notch, to the box's end, two painted frames each.
+          for (let guard = 0; guard < 200 && box.scrollTop + box.clientHeight < box.scrollHeight - 1; guard++) {
+            await window.cmuxPaintFrame(() => {
+              box.scrollTop += 60;
+            });
+            await window.cmuxPaintFrame();
+            scrolls += 1;
+            mounted = Math.max(mounted, box.querySelectorAll("[data-step]").length);
+            check(`scroll ${scrolls}`);
           }
           for (let frame = 0; frame < 8; frame++) {
             await window.cmuxPaintFrame();
             check("after");
           }
-          window.cmuxStepDraws!.hold(false);
-          return {
-            draws,
-            rowsInView,
-            moves,
-            rest: document.querySelector(`${row} [data-steps-rest]`) !== null,
-            steps: document.querySelectorAll(`${row} [data-tool-group-items] > .cv-step`).length,
-          };
+          return { scrolls, rowsInView, moves, mounted };
         },
         { row: ROW, TRANSCRIPT_ROW },
       );
       await page.close();
       if (process.env.TOOL_GROUP_COST === "1") console.log(`no-jump ${variant} ${JSON.stringify(seen)}`);
-      expect({ variant, held: seen.draws > 0, inView: seen.rowsInView > 0, rest: seen.rest }).toEqual({
+      expect({
         variant,
-        held: true,
+        scrolled: seen.scrolls > 5,
+        inView: seen.rowsInView > 0,
+        windowed: seen.mounted <= 40,
+      }).toEqual({
+        variant,
+        scrolled: true,
         inView: true,
-        rest: false,
+        windowed: true,
       });
       expect({ variant, moves: seen.moves }).toEqual({ variant, moves: [] });
     });

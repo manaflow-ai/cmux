@@ -7,7 +7,6 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { appendThought, mergeToolItem } from "../direct";
 import { SubagentFold } from "../subagents/subagentFold";
 import { ToolGroupRow } from "./ToolGroupRow";
-import { firstStepCount, stepProbe } from "./toolGroupRowModel";
 import { FindReveal, type FindRevealTarget } from "./chatFind";
 import { ToolRows } from "./TurnRows";
 import * as toolFailure from "./toolFailure";
@@ -502,49 +501,41 @@ test("a finished turn whose only work is hidden discovery folds nothing under Wo
   }
 });
 
-test("a click opens a long run with only a window's steps drawn, the rest reserved and drawn after the fold", async () => {
+test("a click opens a long run with only a window's steps drawn, a box as tall as the rest under them", async () => {
   const items = Array.from({ length: 100 }, (_, at) => calls()[at % 13]!).map((item, at) => ({
     ...item,
     tool: { ...item.tool!, id: `execute-long-${at + 1}` },
   }));
-  // The draws after the fold wait here until the test runs them, however soon their timer fires.
-  const held: (() => void)[] = [];
-  stepProbe.hold = (draw) => void held.push(draw);
-  try {
-    const container = await render(<ToolGroupRow kind="commands" items={items} disclosureKey="long-run" folded />);
-    const line = container.querySelector<HTMLButtonElement>('button[data-tool-group="long-run"]')!;
-    expect(line.getAttribute("aria-expanded")).toBe("false");
-    const first = firstStepCount(window.innerHeight);
-    expect(first).toBeLessThan(100);
-    await act(async () => line.click());
-    const steps = () => container.querySelectorAll('[data-tool-group-items="long-run"] > .cv-step').length;
-    // The click's frame draws a window's worth, and a box for the rest.
-    expect(steps()).toBe(first);
-    expect(container.querySelector("[data-steps-rest]")?.getAttribute("data-steps-rest")).toBe(String(100 - first));
-    // After the fold (none plays in a test DOM), a window's worth per draw until every step is drawn.
-    for (let tries = 0; tries < 100 && steps() < 100; tries++) {
-      const draw = held.shift();
-      if (draw) await act(async () => draw());
-      else await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-    }
-    expect(steps()).toBe(100);
-    expect(container.querySelector("[data-steps-rest]")).toBeNull();
-  } finally {
-    stepProbe.hold = undefined;
-  }
+  const container = await render(<ToolGroupRow kind="commands" items={items} disclosureKey="long-run" folded />);
+  const line = container.querySelector<HTMLButtonElement>('button[data-tool-group="long-run"]')!;
+  expect(line.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => line.click());
+  const steps = () => container.querySelectorAll('[data-tool-group-items="long-run"] > .cv-step').length;
+  // The run's box (224px, a test DOM reads no layout) and a box's height over and under it.
+  const drawn = steps();
+  expect(drawn).toBeGreaterThan(0);
+  expect(drawn).toBeLessThan(40);
+  const rest = container.querySelector<HTMLElement>("[data-steps-rest]")!;
+  expect(rest.getAttribute("data-steps-rest")).toBe(String(100 - drawn));
+  // The steps not drawn keep their room: 22px each until drawn and measured.
+  expect(rest.style.height).toBe(`${(100 - drawn) * 22}px`);
+  // Nothing more draws on its own after the fold.
+  for (let tries = 0; tries < 5; tries++) await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(steps()).toBe(drawn);
 });
 
-test("a run opened by itself (not a click) draws every step at once", async () => {
+test("a run opened by itself (not a click) draws the same window", async () => {
   const items = Array.from({ length: 60 }, (_, at) => calls()[at % 13]!).map((item, at) => ({
     ...item,
     tool: { ...item.tool!, id: `execute-open-${at + 1}` },
   }));
   const container = await render(<ToolGroupRow kind="commands" items={items} disclosureKey="open-run" />);
-  expect(container.querySelectorAll('[data-tool-group-items="open-run"] > .cv-step').length).toBe(60);
-  expect(container.querySelector("[data-steps-rest]")).toBeNull();
+  const drawn = container.querySelectorAll('[data-tool-group-items="open-run"] > .cv-step').length;
+  expect(drawn).toBeLessThan(40);
+  expect(container.querySelector("[data-steps-rest]")?.getAttribute("data-steps-rest")).toBe(String(60 - drawn));
 });
 
-test("Find into a click-opened run still drawing draws every step, its match past the first window", async () => {
+test("Find into a long opened run draws the step its match is in, past the window, and no others", async () => {
   const items = Array.from({ length: 100 }, (_, at) => calls()[at % 13]!).map((item, at) => ({
     ...item,
     tool: { ...item.tool!, id: `execute-find-${at + 1}` },
@@ -559,26 +550,17 @@ test("Find into a click-opened run still drawing draws every step, its match pas
       </FindReveal.Provider>
     );
   }
-  // The rows past the first window wait: the draws after the fold are held, not run.
-  const held: (() => void)[] = [];
-  stepProbe.hold = (draw) => void held.push(draw);
-  try {
-    const container = await render(<Scene />);
-    await act(async () => container.querySelector<HTMLButtonElement>('button[data-tool-group="find-run"]')!.click());
-    const steps = () => container.querySelectorAll('[data-tool-group-items="find-run"] > .cv-step').length;
-    const first = firstStepCount(window.innerHeight);
-    for (let tries = 0; tries < 20 && held.length === 0; tries++)
-      await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(held.length).toBeGreaterThan(0);
-    expect(steps()).toBe(first);
-    expect(container.querySelector('[data-tool-id="execute-find-80"]')).toBeNull();
-    await act(async () =>
-      reveal({ rowId: "find-run", card: false, needle: "", repaint: () => {}, toolId: "execute-find-80" }),
-    );
-    expect(steps()).toBe(100);
-    expect(container.querySelector('[data-tool-id="execute-find-80"]')).not.toBeNull();
-    expect(container.querySelector("[data-steps-rest]")).toBeNull();
-  } finally {
-    stepProbe.hold = undefined;
-  }
+  const container = await render(<Scene />);
+  await act(async () => container.querySelector<HTMLButtonElement>('button[data-tool-group="find-run"]')!.click());
+  const steps = () => container.querySelectorAll('[data-tool-group-items="find-run"] > .cv-step').length;
+  const drawn = steps();
+  expect(container.querySelector('[data-step-call="execute-find-80"]')).toBeNull();
+  await act(async () =>
+    reveal({ rowId: "find-run", card: false, needle: "", repaint: () => {}, toolId: "execute-find-80" }),
+  );
+  expect(container.querySelector('[data-step-call="execute-find-80"]')).not.toBeNull();
+  expect(steps()).toBe(drawn + 1);
+  // The steps between the window and the match are one box, the steps after it another.
+  const rests = [...container.querySelectorAll<HTMLElement>("[data-steps-rest]")].map((box) => box.dataset.stepsRest);
+  expect(rests).toEqual([String(79 - drawn), "20"]);
 });
