@@ -482,7 +482,9 @@ def raw_homes(previous: Mapping[str, Mapping[str, str]], live: Mapping[str, str 
                 homes[name] = dict(entry)
             continue
         current = (live.get(name) or "").strip()
-        if entry and current not in (entry["home"], entry["to"]) and current not in dead:
+        size = BLACKSMITH_LINUX.match(current)
+        below_floor = bool(size) and int(size.group(1)) < RAW_LABEL_MIN_VCPU.get(name, 0)
+        if entry and current not in (entry["home"], entry["to"]) and current not in dead and not below_floor:
             lines.append(f"{name}={current or 'unset'} was set by hand after it moved off {entry['home']}; "
                          "it stays as set")
             entry = None
@@ -523,7 +525,9 @@ def raw_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
         if name in owned or name not in live:
             continue
         current = (live.get(name) or "").strip()
-        if current not in (entry["home"], entry["to"]) and current not in dead:
+        size = BLACKSMITH_LINUX.match(current)
+        below_floor = bool(size) and int(size.group(1)) < RAW_LABEL_MIN_VCPU.get(name, 0)
+        if current not in (entry["home"], entry["to"]) and current not in dead and not below_floor:
             continue
         if entry["home"] in dead:
             target, why = entry["to"], f"{entry['home']} is dead"
