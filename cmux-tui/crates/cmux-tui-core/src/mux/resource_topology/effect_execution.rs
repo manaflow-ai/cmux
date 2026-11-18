@@ -885,9 +885,9 @@ impl Mux {
                     "split_id_exists: {split_public_id}"
                 );
             }
-            let Some((workspace, screen_index)) = state.screen_of(target) else {
-                anyhow::bail!("pane disappeared before new pane attachment");
-            };
+            let (workspace, screen_index) =
+                state.screen_of(target).context("pane disappeared before new pane attachment")?;
+            quick_terminal::refuse_second_make_at_attach(&state, workspace, intent, operation)?;
             if viewport_width.is_none() {
                 ensure_pane_column_not_agent_chat(operation, &state, target, splits_down(&state))?;
             }

@@ -520,6 +520,79 @@ fn a_request_that_reads_a_quick_terminal_before_its_commit_names_a_pane_that_sta
     );
 }
 
+/// The count of the terminals of the state: the ones that have a place, and the ones of the catalog.
+fn terminals(wire: &Wire) -> (usize, usize) {
+    wire.mux.with_state(|state| (state.surfaces.len(), state.terminal_catalog.len()))
+}
+
+/// A toggle for the second screen of a workspace with no quick terminal decides on a make, and its creation
+/// passes the check of its turn. While its terminal starts, a layout undo in the first screen puts the mark
+/// back on the pane that was the quick terminal there. The creation then attaches no pane and its terminal is
+/// discarded. The request plans again: it brings the quick terminal that the workspace has to its own
+/// screen, and its answer says so. With no check at the attach, the workspace has 2 quick terminals.
+///
+/// The order: the creation stops after its check and before its effect, at the test seam of a pane creation.
+/// The undo is sent from the thread of the test. Then the creation goes on.
+#[test]
+fn a_make_whose_workspace_got_a_quick_terminal_before_its_attach_makes_no_pane() {
+    let (mut wire, panes) = Wire::with_panes(2);
+    let (once, surface) = made(&mut wire, panes[0]);
+    wire.ok(json!({"cmd": "float-pane", "pane": once, "mode": "off"}));
+    let (second_screen, there) = new_screen(&mut wire);
+    let pane_count =
+        |wire: &Wire| screens(wire).iter().map(|screen| panes_of(screen).len()).sum::<usize>();
+    let (panes_before, terminals_before) = (pane_count(&wire), terminals(&wire));
+
+    let (steps, step) = channel::<Step>();
+    let (go_on, wait) = channel::<()>();
+    let at_effect = steps.clone();
+    wire.mux.set_creation_before_effect_hook_for_test(Box::new(move || {
+        at_effect.send(Step::AtCreation).unwrap();
+        wait.recv().unwrap();
+    }));
+    let (mux, toggle) =
+        (wire.mux.clone(), json!({"cmd": "quick-terminal", "screen": second_screen}));
+    let thread = std::thread::spawn(move || {
+        let response = Wire::on(mux).send(toggle);
+        steps.send(Step::Response(response)).unwrap();
+    });
+    at_creation(&step, "only");
+    let undo = wire.send(json!({"cmd": "undo-layout", "pane": panes[0]}));
+    let at_undo = screens(&wire);
+    go_on.send(()).unwrap();
+    let data = answer(&step, "only");
+    thread.join().unwrap();
+
+    assert_eq!(undo["data"]["undone"], true, "the fixture: the undo of the float request: {undo}");
+    assert_eq!(
+        at_undo[0]["quick_terminal"]["pane"],
+        json!(once),
+        "the fixture: the undo puts the mark back while the terminal of the make starts"
+    );
+    assert!(at_undo[1]["quick_terminal"].is_null(), "the fixture: the make has no pane yet");
+    let screens = screens(&wire);
+    let marks: Vec<&Value> = screens
+        .iter()
+        .map(|screen| &screen["quick_terminal"])
+        .filter(|mark| !mark.is_null())
+        .collect();
+    assert_eq!(marks.len(), 1, "one quick terminal in the workspace: {marks:?}");
+    assert_eq!(
+        screens[1]["quick_terminal"],
+        json!({"pane": once, "hidden": false, "from": there}),
+        "the request brings the quick terminal of the workspace to its screen"
+    );
+    assert_eq!(data["created"], false, "the request made a quick terminal: {data}");
+    assert!(data.get("surface").is_none(), "the request names a terminal that it made: {data}");
+    assert_eq!(pane(&data["pane"]), once, "{data}");
+    assert_eq!(data["screen"], second_screen, "{data}");
+    assert_eq!(data["hidden"], false, "{data}");
+    assert_eq!(data["focused"], json!(once), "{data}");
+    assert_eq!(pane_count(&wire), panes_before, "the make left a pane: {data}");
+    assert_eq!(terminals(&wire), terminals_before, "the make left a terminal: {data}");
+    assert_eq!(wire.pane_of(surface), Some(once), "the quick terminal keeps its terminal");
+}
+
 /// A float request with a frame for a hidden quick terminal shows it at that frame, as each act that brings
 /// a floating pane to the front does. It gives no focus: the focus stays on the pane that has it.
 #[test]

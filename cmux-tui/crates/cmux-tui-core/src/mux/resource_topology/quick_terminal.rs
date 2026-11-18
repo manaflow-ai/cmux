@@ -108,9 +108,29 @@ impl fmt::Display for PlanLost {
 
 impl std::error::Error for PlanLost {}
 
-/// Whether `error` is a plan that is not true any more ([`PlanLost`]).
+/// The name of the mark of [`PlanLost`] in the `extra` of the error of
+/// [`lost_in_creation`]. [`is_lost`] reads it; no client reads it.
+const PLAN_LOST_MARK: &str = "quick_terminal_plan_lost";
+
+/// [`PlanLost`] of a creation whose terminal is spawned. The settlement of a
+/// creation that failed keeps a [`ResourceError`] as it is, and makes each
+/// other error an `operation.failed` that has the text of the error only. So
+/// the kind is a mark in the `extra` of an `operation.failed` of `operation`.
+fn lost_in_creation(operation: &str) -> ResourceError {
+    let extra = Map::from_iter([(PLAN_LOST_MARK.to_owned(), Value::Bool(true))]);
+    ResourceError::operation_failed(operation, PlanLost.to_string(), Value::Object(extra))
+}
+
+/// Whether `error` is a plan that is not true any more: [`PlanLost`], or the
+/// error of [`lost_in_creation`].
 fn is_lost(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| cause.is::<PlanLost>())
+    error.chain().any(|cause| {
+        cause.is::<PlanLost>()
+            || cause.downcast_ref::<ResourceError>().is_some_and(|failure| {
+                failure.details.get("extra").and_then(|extra| extra.get(PLAN_LOST_MARK))
+                    == Some(&Value::Bool(true))
+            })
+    })
 }
 
 /// The error of the second act of a request. A request plans again one time
@@ -120,6 +140,21 @@ fn is_lost(error: &anyhow::Error) -> bool {
 fn lost_again(error: anyhow::Error) -> anyhow::Error {
     if is_lost(&error) { FloatPaneError::QuickTerminalChanged.into() } else { error }
 }
+
+/// A hide found no quick terminal that shows in its screen: the quick
+/// terminal closed, or another request hid it, after the plan. The commit of
+/// the hide ends with this value before it writes, and the hide is then done
+/// with no commit and no event. No client sees this value.
+#[derive(Debug)]
+struct NothingToHide;
+
+impl fmt::Display for NothingToHide {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("the screen has no quick terminal that shows")
+    }
+}
+
+impl std::error::Error for NothingToHide {}
 
 /// Refuses the creation of a quick terminal ([`QUICK_TERMINAL_FRAME_FIELD`] in
 /// `fields`) as a split of `target`, when the workspace of `target` has a
@@ -138,6 +173,30 @@ pub(super) fn refuse_second_make(
             .and_then(|(workspace, _)| state.workspaces.get(workspace))
             .is_some_and(|workspace| workspace.quick_terminal().is_some());
     anyhow::ensure!(!holds_one, PlanLost);
+    Ok(())
+}
+
+/// The check of [`refuse_second_make`] one more time, in the hold of the
+/// state lock that attaches the new pane: `workspace` is the index of the
+/// workspace of the target pane now. The terminal of a creation is spawned
+/// with no lock, after the check in the turn of the creation. In that time an
+/// act that is no creation can give the workspace a quick terminal: a layout
+/// undo that puts a mark back, a screen with a mark that moves into the
+/// workspace, a move of the target pane to a workspace that has one. The
+/// attach then changes no layout, the terminal is discarded, and the request
+/// plans again ([`lost_in_creation`]). The check and the mark of the new pane
+/// are in one hold of the lock, so no act comes between the 2.
+pub(super) fn refuse_second_make_at_attach(
+    state: &State,
+    workspace: usize,
+    intent: &Value,
+    operation: &str,
+) -> anyhow::Result<()> {
+    let makes_one =
+        intent.get("fields").and_then(|fields| fields.get(QUICK_TERMINAL_FRAME_FIELD)).is_some();
+    let holds_one = makes_one
+        && state.workspaces.get(workspace).is_some_and(|item| item.quick_terminal().is_some());
+    anyhow::ensure!(!holds_one, lost_in_creation(operation));
     Ok(())
 }
 
@@ -243,8 +302,10 @@ impl Mux {
 
     /// Does `plan`, the act that [`planned_act`] gave for `screen`. The state
     /// can change after the plan: a make and a bring that are not true any
-    /// more, and a show whose quick terminal closed, fail with [`PlanLost`],
-    /// and change nothing. A show of a quick terminal that another request
+    /// more, a make whose target pane is not in `screen` any more, and a show
+    /// whose quick terminal closed, fail with [`PlanLost`], and change
+    /// nothing. A hide that has nothing to hide any more does nothing, with
+    /// no commit and no event. A show of a quick terminal that another request
     /// brought to another screen after the plan does not fail: the pane gets
     /// the focus in the screen where it is.
     fn act_on_plan(
@@ -258,6 +319,18 @@ impl Mux {
     ) -> anyhow::Result<Option<SurfaceId>> {
         match plan {
             Plan::Make(target) => {
+                // The pane that the new pane splits closed, or left the
+                // screen of the request, after the plan: a split of it fails,
+                // or makes the quick terminal in the screen where it is now.
+                let in_screen = self.with_state(|state| {
+                    state
+                        .screen_of(target)
+                        .and_then(|(workspace, at)| {
+                            state.workspaces.get(workspace)?.screens.get(at)
+                        })
+                        .is_some_and(|item| item.id == screen)
+                });
+                anyhow::ensure!(in_screen, PlanLost);
                 let frame = frame.unwrap_or(NEW_FRAME);
                 let fields = Map::from_iter([
                     ("direction".into(), Value::String("right".into())),
@@ -395,7 +468,7 @@ impl Mux {
         screen: ScreenId,
     ) -> anyhow::Result<()> {
         let fingerprint = serde_json::json!({"operation": HIDE_OPERATION, "screen": screen});
-        let commit = self.commit_resource_mutation_plan(
+        let committed = self.commit_resource_mutation_plan(
             &WorkspaceMutation::local("cmux-tui-quick-terminal", actor.clone()),
             HIDE_OPERATION,
             &fingerprint,
@@ -419,7 +492,9 @@ impl Mux {
                     panes.retain(|pane| *pane != quick);
                     close_focus_successor(state, &panes, close_sibling(target, quick))
                 });
-                target.hide_quick_terminal(fallback);
+                // The quick terminal closed, or another request hid it, after
+                // the plan: the hide has nothing to write.
+                anyhow::ensure!(target.hide_quick_terminal(fallback), NothingToHide);
                 let focused = target.active_pane;
                 if focused != previous {
                     expand_focus_stacks(target, previous, focused);
@@ -440,7 +515,11 @@ impl Mux {
                 .projected(projection.restates_all)
                 .restating(projection.restated))
             },
-        )?;
+        );
+        let commit = match committed {
+            Err(error) if error.chain().any(|cause| cause.is::<NothingToHide>()) => return Ok(()),
+            committed => committed?,
+        };
         if !commit.replayed {
             self.emit_screen_changed_for_transaction(&[screen], None);
             self.emit_layout_changed(screen, None);
