@@ -3,7 +3,8 @@
 // Show and Copy ask the app, which authenticates the person and uses a native sheet or the
 // pasteboard. Keys belong to the app's key dispatcher; the page handles none itself.
 // Each section's list is windowed: only the rows near the viewport are mounted, plus the focused
-// row and the one whose username is being edited. Rows are memoized on their row and offset with
+// row and the one whose username is being edited, and the rows native Tab moves to (the first, the
+// last and the focused row's neighbours). Rows are memoized on their row and offset with
 // stable handlers, so a focus, a scroll step or a reply that changes one row draws only that row.
 import {
   memo,
@@ -28,6 +29,7 @@ import {
   groupBySite,
   type LoginItem,
   loginList,
+  neighbourStop,
   rowList,
   siteInitial,
   sortExceptions,
@@ -142,11 +144,20 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
     onRemovePasskey: (row: SavedPasskey) => void store.removePasskey(row),
     onRemoveException: (row: PasswordException) => void store.removeException(row),
   });
-  const kept = (list: Windowed<unknown>, ...keys: (string | undefined)[]) =>
-    keys.flatMap((key) => {
+  // Native Tab walks the DOM, so the items it moves to stay mounted too: the first and the last item
+  // that holds a tab stop (where Tab and Shift-Tab enter the list) and the focused one's neighbours
+  // (where they leave it), however far the list scrolled. The browser scrolls the row Tab reached into
+  // view and the window follows.
+  const kept = (list: Windowed<unknown>, ...keys: (string | undefined)[]) => {
+    const indexes = [list.firstStop, list.lastStop];
+    for (const key of keys) {
       const index = key === undefined ? undefined : list.place.get(key);
-      return index === undefined ? [] : [index];
-    });
+      if (index === undefined) continue;
+      indexes.push(index);
+      if (key === focused) indexes.push(neighbourStop(list, index, -1), neighbourStop(list, index, 1));
+    }
+    return indexes.filter((index) => index >= 0);
+  };
 
   const notice = snap.notice && (
     <output className={`pw-notice ${snap.notice.kind}`}>

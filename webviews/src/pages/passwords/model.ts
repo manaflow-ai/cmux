@@ -114,11 +114,40 @@ export interface Windowed<T> {
   place: Map<string, number>;
   /** The rows among the items: the screen reader's "3 of 1000". */
   rows: number;
+  /** Whether an item holds tab stops (a row's buttons; a site's header holds none). */
+  stop: (index: number) => boolean;
+  /** The first and the last item that holds tab stops, or -1: where Tab and Shift-Tab enter the list. */
+  firstStop: number;
+  lastStop: number;
 }
 
-function windowed<T>(items: T[], key: (item: T) => string, rows: number): Windowed<T> {
+function windowed<T>(items: T[], key: (item: T) => string, rows: number, stop = (_item: T) => true): Windowed<T> {
   const keys = items.map(key);
-  return { items, keys, place: new Map(keys.map((item, index) => [item, index])), rows };
+  const holds = (index: number) => index >= 0 && index < items.length && stop(items[index]!);
+  let firstStop = 0;
+  while (firstStop < items.length && !holds(firstStop)) firstStop++;
+  let lastStop = items.length - 1;
+  while (lastStop >= 0 && !holds(lastStop)) lastStop--;
+  return {
+    items,
+    keys,
+    place: new Map(keys.map((item, index) => [item, index])),
+    rows,
+    stop: holds,
+    firstStop: firstStop < items.length ? firstStop : -1,
+    lastStop,
+  };
+}
+
+/**
+ * The item nearest `from` in the `step` direction (1 or -1) that holds tab stops, or -1: where native
+ * Tab or Shift-Tab goes from the focused item. A site's header sits between two logins at most, so
+ * this looks at two items, never the list.
+ */
+export function neighbourStop<T>(list: Windowed<T>, from: number, step: 1 | -1): number {
+  for (let index = from + step; index >= 0 && index < list.items.length; index += step)
+    if (list.stop(index)) return index;
+  return -1;
 }
 
 /** Built once per reply, search or sort, not per render, scroll or focus. */
@@ -131,7 +160,12 @@ export function loginList(groups: readonly SiteGroup[]): Windowed<LoginItem> {
       items.push({ kind: "login", site: group.site, row, last: index === group.rows.length - 1, position: ++position }),
     );
   }
-  return windowed(items, (item) => (item.kind === "site" ? `site:${item.site}` : `login:${item.row.id}`), position);
+  return windowed(
+    items,
+    (item) => (item.kind === "site" ? `site:${item.site}` : `login:${item.row.id}`),
+    position,
+    (item) => item.kind === "login",
+  );
 }
 
 export function rowList<T extends { id: string }>(rows: T[], prefix: string): Windowed<T> {
