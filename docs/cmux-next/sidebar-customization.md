@@ -190,28 +190,41 @@ Two detectors hold this:
 
 ## How faithful, and what is not expressible yet
 
-The looks were matched to references: the Claude desktop app's own startup layout of its
-sidebar, the Codex app's documented structure, and the Studio reference's measured source values.
+Each look was checked against captures of the real app's sidebar (dark mode; sizes in points).
+The gallery (`AASidebarLookPresetGalleryTests.renderGallery`) draws every look at its reference's
+width (`reference-width-<look>.png`) and writes `metrics.json` (width, row height and pitch, header
+heights, title and detail type) so the two can be compared number by number.
 
 | | Claude | Codex | Studio |
 |---|---|---|---|
-| Sidebar width (reference) | 288 | not measured | 256 (208 to fit) |
-| Row pitch (reference) | 26 | not measured | 36, 1 apart |
-| List | Projects, then Recents | by project | by project folder |
-| Row | dot, title | title, time | title, time; status words with an icon |
-| Headings | plain | plain | plain, 32 tall, count when closed |
-| Selection | filled row | filled row | filled row, faint 1 px ring |
+| Sidebar width | 288 (resizable) | about 300 (295 to 306) | 256 |
+| Row pitch | 30 | 31 | 83: a three-line card, 78 tall |
+| Title | 13 to 14, regular | 13, regular | 14, medium |
+| Trailing text | none | time, 12 | time, 12 |
+| Status | a 6 pt dot at the trailing edge | a thin ring of about 12 pt, leading | a word with an icon |
+| List | by project | by project, or flat threads under Pinned | one flat list |
+| Headings | plain, about 13, no count | plain, 12 to 13, no count | none |
+| Selection | a fill, no ring | a fill, no ring, radius about 9 | a fill, radius about 8 |
 
-Width and row pitch are not set by a look (No shift). To match the reference's numbers, set them
-yourself: `appearance.metrics.sidebarWidth` (for example 256 or 288) and `sidebar.density`
-(`comfortable` is the nearest to a 36 pitch).
+What each look sets to match: Claude groups by project, hides the time, draws a dot; Codex groups by
+project, shows the time and draws the thin ring (`arc`); Studio is one flat list with the time and an
+icon for each status.
+
+Width and row pitch are not set by a look (No shift). To match a reference's numbers, set them
+yourself: `appearance.metrics.sidebarWidth` (for example 256, 288 or 300) and `sidebar.density`.
+Studio's three-line card is nearest to `sidebar.density` `expanded`.
+
+What a look keeps of cmux's own, beyond the original:
+
+- Live state on every row: working, waiting, error and done, as they happen.
+- Status in words on hover cards, and unread counts.
+- No shift: a row changing state, a reload or a look switch moves no row.
 
 Not expressible as settings yet, so no look sets them:
 
-- The selection's faint ring (Studio). Today's selection is a fill.
-- A lighter title for a settled row and full ink on hover (Studio).
-- Row actions that replace the time on hover (Studio).
-- A Recents list with no Projects block above it (Claude with no projects).
+- Claude's status dot at the row's trailing edge. cmux draws the status mark at the leading edge.
+- Codex's pin and automation marks, and the archive button that replaces the time on hover.
+- Studio's three-line card (project, title, branch) and its hover actions.
 
 # Customizing the sidebar's hover card and rows
 
