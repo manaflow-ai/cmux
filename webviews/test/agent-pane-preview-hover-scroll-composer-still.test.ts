@@ -16,9 +16,15 @@
 // keyboard; the pointer rests on a thumbnail; real wheel steps scroll the transcript up under it, one
 // per frame. Then the same with words arriving in the composer between the steps, as dictation puts
 // them in (no key event; `insertText`). Counted over the steps: the composer's renders (acpmuxPerf),
-// its elements marked for a style recalc and its paints (Chromium's trace, by DOM node), what was
-// under the pointer, and on every frame whether the prompt has the focus, the box matches
-// `:focus-within`, and the page counts as key (`:root[data-page-inactive]`, pageKey.ts).
+// its elements marked for a style recalc, the whole-subtree restyles of an element it is inside (a
+// pane-level `:has()`), and its paints (Chromium's trace, by DOM node); what was under the pointer;
+// and on every frame whether the prompt has the focus, the box matches `:focus-within`, and the page
+// counts as key (`:root[data-page-inactive]`, pageKey.ts).
+//
+// It does not fail on the base it landed on: the flicker was repaired before it (#40035, #41583,
+// #43348). Two mutations show what it catches: a `.acpmux-main:has(.acpmux-row:hover)` rule over the
+// composer box (88 whole-subtree restyles over the composer) and a composer render per `pointerover`
+// (189 composer renders).
 //
 // Real Chromium and WebKit (WebKit draws the pane in cmux NEXT); the trace counts are Chromium's.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -242,27 +248,34 @@ await requireBrowserLane("agent-pane-preview-hover-scroll-composer-still.test.ts
     await page.evaluate(twoFrames);
   }
 
-  /// The composer's DOM nodes by the backend id a trace names them with.
-  async function composerNodes(cdp: CDPSession): Promise<Set<number>> {
+  /// The composer's DOM nodes by the backend id a trace names them with, and its ancestors: a style
+  /// invalidation on one of those that covers its whole subtree (a pane-level `:has()` rule) restyles
+  /// the composer too, though the trace names none of its nodes.
+  async function composerNodes(cdp: CDPSession): Promise<{ nodes: Set<number>; ancestors: Set<number> }> {
     const { root } = (await cdp.send("DOM.getDocument", { depth: -1 })) as { root: any };
-    const ids = new Set<number>();
-    const walk = (node: any, inside: boolean) => {
+    const nodes = new Set<number>();
+    const ancestors = new Set<number>();
+    const walk = (node: any, path: number[], inside: boolean) => {
       const classes = String(
         (node.attributes as string[] | undefined)?.find((_, i, all) => all[i - 1] === "class") ?? "",
       );
-      const here = inside || (node.localName === "form" && classes.split(/\s+/).includes("acpmux-composer"));
-      if (here && node.nodeType === 1) ids.add(node.backendNodeId);
-      for (const child of node.children ?? []) walk(child, here);
-      for (const child of node.shadowRoots ?? []) walk(child, here);
+      const top = !inside && node.localName === "form" && classes.split(/\s+/).includes("acpmux-composer");
+      if (top) for (const id of path) ancestors.add(id);
+      const here = inside || top;
+      if (here && node.nodeType === 1) nodes.add(node.backendNodeId);
+      const next = [...path, node.backendNodeId];
+      for (const child of node.children ?? []) walk(child, next, here);
+      for (const child of node.shadowRoots ?? []) walk(child, next, here);
     };
-    walk(root, false);
-    return ids;
+    walk(root, [], false);
+    return { nodes, ancestors };
   }
 
-  function composerTraceCounts(events: Ev[], nodes: Set<number>) {
+  function composerTraceCounts(events: Ev[], { nodes, ancestors }: { nodes: Set<number>; ancestors: Set<number> }) {
     const restyled = new Set<number>();
     let marks = 0;
     let paints = 0;
+    let covering = 0;
     let recalcs = 0;
     let elements = 0;
     for (const event of events) {
@@ -275,12 +288,21 @@ await requireBrowserLane("agent-pane-preview-hover-scroll-composer-still.test.ts
         if (nodes.has(Number(data.nodeId))) {
           marks += 1;
           restyled.add(Number(data.nodeId));
-        }
+        } else if (
+          ancestors.has(Number(data.nodeId)) &&
+          (data.subtree === true ||
+            (data.invalidationList as { allDescendantsMightBeInvalid?: boolean }[] | undefined)?.some(
+              (set) => set.allDescendantsMightBeInvalid,
+            ))
+        )
+          covering += 1;
       } else if (event.name === "Paint" && nodes.has(Number(data.nodeId))) paints += 1;
     }
     return {
       composer_restyled: restyled.size,
       composer_restyle_marks: marks,
+      // Whole-subtree restyles of an element the composer is inside.
+      composer_covering_marks: covering,
       composer_paints: paints,
       // The whole page's style recalcs over the steps, for scale: the rows the scroll mounts restyle.
       page_recalcs: recalcs,
@@ -308,7 +330,9 @@ await requireBrowserLane("agent-pane-preview-hover-scroll-composer-still.test.ts
           test(`scrolling under a pointer resting on a ${target === "sent" ? "sent screenshot" : "tool screenshot's preview"}${dictate ? " while dictation types" : ""} leaves the composer still`, async () => {
             const page = await openPane(browser!, target);
             const cdp = name === "chromium" ? await page.context().newCDPSession(page) : undefined;
-            const nodes = cdp ? await composerNodes(cdp) : new Set<number>();
+            const composer = cdp
+              ? await composerNodes(cdp)
+              : { nodes: new Set<number>(), ancestors: new Set<number>() };
             await page.evaluate(() => (window as any).cmuxAcpmuxDebug.renders());
             await startProbe(page);
             let events: Ev[] = [];
@@ -350,8 +374,8 @@ await requireBrowserLane("agent-pane-preview-hover-scroll-composer-still.test.ts
               composer_mutations: probe.composerMutations,
               mutation_kinds: probe.mutationKinds,
               card_mounts: probe.cardMounts,
-              ...(cdp ? composerTraceCounts(events, nodes) : {}),
-              composer_nodes: nodes.size,
+              ...(cdp ? composerTraceCounts(events, composer) : {}),
+              composer_nodes: composer.nodes.size,
             };
             console.log(`PREVIEW-HOVER-SCROLL ${JSON.stringify(report)}`);
             // The scroll moved rows under the pointer: the case Leo saw.
@@ -364,9 +388,10 @@ await requireBrowserLane("agent-pane-preview-hover-scroll-composer-still.test.ts
               expect(report.composer_mutations, "composer nodes added, removed or re-attributed").toBe(0);
             }
             if (cdp) {
-              expect(nodes.size, "the composer's nodes were found").toBeGreaterThan(10);
+              expect(composer.nodes.size, "the composer's nodes were found").toBeGreaterThan(10);
               if (!dictate) {
                 expect(report.composer_restyled, "composer elements restyled").toBe(0);
+                expect(report.composer_covering_marks, "whole-subtree restyles over the composer").toBe(0);
                 expect(report.composer_paints, "composer paints").toBe(0);
               }
             }
