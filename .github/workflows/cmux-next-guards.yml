@@ -375,7 +375,14 @@ jobs:
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
           # The same call on a pull request and a push: a push has no changed-files list, so --feat-routes routes every group.
-          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
+          # A pull request runs, within those groups, only the steps its diff reaches (--affected,
+          # scripts/ci/guard_step_inputs.py): a step whose inputs it leaves as they were gives the base's verdict again.
+          # A push runs every step, so each step skipped here still has a verdict on the base.
+          affected=()
+          if [ -f "$RUNNER_TEMP/changed-files.txt" ] && [ -n "$CMUX_GUARDS_BASE_SHA" ]; then
+            affected=(--affected "$CMUX_GUARDS_BASE_SHA")
+          fi
+          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${affected[@]}" --results "$RUNNER_TEMP/guards-head.json" || true
           # The base re-runs only the steps red on the head (guards_new_reds.py --red-steps): a step green on the
           # head is never the change's, and the full base pass doubled the job once release-notary joined it.
           steps=()
