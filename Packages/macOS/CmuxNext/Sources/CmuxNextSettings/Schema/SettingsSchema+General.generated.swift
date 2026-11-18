@@ -69,10 +69,10 @@ extension CmuxConfigSnapshot {
 }
 
 extension BackgroundReadySetting {
-    /// `app.backgroundReady`: Leo 2026-11-17 (ask-b2b0f899c1): "how can we improve those? startup in background maybe?" Off when unset or invalid; off changes nothing. The decisions are cmux-background-ready's (Rust); the value string goes to it as is.
+    /// `app.backgroundReady`: Leo 2026-11-17 (ask-b2b0f899c1): "how can we improve those? startup in background maybe?" Off when unset or invalid; off changes nothing. warmAtLogin (Leo 2026-11-18: "well did you guys have more solution ideas tho for getting faster draws and settles?") keeps nothing running: it registers a LaunchAgent that reads the app's code into memory at login (cmux-launch-preread) and exits; afterQuitAndLogin needs no pre-read, since it starts the app at login. The decisions are cmux-background-ready's (Rust); the value string goes to it as is.
     public nonisolated static let configPath = ["app", "backgroundReady"]
     public nonisolated static let fallback = "off"
-    public nonisolated static let values = ["off", "afterQuit", "afterQuitAndLogin"]
+    public nonisolated static let values = ["off", "warmAtLogin", "afterQuit", "afterQuitAndLogin"]
 }
 
 extension QuitBehaviorSetting {

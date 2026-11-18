@@ -36,6 +36,8 @@ struct BackgroundReadyOffTests {
     @Test func offLaunchesNormallyAndRegistersNoLoginItem() {
         #expect(BackgroundReadyRules.atLaunch(.off, launchedAsLoginItem: false) == .normal)
         #expect(!BackgroundReadyRules.registersLoginItem(.off))
+        #expect(!BackgroundReadyRules.registersPrereadAgent(.off))
+        #expect(!BackgroundReadyRules.offersQuitCompletely(.off))
         #expect(!BackgroundReadyRules.exitsForUpdate(.off, hidden: false, updateStaged: true))
     }
 

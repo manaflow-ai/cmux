@@ -8,13 +8,14 @@ import CmuxNextDaemonService
 /// calls these and does the AppKit work, and decides nothing itself. A value the library answers that this
 /// build does not know reads as the answer that changes nothing (exit, normal launch, keep windows).
 ///
-/// TRANSITIONAL until CCmuxAppFFI is re-pinned past cmux-background-ready: a pinned release without its
+/// TRANSITIONAL until CCmuxAppFFI is re-pinned past cmux-background-ready (with the pre-read functions of the
+/// lane/background-ready-preread-rust PR, which stacks on #45813): a pinned release without its
 /// header (`CCmuxBackgroundReadyFFI`) answers every question as the setting's `off` does, so nothing a
 /// person sees or the app does changes.
 nonisolated enum BackgroundReadyRules {
     /// `app.backgroundReady`'s value, as the library reads it.
     enum Mode: UInt8, Sendable {
-        case off = 0, afterQuit = 1, afterQuitAndLogin = 2
+        case off = 0, afterQuit = 1, afterQuitAndLogin = 2, warmAtLogin = 3
     }
 
     /// What a stay hides.
@@ -76,6 +77,24 @@ nonisolated enum BackgroundReadyRules {
     static func registersLoginItem(_ mode: Mode) -> Bool {
         #if canImport(CCmuxBackgroundReadyFFI)
         cmux_background_ready_registers_login_item(mode.rawValue)
+        #else
+        false
+        #endif
+    }
+
+    /// Whether the login-time pre-read agent is registered (Warm at Login only; ``BackgroundReadyPrereadAgent``).
+    static func registersPrereadAgent(_ mode: Mode) -> Bool {
+        #if canImport(CCmuxBackgroundReadyFFI)
+        cmux_background_ready_registers_preread_agent(mode.rawValue)
+        #else
+        false
+        #endif
+    }
+
+    /// Whether Quit Completely is offered: only while a mode keeps a hidden copy (Warm at Login keeps nothing).
+    static func offersQuitCompletely(_ mode: Mode) -> Bool {
+        #if canImport(CCmuxBackgroundReadyFFI)
+        cmux_background_ready_offers_quit_completely(mode.rawValue)
         #else
         false
         #endif
