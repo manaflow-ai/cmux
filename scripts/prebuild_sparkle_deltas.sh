@@ -83,7 +83,7 @@ copy_app() {
   APP="$dest"
 }
 
-plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null; }
+plist_value() { [[ -f "$1" ]] || return 1; /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null; }
 
 if ! copy_app "$NEW_ARCHIVE"; then
   log "new archive has no app; generate_appcast will create deltas"
