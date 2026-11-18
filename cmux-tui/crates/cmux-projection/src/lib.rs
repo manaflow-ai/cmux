@@ -17,6 +17,7 @@ pub mod manifest;
 pub mod overlay;
 #[cfg(target_os = "linux")]
 pub mod upper;
+pub mod peers;
 pub mod wire;
 
 #[cfg(target_os = "linux")]
