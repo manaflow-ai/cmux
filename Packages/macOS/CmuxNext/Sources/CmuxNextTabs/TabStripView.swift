@@ -67,6 +67,8 @@ public final class TabStripView: NSView {
     }
     /// The trailing controls' look (`TabTunables.trailingButtons`), applied with the design tokens.
     public internal(set) var trailingButtons = TabTunables.trailingButtons.value
+    /// The Debug looks the cells last drew (`CellLooks`), for change detection.
+    var cellLooks = CellLooks()
     /// The pane-type ⌄ shows: the pane asks for it and the trailing look keeps it.
     var showsTypeChooser: Bool { showsNewTabMenuButton && trailingButtons.showsTypeChooser }
     /// The room between the last tab and the + (Lucas 2026-11-11: the split +'s fill touched the last

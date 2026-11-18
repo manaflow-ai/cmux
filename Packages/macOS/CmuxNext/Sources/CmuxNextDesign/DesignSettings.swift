@@ -80,7 +80,7 @@ public final class DesignSettings {
     }
     /// New Tab scales its Default page values together with one zoom.
     private var composerScript: String {
-        let tokens = densityTokens.tokens
+        let tokens = Metrics.tokens.tokens
         let values: [(String, String?)] = [
             ("--cmux-composer-zoom", tokens["composerZoom"].map { Self.cssNumber($0) }),
             ("--cmux-composer-column", tokens["composerMaxWidth"].map { "min(\(Self.cssNumber($0))px, 100%)" }),

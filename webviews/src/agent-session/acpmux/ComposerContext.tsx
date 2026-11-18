@@ -8,7 +8,6 @@ import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
-import { TeamTag, type ActiveTeamTag, withTeam } from "./TeamTag";
 import {
   DevicesIcon,
   EnvironmentIcon,
@@ -27,7 +26,6 @@ import {
   runCloudMachine,
   useCloudMachines,
   useCloudSignedIn,
-  useCloudTeam,
   withCloudMachines,
   withCloudSleep,
   type CloudMachine,
@@ -47,7 +45,7 @@ import {
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
 import { FolderPopover } from "./FolderPopover";
-import { GitHubMark } from "./GitHubInstallCard";
+import { GitHubMark } from "./GitHubIcons";
 import { githubFolderRepo, useGitHubPicker, type GitHubPicker } from "./githubRepos";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
@@ -192,7 +190,6 @@ export function ComposerContext({
   runDetails,
   cloudWorksOn,
   cloudSignedIn: cloudSignedInSeam,
-  cloudTeam: cloudTeamSeam,
   extraFolders,
   cloudEnvironment: cloudEnvironmentSeam,
   cloudEnvironmentDropUp,
@@ -314,8 +311,6 @@ export function ComposerContext({
   cloudWorksOn?: string;
   /// Gallery seam; the app's Cloud account state (cloudMachines.ts) is used when omitted.
   cloudSignedIn?: boolean;
-  /// Gallery seam; the app's active team (cloudMachines.ts `useCloudTeam`) is used when omitted.
-  cloudTeam?: ActiveTeamTag;
   /// A new chat's extra folders (extraFolders.ts, acpmux `additionalDirectories`): the folder menu's
   /// Add another folder… adds one of the picked machine's folders, and each added one can be removed. The
   /// list is the machine's: another machine picked starts over. `onBrowse` is this Mac's folder
@@ -351,12 +346,8 @@ export function ComposerContext({
   const accountMachines = useCloudMachines();
   const accountSignedIn = useCloudSignedIn();
   const cloudSignedIn = cloudSignedInSeam ?? accountSignedIn;
-  const accountTeam = useCloudTeam();
   const pageGitHub = useGitHubPicker();
   const github = githubSeam ?? pageGitHub;
-  // The team Cloud runs in, named wherever Cloud is the pick (Leo, 2026-11-09: "i guess is team?
-  // it's kinda hard to realize tho"); none while signed out.
-  const cloudTeam = cloudSignedIn === false ? undefined : (cloudTeamSeam ?? accountTeam);
   const shownMachines = cloudMachines ?? accountMachines;
   // The page's own acpmux by name: this Mac, or the machine a remote route reaches (chatMachine.ts).
   const ownName = ownMachineName(summary, localName, peerKinds, route);
@@ -844,7 +835,6 @@ export function ComposerContext({
     // A fresh home may not have a Cloud list reply yet: EnvironmentPicker offers Sign in for Cloud
     // (in place of Cloud) only once the app said signed out, never before it knows.
     cloudSignedIn,
-    ...(cloudTeam ? { cloudTeam } : {}),
     ...(savedRows ? { saved: savedRows } : {}),
     ...(onRefreshMachines ? { onOpen: onRefreshMachines } : {}),
     ...(runMode && !started && !readOnly ? { runMode } : {}),
@@ -892,9 +882,6 @@ export function ComposerContext({
     (offMac || savedPick !== undefined || (cloudSide && !cloudPicked)) && placeName
       ? `${whereName} · ${placeName}`
       : whereName;
-  // Cloud's face names the team it runs in; Sandboxed's throwaway machine is the same team's.
-  const whereTeam = cloudSide || sandboxPicked ? cloudTeam : undefined;
-  const whereValue = withTeam(wherePlace, whereTeam);
   const whereIcon =
     sandboxPicked || cloudSide ? (
       <EnvironmentIcon kind="cloud" />
@@ -1097,9 +1084,7 @@ export function ComposerContext({
                 label={t(CONTEXT_LABELS.environment)}
                 menu="Computer"
                 value={
-                  sandboxPicked || cloudPicked
-                    ? withTeam(t(sandboxPicked ? "composer.sandboxed" : "composer.cloud"), cloudTeam)
-                    : placeName
+                  sandboxPicked || cloudPicked ? t(sandboxPicked ? "composer.sandboxed" : "composer.cloud") : placeName
                 }
                 face={
                   // Sandboxed (hq#3367) or Cloud picked: the control names it where the machine was.
@@ -1108,7 +1093,6 @@ export function ComposerContext({
                       icon={<EnvironmentIcon kind="cloud" />}
                       value={t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")}
                       chevron
-                      {...(cloudTeam ? { team: cloudTeam } : {})}
                     />
                   ) : (
                     combinedFace
@@ -1138,15 +1122,8 @@ export function ComposerContext({
                   {...pickerProps}
                   label={t(CONTEXT_LABELS.environment)}
                   menu="Computer"
-                  value={whereValue}
-                  face={
-                    <LocationFace
-                      icon={whereIcon}
-                      value={whereName}
-                      chevron
-                      {...(whereTeam ? { team: whereTeam } : {})}
-                    />
-                  }
+                  value={wherePlace}
+                  face={<LocationFace icon={whereIcon} value={whereName} chevron />}
                   rows="where"
                   // Other devices opens the person's own machines in place; a pick there is the
                   // machine chip's pick (Austin, 2026-11-12: it was Remote, which opened that chip).
@@ -1263,15 +1240,8 @@ export function ComposerContext({
             {...pickerProps}
             label={t("composer.whereRun")}
             menu="Run"
-            value={withTeam(whereName, whereTeam)}
-            face={
-              <LocationFace
-                icon={whereIcon}
-                value={whereName}
-                chevron={false}
-                {...(whereTeam ? { team: whereTeam } : {})}
-              />
-            }
+            value={whereName}
+            face={<LocationFace icon={whereIcon} value={whereName} chevron={false} />}
             faceStyle="icon"
             rows="run"
             {...(runDetails ? { runDetails } : {})}
@@ -1402,7 +1372,6 @@ function LocationFace({
   liveWords,
   state,
   detail,
-  team,
 }: {
   icon?: React.ReactNode;
   value: string;
@@ -1421,8 +1390,6 @@ function LocationFace({
   /// One line on what the state means (a folderless Cloud chat's fresh folder): the label's
   /// accessible description and tooltip, never narration in the strip.
   detail?: string;
-  /// The team a Cloud pick runs in, after the name.
-  team?: ActiveTeamTag;
 }) {
   const [head, tail] = middle ? splitForMiddleTruncation(value) : [value, ""];
   return (
@@ -1444,7 +1411,6 @@ function LocationFace({
           {value}
         </span>
       )}
-      {team && <TeamTag team={team} />}
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">
           <Spinner size={12} loading className="acpmux-env-live-spinner" />

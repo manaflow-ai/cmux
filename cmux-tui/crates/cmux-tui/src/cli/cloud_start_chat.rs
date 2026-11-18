@@ -24,8 +24,10 @@
 //!    acpmux (`cmux-tui acp send --no-wait`), which the chat's tab shows like any send. A prompt
 //!    of any length works: one too long to go in one command goes to a file on the machine first,
 //!    in pieces, and the send reads it from there ([`upload_prompt`]).
-//! 4. With `--wait`, `cloud exec` again until the turn ends (`cmux-tui acp wait`, under the
-//!    exec's own 25 s limit each time), then the turn's last reply (`cmux-tui acp last`).
+//! 4. With `--wait`, the turn's end: pushed over the machine's link for a chat this run started, else
+//!    `cloud exec` until the turn ends (`cmux-tui acp wait --until running`, then `acp wait`, under the
+//!    exec's own 25 s limit each time), then the turn's last reply (`cmux-tui acp last`). A send to a
+//!    running chat (`cmux chat send --wait`) waits inside the send's own exec first.
 //!    `--timeout` counts from the command's start: a new machine and the start spend it too.
 //!
 //! Output: one JSON object (`--json`): the reply text with `machine_id`, `session_id`,
@@ -338,7 +340,7 @@ pub(super) fn wait_on(
     });
     let began = runner.now();
     let deadline = Deadline(Some(began.checked_add(request.timeout).unwrap_or(began)));
-    wait_turn(runner, &request, machine_id, session, (0, None), answer, deadline)
+    wait_turn(runner, &request, machine_id, session, (0, None, None), answer, deadline)
 }
 
 /// [`send_existing`]'s run: the prompt (step 4) and, with `--wait`, the turn (step 5), in one `--timeout`
@@ -364,7 +366,7 @@ fn send_to(runner: &mut dyn Runner, request: &Request, machine_id: &str, session
         request,
         machine_id,
         session,
-        (prompt, answer, None),
+        (prompt, answer, None, true),
         deadline,
         &mut progress,
     );
@@ -662,6 +664,12 @@ pub(super) trait Runner {
     ) -> Result<Value, link_wait::Failure> {
         link_wait::observe(std::path::Path::new(socket), surface, after, wait)
     }
+    /// The copy of `folder` (a `--from-folder`), estimated and decided (whole, first pass or seed)
+    /// before any machine is made for it (link/sync_cli/estimate.rs): `null` when it could not be
+    /// read, and the start goes on either way.
+    fn estimate(&mut self, folder: &str) -> Value {
+        crate::link::sync_cli::estimate::answer(std::path::Path::new(folder))
+    }
 }
 
 pub(super) struct SelfRunner {
@@ -731,6 +739,20 @@ impl Runner for SelfRunner {
 
     fn until(&mut self) -> Option<Instant> {
         self.until
+    }
+
+    fn estimate(&mut self, folder: &str) -> Value {
+        let Ok(estimate) = crate::link::sync_cli::estimate::of_folder(std::path::Path::new(folder))
+        else {
+            return Value::Null;
+        };
+        // Said before the machine is asked for: a wait that follows is the machine's or the copy's,
+        // never a silent one (stderr; the answer carries it too).
+        match self.global.output {
+            OutputMode::Human => eprintln!("{}", estimate.words()),
+            _ => eprintln!("{}", json!({"estimate": estimate.json()})),
+        }
+        estimate.json()
     }
 
     fn fresh_name(&mut self) -> String {
@@ -1336,6 +1358,11 @@ impl Runner for Timed<'_> {
         );
         answer
     }
+
+    fn estimate(&mut self, folder: &str) -> Value {
+        // The runner's own: SelfRunner says it on stderr before the machine is asked for.
+        self.inner.estimate(folder)
+    }
 }
 
 /// The `stages_detail_ms` object a step's app answer carries: every clock's step, the machine's phases and the
@@ -1387,6 +1414,10 @@ fn steps(
     if let Err(outcome) = on_account(request, &listed, None) {
         return outcome;
     }
+    // The folder's copy is estimated and decided (whole, first pass or seed) before any machine
+    // exists: `--environment` makes one next, and `cloud start-session` may (Leo's 2026-11-10 start
+    // at ~/Projects began a 20 GB copy after a machine was already leased).
+    let estimate = request.from_folder.as_deref().map(|folder| runner.estimate(folder));
     // 2. The chat's machine: one made in --environment first, else the one asked for.
     // A `--cwd` on a machine that already exists may be a repository its bootstrap is still cloning
     // (`cloud new-machine --repo`): wait for the clone rather than fail "cwd is not a directory" (clone_wait.rs).
@@ -1525,6 +1556,9 @@ fn steps(
     if let Some(model) = &request.model {
         answer.set("model", json!(model));
     }
+    if let Some(estimate) = estimate {
+        answer.set("estimate", estimate);
+    }
     progress.machine = Some(Machine::Target(machine_id.to_owned()));
     progress.chat = Some((machine_id.to_owned(), session.to_owned(), answer.clone()));
     // With `--account`: the machine is that account's before anything is sent to it. A refusal names
@@ -1558,7 +1592,15 @@ fn steps(
         return out_of_time(request, &Machine::Target(machine_id.to_owned()), answer);
     }
     let tab = internal::chat_tab(&started);
-    send_prompt(runner, request, machine_id, session, (prompt, answer, tab), deadline, progress)
+    send_prompt(
+        runner,
+        request,
+        machine_id,
+        session,
+        (prompt, answer, tab, false),
+        deadline,
+        progress,
+    )
 }
 
 /// The answer for a start the app answered `pending` for: where it is stuck, and the same command again to keep
@@ -1699,7 +1741,7 @@ fn send_prompt(
     request: &Request,
     machine_id: &str,
     session: &str,
-    (prompt, mut answer, tab): (&str, Value, Option<u64>),
+    (prompt, mut answer, tab, one_exec): (&str, Value, Option<u64>, bool),
     deadline: Deadline,
     progress: &mut Progress,
 ) -> Outcome {
@@ -1709,12 +1751,38 @@ fn send_prompt(
         return progress.out_of_time(request, &chat, answer);
     }
     let quoted = shell_quote(prompt);
+    // With `--wait` to a chat whose turn is not pushed over the link (one this run did not start: no tab),
+    // the send's own exec waits for its turn too ([`turn_wait_script`]), so a short turn costs one Cloud
+    // round trip. The baseline is then `@@before`, since the wait's own `@@history` follows.
+    let first_wait = request.wait && one_exec && tab.is_none();
+    // The exec's whole slice runs from its first command (`$e`): the send, its `acp ls` and the
+    // history read spend it first, and the wait gets only what is left. With less than a second left the exec
+    // skips its wait and the later reads in [`wait_turn`] take over, so a slow send never runs the exec past the
+    // Cloud's own 25 s limit (a killed exec would report a delivered prompt as a send failure).
+    let budget = if first_wait {
+        deadline.bound(runner, Duration::from_secs(WAIT_SLICE_SECONDS)).as_secs()
+    } else {
+        0
+    };
+    let (clock, then_wait) = if budget == 0 {
+        (String::new(), String::new())
+    } else {
+        (
+            format!("e=$(( $(date +%s) + {budget} )); "),
+            format!(
+                "s=$(( e - $(date +%s) )); if [ \"$x\" = 0 ] && [ \"$s\" -ge 1 ]; then {}; fi",
+                sent_turn_wait_script(session)
+            ),
+        )
+    };
+    let before = if then_wait.is_empty() { "history" } else { "before" };
     // The uploaded prompt's file words, when the prompt went to a file.
     let mut uploaded = None;
     let send = if quoted.len() <= INLINE_PROMPT_BYTES {
         format!(
-            "{GUEST_PRELUDE}{SESSION_CWD}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
-             printf '%s' {quoted} | \"$c\" acp send --no-wait {sid} - 2>&1; echo \"@@exit $?\"",
+            "{clock}{GUEST_PRELUDE}echo @@{before}; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
+             printf '%s' {quoted} | \"$c\" acp send --no-wait {sid} - 2>&1; x=$?; echo \"@@exit $x\"; \
+             {SESSION_CWD}{then_wait}",
             sid = shell_quote(session),
         )
     } else {
@@ -1741,9 +1809,9 @@ fn send_prompt(
         }
         uploaded = Some(file.clone());
         format!(
-            "{GUEST_PRELUDE}{file}{SESSION_CWD}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
-             echo @@send; \"$c\" acp send --no-wait {sid} - < \"$f\" 2>&1; echo \"@@exit $?\"; \
-             rm -f \"$f\"",
+            "{clock}{GUEST_PRELUDE}{file}echo @@{before}; \"$c\" acp history {sid} --json -n 1 2>&1; \
+             echo @@send; \"$c\" acp send --no-wait {sid} - < \"$f\" 2>&1; x=$?; echo \"@@exit $x\"; \
+             rm -f \"$f\"; {SESSION_CWD}{then_wait}",
             sid = shell_quote(session),
         )
     };
@@ -1764,7 +1832,8 @@ fn send_prompt(
         }
     };
     let reported = sections(&sent);
-    let baseline = last_turn(reported.get("history")).map_or(0, |turn| turn.seq);
+    let baseline =
+        last_turn(reported.get("before").or(reported.get("history"))).map_or(0, |turn| turn.seq);
     if reported.get("exit").map(String::as_str).map(str::trim) != Some("0") {
         let output = reported.get("send").cloned().unwrap_or_default();
         return failed(
@@ -1784,7 +1853,12 @@ fn send_prompt(
     if !request.wait {
         return Outcome::Done(answer);
     }
-    wait_turn(runner, request, machine_id, session, (baseline, tab), answer, deadline)
+    // The send's exec already waited ([`turn_wait_script`]): its answer is the wait's first read.
+    let first = reported.contains_key("wait").then_some(reported);
+    if first.is_some() {
+        answer.set("wait_route", json!("send"));
+    }
+    wait_turn(runner, request, machine_id, session, (baseline, tab, first), answer, deadline)
 }
 
 /// 4. The turn after `baseline` in `session`: its end and its reply.
@@ -1793,7 +1867,7 @@ fn wait_turn(
     request: &Request,
     machine_id: &str,
     session: &str,
-    (baseline, tab): (u64, Option<u64>),
+    (baseline, tab, mut first): (u64, Option<u64>, Option<Sections>),
     mut answer: Value,
     deadline: Deadline,
 ) -> Outcome {
@@ -1814,33 +1888,36 @@ fn wait_turn(
     }
     // The reads in a row the Cloud API did not answer: a read only reads, so it is asked again.
     let mut unanswered = 0;
+    // Whether a read showed the sent turn (a turn after `baseline`): from then on the wait is for its end only.
+    let mut seen = false;
     loop {
-        // Each wait is bounded by exec's own limit and by what is left of `--timeout`, in whole seconds: with
-        // less than one left (the steps before spent it), no wait past the deadline.
-        let slice = deadline.bound(runner, Duration::from_secs(WAIT_SLICE_SECONDS)).as_secs();
-        if slice == 0 {
-            return wait_timeout(request, machine_id, session, answer);
-        }
-        let poll = format!(
-            "{GUEST_PRELUDE}\"$c\" acp wait {sid} --timeout {slice} >/dev/null 2>&1; \
-             echo \"@@wait $?\"; echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
-             echo @@last; \"$c\" acp last {sid} --json 2>&1; echo \"@@lastexit $?\"",
-            sid = shell_quote(session),
-        );
-        let polled = match exec(runner, machine_id, &poll) {
-            Ok(stdout) => stdout,
-            Err(error) if read_again(&error) && read_again_before(deadline, runner, unanswered) => {
-                unanswered += 1;
-                answer.set("unanswered_reads", json!(unanswered));
-                let pause = deadline.bound(runner, unanswered_pause(unanswered));
-                runner.pause(pause);
-                continue;
+        let polled = if let Some(polled) = first.take() {
+            polled
+        } else {
+            // Each wait is bounded by exec's own limit and by what is left of `--timeout`, in whole seconds: with
+            // less than one left (the steps before spent it), no wait past the deadline.
+            let slice = deadline.bound(runner, Duration::from_secs(WAIT_SLICE_SECONDS)).as_secs();
+            if slice == 0 {
+                return wait_timeout(request, machine_id, session, answer);
             }
-            Err(error) => return sent_failure(error, answer),
+            let poll = format!("{GUEST_PRELUDE}{}", turn_wait_script(session, slice, seen));
+            match exec(runner, machine_id, &poll) {
+                Ok(stdout) => sections(&stdout),
+                Err(error)
+                    if read_again(&error) && read_again_before(deadline, runner, unanswered) =>
+                {
+                    unanswered += 1;
+                    answer.set("unanswered_reads", json!(unanswered));
+                    let pause = deadline.bound(runner, unanswered_pause(unanswered));
+                    runner.pause(pause);
+                    continue;
+                }
+                Err(error) => return sent_failure(error, answer),
+            }
         };
         unanswered = 0;
-        let polled = sections(&polled);
         let turn = last_turn(polled.get("history")).filter(|turn| turn.seq > baseline);
+        seen |= turn.is_some();
         if let Some(turn) = turn.as_ref().filter(|turn| turn.ended) {
             answer.set("turn", turn.value.clone());
             if turn.failed() {
@@ -1890,11 +1967,73 @@ fn wait_turn(
         if deadline.passed(runner) {
             return wait_timeout(request, machine_id, session, answer);
         }
-        if turn.is_none() {
+        // No turn after the send yet. A machine whose `acp wait --until running` blocked for it (it answered:
+        // [`waited_for_start`]) is asked again at once. One whose CLI lacks it returned on `ready` before the
+        // sent turn started, so the next read comes after a pause, as before.
+        if turn.is_none() && !waited_for_start(&polled) {
             let pause = deadline.bound(runner, NOT_STARTED_PAUSE);
             runner.pause(pause);
         }
     }
+}
+
+/// A script's `@@name` sections ([`sections`]).
+type Sections = std::collections::HashMap<String, String>;
+
+/// One wait for the turn a send started, inside one `cloud exec` (after [`GUEST_PRELUDE`]), in at most `slice`
+/// seconds, then its `@@history` and `@@last`.
+///
+/// `acp wait` resolves at once while the session is `ready`, and a `--no-wait` send returns before its turn
+/// starts (its delivery runs in the daemon's background), so a plain wait right after the send answered the turn
+/// before it. Until a read showed the sent turn (`seen`), the script first blocks on `acp wait --until running`,
+/// which resolves when the session's next turn is accepted, then waits for its end in what is left of `slice`.
+/// That first wait's output (`@@started`: a status line when it resolved) and exit (`@@startedexit`) tell
+/// [`waited_for_start`] whether the machine's CLI serves it; an older one refuses `--until running` at once and
+/// the caller falls back to pausing between reads. Each `acp wait` blocks on the daemon's events, never a poll.
+pub(super) fn turn_wait_script(session: &str, slice: u64, seen: bool) -> String {
+    if seen {
+        turn_end_script(session, &slice.to_string())
+    } else {
+        format!(
+            "e=$(( $(date +%s) + {slice} )); {}",
+            start_then_end_script(session, &slice.to_string())
+        )
+    }
+}
+
+/// The send's own wait ([`send_prompt`]): [`turn_wait_script`] for a turn not seen yet, ending at the send exec's
+/// `$e`, set by its first command, with `$s` the seconds left of it when the wait starts (at least one).
+fn sent_turn_wait_script(session: &str) -> String {
+    start_then_end_script(session, "\"$s\"")
+}
+
+/// The wait for the sent turn to start in at most `first` seconds, then for its end before `$e`.
+fn start_then_end_script(session: &str, first: &str) -> String {
+    let sid = shell_quote(session);
+    format!(
+        "o=$(\"$c\" acp wait {sid} --timeout {first} --until running 2>/dev/null); \
+         echo \"@@startedexit $?\"; echo @@started; printf '%s\\n' \"$o\" | head -c 512; \
+         s=$(( e - $(date +%s) )); [ \"$s\" -ge 1 ] || s=1; {}",
+        turn_end_script(session, "\"$s\"")
+    )
+}
+
+/// The wait for the turn's end in at most `timeout` seconds, then its `@@history` and `@@last`.
+fn turn_end_script(session: &str, timeout: &str) -> String {
+    let sid = shell_quote(session);
+    format!(
+        "\"$c\" acp wait {sid} --timeout {timeout} >/dev/null 2>&1; \
+         echo \"@@wait $?\"; echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
+         echo @@last; \"$c\" acp last {sid} --json 2>&1; echo \"@@lastexit $?\""
+    )
+}
+
+/// Whether the read's `acp wait --until running` ([`turn_wait_script`]) blocked until a turn was accepted or its
+/// own timeout: it printed the session's status line, or exited 3 (timeout). An older CLI that refuses the state
+/// exits 2 (a usage error) with nothing on stdout; a read without the step (the turn already seen) has no section.
+pub(super) fn waited_for_start(polled: &Sections) -> bool {
+    let printed = polled.get("started").is_some_and(|out| !out.trim().is_empty());
+    printed || polled.get("startedexit").map(|code| code.trim()) == Some("3")
 }
 
 fn permission_waiting(answer: Value) -> Outcome {
