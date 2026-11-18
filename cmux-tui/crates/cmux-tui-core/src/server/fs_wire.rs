@@ -33,7 +33,8 @@ use crate::mux::Mux;
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The remote gate of the link entry: it admits a frame only when its `cmd`
-/// is one of the seven `fs-v1` ops, the two `fs-symlink-v1` ops, the two `git-seed-v1` ops, or a `cloud.repo.*`
+/// is one of the seven `fs-v1` ops, the two `fs-symlink-v1` ops, the two `git-seed-v1` ops, the
+/// `blob-fetch-v2` ops, the Mac's three `projfs-v1` ops (never `projfs.fetch`), or a `cloud.repo.*`
 /// op other than `cloud.repo.local` and `cloud.repo.remember`, exactly;
 /// every other frame is denied as before (`remote_denied`, no detail),
 /// except the explicit agent carrier admitted separately for authenticated
@@ -52,11 +53,13 @@ impl RemoteGate for FsGate {
     }
 }
 
-/// Whether `frame` is one of the file, seed, blob or `cloud.repo.*` frames [`FsGate`] admits.
+/// Whether `frame` is one of the file, seed, blob, projected-folder (the Mac's side only: never
+/// `projfs.fetch`) or `cloud.repo.*` frames [`FsGate`] admits.
 pub(super) fn data_frame(frame: &str) -> bool {
     frame_command(frame).is_some()
         || crate::git_seed::frame_command(frame).is_some()
         || crate::blob_fetch::frame_command(frame).is_some()
+        || crate::projfs_rendezvous::remote_frame_command(frame).is_some()
         || crate::cloud_repos::frame_command(frame)
             .is_some_and(|cmd| !matches!(cmd.as_str(), "cloud.repo.local" | "cloud.repo.remember"))
 }
@@ -97,6 +100,16 @@ pub(super) fn try_handle(
             crate::blob_fetch::answer_line(crate::blob_fetch::installed(), allowed, message);
         return Some(writer.send_control(&reply).is_ok());
     }
+    if message.contains("\"projfs.") && crate::projfs_rendezvous::frame_command(message).is_some() {
+        // A waiting fetch or poll holds only this connection's reader (one per connection).
+        let caller = projfs_caller(mux, client);
+        let reply = crate::projfs_rendezvous::answer_line(
+            crate::projfs_rendezvous::installed(),
+            caller,
+            message,
+        );
+        return Some(writer.send_control(&reply).is_ok());
+    }
     if !message.contains("\"fs.") {
         return None;
     }
@@ -124,6 +137,21 @@ fn transport_allows_fs(mux: &Mux, client: u64) -> bool {
     mux.control_clients.transport_of(client).is_some_and(|transport| {
         matches!(transport, ClientTransport::Unix | ClientTransport::Remote)
     })
+}
+
+/// Who sent a `projfs.*` frame: the mount helper on a trusted local connection that is not a
+/// remote client, or the Mac as a remote client whose principal is good for this frame. A
+/// poisoned registry or relay lock refuses (fail closed).
+fn projfs_caller(mux: &Mux, client: u64) -> crate::projfs_rendezvous::Caller {
+    use crate::projfs_rendezvous::Caller;
+    if !mux.is_remote_client(client) {
+        return if mux.control_clients.is_unix(client) { Caller::Local } else { Caller::Denied };
+    }
+    if transport_allows_fs(mux, client) && mux.frame_principal(client).is_some() {
+        Caller::Remote
+    } else {
+        Caller::Denied
+    }
 }
 
 /// The answer to one `fs.*` request line. `owner` keys the caller's

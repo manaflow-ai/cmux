@@ -480,6 +480,44 @@ fn the_fs_hook_refuses_a_revoked_install_and_a_remote_client_without_a_peer() {
     assert_eq!(fs_stat_code(&mux, client), "fs.permission_denied", "revoked, stream still open");
 }
 
+/// `projfs-v1`: the link's gate admits the Mac's three ops and never the helper's fetch.
+#[test]
+fn the_gate_admits_the_macs_projfs_ops_and_never_the_fetch() {
+    let gate = FsGate;
+    for cmd in crate::projfs_rendezvous::PROJFS_REMOTE_COMMANDS {
+        assert!(gate.admit(&peer(), &json!({ "id": 1, "cmd": cmd, "mount": "m" }).to_string()));
+    }
+    let fetch = json!({ "id": 1, "cmd": "projfs.fetch", "mount": "m", "wants": [] }).to_string();
+    assert!(!gate.admit(&peer(), &fetch));
+}
+
+/// One `projfs.*` line through `try_handle`; the answer.
+fn projfs_answer(mux: &Arc<Mux>, client: u64, line: &Value) -> Value {
+    let (writer, outbound) = fs_writer();
+    assert_eq!(try_handle(mux, client, &line.to_string(), &writer), Some(true));
+    serde_json::from_str(&outbound.try_pop().expect("an answer")).unwrap()
+}
+
+/// The hook: a local connection may fetch and not poll; a remote one with a bound peer may
+/// poll and not fetch; one without a peer may do neither. (Tests install no fs owner, so an
+/// admitted frame answers `projfs.unavailable`.)
+#[test]
+fn the_projfs_hook_admits_the_helper_locally_and_the_mac_remotely() {
+    let fetch = json!({ "id": 1, "cmd": "projfs.fetch", "mount": "m", "wants": [] });
+    let next = json!({ "id": 2, "cmd": "projfs.next", "mount": "m", "wait_ms": 0 });
+    let mux = test_mux();
+    let local = mux.control_clients.register(ClientTransport::Unix, fs_writer().0);
+    assert_eq!(projfs_answer(&mux, local, &fetch)["error_code"], "projfs.unavailable");
+    assert_eq!(projfs_answer(&mux, local, &next)["error_code"], "projfs.permission_denied");
+    let remote = mux.control_clients.register(ClientTransport::Remote, fs_writer().0);
+    assert_eq!(projfs_answer(&mux, remote, &next)["error_code"], "projfs.permission_denied");
+    mux.bind_remote_peer(remote, &peer()).unwrap();
+    assert_eq!(projfs_answer(&mux, remote, &next)["error_code"], "projfs.unavailable");
+    assert_eq!(projfs_answer(&mux, remote, &fetch)["error_code"], "projfs.permission_denied");
+    let web = mux.control_clients.register(ClientTransport::WebSocket, fs_writer().0);
+    assert_eq!(projfs_answer(&mux, web, &fetch)["error_code"], "projfs.permission_denied");
+}
+
 /// Lane 10 finding B: a poisoned client registry refuses fs (fail closed).
 #[test]
 fn the_fs_hook_refuses_on_a_poisoned_registry_lock() {

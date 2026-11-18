@@ -11461,6 +11461,41 @@ once more right before the rename. A copy that listed a folder can then
 write its files without an `fs.stat` of each one first: a symlink the
 machine put there since stops that file with this code.
 
+## Projected folders (projfs-v1)
+
+Served exactly where `fs-v1` is (Cloud hosts); every other daemon does not
+advertise `projfs-v1` and answers `projfs.unavailable`. The daemon is a
+queue between the mount helper on the machine (`cmux-tui projfs mount`) and
+the person's Mac: the helper leaves the byte ranges a read needs, the Mac
+long-polls for them over its link and answers. The daemon never opens or
+checks a path; everything is in memory. `mount` is an opaque id the helper
+and the Mac agree on (1 to 64 letters, digits, `.`, `_`, `-`). A want is
+`{path, size, mtime_ns, ctime_ns, offset, len}` (`len` 1 to 4 MiB, paths up
+to 4096 bytes). A result is `{status:"bytes", data_b64}` (at most the
+want's `len`), `{status:"changed", size, mtime_ns, ctime_ns, mode}`,
+`{status:"gone"}`, `{status:"withheld"}`, `{status:"failed", reason?}` or
+`{status:"away"}`.
+
+| Command | Who | Params | Data | Error codes |
+| --- | --- | --- | --- | --- |
+| `projfs.fetch` | the helper: a local connection that is not a remote client; the link's gate never admits it | `{mount, wants, wait_ms}` (at most 512 wants and 8 MiB) | `{results}`, one per want in order | `projfs.limit` |
+| `projfs.next` | the Mac, over the link | `{mount, wait_ms}` | `{batch: {id, wants} \| null}` | `projfs.limit` |
+| `projfs.answer` | the Mac, over the link | `{mount, batch, results}` (`batch` is the id `projfs.next` gave) | `{answered}` | `projfs.unknown_batch` |
+| `projfs.status` | either | `{mount?}` | `{mounts: [{mount, queued, batches_out, polling, fetching, bytes_answered, last_answer_age_ms}]}` | |
+
+`wait_ms` is capped at 25 s. `projfs.fetch` answers when every want was
+answered; a want no Mac took within `wait_ms` answers `away`, and one a Mac
+took is waited for until its answer or the end of its lease. `projfs.next`
+answers at once when wants are queued (at most 512 wants and 8 MiB per
+batch, oldest first), else when some arrive or `wait_ms` passes
+(`batch:null`). A batch is leased to its poll for 30 s; unanswered by then,
+its wants go back to the front of the queue for the next poll, and a later
+answer to it is `projfs.unknown_batch` (its bytes are dropped). A mount
+keeps at most 4096 waiting wants; a daemon keeps 64 mounts and forgets the
+idle one used least recently past that. Bad params are `projfs.bad_request`;
+a caller the op is not for gets `projfs.permission_denied`. A waiting op
+holds only its own connection.
+
 ## Guest browser opening
 
 ### url-open

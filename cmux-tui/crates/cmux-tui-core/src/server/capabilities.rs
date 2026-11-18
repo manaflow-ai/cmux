@@ -233,6 +233,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_HOLD_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
+            && *capability != crate::projfs_rendezvous::PROJFS_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
@@ -510,6 +511,8 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::git_seed::advertised());
     #[cfg(unix)]
     capabilities.extend(crate::blob_fetch::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::projfs_rendezvous::advertised());
     #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     #[cfg(unix)]

@@ -185,6 +185,9 @@ const CAPABILITIES: &[&str] = &[
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
     crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
+    // Projected folders: the Mac's long poll and answers (`projfs.next|answer|status`) are data
+    // frames too, the owner's only.
+    crate::projfs_rendezvous::PROJFS_CAPABILITY,
     crate::shell_runs::CAPABILITY,
 ];
 
