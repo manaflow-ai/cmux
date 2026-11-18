@@ -289,7 +289,7 @@ final class CloudService {
             await auth.awaitRestored()
             var scope: String?? // The account and team: a change fences the old link, machine wire and carriers before any await.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
-                if let previous = scope ?? nil, previous != accountScope { self.desktopStreams.endAll() }; scope = accountScope
+                if let previous = scope ?? nil, previous != accountScope { self.desktopStreams.endAll(); self.spareReadiness.reset() }; scope = accountScope // a spare's link made ahead too
                 if accountScope != nil {
                     self.machineWire.stop()
                     // mayCallCloud also fences a managed team that is missing: no socket without its team scope.
@@ -361,7 +361,7 @@ final class CloudService {
             machineWire.stop()
             changes.stop()
             signedOutCreation.cancel()
-            desktopStreams.endAll()
+            desktopStreams.endAll(); spareReadiness.reset() // and a spare's link made ahead (`carrier serve`)
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
                 session.disconnect()

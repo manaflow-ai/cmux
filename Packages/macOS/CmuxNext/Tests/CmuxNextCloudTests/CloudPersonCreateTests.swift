@@ -99,6 +99,28 @@ import Testing
         await #expect(throws: URLError.self) { _ = try await ops("cloud.machine.create", .object([:]), "k", .user) }
     }
 
+    /// A direct create whose first attempt lost its connection (it may have run) and whose resend is refused by the
+    /// route is no ``CloudPersonCreate/Unavailable``: the relay would send a new key and make a second machine. It is
+    /// an indeterminate answer, not a definitive refusal, so a Retry sends the same key on the direct route.
+    @Test func aRouteRefusalOfAResendAfterAConnectionFailureIsNoFallback() async {
+        let refusal = Data(#"{"_tag":"Unauthenticated","code":"auth.unauthenticated","message":"expired"}"#.utf8)
+        let ops = CloudPersonCreate.ops({ _, _ in
+            // What the session call's hedge notes when it sends the keyed create again after a connection failure.
+            CloudConnectHedge.resends?.note()
+            return refusal
+        }, after: {})
+        await #expect(throws: CloudAppOpFailure.self) {
+            do { _ = try await ops("cloud.machine.create", .object([:]), "k", .user) } catch let failure as CloudAppOpFailure {
+                #expect(failure.code == CloudPersonCreate.indeterminate)
+                #expect(!CloudStartCore().isDefinitiveRefusal(failure), "a Retry keeps the key")
+                throw failure
+            }
+        }
+        // The same refusal with no resend never reached the op: the relay may take the create with a new key.
+        let once = CloudPersonCreate.ops({ _, _ in refusal }, after: {})
+        await #expect(throws: CloudPersonCreate.Unavailable.self) { _ = try await once("cloud.machine.create", .object([:]), "k", .user) }
+    }
+
     @Test func theSessionPostCarriesTheTeamOnlyWhenGiven() {
         let url = URL(string: "https://api.example.test/v1/ops")!
         let pinned = CloudPersonCreate.post(url, body: Data("{}".utf8), bearer: "b", team: "team_a")
