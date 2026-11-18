@@ -39,7 +39,7 @@ public final class HomeLaunchComposer {
         } else {
             let hold = LaunchChiefHold()
             (self.home, self.hold) = (home, hold)
-            store = HomeStore(source: HomeLaunchChiefSource(me: home.me ?? me, title: title, hold: hold))
+            store = HomeStore(source: HomeLaunchChiefSource(me: home.me ?? me, title: title, hold: hold), prunesBlobCache: false)
             store.start()
             store.setDraft(home.draft(for: Self.conversation) ?? "", for: Self.conversation)
         }

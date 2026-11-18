@@ -116,18 +116,28 @@ import Testing
     /// disk; before the spill they were dropped (`olderOnDisk` stays 0 without one). Live heap
     /// bytes (malloc's size in use) with and without the spill stay about the same: the
     /// spill keeps at most one partial page in memory.
+    ///
+    /// The live bytes are what letting go of the Feed and its spill frees: read just before and
+    /// just after, a few milliseconds apart. malloc's size in use is the whole process's, and
+    /// `swift test` runs other suites on other threads meanwhile; read across the 3,000 inserts
+    /// (seconds), it took their bytes for the Feed's (80 MB against 76 MB with the hybrid
+    /// proofs off the main actor, PR #45399).
     @Test func memoryWithSpill() async {
         func run(spilling: Bool) -> (live: Int, onDisk: Int) {
-            let store = FeedStore(items: [])
-            let spill = Self.spill()
-            if spilling { store.useSpill(spill) }
-            let start = Self.heapInUse()
-            for index in 0..<3000 { store.insert(Self.item(index, bytes: 8192), atTop: true) }
-            spill.flush()
-            let live = Self.heapInUse() - start
-            let onDisk = spill.storedCount()
-            store.useSpill(nil)
-            return (live, onDisk)
+            var alive = 0
+            var onDisk = 0
+            do {
+                let store = FeedStore(items: [])
+                let spill = Self.spill()
+                if spilling { store.useSpill(spill) }
+                for index in 0..<3000 { store.insert(Self.item(index, bytes: 8192), atTop: true) }
+                spill.flush()
+                onDisk = spill.storedCount()
+                alive = Self.heapInUse()
+                // Drops the spill's partial page and spilled ids; the Feed's window goes with the store.
+                store.useSpill(nil)
+            }
+            return (alive - Self.heapInUse(), onDisk)
         }
         let dropped = run(spilling: false)
         let spilled = run(spilling: true)
@@ -135,6 +145,8 @@ import Testing
         print(line)
         Attachment.record(line, named: "membench.txt")
         #expect(dropped.onDisk == 0)
+        // Letting the Feed go frees at least its window's bodies, so the reading sees the Feed.
+        #expect(dropped.live >= FeedStore.memoryLimit * 8192)
         #expect(spilled.onDisk == 2500)
         // A partial page (under 100 events of 8 KB) and the spilled ids, at most.
         #expect(spilled.live < dropped.live + 2 << 20)

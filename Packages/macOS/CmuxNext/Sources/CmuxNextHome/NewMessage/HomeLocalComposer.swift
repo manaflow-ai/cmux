@@ -20,7 +20,7 @@ public struct HomeLocalComposer: Sendable {
     ///   - identifier: The view's accessibility identifier.
     public init(source: any HomeSource, conversation: ConversationID, me: ParticipantID, draft: String,
                 openPanel: MadeAheadOpenPanel?, spellChecking: Bool, identifier: String) {
-        store = HomeStore(source: source)
+        store = HomeStore(source: source, prunesBlobCache: false)  // keeps no blobs: Home's store prunes the shared folder
         store.start()
         if !draft.isEmpty { store.setDraft(draft, for: conversation) }
         view = HomeNativeTranscriptView(store: store, conversation: conversation, me: me, openPanel: openPanel)

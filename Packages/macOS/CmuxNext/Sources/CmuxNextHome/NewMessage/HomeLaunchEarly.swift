@@ -35,7 +35,7 @@ public final class HomeLaunchEarly {
 
         init(title: String, frame: CGRect, makeView: (HomeStore) -> NSView) {
             hold = LaunchChiefHold()
-            store = HomeStore(source: HomeLaunchChiefSource(me: HomeLaunchEarly.me, title: title, hold: hold))
+            store = HomeStore(source: HomeLaunchChiefSource(me: HomeLaunchEarly.me, title: title, hold: hold), prunesBlobCache: false)
             store.start()
             let chief = makeView(store)
             HomeNativeTranscriptView.first(in: chief)?.holdsChiefFace = true
