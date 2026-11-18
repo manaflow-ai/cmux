@@ -124,13 +124,27 @@ test("a slow acknowledgement shows one pending state, in the time slot, and no a
   );
 });
 
-test("a steer on its way into the running turn says it is queued behind it, never Not sent", async () => {
-  const container = await render(prompt({ state: "sending", sentAt: Date.now() - 5_000, queued: true }));
+// Leo, 2026-11-17: "Queued, sends when the turn ends" / "it's not really useful to see ever". A
+// prompt waiting behind the running turn keeps its time in the slot: no clock, no queued words.
+test("a prompt queued behind the running turn never says Queued in its footer: its slot keeps its age", async () => {
+  for (const extra of [{}, { steer: "waiting" }] satisfies Partial<AcpmuxRow>[]) {
+    const container = await render(prompt({ state: "sending", sentAt: Date.now() - 5_000, queued: true }, extra));
+    const state = said(container);
+    expect(state.pending).toBe(0);
+    expect(state.age).toBe(1);
+    expect(container.textContent).not.toContain("Queued, sends when");
+    expect(container.querySelector("[aria-label^='Queued']")).toBeNull();
+    expect(state.notSentYet).toBe(false);
+    await act(async () => root!.unmount());
+    root = undefined;
+  }
+});
+
+test("a queued prompt held while the agent service reconnects still says Sending when ready", async () => {
+  const container = await render(prompt({ state: "sending", sentAt: Date.now(), queued: true, waitingForHost: true }));
   expect(container.querySelector(".cv-user__pending-state")?.getAttribute("aria-label")).toBe(
-    translate("prompt.delivery.queued"),
+    translate("prompt.delivery.whenReady"),
   );
-  expect(translate("prompt.delivery.queued")).toBe("Queued, sends when the current turn ends");
-  expect(said(container).notSentYet).toBe(false);
 });
 
 test("a send held while the agent service reconnects says so at once, in the same slot", async () => {
