@@ -51,6 +51,10 @@ beforeAll(() => {
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   scope.cancelAnimationFrame = (handle: number) => clearTimeout(handle);
   installVirtualSizes(dom.window, sizes);
+  // An open context menu's anchor is fixed (scene.css): out of the column's flow.
+  const css = dom.window.document.createElement("style");
+  css.textContent = ".cmux-app-scene-context-anchor { position: fixed; }";
+  dom.window.document.head.append(css);
   // Every box starts at its scroller's top, moved up by what its ancestors scrolled (jsdom has no layout).
   dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
     let top = 0;
@@ -108,8 +112,10 @@ function stackHeight(spacing: number): number {
   const items: HTMLElement[] = [];
   const walk = (parent: Element) => {
     for (const child of parent.children as HTMLCollectionOf<HTMLElement>) {
-      // A hidden element is no flex item (no gap).
+      // A hidden or out-of-flow (fixed, absolute) element is no flex item (no gap).
       if (child.hidden) continue;
+      const position = getComputedStyle(child).position;
+      if (position === "fixed" || position === "absolute") continue;
       if (child.matches(".cmux-app-scene-group, .cmux-app-scene-foreach, .cmux-app-scene-context")) walk(child);
       else items.push(child);
     }
@@ -409,4 +415,79 @@ test("in a panel, a slice carried over to a shorter revision mounts the stack's 
   // The host shows the end, [5040, 5600]: its band [4480, 6720] is rows 160 to 199.
   expect(mountedIds()).toEqual(Array.from({ length: 40 }, (_, index) => `r${160 + index}`));
   expect(stackHeight(0)).toBe(200 * ROW);
+});
+
+test("in a panel, an autofocus TextField stays mounted and focused when the first slice windows the stack", async () => {
+  // r5 is a TextField with autofocus: it takes focus in its own passive effect, which runs before its stack's.
+  const store = lazyScene(1_000);
+  store.apply([
+    { op: "create", id: "field", type: "TextField", props: { placeholder: "Filter", autofocus: true } },
+    {
+      op: "children",
+      id: "list",
+      children: store.getNode("list")!.children.map((id) => (id === "r5" ? "field" : id)),
+    },
+  ]);
+  const { visibleSlice } = await inPanel(store);
+  const field = () => document.querySelector<HTMLInputElement>("[data-app-node=field] input");
+  expect(document.activeElement).toBe(field()!);
+  // The band [3400 - 560, 3400 + 1120] is far below the field.
+  await act(async () => visibleSlice.show({ revision: 1, top: 3_400, height: VIEW }));
+  expect(field()).not.toBeNull();
+  expect(document.activeElement).toBe(field()!);
+  // The field (0 px under jsdom) is kept before the band: row i > 5 ends at 28 i, so the band starts at r102.
+  const stack = document.querySelector<HTMLElement>("[data-app-type=LazyVStack]")!;
+  const order = [...stack.querySelectorAll<HTMLElement>("[data-app-node]")].map((child) => child.dataset.appNode);
+  expect(order.slice(0, 2)).toEqual(["field", "r102"]);
+});
+
+test("in a panel, an open context menu in a Group moves no row: the Group's height and later offsets hold", async () => {
+  // 300 pairs: a Row, then a styled Group of two Rows with a context menu each.
+  const spacing = 4;
+  const scene = () => {
+    const store = new SceneStore();
+    const items: string[] = [];
+    const ops: SceneOp[] = [{ op: "create", id: "list", type: "LazyVStack", props: { spacing } }];
+    for (let index = 0; index < 300; index++) {
+      const rows = [`g${index}a`, `g${index}b`];
+      ops.push({ op: "create", id: `r${index}`, type: "Row", props: { title: `Row ${index}` } });
+      for (const id of rows)
+        ops.push({ op: "create", id, type: "Row", props: { title: id, menu: [{ title: "Open" }] } });
+      ops.push(
+        { op: "create", id: `g${index}`, type: "Group", props: { background: "secondary" } },
+        { op: "children", id: `g${index}`, children: rows },
+      );
+      items.push(`r${index}`, `g${index}`);
+    }
+    ops.push({ op: "children", id: "list", children: items }, { op: "root", id: "list" });
+    store.apply(ops, true);
+    return store;
+  };
+  // The lead spacer and the rows a slice mounts, with the menu of an early Group's row open or not.
+  const windowed = async (open: boolean) => {
+    const { visibleSlice } = await inPanel(scene());
+    if (open)
+      await act(async () => {
+        document
+          .querySelector('[data-app-node="g3a"]')!
+          .dispatchEvent(
+            new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 30, clientY: 40 }),
+          );
+        await Promise.resolve();
+      });
+    expect(document.querySelector(".cmux-app-scene-context-anchor") !== null).toBe(open);
+    const whole = stackHeight(spacing);
+    expect(whole).toBe(300 * (28 + 60) + 599 * spacing);
+    await act(async () => visibleSlice.show({ revision: 1, top: 6_000, height: VIEW }));
+    const lead = document.querySelector<HTMLElement>(".cmux-app-scene-lazy-spacer")!;
+    const result = { lead: parseFloat(lead.style.height), ids: mountedIds(), height: stackHeight(spacing) };
+    expect(result.height).toBe(whole);
+    act(() => root!.unmount());
+    root = undefined;
+    document.body.replaceChildren();
+    return result;
+  };
+  const closed = await windowed(false);
+  const opened = await windowed(true);
+  expect(opened).toEqual(closed);
 });
