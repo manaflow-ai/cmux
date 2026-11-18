@@ -55,6 +55,12 @@ await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
         const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
         const before = new Map([...tops()].filter(([, top]) => top > view.top && top < view.bottom));
         const boxBefore = box();
+        // The free room between the newest row's bottom and the stack's top: what a notice may cover (#45558).
+        const lastBottom = Math.max(
+          ...[...document.querySelectorAll<HTMLElement>(rowSelector)].map((row) => row.getBoundingClientRect().bottom),
+        );
+        const dockTop = document.querySelector<HTMLElement>(".acpmux-dock")!.getBoundingClientRect().top;
+        const gap = Math.max(0, dockTop - lastBottom);
         const painted = () =>
           new Promise<void>((resolve) =>
             requestAnimationFrame(() => {
@@ -88,6 +94,7 @@ await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
           rows,
           composer,
           settle: Math.round(settle),
+          gap: Math.round(gap),
           inView: before.size,
           notice: dock.querySelector("[data-test-dock-notice]")?.getBoundingClientRect().height ?? 0,
         };
@@ -107,13 +114,17 @@ await requireBrowserLane("agent-pane-dock-notice-still.test.ts", async () => {
         expect(at).toBeLessThanOrEqual(2);
         const came = await change(page, html);
         console.log(
-          `${name} came (${came.notice}px tall): rows moved ${came.rows.join(",")}; composer moved ${came.composer.join(",")}; settled ${came.settle} ms`,
+          `${name} came (${came.notice}px tall, ${came.gap}px free under the newest row): rows moved ${came.rows.join(",")}; composer moved ${came.composer.join(",")}; settled ${came.settle} ms`,
         );
         expect(came.inView).toBeGreaterThan(3);
         // The notice took room in the stack (it is not an empty stand-in).
         expect(came.notice).toBeGreaterThan(12);
         expect(Math.max(...came.composer)).toBeLessThanOrEqual(1);
-        expect(Math.max(...came.rows)).toBeLessThanOrEqual(1);
+        // A notice lies over the free room under the newest row and covers no row (#45558's rule), so the rows
+        // move only by what it needs past that room: none for one that fits (the "Retrying…" line), and
+        // height minus room for a taller one (the agent-service card). Whether a tall notice may cover the
+        // newest row's foot instead is open (a change to #45558's rule).
+        expect(Math.max(...came.rows)).toBeLessThanOrEqual(Math.max(1, came.notice - came.gap + 1));
         const went = await change(page, undefined);
         console.log(
           `${name} went: rows moved ${went.rows.join(",")}; composer moved ${went.composer.join(",")}; settled ${went.settle} ms`,
