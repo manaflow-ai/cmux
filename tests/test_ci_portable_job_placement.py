@@ -748,9 +748,13 @@ class Wiring(unittest.TestCase):
         picker = preflight["steps"][ids.index("linux-build-placement")]
         config = picker["env"]
         self.assertEqual(config["FLEET_LINUX"], "cmux-fleet-linux-x64")
-        self.assertEqual(config["JOBS"].split(), ["tree-x86_64-musl", "tree-aarch64-musl"])
+        self.assertEqual(config["JOBS"].split(), ["tree-x86_64-musl", "tree-aarch64-musl",
+                                                  "machine-x86_64-musl", "machine-aarch64-musl"])
         self.assertEqual(config["LINUX_ONLY"].split(), config["JOBS"].split())
-        for knob in ("REQUIRE_LIVE_CAPACITY", "LINUX_ALL_OR_NONE", "NIGHTLY_WAIT_FOR_FLEET", "FLEET_WAIT_NEEDS_MEMBER"):
+        # The nightly's tree pair first, then the Cloud machine channel's thin pair, each whole or not at all.
+        self.assertEqual(config["LINUX_GROUPS"].split(),
+                         ["tree-x86_64-musl,tree-aarch64-musl", "machine-x86_64-musl,machine-aarch64-musl"])
+        for knob in ("REQUIRE_LIVE_CAPACITY", "NIGHTLY_WAIT_FOR_FLEET", "FLEET_WAIT_NEEDS_MEMBER"):
             with self.subTest(knob=knob):
                 self.assertEqual(config[knob], "1")
         # N minutes: the owned fleet gets at most 3 before the legs fall to Blacksmith.
@@ -762,17 +766,23 @@ class Wiring(unittest.TestCase):
         for ref in ("refs/heads/feat-cmux-next", "refs/heads/nightly-next"):
             self.assertIn(ref, picker["if"])
         self.assertLess(ids.index("inspect"), ids.index("linux-build-placement"))
-        # The placement can wait 3 minutes inside the preflight job's own bound.
+        # The placement can wait 2 minutes inside the preflight job's own bound.
         self.assertGreaterEqual(int(preflight["timeout-minutes"]), 9)
-        output = preflight["outputs"]["linux_build_runner"]
-        for job in config["JOBS"].split():
-            self.assertIn(f"contains(steps.linux-build-placement.outputs.linux_jobs, ' {job} ')", output)
-        self.assertTrue(output.endswith("&& steps.linux-build-placement.outputs.linux_runner || '' }}"))
-        build = workflow["build"]["with"]
-        self.assertEqual(build["linux_build_runner"],
-                         "${{ github.run_attempt == 1 && needs.tree-preflight.outputs.linux_build_runner || '' }}")
-        # build-linux (the Cloud machine channel, no nightly reads it) keeps its own route.
-        self.assertNotIn("linux_build_runner", workflow["build-linux"]["with"])
+        for name, call, pair in (("linux_build_runner", "build", ("tree-x86_64-musl", "tree-aarch64-musl")),
+                                 ("machine_build_runner", "build-linux",
+                                  ("machine-x86_64-musl", "machine-aarch64-musl"))):
+            with self.subTest(output=name):
+                output = preflight["outputs"][name]
+                for job in config["JOBS"].split():
+                    needle = f"contains(steps.linux-build-placement.outputs.linux_jobs, ' {job} ')"
+                    if job in pair:
+                        self.assertIn(needle, output)
+                    else:
+                        self.assertNotIn(needle, output)
+                self.assertTrue(output.endswith("&& steps.linux-build-placement.outputs.linux_runner || '' }}"))
+                self.assertEqual(
+                    workflow[call]["with"]["linux_build_runner"],
+                    f"${{{{ github.run_attempt == 1 && needs.tree-preflight.outputs.{name} || '' }}}}")
         package = jobs("cmux-tui-build-package.yml")
         legs = next(step for step in package["plan-build"]["steps"] if step.get("id") == "targets")
         route = legs["env"]["LINUX_BUILD_RUNNER"]
@@ -790,8 +800,9 @@ class Wiring(unittest.TestCase):
         picker = next(step for step in jobs("cmux-tui-artifacts.yml")["tree-preflight"]["steps"]
                       if step.get("id") == "linux-build-placement")
         config = {**picker["env"], "GITHUB_RUN_ATTEMPT": "1"}
-        for count, expected in ((0, ()), (1, ()), (2, ("tree-x86_64-musl", "tree-aarch64-musl")),
-                                (3, ("tree-x86_64-musl", "tree-aarch64-musl"))):
+        tree = ("tree-x86_64-musl", "tree-aarch64-musl")
+        both = tree + ("machine-x86_64-musl", "machine-aarch64-musl")
+        for count, expected in ((0, ()), (1, ()), (2, tree), (3, tree), (4, both), (5, both)):
             with self.subTest(idle=count):
                 fleet = [fleet_runner(f"gcp-{index}") for index in range(count)] + [fleet_runner("gcp-busy", busy=True)]
                 placed = placement.decide(config, fleet, snapshot(), NOW)
@@ -801,7 +812,7 @@ class Wiring(unittest.TestCase):
         # Queued jobs on the label (a nightly's, say) take its idle runners first.
         queued = snapshot({"cmux-fleet-linux-x64": {"queued": 1, "oldest_queued_minutes": 1}})
         self.assertEqual(placement.decide(config, [fleet_runner("a"), fleet_runner("b")], queued, NOW).linux_jobs, ())
-        # No online fleet member (the pool cannot boot VMs): Blacksmith at once, no 3-minute wait.
+        # No online fleet member (the pool cannot boot VMs): Blacksmith at once, no 2-minute wait.
         for first in ([], [fleet_runner(status="offline")]):
             with self.subTest(first=first), \
                  mock.patch.object(placement, "read", return_value=(first, snapshot())) as read, \
@@ -821,7 +832,7 @@ class Wiring(unittest.TestCase):
                  mock.patch.object(placement, "read",
                                    side_effect=[([fleet_runner("a", busy=True)], snapshot()), (second, snapshot())]) as read, \
                  mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
-                 mock.patch.object(placement.time, "monotonic", side_effect=[0, 150, 180]), \
+                 mock.patch.object(placement.time, "monotonic", side_effect=[0, 60, 120]), \
                  mock.patch.object(placement.time, "sleep") as sleep, \
                  mock.patch.object(placement.signal, "setitimer"), \
                  mock.patch.object(placement, "write") as write:
@@ -830,6 +841,33 @@ class Wiring(unittest.TestCase):
                 sleep.assert_called_once_with(30)
                 self.assertEqual(read.call_count, 2)
                 self.assertEqual(write.call_args.args[0].linux_runner, expected)
+
+    def test_the_machine_channel_pair_takes_the_fleet_only_when_free_and_never_holds_the_tree_pair(self):
+        # goals/cloud-fix-to-machine.md: the thin legs queued 18-27 min on blacksmith-16vcpu on 2026-11-18.
+        picker = next(step for step in jobs("cmux-tui-artifacts.yml")["tree-preflight"]["steps"]
+                      if step.get("id") == "linux-build-placement")
+        config = {**picker["env"], "GITHUB_RUN_ATTEMPT": "1"}
+        # Four free: both pairs take the fleet.
+        placed = placement.decide(config, [fleet_runner(f"gcp-{i}") for i in range(4)], snapshot(), NOW)
+        self.assertEqual(placed.linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl",
+                                             "machine-x86_64-musl", "machine-aarch64-musl"))
+        # Three free: the tree pair takes two, and the machine pair does not split onto the third.
+        placed = placement.decide(config, [fleet_runner(f"gcp-{i}") for i in range(3)], snapshot(), NOW)
+        self.assertEqual(placed.linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl"))
+        # Without the tree pair (a run that builds no shipped tree), two free take the machine pair.
+        alone = {**config, "JOBS": "machine-x86_64-musl machine-aarch64-musl"}
+        self.assertEqual(placement.decide(alone, [fleet_runner("a"), fleet_runner("b")], snapshot(), NOW).linux_jobs,
+                         ("machine-x86_64-musl", "machine-aarch64-musl"))
+        # The tree pair placed at once: no wait for room for the machine pair.
+        with mock.patch.object(placement, "read", return_value=([fleet_runner("a"), fleet_runner("b")], snapshot())), \
+             mock.patch.object(placement.dt, "datetime", wraps=dt.datetime) as clock, \
+             mock.patch.object(placement.time, "sleep") as sleep, \
+             mock.patch.object(placement.signal, "setitimer"), \
+             mock.patch.object(placement, "write") as write:
+            clock.now.return_value = NOW
+            self.assertEqual(placement.main(config), 0)
+            sleep.assert_not_called()
+            self.assertEqual(write.call_args.args[0].linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl"))
 
     def test_the_cmux_tui_mini_pick_spends_routing_reads_only_when_the_macos_targets_may_build(self):
         # The pick reads the runners on the routing App (4 requests); a run whose tree is published, that

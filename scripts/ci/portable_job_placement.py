@@ -50,6 +50,10 @@ before returning unplaced jobs to overflow. The process-wide deadline bounds
 reads too, and main always clears its alarm and restores the previous handler.
 LINUX_ALL_OR_NONE=1 places every fleet-Linux job or none: the cmux-tui tree's musl legs take one
 label from one runs-on, so fewer idle fleet runners than legs would queue the rest behind them.
+LINUX_GROUPS="a,b c,d" places each comma-joined group whole or not at all, in order, as far as the
+free fleet runners reach (it replaces LINUX_ALL_OR_NONE's one group of every job). The wait below
+waits for the first group only: a later group takes the fleet when it is free at once, so it never
+holds the first one's start.
 FLEET_WAIT_NEEDS_MEMBER=1 waits for fleet capacity only while an online Linux runner carries
 FLEET_LINUX (busy is fine: it frees, or the floor refills): a fleet with no online member (its
 VMs cannot boot) cannot place anything in the window, so the jobs take Blacksmith at once.
@@ -208,10 +212,20 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
                    for runner in matching)
         linux_free = max(0, idle - queued_on(snapshot, linux))
         wanted = [job for job in jobs if job not in mac_first]
-        short = env.get("LINUX_ALL_OR_NONE") == "1" and linux_free < len(wanted)
+        short = (env.get("LINUX_ALL_OR_NONE") == "1" and not env.get("LINUX_GROUPS")
+                 and linux_free < len(wanted))
         if problem or not linux_members or linux_free == 0 or short:
             linux = ""
     linux_jobs = tuple(job for job in jobs if linux and job not in mac_first)[:linux_free]
+    if linux and env.get("LINUX_GROUPS"):
+        chosen: list[str] = []
+        for group in env["LINUX_GROUPS"].split():
+            members = [job for job in group.split(",") if job in jobs and job not in mac_first]
+            if members and len(chosen) + len(members) <= linux_free:
+                chosen += members
+        linux_jobs = tuple(job for job in jobs if job in chosen)
+        if not linux_jobs:
+            linux = ""
     rest = tuple(job for job in jobs if job not in linux_jobs and job not in linux_only)
     notes = [f"{', '.join(linux_jobs)} take fleet Linux `{linux}`"] if linux_jobs else []
     if not linux:
@@ -386,6 +400,8 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         wanted = set((env.get("JOBS") or "").split())
         if env.get("REQUIRE_LIVE_CAPACITY") != "1":
             wanted -= set((env.get("LINUX_ONLY") or "").split())
+        if env.get("LINUX_GROUPS"):
+            wanted &= set(env["LINUX_GROUPS"].split()[0].split(","))
         while wait_seconds and not wanted.issubset(set(placed.linux_jobs + placed.mini_jobs)):
             remaining = stop - time.monotonic()
             if remaining <= 0:

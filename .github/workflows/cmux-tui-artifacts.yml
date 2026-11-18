@@ -182,7 +182,7 @@ jobs:
       deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The feat-cmux-next election fetches each active run's commit. The musl legs' owned-Linux
-    # placement may wait up to 3 more minutes for a fleet runner (linux-build-placement).
+    # placement may wait up to 2 more minutes for a fleet runner (linux-build-placement).
     timeout-minutes: 10
     permissions:
       actions: read
@@ -224,6 +224,7 @@ jobs:
       # Owned GCP Linux for the shipped tree's two musl legs (the tree the NEXT nightly bundles), only
       # when both placed on it; empty keeps their Blacksmith route (tests/test_ci_tui_tree_owned_linux_first.py).
       linux_build_runner: ${{ contains(steps.linux-build-placement.outputs.linux_jobs, ' tree-x86_64-musl ') && contains(steps.linux-build-placement.outputs.linux_jobs, ' tree-aarch64-musl ') && steps.linux-build-placement.outputs.linux_runner || '' }}
+      machine_build_runner: ${{ contains(steps.linux-build-placement.outputs.linux_jobs, ' machine-x86_64-musl ') && contains(steps.linux-build-placement.outputs.linux_jobs, ' machine-aarch64-musl ') && steps.linux-build-placement.outputs.linux_runner || '' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -776,9 +777,13 @@ jobs:
       # those linux vms finally on our end? what about teh gcp ones?"). Both legs or neither take
       # the fleet label, and only runners idle now beyond the label's queue count, so queued
       # nightly jobs on it keep coming first and a leg never queues on a dead pool (#45792). With
-      # an online fleet runner but none free, it waits up to 3 minutes for one; with none online
+      # an online fleet runner but none free, it waits up to 2 minutes for one; with none online
       # (the pool cannot boot VMs) it takes Blacksmith at once. Only trees a nightly or a dev
       # build reads: feat-cmux-next and nightly-next pushes, and dispatches (cmux-tui-tree-request).
+      # The same pick places the Cloud machine channel's thin musl legs (build-linux), the pair after
+      # the tree's: on 2026-11-18 they queued 18-27 min on blacksmith-16vcpu in front of every
+      # merge-to-machine (goals/cloud-fix-to-machine.md). A fleet VM has no sticky disk, so a thin
+      # leg there builds cold (restore and record do nothing without a mounted disk).
       - name: Pick owned Linux for the tree's musl legs
         id: linux-build-placement
         if: >-
@@ -789,13 +794,13 @@ jobs:
         timeout-minutes: 5
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          JOBS: tree-x86_64-musl tree-aarch64-musl
-          LINUX_ONLY: tree-x86_64-musl tree-aarch64-musl
-          LINUX_ALL_OR_NONE: "1"
+          JOBS: tree-x86_64-musl tree-aarch64-musl machine-x86_64-musl machine-aarch64-musl
+          LINUX_ONLY: tree-x86_64-musl tree-aarch64-musl machine-x86_64-musl machine-aarch64-musl
+          LINUX_GROUPS: tree-x86_64-musl,tree-aarch64-musl machine-x86_64-musl,machine-aarch64-musl
           FLEET_LINUX: cmux-fleet-linux-x64
           REQUIRE_LIVE_CAPACITY: "1"
           NIGHTLY_WAIT_FOR_FLEET: "1"
-          NIGHTLY_WAIT_SECONDS: "180"
+          NIGHTLY_WAIT_SECONDS: "120"
           FLEET_WAIT_NEEDS_MEMBER: "1"
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           ROUTE_TOKEN_FALLBACK: ${{ github.token }}
@@ -1277,6 +1282,9 @@ jobs:
       lto: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.lto }}
       artifact_prefix: ${{ fromJSON(needs.tree-preflight.outputs.build_profiles).machine_channel.artifact_prefix }}
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
+      # Owned GCP Linux for the thin musl legs when tree-preflight placed both there, else empty
+      # (their Blacksmith route). A re-run never reuses attempt 1's pick.
+      linux_build_runner: ${{ github.run_attempt == 1 && needs.tree-preflight.outputs.machine_build_runner || '' }}
 
   build:
     if: >-
