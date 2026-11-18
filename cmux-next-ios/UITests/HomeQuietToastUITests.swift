@@ -21,11 +21,17 @@ final class HomeQuietToastUITests: XCTestCase {
                                 "-cmux-mobile-demo", "retry-home-failed"]
         app.launch()
         let choose = app.scrollViews["setup.teams.choose"]
-        if choose.waitForExistence(timeout: 5) { app.buttons.element(boundBy: 0).tap() }
-
         let row = app.buttons["home.row.stress-5"]
+        // Whichever comes first, the team chooser or the kept rows: a fixed wait for the chooser
+        // would let the rows show unseen and start the clock late.
+        let giveUp = Date().addingTimeInterval(30)
+        while !row.exists, !choose.exists, Date() < giveUp {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        if !row.exists, choose.exists { app.buttons.element(boundBy: 0).tap() }
         XCTAssertTrue(row.waitForExistence(timeout: 30), "a kept Home row\n\(app.debugDescription)")
-        // The demo sets the failed read in the same step that shows its kept rows.
+        // The demo sets the failed read in the same step that shows its kept rows: Home stopped
+        // being live when they appeared.
         let shown = Date()
         let toast = app.descendants(matching: .any).matching(NSPredicate(
             format: "label BEGINSWITH %@ OR label BEGINSWITH %@ OR label BEGINSWITH %@ OR label BEGINSWITH %@",
