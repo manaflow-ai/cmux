@@ -45,10 +45,12 @@ import Testing
         #expect(live.banner == .reconnecting(to: "Aziz's MacBook Pro", identity: "m1"))
         live.retryConnection()
         live.phaseChanged(session)
+        // The link's own phase report publishes "back" (that is what sets `macConnection`); read
+        // the banner right then. A second phase report here would clear the old code's flash
+        // before it could be seen (it lasted 1.5 s).
         await rig.settle { store.macConnection["m1"] == .connected }
-        live.phaseChanged(session)
+        #expect(live.banner != .connected, "no \"Connected\" after a reconnect")
         #expect(live.banner == nil, "back: no banner, got \(String(describing: live.banner))")
-        #expect(live.banner != .connected)
     }
 
     /// Detector: this iPhone offline shows "Offline" with no Retry, and once the network is back
