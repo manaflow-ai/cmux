@@ -624,11 +624,12 @@ struct SessionScrollbackCheckpointStoreTests {
             .panels.first?.terminal?.scrollback == "launch A\n")
 
         // Launch B's startup follows A's clean exit.
-        #expect(store.prepareForLaunch(previousLaunchWasUnclean: false))
+        #expect(store.setDirectoryAside(previousLaunchWasUnclean: false) != nil)
+        store.removeDirectoriesSetAside()
         #expect(!FileManager.default.fileExists(atPath: store.directoryURL.path))
 
         // Launch C's startup follows B's crash: nothing from A reaches the restore.
-        #expect(!store.prepareForLaunch(previousLaunchWasUnclean: true))
+        #expect(store.setDirectoryAside(previousLaunchWasUnclean: true) == nil)
         let merged = store.merging(into: crashedAutosave)
         let workspace = try #require(merged.windows.first?.tabManager.workspaces.first)
         #expect(workspace.panels.first?.terminal?.scrollback == nil)
@@ -640,11 +641,12 @@ struct SessionScrollbackCheckpointStoreTests {
         defer { cleanUp(store) }
         let panel = UUID()
         store.apply(.init(captures: [capture(panel, at: 100, "launch A\n")], removals: [], livePanelIds: [panel]))
-        store.prepareForLaunch(previousLaunchWasUnclean: false)
+        store.setDirectoryAside(previousLaunchWasUnclean: false)
+        store.removeDirectoriesSetAside()
 
         // Launch B checkpoints the restored terminal, then crashes.
         store.apply(.init(captures: [capture(panel, at: 260, "launch B\n")], removals: [], livePanelIds: [panel]))
-        #expect(!store.prepareForLaunch(previousLaunchWasUnclean: true))
+        #expect(store.setDirectoryAside(previousLaunchWasUnclean: true) == nil)
 
         let merged = store.merging(into: Self.snapshot(
             createdAt: 270,
@@ -777,7 +779,11 @@ struct SessionScrollbackCheckpointLaunchCleanupTests {
     }
 
     private func cleanUp(_ store: SessionScrollbackCheckpointStore) {
-        try? FileManager.default.removeItem(at: store.directoryURL.deletingLastPathComponent())
+        // Delete only the fixture's UUID-scoped directory; if the store's
+        // directory layout ever drifts, skip rather than risk $TMPDIR.
+        let root = store.directoryURL.deletingLastPathComponent()
+        guard root.lastPathComponent.hasPrefix("cmux-scrollback-launch-cleanup-tests-") else { return }
+        try? FileManager.default.removeItem(at: root)
     }
 
     private func seedFile(_ store: SessionScrollbackCheckpointStore, panelId: UUID) {
@@ -793,11 +799,15 @@ struct SessionScrollbackCheckpointLaunchCleanupTests {
         ))
     }
 
-    private func asideDirNames(_ store: SessionScrollbackCheckpointStore) -> [String] {
+    /// An absent parent is an honest empty; a listing failure must not pass
+    /// as "no asides left" — a sweep that deleted the whole parent would
+    /// otherwise green itself.
+    private func asideDirNames(_ store: SessionScrollbackCheckpointStore) throws -> [String] {
         let parent = store.directoryURL.deletingLastPathComponent()
+        guard FileManager.default.fileExists(atPath: parent.path) else { return [] }
         let prefix = store.directoryURL.lastPathComponent + ".invalidated-"
-        return (try? FileManager.default.contentsOfDirectory(atPath: parent.path))?
-            .filter { $0.hasPrefix(prefix) } ?? []
+        return try FileManager.default.contentsOfDirectory(atPath: parent.path)
+            .filter { $0.hasPrefix(prefix) }
     }
 
     /// The launch cleanup must invalidate durably on the caller and leave the
@@ -807,7 +817,7 @@ struct SessionScrollbackCheckpointLaunchCleanupTests {
     /// implementation that deletes on the caller leaves no aside behind, and
     /// one that only enqueues the delete leaves the files reachable through
     /// the next unclean restore.
-    @Test func runInvalidatesOnCallerAndDeletesOnTheCheckpointQueue() {
+    @Test func runInvalidatesOnCallerAndDeletesOnTheCheckpointQueue() throws {
         let (cleanup, store, queue) = makeCleanup()
         defer { cleanUp(store) }
         seedFile(store, panelId: UUID())
@@ -816,81 +826,198 @@ struct SessionScrollbackCheckpointLaunchCleanupTests {
         queue.async { gate.wait() }
         let returned = DispatchSemaphore(value: 0)
         Thread.detachNewThread {
-            cleanup.run()
+            cleanup.run(discardCheckpoints: true)
             returned.signal()
         }
         let returnedPromptly = returned.wait(timeout: .now() + 5) == .success
-        let dirUnreachable = !FileManager.default.fileExists(atPath: store.directoryURL.path)
-        let deletionStillQueued = !asideDirNames(store).isEmpty
+        // Read the pre-drain state inside a Result: a listing failure must not
+        // skip the gate release and leave the queue parked under teardown.
+        let preDrain = Result {
+            try (
+                unreachable: !FileManager.default.fileExists(atPath: store.directoryURL.path),
+                asideStillQueued: !asideDirNames(store).isEmpty
+            )
+        }
         gate.signal()
+        // Join only a caller that hadn't returned — an already-consumed signal
+        // has nothing left to wait on and would just burn the timeout.
+        let callerJoined = returnedPromptly || returned.wait(timeout: .now() + 5) == .success
         queue.sync {}
 
         #expect(returnedPromptly)
-        #expect(dirUnreachable)
-        #expect(deletionStillQueued)
-        #expect(asideDirNames(store).isEmpty)
+        #expect(callerJoined)
+        let preDrainState = try preDrain.get()
+        #expect(preDrainState.unreachable)
+        #expect(preDrainState.asideStillQueued)
+        #expect(try asideDirNames(store).isEmpty)
     }
 
     /// The sweep only ever touches `.invalidated-*` siblings, so a checkpoint
-    /// written between `run` and the drain survives: ordering against this
-    /// launch's own writes no longer matters.
+    /// that lands between `run` and the drain survives: the gate holds the
+    /// sweep while the write happens, so a canonical-deleting sweep would
+    /// remove the file the assertion reads.
     @Test func sweepNeverTouchesThisLaunchsWrites() {
         let (cleanup, store, queue) = makeCleanup()
         defer { cleanUp(store) }
         seedFile(store, panelId: UUID())
         let live = UUID()
 
-        cleanup.run()
-        queue.async {
-            store.apply(.init(
-                captures: [SessionScrollbackCheckpointCapture(
-                    panelId: live,
-                    surfaceId: live,
-                    capturedAt: 2,
-                    finish: { "new" }
-                )],
-                removals: [],
-                livePanelIds: nil
-            ))
+        let gate = DispatchSemaphore(value: 0)
+        queue.async { gate.wait() }
+        // Detached so a blocking `run` fails on the return instead of
+        // deadlocking the test thread on the gate.
+        let ran = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            cleanup.run(discardCheckpoints: true)
+            ran.signal()
         }
+        let runReturned = ran.wait(timeout: .now() + 5) == .success
+        store.apply(.init(
+            captures: [SessionScrollbackCheckpointCapture(
+                panelId: live,
+                surfaceId: live,
+                capturedAt: 2,
+                finish: { "new" }
+            )],
+            removals: [],
+            livePanelIds: nil
+        ))
+        gate.signal()
+        let runJoined = runReturned || ran.wait(timeout: .now() + 5) == .success
         queue.sync {}
 
+        #expect(runReturned)
+        #expect(runJoined)
         #expect(store.loadRecords(panelIds: [live])[live]?.scrollback == "new")
     }
 
     /// Asides a crashed launch left behind — renamed but never swept — are
     /// reclaimed by the next cleanup.
-    @Test func sweepReclaimsAsidesFromEarlierLaunches() {
+    @Test func sweepReclaimsAsidesFromEarlierLaunches() throws {
         let (cleanup, store, queue) = makeCleanup()
         defer { cleanUp(store) }
         seedFile(store, panelId: UUID())
         let parent = store.directoryURL.deletingLastPathComponent()
-        for suffix in ["invalidated-older", "invalidated-oldest"] {
-            try? FileManager.default.moveItem(
+        for _ in 0..<2 {
+            try FileManager.default.moveItem(
                 at: store.directoryURL,
                 to: parent.appendingPathComponent(
-                    "\(store.directoryURL.lastPathComponent).\(suffix)",
+                    "\(store.directoryURL.lastPathComponent).invalidated-\(UUID().uuidString)",
                     isDirectory: true
                 )
             )
             seedFile(store, panelId: UUID())
         }
+        // Pin the fixtures exist or the final sweep assertions are vacuous.
+        #expect(try asideDirNames(store).count == 2)
 
-        cleanup.run()
+        cleanup.run(discardCheckpoints: true)
         queue.sync {}
 
-        #expect(asideDirNames(store).isEmpty)
+        #expect(try asideDirNames(store).isEmpty)
         #expect(!FileManager.default.fileExists(atPath: store.directoryURL.path))
     }
 
-    @Test func runWithNoCheckpointDirectoryIsANoOp() {
+    /// After an unclean launch the checkpoints belong to the launch that
+    /// crashed and stay for `merging(into:)`: the directory must survive
+    /// `setDirectoryAside` untouched, not merely return nil because nothing
+    /// was there to rename.
+    @Test func uncleanLaunchKeepsTheCheckpointDirectory() throws {
+        let (_, store, _) = makeCleanup()
+        defer { cleanUp(store) }
+        let panel = UUID()
+        seedFile(store, panelId: panel)
+
+        #expect(store.setDirectoryAside(previousLaunchWasUnclean: true) == nil)
+        #expect(FileManager.default.fileExists(atPath: store.directoryURL.path))
+        #expect(store.loadRecords(panelIds: [panel])[panel]?.scrollback == "output")
+        #expect(try asideDirNames(store).isEmpty)
+    }
+
+    /// The sweep runs on every launch, including unclean ones: the checkpoint
+    /// directory stays for `merging(into:)` while asides from earlier crashed
+    /// launches still get reclaimed — a crash loop cannot pile them up.
+    @Test func uncleanLaunchSweepsAsidesButKeepsCheckpoints() throws {
+        let (cleanup, store, queue) = makeCleanup()
+        defer { cleanUp(store) }
+        seedFile(store, panelId: UUID())
+        try FileManager.default.moveItem(
+            at: store.directoryURL,
+            to: store.directoryURL.deletingLastPathComponent().appendingPathComponent(
+                "\(store.directoryURL.lastPathComponent).invalidated-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        )
+        #expect(try asideDirNames(store).count == 1)
+        let kept = UUID()
+        seedFile(store, panelId: kept)
+
+        cleanup.run(discardCheckpoints: false)
+        queue.sync {}
+
+        #expect(FileManager.default.fileExists(atPath: store.directoryURL.path))
+        #expect(store.loadRecords(panelIds: [kept])[kept]?.scrollback == "output")
+        #expect(try asideDirNames(store).isEmpty)
+    }
+
+    /// A same-prefix directory that isn't an aside — the UUID suffix check —
+    /// belongs to someone else and must survive every sweep.
+    @Test func sweepLeavesNonUUIDSamePrefixDirectoriesAlone() throws {
+        let (cleanup, store, queue) = makeCleanup()
+        defer { cleanUp(store) }
+        seedFile(store, panelId: UUID())
+        // A real UUID-suffixed aside must sit next to the foreign dir — without
+        // it the test would pass whether or not the sweep ever ran.
+        let priorAside = store.directoryURL.deletingLastPathComponent().appendingPathComponent(
+            "\(store.directoryURL.lastPathComponent).invalidated-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.moveItem(at: store.directoryURL, to: priorAside)
+        let foreign = store.directoryURL.deletingLastPathComponent().appendingPathComponent(
+            "\(store.directoryURL.lastPathComponent).invalidated-notauuid",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: foreign, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: foreign) }
+        #expect(try asideDirNames(store).count == 2)
+
+        cleanup.run(discardCheckpoints: true)
+        queue.sync {}
+
+        // `asideDirNames` filters on the prefix alone, so the foreign dir is
+        // the one entry left standing — the real aside was swept.
+        #expect(FileManager.default.fileExists(atPath: foreign.path))
+        #expect(try asideDirNames(store) == [foreign.lastPathComponent])
+    }
+
+    @Test func runWithNoCheckpointDirectoryIsANoOp() throws {
         let (cleanup, store, queue) = makeCleanup()
         defer { cleanUp(store) }
 
-        cleanup.run()
+        cleanup.run(discardCheckpoints: true)
         queue.sync {}
 
         #expect(!FileManager.default.fileExists(atPath: store.directoryURL.path))
-        #expect(asideDirNames(store).isEmpty)
+        #expect(try asideDirNames(store).isEmpty)
+    }
+
+    /// The production discard decision — checkpoints feed `merging(into:)`
+    /// only on an unclean launch with restore enabled; every other launch
+    /// invalidates them.
+    @Test func launchDecisionKeepsCheckpointsOnlyForUncleanRestoreEnabledLaunch() {
+        #expect(!AppDelegate.shouldDiscardSessionScrollbackCheckpoints(
+            previousLaunchWasUnclean: true, environment: [:]
+        ))
+        #expect(AppDelegate.shouldDiscardSessionScrollbackCheckpoints(
+            previousLaunchWasUnclean: true,
+            environment: ["CMUX_DISABLE_SESSION_RESTORE": "1"]
+        ))
+        #expect(AppDelegate.shouldDiscardSessionScrollbackCheckpoints(
+            previousLaunchWasUnclean: false, environment: [:]
+        ))
+        #expect(AppDelegate.shouldDiscardSessionScrollbackCheckpoints(
+            previousLaunchWasUnclean: false,
+            environment: ["CMUX_DISABLE_SESSION_RESTORE": "1"]
+        ))
     }
 }

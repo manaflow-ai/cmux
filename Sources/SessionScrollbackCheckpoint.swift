@@ -237,6 +237,11 @@ struct SessionScrollbackCheckpointWriteBatch: Sendable {
     var livePanelIds: Set<UUID>?
 }
 
+private nonisolated let sessionScrollbackCheckpointLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "SessionScrollbackCheckpoint"
+)
+
 /// One JSON file per terminal next to the primary session snapshot.
 struct SessionScrollbackCheckpointStore: Sendable {
     let directoryURL: URL
@@ -338,12 +343,55 @@ struct SessionScrollbackCheckpointStore: Sendable {
     /// panel ids, so a record left behind would match the same terminal in this
     /// launch's 8 s autosave. If this launch crashed before its first checkpoint
     /// pruned or rewrote it, the next restore would replay the older launch's
-    /// scrollback over what the clean exit saved. Returns whether they were deleted.
+    /// scrollback over what the clean exit saved.
+    ///
+    /// The invalidation is one metadata rename on the caller: the directory is
+    /// moved aside, so `fileURL(panelId:)` and `loadRecords` can no longer
+    /// reach its files — a crash before the queue-side sweep cannot leave
+    /// them for the next unclean restore to merge. A failed rename falls back
+    /// to the old synchronous delete so the invariant holds even on error.
+    /// Returns the aside's URL (the sweep reclaims it by name, not by this
+    /// handle), or nil whenever nothing was set aside — the previous launch
+    /// was unclean, no directory existed, or the rename failed, in which case
+    /// the stale files may still be reachable.
     @discardableResult
-    func prepareForLaunch(previousLaunchWasUnclean: Bool, fileManager: FileManager = .default) -> Bool {
-        guard !previousLaunchWasUnclean else { return false }
-        try? fileManager.removeItem(at: directoryURL)
-        return true
+    func setDirectoryAside(previousLaunchWasUnclean: Bool, fileManager: FileManager = .default) -> URL? {
+        guard !previousLaunchWasUnclean else { return nil }
+        let aside = directoryURL.appendingPathExtension("invalidated-\(UUID().uuidString)")
+        guard (try? fileManager.moveItem(at: directoryURL, to: aside)) != nil else {
+            // Renaming failed: the stale files are still reachable, so keep
+            // the old delete — rare, and correct beats fast here.
+            try? fileManager.removeItem(at: directoryURL)
+            if fileManager.fileExists(atPath: directoryURL.path) {
+                sessionScrollbackCheckpointLogger.error(
+                    "scrollback checkpoint directory could not be invalidated or deleted"
+                )
+            }
+            return nil
+        }
+        return aside
+    }
+
+    /// Deletes every checkpoint directory a launch set aside — the one `run`
+    /// just renamed and any a crash left behind before its sweep ran. Only
+    /// `<dirname>.invalidated-<uuid>` siblings are touched, never
+    /// `directoryURL` itself and never a same-prefix directory some other
+    /// store wrote: this launch's own writes are safe whenever the sweep
+    /// executes.
+    func removeDirectoriesSetAside(fileManager: FileManager = .default) {
+        let parent = directoryURL.deletingLastPathComponent()
+        let asidePrefix = directoryURL.lastPathComponent + ".invalidated-"
+        guard fileManager.fileExists(atPath: parent.path) else { return }
+        guard let names = try? fileManager.contentsOfDirectory(atPath: parent.path) else {
+            sessionScrollbackCheckpointLogger.error(
+                "scrollback checkpoint aside sweep could not list the checkpoint parent"
+            )
+            return
+        }
+        for name in names where name.hasPrefix(asidePrefix)
+            && UUID(uuidString: String(name.dropFirst(asidePrefix.count))) != nil {
+            try? fileManager.removeItem(at: parent.appendingPathComponent(name, isDirectory: true))
+        }
     }
 
     func loadRecords(panelIds: Set<UUID>) -> [UUID: SessionScrollbackCheckpointRecord] {
@@ -371,18 +419,36 @@ struct SessionScrollbackCheckpointStore: Sendable {
     }
 }
 
-/// Runs the launch-time stale-checkpoint delete.
+/// Runs the launch-time stale-checkpoint cleanup.
 ///
-/// Extracted from `prepareSessionScrollbackCheckpointsForLaunch` so which
-/// thread the directory delete runs on is a testable decision: the caller is
-/// on the main actor during startup snapshot preparation, where `removeItem`
-/// walking the checkpoint directory is a launch-time stall.
+/// `run` renames the checkpoint directory aside on the caller — one metadata
+/// operation during startup snapshot preparation — so its files are already
+/// unreachable to `loadRecords` when it returns: a crash before the queue
+/// drains cannot leave them for the next unclean restore to merge. The
+/// queued sweep only deletes `*.invalidated-*` siblings, never the directory
+/// this launch writes into, so it needs no ordering against the coordinator's
+/// batches. The directory-walking delete no longer runs on the main actor —
+/// that wait surfaced as a launch-time stall of the same class the watchdog
+/// samples showed for `persist`
+/// (https://github.com/manaflow-ai/cmux/issues/46042).
 struct SessionScrollbackCheckpointLaunchCleanup: Sendable {
     let store: SessionScrollbackCheckpointStore
     let queue: DispatchQueue
 
-    func run() {
-        store.prepareForLaunch(previousLaunchWasUnclean: false)
+    /// The sweep runs on every launch — asides a crashed launch left behind
+    /// are never merge inputs, so reclaiming them on an unclean launch is
+    /// safe and keeps crash loops from accumulating them. `discardCheckpoints`
+    /// gates only the invalidation itself:
+    /// `prepareSessionScrollbackCheckpointsForLaunch` passes false when the
+    /// previous launch exited uncleanly with restore enabled, where the
+    /// checkpoints still feed `merging(into:)`.
+    func run(discardCheckpoints: Bool) {
+        if discardCheckpoints {
+            store.setDirectoryAside(previousLaunchWasUnclean: false)
+        }
+        queue.async {
+            store.removeDirectoriesSetAside()
+        }
     }
 }
 

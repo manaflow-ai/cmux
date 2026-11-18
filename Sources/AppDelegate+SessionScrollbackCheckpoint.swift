@@ -11,18 +11,40 @@ extension AppDelegate {
     }
 
     /// Drops the previous launch's checkpoints unless it exited uncleanly; see
-    /// `SessionScrollbackCheckpointStore.prepareForLaunch`.
+    /// `SessionScrollbackCheckpointStore.setDirectoryAside`. The stale files
+    /// are invalidated on the caller and deleted on the checkpoint queue, so
+    /// this startup call normally waits only on one rename — a failed rename
+    /// still pays the old synchronous delete, by design. The aside sweep runs
+    /// on every launch to reclaim whatever a crashed launch left behind.
     func prepareSessionScrollbackCheckpointsForLaunch(
         previousLaunchWasUnclean: Bool,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
         guard !SessionRestorePolicy.isRunningUnderAutomatedTests(environment: environment) else { return }
-        guard environment["CMUX_DISABLE_SESSION_RESTORE"] == "1" || !previousLaunchWasUnclean else { return }
         guard let store = sessionScrollbackCheckpointStore() else { return }
+        // The aside sweep runs on every launch — an unclean one may still be
+        // reclaiming crash leftovers — while only a clean exit or disabled
+        // restore marks the checkpoint directory itself stale.
         SessionScrollbackCheckpointLaunchCleanup(
             store: store,
             queue: sessionScrollbackCheckpointQueue
-        ).run()
+        ).run(
+            discardCheckpoints: Self.shouldDiscardSessionScrollbackCheckpoints(
+                previousLaunchWasUnclean: previousLaunchWasUnclean,
+                environment: environment
+            )
+        )
+    }
+
+    /// Checkpoints only survive to feed `merging(into:)` when the previous
+    /// launch ended uncleanly AND restore is still enabled; a clean exit or
+    /// `CMUX_DISABLE_SESSION_RESTORE=1` makes them stale. `nonisolated` so
+    /// tests and future callers need no main-actor hop for a pure decision.
+    nonisolated static func shouldDiscardSessionScrollbackCheckpoints(
+        previousLaunchWasUnclean: Bool,
+        environment: [String: String]
+    ) -> Bool {
+        environment["CMUX_DISABLE_SESSION_RESTORE"] == "1" || !previousLaunchWasUnclean
     }
 
     func startSessionScrollbackCheckpointsIfNeeded(environment: [String: String]) {
