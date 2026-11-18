@@ -78,7 +78,12 @@ import Testing
         try #require(h.clip.bounds.height > 0 && h.clip.bounds.height < h.region.frame.height,
                      "the band does not scroll: clip \(h.clip.bounds.height), content \(h.region.frame.height)")
         let bound = h.bound
-        print("band-windowing n=\(count) mounted=\(h.region.itemViews.count) bound=\(bound) clip=\(h.clip.bounds.height)")
+        // The band as it was: the same content in a region with no item window, which gives every item a view.
+        _ = Self.counts()
+        let eager = SidebarRegionView(region: .top)
+        eager.update(try #require(h.region.content), width: h.region.bounds.width)
+        print("band-windowing n=\(count) mounted=\(h.region.itemViews.count) bound=\(bound) clip=\(h.clip.bounds.height) "
+              + "unwindowed=\(eager.itemViews.count) unwindowedMade=\(Self.counts().made)")
         #expect(h.region.itemViews.count <= bound, "\(h.region.itemViews.count) item views for \(count) items (bound \(bound))")
 
         // One changed item configures its view alone.
