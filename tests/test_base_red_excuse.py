@@ -6965,6 +6965,51 @@ class GitHubQuotaJobRed(unittest.TestCase):
                          "run 10; job 12345; no attempt before " + re.search(r"no attempt before (\d{2}:\d{2}Z)", live_error).group(1))
 
 
+class ArtifactDropQuotaJobRed(unittest.TestCase):
+    """The artifact drop's run-artifact listing can fail before the prune script catches its quota refusal."""
+
+    NAME = "drop this run's build artifacts"
+    STEP = "Delete this run's build artifacts"
+    TRACEBACK = (
+        "Traceback (most recent call last):",
+        '  File "scripts/ci/actions_artifact_prune.py", line 1, in <module>',
+        "urllib.error.HTTPError: HTTP Error 403: Forbidden",
+        '    raise SlowDown(f"{method} {path}: HTTP {error.code}") from error',
+        "SlowDown: GET /actions/runs/44070560262/artifacts: HTTP 403",
+    )
+    EXIT = "##[error]Process completed with exit code 1."
+
+    def judge(self, *lines):
+        github = FakeGitHub()
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        github.logs[1] = log(self.NAME, self.STEP, *lines)
+        github.jobs[2] = dict(github.jobs[2], conclusion="success",
+                              steps=[dict(step, conclusion="success") for step in github.jobs[2]["steps"]])
+        github.logs[2] = log(self.NAME, self.STEP, "drop completed")
+        with self.assertRaises(excuse.JobRateLimited) as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        return str(caught.exception)
+
+    def test_slowdown_traceback_is_a_typed_retryable_refusal(self):
+        self.assertIn("SlowDown: GET /actions/runs/44070560262/artifacts: HTTP 403",
+                      self.judge(*self.TRACEBACK, self.EXIT))
+
+    def test_http_429_slowdown_is_also_a_typed_retryable_refusal(self):
+        lines = (*self.TRACEBACK[:-1], "SlowDown: GET /actions/runs/44070560262/artifacts: HTTP 429")
+        self.assertIn("HTTP 429", self.judge(*lines, self.EXIT))
+
+    def test_non_limit_traceback_is_not_quota_only(self):
+        lines = (*self.TRACEBACK[:-1], "urllib.error.HTTPError: HTTP Error 404: Not Found")
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(*lines, self.EXIT)
+        self.assertNotIsInstance(caught.exception, excuse.JobRateLimited)
+
+    def test_another_error_annotation_is_not_quota_only(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(*self.TRACEBACK, "##[error]unexpected artifact mismatch", self.EXIT)
+        self.assertNotIsInstance(caught.exception, excuse.JobRateLimited)
+
+
 class RetargetedGitHub(FakeGitHub):
     """cmux#44908 at e19e1487: opened into feat-cmux-next, retargeted to main at 01:05Z. Its 'defaults guard' job 1
     ran at 00:40Z in pull_request_target run 10 under the old base and failed; main has no run of its workflow with a
@@ -11001,6 +11046,7 @@ RAW_LOG_READERS = {
     "generated_no_verdict": "a gate: only refuses",
     "agent_api_unavailable": "a gate: the agent pass's one marker line, read for its zero-usage evidence; compares "
                              "nothing",
+    "artifact_drop_quota_only": "a gate: parses the artifact drop's one traceback quota refusal; only refuses",
     "tree_handoff_quota_only": "a gate: parses the published-tree hand-off's one quota annotation; only refuses",
     "guard_red_steps": "a parser of the guard group's own verdict lines (guard_group: the head's from its failed_view)",
     "gallery_replay_crash": "the gallery health gate; the verdict compares gallery artifacts (gallery_classify)",
@@ -14629,6 +14675,7 @@ SCANNERS = {
     "base_red_excuse.github_quota_only": lambda f: (excuse.github_quota_only(f.view),
                                                    excuse.github_quota_only(f.base_view)),
     "base_red_excuse.tree_handoff_quota_only": lambda f: excuse.tree_handoff_quota_only(f.job, f.log),
+    "base_red_excuse.artifact_drop_quota_only": lambda f: excuse.artifact_drop_quota_only(f.job, f.log),
     "base_red_excuse.ws_check_step": lambda f: excuse.ws_check_step(
         [*f.lines[:-1], "##[group]Tests", *f.lines[-1:]], len(f.lines), "Tests"),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),

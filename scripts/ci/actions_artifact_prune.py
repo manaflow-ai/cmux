@@ -64,6 +64,11 @@ class SlowDown(Exception):
 def rules() -> dict[str, int]:
     """Artifact name -> days it may live."""
     names = {f"cmux-tui-{t}": BUILD_DAYS for t in TARGETS + ("x86_64-pc-windows-gnu",)}
+    linux = ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
+    darwin = ("x86_64-apple-darwin", "aarch64-apple-darwin")
+    names.update({f"machine-channel-cmux-tui-{t}": BUILD_DAYS for t in linux})
+    names.update({f"cmux-tui-dsyms-{t}": BUILD_DAYS for t in darwin})
+    names["cmux-tui-acpmux-x86_64-pc-windows-gnu"] = BUILD_DAYS
     for family in ("cmux-relay", "chatmux-relay", "cmux-agent-screen-detection"):
         names.update({f"{family}-{t}": BUILD_DAYS for t in TARGETS})
     names.update({"npm-packages": BUILD_DAYS, "pypi-wheels": BUILD_DAYS})
@@ -222,11 +227,19 @@ def prune_name(api, name, cutoff, now, since, protected, row, summary, *, delete
 def drop_run(api, run_id: int, *, delete: bool) -> dict:
     """Delete one run's own large build outputs, largest first; every other name stays."""
     names = run_drop_names()
-    mine = [a for a in api.run_artifacts(run_id)
+    summary = {"run": run_id, "candidates": 0, "deleted": 0, "deleted_bytes": 0,
+               "candidate_bytes": 0, "capped": False}
+    try:
+        artifacts = api.run_artifacts(run_id)
+    except SlowDown as error:
+        print(f"stopping: {error}", file=sys.stderr)
+        summary["capped"] = True
+        return summary
+    mine = [a for a in artifacts
             if a.get("name") in names and not a.get("expired")
             and (a.get("workflow_run") or {}).get("id", run_id) == run_id]
-    summary = {"run": run_id, "candidates": len(mine), "deleted": 0, "deleted_bytes": 0,
-               "candidate_bytes": sum(int(a.get("size_in_bytes") or 0) for a in mine), "capped": False}
+    summary["candidates"] = len(mine)
+    summary["candidate_bytes"] = sum(int(a.get("size_in_bytes") or 0) for a in mine)
     for artifact in sorted(mine, key=lambda a: -int(a.get("size_in_bytes") or 0)):
         if not delete:
             continue
@@ -277,9 +290,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.run_id:
         summary = drop_run(api, args.run_id, delete=args.delete)
         gib = summary["deleted_bytes" if args.delete else "candidate_bytes"] / 1024 ** 3
+        stopped = ""
+        if summary["capped"]:
+            stopped = ("; stopped on the API limit; nothing was deleted"
+                       if summary["deleted"] == 0 else
+                       f"; stopped on the API limit after deleting {summary['deleted']} artifacts")
         print(f"run {args.run_id}: {'deleted' if args.delete else 'would delete'} "
               f"{summary['deleted'] if args.delete else summary['candidates']} of {summary['candidates']} "
-              f"build artifacts, {gib:.2f} GiB" + ("; stopped on the API limit" if summary["capped"] else ""))
+              f"build artifacts, {gib:.2f} GiB" + stopped)
         print(f"API calls: {api.calls}")
         return 0
     summary = prune(api, dt.datetime.now(dt.timezone.utc), delete=args.delete, max_deletes=args.max_deletes)

@@ -6101,6 +6101,14 @@ RERUN_ASK = re.compile(r"\bre-run this check(?:[.;]|$)", re.I)
 # error line beside it, or a failing test, keeps the comparison.
 GITHUB_QUOTA = re.compile(r"\bAPI rate limit exceeded\b|\bsecondary rate limit\b", re.I)
 
+# The artifact drop job uses the prune script's typed refusal.  A refusal while listing a run's artifacts is
+# printed by Python's traceback as ``SlowDown: GET /actions/runs/<id>/artifacts: HTTP 403`` rather than as a GitHub
+# API error annotation, so it cannot reach github_quota_only's normalised error lines.
+ARTIFACT_DROP_JOB = "drop this run's build artifacts"
+ARTIFACT_DROP_STEP = "Delete this run's build artifacts"
+ARTIFACT_DROP_SLOWDOWN = re.compile(
+    r"^SlowDown: (?:GET|POST|PUT|PATCH|DELETE) /actions/runs/\d+/artifacts: HTTP (?:403|429)$")
+
 # The published-tree hand-off re-runs other commits' runs. Its own quota-only failure is a retryable gate state,
 # not a red in the pull request. The hand-off emits this live annotation without installation or request IDs.
 TREE_HANDOFF_JOB = "re-run the runs that deferred to the published tree"
@@ -6113,6 +6121,23 @@ TREE_HANDOFF_QUOTA = re.compile(
 
 class JobRateLimited(Refused):
     """A failed CI job reported only its own GitHub API quota refusal."""
+
+
+def artifact_drop_quota_only(job: dict, log: str) -> str | None:
+    """The artifact drop job's uncaught run-artifact listing refusal, or None for any other red."""
+    failed = [str(step.get("name") or "") for step in job.get("steps") or []  # step-name: classify
+              if step.get("conclusion") == "failure"]
+    if job.get("name") != ARTIFACT_DROP_JOB or failed != [ARTIFACT_DROP_STEP]:
+        return None
+    matches = [line.strip() for line in lines_of(log) if ARTIFACT_DROP_SLOWDOWN.fullmatch(line.strip())]
+    if len(matches) != 1:
+        return None
+    # A second explicit error means this job did more than report its API-limit refusal. The runner's generic exit
+    # annotation is expected for both the typed refusal and every ordinary script failure.
+    if any(line.startswith("##[error]") and not line.startswith("##[error]Process completed with exit code")
+           for line in lines_of(log)):
+        return None
+    return matches[0]
 
 
 def github_quota_only(view: "FailedView | Unplaced") -> str | None:
@@ -7455,6 +7480,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     names = job_step_names(repo, job, github, run_reads)
     if refused_at_setup(job, head_log):
         raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+    if name == ARTIFACT_DROP_JOB and (said := artifact_drop_quota_only(job, head_log)) is not None:
+        raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job")
     if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
         raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job "
                              "after that boundary")
