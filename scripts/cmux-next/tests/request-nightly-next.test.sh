@@ -734,6 +734,36 @@ branch "$(git -C "$src" rev-parse HEAD)"
 git_q -C "$src" checkout -q --detach "$pending"
 request --tree-ready "$pending"
 ! dispatched "$pending" || fail "only the feat-cmux-next tip is requested before its tree:" "$out"
+# A tip whose tree build is queued and unstarted is not cut before its tree: the newest
+# commit newer than the feed with a published tree is (2026-11-18: three cuts in a row
+# waited the nightly's 45 minutes on queued trees and failed). "<active> <in progress>".
+git_q -C "$src" tag -f nightly-next "$app"
+git_q -C "$src" checkout -q --detach "$pending"
+echo six > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui six, published"
+ready=$(git -C "$src" rev-parse HEAD)
+publish "$ready"
+echo seven > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui seven, queued"
+queued=$(git -C "$src" rev-parse HEAD)
+branch "$queued"
+echo "1 0" > "$TMP/gh-runs"
+request --tree-ready "$queued"
+[[ "$status" == 0 ]] && dispatched "$ready" && ! dispatched "$queued" \
+  || fail "a queued tip must yield the cut to the newest published commit since the feed:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "cutting ${ready:0:12} for the queued tip" <<<"$out" || fail "the cut must say why:" "$out"
+TREE_YIELD_SUPERSEDED=0 request --tree-ready "$queued"
+[[ "$status" == 0 ]] && dispatched "$queued" && ! dispatched "$ready" || fail "TREE_YIELD_SUPERSEDED=0 must cut the tip as before:" "$out"
+echo "1 1" > "$TMP/gh-runs"
+request --tree-ready "$queued"
+[[ "$status" == 0 ]] && dispatched "$queued" && ! dispatched "$ready" || fail "a tip whose tree build started is cut:" "$out"
+echo "1 0" > "$TMP/gh-runs"
+git_q -C "$src" tag -f nightly-next "$ready"
+request --tree-ready "$queued"
+[[ "$status" == 0 ]] && dispatched "$queued" || fail "with no published commit newer than the feed the tip is cut:" "$out"
+git_q -C "$src" tag -f nightly-next "$app"
+rm -rf "$cdn/tree/$(key "$ready")"
+request --tree-ready "$queued"
+[[ "$status" == 0 ]] && dispatched "$queued" && ! dispatched "$ready" || fail "an unpublished candidate is never cut:" "$out"
+git_q -C "$src" tag -d nightly-next
 rm -f "$TMP/gh-runs"
 git_q -C "$src" checkout -q --detach "$head"
 
