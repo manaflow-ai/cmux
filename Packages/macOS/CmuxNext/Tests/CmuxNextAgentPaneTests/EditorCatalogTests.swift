@@ -35,12 +35,32 @@ struct EditorCatalogTests {
         return WindowRules.EditorPick(default: ordered.first, ordered: ordered)
     }
 
-    private func catalog(_ apps: FakeApplications, configured: String? = nil, clock: @escaping () -> Date = { Date(timeIntervalSince1970: 0) },
-                         picks: Picks? = nil) -> EditorCatalog {
-        EditorCatalog(applications: apps, configured: { configured }, table: { Self.table }, pick: { installed, configured in
+    private func catalog(_ apps: FakeApplications, configured: String? = nil, textEditor: String? = nil,
+                         clock: @escaping () -> Date = { Date(timeIntervalSince1970: 0) }, picks: Picks? = nil) -> EditorCatalog {
+        EditorCatalog(applications: apps, configured: { configured }, textEditor: { textEditor }, table: { Self.table }, pick: { installed, configured in
             picks?.calls.append((configured, installed))
             return Self.pick(installed, configured)
         }, now: clock)
+    }
+
+    /// One editor setting for people: under `auto`, a Text Editor (`files.textEditor`) that names an editor of the
+    /// table, by name, bundle id or app path, is the default; `editor.default` set to an editor wins.
+    @Test func aTextEditorOfTheTablePicksTheDefaultUnderAuto() {
+        let apps = FakeApplications(["com.microsoft.VSCode": Self.insiders, "dev.zed.Zed": Self.zedPreview])
+        for named in ["Zed", "dev.zed.Zed", "/Applications/Zed.app", "zed"] {
+            #expect(catalog(apps, textEditor: named).detected().default?.id == "zed", "\(named)")
+        }
+        #expect(catalog(apps, textEditor: "/Applications/Visual Studio Code.app").detected().default?.id == "vscode")
+        #expect(catalog(apps, textEditor: "TextEdit").detected().default?.id == "vscode", "not an editor of the table: the pick's order")
+        #expect(catalog(apps, textEditor: "").detected().default?.id == "vscode")
+        #expect(catalog(apps, configured: "vscode", textEditor: "Zed").detected().default?.id == "vscode")
+    }
+
+    /// The page's `file.open where: editor` app with no Text Editor set: `editor.default`'s editor, else the fallback.
+    @Test func fileOpenUsesTheDefaultEditorWithNoTextEditor() {
+        let apps = FakeApplications(["dev.zed.Zed": Self.zedPreview])
+        #expect(CatalogEditorApps(catalog: catalog(apps), textEditor: { nil }).application() == Self.zedPreview)
+        #expect(CatalogEditorApps(catalog: catalog(apps), textEditor: { "" }).application() == Self.zedPreview)
     }
 
     @Test func anEditorIsInstalledWhenAnyOfItsBundleIDsResolves() {

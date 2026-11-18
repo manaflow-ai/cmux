@@ -1734,7 +1734,7 @@
           },
           "help": {
             "key": "settings.editor.default.help",
-            "text": "The app Open in Editor opens a folder or file in. One not installed uses the first editor found."
+            "text": "The app Open in Editor opens a folder or file in; Text Editor, when set, opens files and picks it here. One not installed uses the first editor found."
           },
           "kind": "choice",
           "swift_owner": "EditorDefaultSetting",
@@ -1881,7 +1881,7 @@
           },
           "help": {
             "key": "settings.files.textEditor.help",
-            "text": "An app name, bundle ID or app path. Empty uses your source code app."
+            "text": "An app name, bundle ID or app path. Empty uses Open in Editor's app, else your source code app."
           },
           "kind": "text",
           "swift_owner": "TextEditorSetting",
