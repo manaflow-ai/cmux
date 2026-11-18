@@ -606,25 +606,35 @@ mod tests {
         assert!(!super::explains("Claude is not signed in here. Not logged in"));
     }
 
-    /// A Cloud machine's sign-in failure points at its model route (an account or a gateway), never
-    /// at a terminal, a shell file or a login copied from the Mac.
+    /// A Cloud machine's sign-in failure tells the person what to do: Cloud chats run on their own
+    /// model connection, sent from the Mac with the chat's start (cmux#40159), so the fix is a Claude
+    /// connection for Cloud in Settings > Models. Never a terminal, a shell file, a login copied from
+    /// the Mac, a machine route or a new machine.
     #[test]
-    fn a_cloud_machine_points_at_its_model_route() {
+    fn a_cloud_machine_points_at_settings_models() {
         let none = super::Found {
             home: dirs::home_dir().unwrap_or_default().join(".claude"),
             ..super::Found::default()
         };
-        let text = super::compose_cloud(&none, "Not logged in · Please run /login", false);
-        assert!(text.starts_with("Claude is not signed in here."), "{text}");
-        // The gateway is named only where the machine's team has it.
-        assert!(!text.contains(super::GATEWAY_OFFER), "{text}");
-        assert!(text.contains("has no model route (Claude home ~/.claude)"), "{text}");
-        assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
-        let routed = super::Found { endpoint: Some("coderouter.cmux.internal".into()), ..none };
-        let text =
-            super::compose_cloud(&routed, "API Error: 403 No Claude upstream account", false);
-        assert!(text.contains("through the Cloud service"), "{text}");
-        assert!(text.contains("cmux inference setup"), "{text}");
+        let routed =
+            super::Found { endpoint: Some("coderouter.cmux.internal".into()), ..none.clone() };
+        for (agent, said) in [
+            (&none, "Not logged in · Please run /login"),
+            (&routed, "API Error: 403 No Claude upstream account"),
+        ] {
+            let text = super::compose_cloud(agent, said, false);
+            assert!(text.starts_with("Claude is not signed in here."), "{text}");
+            assert!(text.contains("Settings > Models"), "{text}");
+            assert!(
+                text.contains(
+                    "Add a Claude connection for Cloud in Settings > Models, then start again."
+                ),
+                "{text}"
+            );
+            // The gateway is named only where the machine's team has it.
+            assert!(!text.contains(super::GATEWAY_OFFER), "{text}");
+            assert!(text.ends_with(&format!("(Claude said: {said})")), "{text}");
+        }
         for text in [
             super::compose_cloud(&routed, "x", false),
             super::compose_cloud(&super::Found::default(), "x", false),
@@ -635,8 +645,12 @@ mod tests {
                 "ANTHROPIC_API_KEY",
                 "credentials",
                 "from your Mac",
+                "Mac",
                 "setup-token",
                 "/login",
+                "inference setup",
+                "model route",
+                "new machine",
             ] {
                 assert!(!text.contains(word), "{word}: {text}");
             }
