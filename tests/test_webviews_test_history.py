@@ -34,27 +34,48 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 FILE = "test/agent-pane-suggested-tasks.test.ts"
 TEST = f"{FILE} > sends the image"
 
-SHARD_MINUTES_TIER = re.compile(r"contains\(fromJSON\(vars\.RUNNER_POOLS\)\.linux_16, '-(\d+)vcpu-'\) && (\d+) \|\| ")
+SAME_REPO, FORK = "manaflow-ai/cmux", "someone/cmux"
+WEBVIEW_JOBS = ("react-apps-check-shard", "react-apps-base-early", "react-apps-base-check")
 
 
-def shard_minutes(job) -> dict[int, int]:
-    """The shard job's timeout-minutes for each vCPU size the linux_16 pool can hold ({16: 40, 4: 90, ...})."""
-    expression = str(job["timeout-minutes"])
-    tiers = {int(vcpu): int(minutes) for vcpu, minutes in SHARD_MINUTES_TIER.findall(expression)}
-    default = re.search(r"\|\| (\d+) }}$", expression)
-    if default is None:
-        return {16: int(expression)}
-    return {**tiers, 16: int(default.group(1))}
+def evaluate(expression, context: dict[str, str]):
+    """A GitHub expression of ==, !=, &&, || and quoted strings over `github.*` and `vars.*` names, in Python.
+
+    A name the context lacks is '' (an unset variable). Any function call, fromJSON(vars.RUNNER_POOLS) among them,
+    raises NameError: these jobs must not read a pool variable."""
+    body = str(expression).strip()
+    if not body.startswith("${{"):
+        return body
+    body = body.removeprefix("${{").removesuffix("}}")
+    body = re.sub(r"\b(?:github|vars)(?:\.[A-Za-z_][\w-]*)+", lambda m: repr(context.get(m.group(0), "")), body)
+    return eval(body.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}}, {})  # noqa: S307
+
+
+def event(kind: str, owner="manaflow-ai", head=SAME_REPO, **extra) -> dict[str, str]:
+    context = {"github.repository_owner": owner, "github.repository": f"{owner}/cmux", "github.event_name": kind}
+    if kind == "pull_request":
+        context["github.event.pull_request.head.repo.full_name"] = head
+    return {**context, **extra}
+
+
+EVENTS = {
+    "push": event("push"),
+    "same-repository pull request": event("pull_request"),
+    "fork pull request": event("pull_request", head=FORK),
+    "fork repository": event("push", owner="someone"),
+}
+VCPU = {"blacksmith-4vcpu-ubuntu-2404": 4, "blacksmith-16vcpu-ubuntu-2404": 16, "ubuntu-24.04": 4}
 
 
 class ShardSize(unittest.TestCase):
-    """The head shards are declared for 16 vCPU (8 jobs, 4 dev-server files, 40 min). On 2026-11-18 the pool writer
-    marked 8, 16 and 32 vCPU dead and linux_16 held 4, then 2 vCPU: every shard of run 44249075431 (attempt 2) and
-    shards 1, 4, 6 and 8 of run 44258208231 ran 8 files at once on 2 cores into the 40 min limit. A shard on a smaller
-    size runs at that share of the widths and gets the minutes that takes."""
+    """The head shards' widths are declared for 16 vCPU (8 jobs, 4 dev-server files). On 2026-11-18 the pool writer
+    marked 8, 16 and 32 vCPU dead and RUNNER_POOLS.linux_16 held 4, then 2 vCPU: every shard of run 44249075431
+    (attempt 2) and shards 1, 4, 6 and 8 of run 44258208231 ran 8 files at once on 2 cores into the 40 min limit, and
+    run 44304196887's attempt 2 shards queued over an hour on 2 vCPU. The jobs now take a label that starts jobs, run
+    at the share of the widths the runner has, and get the minutes that takes."""
 
     # About 690 s of tests a shard at 16 vCPU (run 43342256133's manifest split 12 ways) and 8 min for setup,
-    # uploads and the slack the retries leave at 40.
+    # uploads and the slack the retries leave.
     TESTS_AT_16 = 690
     SETUP = 8 * 60
 
@@ -64,18 +85,25 @@ class ShardSize(unittest.TestCase):
         self.shard = self.jobs["react-apps-check-shard"]
         self.test_step = next(s for s in self.shard["steps"] if s["name"] == "Test webviews")
 
-    def test_each_pool_size_gets_minutes_for_its_share_of_the_work(self):
-        minutes = shard_minutes(self.shard)
-        self.assertEqual(minutes[16], 40)
-        for vcpu in (2, 4, 8):
-            self.assertIn(vcpu, minutes, f"no timeout for a {vcpu} vCPU linux_16 pool")
-            need = self.TESTS_AT_16 * 16 / vcpu + self.SETUP
-            self.assertGreaterEqual(minutes[vcpu] * 60, need * 1.25, f"{vcpu} vCPU: {minutes[vcpu]} min")
-        # A fork's run reads no variables, so fromJSON(vars.RUNNER_POOLS) comes after both fork arms.
-        expression = self.shard["timeout-minutes"]
-        first_pool = expression.index("fromJSON(vars.RUNNER_POOLS)")
-        self.assertLess(expression.index("github.repository_owner != 'manaflow-ai'"), first_pool)
-        self.assertLess(expression.index("head.repo.full_name != github.repository"), first_pool)
+    def test_the_webview_jobs_take_a_label_that_starts_jobs_not_the_pool_variable(self):
+        for name in WEBVIEW_JOBS:
+            runs_on = self.jobs[name]["runs-on"]
+            self.assertNotIn("RUNNER_POOLS", runs_on, name)
+            self.assertEqual(evaluate(runs_on, EVENTS["push"]), "blacksmith-4vcpu-ubuntu-2404", name)
+            self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "blacksmith-4vcpu-ubuntu-2404", name)
+            self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "blacksmith-16vcpu-ubuntu-2404", name)
+            self.assertEqual(evaluate(runs_on, EVENTS["fork repository"]), "ubuntu-24.04", name)
+            owned = {**EVENTS["push"], "vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"}
+            self.assertEqual(evaluate(runs_on, owned), "glaeda-linux-gate", name)
+
+    def test_each_runner_gets_minutes_for_its_share_of_the_work(self):
+        for label, context in EVENTS.items():
+            runner = evaluate(self.shard["runs-on"], context)
+            minutes = evaluate(self.shard["timeout-minutes"], context)
+            vcpu = VCPU[runner]
+            need = self.TESTS_AT_16 * max(1, 16 / vcpu) + self.SETUP
+            self.assertGreaterEqual(minutes * 60, need * 1.25, f"{label} on {runner}: {minutes} min")
+        self.assertEqual(evaluate(self.shard["timeout-minutes"], EVENTS["fork pull request"]), 40)
 
     def test_the_test_step_reads_the_jobs_minutes_and_its_declared_size(self):
         env = self.test_step["env"]
@@ -84,7 +112,6 @@ class ShardSize(unittest.TestCase):
         self.assertIn("CMUX_WEB_TEST_RETRY_DEADLINE=$(( CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 ))", self.test_step["run"])
         self.assertEqual(env["CMUX_WEB_TEST_JOBS"], "8")
         self.assertEqual(env["CMUX_WEB_TEST_SIZED_FOR_VCPU"], "16")
-        self.assertIn("linux_16", self.shard["runs-on"])
         early = next(s for s in self.jobs["react-apps-base-early"]["steps"] if s["name"] == "Run the base reds")
         self.assertEqual(early["env"]["CMUX_WEB_TEST_SIZED_FOR_VCPU"], env["CMUX_WEB_TEST_SIZED_FOR_VCPU"])
 
@@ -987,7 +1014,7 @@ class Workflow(unittest.TestCase):
         sys.path.insert(0, str(ROOT / "tests"))
         import workflow_jobs  # noqa: PLC0415
         self.assertEqual(workflow_jobs.runs_on(early), workflow_jobs.runs_on(check))
-        self.assertLess(early["timeout-minutes"], min(shard_minutes(jobs["react-apps-check-shard"]).values()))
+        self.assertLess(early["timeout-minutes"], min(evaluate(jobs["react-apps-check-shard"]["timeout-minutes"], context) for context in EVENTS.values()))
         # 2 shards (run 43409592440's 12 ran 54 files one at a time; shard 1's 600 s timeout alone ended at 15.0 min),
         # each running its files at the head shards' widths, so the slowest file still ends before the head shards.
         include = early["strategy"]["matrix"]["include"]
