@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import datetime as dt
+import io
 import json
 import os
 import re
@@ -1054,10 +1056,70 @@ class RefusedRead(unittest.TestCase):
         self.assertEqual((value["linux"], value["linux_8"], value["linux_16"], value["linux_32"]),
                          (self.FOUR, self.EIGHT, self.SIXTEEN, self.THIRTY_TWO))
 
+    class Counting:
+        """A fallback reader that records each read and answers with a fixed result (or raises it)."""
+
+        def __init__(self, result):
+            self.result = result
+            self.calls = 0
+
+        def snapshot(self, *, now):
+            self.calls += 1
+            if isinstance(self.result, Exception):
+                raise self.result
+            return self.result
+
+    def main_output(self, fallback):
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            value = self.pass_with(fallback)
+        return value, out.getvalue()
+
     def test_a_refused_fallback_still_judges_on_the_probe(self) -> None:
-        value = self.pass_with(self.Refused())
+        fallback = self.Counting(RuntimeError("HTTP Error 403: Forbidden"))
+        value, out = self.main_output(fallback)
+        self.assertEqual(fallback.calls, 1)
         self.assertIn(self.SIXTEEN, value["_dead"])
-        self.assertNotEqual(value["linux_16"], self.THIRTY_TWO)
+        # Every x64 size but 2 vCPU stalled with no snapshot: linux_16 (16, 8, 32 vCPU) takes the 2 vCPU valve.
+        self.assertEqual(value["linux_16"], self.TWO)
+        self.assertIn("judging on the probe alone", out)
+
+    def test_a_fallback_with_no_snapshot_warns_it_judges_on_the_probe(self) -> None:
+        # GitHub.snapshot() returns None (no trusted snapshot artifact) without raising: that is not a read.
+        fallback = self.Counting(None)
+        value, out = self.main_output(fallback)
+        self.assertEqual(fallback.calls, 1)
+        self.assertEqual(value["linux_16"], self.TWO)
+        self.assertIn("judging on the probe alone", out)
+        self.assertNotIn("janitor snapshot read with the fallback token", out)
+
+    def test_the_fallback_reader_is_built_from_the_workflow_token(self) -> None:
+        # The workflow passes GH_TOKEN (the cmux-bot read token) and GH_FALLBACK_TOKEN (github.token).
+        built = []
+        real = runner_pools.pr_runner_pool.GitHub
+
+        class Recording:
+            def __init__(self, token, repo):
+                built.append((token, repo))
+
+            def snapshot(self, *, now):
+                return None
+
+        switch = Main.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({self.TWO: "started"}))})
+        env = {"RUNNER_POOLS": "", "GH_TOKEN": "bot-token", "GH_FALLBACK_TOKEN": "workflow-token",
+               "GH_REPO": "manaflow-ai/cmux"}
+        runner_pools.pr_runner_pool.GitHub = Recording
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                runner_pools.main([], env, api=self.Refused(), switch=switch, now=NOW)
+            self.assertEqual(built, [("workflow-token", "manaflow-ai/cmux")])
+            # The same token twice is no fallback: nothing more is built.
+            built.clear()
+            with contextlib.redirect_stdout(io.StringIO()):
+                runner_pools.main([], {**env, "GH_FALLBACK_TOKEN": "bot-token"}, api=self.Refused(), switch=switch,
+                                  now=NOW)
+            self.assertEqual(built, [])
+        finally:
+            runner_pools.pr_runner_pool.GitHub = real
 
 if __name__ == "__main__":
     unittest.main()
