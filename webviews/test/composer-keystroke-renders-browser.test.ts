@@ -99,8 +99,19 @@ await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () 
       Object.entries(renders)
         .filter(([name]) => name.startsWith(prefix))
         .reduce((total, [, value]) => total + value, 0);
-    // The composer itself draws once a key: the text is its state.
-    expect(renders.composer ?? 0).toBeGreaterThanOrEqual(KEYS);
+    // Nor the composer, its box or its queue: the field shows its own text, and a letter changes nothing
+    // else they draw. The first key ends the empty prompt (Send for Stop, no placeholder), which is one
+    // draw; a clock tick may be another. Before, each drew once a key (composer=60 composer:box=60
+    // composer:queue=60 for 60 keys in bench/composer-typing.bench.ts).
+    expect({
+      composer: renders.composer ?? 0,
+      box: renders["composer:box"] ?? 0,
+      queue: renders["composer:queue"] ?? 0,
+    }).toEqual({
+      composer: Math.min(renders.composer ?? 0, 2),
+      box: Math.min(renders["composer:box"] ?? 0, 2),
+      queue: Math.min(renders["composer:queue"] ?? 0, 2),
+    });
     // The pane may draw once over the run (a clock tick), never once a key.
     expect(renders.pane ?? 0).toBeLessThanOrEqual(1);
     expect({
