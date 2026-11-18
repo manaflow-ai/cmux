@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextApp

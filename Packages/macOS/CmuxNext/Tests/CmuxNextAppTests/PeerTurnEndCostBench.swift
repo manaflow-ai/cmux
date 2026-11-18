@@ -90,7 +90,7 @@ struct PeerTurnEndCostBench {
         let median = samples[samples.count / 2], p95 = samples[samples.count * 95 / 100], p99 = samples[samples.count * 99 / 100]
         let mean = samples.reduce(0, +) / Double(samples.count)
         let rung = service.agentFinished.count
-        print(String(format: "PEER-TURN-END tabs=%d sessions=%d peers=%d rounds=%d median_us=%.1f p95_us=%.1f p99_us=%.1f mean_us=%.1f rung_tabs=%d",
+        print(String(format: "PEER-TURN-END tabs=%ld sessions=%ld peers=%ld rounds=%ld median_us=%.1f p95_us=%.1f p99_us=%.1f mean_us=%.1f rung_tabs=%ld",
                      store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).count, Self.sessions, Self.peers, Self.rounds,
                      median, p95, p99, mean, rung))
         #expect(rung > 0, "no peer chat's tab rang: the bench did not reach the ring")
