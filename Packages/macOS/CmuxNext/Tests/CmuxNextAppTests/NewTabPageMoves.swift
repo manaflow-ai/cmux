@@ -72,7 +72,8 @@ import Testing
         let now = services.agentTabs.resolve(key)
         for controller in services.windows.controllers {
             var contents: [(what: String, content: WorkspaceContentController)] = []
-            if let shown = controller.content { contents.append((what: "the shown workspace", content: shown)) }
+            // At a swap the window parks the workspace that it leaves before it makes the next one's content.
+            if let shown = controller.content { contents.append((what: shown.isParked ? "the workspace that the window leaves now (parked)" : "the shown workspace", content: shown)) }
             if let ahead = controller.reservedContent.ready { contents.append((what: "the window's made-ahead content", content: ahead)) }
             for parked in controller.parked.values { contents.append((what: "a parked workspace", content: parked)) }
             for entry in contents {
@@ -162,76 +163,6 @@ import Testing
             let taker = view.flatMap { view in self.had.first { $0.value === view }?.key }
             let words = taker.map { self.label($0) } ?? "no tab of the store"
             lines[index] += "; at the turn after the page view is with \(words)"
-        }
-    }
-}
-
-/// Telling rows, print only: they want nothing. A page that joins the New Tab pages after the fill of the palette's
-/// actions was asked for (the flow of `NewTabOpenFramesTests.cmdNsFirstPageGetsThePalettesActions`) waits for those
-/// actions. The row prints how long it waited, the tasks of the lister, the background tasks before the lister's
-/// first task, and each page view event of `PageMoves`. It runs 2 times: with the app's New Tab pages as they are,
-/// and with each of them marked as used (then no tab takes the page view of another tab).
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
-                  .closesItsWindows)
-struct NewTabPageMovesTellingTests {
-    static func at(_ seconds: Double?) -> String { seconds.map { String(format: "+%.1f s", $0) } ?? "no time" }
-
-    @Test(arguments: [false, true]) func aFirstPageWaitsForThePalettesActions(usedPages: Bool) async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
-            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-page-moves-telling-\(usedPages ? "used" : "idle")")
-            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
-            let tabs = services.agentTabs, budget = services.mainWork.budget, pool = services.newTabSpares
-            BenchSpans.begin()
-            let clock = ContinuousClock.now, atStart = budget.stats
-            let moves = PageMoves(services)
-            defer { moves.restore() }
-            let (_, pane) = try await NewTabOpenFramesTests.focusedPane(services)
-            let first = pane.currentTabKey
-            if let first { moves.name(first, "the app's first tab") }
-            let firstView = first.flatMap { tabs.existingView($0) }
-            if usedPages { NewTabOpenFramesTests.useEachNewTabPage(services) }
-            let aheadBefore = services.daemon.store.reservedWorkspace != nil
-            let asked = PageMoves.seconds(ContinuousClock.now - clock)
-            let made = try #require(tabs.firstPage(cwd: nil, token: nil), "no first page")
-            let key = "page-moves-telling-\(UUID().uuidString.prefix(8))"
-            tabs.newTabPages[key] = made
-            defer { tabs.newTabPages[key] = nil }
-            moves.name(key, "the row's own page, with no tab")
-            var samples: [(at: Double, background: Int)] = []
-            var spares: [AgentPaneView] = []
-            var came: Double?
-            while came == nil, ContinuousClock.now - clock < .seconds(40) {
-                moves.sync()
-                let at = PageMoves.seconds(ContinuousClock.now - clock)
-                samples.append((at: at, background: budget.stats.tasks[2] - atStart.tasks[2]))
-                if let spare = pool.spare?.view, !spares.contains(where: { $0 === spare }) { spares.append(spare) }
-                if tabs.newTabPages[key]?.page.omnibar.actions.isEmpty == false {
-                    came = at
-                } else {
-                    try await Task.sleep(for: .milliseconds(50))
-                }
-            }
-            let slices = BenchSpans.end().filter { $0.name == "newTab.paletteActions" }.map { $0.start / 1000 }
-            let stats = budget.stats
-            let firstSlice = slices.min(), lastSlice = slices.max()
-            let before = firstSlice.flatMap { slice in samples.last(where: { $0.at <= slice })?.background }
-            let beforeWords = before.map { "\($0)" } ?? "not known"
-            let cameWords = came.map { String(format: "after %.1f s", $0 - asked) } ?? "not in 40 s"
-            let firstNow = first.flatMap { tabs.existingView($0) }
-            let same = firstView != nil && firstView === firstNow
-            let aheadAfter = services.daemon.store.reservedWorkspace != nil
-            let background = stats.tasks[2] - atStart.tasks[2], frames = stats.frames - atStart.frames
-            let idleWaits = stats.waitedForIdleFrame - atStart.waitedForIdleFrame
-            print("""
-                NewTabPageMovesTellingTests: a first page and the palette's actions, the app's New Tab pages \
-                \(usedPages ? "marked as used" : "as they are"): the actions came \(cameWords) (the row asked at \(Self.at(asked))); \
-                the lister ran \(slices.count) tasks, the first at \(Self.at(firstSlice)), the last at \(Self.at(lastSlice)); \
-                background tasks before the lister's first task: \(beforeWords), in all: \(background); frames: \(frames); \
-                waits for a frame with idle time: \(idleWaits); the store had a made-ahead workspace before the row asked: \
-                \(aheadBefore), at the end: \(aheadAfter); page views of the pool seen: \(spares.count); the app's first tab \
-                had a page view at the start: \(firstView != nil), at the end: \(firstNow != nil), the same one: \(same); \
-                the page views, each event: \(moves.lines)
-                """)
         }
     }
 }
