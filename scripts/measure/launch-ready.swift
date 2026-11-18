@@ -18,6 +18,7 @@
 // After the window shows it waits SETTLE_S (default 6) and ends the app with SIGTERM ("Quit, keep sessions"), so
 // the next launch with the same HOME_ROOT is a person's relaunch. An app that quits itself first (launch-ready.sh
 // session=stress3's seed launch) ends the run then. Exit 0: a window showed; 1: none in 30 s.
+// With HOME_ROOT/cmux-next.json (launch-ready.sh engines=) the app reads its settings from that file.
 // SOCKET is the app's control socket (default HOME_ROOT/app.sock). A socket path must fit sun_path (104 bytes with
 // its NUL); a fleet worker's checkout is deep enough that HOME_ROOT/app.sock does not, so launch-ready.sh passes a
 // short one under /tmp.
@@ -109,6 +110,9 @@ var environment: [String: String] = [
     "CMUX_NEXT_LAUNCH_MARKS_PATH": fifo,
 ]
 if let user = ProcessInfo.processInfo.environment["USER"] { environment["USER"] = user; environment["LOGNAME"] = user }
+// A side with its own settings (launch-ready.sh engines=): the app reads HOME_ROOT/cmux-next.json, not the account's.
+let sideConfig = homeRoot.appendingPathComponent("cmux-next.json").path
+if FileManager.default.fileExists(atPath: sideConfig) { environment["CMUX_NEXT_CONFIG_FILE"] = sideConfig }
 
 let configuration = NSWorkspace.OpenConfiguration()
 configuration.createsNewApplicationInstance = true
@@ -229,7 +233,7 @@ while !done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow
 
 func rel(_ value: Double?) -> Any { guard let value, let start else { return NSNull() }; return (value - start * 1).rounded(toPlaces: 1) }
 extension Double { func rounded(toPlaces places: Int) -> Double { let p = pow(10, Double(places)); return (self * p).rounded() / p } }
-let keep = ["main_start", "main.warmup_started", "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers",
+let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers",
             "main.nsapp_made", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "did_finish_launching_start",
             "dfl.settings_read", "dfl.theme", "services.crash_reporting", "dfl.services", "dfl.bind", "dfl.menu", "dfl.home_history",
             "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home",
