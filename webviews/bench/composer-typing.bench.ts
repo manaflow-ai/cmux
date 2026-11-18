@@ -23,11 +23,18 @@
 //             anything a keypress causes. One render per event is a coalesced draw; more is a frame it will redraw.
 //             STREAM-SPANS lines carry that run's spans (perf.ts `span`), which name the work each streamed frame
 //             spends its time in (flush.scroll, flush.drawn, vt.body, row.renders) where a render count cannot.
+//   heavy     with --stream N or --tool-lines N in stream mode: instead of that stream, one turn kept running with one
+//             tool call whose output arrives N lines a second (default 2,000) beside N reply deltas a second (default
+//             60), pushed through the live client's socket, for long enough to deliver about HEAVY_RECORDS records
+//             (well past direct.ts HELD_RECORDS, so the chat sheds while the keys are typed). Every 250 ms it samples
+//             the client's held records and the JS heap: held_max, held_final, heap_max_mb, and heap_final_mb (after a
+//             forced GC once the load stops); load_lines and load_chunks count what it delivered. The no-typing
+//             per-event columns are left out.
 // Every length and mode is a fresh browser process and page. With `--arms A=DIR,B=DIR` it measures two webviews
 // trees in one run, interleaved A B B A for `--rounds` rounds (default 6) with a base-against-base noise floor, and
 // prints each arm's median and spread (composer-arms.ts).
 //   bun bench/composer-typing.bench.ts [--lengths 60,1500,6000] [--keys 60] [--gap 80] [--modes idle,stream] [--dev] [--profile]
-//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor]
+//     [--arms A=.,B=../webviews-b] [--rounds 6] [--no-floor] [--stream 60] [--tool-lines 2000]
 /// <reference types="bun" />
 import path from "node:path";
 import { chromium } from "./browsers";
@@ -58,7 +65,20 @@ const webviews = path.resolve(import.meta.dir, "..");
 const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
 const FLOOR = !argv.includes("--no-floor");
-/// What an A/B of arms summarizes: key to frame, key to listener and the long tasks.
+/// With --stream or --tool-lines, stream mode runs the heavy load (the header's `heavy`): reply deltas a second and
+/// tool output lines a second.
+const HEAVY = argv.includes("--stream") || argv.includes("--tool-lines");
+const HEAVY_CHUNKS = Number(flag("--stream") ?? 60);
+const HEAVY_LINES = Number(flag("--tool-lines") ?? 2000);
+/// About how many records the heavy load delivers by the last typed key: several times direct.ts HELD_RECORDS
+/// (4,000), so the held count shows whether the chat sheds under one long tool call. The load starts that much
+/// earlier than the keys, within HEAVY_LEAD_MS.
+const HEAVY_RECORDS = 30_000;
+const HEAVY_LEAD_MS = { min: 1_000, max: 60_000 };
+/// The heavy load's sampler stops at this many samples (250 ms apart: 10 minutes) if the run has not stopped it.
+const HEAVY_SAMPLES = 2_400;
+/// What an A/B of arms summarizes: key to frame, key to listener and the long tasks; under the heavy load also the
+/// held records and the heap.
 const ARM_METRICS = [
   "to_frame_p50",
   "to_frame_p95",
@@ -66,7 +86,8 @@ const ARM_METRICS = [
   "to_listener_p95",
   "longest_task_ms",
   "long_tasks",
-] as const;
+  ...(HEAVY ? ["held_max", "held_final", "heap_max_mb"] : []),
+];
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const METRICS = [
   "LayoutCount",
@@ -93,7 +114,156 @@ async function openChat(page: Page, port: number, turns: number) {
   )) as Record<string, any>;
   if (seeded.error) throw new Error(`loadSeed: ${seeded.error}`);
   await page.locator(PROMPT).first().waitFor({ timeout: 20_000 });
-  return seeded.rows as number;
+  return { rows: seeded.rows as number, session: seeded.session as string };
+}
+
+type HeavySample = { held: number; heap: number };
+type HeavyState = { chunks: number; lines: number; stopped: boolean; samples: HeavySample[]; timer: number };
+
+/// Starts the heavy load on the seeded chat `session`: one turn opened and kept running, one tool call whose output
+/// arrives `linesPerS` lines a second (each line its own `tool_call_update`), and `chunksPerS` reply deltas a second
+/// beside it, pushed every 16 ms into the live direct client's socket as the daemon's frames. Every 250 ms it samples
+/// the client's held records (`events.length`) and `performance.memory.usedJSHeapSize` into `window.__heavyLoad`,
+/// until `stopHeavyLoad` or `maxSamples`.
+async function startHeavyLoad(page: Page, session: string, chunksPerS: number, linesPerS: number) {
+  const started = (await page.evaluate(
+    ({ session, chunksPerS, linesPerS, maxSamples, selectors }) => {
+      type Socket = { readyState: number; onmessage: ((message: { data: string }) => void) | null };
+      type Client = { socket?: Socket; lastSeq: number; selectedSessionId?: string; events?: unknown[] };
+      const isClient = (value: any): value is Client =>
+        !!value &&
+        typeof value === "object" &&
+        typeof value.lastSeq === "number" &&
+        "selectedSessionId" in value &&
+        typeof value.socket?.onmessage === "function";
+      // The pane keeps its direct client in a ref (App.tsx `directClient`): walk up from the composer's fiber to
+      // the component whose hooks hold it.
+      let client: Client | undefined;
+      for (const selector of selectors) {
+        const element = document.querySelector(selector) as any;
+        if (!element) continue;
+        const key = Object.keys(element).find((name) => name.startsWith("__reactFiber$"));
+        for (let fiber = key ? element[key] : undefined; fiber && !client; fiber = fiber.return) {
+          for (let hook = fiber.memoizedState; hook && typeof hook === "object" && "next" in hook; hook = hook.next) {
+            const current = hook.memoizedState?.current;
+            if (isClient(current)) {
+              client = current;
+              break;
+            }
+          }
+        }
+        if (client) break;
+      }
+      if (!client) return { error: "no direct client found through the pane's fiber" };
+      if (client.selectedSessionId !== session)
+        return { error: `the client shows ${String(client.selectedSessionId)}, not the seeded ${session}` };
+      const live = client;
+      const state = { chunks: 0, lines: 0, stopped: false, samples: [] as { held: number; heap: number }[], timer: 0 };
+      (window as unknown as { __heavyLoad: typeof state }).__heavyLoad = state;
+      const sample = () => {
+        if (state.stopped || state.samples.length >= maxSamples) {
+          clearInterval(state.timer);
+          return;
+        }
+        state.samples.push({
+          held: live.events?.length ?? -1,
+          heap: (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0,
+        });
+      };
+      state.timer = setInterval(sample, 250) as unknown as number;
+      sample();
+      let seq = live.lastSeq;
+      const id = JSON.stringify(session);
+      const event = (kind: string, msg: string) =>
+        `{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":${id},"seq":${++seq},"at":${Date.now()},"dir":"mux","kind":"${kind}","msg":${msg}}}`;
+      const update = (body: string) =>
+        `{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":${id},"update":${body},"_meta":{"acpmux":{"seq":${++seq},"at":${Date.now()}}}}}`;
+      const words =
+        "the composer keeps its draft while rows stream in and each frame should draw only what changed `receive` parses **once** then reduces".split(
+          " ",
+        );
+      let chunkIndex = 0;
+      const chunk = () => {
+        chunkIndex += 1;
+        let text = "";
+        for (let i = 0; i < 5; i += 1) text += `${words[(chunkIndex * 7 + i * 3) % words.length]} `;
+        if (chunkIndex % 40 === 0) text += "\n\n";
+        else if (chunkIndex % 9 === 0) text += "\n- ";
+        return update(
+          `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":${JSON.stringify(text)}}}`,
+        );
+      };
+      const call = `composer-load-${Date.now()}`;
+      let lineIndex = 0;
+      const line = () => {
+        lineIndex += 1;
+        const data = `[${String(lineIndex).padStart(6, "0")}] compiling src/agent-session/module${lineIndex % 97}.ts ok\n`;
+        return update(
+          `{"sessionUpdate":"tool_call_update","toolCallId":"${call}","status":"in_progress","_meta":{"terminal_output":{"data":${JSON.stringify(data)}}}}`,
+        );
+      };
+      // As BridgeSocket.receive: every frame of one push in one task, in order, while the socket is open.
+      const push = (frames: string[]) => {
+        const socket = live.socket;
+        for (const data of frames) {
+          if (!socket || socket.readyState !== 1) return;
+          socket.onmessage?.({ data });
+        }
+      };
+      const opening = [
+        event("user_message", `{"text":"Build it and explain what changed"}`),
+        event("turn_started", "{}"),
+      ];
+      if (linesPerS > 0)
+        opening.push(
+          update(
+            `{"sessionUpdate":"tool_call","toolCallId":"${call}","title":"Run bun run build","kind":"execute","status":"in_progress","rawInput":{"command":"bun run build"}}`,
+          ),
+        );
+      push(opening);
+      // The in-page mock daemon did not start this turn, so its summary still says idle, and the pane closes a turn
+      // its host says ended (direct.ts `settleTurnWithHost`): a real acpmux lists the turn it runs as running.
+      const mock = live.socket as unknown as {
+        changeSession?: (target: string, fields: Record<string, unknown>) => void;
+      };
+      mock.changeSession?.call(mock, session, {
+        status: "running",
+        indicator: "working",
+        turn: { turnId: "bench-heavy", startedAt: Date.now() },
+      });
+      const t0 = performance.now();
+      const pump = () => {
+        if (state.stopped) return;
+        const elapsed = (performance.now() - t0) / 1000;
+        const frames: string[] = [];
+        for (; state.chunks < Math.floor(elapsed * chunksPerS); state.chunks += 1) frames.push(chunk());
+        for (; state.lines < Math.floor(elapsed * linesPerS); state.lines += 1) frames.push(line());
+        if (frames.length) push(frames);
+        setTimeout(pump, 16);
+      };
+      setTimeout(pump, 16);
+      return { mock: typeof mock.changeSession === "function" };
+    },
+    {
+      session,
+      chunksPerS,
+      linesPerS,
+      maxSamples: HEAVY_SAMPLES,
+      selectors: [PROMPT, ".acpmux-scroll", ".acpmux-composer"],
+    },
+  )) as { error?: string; mock?: boolean };
+  if (started.error) throw new Error(`heavy load: ${started.error}`);
+  if (!started.mock) throw new Error("heavy load: the client's socket is not the in-page mock daemon");
+}
+
+/// Stops the heavy load and its sampler; returns what it delivered and its samples.
+async function stopHeavyLoad(page: Page) {
+  return (await page.evaluate(() => {
+    const state = (window as unknown as { __heavyLoad: HeavyState }).__heavyLoad;
+    state.stopped = true;
+    clearInterval(state.timer);
+    return { chunks: state.chunks, lines: state.lines, samples: state.samples };
+  })) as { chunks: number; lines: number; samples: HeavySample[] };
 }
 
 /// Init script (self-contained): every long task from page load, for the window the keys are typed in.
@@ -167,11 +337,15 @@ const serveOptions = {
 
 /// One length in one mode on the pane served at `port`: a fresh browser process and page, the keys typed, its row.
 async function measure(port: number, length: number, mode: "idle" | "stream"): Promise<Record<string, unknown>> {
-  const browser = await chromium.launch({ headless: true });
+  const heavy = mode === "stream" && HEAVY;
+  // Unquantized `performance.memory` for the heavy load's heap samples.
+  const browser = await chromium.launch(
+    heavy ? { headless: true, args: ["--enable-precise-memory-info"] } : { headless: true },
+  );
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     await page.addInitScript(longTaskProbe);
-    const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
+    const { rows, session } = await openChat(page, port, Math.max(1, Math.round(length / 3)));
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Performance.enable");
     const metrics = async () => {
@@ -198,15 +372,23 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
       await cdp.send("Profiler.start");
     }
-    // Stream mode: a reply streams in for the whole typing run (no scrolling), a tool call every 30 deltas.
+    // Stream mode: a reply streams in for the whole typing run (no scrolling), a tool call every 30 deltas; or the
+    // heavy load, started early enough to deliver about HEAVY_RECORDS records by the last key.
+    const typingMs = KEYS * (GAP_MS + 20);
     const streaming =
-      mode === "stream"
+      mode === "stream" && !heavy
         ? page.evaluate(
             (seconds) =>
               (window as any).cmuxAcpmuxDebug.loadRun({ seconds, chunk_ms: 16, tool_every: 30, scroll_speed: 0 }),
-            (KEYS * (GAP_MS + 20)) / 1000 + 1,
+            typingMs / 1000 + 1,
           )
         : Promise.resolve(undefined);
+    if (heavy) {
+      await startHeavyLoad(page, session, HEAVY_CHUNKS, HEAVY_LINES);
+      const perSecond = Math.max(1, HEAVY_CHUNKS + HEAVY_LINES);
+      const lead = (HEAVY_RECORDS / perSecond) * 1000 - typingMs;
+      await page.waitForTimeout(Math.min(HEAVY_LEAD_MS.max, Math.max(HEAVY_LEAD_MS.min, lead)));
+    }
     if (mode === "stream") {
       await page.waitForTimeout(300);
       await page.evaluate(() => {
@@ -244,6 +426,13 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       return { renders: debug.renders(), typing: debug.typingStats() };
     })) as { renders: Record<string, number>; typing: Record<string, any> };
     await streaming;
+    const load = heavy ? await stopHeavyLoad(page) : undefined;
+    // The heap once the load stopped and a GC ran: what the chat keeps, not what it has yet to collect.
+    let heapFinal: number | undefined;
+    if (load) {
+      await cdp.send("HeapProfiler.collectGarbage");
+      heapFinal = ((await cdp.send("Runtime.getHeapUsage")) as { usedSize: number }).usedSize;
+    }
     if (typedEvents) {
       await cdp.send("DOM.getDocument", { depth: 0 });
       await reportTrace(`${mode}-typing ${rows}rows`, typedEvents, { keys: KEYS }, mapUrl, cdp);
@@ -251,7 +440,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
         `STYLE-TRACE ${mode}-typing ${rows}rows WINDOW ${JSON.stringify({ keys: KEYS, window_ms: Math.round(typedMs) })}`,
       );
     }
-    if (TRACE && mode === "stream") {
+    if (TRACE && mode === "stream" && !heavy) {
       let run: Record<string, any> = {};
       const events = await traceWindow(browser, page, async () => {
         run = (await page.evaluate(() =>
@@ -274,7 +463,7 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
     /// render per event is a coalesced draw; more than one is the stream drawing a frame it will redraw.
     let transcriptPerEvent: number | undefined;
     let rowsPerEvent: number | undefined;
-    if (mode === "stream") {
+    if (mode === "stream" && !heavy) {
       const run = (await page.evaluate(() =>
         (window as any).cmuxAcpmuxDebug.loadRun({ seconds: 3, chunk_ms: 16, tool_every: 10, scroll_speed: 0 }),
       )) as {
@@ -308,6 +497,8 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
         .filter(([name]) => name.startsWith(prefix))
         .reduce((total, [, value]) => total + value, 0);
     const delta = (name: string) => (after[name] ?? 0) - (before[name] ?? 0);
+    const mb = (bytes: number) => Math.round((bytes / 1048576) * 10) / 10;
+    const held = load?.samples.map((s) => s.held) ?? [];
     return {
       mode,
       rows,
@@ -334,6 +525,16 @@ async function measure(port: number, length: number, mode: "idle" | "stream"): P
       composer_per_tick_event: composerPerTick,
       transcript_per_stream_event: transcriptPerEvent,
       rows_per_stream_event: rowsPerEvent,
+      ...(load
+        ? {
+            held_max: Math.max(...held),
+            held_final: held.at(-1),
+            heap_max_mb: mb(Math.max(...load.samples.map((s) => s.heap))),
+            heap_final_mb: mb(heapFinal ?? 0),
+            load_lines: load.lines,
+            load_chunks: load.chunks,
+          }
+        : {}),
       nativePosts: JSON.stringify(typing.native_posts ?? {}),
       busiest: Object.entries(renders)
         .sort((a, b) => b[1] - a[1])
@@ -359,7 +560,7 @@ try {
           arms: ARMS,
           rounds: ROUNDS,
           floor: FLOOR,
-          label: `${mode} ${length} rows`,
+          label: `${mode === "stream" && HEAVY ? `heavy stream (${HEAVY_CHUNKS} deltas/s, ${HEAVY_LINES} lines/s)` : mode} ${length} rows`,
           metrics: ARM_METRICS,
           ports,
           run: (port) => measure(port, length, mode),
