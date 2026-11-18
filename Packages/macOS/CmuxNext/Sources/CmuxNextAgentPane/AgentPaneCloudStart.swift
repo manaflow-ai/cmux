@@ -437,10 +437,11 @@ extension AgentPaneModel {
     /// in (Settings > Models' own op), waits for a connection serving `family` and keeps the click for
     /// the page's one send again of start `key` (`cloud.startChat {..., signedIn: true}`), as
     /// `cloud.signIn` does: the chat starts with no retyping once one appears. `cloud.signInCancel`
-    /// withdraws it (the page left Cloud, or gave up).
-    func setUpCloud(key: String, action: String, family: String) async -> [String: Any] {
+    /// withdraws it (the page left Cloud, or gave up). With no `key` (a Cloud chat's failed turn, whose
+    /// Claude no connection signs in) it only runs the way in and waits: no start to keep a click for.
+    func setUpCloud(key: String?, action: String, family: String) async -> [String: Any] {
         guard let onCloudSetUp, let way = CloudSetup.Action(rawValue: action),
-              onCloudStartChat != nil, !chatIsElsewhere, sessionId == nil || sessionId == cloudStartReplaces else {
+              key == nil || (onCloudStartChat != nil && !chatIsElsewhere && (sessionId == nil || sessionId == cloudStartReplaces)) else {
             return Self.unsupported("cloud.setUp")
         }
         guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
@@ -453,7 +454,7 @@ extension AgentPaneModel {
         guard ready, cloudSignInGeneration == generation else {
             return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
         }
-        keepCloudSignInGrant(key, generation: generation)
+        if let key { keepCloudSignInGrant(key, generation: generation) }
         return AgentPaneReply.success(["ready": true])
     }
 

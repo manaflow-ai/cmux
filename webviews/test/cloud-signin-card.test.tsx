@@ -282,6 +282,43 @@ test("a Cloud sign-in failure leads with Sign in to Claude, then Use an API key"
   expect(button("Set up Claude Code credentials")).toBeUndefined();
 });
 
+// A Cloud chat's Claude runs on a connection of this Mac, never a login on the machine: with none that
+// works for Cloud (none sent, case 1; a token the provider refused, case 2) the card says so and Set up
+// Claude leads (Settings > Models > Add a Connection on Claude Code's steps); Use an API key stays, outlined.
+test("a Cloud Claude chat with no working connection leads with Set up Claude", async () => {
+  const { client } = mockClient();
+  const { signIn } = signInFor(client);
+  let opened = 0;
+  const setUpCloudConnection = () => void opened++;
+  const rejected =
+    'Claude is not signed in here. This Cloud machine\'s Claude has no model route (Claude home ~/.claude); start a new machine to get the current image. (Claude said: Failed to authenticate. API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}})';
+  for (const error of ["Not logged in · Please run /login", rejected]) {
+    await render({ route: cloudRoute, cloudSignIn: signIn, setUpCloudConnection, switchModel: () => undefined }, error);
+    expect(host.querySelector(".cv-turn-error__cause")!.textContent).toBe(
+      "Claude Code has no working Claude connection for Cloud. Set one up, then start a new Cloud chat.",
+    );
+    expect(labels().slice(0, 3)).toEqual(["Set up Claude", "Use an API key", "Switch model"]);
+    expect(button("Set up Claude")!.classList.contains("cv-turn-error__primary")).toBe(true);
+    expect(button("Use an API key")!.classList.contains("cv-turn-error__primary")).toBe(false);
+    // The machine's own login would not be the one its Claude runs on: no Sign in to Claude.
+    expect(button("Sign in to Claude")).toBeUndefined();
+    await act(async () => button("Set up Claude")!.click());
+  }
+  expect(opened).toBe(2);
+  // Another failure, or a team machine (which takes no personal connection), keeps its card.
+  await render({ route: cloudRoute, setUpCloudConnection, retry: () => undefined }, "API Error: 529 overloaded_error");
+  expect(button("Set up Claude")).toBeUndefined();
+  await render(
+    { route: { ...cloudRoute, teamMachine: true }, setUpCloudConnection, switchModel: () => undefined },
+    rejected,
+  );
+  expect(button("Set up Claude")).toBeUndefined();
+  // A chat whose host offers no set up (another agent, not connected) keeps Sign in to Claude.
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  expect(button("Sign in to Claude")).toBeDefined();
+  expect(button("Set up Claude")).toBeUndefined();
+});
+
 /// acpmux's explanation when the machine's team has cmux's gateway (`claude_auth::compose_cloud`).
 const GATEWAY_ERROR =
   "Claude is not signed in here. Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again. Or click Use cmux's gateway: this machine's team has an account there. (Claude said: Not logged in · Please run /login)";

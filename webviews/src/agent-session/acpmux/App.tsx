@@ -4455,6 +4455,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         () => directClient.current ?? undefined,
         automaticCloudCredentialAttempts.current,
       ),
+      // A Cloud chat's Claude with no usable connection for Cloud (none sent, or a token the provider
+      // refused): Set up Claude opens Settings > Cloud on its Claude steps, as the Set up Cloud card does.
+      ...(connected &&
+        cloudMachineID &&
+        !cloudTeamMachine &&
+        agentKey(snapshot.summary?.harness?.split("/").pop()) === "claude" && {
+          setUpCloudConnection: () =>
+            void callNative("cloud.setUp", { action: "addClaude", family: "claude" }).catch(() => undefined),
+        }),
       ...chatSignIns,
       review: hunkReview,
       route: {

@@ -639,14 +639,25 @@ function TurnFailure({
 }) {
   const t = useT();
   const actionsRef = useRef<HTMLSpanElement>(null);
-  const { access } = useContext(TurnActionsContext);
+  const { access, setUpCloudConnection } = useContext(TurnActionsContext);
   const sends = useContext(FailedSendsContext);
   // One click sends one /compact: the button stays disabled until that send settles.
   const [compacting, setCompacting] = useState(false);
   const kind = failureKind(message, route, code);
-  const sentence = failureCopy(t, message, route, code);
   const arm = experimentArm(turnErrorCard);
   const recovery = failureRecovery(kind);
+  // A Cloud chat's Claude that no usable connection for Cloud signs in (none was sent, or the provider
+  // refused the token): it runs on a connection of this Mac, never a login on the machine, so the card
+  // says so and Set up Claude leads (Add a Connection's Claude steps); Use an API key stays, outlined.
+  const connectionFix =
+    route?.hostKind === "cloud" &&
+    !isTeamMachineSignIn(kind, route) &&
+    (kind === "auth" || kind === "subscription-login" || kind === "invalid-key")
+      ? setUpCloudConnection
+      : undefined;
+  const sentence = connectionFix
+    ? t("turn.failure.cloudNoConnection", { harness: route?.name || route?.harness || t("turn.failure.theAgent") })
+    : failureCopy(t, message, route, code);
   // A sign-in failure offers it too: the picker moves the chat to a route that is signed in (cx-gz0dz).
   const offersSwitch =
     switchModel &&
@@ -682,7 +693,8 @@ function TurnFailure({
   // A team Cloud machine takes no personal login (isTeamMachineSignIn): Switch model leads, and the
   // card keeps only Use an API key of the sign-in, never Sign in to Claude, which would dead-end.
   const teamMachine = isTeamMachineSignIn(kind, route);
-  const cloudSignInLeads = recovery === "sign-in" && cloudSignIn !== undefined && !signInFirst && !teamMachine;
+  const cloudSignInLeads =
+    recovery === "sign-in" && cloudSignIn !== undefined && !signInFirst && !teamMachine && !connectionFix;
   // A chat here whose built-in Claude Code or Codex is not signed in (Leo 2026-10-26: "if user picks a
   // model they don't have api key, we offer them to add credits or add their own api key"): Use an API
   // key follows Sign in again, outlined; the key goes where the agent's own CLI reads it.
@@ -712,6 +724,7 @@ function TurnFailure({
     !connectionFailure &&
     !signInFirst &&
     !cloudSignInLeads &&
+    !connectionFix &&
     (recovery === "switch-model" || !offersRetry);
   // cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx), placed by the
   // `coderouter-offer` arm. It takes the filled button only in the `primary` arm, or when it is the
@@ -788,12 +801,17 @@ function TurnFailure({
             {t("context.compact")}
           </button>
         )}
-        {(cloudSignInLeads || (teamMachine && cloudSignIn)) && (
+        {connectionFix && (
+          <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={connectionFix}>
+            {t("cloudSetup.claude")}
+          </button>
+        )}
+        {(cloudSignInLeads || ((teamMachine || connectionFix) && cloudSignIn)) && (
           <CloudSignIn
             signIn={cloudSignIn}
             rowId={retryRowId}
             prompt={prompt}
-            keyOnly={teamMachine}
+            keyOnly={teamMachine || connectionFix !== undefined}
             gateway={offersGateway(message)}
             actionsRef={actionsRef}
           />

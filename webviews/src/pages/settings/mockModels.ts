@@ -168,10 +168,9 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
     case "addClaudeToken": {
       if (!isClaudeToken(run.token)) throw new Error("not a Claude setup token");
       const id = nextId("claude-token", connections);
-      // The token itself never lands in the state: the app keeps it in the Keychain.
-      return personal({
-        connections: [...connections, { ...claudeToken, id, label: run.label?.trim() || "Claude Code token" }],
-      });
+      // The token itself never lands in the state: the app keeps it in the Keychain. `first`: it goes first.
+      const added = { ...claudeToken, id, label: run.label?.trim() || "Claude Code token" };
+      return personal({ connections: run.first ? [added, ...connections] : [...connections, added] });
     }
     case "addKey": {
       if (!run.key.trim()) throw new Error("a key is required");

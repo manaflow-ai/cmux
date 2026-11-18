@@ -113,9 +113,10 @@ public final class CloudSetup {
         case setup(family: String, model: String?)
     }
 
-    /// The card's ways in (`cloud.setUp {action}`), the Settings > Models ops they run.
+    /// The card's ways in (`cloud.setUp {action}`), the Settings > Models ops they run. `addClaude` is a
+    /// Cloud chat's failed turn's Set up Claude: its Claude had no connection that works for Cloud.
     public enum Action: String, Sendable, CaseIterable {
-        case connectChatGPT, setUpClaude, addKey, openSettings
+        case connectChatGPT, setUpClaude, addKey, openSettings, addClaude
 
         /// The Settings > Cloud row this action opens on (Models for Cloud); nil opens the page.
         public var settingsRow: String? {
@@ -123,8 +124,15 @@ public final class CloudSetup {
             case .setUpClaude: "claude"
             case .connectChatGPT: "chatgpt"
             case .addKey: "apiKey"
-            case .openSettings: nil
+            case .openSettings, .addClaude: nil
             }
+        }
+
+        /// Where this action opens Settings instead of Settings > Cloud: `addClaude` opens Settings > Models'
+        /// Add a Connection on Claude Code's steps (`claude setup-token`, then the pasted token), whose
+        /// token goes first, so it is the one Cloud chats run on even beside a token the provider refused.
+        public var settingsRoute: String? {
+            self == .addClaude ? "#/settings/models?focus=models.add.claude" : nil
         }
     }
 

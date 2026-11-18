@@ -30,6 +30,15 @@ import { userMessage } from "../../shared/userMessage";
 
 /** The route focus that opens Add a Connection (cmux://settings/models/add). */
 export const MODELS_ADD_FOCUS = "models.add";
+/** The route focus that opens Add a Connection on Claude Code's steps: a failed Cloud chat's Set up
+ * Claude, whose connections let no Claude for Cloud through. The token added there goes first. */
+export const MODELS_ADD_CLAUDE_FOCUS = "models.add.claude";
+
+/** Where a route focus opens Add a Connection: its list (null), Claude Code's steps, or not at all. */
+function addStartOf(focus: string | null): { start: SheetStart } | null {
+  if (focus === MODELS_ADD_FOCUS) return { start: null };
+  return focus === MODELS_ADD_CLAUDE_FOCUS ? { start: "claude" } : null;
+}
 /** Where a ChatGPT plan's usage is managed (the plan's own page). */
 export const CHATGPT_USAGE_URL = "https://chatgpt.com/settings/usage";
 
@@ -117,9 +126,10 @@ export function cloudFocusOf(connection: Pick<ModelConnection, "kind" | "familie
 export function ModelsCard({ focus }: { focus: string | null }) {
   const models = useSettingsState().models;
   const { busy, error, run } = useModelsRun();
-  const [adding, setAdding] = useState(focus === MODELS_ADD_FOCUS);
+  const [adding, setAdding] = useState(() => addStartOf(focus));
   useEffect(() => {
-    if (focus === MODELS_ADD_FOCUS) setAdding(true);
+    const opened = addStartOf(focus);
+    if (opened) setAdding(opened);
   }, [focus]);
   if (!models) return null;
   return (
@@ -130,10 +140,19 @@ export function ModelsCard({ focus }: { focus: string | null }) {
           {error}
         </p>
       )}
-      <PersonalSection models={models} busy={busy} run={run} onAdd={() => setAdding(true)} />
+      <PersonalSection models={models} busy={busy} run={run} onAdd={() => setAdding({ start: null })} />
       <OrganizationSection models={models} busy={busy} run={run} />
       {models.members && <MembersSection members={models.members} busy={busy} run={run} />}
-      {adding && <AddConnectionSheet models={models} busy={busy} run={run} onClose={() => setAdding(false)} />}
+      {adding && (
+        <AddConnectionSheet
+          models={models}
+          busy={busy}
+          run={run}
+          start={adding.start}
+          first={focus === MODELS_ADD_CLAUDE_FOCUS}
+          onClose={() => setAdding(null)}
+        />
+      )}
     </div>
   );
 }
@@ -788,12 +807,15 @@ export function AddConnectionSheet({
   run,
   onClose,
   start = null,
+  first = false,
 }: {
   models: ModelsState;
   busy: boolean;
   run: Run;
   onClose(): void;
   start?: SheetStart;
+  /** A Claude token added here goes first among the connections (`addClaudeToken {first}`). */
+  first?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<Choice | null>(() => startChoice(start));
@@ -910,7 +932,7 @@ export function AddConnectionSheet({
             )}
           </div>
         )}
-        {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={run} onDone={onClose} />}
+        {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={run} first={first} onDone={onClose} />}
         {picked?.kind === "key" && <KeyForm provider={picked.provider} busy={busy} run={run} onDone={onClose} />}
       </div>
     </Dialog>
@@ -1004,8 +1026,19 @@ function KeyForm({
 export { isClaudeToken };
 
 /** Add a Connection > Claude Code: step 1 opens a cmux terminal tab running `claude setup-token`,
- * step 2 takes the token it prints. The token leaves the page's state before it is sent. */
-function ClaudeTokenForm({ busy, run, onDone }: { busy: boolean; run: Run; onDone(): void }) {
+ * step 2 takes the token it prints. The token leaves the page's state before it is sent. `first`:
+ * the new connection goes first, so Cloud chats run on it. */
+function ClaudeTokenForm({
+  busy,
+  run,
+  first = false,
+  onDone,
+}: {
+  busy: boolean;
+  run: Run;
+  first?: boolean;
+  onDone(): void;
+}) {
   const tokenId = useId();
   const labelId = useId();
   const [token, setToken] = useState("");
@@ -1016,9 +1049,12 @@ function ClaudeTokenForm({ busy, run, onDone }: { busy: boolean; run: Run; onDon
     if (!valid || busy) return;
     const named = label.trim();
     setToken("");
-    void run(
-      named ? { action: "addClaudeToken", token: pasted, label: named } : { action: "addClaudeToken", token: pasted },
-    ).then((ok) => ok && onDone());
+    void run({
+      action: "addClaudeToken",
+      token: pasted,
+      ...(named ? { label: named } : {}),
+      ...(first ? { first: true } : {}),
+    }).then((ok) => ok && onDone());
   };
   return (
     <form

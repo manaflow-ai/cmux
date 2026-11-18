@@ -353522,6 +353522,138 @@
         }
       }
     },
+    "turn.failure.cloudNoConnection": {
+      "comment": "Agent pane: a Cloud chat's Claude failed to sign in because no Claude connection of this Mac works for Cloud (none, or one the provider refused); the card's Set up Claude opens Add a Connection. {harness} is the agent's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} has no working Claude connection for Cloud. Set one up, then start a new Cloud chat."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يملك {harness} اتصال Claude صالحًا لـ Cloud. أعدّ اتصالًا، ثم ابدأ محادثة Cloud جديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} nema ispravnu Claude vezu za Cloud. Postavite je, pa započnite novi Cloud chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} har ingen fungerende Claude-forbindelse til Cloud. Opret en, og start derefter en ny Cloud-chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} hat keine funktionierende Claude-Verbindung für Cloud. Richte eine ein und starte dann einen neuen Cloud-Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} no tiene una conexión de Claude que funcione para Cloud. Configura una y luego inicia un nuevo chat de Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} n’a aucune connexion Claude valide pour Cloud. Configurez-en une, puis démarrez une nouvelle discussion Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} non ha una connessione Claude funzionante per Cloud. Configurane una, poi avvia una nuova chat Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} には Cloud で使える Claude 接続がありません。接続を設定してから、新しい Cloud チャットを開始してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} មិនមានការតភ្ជាប់ Claude ដែលដំណើរការសម្រាប់ Cloud ទេ។ សូមរៀបចំមួយ រួចចាប់ផ្ដើមការជជែក Cloud ថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness}에 Cloud에서 쓸 수 있는 Claude 연결이 없습니다. 연결을 설정한 다음 새 Cloud 채팅을 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} har ingen fungerende Claude-tilkobling for Cloud. Konfigurer en, og start deretter en ny Cloud-chat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} nie ma działającego połączenia Claude dla Cloud. Skonfiguruj je, a potem rozpocznij nowy czat Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} não tem uma conexão do Claude que funcione no Cloud. Configure uma e depois inicie um novo chat do Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У {harness} нет рабочего подключения Claude для Cloud. Настройте его, затем начните новый чат Cloud."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} ไม่มีการเชื่อมต่อ Claude ที่ใช้งานได้สำหรับ Cloud ตั้งค่าการเชื่อมต่อ แล้วเริ่มแชต Cloud ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} için Cloud'da çalışan bir Claude bağlantısı yok. Bir bağlantı kurun, ardından yeni bir Cloud sohbeti başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У {harness} немає робочого підключення Claude для Cloud. Налаштуйте його, а потім почніть новий чат Cloud."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} không có kết nối Claude dùng được cho Cloud. Hãy thiết lập một kết nối, rồi bắt đầu cuộc trò chuyện Cloud mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} 没有可用于 Cloud 的 Claude 连接。请设置一个，然后开始新的 Cloud 聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{harness} 沒有可用於 Cloud 的 Claude 連線。請設定一個，然後開始新的 Cloud 聊天。"
+          }
+        }
+      }
+    },
     "turn.failure.cloudAuthRejected": {
       "comment": "Agent pane: Cloud provider rejected credentials; status is optional. Never include raw output or host.",
       "extractionState": "manual",

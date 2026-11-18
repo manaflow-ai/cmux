@@ -118,6 +118,11 @@ export type TurnActions = {
   reauthenticate?: () => void;
   /// Explicitly set up this Cloud chat's provider credentials on its machine, then retry the turn.
   transferCloudCredentials?: (rowId: string, prompt: string, automatic?: boolean) => Promise<void>;
+  /// A Cloud chat's Claude whose sign-in failed: Set up Claude (`cloud.setUp {action: addClaude}`:
+  /// Settings > Models > Add a Connection on Claude Code's steps, `claude setup-token` and the pasted
+  /// token, which goes first). A Cloud machine's Claude runs on a connection of this Mac, never a
+  /// login on the machine. Absent for any other chat, and on a team machine.
+  setUpCloudConnection?: () => void;
   /// A Cloud chat's agent signs in on its own machine (cloudAgentLogin.ts): its own login run there,
   /// or an API key saved there, never this Mac's login. Absent where acpmux lacks `agent_login`.
   cloudSignIn?: import("../cloudAgentLogin").CloudSignIn;

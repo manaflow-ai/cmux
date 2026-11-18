@@ -303,6 +303,21 @@ import Testing
         #expect(typed.lines.count == 1)
     }
 
+    /// A failed Cloud chat's Set up Claude (`first`): the token added there goes first among the connections,
+    /// so Cloud chats run on it even beside one the provider refused; a plain add sets no order.
+    @Test func aClaudeTokenAddedFirstGoesFirst() async throws {
+        let daemon = Daemon()
+        let models = make(daemon: daemon)
+        _ = await models.loadedState()
+        _ = try await models.run(["action": "addClaudeToken", "token": "sk-ant-oat01-plain"], context: click)
+        #expect(!daemon.calls.withLock { $0 }.contains { $0.method == "_acpmux/connections/order.set" })
+        _ = await models.loadedState()
+        _ = try await models.run(["action": "addClaudeToken", "token": "sk-ant-oat01-first", "first": true], context: click)
+        let order = try #require(daemon.calls.withLock { $0 }.last { $0.method == "_acpmux/connections/order.set" })
+        #expect(order.params["ids"]?.split(separator: ",").first == "claude-token-1")
+        #expect(!daemon.calls.withLock { $0 }.contains { $0.params.values.contains { $0.contains("sk-ant-oat01") } })
+    }
+
     @Test func orgKeyNeedsAnExplicitKeyOrNull() async throws {
         let models = make(daemon: Daemon())
         await #expect(throws: PageError.self) { _ = try await models.run(["action": "orgKey", "agent": "claude"], context: click) }

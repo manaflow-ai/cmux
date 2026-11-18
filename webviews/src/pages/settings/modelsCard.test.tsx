@@ -102,6 +102,24 @@ test("cmux://settings/models/add opens on Add a Connection", async () => {
   expect(sheet()).not.toBeNull();
 });
 
+// A Cloud chat's failed turn's Set up Claude (CloudSetup.Action.addClaude): Add a Connection opens on
+// Claude Code's steps, and the token added there goes first, so Cloud chats run on it even beside a
+// token the provider refused (`claude-token`, first before).
+test("focus=models.add.claude opens Claude Code's steps, and the token added there goes first", async () => {
+  const rendered = await render(mockModels.macLogins, "/settings/models?focus=models.add.claude");
+  const form = sheet()!.querySelector<HTMLFormElement>("[data-models-claude-form]")!;
+  await changeValue(form.querySelector<HTMLInputElement>('input[type="password"]')!, "sk-ant-oat01-fresh0123456789");
+  await click(action(form, "addClaudeToken")!);
+  expect(rendered.provider.modelRuns.at(-1)).toEqual({
+    action: "addClaudeToken",
+    token: "sk-ant-oat01-fresh0123456789",
+    first: true,
+  });
+  expect(sheet()).toBeNull();
+  expect(connectionIds(rendered)[0]).toBe("claude-token-2");
+  expect(document.body.innerHTML).not.toContain("sk-ant-oat01-fresh");
+});
+
 test("a member reads the policy and the organization's keys with nothing to change", async () => {
   const rendered = await render(mockModels.member);
   const members = card(rendered).querySelector<HTMLElement>('[data-models-section="members"]')!;

@@ -67,13 +67,36 @@ struct AgentPaneCloudSetUpTests {
         #expect(Self.code(await model.respond(to: again)) == "cloud_sign_in_cancelled")
     }
 
+    /// A Cloud chat's failed turn's Set up Claude: `cloud.setUp` with no start key runs the way in on the
+    /// person's click, even in a chat elsewhere, and keeps no click for any start.
+    @Test func aSetUpWithNoStartKeyRunsTheWayInAndKeepsNoClick() async {
+        let model = AgentPaneModel(host: NoHost(), sessionId: "cloud-chat")
+        var starts = 0
+        model.onCloudStartChat = { _ in starts += 1; return AgentPaneReply.success() }
+        var ran: [(CloudSetup.Action, String)] = []
+        model.onCloudSetUp = { action, family in ran.append((action, family)); return true }
+        let setUp = AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["action": "addClaude", "family": "claude"]])
+        #expect(Self.code(await model.respond(to: setUp)) == "transport.gesture_required")
+        #expect(ran.isEmpty)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: setUp)["ok"] as? Bool == true)
+        #expect(ran.map(\.0) == [.addClaude] && ran.map(\.1) == ["claude"])
+        #expect(CloudSetup.Action.addClaude.settingsRoute == "#/settings/models?focus=models.add.claude")
+        #expect(CloudSetup.Action.addClaude.settingsRow == nil && CloudSetup.Action.setUpClaude.settingsRoute == nil)
+        // No kept click: a start that claims one is refused.
+        let again = AgentPaneRequest(body: ["method": "cloud.startChat", "params": ["task": "p", "key": UUID().uuidString, "home": true, "signedIn": true]])
+        #expect(await model.respond(to: again)["ok"] as? Bool != true)
+        #expect(starts == 0)
+    }
+
     @Test func onlyTheCardsWaysInAndFamiliesAreTaken() {
         let request = { (params: [String: Any]) in AgentPaneRequest(body: ["method": "cloud.setUp", "params": params]) }
         let key = UUID().uuidString
         if case .cloudSetUp(key, "setUpClaude", "claude") = request(["key": key, "action": "setUpClaude", "family": "claude"]) {} else { Issue.record("the card's set up is taken") }
-        if case .unsupported = request(["action": "addKey", "family": "claude"]) {} else { Issue.record("a set up with no start key is refused") }
         if case .unsupported = request(["key": key, "action": "rm -rf", "family": "claude"]) {} else { Issue.record("an unknown action is refused") }
         if case .unsupported = request(["key": key, "action": "addKey", "family": "gemini"]) {} else { Issue.record("an unknown family is refused") }
         if case .unsupported = request(["key": "nope", "action": "addKey", "family": "codex"]) {} else { Issue.record("a key that is not a start key is refused") }
+        if case .cloudSetUp(nil, "addClaude", "claude") = request(["action": "addClaude", "family": "claude"]) {} else { Issue.record("a set up with no start key is taken") }
+        if case .unsupported = request(["key": 7, "action": "addClaude", "family": "claude"]) {} else { Issue.record("a key that is no string is refused") }
     }
 }

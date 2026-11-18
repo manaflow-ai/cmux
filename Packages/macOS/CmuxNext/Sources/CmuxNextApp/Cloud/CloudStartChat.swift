@@ -299,7 +299,7 @@ extension CloudStartChat {
             return .init(personal: personal, organization: keys.loaded ? CloudSetup.Snapshot.organization(keys: rows) : nil)
         }
         services.cloud.setup.run = { [weak services] action in
-            try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudRoute(row: action.settingsRow))
+            try? services?.settingsWindow.show(section: nil, route: action.settingsRoute ?? DeepLink.cloudRoute(row: action.settingsRow))
         }
         services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
     }

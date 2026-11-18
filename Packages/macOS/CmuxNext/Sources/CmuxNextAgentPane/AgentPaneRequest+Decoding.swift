@@ -402,8 +402,8 @@ extension AgentPaneRequest {
             // The start's key only (`AgentPaneCloudStart`'s): the start itself goes after, as `cloud.startChat`.
             if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }
         case "cloud.setUp":
-            // The start's key, one of the card's ways in and the family it waits for (CloudSetup).
-            if let key = params?["key"] as? String, UUID(uuidString: key) != nil, let action = params?["action"] as? String,
+            // The start's key (none from a Cloud chat's failed turn), one of the card's ways in and the family it waits for (CloudSetup).
+            if case let key = params?["key"] as? String, key.map({ UUID(uuidString: $0) != nil }) ?? (params?["key"] == nil), let action = params?["action"] as? String,
                CloudSetup.Action(rawValue: action) != nil, let family = params?["family"] as? String, CloudSetup.families.contains(family) {
                 self = .cloudSetUp(key: key, action: action, family: family)
             } else { self = .unsupported(method) }
