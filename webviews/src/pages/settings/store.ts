@@ -65,6 +65,8 @@ import {
   type HostLists,
   type IntegrationsRun,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -767,6 +769,18 @@ export class SettingsStore {
   async runIntegrations(run: IntegrationsRun): Promise<IntegrationsState | null> {
     await this.request("cmux.settings.integrations.run", run);
     return this.integrationsState();
+  }
+
+  /** Settings > MCP Servers; null when the host has none. */
+  async mcpServersState(): Promise<McpServersState | null> {
+    const reply = await this.request("cmux.settings.mcp.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One MCP Servers gesture, then the page as it is after it (null: the host has none). */
+  async runMcpServers(run: McpServersRun): Promise<McpServersState | null> {
+    await this.request("cmux.settings.mcp.run", run);
+    return this.mcpServersState();
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */
