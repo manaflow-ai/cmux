@@ -1194,6 +1194,13 @@
   color: var(--cv-text);
   -webkit-font-smoothing: antialiased;
 }
+/* The agent's reply (rows/MessageRow.tsx): a font pack's prose family when it sets one
+   (chatDisplay.ts `--cv-reply-font`, which falls back to --cv-font itself), else the chat's font.
+   The person's prompts, cards and chrome keep --cv-font. model.ts measures reply rows in the same
+   face (`replyMeasureFont`). */
+.cv-md.cv-reply {
+  font-family: var(--cv-reply-font, var(--cv-font));
+}
 .cv-md > :first-child {
   margin-top: 0;
 }
