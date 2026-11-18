@@ -2272,6 +2272,20 @@ function TranscriptView({
   dockTrayRef.current = dockTray;
   /// The reader opened or folded something in the tray, and the room has not taken it yet.
   const trayToggled = useRef(false);
+  /// The host's line in that stack (HostError.tsx: "Reconnecting…", or a refusal and its Retry), which
+  /// comes and goes while the pane finds acpmux: the room under the last row takes it only once the
+  /// rows move anyway (`noticeHold`).
+  const [dockNotice, setDockNotice] = useState(0);
+  /// The same, as the stack's observer last measured it (it writes both), for the handlers below.
+  const dockNoticeRef = useRef(0);
+  /// The host line's height the room under the last row last took (`noticeHold` below). State, not a
+  /// ref read in render: the pass that changes it renders once more before the frame paints, with the
+  /// same hold (the base it writes is the one that hold was made against), so nothing moves. It changes
+  /// only when the line comes taller than the room lets it lie over, goes and the rows move, or Jump to
+  /// latest takes it.
+  const [noticeBase, setNoticeBase] = useState(0);
+  /// The same, for the handlers below (written where the state is).
+  const noticeBaseRef = useRef(0);
   /// The tray's height the room under the last row was last given (`trayHold` below), and the rows'
   /// own height as of the last pass, which tells a pass whose rows grew.
   const foldBase = useRef(0);
@@ -2335,6 +2349,8 @@ function TranscriptView({
       setDockHeight(0);
       setDockCard(0);
       setDockTray(0);
+      dockNoticeRef.current = 0;
+      setDockNotice(0);
       return;
     }
     // Before the frame paints, as the viewport's own size is: a composer that grew a line, or a
@@ -2356,6 +2372,14 @@ function TranscriptView({
       space > 0
         ? (dock.querySelector(`:scope > .acpmux-running-tray:not(.${TRAY_GHOST})`)?.getBoundingClientRect().height ?? 0)
         : 0;
+    // The host's line, while the stack reaches over the view.
+    const notice = (space: number) => {
+      if (space <= 0) return 0;
+      let height = 0;
+      for (const line of dock.querySelectorAll(":scope > .acpmux-host-line, :scope > .acpmux-host-line-group"))
+        height += line.getBoundingClientRect().height;
+      return height;
+    };
     // A click on one of its disclosures (the header, View all, a command's line) is the reader's.
     // One that changes no height (or a tray that goes) holds nothing: the flag goes after two frames
     // unless the tray's height changed meanwhile, or its fold is still to move it (useFold's motion
@@ -2422,18 +2446,23 @@ function TranscriptView({
       const nextHeight = height() + rest;
       const nextCard = card(drawn) + (drawn > 0 ? rest : 0);
       const nextTray = tray(drawn);
+      const nextNotice = notice(drawn);
+      const noticeChanged = Math.abs(nextNotice - dockNoticeRef.current) >= 0.5;
+      dockNoticeRef.current = nextNotice;
       // A tray that went holds nothing: the room is the stack's again.
       if (nextTray <= 0) trayToggled.current = false;
       if (
         Math.abs(next - dockSpaceRef.current) >= 0.5 ||
         Math.abs(nextHeight - dockHeightRef.current) >= 0.5 ||
-        Math.abs(nextCard - dockCardRef.current) >= 0.5
+        Math.abs(nextCard - dockCardRef.current) >= 0.5 ||
+        noticeChanged
       )
         flushSync(() => {
           setDockSpace(next);
           setDockHeight(nextHeight);
           setDockCard(nextCard);
           setDockTray(nextTray);
+          setDockNotice(nextNotice);
         });
     };
     const observer = new ResizeObserver(take);
@@ -2474,6 +2503,8 @@ function TranscriptView({
     setDockHeight(fullHeight);
     setDockCard(card(space));
     setDockTray(tray(space));
+    dockNoticeRef.current = notice(space);
+    setDockNotice(dockNoticeRef.current);
     return () => {
       observer.disconnect();
       dock.removeEventListener("click", toggled, { capture: true });
@@ -3545,13 +3576,19 @@ function TranscriptView({
   /// follows again (`room` below).
   const takeRoom = useCallback(() => {
     const held =
-      Math.abs(foldBase.current - dockTrayRef.current) > 0.5 || Math.abs(cardBase.current - dockCardRef.current) > 0.5;
+      Math.abs(foldBase.current - dockTrayRef.current) > 0.5 ||
+      Math.abs(cardBase.current - dockCardRef.current) > 0.5 ||
+      Math.abs(noticeBaseRef.current - dockNoticeRef.current) > 0.5;
     foldBase.current = dockTrayRef.current;
     cardBase.current = dockCardRef.current;
+    noticeBaseRef.current = dockNoticeRef.current;
     trayToggled.current = false;
     if (!held && Math.abs(heldRoom.current - dockRoomRef.current) <= 0.5) return;
     heldRoom.current = dockRoomRef.current;
-    flushSync(roomTaken);
+    flushSync(() => {
+      setNoticeBase(dockNoticeRef.current);
+      roomTaken();
+    });
   }, []);
   const thread = useRef<HTMLDivElement>(null);
   /// A turn's end folds its work in one motion (turnEndFold.ts): the rows drawn when it ended are
@@ -4170,6 +4207,27 @@ function TranscriptView({
     : overlayDock && following && !sessionSwitched && openedAtLatest && dockSpace > 0 && cardHeldAt > 0;
   const cardHold =
     cardHolds && rowsGrew <= 0.5 ? Math.max(0, Math.min(dockSpace - Math.max(0, trayHold), dockCard - cardHeldAt)) : 0;
+  // The host's line above the composer moves no row either (Leo, 2026-11-16, after a restart: "it said
+  // something went wrong with a retry button just above the composer ... and then it layout shifted"):
+  // the line lies over the transcript's foot, within the rest gap the newest row keeps over the stack
+  // (`restExtra`), so it covers no row, and only a line taller than that gap (its Details open) makes
+  // room for the rest (`noticeHold`, the line's height the room has not taken). So too at the chat's
+  // first draw: after a restart the chat's saved copy drew without the line, and the live page that took
+  // over with it as room drew every row up by it (first-load-after-restart.bench.ts MODE=refused). The
+  // room a line leaves when it goes stays under the last row (a negative hold) until the rows move anyway
+  // (they grew: a reply streaming on, a send) or Jump to latest gives it back (`takeRoom`).
+  // Another chat starts from none taken: the last chat's base is not this one's.
+  const noticeHeldAt = sessionSwitched ? 0 : noticeBase;
+  const noticeTaken = openedAtLatest && !sessionSwitched && rowsGrew > 0.5;
+  // Scrolled up the room is held anyway (`heldRoom`), and the base waits for the view to follow again.
+  const noticeHold =
+    dockSpace <= 0 || !following
+      ? 0
+      : dockNotice >= noticeHeldAt
+        ? Math.min(dockNotice - noticeHeldAt, restExtra, Math.max(0, dockSpace - Math.max(0, trayHold) - cardHold))
+        : noticeTaken
+          ? 0
+          : dockNotice - noticeHeldAt;
   // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
   // a turn footer's action row lies in the band under its reply, so that band comes first
   // (transcriptGrid.ts `restBand`). Docked in flow, the composer gap is the rows' own (`tailGap`).
@@ -4177,7 +4235,8 @@ function TranscriptView({
     dockSpace > 0
       ? (measured.layout.restBand ?? 0)
       : (measured.layout.tailGap ?? TRANSCRIPT_COMPOSER_GAP * (measured.layout.scale ?? 1));
-  const rowsAtDock = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + dockRoom - trayHold - cardHold;
+  const rowsAtDock =
+    measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + dockRoom - trayHold - cardHold - noticeHold;
   const atDock = Math.max(floorHeight, rowsAtDock);
   // A card that grew is drawn up by at most what the offset can take back: the view keeps more than
   // the follow deadband to scroll, so the reader's scroll up still leaves the latest row (and the
@@ -4201,7 +4260,7 @@ function TranscriptView({
           ),
         )
       : grown;
-  const room = sessionSwitched || following ? dockRoom - lifted - trayHold - cardHold : heldRoom.current;
+  const room = sessionSwitched || following ? dockRoom - lifted - trayHold - cardHold - noticeHold : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
@@ -5169,7 +5228,8 @@ function TranscriptView({
     foldRide.current?.takeHanded(drawnRef.current);
     previousViewport.current = { height, width, dockSpace, dockCard };
     // With the composer's growth, which is room again once the view stops following.
-    heldRoom.current = room + lifted + cardHold;
+    // A hold for a line that went is room the rows still have: it stays in the room once scrolled up.
+    heldRoom.current = room + lifted + cardHold + Math.max(0, noticeHold);
     appliedLift.current = lift;
     liftedBefore.current = lifted;
     // A view that follows keeps the card height it began following at; any other takes the card's.
@@ -5249,9 +5309,14 @@ function TranscriptView({
     [sessionId],
   );
   // What this pass gave the room of the tray's open list (`trayHold`), and the rows it measured.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose (it stores what this pass gave the room); its one setState call is guarded by the compare with noticeBase.
   useLayoutEffect(() => {
     foldBase.current = trayBase;
     cardBase.current = dockCard - cardHold;
+    if (following || dockSpace <= 0) {
+      noticeBaseRef.current = dockNotice - noticeHold;
+      if (noticeBaseRef.current !== noticeBase) setNoticeBase(noticeBaseRef.current);
+    }
     rowsSeen.current = measured.layout.totalHeight - (measured.layout.origin ?? 0);
     if (Math.abs(trayHold) <= 0.5 && (rowsGrew > 0.5 || !following || sessionSwitched)) trayToggled.current = false;
   });
