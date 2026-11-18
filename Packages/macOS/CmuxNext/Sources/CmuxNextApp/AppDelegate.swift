@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cloudBootstrap: Task<Void, Never>?
     private let cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>  // started in `main` (startAtLaunch)
     private var launchSnapshot: Task<LaunchSnapshotRead, Never>?  // started in `main` (readAtLaunch): the snapshot and the launch kind; nil once the launch took its result
+    private let settingsRead = SettingsController.startLaunchRead(buildDefaults: .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault))  // in `main` (made with the delegate), off the main thread
     /// The first live terminal frame (or no daemon), never before the first window frame: deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
     /// Launch work that starts after the first window frame (perf-launch-memory).
@@ -82,9 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) { DebugTimings.markLaunch("app.did_finish_launching_entry")
         // task-owner: cloudBootstrap; awaits the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
-        cloudBootstrap = Task { [weak self, cloudEnvironment] in
+        cloudBootstrap = Task { [weak self, cloudEnvironment, settingsRead] in
             guard let self else { return }
-            let read = await launchSnapshot?.value ?? LaunchSnapshotRead(snapshot: nil, kind: .unknown); launchSnapshot = nil; DebugTimings.markLaunch("app.launch_snapshot_awaited"); if read.snapshot == nil { DebugTimings.markLaunch("launch.no_snapshot") }  // suspends for the read; the daemon's start reads no file. No snapshot: the bare launch (piece 8)
+            let read = await launchSnapshot?.value ?? LaunchSnapshotRead(snapshot: nil, kind: .unknown), settings = await settingsRead.value; launchSnapshot = nil; DebugTimings.markLaunch("app.launch_snapshot_awaited"); if read.snapshot == nil { DebugTimings.markLaunch("launch.no_snapshot") }  // suspends for both reads; neither reads a file here. No snapshot: the bare launch (piece 8)
             do {
                 let (selection, refresh) = try await withTaskCancellationHandler { try await cloudEnvironment.value } onCancel: { cloudEnvironment.cancel() }
                 try Task.checkCancellation(); DebugTimings.markLaunch("cloud_env.awaited")
@@ -93,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_ENV"] = selection.name
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_BACKEND"] = selection.apiOrigin.absoluteString
                 environment.terminalEnvironment["CMUX_PLATFORM_ORIGIN"] = selection.platformOrigin.absoluteString
-                try await finishLaunching(read); await firstFrame.opened(); await refresh()
+                try await finishLaunching(read, settings: settings); await firstFrame.opened(); await refresh()
             } catch {
                 guard !Task.isCancelled else { return }
                 logger.error("Cloud environment bootstrap failed: \(String(describing: error), privacy: .public)")
@@ -104,13 +105,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 for key in LaunchIdentity.cloudSelectionKnobs + ["CMUX_PLATFORM_ORIGIN"] {
                     environment.terminalEnvironment.removeValue(forKey: key)
                 }
-                try? await finishLaunching(read) // only cancellation throws; Quit must not resume startup
+                try? await finishLaunching(read, settings: settings) // only cancellation throws; Quit must not resume startup
             }
             cloudBootstrap = nil
         }
     }
 
-    private func finishLaunching(_ launch: LaunchSnapshotRead) async throws { let launchSnapshot = launch.snapshot
+    private func finishLaunching(_ launch: LaunchSnapshotRead, settings launchSettingsRead: SettingsController.LaunchRead) async throws { let launchSnapshot = launch.snapshot
         let preparedDaemon = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
             terminalEnvironmentProvider: environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak self] in self?.services?.settings?.snapshot.terminalTerm == .xtermGhostty }),
             resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: true)
@@ -141,9 +142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Other copies of this app: a second copy opened says which kept running; a passing copy offers a move.
         appCopyGuide.start(activates: !environment.noActivate)
         // cmux.json's appearance goes on the Ghostty overrides before the runtime's first config
-        // load, so the first frame needs no reload; appearance.fontSmoothing before any window.
-        let settingsRead = SettingsController.readAtLaunch(
-            file: CmuxConfigFile.launchFile(), buildDefaults: .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault))
+        // load, so the first frame needs no reload; appearance.fontSmoothing before any window. Read off the main thread (startLaunchRead).
+        let settingsRead = SettingsController.appliedAtLaunch(launchSettingsRead)
         TerminalThemeSetting.prime(settingsRead.snapshot)
         // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
         BrowserImportGate.prime(settingsRead.snapshot)
