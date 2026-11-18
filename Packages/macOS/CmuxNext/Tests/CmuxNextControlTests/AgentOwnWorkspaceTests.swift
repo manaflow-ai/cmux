@@ -23,7 +23,8 @@ import Testing
                               isBound: true, isDebugOnly: false, mainMenu: nil)
         }
         snapshot.catalog = ControlCatalog(actions: [action("openBrowser", ["tab"], [url]), action("openBrowser.chromium", ["tab"], [url]),
-                                                    action("new.browser.tab", ["pane"], [url]), action("palette.open", [])],
+                                                    action("new.browser.tab", ["pane"], [url]), action("palette.open", []),
+                                                    action("file.open", ["pane"], [ControlArgumentInfo(name: "path", title: "Path", kind: .string, isRequired: false)])],
                                           contextMask: 0, aliases: [:],
                                           targetKinds: ["tab", "tab-group", "pane", "column", "screen", "workspace", "workspace-group", "window"],
                                           debugActionsAvailable: true)
@@ -122,6 +123,20 @@ import Testing
             "caller": ["agent_session": "agent-closed", "workspace": .string(Self.agentKey)],
         ])).get()
         #expect(reply["caller"]?["workspace"] == "ws_agent", "\(String(describing: reply["caller"]))")
+    }
+
+    /// `cmux open FILE` from an agent (`file.open` with its caller) opens in the agent's own
+    /// workspace, also when no tab shows its chat; before, it opened in the focused pane, Home.
+    @Test(arguments: [JSONValue.object(["agent_session": "agent-a"]),
+                      .object(["agent_session": "agent-closed", "workspace": .string(agentKey)])])
+    func anAgentsFileOpensInItsOwnWorkspace(caller: JSONValue) async throws {
+        let executor = OpenBrowserExecutor()
+        let router = makeRouter(executor)
+        _ = try await router.handle(ControlRequest(id: "1", method: "file.open", params: [
+            "path": "/tmp/note.md", "caller": caller,
+        ])).get()
+        let request = try #require(executor.all.first)
+        #expect(workspace(of: request.target) == "ws_agent", "\(String(describing: request.target))")
     }
 
     @Test func aChiefTurnStillOpensBesideTheHomeChat() async throws {

@@ -6144,10 +6144,12 @@ export class AcpmuxDirectClient {
     }
     if (this.closed) return;
     if (pageShown()) this.wake();
+    if (pageShown() && this.readAheadOwed) {
+      this.readAheadOwed = false;
+      this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
+    }
     // Showing the page is the reader's own move, made outside it (a tab, a workspace).
     if (pageShown()) pageAttention()?.touch();
-    // The recent chats a hidden page did not read ahead: one pass now it shows (`scheduleReadAhead`).
-    if (pageShown() && this.hasConnected) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     const sessionId = this.selectedSessionId;
     if (!sessionId) return;
     this.syncView();
@@ -13959,6 +13961,8 @@ export class AcpmuxDirectClient {
   /// Chats waiting for a read, the next one first.
   private readAheadQueue: string[] = [];
   private readAheadTimer?: ReturnType<typeof setTimeout>;
+  /// The idle read ahead came due while the page was hidden: it runs once the page shows (`showChanged`).
+  private readAheadOwed = false;
 
   /// A chat acpmux purged: nothing of its read ahead is kept. Kept, each closed chat the read ahead
   /// had read stayed in `readAheadAt` and `readAheadSeq` for the pane's life
@@ -13972,16 +13976,26 @@ export class AcpmuxDirectClient {
       this.readAheadQueue = this.readAheadQueue.filter((queued) => queued !== sessionId);
   }
 
-  /// Reads the list's most recent chats ahead once the pane is idle for `delayMs`, while the page
-  /// shows: a hidden page (the spare, a background tab) has no switch to make fast, and its pass
-  /// sorted every chat and read 12 pages for nobody. Showing the page schedules one (`showChanged`).
-  /// Only chats a switch lands on count: listed, top-level ones, never a sub-session, a chat another
-  /// agent started, an archived, side or cold one.
+  /// Reads the list's most recent chats ahead once the pane is idle for `delayMs`.
+  /// A hidden page reads nothing ahead: every workspace's pages read the same recent chats, so N
+  /// hidden pages read each one N times for a switch only the shown page takes (Leo, 2026-11-18:
+  /// "And other general perf"). Its read ahead runs when it shows. A hover or a host's prefetch
+  /// (`queueReadAhead` with `first`) still reads at once. Only chats a switch lands on count:
+  /// listed, top-level ones, never a sub-session, a chat another agent started, an archived, side
+  /// or cold one (test/chat-page-unseen-work.test.ts).
   private scheduleReadAhead(delayMs: number): void {
-    if (this.closed || this.readAheadTimer !== undefined || !pageShown()) return;
+    if (this.closed || this.readAheadTimer !== undefined) return;
+    if (!pageShown()) {
+      this.readAheadOwed = true;
+      return;
+    }
     this.readAheadTimer = setTimeout(() => {
       this.readAheadTimer = undefined;
-      if (this.closed || !pageShown()) return;
+      if (this.closed) return;
+      if (!pageShown()) {
+        this.readAheadOwed = true;
+        return;
+      }
       const recent = this.sessionEntryList()
         .filter(
           (entry) =>
