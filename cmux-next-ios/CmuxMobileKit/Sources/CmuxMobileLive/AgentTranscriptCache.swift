@@ -55,6 +55,9 @@ public final class AgentTranscriptCache: @unchecked Sendable {
     @MainActor private var recent: [String] = []
     /// Bumps on `removeAll`: a read that started before it never lands after it.
     @MainActor private var generation = 0
+    /// Bumps per chat on `forget`: a read of that chat that started before it never lands after it
+    /// (the whole copy's refill reads while the attach may drop the kept copy).
+    @MainActor private var forgets: [String: Int] = [:]
     /// The last head file read (``firstScreen(_:)``): an open reads it twice in one turn (the
     /// coordinator for the session, the source for the turns). Dropped on any change of its chat.
     @MainActor private var lastHead: (key: String, entry: AgentTranscriptEntry)?
@@ -113,14 +116,14 @@ public final class AgentTranscriptCache: @unchecked Sendable {
     /// The entry for `key`: from memory, else read from disk off the main thread.
     @MainActor public func load(_ key: String) async -> AgentTranscriptEntry? {
         if let held = cached(key) { return held }
-        let url = file(for: key), started = generation
+        let url = file(for: key), started = generation, forgot = forgets[key, default: 0]
         let read: AgentTranscriptEntry? = await withCheckedContinuation { continuation in
             queue.async {
                 let data = try? Data(contentsOf: url)
                 continuation.resume(returning: data.flatMap { try? JSONDecoder().decode(AgentTranscriptEntry.self, from: $0) })
             }
         }
-        guard started == generation else { return nil }
+        guard started == generation, forgot == forgets[key, default: 0] else { return nil }
         // A save during the read is newer than what was on disk.
         if let held = cached(key) { return held }
         if let read { remember(key, read) }
@@ -145,6 +148,7 @@ public final class AgentTranscriptCache: @unchecked Sendable {
     /// Forgets one chat's kept copy (too old to catch up from), in memory and on disk.
     @MainActor public func forget(_ key: String) {
         memory[key] = nil
+        forgets[key, default: 0] += 1
         if lastHead?.key == key { lastHead = nil }
         recent.removeAll { $0 == key }
         pending.withLock { _ = $0.removeValue(forKey: key) }
