@@ -129,6 +129,12 @@ const EXPIRED_CREDENTIAL =
 /// The Cloud machine's provider answered that the stored Claude login is no longer accepted.
 /// This exact family is the only auth failure eligible for silent cached-login recovery.
 const CLOUD_REJECTED_CREDENTIAL = /provider rejected Claude Code[’']s credentials on this Cloud machine/i;
+/// acpmux's sign-in text for a Cloud machine (claude_auth.rs `compose_cloud`): the machine has no model
+/// route of its own, and its Claude runs on the person's own connection, sent with the start
+/// (cmux#40159). Nothing was rejected: the way out is a connection for Cloud in Settings > Models.
+/// Never its gateway fallback (`GATEWAY_FALLBACK`), which already sent the message again.
+const CLOUD_NOT_SIGNED_IN = /^\s*Claude is not signed in here\b/;
+const CLOUD_GATEWAY_FALLBACK = /now uses cmux['’]s gateway/i;
 /// A full disk, here or on the chat's machine: before every other kind, since what it broke (a
 /// write, a socket, the agent) reads as that kind too.
 const DISK_FULL = /ENOSPC|no space left on device|disk (?:is )?full|out of disk space|disk quota exceeded|EDQUOT/i;
@@ -291,7 +297,7 @@ function cloudSignIn(message: string, route?: FailureRoute): { command?: string;
 /// 2026-10-23: "good opportunity for upsell here"): a key, sign-in or capacity failure that another
 /// route fixes. Never on a chat CodeRouter already serves (sending it there again does nothing), and
 /// never on a team machine's missing account, which CodeRouter itself refused.
-/// Never on a Cloud machine's chat either: it is signed in from the Mac (Set up credentials), and runs
+/// Never on a Cloud machine's chat either: it runs on the person's own connection (Settings > Models), and runs
 /// no CodeRouter (Leo, 2026-10-31: "STOP USING CODEROUTER").
 export function offersOwnRoute(kind: FailureKind, route?: FailureRoute): boolean {
   if (route?.harness === "claude-cr" || route?.hostKind === "cloud") return false;
@@ -341,7 +347,9 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
   const status = message ? STATUS.exec(message)?.[1] : undefined;
   if (isTeamMachineSignIn(kind, route)) return t("turn.failure.cloudTeamMachineNoLogin", { harness });
   if (route?.hostKind === "cloud" && (kind === "auth" || kind === "subscription-login")) {
-    if (MISSING_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthMissing", { harness });
+    const text = message ?? "";
+    const notSignedIn = CLOUD_NOT_SIGNED_IN.test(text) && !CLOUD_GATEWAY_FALLBACK.test(text);
+    if (notSignedIn || MISSING_CREDENTIAL.test(text)) return t("turn.failure.cloudAuthMissing", { harness });
     if (EXPIRED_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthExpired", { harness });
     return t("turn.failure.cloudAuthRejected", { harness, status: status ? ` (HTTP ${status})` : "" });
   }
