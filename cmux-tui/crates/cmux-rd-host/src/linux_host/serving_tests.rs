@@ -382,7 +382,8 @@ fn after_a_failed_join_a_person_is_still_refused() {
     if std::env::var_os("ACPMUX_HOME").is_none() {
         assert!(super::join_owner(&dir).unwrap().is_some(), "a person may enable over the join");
         let refused = super::person(&dir, &origin, "tok-a", None, &|| "encoder".to_owned(), &unit);
-        assert!(refused.unwrap_err().to_string().contains("acpmux machine leave"));
+        let Err(e) = refused else { panic!("a person signed in over the join") };
+        assert!(e.to_string().contains("acpmux machine leave"), "{e}");
     }
     // Left: the join's credential is gone, and a person may enable again.
     std::fs::remove_file(home.join(machine::CREDENTIAL_FILE)).unwrap();
