@@ -82,15 +82,24 @@ public struct AgentChatDriveInput {
 
     /// One wheel tick of `deltaY` CSS px at `css`, with the sign the page's `wheel` event reports
     /// (positive scrolls the content down). False when no event could be made or sent.
+    /// The longest a wheel tick waits for WebKit's presentation update, and then for its pending mouse
+    /// events (a window that cannot present gives none; the run's own bound still ends it).
+    static let wheelWait = Duration.milliseconds(500)
+
     public func wheel(at css: CGPoint, deltaY: Double) async -> Bool {
         guard css.x.isFinite, css.y.isFinite, deltaY.isFinite, let engine else { return false }
         switch engine {
         case .webKit(let webView):
+            // WebKit drops a wheel that reaches the page before its next presentation update, and coalesces
+            // wheels still pending: each tick waits for both (as WebKitNativeInput.wheel does), so ticks a
+            // frame or less apart each reach the page. Each wait is bounded by `wheelWait`.
+            await Self.afterWebKitCallback(webView, "_doAfterNextPresentationUpdate:", bound: Self.wheelWait)
             guard let window = webView.window,
                   let event = Self.wheelEvent(window: window, location: webView.convert(Self.viewPoint(webView, css: css), to: nil), deltaY: deltaY)
             else { return false }
             // The view's own override routes it (`PageWKWebView.scrollWheel(with:)`), as a person's wheel.
             webView.scrollWheel(with: event)
+            await Self.afterWebKitCallback(webView, "_doAfterProcessingAllPendingMouseEvents:", bound: Self.wheelWait)
             return true
         case .chromium(_, let page):
             return (try? await page.devTools("Input.dispatchMouseEvent", params: [

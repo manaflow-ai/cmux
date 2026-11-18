@@ -269,7 +269,12 @@ public struct AgentChatDriveControl: Sendable {
             "hover": .object(run.hover),
             "wheel": [
                 "ticks": .number(Double(params.wheel?.ticks ?? 0)), "delta": .number(Double(params.wheel?.delta ?? 0)),
-                "tick_ms": .number(Double(params.wheel?.tickMilliseconds ?? 16)), "delivered": .number(Double(run.delivered)),
+                "tick_ms": .number(Double(params.wheel?.tickMilliseconds ?? 16)), "sent": .number(Double(run.sent)),
+                // What reached the page, not what was sent: its own count of trusted wheels, and how far its
+                // transcript moved against `sent` × `delta` (a dropped or coalesced tick shows as a difference).
+                "delivered": report?["totals"]?["wheel_trusted"] ?? .null,
+                "scrolled": run.scrolled.map { .number($0) } ?? .null,
+                "expected": .number(Double(run.sent * (params.wheel?.delta ?? 0))),
             ],
             "interrupted": (run.interrupted ?? release.triggered).map(JSONValue.string) ?? .null,
             "released": .bool(release.released),
@@ -370,7 +375,10 @@ private struct DriveRun {
     let params: AgentChatDriveControl.Params
     let begun: [String: JSONValue]
     var hover: [String: JSONValue] = ["held": false, "native": true, "reason": "no_target"]
-    var delivered = 0
+    /// Wheel ticks handed to the engine.
+    var sent = 0
+    /// How far the transcript moved from just before the first tick to just after the last (CSS px).
+    var scrolled: Double?
     var interrupted: String?
     var countersStart: [String: Double]?
 
@@ -411,31 +419,52 @@ private struct DriveRun {
         hover["held"] = true
         hover.removeValue(forKey: "reason")
         if let wheel = params.wheel {
-            for tick in 0..<wheel.ticks {
-                // A trigger from outside the run (the tab or window closing, the app resigning) already released.
-                if let trigger = Self.outside(surroundings, release) {
-                    interrupted = trigger
-                    return
-                }
-                // The person goes first: the moment they come back to the chat, stop and hand the pointer back.
-                if person.isUsing(since: started) {
-                    interrupted = "person"
-                    await release.release("person")
-                    return
-                }
-                guard !release.isDone, ContinuousClock.now < stop else { break }
-                if await input.wheel(at: point, deltaY: Double(wheel.delta)) { delivered += 1 }
-                if tick + 1 < wheel.ticks {
-                    // Between two ticks (up to 200 ms apart) the person, the window and the app are watched every
-                    // DriveWatch.step, as in a hold; what it sees, the next tick's checks act on at once.
-                    let surroundings = surroundings
-                    _ = try await DriveWatch.watch(until: ContinuousClock.now + .milliseconds(wheel.tickMilliseconds), isUsing: {
-                        Self.outside(surroundings, release) != nil || person.isUsing(since: started)
-                    })
-                }
-            }
+            let before = try await Self.scrollTop(view)
+            let stopped = try await wheelTicks(wheel, at: point, view: view, input: input, person: person, release: release,
+                                               started: started, stop: stop)
+            // The page's own scroll, once WebKit has handled what was sent: what the ticks really moved.
+            await input.settle()
+            if let before, let after = try await Self.scrollTop(view) { scrolled = after - before }
+            if stopped { return }
         }
         try await hold(until: stop, watching: person, since: started, release: release)
+    }
+
+    /// Sends `wheel`'s ticks at `point`, watching for the person, the window and the app between them.
+    /// True when one of them stopped the run (`interrupted` says which; the release has started).
+    private mutating func wheelTicks(_ wheel: AgentChatDriveControl.Params.Wheel, at point: CGPoint, view: AgentPaneView,
+                                     input: AgentChatDriveInput, person: DrivePerson, release: DriveRelease,
+                                     started: TimeInterval, stop: ContinuousClock.Instant) async throws -> Bool {
+        for tick in 0..<wheel.ticks {
+            // A trigger from outside the run (the tab or window closing, the app resigning) already released.
+            if let trigger = Self.outside(surroundings, release) {
+                interrupted = trigger
+                return true
+            }
+            // The person goes first: the moment they come back to the chat, stop and hand the pointer back.
+            if person.isUsing(since: started) {
+                interrupted = "person"
+                await release.release("person")
+                return true
+            }
+            guard !release.isDone, ContinuousClock.now < stop else { break }
+            if await input.wheel(at: point, deltaY: Double(wheel.delta)) { sent += 1 }
+            if tick + 1 < wheel.ticks {
+                // Between two ticks (up to 200 ms apart) the person, the window and the app are watched every
+                // DriveWatch.step, as in a hold; what it sees, the next tick's checks act on at once.
+                let surroundings = surroundings
+                _ = try await DriveWatch.watch(until: ContinuousClock.now + .milliseconds(wheel.tickMilliseconds), isUsing: {
+                    Self.outside(surroundings, release) != nil || person.isUsing(since: started)
+                })
+            }
+        }
+        return false
+    }
+
+    /// The transcript's scroll offset as the page reads it (`drive.state().scroll_top`), or nil.
+    static func scrollTop(_ view: AgentPaneView) async throws -> Double? {
+        guard !view.pageIsFrozen else { return nil }
+        return try await AgentChatDriveControl.call(view, AgentChatDriveControl.stateScript, [:], timeout: .seconds(5))?["scroll_top"]?.doubleValue
     }
 
     /// What the run is driven in, read with the person (set by ``drive(view:input:person:surroundings:release:)``).

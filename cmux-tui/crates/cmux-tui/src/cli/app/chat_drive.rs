@@ -235,13 +235,28 @@ pub(super) fn human(report: &Value, catalog: &AppControlMessages) -> String {
         line(
             messages.wheel_sent,
             &[
-                ("delivered", text(&wheel["delivered"])),
+                // An app from before `sent` counted sends as `delivered`.
+                (
+                    "sent",
+                    text(if wheel["sent"].is_null() {
+                        &wheel["delivered"]
+                    } else {
+                        &wheel["sent"]
+                    }),
+                ),
                 ("ticks", text(&wheel["ticks"])),
                 ("delta", text(&wheel["delta"])),
                 ("seen", text(&totals["wheel_events"])),
                 ("trusted", text(&totals["wheel_trusted"])),
             ],
         );
+        // What the ticks really moved, against what they asked for: a dropped tick shows here.
+        if wheel["scrolled"].is_number() {
+            line(
+                messages.wheel_scrolled,
+                &[("scrolled", text(&wheel["scrolled"])), ("expected", text(&wheel["expected"]))],
+            );
+        }
     }
     if page["measured"].as_bool() == Some(false) {
         line(messages.unmeasured, &[("reason", text(&page["unmeasured_reason"]))]);

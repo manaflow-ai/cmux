@@ -141,7 +141,7 @@ fn report() -> serde_json::Value {
         "tab": "tab_1",
         "engine": "webkit:agent-chat",
         "hover": {"held": true, "native": true, "x": 412.5, "y": 300},
-        "wheel": {"ticks": 30, "delta": 100, "delivered": 30},
+        "wheel": {"ticks": 30, "delta": 100, "sent": 30, "delivered": 30, "scrolled": 2800, "expected": 3000},
         "engine_counters": null,
         "engine_counters_unavailable": "WebKit does not expose layout or style counts to the app",
         "page": {
@@ -168,6 +168,7 @@ fn app_chat_drive_summary_reads_the_report() {
         "Chat tab_1 (webkit:agent-chat)\n\
          Hover: held at 412.5, 300 (CSS px); the system pointer did not move\n\
          Wheel: 30 of 30 ticks of 100 px sent; the page saw 30 wheel events, 30 trusted\n\
+         Wheel: the transcript moved 2800 px of the 3000 px sent\n\
          Frames: 3; p50 16.7 ms, p95 17.2 ms, max 18 ms; 0 over 33 ms\n\
          Composer: 0 renders, 0 DOM mutation batches (0 records)\n\
          Flips: focus 0, :focus-within 0, page inactive 0\n\
@@ -259,4 +260,15 @@ fn app_chat_drive_type_text_matches_the_shared_table() {
         assert!(typed(&text).is_err(), "{text:?} ({}) should be refused", case["why"]);
         assert!(!(super::fits(&text) && super::typable(&text)), "{text:?}");
     }
+}
+
+/// An app from before `sent` reported its sends as `delivered`, with no `scrolled`: the summary still
+/// reads them, and prints no scroll line it has no numbers for.
+#[test]
+fn app_chat_drive_summary_reads_an_older_apps_wheel() {
+    let mut older = report();
+    older["wheel"] = json!({"ticks": 30, "delta": 100, "delivered": 30});
+    let text = human(&older, &english().app_control);
+    assert!(text.contains("Wheel: 30 of 30 ticks of 100 px sent;"), "{text}");
+    assert!(!text.contains("transcript moved"), "{text}");
 }

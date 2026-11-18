@@ -129,4 +129,35 @@ struct AgentChatDriveInputTests {
         #expect(!page.window.isKeyWindow)
         #expect(NSApp.orderedWindows.first !== page.window || NSApp.orderedWindows.count == 1, "the window came to the front")
     }
+
+    /// Thirty ticks 1 ms apart (less than a frame) each reach the page: the list moves exactly 30 × the
+    /// delta and the page sees 30 trusted wheels, so a drive's `delivered` and `scrolled` are true.
+    /// Without the per-tick wait for WebKit's presentation update, ticks are dropped or coalesced.
+    @Test(.enabled(if: !NSScreen.screens.isEmpty, "needs a display"))
+    func thirtyTicksAMillisecondApartScrollExactlyThirtyTimesTheDelta() async throws {
+        let page = try await Page()
+        defer { page.window.closeAfterTest() }
+        page.window.orderBack(nil)
+        try #require(page.window.screen != nil)
+        let input = AgentChatDriveInput(webView: page.webView)
+        let center = try await page.boxCenter()
+        #expect(await input.move(to: center))
+        await input.settle()
+        let delta = 40.0
+        for _ in 0..<30 {
+            #expect(await input.wheel(at: center, deltaY: delta))
+            // wakeup-allow: the test's own 1 ms tick spacing, 30 ticks
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        await input.settle()
+        try await page.until("the list moved 30 ticks") {
+            (try await page.read("document.getElementById('list').scrollTop") as? Double ?? 0) >= 30 * delta
+        }
+        await input.settle()
+        #expect(try await page.read("document.getElementById('list').scrollTop") as? Double == 30 * delta)
+        let wheels = try await page.events("wheel")
+        #expect(wheels.count == 30, "the page saw \(wheels.count) wheels")
+        #expect(wheels.allSatisfy { $0["trusted"] as? Bool == true })
+        _ = await input.release()
+    }
 }
