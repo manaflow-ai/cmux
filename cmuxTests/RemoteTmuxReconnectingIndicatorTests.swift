@@ -14,6 +14,30 @@ import Testing
 @Suite struct RemoteTmuxReconnectingIndicatorTests {
     private let key = Workspace.remoteTmuxReconnectingStatusKey
 
+    /// The delay counts from when the reconnect began, not from when the presentation task first
+    /// runs: a main actor busy when the row was scheduled must not push it later by that long.
+    @Test(.timeLimit(.minutes(1))) func aPresentationThatStartsLateStillShowsAtTheDelay() async throws {
+        let workspace = Workspace()
+        let start = ContinuousClock.now
+        var clock = start
+        let indicator = RemoteTmuxReconnectingIndicator(delay: .seconds(3_600), now: { clock })
+
+        indicator.connectionStateChanged(.reconnecting, reconnectingSince: start, workspace: workspace)
+        // The whole delay passes before the presentation task gets the main actor.
+        clock = start + .seconds(3_600)
+        let presentation = try #require(indicator.pendingPresentation)
+        // A presentation that waits the whole delay again is cancelled at the time limit, so the
+        // test fails instead of hanging.
+        await withTaskCancellationHandler {
+            await presentation.value
+        } onCancel: {
+            presentation.cancel()
+        }
+
+        #expect(workspace.statusEntries[key] != nil, "the row waited out the delay again after the task started")
+        indicator.clear(workspace: workspace)
+    }
+
     @Test func aReconnectThatRecoversBeforeTheDelayShowsNothing() async throws {
         let workspace = Workspace()
         let indicator = RemoteTmuxReconnectingIndicator(delay: .seconds(60))

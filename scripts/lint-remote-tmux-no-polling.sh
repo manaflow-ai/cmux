@@ -87,7 +87,7 @@ ALLOW=(
   "Sources/RemoteTmuxControlConnection+TransportLiveness.swift:armReconnectAttemptDeadline:try await ContinuousClock().sleep(until: deadline)"
   "Deadline for a reconnect attempt that stays alive without reaching control mode. A broker retrying a refused host keeps its process and pipes open and emits nothing, so there is no event to wait on. Control mode moves the connection out of reconnecting and the deadline does nothing."
   "Sources/RemoteTmuxViewConnection.swift:wait:private var timer: DispatchSourceTimer?"
-  "The one-shot timer behind RemoteTmuxRetryDelay, which only scheduleBringupRetry uses for its bounded backoff; cancelling the task releases it"
+  "The one-shot timer behind RemoteTmuxRetryDelay. scheduleBringupRetry uses it for its bounded backoff, and RemoteTmuxReconnectingIndicator for when a long reconnect is first shown: nothing happens at that moment that could be waited on instead. Cancelling the task releases it"
 )
 if [ -n "${LINT_ALLOW_FILE:-}" ]; then
   ALLOW=()

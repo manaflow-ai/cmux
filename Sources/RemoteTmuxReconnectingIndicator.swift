@@ -33,12 +33,17 @@ extension RemoteTmuxSessionMirror {
 @MainActor
 final class RemoteTmuxReconnectingIndicator {
     private let delay: Duration
+    /// The clock `reconnectingSince` is read against.
+    private let now: () -> ContinuousClock.Instant
     /// The presentation scheduled for the current reconnect, until it shows or is cancelled.
     private(set) var pendingPresentation: Task<Void, Never>?
 
-    /// - Parameter delay: How long a reconnect lasts before the row says so.
-    init(delay: Duration = .seconds(5)) {
+    /// - Parameters:
+    ///   - delay: How long a reconnect lasts before the row says so.
+    ///   - now: The clock `reconnectingSince` is measured on.
+    init(delay: Duration = .seconds(5), now: @escaping () -> ContinuousClock.Instant = { .now }) {
         self.delay = delay
+        self.now = now
     }
 
     /// Follows a connection state change. Reconnecting schedules the row for when the reconnect
@@ -54,12 +59,14 @@ final class RemoteTmuxReconnectingIndicator {
         }
         guard pendingPresentation == nil,
               workspace?.statusEntries[Workspace.remoteTmuxReconnectingStatusKey] == nil else { return }
-        let elapsed = reconnectingSince.map { $0.duration(to: .now) } ?? .zero
-        let remaining = max(.zero, delay - elapsed)
+        let clock = now
+        let deadline = (reconnectingSince ?? clock()) + delay
         // Presentation timing only: it decides when the person is told, never what runs next.
         // ``RemoteTmuxRetryDelay`` is a one-shot timer that cancelling this task releases, and
-        // ``clear(workspace:)`` cancels it on every state change and on detach.
+        // ``clear(workspace:)`` cancels it on every state change and on detach. The time left is
+        // read when the task runs, so a busy main actor does not add its wait to the delay.
         pendingPresentation = Task { @MainActor [weak self, weak workspace] in
+            let remaining = max(.zero, clock().duration(to: deadline))
             await RemoteTmuxRetryDelay.wait(milliseconds: Int(remaining / .milliseconds(1)))
             guard !Task.isCancelled, let self, let workspace else { return }
             self.pendingPresentation = nil
