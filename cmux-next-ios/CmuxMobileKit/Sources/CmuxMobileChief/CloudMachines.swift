@@ -438,7 +438,8 @@ public final class CloudMachinesModel {
         }
         busyID = id
         if awaitingApproval[id] != nil { awaitingApproval[id] = nil }
-        let held = HeldAction(before: machine(id)?.settings, knownIDs: Set(machines.map(\.id)), since: now())
+        // As it was before the optimistic change, which a read rolls back while it is held.
+        let held = HeldAction(before: old.first { $0.id == id }?.settings, knownIDs: Set(old.map(\.id)), since: now())
         defer { busyID = nil }
         do {
             let value = try await work(account)
