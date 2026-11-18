@@ -16,9 +16,9 @@
 //! `projected-<hash of PATH>`). Once the mount is up it prints one JSON line of timings on stderr
 //! and writes it to `--ready-file`.
 //!
-//! With `CMUX_PROJECTION_PEERS=1`, the blobs MIRROR lacks are first asked of the fleet's seeds,
-//! the controller SSD and R2, each answer checked against its id (`cmux_projection::peers`, hq
-//! RFD 0008), and only the rest come from GitHub. `seed` serves MIRROR's blobs read only on ADDR
+//! The blobs MIRROR lacks are first asked of the fleet's seeds, the controller SSD and R2 that the
+//! environment names, each answer checked against its id (`cmux_projection::peers`, hq RFD 0008),
+//! and only the rest come from GitHub; `CMUX_PROJECTION_PEERS=0` sends them all to GitHub. `seed` serves MIRROR's blobs read only on ADDR
 //! (a tailnet or VPC address, never 0.0.0.0) for the other hosts' chains.
 
 #[cfg(target_os = "linux")]
@@ -172,18 +172,19 @@ mod linux {
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
         let missing = git::missing(&git_dir, &commit)?;
-        let rest = match Chain::from_env()? {
+        let rest = match Chain::from_env() {
             Some(chain) => {
                 let (rest, filled) =
                     chain.fill(&missing, &|oid, bytes| peers::write_loose(&git_dir, oid, bytes));
                 eprintln!(
                     "cmux-projection: {} missing blobs: {} from peers, {} from the controller SSD, \
-                     {} from R2, {} rejected answers, {} left for git",
+                     {} from R2, {} rejected answers, {} sources dropped, {} left for git",
                     missing.len(),
                     filled.peer,
                     filled.ssd,
                     filled.r2,
                     filled.rejected,
+                    filled.dropped,
                     rest.len()
                 );
                 rest

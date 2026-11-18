@@ -21,9 +21,14 @@ impl Fake {
     }
 }
 
+/// A source at `http://down*` is unreachable; one at `http://panics*` panics.
 impl Get for Arc<Fake> {
-    fn get(&self, url: &str, _token: Option<&str>) -> Answer {
+    fn get(&self, url: &str, _token: Option<&str>, _deadline: Duration) -> Answer {
         self.asked.lock().unwrap().push(url.to_owned());
+        if url.starts_with("http://down") {
+            return Answer::Failed;
+        }
+        assert!(!url.starts_with("http://panics"), "source panicked");
         self.answers.get(url).map_or(Answer::Absent, |bytes| Answer::Found(bytes.clone()))
     }
 }
@@ -65,7 +70,7 @@ fn a_wrong_answer_falls_through_to_the_next_source() {
         Ok(())
     });
     assert!(rest.is_empty());
-    assert_eq!(filled, Filled { peer: 0, ssd: 1, r2: 0, rejected: 1 });
+    assert_eq!(filled, Filled { peer: 0, ssd: 1, r2: 0, rejected: 1, dropped: 0 });
     assert_eq!(kept.into_inner().unwrap(), vec![(HELLO.to_owned(), b"hello\n".to_vec())]);
 }
 
@@ -108,11 +113,83 @@ fn at_most_two_peers_are_asked_per_blob() {
 }
 
 #[test]
-fn the_flag_off_means_no_chain() {
-    // The flag is read from the environment; this process never sets it.
-    if std::env::var(FLAG).is_err() {
-        assert!(Chain::from_env().unwrap().is_none());
+fn the_chain_is_on_unless_turned_off() {
+    assert!(enabled(None));
+    assert!(enabled(Some("1")));
+    assert!(enabled(Some("")));
+    assert!(!enabled(Some("0")));
+    assert!(!enabled(Some(" off ")));
+    assert!(!enabled(Some("false")));
+}
+
+/// The four steps (peer, controller SSD, R2, then git), each failing in turn: a blob comes from
+/// the first step that is up, and with every source down it is left for git.
+#[test]
+fn each_step_down_falls_to_the_next() {
+    let good = |base: &str| (format!("{base}/objects/{HELLO}"), b"hello\n".to_vec());
+    let cases: [(&[&str], Option<&str>); 4] = [
+        (&["http://peer", "http://ssd", "http://r2"], Some("peer")),
+        (&["http://down-peer", "http://ssd", "http://r2"], Some("ssd")),
+        (&["http://down-peer", "http://down-ssd", "http://r2"], Some("r2")),
+        (&["http://down-peer", "http://down-ssd", "http://down-r2"], None),
+    ];
+    for (bases, from) in cases {
+        let answers: Vec<(String, Vec<u8>)> = bases.iter().map(|base| good(base)).collect();
+        let answers: Vec<(&str, &[u8])> =
+            answers.iter().map(|(url, bytes)| (url.as_str(), bytes.as_slice())).collect();
+        let fake = Arc::new(Fake::new(&answers));
+        let chain = Chain::new(
+            vec![remote("peer", bases[0]), remote("ssd", bases[1]), remote("r2", bases[2])],
+            Box::new(fake),
+        );
+        let (rest, filled) = chain.fill(&[HELLO.to_owned()], &|_, _| Ok(()));
+        let got = match (filled.peer, filled.ssd, filled.r2) {
+            (1, 0, 0) => Some("peer"),
+            (0, 1, 0) => Some("ssd"),
+            (0, 0, 1) => Some("r2"),
+            _ => None,
+        };
+        assert_eq!(got, from, "sources {bases:?}");
+        assert_eq!(rest.is_empty(), from.is_some(), "sources {bases:?}");
     }
+}
+
+#[test]
+fn a_dead_source_is_dropped_after_three_failures() {
+    let fake = Arc::new(Fake::new(&[]));
+    let chain = Chain::new(vec![remote("peer", "http://down-peer")], Box::new(fake.clone()));
+    let oids: Vec<String> = (0..500).map(|at| format!("{at:040x}")).collect();
+    let (rest, filled) = chain.fill(&oids, &|_, _| Ok(()));
+    assert_eq!(rest, oids);
+    assert_eq!(filled.dropped, 1);
+    // Workers already past the check when the third failure lands may ask once more each.
+    assert!(fake.asked.lock().unwrap().len() < DEAD_AFTER + PARALLEL);
+}
+
+#[test]
+fn a_panicking_source_leaves_the_blob_for_git() {
+    let fake = Arc::new(Fake::new(&[]));
+    let chain = Chain::new(vec![remote("ssd", "http://panics")], Box::new(fake));
+    let (rest, filled) = chain.fill(&[HELLO.to_owned()], &|_, _| Ok(()));
+    assert_eq!(rest, vec![HELLO.to_owned()]);
+    assert_eq!(filled, Filled::default());
+}
+
+#[test]
+fn a_blob_that_cannot_be_written_is_left_for_git() {
+    let fake = Arc::new(Fake::new(&[(&format!("http://ssd/objects/{HELLO}"), b"hello\n")]));
+    let chain = Chain::new(vec![remote("ssd", "http://ssd")], Box::new(fake));
+    let (rest, filled) =
+        chain.fill(&[HELLO.to_owned()], &|_, _| Err(anyhow::anyhow!("mirror read only")));
+    assert_eq!(rest, vec![HELLO.to_owned()]);
+    assert_eq!(filled.ssd, 0);
+}
+
+#[test]
+fn an_unreadable_peer_index_names_no_peers() {
+    let fake = Arc::new(Fake::new(&[]));
+    assert!(peers_in(&fake, "http://down-index/seeds").is_empty());
+    assert!(peers_in(&fake, "/nonexistent/peer-index").is_empty());
 }
 
 #[test]
@@ -190,20 +267,27 @@ fn a_seed_serves_its_blobs_and_nothing_else() {
     });
     let http = Http::new().unwrap();
     let base = format!("http://{addr}");
+    let wait = Duration::from_secs(2);
     let mut answer = Answer::Failed;
     // The listener starts on its own thread; a connection refused before it binds is retried.
-    for _ in 0..200 {
-        answer = http.get(&format!("{base}/objects/{HELLO}"), None);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        answer = http.get(&format!("{base}/objects/{HELLO}"), None, wait);
         if answer != Answer::Failed {
             break;
         }
-        std::thread::yield_now();
+        std::thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(answer, Answer::Found(b"hello\n".to_vec()));
-    assert_eq!(http.get(&format!("{base}/objects/{EMPTY}"), None), Answer::Absent);
-    assert_eq!(http.get(&format!("{base}/etc/passwd"), None), Answer::Absent);
-    let chain = Chain::new(vec![remote("peer", &base)], Box::new(http));
+    assert_eq!(http.get(&format!("{base}/objects/{EMPTY}"), None, wait), Answer::Absent);
+    assert_eq!(http.get(&format!("{base}/etc/passwd"), None, wait), Answer::Absent);
+    // A peer that refuses connections, over the real network: the seed behind it answers.
+    let dead = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let chain = Chain::new(
+        vec![remote("peer", &format!("http://{dead}")), remote("ssd", &base)],
+        Box::new(http),
+    );
     let (rest, filled) = chain.fill(&[HELLO.to_owned(), EMPTY.to_owned()], &|_, _| Ok(()));
     assert_eq!(rest, vec![EMPTY.to_owned()]);
-    assert_eq!(filled.peer, 1);
+    assert_eq!(filled.ssd, 1);
 }
