@@ -236,8 +236,8 @@ fn the_lower_cache_evicts_oldest_entries_before_its_budget() {
     let cache = dir.path().join("cache");
     fs::create_dir_all(&cache).unwrap();
     fs::write(cache.join("manifest-id"), b"id\n").unwrap();
-    fs::write(cache.join("000-old"), b"1234").unwrap();
-    fs::write(cache.join("999-new"), b"5678").unwrap();
+    fs::write(cache.join("000-old"), b"123").unwrap();
+    fs::write(cache.join("999-new"), b"567").unwrap();
     let target = cache.join("incoming");
     make_room(&cache, 4, &target, 7);
     assert!(!cache.join("000-old").exists());
