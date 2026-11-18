@@ -39,7 +39,7 @@ import Testing
         let model = SidebarModel(sections: Self.sections(now: now))
         Self.applyLook(model)
         let rows = Self.layout(model).rows
-        let order: [String] = rows.compactMap { row in
+        let order: [String] = rows.compactMap { row -> String? in
             switch row.key {
             case let .folder(_, folder): "folder \(folder)"
             case let .workspace(id): id.rawValue
@@ -47,9 +47,10 @@ import Testing
             }
         }
         #expect(order == ["folder ~/src/web", "a", "c", "folder ~/src/api", "b"])
-        let content = Dictionary(rows.compactMap { row in
-            if case let .workspace(id) = row.key { (id.rawValue, row.content) } else { nil }
-        }, uniquingKeysWith: { first, _ in first })
+        var content: [String: WorkspaceRowContent] = [:]
+        for row in rows {
+            if case let .workspace(id) = row.key, let shown = row.content { content[id.rawValue] = shown }
+        }
         #expect(content["a"]?.badgeTime == "2h")
         #expect(["5m", "6m"].contains(content["b"]?.badgeTime ?? ""), "a minute may pass before the layout")
         #expect(content["c"]?.badgeTime == "3d")
@@ -65,7 +66,7 @@ import Testing
         let expected = now.addingTimeInterval(-5 * 60).formatted(date: .omitted, time: .shortened)
         // A change five minutes ago is today unless the test runs in the day's first five minutes.
         if Calendar.current.isDate(now.addingTimeInterval(-5 * 60), inSameDayAs: now) {
-            #expect(row?.content.badgeTime == expected)
+            #expect(row?.content?.badgeTime == expected)
         }
     }
 
