@@ -32,6 +32,9 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
     (`dead_labels`, cmux#27114: `label` joined with "," and `live`, members that started jobs).
     The snapshot's `starved` and `unserved` describe owned (glaeda-*) labels, which are never
     pool members, so they are not read;
+  - a label whose `label_started` is within RECENT_START is serving and never dead, whatever the
+    probe saw (recently_started()): under Blacksmith's org vCPU cap a probe can wait out its
+    minutes on a size that keeps starting jobs;
 - marks dead labels in RUNNER_POOLS' `_dead` (label -> when last seen dead). A mark expires after
   DEAD_TTL unless seen again; evidence that the label started a job clears it at once. A mark expires
   only on a pass whose evidence covers its label (evidence_covers()): the probe's health for the sizes
@@ -40,7 +43,10 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   the linux pool went from 16 back to the stalled 32 vCPU size;
 - points each pool at its first member with no mark. With every member marked, an x64 Linux pool takes its
   release valve, the next smaller declared x64 size with no mark (valve_labels(); 2026-11-18, linux_16 and
-  linux_32 sat on a dead 32 vCPU); with none, or for any other pool, it keeps its first member;
+  linux_32 sat on a dead 32 vCPU); with none, or for any other pool, it keeps its first member. A Blacksmith
+  Linux pool lists its smaller sizes before its larger ones (grows_before_shrinking(), checked by
+  spec_problems()), so a size stalled by the org's vCPU cap moves its jobs down, never up into the sizes the
+  cap starves first;
 - writes RUNNER_POOLS only when something changed. A value that does not match the schema
   (parse_value()) is replaced from the declared defaults, never crashed on.
 
@@ -129,6 +135,12 @@ DEAD_KEY = "_dead"
 # (queue_janitor.LABEL_STARTED_KEY).
 LABEL_STARTED_KEY = "label_started"
 UPDATED_KEY = "_updated"
+# A label the janitor's `label_started` shows starting a job this recently is serving, whatever a probe saw: it is
+# never marked dead, and a mark on it clears (label_evidence()). Blacksmith caps the org on vCPUs at once, so under
+# load a probe can wait out its PROBE_MINUTES on a size that keeps starting jobs: at 02:00:26Z on 2026-11-18
+# RUNNER_POOLS marked blacksmith-4vcpu-ubuntu-2404 dead while it had completed 11 jobs and ran 6 since 01:05Z.
+RECENT_START = dt.timedelta(minutes=15)
+LINUX_SIZE = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-\d+(?:-arm)?)$")
 # A dead mark lasts this long unless seen again. The probe runs every 10 minutes and the janitor
 # sweeps about as often, so a label that is still dead is marked again before its mark expires,
 # and one that recovered is used again within half an hour (or at once when it starts a job).
@@ -250,7 +262,35 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
                              "through a picker, never a pool")
         if spec.get("hosted") and not str(spec.get("hosted_why", "")).strip():
             found.append(f"{where}: a hosted pool names why it cannot run on the set (hosted_why)")
+        grows = grows_before_shrinking(listed)
+        if grows:
+            found.append(f"{where}: lists {grows} after a larger failover or out of size order; Blacksmith caps the org on vCPUs at "
+                         "once, so a stalled size moves down first (list smaller sizes, largest first, before larger)")
     return found
+
+
+def grows_before_shrinking(listed: Sequence[str]) -> str | None:
+    """The member out of order in a Blacksmith Linux pool's failovers, else None.
+
+    Blacksmith caps the org on vCPUs running at once, not per size, so when one size queues while the others start
+    the cap is what binds, and moving its jobs to a bigger size fills the cap faster: on 2026-11-17 (00:00-00:48Z)
+    32 vCPU started 1 of 282 jobs, 16 vCPU 5 of 63 and 4 vCPU 47 of 209, while linux_16 failed over to 32 vCPU. So a
+    pool's failovers go down in size first (the largest smaller size first), and only then up."""
+    sizes = [LINUX_SIZE.match(label) for label in listed]
+    if len(listed) < 2 or not all(sizes) or len({match.group(2) for match in sizes}) != 1:
+        return None
+    first = int(sizes[0].group(1))
+    larger_seen: str | None = None
+    previous = first
+    for label, match in zip(listed[1:], sizes[1:]):
+        size = int(match.group(1))
+        if size > first:
+            larger_seen = larger_seen or label
+        elif larger_seen is not None or size > previous:
+            return label
+        else:
+            previous = size
+    return None
 
 
 def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tuple[dict[str, Any], list[str]]:
@@ -529,6 +569,7 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         notes.append(f"{pr_runner_pool.snapshot_truncated(snapshot)}; no snapshot evidence")
     elif generated is not None:
         age = max(0.0, (now - generated).total_seconds() / 60)
+        started |= recently_started(snapshot, now=now)
         for label, load in (snapshot.get("pools") or {}).items():
             if not (isinstance(label, str) and EPHEMERAL.match(label) and isinstance(load, Mapping)):
                 continue
@@ -573,7 +614,26 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
     if generated is not None and dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE \
             and not pr_runner_pool.snapshot_truncated(snapshot):
         covered |= {label for spec in pools.values() for label in members(spec)} - probed
+        # A probed size the janitor saw start a job recently is covered too: label_evidence() calls it started.
+        covered |= recently_started(snapshot, now=now)
     return covered
+
+
+def recently_started(snapshot: Mapping[str, Any], *, now: dt.datetime) -> set[str]:
+    """The Blacksmith labels the janitor's `label_started` shows starting a job within RECENT_START of `now`.
+
+    Such a label is serving, so it is never dead, whatever the probe saw: a probe that waits out its minutes on a
+    size that keeps starting jobs is queued behind the org's vCPU cap, not on a dead size."""
+    starts = snapshot.get(LABEL_STARTED_KEY)
+    if not isinstance(starts, Mapping):
+        return set()
+    found = set()
+    for label, when in starts.items():
+        moment = parse_time(when)
+        if isinstance(label, str) and EPHEMERAL.match(label) and moment is not None \
+                and dt.timedelta(minutes=-1) <= now - moment <= RECENT_START:
+            found.add(label)
+    return found
 
 
 def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]], *,

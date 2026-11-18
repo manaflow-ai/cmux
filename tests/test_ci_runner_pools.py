@@ -941,9 +941,6 @@ class RawLabelVars(unittest.TestCase):
         self.assertFalse([name for name in runner_pools.RAW_LABEL_VARS if "MACOS" in name])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TruncatedSnapshot(unittest.TestCase):
     def test_a_truncated_snapshot_is_no_snapshot_evidence(self) -> None:
@@ -956,3 +953,66 @@ class TruncatedSnapshot(unittest.TestCase):
         dead, started, notes = runner_pools.label_evidence(None, dict(stalled, truncated=True), now=NOW)
         self.assertEqual((dead, started), (set(), set()))
         self.assertTrue(any("truncated" in note for note in notes))
+
+
+class CapBound(unittest.TestCase):
+    """Blacksmith caps the org on vCPUs at once. A size that keeps starting jobs is serving however long a probe
+    waits there, and a size the cap starves moves its jobs down in size, never up (2026-11-17)."""
+
+    FOUR, EIGHT = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"
+    SIXTEEN, THIRTY_TWO = "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"
+
+    def snapshot(self, starts):
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["generated_at"] = runner_pools.iso(NOW - dt.timedelta(minutes=1))
+        snapshot["label_started"] = {label: runner_pools.iso(NOW - age) for label, age in starts.items()}
+        return snapshot
+
+    def test_a_probe_stall_on_a_size_that_keeps_starting_jobs_marks_it_serving(self) -> None:
+        # 02:00:26Z on 2026-11-18: both probes waited out their 5 minutes under the cap, and RUNNER_POOLS marked
+        # 4 vCPU dead while it had completed 11 jobs and ran 6 since 01:05Z.
+        both_stalled = health({self.FOUR: "stalled", self.SIXTEEN: "stalled"})
+        snapshot = self.snapshot({self.FOUR: dt.timedelta(minutes=2)})
+        dead, started, _ = runner_pools.label_evidence(both_stalled, snapshot, now=NOW)
+        self.assertNotIn(self.FOUR, dead)
+        self.assertIn(self.FOUR, started)
+        self.assertIn(self.SIXTEEN, dead)
+        # A start older than RECENT_START is no longer evidence: the probe's stall stands.
+        old = self.snapshot({self.FOUR: runner_pools.RECENT_START + dt.timedelta(minutes=5)})
+        dead, _, _ = runner_pools.label_evidence(both_stalled, old, now=NOW)
+        self.assertIn(self.FOUR, dead)
+        # And a mark already on the serving size clears on the next pass.
+        pools = runner_pools.load_pools()
+        current = {"_dead": {self.FOUR: runner_pools.iso(NOW - dt.timedelta(minutes=5)),
+                             self.SIXTEEN: runner_pools.iso(NOW - dt.timedelta(minutes=5))}}
+        dead, started, _ = runner_pools.label_evidence(both_stalled, snapshot, now=NOW)
+        value, _ = runner_pools.reconcile(current, pools, dead_now=dead, served_now=started, now=NOW,
+                                          covered=runner_pools.evidence_covers(both_stalled, snapshot, pools, now=NOW))
+        self.assertEqual(set(value["_dead"]), {self.SIXTEEN})
+        self.assertEqual(value["linux"], self.FOUR)
+
+    def test_linux_16_moves_down_to_8_vcpu_not_up_to_32(self) -> None:
+        # 00:00-00:48Z on 2026-11-17: 32 vCPU started 1 of 282 jobs while linux_16 named it.
+        pools = runner_pools.load_pools()
+        value, _ = runner_pools.reconcile({}, pools, dead_now={self.SIXTEEN}, served_now={self.FOUR}, now=NOW)
+        self.assertEqual(value["linux_16"], self.EIGHT)
+        self.assertEqual(value["linux_32"], self.THIRTY_TWO)
+        value, _ = runner_pools.reconcile({}, pools, dead_now={self.EIGHT}, served_now={self.FOUR}, now=NOW)
+        self.assertEqual(value["linux_8"], self.FOUR)
+
+    def test_every_linux_pool_fails_over_down_in_size_first(self) -> None:
+        # The detector: a declared pool that lists a larger failover before a smaller one is a spec problem.
+        for name, spec in runner_pools.load_pools().items():
+            with self.subTest(pool=name):
+                self.assertIsNone(runner_pools.grows_before_shrinking(runner_pools.members(spec)))
+        grows = {"x": {"why": "x", "members": [self.SIXTEEN, self.THIRTY_TWO, self.EIGHT]}}
+        self.assertIn("lists blacksmith-8vcpu-ubuntu-2404 after a larger failover",
+                      "\n".join(runner_pools.spec_problems(grows)))
+        self.assertIsNone(runner_pools.grows_before_shrinking([self.SIXTEEN, self.EIGHT, self.FOUR, self.THIRTY_TWO]))
+        self.assertEqual(runner_pools.grows_before_shrinking([self.SIXTEEN, self.FOUR, self.EIGHT]), self.EIGHT)
+        # Only Blacksmith Linux pools of one family: macOS and mixed lists keep their declared order.
+        self.assertIsNone(runner_pools.grows_before_shrinking(["blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"]))
+
+
+if __name__ == "__main__":
+    unittest.main()
