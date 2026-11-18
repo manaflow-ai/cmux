@@ -259,8 +259,8 @@ impl Hub {
 
     /// The machine's store of MCP connections (cmux-mcp-connect `shared`), the one every Chief
     /// reads: config `mcpStore`, else `$CMUX_MCP_HOME`, else `<acpmux home>/mcp`.
-    pub fn mcp_store_dir(&self) -> std::path::PathBuf {
-        let configured = self.config.read().unwrap_or_else(|e| e.into_inner()).mcp_store.clone();
+    pub async fn mcp_store_dir(&self) -> std::path::PathBuf {
+        let configured = self.config.read().await.mcp_store.clone();
         configured.unwrap_or_else(|| {
             cmux_mcp_connect::shared::dir(&crate::config::home(), &|k| std::env::var(k).ok())
         })
@@ -272,6 +272,7 @@ impl Hub {
     /// is left alone. Returns the store's name for it, or None when nothing was kept.
     fn keep_in_shared_store(
         &self,
+        dir: &std::path::Path,
         card: &Value,
         scope: &str,
         connected: &Value,
@@ -289,8 +290,7 @@ impl Hub {
         };
         let url = field(card, "url").as_str()?;
         let name = shared::clean_name(field(card, "name").as_str()?);
-        let dir = self.mcp_store_dir();
-        let path = shared::server_path(&dir, &name);
+        let path = shared::server_path(dir, &name);
         if let Some(old) =
             std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok())
         {
@@ -323,7 +323,7 @@ impl Hub {
         .record();
         if let (Some(value), Some(header)) = (key, field(card, "keyName").as_str()) {
             let secrets = shared::key_secrets(header, value);
-            write_private(&shared::secrets_path(&dir, &name), secrets.to_string().as_bytes())
+            write_private(&shared::secrets_path(dir, &name), secrets.to_string().as_bytes())
                 .ok()?;
         }
         let text = serde_json::to_vec_pretty(&record).ok()?;

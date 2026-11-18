@@ -301,7 +301,7 @@ async fn approve_with_scope(
     store: Option<&std::path::Path>,
 ) -> (Arc<Hub>, Value, Value) {
     let (hub, mut person) = setup(PermissionPolicy::Ask).await;
-    hub.config.write().unwrap().mcp_store = Some(store.map_or_else(
+    hub.config.write().await.mcp_store = Some(store.map_or_else(
         || std::path::PathBuf::from("/nonexistent/mcp"),
         std::path::Path::to_path_buf,
     ));
