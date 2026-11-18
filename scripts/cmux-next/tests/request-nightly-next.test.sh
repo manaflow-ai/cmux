@@ -106,11 +106,28 @@ STUB
 # The backfill's active-run counts (`api .../cmux-tui-artifacts.yml/runs`, one
 # per status) print $TMP/gh-runs for in_progress and 0 for the other states, or
 # fail when that file is missing (an unreadable list) or the status is not one
-# the REST API knows. `run list` prints $TMP/gh-runs.
+# the REST API knows. `run list` prints $TMP/gh-runs. When a case writes
+# $TMP/gh-run-statuses (the status of each run of the commit, one a line),
+# `run list` answers the caller's own --jq from that list instead, and fails
+# for a --jq it does not know, so a count is never right by accident.
 cat > "$TMP/bin/gh" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$TMP/gh.log"
 if [[ "\$1 \$2" == "run list" ]]; then
+  if [[ -f "$TMP/gh-run-statuses" ]]; then
+    jq="" prev=""
+    for arg in "\$@"; do
+      if [[ "\$prev" == --jq ]]; then jq="\$arg"; fi
+      prev="\$arg"
+    done
+    case "\$jq" in
+      length) grep -c . "$TMP/gh-run-statuses" || true ;;
+      '[.[] | select(.status != "completed")] | length') grep -c -v -x completed "$TMP/gh-run-statuses" || true ;;
+      '[.[] | select(.status == "in_progress")] | length') grep -c -x in_progress "$TMP/gh-run-statuses" || true ;;
+      *) echo "gh stub: unknown --jq in run list: \$jq" >&2; exit 1 ;;
+    esac
+    exit 0
+  fi
   [[ -f "$TMP/gh-runs" ]] || exit 1
   cat "$TMP/gh-runs"; exit 0
 fi
@@ -724,10 +741,26 @@ echo 0 > "$TMP/gh-runs"
 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && ! dispatched "$pending" || fail "with no active artifacts run the building tip must wait:" "$out"
 grep -q "no active cmux-tui-artifacts run builds tree" <<<"$out" || fail "the wait must say why:" "$out"
+# A run that only waits for a runner builds nothing yet: a tip that is requested on it gets a nightly
+# that compiles the app, waits its 45 minutes for the tree and fails. On 2026-11-18 the artifacts runs
+# of feat-cmux-next waited hours for a runner (run 44383172213 started its first job 2.2 hours after
+# its push), and a nightly whose tip had no tree waited those 45 minutes and failed (nightly-next run
+# 44405798998). Queued, pending (held behind its group), waiting and requested are the states of a run
+# with no job in work. The tip has a run, so the backfill starts no second one.
 echo 1 > "$TMP/gh-runs"
+for waits in queued pending waiting requested; do
+  printf '%s\n' completed "$waits" > "$TMP/gh-run-statuses"
+  request --tree-ready "$pending"
+  [[ "$status" == 0 ]] && ! dispatched "$pending" \
+    || fail "a tip whose artifacts run is only $waits builds no tree yet and must wait:" "$out" "$(cat "$TMP/gh.log")"
+  grep -q "no active cmux-tui-artifacts run builds tree" <<<"$out" || fail "the wait must say why ($waits):" "$out"
+  ! backfilled || fail "a tip that has an artifacts run must get no second one ($waits):" "$(cat "$TMP/gh.log")"
+done
+printf '%s\n' completed in_progress > "$TMP/gh-run-statuses"
 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && dispatched "$pending" || fail "the building tip with the line and an active run must be requested:" "$out" "$(cat "$TMP/gh.log")"
 grep -q "its cmux-tui tree is building" <<<"$out" || fail "the request must say the tree is building:" "$out"
+rm -f "$TMP/gh-run-statuses"
 # A commit behind the tip is never requested this way.
 git_q -C "$src" commit --allow-empty -m "app on top"
 branch "$(git -C "$src" rev-parse HEAD)"
