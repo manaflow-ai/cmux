@@ -94,6 +94,53 @@ import Testing
         #expect(feed.isShowingKeptRows)
     }
 
+    /// The Mac's first window stays when it lands before the whole kept list. A relaunch draws the
+    /// kept head (40 of 200 rows); the Mac's first window (20 rows) arrives and the head's other
+    /// rows stay below it, so the rows on screen equal the head again, now as the Mac's (not
+    /// kept, not saved: the list is not complete). The whole kept list read after must not
+    /// replace them and mark them kept again. Before, the late read checked only that the rows
+    /// still equalled the head. The Mac's whole list is held back, as on a slow link.
+    @Test func theMacsFirstWindowIsNotReplacedByTheLateKeptList() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let account = Account()
+        let wire: [[String: Any]] = (0..<200).map { index in
+            ["id": "conv_\(index)", "owner": "local", "kind": "channel", "name": "Channel \(index)", "unread": 0,
+             "activity_at": String(format: "2026-10-21T%02d:%02d:00Z", 23 - index / 60, 59 - index % 60),
+             "pinned": false, "marked_unread": false, "muted": false]
+        }
+        let key = MacHomeRowsCache.key(account: "user-a", macID: "mac-1")
+        let writer = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        writer.save(key, rows: wire.compactMap(MacHomeRow.init(wire:)))
+        writer.flush()
+
+        let owner = FakeHomeOwner(windows: .honors, rows: wire)
+        let relaunched = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        // Hold the whole kept list's disk read until the Mac's first window has landed.
+        let held = DispatchSemaphore(value: 0)
+        relaunched.queue.async { held.wait() }
+        let feed = Self.feed(relaunched, account: account)
+        feed.showKeptRows(of: "mac-1")
+        let head = feed.rows?.map(\.id)
+        #expect(head?.count == MacHomeRowsCache.firstScreenRows)
+        await feed.connect(link: MockMacLink { _, request in
+            // The whole list (a home-inbox with no window) never answers here: only the first window.
+            if let object = try? JSONSerialization.jsonObject(with: request.dropLast()) as? [String: Any],
+               object["cmd"] as? String == "home-inbox", object["limit"] == nil, object["ids"] == nil { return [] }
+            return owner.respond(request)
+        }, macID: "mac-1")
+        #expect(await eventually { !feed.isShowingKeptRows })
+        let answered = feed.rows?.map(\.id)
+        #expect(answered == head, "the Mac's first window over the head's other rows: the head, row for row")
+
+        held.signal()
+        // The read is done once the queue runs a block after it.
+        await withCheckedContinuation { done in relaunched.queue.async { done.resume() } }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(feed.rows?.map(\.id) == answered, "the Mac's rows, not the 200 kept")
+        #expect(!feed.isShowingKeptRows)
+    }
+
     /// Back-compat: a list kept by an app before head files (only `<key>.json` on disk) still
     /// shows after the update's first launch, read off the main thread as before, and its next
     /// save writes the head for the launch after.
