@@ -1,6 +1,48 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.account.deleteAppStore.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Your App Store subscription will keep renewing"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Dein App Store-Abo verlängert sich weiter"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Votre abonnement App Store continuera de se renouveler"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "سيستمر تجديد اشتراكك في App Store"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tu suscripción de App Store se seguirá renovando"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "你的 App Store 訂閱將繼續續訂"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "你的 App Store 订阅将继续续订"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "App Store 구독은 계속 갱신됩니다"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "App Store のサブスクリプションは引き続き更新されます"}}
+      }
+    },
+    "mobile.account.deleteAppStore.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Deleting your cmux account doesn't cancel your App Store subscription. Apple keeps charging you until you cancel it in the App Store. Deleting your account also signs you out everywhere and can't be undone."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wenn du dein cmux-Konto löschst, wird dein App Store-Abo nicht gekündigt. Apple berechnet es weiter, bis du es im App Store kündigst. Das Löschen meldet dich außerdem überall ab und kann nicht rückgängig gemacht werden."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Supprimer votre compte cmux n'annule pas votre abonnement App Store. Apple continue de vous facturer jusqu'à ce que vous l'annuliez dans l'App Store. La suppression vous déconnecte aussi partout et est irréversible."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "حذف حساب cmux لا يلغي اشتراكك في App Store. ستواصل Apple تحصيل الرسوم منك حتى تلغيه في App Store. كما يؤدي حذف حسابك إلى تسجيل خروجك من كل مكان ولا يمكن التراجع عنه."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Eliminar tu cuenta de cmux no cancela tu suscripción de App Store. Apple te seguirá cobrando hasta que la canceles en App Store. Eliminar tu cuenta también cierra tu sesión en todas partes y no se puede deshacer."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "刪除 cmux 帳號不會取消你的 App Store 訂閱。在你於 App Store 中取消之前，Apple 會繼續向你收費。刪除帳號也會讓你在所有裝置上登出，且無法復原。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "删除 cmux 账户不会取消你的 App Store 订阅。在你于 App Store 中取消之前，Apple 会继续向你收费。删除账户还会让你在所有设备上退出登录，且无法撤销。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "cmux 계정을 삭제해도 App Store 구독은 취소되지 않습니다. App Store에서 취소할 때까지 Apple이 계속 요금을 청구합니다. 계정을 삭제하면 모든 곳에서 로그아웃되며 되돌릴 수 없습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "cmux アカウントを削除しても App Store のサブスクリプションは解約されません。App Store で解約するまで Apple からの請求は続きます。アカウントを削除するとすべての場所でサインアウトされ、元に戻せません。"}}
+      }
+    },
+    "mobile.account.deleteAppStore.manage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Manage Subscription"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Abo verwalten"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Gérer l'abonnement"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إدارة الاشتراك"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Gestionar suscripción"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "管理訂閱"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "管理订阅"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "구독 관리"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "サブスクリプションを管理"}}
+      }
+    },
     "mobile.devices.loadFailed": {
       "extractionState": "manual",
       "localizations": {

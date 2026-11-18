@@ -275,26 +275,28 @@ jobs:
           sudo loginctl enable-linger "$JOIN_USER"
           # Lingering asks logind to start it; starting it here too says why when it cannot.
           manager="user@$JOIN_UID.service"
-          started=0
-          sudo timeout 60 systemctl start "$manager" && started=1
+          # Its exit status is not the verdict: on a runner it can exit 1 with the manager up. The manager is
+          # judged by `is-active` and its socket, both read as root (/run/user/UID is the joined user's, 0700).
+          start_rc=0
+          sudo timeout 60 systemctl start "$manager" || start_rc=$?
           # The manager's own socket, which `systemctl --user` connects to (the session bus is a separate
           # package, dbus-user-session, which a machine need not have).
           private="/run/user/$JOIN_UID/systemd/private"
           for _ in $(seq 1 60); do
-            [ -S "$private" ] && break
+            sudo test -S "$private" && break
             sleep 0.5
           done
-          if [ "$started" != 1 ] || [ ! -S "$private" ]; then
+          if ! sudo systemctl is-active --quiet "$manager" || ! sudo test -S "$private"; then
             echo "::group::why the joined user's user manager is not running"
             sudo timeout 20 systemctl status --no-pager --lines 20 systemd-logind.service "user-runtime-dir@$JOIN_UID.service" "$manager" || true
             sudo timeout 20 journalctl -b --no-pager --lines 60 -u systemd-logind.service -u "user-runtime-dir@$JOIN_UID.service" -u "$manager" || true
             sudo ls -la "/run/user/$JOIN_UID" "/run/user/$JOIN_UID/systemd" || true
             echo "::endgroup::"
-            echo "::error::the joined user's user manager did not start (systemctl start $manager: $started, $private after 30 s: $([ -S "$private" ] && echo yes || echo no))"
+            echo "::error::the joined user's user manager did not start (systemctl start $manager: exit $start_rc, $(sudo systemctl is-active "$manager" 2>&1 || true); $private after 30 s: $(sudo test -S "$private" && echo yes || echo no))"
             exit 1
           fi
           bus="/run/user/$JOIN_UID/bus"
-          echo "user manager: running; session bus: $([ -S "$bus" ] && echo "$bus" || echo none)"
+          echo "user manager: running; session bus: $(sudo test -S "$bus" && echo "$bus" || echo none)"
           sudo -n -u "$JOIN_USER" -- /usr/bin/env -i HOME="$JOIN_HOME" PATH=/usr/bin:/bin \
             XDG_RUNTIME_DIR="/run/user/$JOIN_UID" \
             systemctl --user is-system-running || true

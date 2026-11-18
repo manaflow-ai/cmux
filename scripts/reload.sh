@@ -915,6 +915,17 @@ measurement_derived_data_path() {
   echo "$(cd "$SCRIPT_DIR/.." && pwd -P)/.build/DerivedData/cmux-measure"
 }
 
+# The command that builds: xcodebuild. A measurement step's kept DerivedData can hold a module of the app
+# FFI that is older than its header, and that build fails with exit 65 ("has been modified since the module
+# file ... was built"), so its xcodebuild runs through stale-module-second-build.sh: after that failure it
+# clears the folder's build state and builds one more time. The helper runs inside the xcodebuild lock.
+set_xcodebuild_command() {
+  XCODEBUILD_COMMAND=(xcodebuild)
+  if reload_is_measurement_step && [[ "$DERIVED_DATA" == "$(measurement_derived_data_path)" ]]; then
+    XCODEBUILD_COMMAND=("$SCRIPT_DIR/cmux-next/stale-module-second-build.sh" "$DERIVED_DATA" "$RELOAD_LOG" xcodebuild)
+  fi
+}
+
 # A tag only changes the bundle id, names, socket and state files. None of those
 # are compiler inputs, so a new tag built into a DerivedData that is already warm
 # for this checkout recompiles nothing, while a fresh per-tag DerivedData is a full
@@ -1932,6 +1943,7 @@ build_dirty=false
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
 XCODEBUILD_STARTED=1
+set_xcodebuild_command
 python3 -c '
 import array
 import fcntl
@@ -2070,7 +2082,7 @@ try:
     os.execvp(command[0], command)
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
-' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" xcodebuild "${XCODEBUILD_ARGS[@]}"
+' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" "${XCODEBUILD_COMMAND[@]}" "${XCODEBUILD_ARGS[@]}"
 sleep 0.2
 if LC_ALL=C grep -q 'BUILD INTERRUPTED' "$RELOAD_LOG"; then
   echo "error: xcodebuild reported ** BUILD INTERRUPTED **; refusing to reuse DerivedData app artifacts" >&2
