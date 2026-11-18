@@ -51,7 +51,10 @@ public import Testing
         }
         var measured: [Measurement] = []
         await withKnownIssue(Comment(rawValue: "\(F.name) is in VisibleRowsBaseline: \(known.why)"), sourceLocation: sourceLocation) {
-            measured = try await run(fixture, sizes: sizes, sourceLocation: sourceLocation)
+            // A list that cannot be built is a known issue too; the body throws nothing, so no overload rethrows.
+            do { measured = try await run(fixture, sizes: sizes, sourceLocation: sourceLocation) } catch {
+                Issue.record(error, sourceLocation: sourceLocation)
+            }
         } matching: { issue in
             known.only.map { only in issue.comments.contains { $0.rawValue.contains(only) } } ?? true
         }
