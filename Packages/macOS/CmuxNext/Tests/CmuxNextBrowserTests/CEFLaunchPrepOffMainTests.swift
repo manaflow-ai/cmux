@@ -1,4 +1,5 @@
 @testable import CmuxNextBrowser
+import CmuxNextDesign
 import Foundation
 import Testing
 
@@ -23,5 +24,29 @@ import Testing
         #expect(kept, "the last run's log is kept by the preload's off-main prep, not by a page's start")
         #expect(!FileManager.default.fileExists(atPath: storage.logFile.path))
         #expect(runtime.state == .loading, "no CefInitialize before a page asks")
+    }
+}
+
+extension CEFLaunchPrepOffMainTests {
+    /// Before the first window frame the prep does nothing (its reads and its thread would compete with the window
+    /// build, a profiled A/B put the first frame 17 ms later); the frame's gate opens it, and the start that follows
+    /// finds it done (CMUX-571).
+    @Test func thePrepWaitsForTheFirstFrameThenKeepsTheLog() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "cef-launch-prep-gate-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = CEFProfileStorage(root: root.appending(path: "Chromium"))
+        try FileManager.default.createDirectory(at: storage.root, withIntermediateDirectories: true)
+        try Data("last run".utf8).write(to: storage.logFile)
+
+        let gate = FirstFrameGate()
+        let runtime = CEFRuntime(libraryLoader: { _ in .failure(.notEmbedded) }, storage: storage)
+        runtime.initializeAfter = gate
+        runtime.preload(layout: CEFLibraryMapOffMainTests.layout)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!FileManager.default.fileExists(atPath: storage.previousLogFile.path), "no prep before the first frame")
+
+        gate.open()
+        _ = await runtime.launchPrepTask?.value
+        #expect(FileManager.default.fileExists(atPath: storage.previousLogFile.path), "the frame opened the prep, and it is done")
     }
 }
