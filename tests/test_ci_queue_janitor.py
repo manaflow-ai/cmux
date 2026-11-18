@@ -6223,6 +6223,24 @@ class JoblessRunTests(unittest.TestCase):
             self.assertEqual((holders, jobless), ([], []), ahead)
             self.assertIn(f"waits behind run {ahead['id']}", notes[0])
 
+    def test_a_same_head_run_ahead_keeps_even_a_stranded_superseded_holder(self):
+        # The same-head run may be the one holding the group; force-cancelling the older superseded run frees nothing.
+        same_head = tui_push(status="queued", sha="b953f55a", age=500)
+        jobs = {**self.jobs, same_head["id"]: []}
+        holders, jobless, notes = self.find([self.parked], jobs, listed=[self.holder, same_head])
+        self.assertEqual((holders, jobless), ([], []))
+        self.assertIn(f"waits behind run {same_head['id']}", notes[0])
+
+    def test_a_cancel_sent_with_its_outcome_unknown_keeps_the_re_run(self):
+        # cancel_orphans() answers CANCEL_SENT after a non-409 error: the cancel may have taken, so the entry stays
+        # and plan_lost_reruns() re-runs it once the run reads cancelled.
+        _, jobless, _ = self.find([self.parked], self.jobs)
+        [decision] = self.plan(jobless)
+        result = {self.parked["id"]: f"{janitor.CANCEL_SENT}POST /cancel failed (502)"}
+        [entry] = janitor.jobless_reruns([decision], result, now=NOW)
+        self.assertEqual((entry["run_id"], entry["jobless"], entry["cancel_unconfirmed"]),
+                         (self.parked["id"], True, True))
+
     def test_young_jobful_protected_and_already_cancelled_runs_are_not_candidates(self):
         young = tui_push(status="pending", sha="a", age=59)
         with_jobs = tui_push(status="queued", sha="b", age=90)
