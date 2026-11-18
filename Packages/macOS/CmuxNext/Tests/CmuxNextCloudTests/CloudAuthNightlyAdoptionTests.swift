@@ -88,8 +88,8 @@ import Testing
         let store = try #require(CloudAuth.tokenStore(configuration: Self.devBuild(), nightlySession: { await nightly.handOff() },
                                                       devAccount: false) as? ImportingTokenStore)
         #expect(await store.getStoredRefreshToken() == "refresh-n")
-        // A refresh rotates the pair: only the dev build's memory store changes.
-        await store.setTokens(accessToken: "access-2", refreshToken: "refresh-2")
+        // A refresh rotates the pair (StackAuthClient's compare-and-set): only the dev build's memory store changes.
+        await store.compareAndSet(compareRefreshToken: "refresh-n", newRefreshToken: "refresh-2", newAccessToken: "access-2")
         #expect(await store.getStoredRefreshToken() == "refresh-2")
         #expect(await nightly.pair == ["refresh-n", "access-n"])
         // The refreshed session is still NIGHTLY's: a sign-out here keeps it alive on the server.
