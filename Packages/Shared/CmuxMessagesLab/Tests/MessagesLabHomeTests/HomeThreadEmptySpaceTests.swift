@@ -93,6 +93,51 @@ import Testing
         }
     }
 
+    /// Lawrence, 2026-11-18 (a screen recording of a Chief thread with nested replies): "clicking some space fails to
+    /// close it". In the open thread, a reply that has replies of its own carries a "1 Reply" line under it, and a click
+    /// anywhere across the pane's width at that line's height took the line's drill-in (the view stayed open) instead of
+    /// the outside-click close. Only the "N Replies" words open the branch; the rest of that line is empty space.
+    @Test func aClickBesideANestedRepliesLineClosesTheThread() async throws {
+        let r = try await threadRig()
+        defer { r.stop() }
+        let replies = r.store.transcript(for: HomeChatRig.conversation).filter { $0.plainText.contains("floating Chief reply") }
+        let parent = try #require(replies.dropFirst().first?.messageID, "the second Chief reply")
+        let root = try #require(replies.first?.threadRoot)
+        #expect(await r.post([.text("\(HomeChatRig.tag) nested answer")], key: IdempotencyKey("empty-nested-1"), threadRoot: root, parent: parent))
+        for _ in 0..<4 { r.frame() }
+        let demo = try #require(r.view.controller.demo)
+        let (p, band) = try opener(demo)
+        try open(r, at: p)
+        let field = demo.compose.fieldRect.insetBy(dx: -60, dy: -8)
+        var spots: [(String, CGPoint)] = []
+        var labels: [CGPoint] = []
+        for (v, spec) in zip(demo.threadViews, demo.threadSpecs) {
+            guard case let .replies(_, _, outgoing) = spec.kind else { continue }
+            let y = v.frame.minY + RowDraw.margin + spec.height / 2
+            // The words sit at the line's start on the bubble's side ("1 Reply" is about 40 pt wide).
+            labels.append(CGPoint(x: outgoing ? v.frame.minX + spec.metrics.receiptRight - 12 : v.frame.minX + Fixture.labelLeft + spec.cmuxIndent + 12, y: y))
+            for x in [v.frame.midX, outgoing ? v.frame.minX + 16 : v.frame.maxX - 16] {
+                spots.append(("on the \(outgoing ? "my" : "a Chief") reply's \"1 Reply\" line, away from its words", CGPoint(x: x, y: y)))
+            }
+        }
+        try #require(!labels.isEmpty, "no \"N Replies\" line in the open thread view")
+        spots = spots.filter { _, q in demo.hit(q) == nil && !field.contains(q) && !band.contains(q) && demo.bounds.contains(q) }
+        #expect(spots.count >= 2, "too few empty spots on the line: \(spots.map(\.0))")
+        for (name, spot) in spots {
+            try open(r, at: p)
+            let path = r.view.debugOpenThreadPath
+            r.view.controller.clicked(spot)
+            for _ in 0..<4 { r.frame() }
+            #expect(r.view.debugOpenThread == nil, "a click \(name) at \(spot) did not close the thread (path \(path) -> \(r.view.debugOpenThreadPath))")
+        }
+        // The words themselves still open the reply's branch (the view stays open).
+        try open(r, at: p)
+        r.view.controller.clicked(labels[0])
+        for _ in 0..<4 { r.frame() }
+        #expect(r.view.debugOpenThread != nil, "a click on the \"1 Reply\" words closed the thread")
+        #expect(r.view.debugOpenThreadPath.count >= 2, "a click on the \"1 Reply\" words did not open the branch")
+    }
+
     @Test func aClickOnABubbleOrTheMessageBoxKeepsTheThreadOpen() async throws {
         let r = try await threadRig()
         defer { r.stop() }
