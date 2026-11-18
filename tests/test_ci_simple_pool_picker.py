@@ -266,6 +266,20 @@ class BlacksmithStallTests(unittest.TestCase):
                                   fallback=small, owned_enabled=False)
         self.assertFalse({item.label: item for item in state.blacksmith}[large].stalled)
 
+    def test_both_macos_26_labels_dead_with_jobs_left_waiting_have_no_free_slot(self):
+        """Every label showing nothing used to read as none dead. A job left waiting proves a label is not idle."""
+        large, small = picker.BLACKSMITH[0], picker.BLACKSMITH[1]
+        generated = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=2)
+        snap = {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"), "label_started": {},
+                "pools": {large: {"queued": 0, "running": 0}, small: {"queued": 0, "running": 0}}}
+        self.assertEqual(picker.dead_macos_26(snap), set())  # a quiet hour: both may just be idle
+        snap["pools"] = {large: {"queued": 4, "running": 0, "oldest_queued_minutes": 90},
+                         small: {"queued": 2, "running": 0, "oldest_queued_minutes": 75}}
+        self.assertEqual(picker.dead_macos_26(snap), {large, small})
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=snap,
+                                  fallback=small, owned_enabled=False)
+        self.assertTrue(all(item.stalled for item in state.blacksmith if item.label in (large, small)))
+
     def test_with_every_label_full_a_moving_one_beats_a_stalled_one(self):
         state = picker.State(jobs=1, blacksmith=(
             dataclasses.replace(pool(picker.BLACKSMITH[0], 5, 0, 1), stalled=True),
