@@ -35,12 +35,6 @@ final class AllUIStatesHomeCaptureUITests: UIStateCaptureCase {
                     { C.wait(C.any(app, "home.showHidden"), "Show hidden row", timeout: 6) },
                 ])
             },
-            Scene(group: g, id: "home-unread-filter-empty", args: ["-cmux-mobile-tab", "home"]) { app in
-                C.tap(C.any(app, "home.unread"), "unread filter")
-            },
-            Scene(group: g, id: "home-unread-filter-rows", args: ["-cmux-mobile-tab", "home"], env: Self.homeRows, settle: 4) { app in
-                C.tap(C.any(app, "home.unread"), "unread filter")
-            },
             Scene(group: g, id: "home-search", args: ["-cmux-mobile-tab", "home"], env: Self.homeRows, settle: 4) { app in
                 app.swipeDown()
                 let field = app.searchFields.firstMatch

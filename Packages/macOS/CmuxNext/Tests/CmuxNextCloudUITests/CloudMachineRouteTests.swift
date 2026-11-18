@@ -62,7 +62,7 @@ import Testing
         }
         let report: [String: Any] = [
             "cloud_vm": true, "edge_host": "coderouter.cmux.internal", "model_plane": ["state": "ok"],
-            "daemon": ["running": running, "pid": running ? 4242 : NSNull()],
+            "daemon": ["running": running, "pid": running ? 4242 as Any : NSNull()],
             "agents": ["claude": agent(claudeKey), "codex": agent("missing")],
             "credential_env": variables, "login_files": logins.map { ["path": $0.path, "agent": $0.agent, "kind": "file"] },
             "holds_credential": !logins.isEmpty || !variables.isEmpty, "managed_route_files": [], "ok": false,
