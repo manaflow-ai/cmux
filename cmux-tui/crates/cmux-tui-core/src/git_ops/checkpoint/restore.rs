@@ -328,6 +328,11 @@ fn plan(
                 Some(_) => {}
                 // Tracked then but its file could not be stored: left alone.
                 None if skipped(stored, &path).is_some_and(SkipCode::unavailable) => {}
+                // Its skip entry may be past the stored list's cut: never removed on a guess.
+                None if skipped(stored, &path).is_none() && cut_short(stored) => {
+                    plan.undecided = true;
+                    continue;
+                }
                 // Deleted in the worktree then.
                 None => step.remove = step.expected.is_some(),
             }

@@ -27,7 +27,8 @@ fn a_bare_reply_is_its_own_result() {
 
 #[test]
 fn a_refusal_reads_its_reason_from_the_details() {
-    let err = br#"{"error":{"code":"operation.failed","message":"the branch moved","details":{"operation":"git.checkpoint.restore","reason":"base_changed"}}}"#;
+    // `cmux --json`'s refusal on stderr: a bare error, its message the reason word.
+    let err = br#"{"code":"operation.failed","message":"base_changed","details":{"operation":"git.checkpoint.restore","reason":"base_changed","extra":{"message":"the branch moved"}},"retryable":false}"#;
     let Answer::Refused { reason, message } = read_answer(false, b"", err) else {
         panic!("refused")
     };

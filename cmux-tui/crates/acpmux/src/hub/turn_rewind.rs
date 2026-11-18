@@ -70,6 +70,17 @@ pub(crate) enum Answer {
 
 /// Runs `cmux --json git checkpoint ARGS --path CWD`, bounded by `limit`.
 async fn checkpoint_cli(cwd: &Path, args: &[&str], limit: Duration) -> Answer {
+    // A mutation whose answer did not come may have happened: the same idempotency key asked
+    // again answers what it did (the session host's ledger), and never does it twice.
+    match checkpoint_cli_once(cwd, args, limit).await {
+        Answer::Refused { reason, .. } if reason == "unavailable" => {
+            checkpoint_cli_once(cwd, args, limit).await
+        }
+        answer => answer,
+    }
+}
+
+async fn checkpoint_cli_once(cwd: &Path, args: &[&str], limit: Duration) -> Answer {
     let mut command = tokio::process::Command::new(cmux_binary());
     command
         .kill_on_drop(true)
@@ -124,7 +135,13 @@ pub(crate) fn read_answer(success: bool, stdout: &[u8], stderr: &[u8]) -> Answer
         .unwrap_or_else(|| "unavailable".into());
     let message = error
         .as_ref()
-        .and_then(|e| text(e, "/message").or_else(|| text(e, "/userMessage")))
+        // An `operation.failed` names its reason as its message; its words are in
+        // `details.extra.message`.
+        .and_then(|e| {
+            text(e, "/details/extra/message")
+                .or_else(|| text(e, "/message"))
+                .or_else(|| text(e, "/userMessage"))
+        })
         .unwrap_or_else(|| {
             let raw = String::from_utf8_lossy(if stderr.is_empty() { stdout } else { stderr });
             raw.trim().chars().take(400).collect()
@@ -258,21 +275,17 @@ impl Hub {
         found.ok_or_else(|| refused("unknown_prompt", "no prompt of this chat matches"))
     }
 
-    /// Other chats on this machine working in `session`'s repository now (a turn running or
-    /// waiting on the person), not counting its own sub-sessions: a reset of the files would be
+    /// Chats on this machine working in `session`'s repository now (a turn running or waiting on
+    /// the person), the chat itself and its sub-sessions included: a reset of the files would be
     /// overwritten by, or overwrite, their work.
     fn chats_sharing(&self, session: &Session, root: &Path) -> Vec<Value> {
         self.session_handles()
             .into_iter()
-            .filter(|other| other.id != session.id)
             .filter(|other| {
                 matches!(other.status(), SessionStatus::Running | SessionStatus::Waiting)
             })
             .filter_map(|other| {
                 let meta = other.meta();
-                if meta.parent_id.as_deref() == Some(session.id.as_str()) {
-                    return None;
-                }
                 let theirs = crate::git_state::repo_root(&meta.cwd)?;
                 (theirs == root || theirs.starts_with(root) || root.starts_with(&theirs))
                     .then(|| json!({"sessionId": other.id, "title": meta.name}))
@@ -442,16 +455,31 @@ impl Hub {
         safety: &str,
     ) -> Result<Value, RpcError> {
         let cwd = session.meta().cwd.clone();
-        let restored = self.rewind_undo_at(&cwd, safety).await?;
-        Ok(json!({"filesRestored": restored}))
+        if let Some(root) = crate::git_state::repo_root(&cwd) {
+            let shared = self.chats_sharing(session, &root);
+            if !shared.is_empty() {
+                return Err(refused("shared", "a chat is working in this folder")
+                    .with_data(json!({"reason": "shared", "sharedWith": shared})));
+            }
+        }
+        let (restored, again) = self.rewind_undo_at(&cwd, safety).await?;
+        // Undo's own safety checkpoint: `--undo` with it puts the rewind back.
+        Ok(json!({"filesRestored": restored, "safetyCheckpointId": again}))
     }
 
-    async fn rewind_undo_at(&self, cwd: &Path, safety: &str) -> Result<u64, RpcError> {
+    async fn rewind_undo_at(
+        &self,
+        cwd: &Path,
+        safety: &str,
+    ) -> Result<(u64, Option<String>), RpcError> {
         // Undo puts back what the rewind replaced, whatever HEAD did since.
         let key = format!("acpmux-rewind-undo-{safety}");
         let args = ["restore", safety, "--allow-base-change", "--idempotency-key", key.as_str()];
         match checkpoint_cli(cwd, &args, RESTORE_LIMIT).await {
-            Answer::Ok(v) => Ok(v.get("files_total").and_then(Value::as_u64).unwrap_or(0)),
+            Answer::Ok(v) => Ok((
+                v.get("files_total").and_then(Value::as_u64).unwrap_or(0),
+                v.get("safety_checkpoint_id").and_then(Value::as_str).map(str::to_owned),
+            )),
             Answer::Refused { reason, message } => Err(refused(&reason, message)),
         }
     }

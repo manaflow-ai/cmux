@@ -502,6 +502,11 @@ pub(super) fn response_read_timeout(
                 | cmux_tui_core::resource::ResourceOperation::GitWorktreeCreate
                 | cmux_tui_core::resource::ResourceOperation::GitWorktreeApply
                 | cmux_tui_core::resource::ResourceOperation::GitWorktreeRemove
+                // A checkpoint hashes the worktree, and a restore captures and writes it: a
+                // large repository takes longer than the default, and a mutation that times out
+                // here is never resent.
+                | cmux_tui_core::resource::ResourceOperation::GitCheckpointCreate
+                | cmux_tui_core::resource::ResourceOperation::GitCheckpointRestore
         )
     ) {
         return Some(Duration::from_secs(200));

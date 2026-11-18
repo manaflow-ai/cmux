@@ -13422,7 +13422,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // After Back to before this turn, while the chat it left shows (the fork, or the same chat for a
   // files-only rewind): what went back, and Undo, which puts the files back and reopens the chat as
   // it was (conversation/localRewindModel.ts `undoRewind`).
+  // A turn in the chat the rewind left retires Undo: Undo resets the whole folder to before the
+  // rewind, so it would also throw away that turn's edits.
+  const rewindLeftWorking =
+    !!localRewindUndo &&
+    snapshot.isWorking &&
+    snapshot.sessionId === (localRewindUndo.rewound ?? localRewindUndo.original);
+  useEffect(() => {
+    if (rewindLeftWorking) setLocalRewindUndo(undefined);
+  }, [rewindLeftWorking]);
   const rewindLine = localRewindUndo &&
+    !rewindLeftWorking &&
     snapshot.sessionId === (localRewindUndo.rewound ?? localRewindUndo.original) && (
       <LocalRewindNotice
         undo={localRewindUndo}
