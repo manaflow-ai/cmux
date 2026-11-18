@@ -204,6 +204,9 @@ pub(super) struct Closing {
     printed: Vec<Target>,
     /// gh said it only queued or refused the merge.
     unsettled: bool,
+    /// It merges (`gh pr merge`, `lane-gh call land`) rather than closes: the Ask ledger's
+    /// pull request state (`hub/asks`).
+    merges: bool,
 }
 
 /// gh's flags for `pr merge` and `pr close` that take the next word as their value.
@@ -331,9 +334,30 @@ fn settled_urls(output: &str) -> Vec<String> {
 /// or `gh pr close` is remembered while it runs, and the pull requests it settled are returned
 /// when it ends, for `m.closed_pull_requests` ([`record_closed`]) and the review queue
 /// (`review_queue.rs`), whoever's session opened them.
-pub(super) fn absorb_closed(session: &Session, update: &Value) -> Vec<Target> {
+/// The second value says whether the call merges (else it closes).
+pub(super) fn absorb_closed(session: &Session, update: &Value) -> (Vec<Target>, bool) {
     let mut calls = session.pr_closes.lock().unwrap_or_else(|e| e.into_inner());
-    track_closed(&mut calls, update)
+    track_settled(&mut calls, update)
+}
+
+/// Whether `script` merges a pull request: a `gh pr merge` or a `lane-gh call land` in it.
+fn merges(script: &str) -> bool {
+    commands(script).iter().any(|(command, _)| {
+        let words: Vec<&str> = command
+            .split_whitespace()
+            .skip_while(|w| {
+                *w == "env"
+                    || w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-'))
+            })
+            .take(3)
+            .collect();
+        matches!(words[..], ["gh", "pr", "merge"] | ["lane-gh", "call", "land"])
+    })
+}
+
+#[cfg(test)]
+fn track_closed(calls: &mut HashMap<String, Closing>, update: &Value) -> Vec<Target> {
+    track_settled(calls, update).0
 }
 
 /// Adds `url` to `m.closed_pull_requests` once, dropping the oldest past
@@ -353,17 +377,20 @@ pub(super) fn record_closed(m: &mut SessionMeta, url: &str) {
 /// completes counts the pull requests its arguments name, unless gh said it only queued or
 /// refused the merge. What gh printed it settled (`was already merged`, a wrapper's `merged
 /// o/r#5 at SHA`) counts however the call ends: a `| tail` after gh makes the call's status the
-/// pipe's, not gh's.
-fn track_closed(calls: &mut HashMap<String, Closing>, update: &Value) -> Vec<Target> {
-    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return vec![] };
+/// pipe's, not gh's. The second value says whether the call merges.
+fn track_settled(calls: &mut HashMap<String, Closing>, update: &Value) -> (Vec<Target>, bool) {
+    let none = (vec![], false);
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return none };
     let execute = update.get("kind").and_then(Value::as_str) == Some("execute");
     if execute
         && !calls.contains_key(id)
-        && let Some(named) = script(update).and_then(|s| gh_pr_closes(&s))
+        && let Some(script) = script(update)
+        && let Some(named) = gh_pr_closes(&script)
     {
-        calls.insert(id.to_owned(), Closing { named, ..Default::default() });
+        let merges = merges(&script);
+        calls.insert(id.to_owned(), Closing { named, merges, ..Default::default() });
     }
-    let Some(closing) = calls.get_mut(id) else { return vec![] };
+    let Some(closing) = calls.get_mut(id) else { return none };
     let output = output_text(update);
     closing.unsettled |= UNSETTLED.iter().any(|line| output.contains(line));
     for url in settled_urls(&output) {
@@ -374,9 +401,11 @@ fn track_closed(calls: &mut HashMap<String, Closing>, update: &Value) -> Vec<Tar
     }
     let status = update.get("status").and_then(Value::as_str);
     if !matches!(status, Some("completed" | "failed")) {
-        return vec![];
+        return none;
     }
-    let Some(Closing { named, mut printed, unsettled }) = calls.remove(id) else { return vec![] };
+    let Some(Closing { named, mut printed, unsettled, merges }) = calls.remove(id) else {
+        return none;
+    };
     if status == Some("completed") && !unsettled {
         for target in named {
             if !printed.contains(&target) {
@@ -384,7 +413,7 @@ fn track_closed(calls: &mut HashMap<String, Closing>, update: &Value) -> Vec<Tar
             }
         }
     }
-    printed
+    (printed, merges)
 }
 
 /// The text a tool update reports as its output: `rawOutput.stdout` when the harness keeps stdout
@@ -429,34 +458,64 @@ pub(super) fn absorb(
     update: &Value,
     m: &mut SessionMeta,
     at: u64,
-) -> Option<String> {
+) -> Option<Created> {
     let mut calls = session.pr_creates.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(url) = track(&mut calls, update)
+    if let Some(created) = track_created(&mut calls, update)
         && m.pull_requests.len() < MAX_PULL_REQUESTS
-        && !m.pull_requests.contains(&url)
+        && !m.pull_requests.contains(&created.url)
     {
-        m.pull_requests.push(url.clone());
-        m.pull_request_times.insert(url.clone(), at);
-        return Some(url);
+        m.pull_requests.push(created.url.clone());
+        m.pull_request_times.insert(created.url.clone(), at);
+        return Some(created);
     }
     None
+}
+
+/// A `gh pr create` call while it runs (`Session::pr_creates`).
+#[derive(Clone, Debug, Default)]
+pub(super) struct Creating {
+    /// The URL it printed so far.
+    url: Option<String>,
+    /// The ask ids its command carries (a body given inline, `hub/asks`).
+    traces: Vec<String>,
+}
+
+/// A pull request a `gh pr create` call opened.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Created {
+    pub url: String,
+    /// The ask ids the call's command carried (`hub/asks::trace_ids`).
+    pub traces: Vec<String>,
+}
+
+/// [`track_created`]'s URL alone.
+#[cfg(test)]
+fn track(calls: &mut HashMap<String, Creating>, update: &Value) -> Option<String> {
+    track_created(calls, update).map(|c| c.url)
 }
 
 /// Follows one update of a `gh pr create` call in `calls` (its id, and the URL it printed so far):
 /// the URL to record once the call completes. A failed call records none, though it printed one
 /// before failing ("a pull request for branch ... already exists: URL").
-fn track(calls: &mut HashMap<String, Option<String>>, update: &Value) -> Option<String> {
+fn track_created(calls: &mut HashMap<String, Creating>, update: &Value) -> Option<Created> {
     let id = update.get("toolCallId").and_then(Value::as_str)?;
     let execute = update.get("kind").and_then(Value::as_str) == Some("execute");
-    if execute && script(update).is_some_and(|s| is_gh_pr_create(&s)) {
-        calls.entry(id.to_owned()).or_default();
+    if execute
+        && !calls.contains_key(id)
+        && let Some(script) = script(update).filter(|s| is_gh_pr_create(s))
+    {
+        let traces = super::asks::trace_ids(&script);
+        calls.insert(id.to_owned(), Creating { url: None, traces });
     }
-    let printed = calls.get_mut(id)?;
+    let creating = calls.get_mut(id)?;
     if let Some(url) = printed_url(&output_text(update)) {
-        *printed = Some(url.to_owned());
+        creating.url = Some(url.to_owned());
     }
     match update.get("status").and_then(Value::as_str) {
-        Some("completed") => calls.remove(id).flatten(),
+        Some("completed") => {
+            let Creating { url, traces } = calls.remove(id)?;
+            url.map(|url| Created { url, traces })
+        }
         Some("failed") => {
             calls.remove(id);
             None
@@ -657,5 +716,49 @@ mod tests {
         assert_eq!(printed_url("https://github.com/o/r/pull/3/files"), None);
         let stdout = json!({"rawOutput": {"stdout": "https://github.com/o/r/pull/4\n", "stderr": "warning"}});
         assert_eq!(printed_url(&output_text(&stdout)), Some("https://github.com/o/r/pull/4"));
+    }
+
+    #[test]
+    fn a_created_pull_request_carries_the_ask_ids_of_its_inline_body() {
+        let mut calls = HashMap::new();
+        let body = "gh pr create --title t --body \"$(cat <<'EOF'\nWhy\n\nLeo-Ask-Trace: ask-0123456789, ask-abcdefabcd\nEOF\n)\"";
+        let start = json!({"toolCallId": "t1", "kind": "execute", "rawInput": {"command": body}});
+        let done = json!({"toolCallId": "t1", "status": "completed",
+            "rawOutput": {"stdout": "https://github.com/o/r/pull/8\n"}});
+        assert_eq!(track_created(&mut calls, &start), None);
+        assert_eq!(
+            track_created(&mut calls, &done),
+            Some(Created {
+                url: "https://github.com/o/r/pull/8".into(),
+                traces: vec!["ask-0123456789".into(), "ask-abcdefabcd".into()],
+            })
+        );
+        // A body file names none the daemon can read here.
+        let file = json!({"toolCallId": "t2", "kind": "execute", "rawInput": {"command": "gh pr create --body-file b.md"}});
+        track_created(&mut calls, &file);
+        let done = json!({"toolCallId": "t2", "status": "completed",
+            "rawOutput": {"stdout": "https://github.com/o/r/pull/9\n"}});
+        assert_eq!(track_created(&mut calls, &done).unwrap().traces, Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_settling_call_says_whether_it_merges() {
+        let mut calls = HashMap::new();
+        let call = |id: &str, command: &str| json!({"toolCallId": id, "kind": "execute", "rawInput": {"command": command}});
+        let end = |id: &str| json!({"toolCallId": id, "status": "completed", "rawOutput": {"stdout": ""}});
+        let url = Target::Url("https://github.com/o/r/pull/5".into());
+        for (command, merged) in [
+            ("gh pr merge https://github.com/o/r/pull/5 --squash", true),
+            ("gh pr close -R o/r 5", false),
+            ("lane-gh call land o/r '{\"number\": 5}'", true),
+            ("lane-gh call close o/r '{\"number\": 5}'", false),
+        ] {
+            track_settled(&mut calls, &call("t", command));
+            assert_eq!(
+                track_settled(&mut calls, &end("t")),
+                (vec![url.clone()], merged),
+                "{command}"
+            );
+        }
     }
 }

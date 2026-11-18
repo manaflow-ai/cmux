@@ -6,6 +6,7 @@
 import { copyTextResult } from "../conversation/clipboard";
 import type { WatchedAsk } from "../needsYou/model";
 import { answerAnotherChat } from "../needsYou/useNeedsYou";
+import type { AsksScreen } from "../asks/AsksScreen";
 import type { LedgerScreen } from "../ledger/LedgerScreen";
 import type { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
 import type { QueueScreen } from "./QueueScreen";
@@ -18,6 +19,8 @@ type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promi
 /// The pane's connection calls these pages use (AcpmuxDirectClient).
 export type HistoryPagesClient = {
   ledger(params: Record<string, unknown>): Promise<unknown>;
+  /// `_acpmux/asks` (asks/asksModel.ts).
+  asks?(params: Record<string, unknown>): Promise<unknown>;
   teamAudit(params: Record<string, unknown>): Promise<unknown>;
   reviewQueue(params?: Record<string, unknown>): Promise<unknown>;
   reviewVerdict(params: Record<string, unknown>): Promise<unknown>;
@@ -98,6 +101,7 @@ export function historyPages({
   queue: ComponentProps<typeof QueueScreen>;
   ledger: ComponentProps<typeof LedgerScreen>;
   team: ComponentProps<typeof TeamAuditScreen>;
+  yourAsks: ComponentProps<typeof AsksScreen>;
 } {
   const connected = () => {
     const current = client();
@@ -171,5 +175,16 @@ export function historyPages({
     },
     // History shows it only while the `team-audit` experiment is on (newtab/HistoryScreen.tsx).
     team: { load: async (params) => connected().teamAudit(params) },
+    // Your asks: acpmux's Ask ledger; a chat opens in this tab, a pull request in a browser tab.
+    yourAsks: {
+      load: async (params) => {
+        const current = connected();
+        // l10n-allow: a rejection reason for the wire log only; the page shows its own localized text
+        if (!current.asks) throw Object.assign(new Error("method not found"), { code: -32601 });
+        return current.asks(params);
+      },
+      openSession: selectSession,
+      openUrl: (url) => void callNative("tab.open", { kind: "browser", text: url }).catch(() => undefined),
+    },
   };
 }
