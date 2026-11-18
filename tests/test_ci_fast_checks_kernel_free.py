@@ -79,13 +79,14 @@ class KernelFreeMacRouteTests(unittest.TestCase):
         for linux_only in ("stickydisk", "sudo ", "apt-get"):
             self.assertNotIn(linux_only, text)
 
-    def test_checkout_metadata_is_cleared_before_checkout(self) -> None:
+    def test_the_whole_git_directory_goes_before_checkout(self) -> None:
+        # The mini keeps the folder between jobs; a kept object store would let one dispatch's command plant objects
+        # a later checkout trusts, so nothing of the old .git survives.
         steps = mac_steps()
-        sanitize = next(i for i, s in enumerate(steps) if s.get("name") == "Sanitize persistent checkout metadata")
+        clear = next(i for i, s in enumerate(steps) if s.get("name") == "Clear stale checkout metadata")
         checkout = next(i for i, s in enumerate(steps) if str(s.get("uses", "")).startswith("actions/checkout@"))
-        self.assertLess(sanitize, checkout)
-        self.assertIn("hooksPath = /dev/null", steps[sanitize]["run"])
-        self.assertIn("find -P .git -type l", steps[sanitize]["run"])
+        self.assertLess(clear, checkout)
+        self.assertIn("rm -rf -- .fast-checks-checkout/.git", steps[clear]["run"])
 
     def test_the_receipt_has_the_linux_jobs_fields(self) -> None:
         result, receipt = run_script("uname -s")

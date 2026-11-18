@@ -444,11 +444,12 @@ jobs:
 
   # setup=kernel-free: `cmux-ci test --setup kernel-free -- CMD` for a command that needs no Linux kernel, apt or
   # Docker (Python, git, shell, macOS tools such as scripts/measure). It runs on the org's lent side-light minis,
-  # the owned pool cmux PR jobs already run on; every other setup stays on the Linux job above. The trust boundary
-  # is that job's: only a writer can dispatch this workflow or push the scratch snapshot it checks out, the runner
-  # hook refuses fork events on these minis, the token is read-only and never persisted, and no secret,
-  # environment or provider credential reaches the command. A run that no mini starts stays queued until the
-  # cmux-ci client's fallback moves it to the build fleet.
+  # the owned pool cmux PR jobs already run on; every other setup stays on the Linux job above. Who can run what is
+  # the same as for that job and for the PR jobs on this pool: only a writer can dispatch this workflow or push the
+  # scratch snapshot it checks out, the runner hook refuses fork events on these minis, the token is read-only and
+  # never persisted, and no secret, environment or provider credential reaches the command. The mini persists
+  # (unlike the Linux job's VM), so the old .git goes before each checkout. A run that no mini starts stays queued
+  # until the cmux-ci client's fallback moves it to the build fleet, whose Linux pool may take it.
   checks-mac:
     if: github.repository == 'manaflow-ai/cmux' && inputs.setup == 'kernel-free'
     runs-on: glaeda-side-light-xcode-26.6
@@ -475,35 +476,16 @@ jobs:
           command -v python3 >/dev/null || { echo "python3 is required on the runner" >&2; exit 2; }
           command -v git >/dev/null || { echo "git is required on the runner" >&2; exit 2; }
 
-      # The mini keeps this folder between jobs, so its Git objects make the next fetch fast. Nothing else a prior
-      # command or snapshot wrote is trusted: the same reset as the Linux job's sticky disk.
-      - name: Sanitize persistent checkout metadata
+      # The mini keeps this folder between jobs, and a command from one dispatch could leave Git objects or metadata
+      # that a later checkout would trust (Git does not re-hash a loose object it already has). Nothing a prior
+      # command or snapshot wrote is kept: the whole .git goes, as in the hq workflow's kernel-free route, and the
+      # checkout fetches the one snapshot commit afresh.
+      - name: Clear stale checkout metadata
+        timeout-minutes: 1
         working-directory: ${{ github.workspace }}
         run: |
           mkdir -p -- .fast-checks-checkout
-          cd .fast-checks-checkout
-          if [[ -L .git || ( -e .git && ! -d .git ) ]]; then
-            rm -rf -- .git
-          elif [[ -d .git ]]; then
-            # -P: -L would follow a linked objects directory and could keep an attacker-controlled store.
-            if find -P .git -type l -print -quit | grep -q .; then
-              rm -rf -- .git
-            else
-              rm -rf .git/hooks .git/logs .git/refs
-              rm -f .git/config .git/index .git/packed-refs .git/objects/info/alternates
-              cat > .git/config <<'GITCONFIG'
-          [core]
-            repositoryformatversion = 0
-            filemode = true
-            bare = false
-            logallrefupdates = true
-            hooksPath = /dev/null
-          [remote "origin"]
-            url = https://github.com/manaflow-ai/cmux
-            fetch = +refs/heads/*:refs/remotes/origin/*
-          GITCONFIG
-            fi
-          fi
+          rm -rf -- .fast-checks-checkout/.git
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         timeout-minutes: 10
