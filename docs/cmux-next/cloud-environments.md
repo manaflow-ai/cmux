@@ -78,8 +78,8 @@ and like any launch override it has its own sign-in storage.
 
 The app says which backend it uses: Settings > Accounts, under the cmux account, reads
 "Cloud backend: <origin> (this tag's backend.json)" in a DEV or NIGHTLY build, and the control
-socket's `auth.status` has `backend`, `backend_override` (`launch`, `tag_file` or null) and
-`backend_label`.
+socket's `auth.status` has `backend` and `backend_label` (the same line); the CLI's
+`cloud env get --json` names `backend_override` (`launch` or `tag_file`) when one applies.
 
 The cmux-next iPhone app takes the same choice as `CMUX_NEXT_CLOUD_BACKEND` at launch (DEBUG
 builds only) and keeps it for later launches; an empty value clears it. Settings > Developer shows

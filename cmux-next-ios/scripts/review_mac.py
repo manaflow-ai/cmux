@@ -25,7 +25,7 @@
       (~/Library/Application Support/cmux-next/<bundle id>); an empty ORIGIN removes it. Prints
       `changed` or `same` (a running app reads it only at launch)
   review_mac.py backend SOCK [--timeout S]    the Cloud backend the running app uses (`auth.status`):
-      {"backend", "backend_override", "backend_label", "cloud_environment"} as JSON
+      {"backend", "backend_label", "cloud_environment", "cloud_unavailable"} as JSON
 
 Nothing here turns a setting on, presses Allow or writes the app's pairing state: the code is the
 Mac's own single-use invite, the same route as scanning it (cmux-next-ios/SECURITY.md, pair-e2e).
@@ -188,8 +188,8 @@ def main(argv=None):
         if not r:
             print("the tagged Mac app does not say which Cloud backend it uses", file=sys.stderr)
             return 1
-        print(json.dumps({key: r.get(key) for key in ("backend", "backend_override", "backend_label",
-                                                       "cloud_environment", "cloud_unavailable")}))
+        print(json.dumps({key: r.get(key) for key in ("backend", "backend_label", "cloud_environment",
+                                                       "cloud_unavailable")}))
         return 0
     if a.op == "socket":
         env = info(a.target).get("LSEnvironment") or {}
