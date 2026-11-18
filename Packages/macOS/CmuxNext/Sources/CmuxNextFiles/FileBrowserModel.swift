@@ -67,6 +67,10 @@ public final class FileBrowserModel {
     /// The selected entries in display order.
     public var selectedEntries: [FileEntry] { entries.filter { selection.contains($0.name) } }
 
+    /// Whether the pane shows (its view is in a window and not hidden); the pane's view sets it.
+    @ObservationIgnored public var isShown = true
+    /// Sorts of the whole folder run (tests and the perf panel).
+    @ObservationIgnored public internal(set) var fullSorts = 0
     @ObservationIgnored var all: [FileEntry] = []
     @ObservationIgnored private var backStack: [URL] = []
     @ObservationIgnored private var forwardStack: [URL] = []
@@ -167,6 +171,13 @@ public final class FileBrowserModel {
         await show(folder, select: nil, keepSelection: true)
     }
 
+    /// The pane was shown or hidden.
+    @discardableResult
+    public func setShown(_ shown: Bool) -> Task<Void, Never>? {
+        isShown = shown
+        return nil
+    }
+
     /// Stops watching (the pane closed).
     public func stop() {
         watchTask?.cancel()
@@ -193,6 +204,7 @@ public final class FileBrowserModel {
         let started = DispatchTime.now().uptimeNanoseconds
         do {
             let order = sortOrder
+            fullSorts += 1
             let listed = try await Self.listSorted(target, lister: lister, order: order)
             guard token == generation else { return }
             all = listed
@@ -254,6 +266,7 @@ public final class FileBrowserModel {
                 }
             }
             guard target == folder else { return }
+            fullSorts += 1
             all = await Self.sortOff(Array(byName.values), order: sortOrder)
             refilter()
         }

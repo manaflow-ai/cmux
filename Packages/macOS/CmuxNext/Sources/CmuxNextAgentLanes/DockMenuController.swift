@@ -43,6 +43,8 @@ public final class DockMenuController: NSObject {
     /// The cached rows; `menu()` reads only these.
     public private(set) var chats = DockMenuChats.empty
     public private(set) var choices = DockMenuChoices.empty
+    /// How many times the chats were built (tests: none while the menu is closed).
+    public private(set) var builds = 0
     private var watch: Task<Void, Never>?
     private var choicesRead: Task<Void, Never>?
     /// A row picked while no window was open: it runs once the window that opened for it mounts
@@ -71,6 +73,7 @@ public final class DockMenuController: NSObject {
                     DockMenuChats.make(lanes: copy.values, marks: state)
                 }.value
                 guard !Task.isCancelled, let self else { return }
+                builds += 1
                 if made != chats { chats = made }
                 // wakeup-allow: one sleep per change burst while agents stream; the stream coalesces the changes meanwhile and nothing wakes when nothing changes
                 try? await Task.sleep(for: throttle)

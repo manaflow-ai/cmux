@@ -60,6 +60,8 @@ public final class AgentTurnStateFeed {
     /// The whole list as last applied (a page or a follow, and every push since), kept across
     /// reconnects while a cursor is: a follow's rows are laid over it.
     private var held: AgentWatchPage?
+    /// The rows of a second copy of the list the feed keeps beside the stores (tests).
+    var heldListRows: Int { held?.lanes.count ?? 0 }
     /// The cursor of the later page asked last (nil: the watch's first page): a refused one is
     /// asked again from there (``retryPage()``), never the whole list from its start.
     private var pageAsked: String?

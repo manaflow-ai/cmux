@@ -180,4 +180,68 @@ struct TurnStateFeedListFollowTests {
             Issue.record("a watch's lag is not read"); return
         }
     }
+
+    // MARK: A follow changes its rows in place (audit 2026-11-18 section 16)
+
+    /// A row with a lane, as acpmux lists one.
+    private func laned(_ id: String, indicator: String, state: String = "idle") -> [String: Any] {
+        var row = summary(id, indicator: indicator, title: id.uppercased())
+        row["lane"] = ["state": state]
+        return row
+    }
+
+    /// A feed that read a whole list of `count` sessions from an acpmux that follows a cursor.
+    private func listedFeed(_ count: Int) throws -> (feed: AgentTurnStateFeed, turns: AgentTurnStateStore, lanes: AgentLaneStore) {
+        let turns = AgentTurnStateStore()
+        let lanes = AgentLaneStore()
+        let feed = AgentTurnStateFeed(socketPath: "/nonexistent/cmux-follow-tests.sock", turns: turns, lanes: lanes)
+        feed.handle(.initialized(follows: true))
+        let sessions = (0..<count).map { laned("s\($0)", indicator: "input") }
+        feed.handle(try message(["jsonrpc": "2.0", "id": 2, "result": ["listSeq": 1, "listEpoch": "run-a", "sessions": sessions]]))
+        return (feed, turns, lanes)
+    }
+
+    private func followReply(_ seq: Int, changing ids: [String], gone: [String] = []) throws -> AgentTurnStateFeed.Message {
+        try message(["jsonrpc": "2.0", "id": 2, "result": [
+            "follow": true, "listSeq": seq, "listEpoch": "run-a", "more": false,
+            "sessions": ids.map { laned($0, indicator: "working", state: "working") }, "gone": gone.map { ["sessionId": $0] },
+        ]])
+    }
+
+    /// Leo, 2026-11-18: "Why should non visible thing even affect the renderer thread anyways?" A follow's reply (the
+    /// rows changed since a cursor) was laid over a second whole copy of the list the feed kept, then that whole list
+    /// replaced the stores on the main thread. Detector: on an open watch no second copy is kept, and a follow's rows
+    /// change in the stores as acpmux sent them.
+    @Test func aFollowOnAnOpenWatchChangesItsRowsInPlaceWithNoSecondList() throws {
+        let (feed, _, lanes) = try listedFeed(200)
+        print("turn-feed-follow-detector rows=200 held_copy_rows=\(feed.heldListRows)")
+        #expect(feed.heldListRows == 0, "the feed keeps a second copy of the list (\(feed.heldListRows) rows)")
+        feed.handle(try followReply(5, changing: ["s3", "new"], gone: ["s7"]))
+        #expect(feed.heldListRows == 0)
+        #expect(lanes.lanes.count == 200, "one row came, one went")
+        #expect(lanes.lanes["s3"]?.state == .working && lanes.lanes["new"]?.state == .working)
+        #expect(lanes.lanes["s7"] == nil && lanes.lanes["s8"]?.state == .idle, "a row the follow does not name stands")
+        #expect(lanes.working == ["s3", "new"])
+    }
+
+    /// 10,789 chats (Leo's Mac, 2026-11-18): a follow of three changed rows, timed on the main actor, costs about what
+    /// it costs over 539 (O(rows changed), not O(every row)).
+    @Test func aFollowOfThreeRowsCostsAboutTheSameOverTenThousandChats() throws {
+        func median(_ count: Int) throws -> Double {
+            let (feed, _, _) = try listedFeed(count)
+            var times: [Double] = []
+            for round in 0..<15 {
+                let reply = try followReply(10 + round, changing: ["s1", "s2", "s\(3 + round)"])
+                let started = ContinuousClock.now
+                feed.handle(reply)
+                let elapsed = (ContinuousClock.now - started).components
+                times.append(Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15)
+            }
+            return times.sorted()[times.count / 2]
+        }
+        let small = try median(539)
+        let large = try median(10_789)
+        print("turn-feed-follow-bench rows_changed=3 rows_539_ms=\(String(format: "%.3f", small)) rows_10789_ms=\(String(format: "%.3f", large))")
+        #expect(large < max(small * 4, 0.5), "a 3-row follow took \(large) ms over 10,789 chats, \(small) ms over 539")
+    }
 }

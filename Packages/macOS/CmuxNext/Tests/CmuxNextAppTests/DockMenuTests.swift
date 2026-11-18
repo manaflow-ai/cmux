@@ -233,4 +233,85 @@ struct DockMenuTests {
         let choices = DockMenuChoices.make(harnesses: rows, machines: [AgentChatDestinations.local(title: "This Mac")])
         #expect(choices.harnesses.map(\.id) == ["claude", "codex"])
     }
+
+    // MARK: Built when the menu opens (audit 2026-11-18 section 16)
+
+    /// Leo, 2026-11-18: "Why should non visible thing even affect the renderer thread anyways?" The Dock menu is read
+    /// on a right-click; its rows were rebuilt from every chat up to once a second while agents streamed. Detector: lane
+    /// changes with the menu closed build nothing, and opening it builds once from the lanes as they are.
+    @Test func laneChangesBuildNoRowsUntilTheMenuOpens() async {
+        let host = Host()
+        let lanes = AgentLaneStore()
+        let controller = DockMenuController(lanes: lanes, marks: AgentPriorityMarks(defaults: nil), host: host)
+        controller.start()
+        for step in 1...50 {
+            lanes.set("c\(step % 5)", Self.lane("c\(step % 5)", updated: TimeInterval(step)))
+            await Task.yield()
+        }
+        // Longer than a detached build of five lanes takes: a build after a change would have landed.
+        try? await Task.sleep(for: .milliseconds(300))
+        let whileClosed = controller.builds
+        print("dock-menu-detector lane_changes=50 builds_while_closed=\(whileClosed)")
+        #expect(whileClosed == 0, "the Dock menu's rows were built \(whileClosed) times while nobody had it open")
+        let menu = controller.menu()
+        #expect(controller.builds == whileClosed + 1, "opening the menu builds its rows once")
+        // Step 50 changed c0 last: Continue names it, with no wait for a rebuild.
+        #expect(menu.items.contains { $0.title == DockMenuStrings.continueChat("Chat c0") })
+        controller.stop()
+    }
+
+    /// 10,789 chats (Leo's Mac, 2026-11-18): one build, as a right-click now runs it, timed. The rows match a plain
+    /// filter and sort of every chat (the build keeps only the few newest instead of sorting them all).
+    @Test func buildingTheRowsOfTenThousandChatsIsQuickAndMatchesAFullSort() {
+        let count = 10_789
+        var lanes: [AgentActivityLane] = []
+        lanes.reserveCapacity(count)
+        for index in 0..<count {
+            lanes.append(Self.lane("c\(index)", updated: TimeInterval((index &* 7919) % 4_000), unread: index % 3 == 0,
+                                   hidden: index % 17 == 0))
+        }
+        var marks = AgentPriorityMarks.State()
+        for index in stride(from: 0, to: count, by: 11) { marks.archived.insert("c\(index)") }
+        for index in stride(from: 3, to: count, by: 13) { marks.read["c\(index)"] = AgentPriorityMarks.stamp(lanes[index]) }
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let clock = ContinuousClock()
+        var made = DockMenuChats.empty
+        let rounds = 10
+        let elapsed = clock.measure {
+            for _ in 0..<rounds { made = DockMenuChats.make(lanes: lanes, marks: marks, now: now) }
+        }
+        let milliseconds = Double(elapsed.components.attoseconds) / 1e15 / Double(rounds) + Double(elapsed.components.seconds) * 1000 / Double(rounds)
+        print("dock-menu-bench chats=\(count) build_ms=\(String(format: "%.2f", milliseconds))")
+        #expect(made == Self.reference(lanes: lanes, marks: marks, now: now))
+        #expect(made.recentMore.count == 10 && made.unreadMore.count == 10)
+    }
+
+    /// Ties (equal times) and small lists give the same rows as a full sort too.
+    @Test func theRowsMatchAFullSortOnTiesAndShortLists() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        for count in [0, 1, 2, 4, 7, 15, 40] {
+            let lanes = (0..<count).map { Self.lane("t\($0)", updated: TimeInterval($0 % 3), unread: $0 % 2 == 0) }
+            #expect(DockMenuChats.make(lanes: lanes, marks: .init(), now: now) == Self.reference(lanes: lanes, marks: .init(), now: now))
+        }
+    }
+
+    /// The rows as a filter and full sort of every chat give them (the build before 2026-11-18).
+    static func reference(lanes: [AgentActivityLane], marks: AgentPriorityMarks.State, now: Date, shown: Int = 3,
+                          more: Int = 10) -> DockMenuChats {
+        func changed(_ lane: AgentActivityLane) -> Date { lane.updatedAt ?? lane.since ?? lane.createdAt ?? .distantPast }
+        func chat(_ lane: AgentActivityLane) -> DockMenuChats.Chat {
+            .init(id: lane.id, title: DockMenuChats.title(lane.title.isEmpty ? lane.name : lane.title))
+        }
+        let listed = lanes.filter { lane in
+            guard !lane.sidebarRequiresOpen, !marks.archived.contains(lane.id) else { return false }
+            return !marks.isSnoozed(lane.id, stamp: AgentPriorityMarks.stamp(lane), now: now)
+        }.sorted { a, b in changed(a) != changed(b) ? changed(a) > changed(b) : a.id < b.id }
+        guard let first = listed.first else { return .empty }
+        let unreadLanes = listed.filter { $0.unread && marks.read[$0.id] != AgentPriorityMarks.stamp($0) }
+        let unread = unreadLanes.prefix(shown).map(chat)
+        let shownUnread = Set(unread.map(\.id))
+        let recentLanes = listed.dropFirst().filter { !shownUnread.contains($0.id) }
+        return DockMenuChats(last: chat(first), unread: Array(unread), unreadMore: unreadLanes.dropFirst(shown).prefix(more).map(chat),
+                             recent: recentLanes.prefix(shown).map(chat), recentMore: recentLanes.dropFirst(shown).prefix(more).map(chat))
+    }
 }

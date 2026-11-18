@@ -61,6 +61,8 @@ public final class WindowOverlayHost {
     }
     /// Reorders done (diagnostics).
     public private(set) var reorderCount = 0
+    /// Child order checks run (``reassertOrder()``; tests: none when nothing could have moved).
+    public private(set) var orderChecks = 0
     /// Called after the panel was attached, detached or reordered.
     public var onPanelChange: (() -> Void)?
     /// Called when `blocksWholeWindow` may have changed (a modal or dimming overlay came or went).
@@ -263,6 +265,7 @@ public final class WindowOverlayHost {
     public func reassertOrder() {
         // Re-adding windows below calls back here (the window's addChildWindow override).
         guard !isReordering, let window, panel.parent === window else { return }
+        orderChecks += 1
         isReordering = true
         defer { isReordering = false }
         // AppKit places its own children (the full screen titlebar); they are never re-added.
