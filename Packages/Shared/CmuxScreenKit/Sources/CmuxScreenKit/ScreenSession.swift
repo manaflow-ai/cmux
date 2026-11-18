@@ -123,6 +123,15 @@ public final class ScreenSession {
     }
 
     public private(set) var imagePaste = ImagePaste.idle
+
+    /// What the stream's Mac says its screen shows: live, or black because it
+    /// is locked or its display asleep (``ScreenSourceState``). Live for an
+    /// older Mac that never says, and again on each connect.
+    public private(set) var sourceState = ScreenSourceState.live
+    /// The Mac's source state, from the running stream's viewer (a demo may set it too).
+    public func receiveSourceState(_ state: ScreenSourceState) {
+        if sourceState != state { sourceState = state }
+    }
     /// The image ``imagePaste`` is about (another image's answer never settles it).
     @ObservationIgnored private var imagePasteID: String?
 
@@ -370,6 +379,13 @@ public final class ScreenSession {
         isStalled = false
         stats.targetFps = nil
         hostCapabilities = []
+        receiveSourceState(.live)
+        viewer.onSourceState = { [weak self, weak viewer] state in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.receiveSourceState(state)
+            }
+        }
         viewer.onCapabilities = { [weak self, weak viewer] capabilities in
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }

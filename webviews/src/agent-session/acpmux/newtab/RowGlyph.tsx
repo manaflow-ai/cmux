@@ -23,6 +23,7 @@ const NAMES: Record<GlyphKind, string> = {
   newProfile: "action.add",
   chat: "agent.chat",
   launch: "folder",
+  run: "terminal",
   // A tab's or closed item's kind.
   terminal: "terminal",
   browser: "browser",
