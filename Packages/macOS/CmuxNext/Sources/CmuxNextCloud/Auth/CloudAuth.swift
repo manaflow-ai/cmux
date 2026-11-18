@@ -24,6 +24,9 @@ public final class CloudAuth {
     @ObservationIgnored private let callbackRouter: AuthCallbackRouter
     @ObservationIgnored private let usesCaptureFixture: Bool
     @ObservationIgnored private var captureTokenStore: CaptureFencedTokenStore?
+    /// The store of a dev build that adopts NIGHTLY's session (``nightlyAdoptingStore(nightlySession:)``), for
+    /// ``retryNightlyAdoption()``; nil for every other build.
+    @ObservationIgnored private let nightlyAdoption: ImportingTokenStore?
     /// Prevents a new auth writer while a protected capture proves stores
     /// absent. Existing token readers are joined before deletion.
     @ObservationIgnored private var captureCleanupActive = false
@@ -190,7 +193,8 @@ public final class CloudAuth {
         let launch = useCaptureFixture ? (signIn: LaunchSignIn.noSignIn, paths: [String]())
             : Self.launchSignIn(configuration: configuration, environment: environment)
         let signIn = launch.signIn
-        let devAccount = !useCaptureFixture && Self.devAccountConfigured(environment: environment, home: home)
+        let devAccount = !useCaptureFixture && Self.launchDevAccount(configuration: configuration, environment: environment, home: home)
+        var adoptingStore: ImportingTokenStore?
         let tokenStore: any StackAuthTokenStoreProtocol
         let client: any AuthClient
         let authDefaults: any CMUXAuthKeyValueStore
@@ -204,6 +208,8 @@ public final class CloudAuth {
         } else {
             let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession, devAccount: devAccount,
                                                   memoryOnly: signIn.memoryOnly)
+            adoptingStore = Self.nightlyAdoption(of: productionStore, configuration: configuration, devAccount: devAccount,
+                                                 memoryOnly: signIn.memoryOnly)
             let fencedStore = CaptureFencedTokenStore(base: productionStore)
             captureTokenStore = fencedStore
             tokenStore = fencedStore
@@ -213,6 +219,8 @@ public final class CloudAuth {
         #else
         let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession, devAccount: devAccount,
                                               memoryOnly: signIn.memoryOnly)
+        adoptingStore = Self.nightlyAdoption(of: productionStore, configuration: configuration, devAccount: devAccount,
+                                             memoryOnly: signIn.memoryOnly)
         let fencedStore = CaptureFencedTokenStore(base: productionStore)
         captureTokenStore = fencedStore
         tokenStore = fencedStore
@@ -221,6 +229,7 @@ public final class CloudAuth {
         authDefaults = signIn.memoryOnly ? MemoryAuthKeyValueStore() : defaults
         client = Self.stackClient(configuration: configuration, tokenStore: fencedStore)
         #endif
+        nightlyAdoption = adoptingStore
         let sessionStore = tokenStore
         storedSession = {
             await Self.consistentSession(refresh: { await sessionStore.getStoredRefreshToken() },
@@ -299,18 +308,57 @@ public final class CloudAuth {
         configuration.buildSpace.space != nil && configuration.isProductionAuth && !devAccount
     }
 
+    /// The dev-account answer a launch uses (``devAccountConfigured(environment:home:read:)``). Only a build that would
+    /// otherwise adopt NIGHTLY's session (a tagged dev build on the production account) reads the dev sign-in files:
+    /// NIGHTLY, RC, release and a staging or misconfigured dev build never open them, and answer true (they keep their
+    /// own store whatever it says).
+    nonisolated static func launchDevAccount(configuration: CloudConfiguration, environment: [String: String], home: String,
+                                             read: (String) -> DevSignInFile = readDevSignInFile) -> Bool {
+        return devAccountConfigured(environment: environment, home: home, read: read)
+    }
+
+    /// One dev sign-in file as ``devAccountConfigured(environment:home:read:)`` sees it.
+    enum DevSignInFile: Equatable {
+        /// No file at the path.
+        case missing
+        /// A file (or something else) is there but could not be read as UTF-8 text: counted as an account.
+        case unreadable
+        case contents(String)
+    }
+
+    /// Reads `path`: missing only when nothing is there (`ENOENT`, `ENOTDIR`); any other failure is unreadable.
+    nonisolated static func readDevSignInFile(_ path: String) -> DevSignInFile {
+        do {
+            return .contents(try String(blockingContentsOf: URL(fileURLWithPath: path), encoding: .utf8))
+        } catch {
+            let failure = error as NSError
+            if failure.domain == NSCocoaErrorDomain, failure.code == NSFileReadNoSuchFileError { return .missing }
+            let posix = failure.domain == NSPOSIXErrorDomain ? failure : failure.userInfo[NSUnderlyingErrorKey] as? NSError
+            if let posix, posix.domain == NSPOSIXErrorDomain, [Int(ENOENT), Int(ENOTDIR)].contains(posix.code) { return .missing }
+            return .unreadable
+        }
+    }
+
     /// Whether the dev sign-in inputs name an account: `~/.config/cmux/dev-account` or `CMUX_DEV_AUTH_ACCOUNT`, an
     /// explicit `CMUX_AUTH_CREDENTIALS_FILE`, a `CMUX_DOGFOOD_STACK_EMAIL` or `CMUX_UITEST_STACK_EMAIL` launch key, or
     /// one of those emails in `~/.secrets/cmuxterm-dev.env` (the profile `scripts/cmux-next/dev-signin-token.py` and
-    /// the Mac dev auto sign-in read). Only presence is read; no value leaves this function.
-    nonisolated static func devAccountConfigured(environment: [String: String], home: String) -> Bool {
+    /// the Mac dev auto sign-in read). Only presence is read; no value leaves this function. A file that is there but
+    /// cannot be read counts as an account (fail closed: NIGHTLY's session is not adopted), and the log says which.
+    nonisolated static func devAccountConfigured(environment: [String: String], home: String,
+                                                 read: (String) -> DevSignInFile = readDevSignInFile) -> Bool {
         let named = { (key: String) in !(environment[key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         if ["CMUX_DEV_AUTH_ACCOUNT", "CMUX_AUTH_CREDENTIALS_FILE", "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_UITEST_STACK_EMAIL"]
             .contains(where: named) { return true }
-        let account = try? String(blockingContentsOf: URL(fileURLWithPath: home + "/.config/cmux/dev-account"), encoding: .utf8)
-        if !(account ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        guard let secrets = try? String(blockingContentsOf: URL(fileURLWithPath: home + "/.secrets/cmuxterm-dev.env"),
-                                               encoding: .utf8) else { return false }
+        let accountPath = home + "/.config/cmux/dev-account", secretsPath = home + "/.secrets/cmuxterm-dev.env"
+        switch read(accountPath) {
+        case .contents(let account) where !account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty: return true
+        case .unreadable, .contents, .missing: break
+        }
+        let secrets: String
+        switch read(secretsPath) {
+        case .contents(let text): secrets = text
+        case .unreadable, .missing: return false
+        }
         return secrets.split(whereSeparator: \.isNewline).contains { raw in
             var line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("export ") { line = String(line.dropFirst("export ".count)) }
@@ -413,7 +461,15 @@ public final class CloudAuth {
     public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
         guard !captureCleanupActive else { return Task { false } }
         let inBrowser = signInWindow().opensDefaultBrowser(defaultBrowser: CloudSignInWindow.currentDefaultBrowser())
-        return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser)
+        // A dev build that adopts NIGHTLY's session asks NIGHTLY once more first (``retryNightlyAdoption()``): signed
+        // in there, no browser opens. Switch Account always asks the hosted page.
+        guard nightlyAdoption != nil, !selectAccount, !isSignedIn else {
+            return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser)
+        }
+        return Task {
+            if await retryNightlyAdoption() { return true }
+            return await browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser).value
+        }
     }
 
     /// Opens the sign-in in progress in the default browser (the person's
@@ -507,6 +563,31 @@ extension CloudAuth {
             [{ await fetch().flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) } }]
         } ?? []
         return ImportingTokenStore(primary: MemoryStackTokenStore(), sources: sources)
+    }
+
+    /// `store` when it is the NIGHTLY-adopting store ``tokenStore(configuration:nightlySession:devAccount:memoryOnly:)``
+    /// made (a legacy-importing store is an ``ImportingTokenStore`` too, and is never asked again).
+    static func nightlyAdoption(of store: any StackAuthTokenStoreProtocol, configuration: CloudConfiguration, devAccount: Bool,
+                                memoryOnly: Bool) -> ImportingTokenStore? {
+        guard !memoryOnly, adoptsNightlySession(configuration: configuration, devAccount: devAccount) else { return nil }
+        return store as? ImportingTokenStore
+    }
+
+    /// A dev build that adopts NIGHTLY's session but found none at launch (NIGHTLY not running or signed out then)
+    /// asks NIGHTLY once more when the person opens sign-in or the Cloud page, never on a timer: a NIGHTLY signed in
+    /// after this build started then signs it in without a relaunch. Nothing is asked once this build signed in or
+    /// out itself (``ImportingTokenStore/retryImport()``). True when it ended signed in with NIGHTLY's session.
+    @discardableResult
+    public func retryNightlyAdoption() async -> Bool {
+        guard let store = nightlyAdoption, !captureCleanupActive else { return false }
+        await awaitRestored()
+        guard !isSignedIn, await store.retryImport() else { return false }
+        do {
+            try await coordinator.completeExternalSignIn()
+        } catch {
+            Self.fileLog.notice("NIGHTLY's session, adopted when asked again, did not sign in: \(String(describing: type(of: error)), privacy: .public)")
+        }
+        return isSignedIn
     }
 
     /// The stored pair, read so a refresh that rotates the tokens between the two reads is never handed out

@@ -466,8 +466,10 @@ the launch or in `~/.secrets/cmuxterm-dev.env`), the build uses that account in 
 nightly's session. Only when none is configured does a dev build on the production account take the running
 NIGHTLY's session (`auth.session.handoff`, team-signed builds only, so not the fleet's ad hoc ones), read-only and in
 memory: a refresh or sign-out there never writes NIGHTLY's store or revokes its server session, and NIGHTLY signed out
-or not running leaves the dev build signed out. Either way its backend data stays in its own build space: the
-session is shared, the data is not.
+or not running leaves the dev build signed out until the person opens sign-in or the Cloud page, which asks NIGHTLY
+once more (never on a timer; never after the dev build signed in or out itself). Only such a build reads the dev
+sign-in files (nightly, RC and release never open them), and one there but unreadable counts as an account (fail
+closed). Either way its backend data stays in its own build space: the session is shared, the data is not.
 
 ## Settings on every surface
 

@@ -14,6 +14,8 @@ import Testing
         var reads = 0
         var pair: [String?] { [refresh, access] }
         init(refresh: String?, access: String? = nil) { (self.refresh, self.access) = (refresh, access) }
+        /// The person signs NIGHTLY in.
+        func signIn(refresh: String, access: String) { (self.refresh, self.access) = (refresh, access) }
         func handOff() -> (accessToken: String?, refreshToken: String)? {
             reads += 1
             return refresh.map { (access, $0) }
@@ -106,5 +108,98 @@ import Testing
         var nightly = CloudConfiguration.unavailable
         nightly.isProductionAuth = true
         #expect(!CloudAuth.adoptsNightlySession(configuration: nightly, devAccount: false))
+    }
+
+    /// NIGHTLY, RC and release (no build space), and a dev build with no usable tag, never open the dev sign-in files.
+    @Test func onlyABuildThatWouldAdoptReadsTheDevSignInFiles() throws {
+        let home = try Self.home([".config/cmux/dev-account": "personal\n"])
+        var nightly = CloudConfiguration.unavailable
+        nightly.isProductionAuth = true
+        var misconfigured = Self.devBuild()
+        misconfigured.buildSpace = CMUXBuildSpaceState(devBuild: true, devTag: nil)
+        for configuration in [nightly, misconfigured, Self.devBuild(production: false)] {
+            var reads: [String] = []
+            let devAccount = CloudAuth.launchDevAccount(configuration: configuration, environment: [:], home: home) { path in
+                reads.append(path)
+                return CloudAuth.readDevSignInFile(path)
+            }
+            #expect(reads.isEmpty, "\(configuration.buildSpace) read \(reads)")
+            // Its own store either way: the answer never makes it adopt.
+            #expect(devAccount)
+            #expect(!CloudAuth.adoptsNightlySession(configuration: configuration, devAccount: devAccount))
+        }
+        // A tagged dev build on the production account reads them, and the file wins.
+        var reads = 0
+        #expect(CloudAuth.launchDevAccount(configuration: Self.devBuild(), environment: [:], home: home) { path in
+            reads += 1
+            return CloudAuth.readDevSignInFile(path)
+        })
+        #expect(reads == 1)
+    }
+
+    /// A dev-account or secrets file that is there but cannot be read counts as configured: fail closed.
+    @Test func anUnreadableDevSignInFileCountsAsAnAccount() throws {
+        // A directory where the file goes cannot be read as text, whoever runs the test.
+        for path in [".config/cmux/dev-account", ".secrets/cmuxterm-dev.env"] {
+            let home = try Self.home([:])
+            try FileManager.default.createDirectory(atPath: home + "/" + path, withIntermediateDirectories: true)
+            #expect(CloudAuth.readDevSignInFile(home + "/" + path) == .unreadable)
+            #expect(CloudAuth.devAccountConfigured(environment: [:], home: home), "\(path)")
+            #expect(CloudAuth.launchDevAccount(configuration: Self.devBuild(), environment: [:], home: home))
+        }
+        // An owner-unreadable file (root reads it anyway).
+        if getuid() != 0 {
+            let home = try Self.home([".secrets/cmuxterm-dev.env": "CMUX_DOGFOOD_STACK_EMAIL=person@example.com\n"])
+            let secrets = home + "/.secrets/cmuxterm-dev.env"
+            try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: secrets)
+            defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: secrets) }
+            #expect(CloudAuth.readDevSignInFile(secrets) == .unreadable)
+            #expect(CloudAuth.devAccountConfigured(environment: [:], home: home))
+        }
+        // Invalid UTF-8 is unreadable too.
+        let home = try Self.home([:])
+        try FileManager.default.createDirectory(atPath: home + "/.config/cmux", withIntermediateDirectories: true)
+        try Data([0xFF, 0xFE, 0xFD]).write(to: URL(fileURLWithPath: home + "/.config/cmux/dev-account"))
+        #expect(CloudAuth.devAccountConfigured(environment: [:], home: home))
+        // Nothing there is not an account; nor is a missing parent folder.
+        #expect(CloudAuth.readDevSignInFile(try Self.home([:]) + "/.config/cmux/dev-account") == .missing)
+        #expect(!CloudAuth.devAccountConfigured(environment: [:], home: try Self.home([:])))
+    }
+
+    /// A dev build started before NIGHTLY signed in adopts its session when the person asks (opens sign-in or Cloud),
+    /// without a relaunch; nothing polls in between.
+    @Test func aDevBuildStartedBeforeNightlyAdoptsWhenAskedAgain() async throws {
+        let nightly = Nightly(refresh: nil)
+        let store = try #require(CloudAuth.tokenStore(configuration: Self.devBuild(), nightlySession: { await nightly.handOff() },
+                                                      devAccount: false) as? ImportingTokenStore)
+        #expect(await store.getStoredRefreshToken() == nil)
+        await nightly.signIn(refresh: "refresh-n", access: "access-n")
+        #expect(await store.getStoredRefreshToken() == nil)
+        #expect(await nightly.reads == 1)
+        #expect(await store.retryImport())
+        #expect(await store.getStoredRefreshToken() == "refresh-n")
+        #expect(await store.getStoredAccessToken() == "access-n")
+        // Still NIGHTLY's: a sign-out here leaves it alive on the server.
+        #expect(await store.isShared(refreshToken: "refresh-n"))
+        #expect(await nightly.reads == 2)
+        // Signed in now: asking again reads nothing.
+        #expect(!(await store.retryImport()))
+        #expect(await nightly.reads == 2)
+        #expect(CloudAuth.nightlyAdoption(of: store, configuration: Self.devBuild(), devAccount: false, memoryOnly: false) === store)
+    }
+
+    /// A sign-in or sign-out in the dev build ends adopting for the process: asking again never brings NIGHTLY's back.
+    @Test func aSignOutInTheDevBuildIsNeverUndoneByAskingAgain() async throws {
+        let nightly = Nightly(refresh: "refresh-n", access: "access-n")
+        let store = try #require(CloudAuth.tokenStore(configuration: Self.devBuild(), nightlySession: { await nightly.handOff() },
+                                                      devAccount: false) as? ImportingTokenStore)
+        #expect(await store.getStoredRefreshToken() == "refresh-n")
+        await store.clearTokens()
+        #expect(!(await store.retryImport()))
+        #expect(await store.getStoredRefreshToken() == nil)
+        #expect(await nightly.reads == 1)
+        // Only the NIGHTLY-adopting store is asked again: not a configured account's, not a memory-only launch's.
+        #expect(CloudAuth.nightlyAdoption(of: store, configuration: Self.devBuild(), devAccount: true, memoryOnly: false) == nil)
+        #expect(CloudAuth.nightlyAdoption(of: store, configuration: Self.devBuild(), devAccount: false, memoryOnly: true) == nil)
     }
 }
