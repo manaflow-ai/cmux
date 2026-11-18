@@ -136,15 +136,99 @@ fn a_batch_whose_lease_ends_goes_to_the_next_poll() {
     let second = &second["data"]["batch"];
     assert_ne!(first["id"], second["id"]);
     assert_eq!(first["wants"], second["wants"]);
-    let late = call(
+    // The first Mac's answer comes in late, before the second's: its wants are still open, so
+    // it lands, and the second answer then has nothing left to complete.
+    let results = json!([{"status": "bytes", "data_b64": b64(b"1")}, {"status": "gone"}]);
+    let late = call(&service, Caller::Remote, &answer_line_for(first, results.clone()));
+    assert_eq!(late["data"]["answered"], 2, "{late}");
+    assert_eq!(fetch.join().unwrap()["data"]["results"], results);
+    let away = json!([{"status": "away"}, {"status": "away"}]);
+    let after = call(&service, Caller::Remote, &answer_line_for(second, away));
+    assert_eq!(code(&after), "projfs.unknown_batch", "{after}");
+}
+
+/// A service whose fetches may wait longer than a lease, on the injected clock.
+fn slow_link_service() -> Arc<Rendezvous> {
+    let limits = Limits { max_wait: Duration::from_secs(120), lease: LEASE };
+    Arc::new(Rendezvous::with_limits(limits))
+}
+
+fn fetch_line_for(path: &str, wait_ms: u64) -> Value {
+    fetch_line(vec![want(path, 0, 1)], wait_ms)
+}
+
+#[test]
+fn an_answer_past_its_lease_completes_the_wants_still_open() {
+    let service = slow_link_service();
+    // Two readers: one gives up a little after the lease, one waits much longer.
+    let short = fetch_in_background(&service, fetch_line_for("a", 35_000));
+    assert!(service.settle(MOUNT, SETTLE, |c| c["queued"] == 1));
+    let long = fetch_in_background(&service, fetch_line_for("b", 100_000));
+    assert!(service.settle(MOUNT, SETTLE, |c| c["queued"] == 2));
+    let next = call(&service, Caller::Remote, &next_line(0));
+    let batch = next["data"]["batch"].clone();
+    assert_eq!(batch["wants"].as_array().map(Vec::len), Some(2), "{next}");
+    // The answer takes 40 s to cross the link: the lease ends, and the short reader gives up.
+    service.advance(Duration::from_secs(40));
+    assert_eq!(short.join().unwrap()["data"]["results"], json!([{"status": "away"}]));
+    let results = json!([
+        {"status": "bytes", "data_b64": b64(b"A")},
+        {"status": "bytes", "data_b64": b64(b"B")},
+    ]);
+    let late = call(&service, Caller::Remote, &answer_line_for(&batch, results));
+    assert_eq!(late["ok"], true, "{late}");
+    assert_eq!(late["data"]["answered"], 1, "only the open want: {late}");
+    let got = long.join().unwrap();
+    assert_eq!(got["data"]["results"], json!([{"status": "bytes", "data_b64": b64(b"B")}]));
+    assert!(service.settle(MOUNT, SETTLE, |c| c["queued"] == 0 && c["fetching"] == 0));
+    // Nothing of that batch is open any more: the same answer again is unknown.
+    let again = call(
         &service,
         Caller::Remote,
-        &answer_line_for(first, json!([{"status": "gone"}, {"status": "gone"}])),
+        &answer_line_for(&batch, json!([{"status": "gone"}, {"status": "gone"}])),
     );
+    assert_eq!(code(&again), "projfs.unknown_batch", "{again}");
+}
+
+#[test]
+fn a_late_answer_whose_wants_a_later_batch_answered_is_unknown() {
+    let service = slow_link_service();
+    let fetch = fetch_in_background(&service, fetch_line_for("a", 100_000));
+    assert!(service.settle(MOUNT, SETTLE, |c| c["queued"] == 1));
+    let first = call(&service, Caller::Remote, &next_line(0))["data"]["batch"].clone();
+    service.advance(LEASE + Duration::from_secs(1));
+    let second = call(&service, Caller::Remote, &next_line(0))["data"]["batch"].clone();
+    assert_eq!(first["wants"], second["wants"], "handed out again");
+    let gone = json!([{"status": "gone"}]);
+    assert_eq!(call(&service, Caller::Remote, &answer_line_for(&second, gone.clone()))["ok"], true);
+    assert_eq!(fetch.join().unwrap()["data"]["results"], gone);
+    let late = call(&service, Caller::Remote, &answer_line_for(&first, gone));
     assert_eq!(code(&late), "projfs.unknown_batch", "{late}");
-    let results = json!([{"status": "bytes", "data_b64": b64(b"1")}, {"status": "away"}]);
-    call(&service, Caller::Remote, &answer_line_for(second, results.clone()));
-    assert_eq!(fetch.join().unwrap()["data"]["results"], results);
+}
+
+#[test]
+fn expired_batches_remembered_are_bounded() {
+    let limits = Limits { max_wait: Duration::from_secs(3_600), lease: LEASE };
+    let service = Arc::new(Rendezvous::with_limits(limits));
+    let wants: Vec<Value> = (0..4).map(|i| want(&format!("f{i}"), 0, 1)).collect();
+    let fetch = fetch_in_background(&service, fetch_line(wants, 3_600_000));
+    assert!(service.settle(MOUNT, SETTLE, |c| c["queued"] == 4));
+    // Each poll takes every queued want; its lease ends before the next poll, which takes them
+    // again as a new batch: one more expired batch than are remembered.
+    let mut batches = Vec::new();
+    for _ in 0..=MAX_EXPIRED_BATCHES {
+        batches.push(call(&service, Caller::Remote, &next_line(0))["data"]["batch"].clone());
+        service.advance(LEASE + Duration::from_secs(1));
+    }
+    let oldest = batches.first().unwrap();
+    let count = oldest["wants"].as_array().map_or(0, Vec::len);
+    let results = Value::Array(vec![json!({"status": "gone"}); count]);
+    let forgotten = call(&service, Caller::Remote, &answer_line_for(oldest, results.clone()));
+    assert_eq!(code(&forgotten), "projfs.unknown_batch", "{forgotten}");
+    let newest = batches.last().unwrap();
+    let answered = call(&service, Caller::Remote, &answer_line_for(newest, results));
+    assert_eq!(answered["data"]["answered"], count, "{answered}");
+    assert_eq!(fetch.join().unwrap()["data"]["results"].as_array().map(Vec::len), Some(count));
 }
 
 #[test]

@@ -20,8 +20,13 @@
 //!   `projfs.next` handed out (not `id`, which is the request line's own), and one result per
 //!   want of the batch, in order: `{status:"bytes", data_b64}`, `{status:"changed", size,
 //!   mtime_ns, ctime_ns, mode}`, `{status:"gone"}`, `{status:"withheld"}`,
-//!   `{status:"failed", reason?}` or `{status:"away"}`. Answers `{answered: N}`. An unknown or
-//!   expired batch is refused (`projfs.unknown_batch`) and its bytes are dropped.
+//!   `{status:"failed", reason?}` or `{status:"away"}`. Answers `{answered: N}`, the wants it
+//!   completed. An answer that arrives after its batch's lease ended still completes every want
+//!   of it that is still open (no later batch answered it and its fetch still waits): a batch
+//!   too large for the link to carry in one lease still lands. The last
+//!   [`MAX_EXPIRED_BATCHES`] expired batches of a mount are remembered for that. An answer none
+//!   of whose wants is open, or to a batch never handed out (or forgotten), is refused
+//!   (`projfs.unknown_batch`) and its bytes are dropped.
 //! - `projfs.status {mount?}`: `{mounts:[{mount, queued, batches_out, polling, fetching,
 //!   bytes_answered, last_answer_age_ms}]}`.
 //! - `projfs.mount`, `projfs.unmount` and `projfs.upper`: the Mac, over the link: start and
@@ -32,6 +37,7 @@
 //! thread of its own (server/line_connection.rs), so other connections go on meanwhile.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -87,6 +93,8 @@ pub const MAX_WAIT: Duration = Duration::from_secs(25);
 /// How long a batch handed to a poll is that poll's: a Mac that took it and went away gives
 /// it back after this.
 pub const LEASE: Duration = Duration::from_secs(30);
+/// Expired batches one mount remembers, newest kept, so a late answer can still complete them.
+pub const MAX_EXPIRED_BATCHES: usize = 64;
 
 static SERVICE: OnceLock<Rendezvous> = OnceLock::new();
 
@@ -236,6 +244,9 @@ pub struct Rendezvous {
     state: Mutex<State>,
     changed: Condvar,
     limits: Limits,
+    /// How far this service's clock runs ahead of the monotonic clock, in milliseconds: always
+    /// 0, except in tests that move time on.
+    ahead_ms: AtomicU64,
 }
 
 #[derive(Default)]
@@ -253,6 +264,8 @@ struct MountQueue {
     fetches: HashMap<u64, Fetch>,
     /// Batches handed out, by id.
     batches: HashMap<String, Batch>,
+    /// Batches whose lease ended, oldest first, by id: what a late answer completes.
+    expired: VecDeque<(String, Vec<Slot>)>,
     polling: usize,
     bytes_answered: u64,
     last_answer: Option<Instant>,
@@ -336,7 +349,26 @@ impl Rendezvous {
 
     #[must_use]
     pub fn with_limits(limits: Limits) -> Self {
-        Self { state: Mutex::new(State::default()), changed: Condvar::new(), limits }
+        Self {
+            state: Mutex::new(State::default()),
+            changed: Condvar::new(),
+            limits,
+            ahead_ms: AtomicU64::new(0),
+        }
+    }
+
+    /// This service's clock: the monotonic clock, moved on by [`Self::advance`] in tests.
+    fn now(&self) -> Instant {
+        later(Instant::now(), Duration::from_millis(self.ahead_ms.load(Ordering::Relaxed)))
+    }
+
+    /// Tests: moves this service's clock on by `by` and wakes every waiter to see it.
+    #[cfg(test)]
+    pub(crate) fn advance(&self, by: Duration) {
+        let _state = lock(&self.state);
+        let by = u64::try_from(by.as_millis()).unwrap_or(u64::MAX);
+        self.ahead_ms.fetch_add(by, Ordering::Relaxed);
+        self.changed.notify_all();
     }
 
     fn wait_for(&self, params: &Map<String, Value>) -> Result<Duration, Refusal> {
@@ -353,7 +385,7 @@ impl Rendezvous {
         state: MutexGuard<'a, State>,
         until: Instant,
     ) -> MutexGuard<'a, State> {
-        let left = until.saturating_duration_since(Instant::now());
+        let left = until.saturating_duration_since(self.now());
         self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0
     }
 
@@ -369,7 +401,7 @@ impl Rendezvous {
         if wants.is_empty() {
             return Ok(json!({ "results": [] }));
         }
-        let now = Instant::now();
+        let now = self.now();
         let deadline = later(now, wait);
         let mut state = lock(&self.state);
         let number = state.next_fetch;
@@ -383,7 +415,7 @@ impl Rendezvous {
         queue.fetches.insert(number, Fetch { results: vec![None; count], open: count, wants });
         self.changed.notify_all();
         loop {
-            let now = Instant::now();
+            let now = self.now();
             // A mount with a waiting fetch is never forgotten, and only this call removes it.
             let Some(queue) = state.mounts.get_mut(&mount) else { return Err(lost()) };
             if queue.expire(now) {
@@ -417,14 +449,14 @@ impl Rendezvous {
         only(&params, &["mount", "wait_ms"])?;
         let mount = mount_id(&params)?;
         let wait = self.wait_for(&params)?;
-        let deadline = later(Instant::now(), wait);
+        let deadline = later(self.now(), wait);
         let mut state = lock(&self.state);
-        let queue = state.mount(&mount, Instant::now())?;
+        let queue = state.mount(&mount, self.now())?;
         queue.polling = queue.polling.saturating_add(1);
         self.changed.notify_all();
         let lease = self.limits.lease;
         let answer = loop {
-            let now = Instant::now();
+            let now = self.now();
             let id = state.next_batch;
             // A polled mount is never forgotten.
             let Some(queue) = state.mounts.get_mut(&mount) else { return Err(lost()) };
@@ -443,7 +475,7 @@ impl Rendezvous {
         };
         if let Some(queue) = state.mounts.get_mut(&mount) {
             queue.polling = queue.polling.saturating_sub(1);
-            queue.last_used = Instant::now();
+            queue.last_used = self.now();
         }
         Ok(answer)
     }
@@ -457,28 +489,39 @@ impl Rendezvous {
         let Some(Value::Array(results)) = params.remove("results") else {
             return Err(Refusal::bad("results is an array"));
         };
-        let now = Instant::now();
+        let now = self.now();
         let mut state = lock(&self.state);
         let queue = state.mounts.get_mut(&mount).ok_or_else(unknown_batch)?;
         if queue.expire(now) {
             self.changed.notify_all();
         }
-        let batch = queue.batches.get(&id).ok_or_else(unknown_batch)?;
-        if results.len() != batch.slots.len() {
+        let slots = queue.slots_of(&id).ok_or_else(unknown_batch)?;
+        if results.len() != slots.len() {
             return Err(Refusal::bad("results has one result per want of the batch"));
         }
         let mut checked = Vec::with_capacity(results.len());
-        for (slot, result) in batch.slots.iter().zip(results) {
+        for (slot, result) in slots.iter().zip(results) {
             checked.push(checked_result(result, queue.want_len(*slot))?);
         }
-        let Some(batch) = queue.batches.remove(&id) else { return Err(unknown_batch()) };
-        let answered = checked.len();
-        for (slot, (result, len)) in batch.slots.into_iter().zip(checked) {
-            queue.bytes_answered = queue.bytes_answered.saturating_add(len);
-            if let Some(fetch) = queue.fetches.get_mut(&slot.fetch) {
-                fetch.fill(slot.index, result);
+        queue.batches.remove(&id);
+        queue.expired.retain(|(expired, _)| *expired != id);
+        let mut answered: usize = 0;
+        for (slot, (result, len)) in slots.into_iter().zip(checked) {
+            // A want a later batch answered, or whose fetch stopped waiting, is closed.
+            let Some(fetch) = queue.fetches.get_mut(&slot.fetch) else { continue };
+            if !fetch.is_open(slot.index) {
+                continue;
             }
+            fetch.fill(slot.index, result);
+            answered = answered.saturating_add(1);
+            queue.bytes_answered = queue.bytes_answered.saturating_add(len);
         }
+        if answered == 0 {
+            return Err(unknown_batch());
+        }
+        // A want answered late may be back in the queue: it waits there no more.
+        let fetches = &queue.fetches;
+        queue.queue.retain(|slot| fetches.get(&slot.fetch).is_some_and(|f| f.is_open(slot.index)));
         queue.last_answer = Some(now);
         queue.last_used = now;
         self.changed.notify_all();
@@ -494,7 +537,7 @@ impl Rendezvous {
         timeout: Duration,
         done: impl Fn(&Value) -> bool,
     ) -> bool {
-        let deadline = later(Instant::now(), timeout);
+        let deadline = later(self.now(), timeout);
         let mut state = lock(&self.state);
         loop {
             let counts = state.mounts.get(mount).map_or(Value::Null, |queue| {
@@ -504,7 +547,7 @@ impl Rendezvous {
             if done(&counts) {
                 return true;
             }
-            if Instant::now() >= deadline {
+            if self.now() >= deadline {
                 return false;
             }
             state = self.wait_until(state, deadline);
@@ -518,7 +561,7 @@ impl Rendezvous {
             None => None,
             Some(_) => Some(mount_id(params)?),
         };
-        let now = Instant::now();
+        let now = self.now();
         let mut state = lock(&self.state);
         let mut mounts: Vec<(String, Value)> = Vec::new();
         for (name, queue) in &mut state.mounts {
@@ -573,6 +616,7 @@ impl MountQueue {
             queue: VecDeque::new(),
             fetches: HashMap::new(),
             batches: HashMap::new(),
+            expired: VecDeque::new(),
             polling: 0,
             bytes_answered: 0,
             last_answer: None,
@@ -593,8 +637,8 @@ impl MountQueue {
     }
 
     /// Puts the wants of every batch whose lease ended back at the front of the queue, in
-    /// their order (those of a fetch that is gone, or already answered, are dropped). Whether
-    /// any batch ended.
+    /// their order (those of a fetch that is gone, or already answered, are dropped), and
+    /// remembers the batch for a late answer. Whether any batch ended.
     fn expire(&mut self, now: Instant) -> bool {
         let ended: Vec<String> = self
             .batches
@@ -602,17 +646,35 @@ impl MountQueue {
             .filter(|(_, batch)| batch.leased_until <= now)
             .map(|(id, _)| id.clone())
             .collect();
-        let mut ended: Vec<Batch> = ended.iter().filter_map(|id| self.batches.remove(id)).collect();
+        let mut ended: Vec<(String, Batch)> = ended
+            .into_iter()
+            .filter_map(|id| self.batches.remove(&id).map(|batch| (id, batch)))
+            .collect();
         // The batch handed out first goes back first.
-        ended.sort_by_key(|batch| std::cmp::Reverse(batch.leased_until));
-        for batch in &ended {
+        ended.sort_by_key(|(_, batch)| std::cmp::Reverse(batch.leased_until));
+        for (_, batch) in &ended {
             for slot in batch.slots.iter().rev() {
                 if self.fetches.get(&slot.fetch).is_some_and(|fetch| fetch.is_open(slot.index)) {
                     self.queue.push_front(*slot);
                 }
             }
         }
-        !ended.is_empty()
+        let any = !ended.is_empty();
+        for (id, batch) in ended.into_iter().rev() {
+            self.expired.push_back((id, batch.slots));
+        }
+        while self.expired.len() > MAX_EXPIRED_BATCHES {
+            self.expired.pop_front();
+        }
+        any
+    }
+
+    /// The wants of batch `id`, handed out now or expired and remembered.
+    fn slots_of(&self, id: &str) -> Option<Vec<Slot>> {
+        match self.batches.get(id) {
+            Some(batch) => Some(batch.slots.clone()),
+            None => self.expired.iter().find(|(expired, _)| expired == id).map(|(_, s)| s.clone()),
+        }
     }
 
     /// The `len` of the want at `slot` (the most a result may carry): the bound when its fetch

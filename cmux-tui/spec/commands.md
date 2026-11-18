@@ -11492,8 +11492,13 @@ took is waited for until its answer or the end of its lease. `projfs.next`
 answers at once when wants are queued (at most 512 wants and 8 MiB per
 batch, oldest first), else when some arrive or `wait_ms` passes
 (`batch:null`). A batch is leased to its poll for 30 s; unanswered by then,
-its wants go back to the front of the queue for the next poll, and a later
-answer to it is `projfs.unknown_batch` (its bytes are dropped). A mount
+its wants go back to the front of the queue for the next poll. A later
+answer to it still completes each of its wants that is still open (no later
+batch answered it and its fetch still waits), so a batch the link carries
+more slowly than one lease still lands; `answered` counts the wants it
+completed. A mount remembers its last 64 expired batches for that. An
+answer none of whose wants is open, or to a batch it does not know, is
+`projfs.unknown_batch` (its bytes are dropped). A mount
 keeps at most 4096 waiting wants; a daemon keeps 64 mounts and forgets the
 idle one used least recently past that. Bad params are `projfs.bad_request`;
 a caller the op is not for gets `projfs.permission_denied`. A waiting op
