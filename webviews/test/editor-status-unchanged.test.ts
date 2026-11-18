@@ -1,9 +1,12 @@
 // A key that leaves the editor's status where it was must not write state: each write wakes
-// every subscriber, so a run of keys in an already edited file would re-render per key.
+// every subscriber, so a run of keys in an already edited file would re-render per key. The
+// editor page and the Markdown viewer each had the write.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { EDITOR_CONFIG_OP } from "../src/pages/editor/host";
 import { EditorStore, type CodeView } from "../src/pages/editor/store";
+import { MARKDOWN_CONFIG_OP } from "../src/pages/markdown/host";
+import { MarkdownStore, type Schedule } from "../src/pages/markdown/store";
 import type { PageClient } from "../src/pages/shared/pageClient";
 
 test("a key that leaves the editor status unchanged writes nothing", async () => {
@@ -43,4 +46,25 @@ test("a key that leaves the editor status unchanged writes nothing", async () =>
   } finally {
     globalThis.document = previous;
   }
+});
+
+test("a key in an already edited Markdown file writes nothing", async () => {
+  const client = {
+    call: async (op: string) =>
+      op === MARKDOWN_CONFIG_OP ? { path: "/w/a.md", text: "a\n", hash: "h1", assetBase: "/assets/" } : null,
+    subscribe: async () => () => {},
+    handle: () => () => {},
+  } as unknown as PageClient;
+  const never: Schedule = () => () => {};
+  const store = new MarkdownStore(client, never, never);
+  await store.start();
+  store.edited();
+  expect(store.getState().status).toBe("edited");
+  const before = store.getState();
+  let writes = 0;
+  store.subscribe(() => (writes += 1));
+  store.edited();
+  store.edited();
+  expect(writes).toBe(0);
+  expect(store.getState()).toBe(before);
 });
