@@ -167,10 +167,21 @@ public struct AgentChatDriveControl: Sendable {
         private static func typing(_ value: JSONValue?) throws -> Typing? {
             guard let value else { return nil }
             guard let members = value.objectValue, members.keys.allSatisfy(["text", "allow_draft"].contains),
-                  let text = members["text"]?.stringValue, (1...500).contains(text.count) else {
+                  let text = members["text"]?.stringValue, (1...500).contains(text.count), text.utf16.count <= 2000 else {
                 throw ControlError.invalidParams(Text.type)
             }
+            guard isTypable(text) else { throw ControlError.invalidParams(Text.typeText) }
             return Typing(text: text, allowDraft: try flag(members["allow_draft"], Text.type))
+        }
+
+        /// Text the page may type as a person's keys: no C0 or C1 control character (DEL too), no line or
+        /// paragraph separator, and no leading `!` (after spaces), which in an empty draft would start a
+        /// command; the host can't know whether the draft is empty, so it is refused either way.
+        public static func isTypable(_ text: String) -> Bool {
+            let controls = text.unicodeScalars.contains { scalar in
+                scalar.value < 0x20 || (0x7F...0x9F).contains(scalar.value) || scalar.value == 0x2028 || scalar.value == 0x2029
+            }
+            return !controls && text.drop(while: \.isWhitespace).first != "!"
         }
     }
 
@@ -229,9 +240,8 @@ public struct AgentChatDriveControl: Sendable {
         // From here the page drives itself until `drive.end()` (or its own backstop at seconds + 2 s).
         let input = view.page.map(AgentChatDriveInput.init(page:)) ?? AgentChatDriveInput(webView: view.webView)
         let release = DriveRelease(input: input)
-        let backstop = DemandTimer(owner: "agent.chat-drive.release")
-        backstop.schedule(after: .seconds(params.seconds + 2)) { @MainActor in await release.release("timer") }
-        defer { backstop.cancel() }
+        // The backstop stays armed until a release went in: the release holds it past this call when none did.
+        release.armBackstop(after: .seconds(params.seconds + 2))
 
         var run = DriveRun(params: params, begun: begun ?? [:])
         let how: String
@@ -259,7 +269,7 @@ public struct AgentChatDriveControl: Sendable {
             ],
             "interrupted": run.interrupted.map(JSONValue.string) ?? .null,
             "released": .bool(release.released),
-            "release": .string(release.how ?? how),
+            "release": .string(release.how ?? "pending"),
             "capture": .null,
             "capture_note": .string(captureNote),
             "page": report.map(JSONValue.object) ?? .null,
@@ -304,8 +314,13 @@ public struct AgentChatDriveControl: Sendable {
         static var wheelNeedsTarget: String {
             String(localized: "agentPane.chatDrive.wheelNeedsTarget", defaultValue: "A wheel needs a target to hold the pointer over.", bundle: .module)
         }
+        static var typeText: String {
+            String(localized: "agentPane.chatDrive.typeText",
+                   defaultValue: "type.text can't hold control characters or line separators, or start with !", bundle: .module)
+        }
         static var type: String {
-            String(localized: "agentPane.chatDrive.type", defaultValue: "type takes text (1 to 500 characters) and allow_draft (true or false)", bundle: .module)
+            String(localized: "agentPane.chatDrive.type",
+                   defaultValue: "type takes text (1 to 500 characters, at most 2000 UTF-16 units) and allow_draft (true or false)", bundle: .module)
         }
         static var tooLong: String {
             String(localized: "agentPane.chatDrive.tooLong", defaultValue: "The wheel ticks and the hold take longer than seconds allows.", bundle: .module)
@@ -367,24 +382,25 @@ private struct DriveRun {
         // The page types one character a frame from `begin`: the run lasts until it can have typed them all.
         typed = ContinuousClock.now + .milliseconds((params.type?.text.count ?? 0) * Self.typingFrameMilliseconds)
         countersStart = await input.startEngineCounters()
-        guard params.target != nil else { return try await hold(until: stop) }
+        guard params.target != nil else { return try await hold(until: stop, watching: person, since: started, release: release) }
         guard case .number(let x)? = begun["point"]?["x"], case .number(let y)? = begun["point"]?["y"] else {
             hover["reason"] = "no_point"
-            return try await hold(until: stop)
+            return try await hold(until: stop, watching: person, since: started, release: release)
         }
         let point = CGPoint(x: x, y: y)
         hover["x"] = .number(x)
         hover["y"] = .number(y)
+        // Armed before the move: a release that runs while the move is in flight still gives the hover back.
+        release.armed = true
         guard await input.move(to: point) else {
             hover["reason"] = "move_failed"
-            return try await hold(until: stop)
+            return try await hold(until: stop, watching: person, since: started, release: release)
         }
-        release.armed = true
         await input.settle()
         guard !view.pageIsFrozen, let state = try await AgentChatDriveControl.call(view, AgentChatDriveControl.stateScript, [:], timeout: .seconds(5)),
               state["hovered"] == true else {
             hover["reason"] = "not_hovered"
-            return try await hold(until: stop)
+            return try await hold(until: stop, watching: person, since: started, release: release)
         }
         hover["held"] = true
         hover.removeValue(forKey: "reason")
@@ -404,11 +420,7 @@ private struct DriveRun {
                 }
             }
         }
-        try await hold(until: stop)
-        if person.isUsing(since: started) {
-            interrupted = "person"
-            await release.release("person")
-        }
+        try await hold(until: stop, watching: person, since: started, release: release)
     }
 
     /// A frame and a margin per character the page types (one a frame at 60 Hz).
@@ -416,37 +428,81 @@ private struct DriveRun {
     /// When the page can have typed all of `type.text`.
     private var typed = ContinuousClock.now
 
-    /// Keeps the hover `hold_ms` after the last tick, and until the page can have typed its text, within the run's bound.
-    private func hold(until stop: ContinuousClock.Instant) async throws {
+    /// Keeps the hover `hold_ms` after the last tick, and until the page can have typed its text, within
+    /// the run's bound, watching for the person all the while: when they come back, the run hands the pointer back.
+    private mutating func hold(until stop: ContinuousClock.Instant, watching person: DrivePerson, since started: TimeInterval,
+                               release: DriveRelease) async throws {
         let now = ContinuousClock.now
-        let hold = min(max(Duration.milliseconds(params.holdMilliseconds), typed - now), stop - now)
-        guard hold > .zero else { return }
-        // wakeup-allow: one bounded hold (at most hold_ms, 10 s), cancelled with the call
-        try await Task.sleep(for: hold)
+        let end = min(max(now + .milliseconds(params.holdMilliseconds), typed), stop)
+        guard try await DriveWatch.watch(until: end, isUsing: { person.isUsing(since: started) }) else { return }
+        interrupted = "person"
+        await release.release("person")
+    }
+}
+
+/// A wait that watches for the person: it sleeps in short steps and checks between them.
+struct DriveWatch {
+    /// The longest step between two checks.
+    static let step = Duration.milliseconds(100)
+
+    /// Waits until `end`, checking `isUsing` before each step of at most `step` and at the end; true
+    /// (at once) when it said the person is back, false when the wait ran out without them.
+    static func watch(until end: ContinuousClock.Instant, step: Duration = step, isUsing: () -> Bool) async throws -> Bool {
+        while ContinuousClock.now < end {
+            if isUsing() { return true }
+            // wakeup-allow: one step (at most 100 ms) of a bounded hold (at most 30 s), cancelled with the call
+            try await Task.sleep(for: min(step, end - ContinuousClock.now))
+        }
+        return isUsing()
     }
 }
 
 /// Gives the hover back once, whichever path gets there first (the run's end, an error, a
-/// cancelled call, the person, the backstop timer); `how` says which.
+/// cancelled call, the person, the backstop timer); `how` says which. Only a release that went in
+/// counts: one that failed leaves the hover held and the backstop armed, and a later path tries again.
 @MainActor
-private final class DriveRelease {
-    let input: AgentChatDriveInput
-    /// A move went in, so there is a hover to give back.
+final class DriveRelease {
+    /// Sends the pointer-leave; true when it went in.
+    private let send: @MainActor () async -> Bool
+    /// A move went in, or is on its way, so there is a hover to give back.
     var armed = false
+    /// The path whose release went in; nil until one did.
     private(set) var how: String?
     private(set) var released = false
+    /// A release is being sent now (one at a time).
+    private var sending = false
+    /// The deadline that releases even when the run never gets there; dropped once a release went in.
+    private var backstop: DemandTimer?
 
     init(input: AgentChatDriveInput) {
-        self.input = input
+        send = { await input.release() }
     }
 
-    var isDone: Bool { how != nil }
+    init(send: @escaping @MainActor () async -> Bool) {
+        self.send = send
+    }
+
+    var isDone: Bool { released }
+
+    /// Arms the main-queue deadline `delay` from now. It holds this release until it fires or a release went in.
+    func armBackstop(after delay: Duration) {
+        let timer = DemandTimer(owner: "agent.chat-drive.release")
+        timer.schedule(after: delay) { @MainActor in await self.release("timer") }
+        backstop = timer
+    }
+
+    var isBackstopArmed: Bool { backstop?.isScheduled == true }
 
     func release(_ reason: String) async {
-        guard how == nil else { return }
-        how = reason
+        guard !released, !sending else { return }
+        sending = true
+        defer { sending = false }
         // Nothing was moved: the page's hover is already the person's pointer's.
-        released = armed ? await input.release() : true
+        guard armed ? await send() : true else { return }
+        released = true
+        how = reason
+        backstop?.cancel()
+        backstop = nil
     }
 }
 

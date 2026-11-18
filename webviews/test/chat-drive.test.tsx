@@ -321,3 +321,74 @@ test("a host that never ends the run: the page ends it itself and the late end g
   // state() stays callable once the run is over.
   expect(drive.state()).toMatchObject({ hovered: null, card_open: null, running: false });
 });
+
+/// Dispatches `event` at `target` as the engine's own input (isTrusted), which a test's dispatchEvent
+/// never is: jsdom marks an event trusted only on its own internal path.
+function dispatchTrusted(target: EventTarget, event: Event) {
+  const impl = (wrapper: object) =>
+    (wrapper as Record<symbol, any>)[Object.getOwnPropertySymbols(wrapper).find((key) => key.description === "impl")!];
+  const inner = impl(event);
+  inner.isTrusted = true;
+  impl(target)._dispatch(inner);
+}
+
+test("typed text that no person types key by key, or that would open shell mode, is refused", async () => {
+  const { ChatDrive, MAX_TYPE_UNITS } = await import("../src/agent-session/acpmux/chatDrive");
+  const { composerProbe } = await import("../src/agent-session/acpmux/composerProbe");
+  await render("Ask anything");
+  const page = fakeEnv();
+  const drive = new ChatDrive();
+  const before = held();
+  const begin = (text: unknown, draft = "") =>
+    drive.begin({ seconds: 1, type: { text, allow_draft: true } }, idleHost(draft), page.env);
+  for (const text of ["two\nlines", "tab\there", "nul\u0000", "del\u007F", "c1\u0085", "line sep", "para sep"])
+    expect(await begin(text)).toEqual({ error: "bad_text" });
+  expect(await begin("a".repeat(MAX_TYPE_UNITS + 1))).toEqual({ error: "bad_text" });
+  expect(await begin(42)).toEqual({ error: "bad_text" });
+  // `!` first into an empty prompt is shell mode; after a draft it is a character.
+  expect(await begin("!rm -rf /")).toEqual({ error: "shell_prefix" });
+  expect(composerProbe.render).toBeNull();
+  expect(held()).toEqual(before);
+  expect(page.live()).toEqual({ frames: 0, timers: 0, observers: 0, visibilityListeners: 0 });
+  expect(await begin("!", "a draft")).toMatchObject({ ok: true });
+  await drive.end();
+  expect(await begin("a".repeat(MAX_TYPE_UNITS))).toMatchObject({ ok: true });
+  await drive.end();
+});
+
+test("a person's key during the run stops the typing and marks the run person_active", async () => {
+  const { ChatDrive } = await import("../src/agent-session/acpmux/chatDrive");
+  const { COMPOSER_EDITOR } = await import("../src/agent-session/acpmux/composerSelectors");
+  await render("Ask anything");
+  const page = fakeEnv();
+  const drive = new ChatDrive();
+  // jsdom has no text insertion: each accepted character is the editor's insert.
+  const inserted: string[] = [];
+  const doc = dom.window.document as unknown as { execCommand(command: string, ui: boolean, text: string): boolean };
+  doc.execCommand = (_command, _ui, text) => {
+    inserted.push(text);
+    return true;
+  };
+  expect(
+    await drive.begin({ seconds: 1, type: { text: "abcdef", allow_draft: false } }, idleHost(), page.env),
+  ).toMatchObject({ ok: true });
+  page.frames(2);
+  const editor = dom.window.document.querySelector(COMPOSER_EDITOR)!;
+  // A script's key is no person's.
+  editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "x", bubbles: true }));
+  page.frames(1);
+  expect(drive.state().person_active).toBe(false);
+  expect(drive.personActive().typing_ms_ago).toBeNull();
+  dispatchTrusted(editor, new dom.window.KeyboardEvent("keydown", { key: "x", bubbles: true }));
+  expect(drive.state().person_active).toBe(true);
+  expect(drive.personActive().typing_ms_ago).toBe(0);
+  page.frames(3);
+  const report = (await drive.end()) as Record<string, any>;
+  expect(inserted).toEqual(["a", "b", "c"]);
+  expect(report.typed).toBe("abc");
+  expect(report.type_stopped).toBe("person");
+  expect(report.person_active).toBe(true);
+  expect(report.person_active_by).toBe("key");
+  // Still readable once the run is over.
+  expect(drive.state().person_active).toBe(true);
+});

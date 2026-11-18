@@ -159,6 +159,8 @@ await requireBrowserLane("chat-drive-browser.test.ts", async () => {
         expect(begun.ok).toBe(true);
         expect(begun.device_pixel_ratio).toBe(1);
         expect(begun.scroller.scroll_height).toBeGreaterThan(begun.scroller.height);
+        // Bringing the target into view moved the transcript, if at all, by what begin says.
+        expect(begun.scrolled_into_view.to).toBe(begun.scroller.top);
         const { x, y } = begun.point;
         await page.mouse.move(x, y, { steps: 4 });
         // The card opens after its dwell, as a person's resting pointer opens it.
@@ -177,11 +179,15 @@ await requireBrowserLane("chat-drive-browser.test.ts", async () => {
           timeout: 5_000,
         });
         const wheeled = await call(page, "state");
+        // The host's own hold and wheel are no person's.
+        expect(wheeled.person_active).toBe(false);
         expect(wheeled.scroll_top).not.toBe(before);
         const report = await call(page, "end");
         console.log(name, JSON.stringify({ resting, wheeled, sequence: report.input_sequence, totals: report.totals }));
         expect(report.totals.wheel_events).toBe(ticks);
         expect(report.totals.wheel_trusted).toBe(ticks);
+        expect(report.person_active).toBe(false);
+        expect(report.scrolled_into_view).toEqual(begun.scrolled_into_view);
         expect(report.totals.hovered_frames).toBeGreaterThan(0);
         expect(report.totals.card_open_frames).toBeGreaterThan(0);
         expect(report.frames.some((frame: Drive) => frame.hovered && frame.card_open)).toBe(true);
@@ -204,6 +210,30 @@ await requireBrowserLane("chat-drive-browser.test.ts", async () => {
           { timeout: 5_000 },
         );
         expect(await call(page, "state")).toMatchObject({ hovered: false, card_open: false, running: false });
+        await page.close();
+      });
+
+      test("a person's real key mid-run stops the drive's typing", async () => {
+        current = browsers.get(name);
+        const page = await open();
+        const text = "x".repeat(300);
+        expect(await call(page, "begin", { type: { text, allow_draft: false }, seconds: 20 })).toMatchObject({
+          ok: true,
+        });
+        await page.waitForFunction(
+          () => (window.cmuxAcpmuxBridge!.composerState!()?.text.length ?? 0) >= 5,
+          undefined,
+          {
+            timeout: 5_000,
+          },
+        );
+        await page.keyboard.press("y");
+        expect((await call(page, "state")).person_active).toBe(true);
+        const report = await call(page, "end");
+        expect(report.type_stopped).toBe("person");
+        expect(report.typed.length).toBeLessThan(text.length);
+        // The drive typed nothing after the person's key: the draft ends with it.
+        expect(await page.evaluate(() => window.cmuxAcpmuxBridge!.composerState!()?.text)).toBe(`${report.typed}y`);
         await page.close();
       });
 
@@ -241,6 +271,8 @@ await requireBrowserLane("chat-drive-browser.test.ts", async () => {
         console.log(name, JSON.stringify({ typed: report.typed, focus: report.focus, totals: report.totals }));
         expect(report.typed).toBe("hi there");
         expect(report.draft_left).toBe(true);
+        expect(report.person_active).toBe(true);
+        expect(report.person_active_by).toBe("key");
         expect(report.focus.after).toBe("composer");
         expect(report.totals.composer_renders).toBeGreaterThan(0);
         expect(report.totals.composer_mutations).toBeGreaterThan(0);

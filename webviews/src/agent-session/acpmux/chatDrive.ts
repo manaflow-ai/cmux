@@ -40,6 +40,13 @@ const MAX_INPUT_SEQUENCE = 200;
 const TEST_ID = /^[A-Za-z0-9_-]{1,80}$/;
 /** A person's key in the composer this recently means they are typing: no drive types over them. */
 export const PERSON_TYPING_MS = 2000;
+/** The most UTF-16 units `type.text` may hold. */
+export const MAX_TYPE_UNITS = 2000;
+/** Text no person types key by key: C0 and C1 controls, DEL, and the line and paragraph separators. */
+// oxlint-disable-next-line no-control-regex -- matching control characters is the point.
+const UNTYPED = /[\u0000-\u001F\u007F-\u009F\u2028\u2029]/;
+/** A pointer this far from the point the host holds is a person's, not the host's. */
+const HOLD_SLOP_PX = 4;
 
 const COMPOSER = ".acpmux-composer";
 const SCROLLER = ".acpmux-scroll";
@@ -134,6 +141,12 @@ type Run = {
   /// Our own execCommand is running: its trusted input events are not the person's.
   typingNow: boolean;
   personTypedAt: number | undefined;
+  /// A person's own input showed up during the run (`state().person_active`), and which first: a key,
+  /// a press, or a pointer that left the point the host holds.
+  personActive: "key" | "press" | "pointer" | null;
+  /// The point the host holds, and whether its pointer has reached it yet.
+  hold: { x: number; y: number; reached: boolean } | undefined;
+  scrolledIntoView: { from: number; to: number } | null;
   /// Takes the composer's DOM changes still queued for the observer's callback.
   flushMutations: () => void;
   cleanups: (() => void)[];
@@ -206,6 +219,7 @@ export class ChatDrive {
   /// The last run's target, so `state()` still reads it after `end()` (the host releases its hover
   /// after the run and asks whether the card went away).
   private lastTarget: Element | undefined;
+  private lastRun: Run | undefined;
   /// The report of a run the page ended itself, for the `end()` that comes late.
   private backstopReport: Record<string, unknown> | undefined;
 
@@ -229,16 +243,25 @@ export class ChatDrive {
           )
         : [];
     if (typing && !document.querySelector(COMPOSER_EDITOR)) return { error: "no_composer" };
+    if (typing && (typeof typing.text !== "string" || typing.text.length > MAX_TYPE_UNITS || UNTYPED.test(typing.text)))
+      return { error: "bad_text" };
+    // `!` typed first into an empty prompt switches the composer to shell mode (Composer.tsx promptBeforeInput).
+    if (typing && draft.text === "" && (typing.text as string).startsWith("!")) return { error: "shell_prefix" };
     if (typing && (draft.text.trim() || draft.attachments.length) && typing.allow_draft !== true)
       return { error: "draft_not_empty" };
     // The page keeps no time of a person's last key in the composer (Composer.tsx's `typedAt` resets
     // after each change), so a key before `begin` is not seen; `personActive` reports those after it.
     let target: Element | undefined;
     let point: Record<string, number> | undefined;
+    // The target comes into view by moving the person's transcript: the move is reported.
+    let scrolledIntoView: { from: number; to: number } | null = null;
     if (options.target) {
       target = driveTarget(options.target);
       if (!target) return { error: "no_target" };
+      const moved = document.querySelector<HTMLElement>(SCROLLER);
+      const from = moved ? round2(moved.scrollTop) : null;
       target.scrollIntoView({ behavior: "instant", block: "nearest" });
+      if (moved && from !== null) scrolledIntoView = { from, to: round2(moved.scrollTop) };
       const box = rectOf(target);
       const [x, y] = [round2(box.x + box.width / 2), round2(box.y + box.height / 2)];
       const hit = document.elementFromPoint(x, y);
@@ -282,11 +305,15 @@ export class ChatDrive {
       type: typing ? { text, typed: "", stopped: null } : undefined,
       typingNow: false,
       personTypedAt: undefined,
+      personActive: null,
+      hold: point ? { x: point.x, y: point.y, reached: false } : undefined,
+      scrolledIntoView,
       flushMutations: () => {},
       cleanups: [],
     };
     this.run = run;
     this.lastTarget = target;
+    this.lastRun = run;
     this.backstopReport = undefined;
     const cleanups = run.cleanups;
     composerProbe.render = (part) => {
@@ -315,13 +342,18 @@ export class ChatDrive {
     }
     listen("focusin", () => (run.totals.focusEvents += 1));
     listen("focusout", () => (run.totals.focusEvents += 1));
-    // A person's own key or text in the composer (`personActive`); our own typing's are not theirs.
+    // A person's own key or text (`personActive`, `state().person_active`); our own typing's are not
+    // theirs. The host never presses a key or a button, so any is a person's.
     const typed = (event: Event) => {
       if (run.typingNow || !event.isTrusted) return;
+      run.personActive ??= "key";
       if (event.target instanceof Node && composer.contains(event.target)) run.personTypedAt = env.now();
     };
     listen("keydown", typed);
     listen("beforeinput", typed);
+    listen("pointerdown", (event) => {
+      if (event.isTrusted) run.personActive ??= "press";
+    });
     cleanups.push(env.onVisibilityChange(() => run.visibility.push({ at: env.now(), state: env.visibility() })));
     if (env.supportedEntryTypes().includes("layout-shift")) {
       const shifts: { value: number; hadRecentInput?: boolean }[] = [];
@@ -354,6 +386,7 @@ export class ChatDrive {
       ...(point ? { point } : {}),
       device_pixel_ratio: window.devicePixelRatio,
       scroller: scroller ? scrollerBox(scroller) : null,
+      scrolled_into_view: scrolledIntoView,
     };
   }
 
@@ -366,6 +399,8 @@ export class ChatDrive {
       card_open: cardOpen(target),
       scroll_top: scroller ? round2(scroller.scrollTop) : null,
       running: this.run !== undefined,
+      // A person's key, press or pointer showed up during the current (or last) run.
+      person_active: (this.run ?? this.lastRun)?.personActive != null,
     };
   }
 
@@ -403,6 +438,14 @@ export class ChatDrive {
   }
 
   private input(run: Run, event: Event): void {
+    // The host's pointer goes to the point it holds and stays: one that moves off it after is a person's.
+    const hold = run.hold;
+    if (hold && event.isTrusted && event.type === "pointermove") {
+      const { clientX, clientY } = event as PointerEvent;
+      const near = Math.hypot(clientX - hold.x, clientY - hold.y) <= HOLD_SLOP_PX;
+      if (near) hold.reached = true;
+      else if (hold.reached) run.personActive ??= "pointer";
+    }
     const seen = (run.inputs[event.type] ??= { count: 0, trusted: 0 });
     seen.count += 1;
     if (event.isTrusted) seen.trusted += 1;
@@ -465,6 +508,11 @@ export class ChatDrive {
   private typeNext(run: Run): void {
     const typing = run.type;
     if (!typing || typing.stopped || typing.text.length === 0) return;
+    // A person typed during the run: their keys go first, and the drive types no more over them.
+    if (run.personTypedAt !== undefined) {
+      typing.stopped = "person";
+      return;
+    }
     const editor = document.querySelector<HTMLElement>(COMPOSER_EDITOR);
     if (!editor) {
       typing.stopped = "no_composer";
@@ -546,6 +594,9 @@ export class ChatDrive {
       ...(typing?.stopped ? { type_stopped: typing.stopped } : {}),
       // The hover and card as the run ended; the host's own release comes after (`state()`).
       card_open: cardOpen(run.target),
+      scrolled_into_view: run.scrolledIntoView,
+      person_active: run.personActive !== null,
+      ...(run.personActive ? { person_active_by: run.personActive } : {}),
       layouts: null,
       layouts_unavailable:
         "a page has no count of the engine's layouts per frame (only tracing and the Web Inspector do)",

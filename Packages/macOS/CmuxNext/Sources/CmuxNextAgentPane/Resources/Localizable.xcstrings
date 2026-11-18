@@ -41243,6 +41243,138 @@
         }
       }
     },
+    "agentPane.chatDrive.typeText": {
+      "comment": "`agent.chat.drive` `type.text` with a control character or line separator, or a leading `!` (it would start a composer command).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text can't hold control characters or line separators, or start with !"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text には制御文字や行区切り文字を含めることも、! で始めることもできません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن أن يحتوي type.text على أحرف تحكم أو فواصل أسطر، ولا أن يبدأ بـ !"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text ne smije sadržavati kontrolne znakove ni razdjelnike redova, niti počinjati znakom !"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text må ikke indeholde kontroltegn eller linjeskift-tegn eller begynde med !"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text darf keine Steuerzeichen oder Zeilentrenner enthalten und nicht mit ! beginnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text no puede contener caracteres de control ni separadores de línea, ni empezar por !"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text ne peut contenir ni caractères de contrôle ni séparateurs de ligne, ni commencer par !"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text non può contenere caratteri di controllo o separatori di riga, né iniziare con !"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text មិនអាចមានតួអក្សរបញ្ជា ឬសញ្ញាបំបែកបន្ទាត់ ឬចាប់ផ្តើមដោយ ! បានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text에는 제어 문자나 줄 구분 문자를 넣을 수 없고 !로 시작할 수도 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text kan ikke inneholde kontrolltegn eller linjeskilletegn, eller begynne med !"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text nie może zawierać znaków sterujących ani separatorów wierszy ani zaczynać się od !"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text não pode conter caracteres de controle nem separadores de linha, nem começar com !"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text не может содержать управляющие символы или разделители строк и не может начинаться с !"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text ต้องไม่มีอักขระควบคุมหรือตัวคั่นบรรทัด และต้องไม่ขึ้นต้นด้วย !"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text denetim karakterleri ya da satır ayırıcılar içeremez, ! ile de başlayamaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text не може містити керівні символи чи роздільники рядків і не може починатися з !"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text không được chứa ký tự điều khiển hay ký tự ngăn dòng, cũng không được bắt đầu bằng !"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text 不能包含控制字符或行分隔符，也不能以 ! 开头"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type.text 不能包含控制字元或行分隔符，也不能以 ! 開頭"
+          }
+        }
+      }
+    },
     "agentPane.chatDrive.type": {
       "comment": "An `agent.chat.drive` `type` with text of the wrong length or a wrong `allow_draft`.",
       "extractionState": "manual",
@@ -41250,127 +41382,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "type takes text (1 to 500 characters) and allow_draft (true or false)"
+            "value": "type takes text (1 to 500 characters, at most 2000 UTF-16 units) and allow_draft (true or false)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "type には text（1〜500 文字）と allow_draft（true または false）を指定します"
+            "value": "type には text（1〜500 文字、UTF-16 で最大 2000 単位）と allow_draft（true または false）を指定します"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يأخذ type القيمتين text (من 1 إلى 500 حرف) وallow_draft (true أو false)"
+            "value": "يأخذ type القيمتين text (من 1 إلى 500 حرف، وبحد أقصى 2000 وحدة UTF-16) وallow_draft (true أو false)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "type prima text (1 do 500 znakova) i allow_draft (true ili false)"
+            "value": "type prima text (1 do 500 znakova, najviše 2000 UTF-16 jedinica) i allow_draft (true ili false)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "type tager text (1 til 500 tegn) og allow_draft (true eller false)"
+            "value": "type tager text (1 til 500 tegn, højst 2000 UTF-16-enheder) og allow_draft (true eller false)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "type nimmt text (1 bis 500 Zeichen) und allow_draft (true oder false)"
+            "value": "type nimmt text (1 bis 500 Zeichen, höchstens 2000 UTF-16-Einheiten) und allow_draft (true oder false)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "type admite text (de 1 a 500 caracteres) y allow_draft (true o false)"
+            "value": "type admite text (de 1 a 500 caracteres, como máximo 2000 unidades UTF-16) y allow_draft (true o false)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "type accepte text (1 à 500 caractères) et allow_draft (true ou false)"
+            "value": "type accepte text (1 à 500 caractères, au plus 2000 unités UTF-16) et allow_draft (true ou false)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "type accetta text (da 1 a 500 caratteri) e allow_draft (true o false)"
+            "value": "type accetta text (da 1 a 500 caratteri, al massimo 2000 unità UTF-16) e allow_draft (true o false)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "type យក text (1 ដល់ 500 តួអក្សរ) និង allow_draft (true ឬ false)"
+            "value": "type យក text (1 ដល់ 500 តួអក្សរ យ៉ាងច្រើន 2000 ឯកតា UTF-16) និង allow_draft (true ឬ false)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "type에는 text(1~500자)와 allow_draft(true 또는 false)를 지정합니다"
+            "value": "type에는 text(1~500자, UTF-16 단위 최대 2000)와 allow_draft(true 또는 false)를 지정합니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "type tar text (1 til 500 tegn) og allow_draft (true eller false)"
+            "value": "type tar text (1 til 500 tegn, høyst 2000 UTF-16-enheter) og allow_draft (true eller false)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "type przyjmuje text (od 1 do 500 znaków) i allow_draft (true lub false)"
+            "value": "type przyjmuje text (od 1 do 500 znaków, najwyżej 2000 jednostek UTF-16) i allow_draft (true lub false)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "type aceita text (de 1 a 500 caracteres) e allow_draft (true ou false)"
+            "value": "type aceita text (de 1 a 500 caracteres, no máximo 2000 unidades UTF-16) e allow_draft (true ou false)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "type принимает text (от 1 до 500 символов) и allow_draft (true или false)"
+            "value": "type принимает text (от 1 до 500 символов, не более 2000 единиц UTF-16) и allow_draft (true или false)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "type รับ text (1 ถึง 500 อักขระ) และ allow_draft (true หรือ false)"
+            "value": "type รับ text (1 ถึง 500 อักขระ ไม่เกิน 2000 หน่วย UTF-16) และ allow_draft (true หรือ false)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "type şunları alır: text (1 ile 500 karakter arası) ve allow_draft (true ya da false)"
+            "value": "type şunları alır: text (1 ile 500 karakter arası, en fazla 2000 UTF-16 birimi) ve allow_draft (true ya da false)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "type приймає text (від 1 до 500 символів) і allow_draft (true або false)"
+            "value": "type приймає text (від 1 до 500 символів, не більше 2000 одиниць UTF-16) і allow_draft (true або false)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "type nhận text (1 đến 500 ký tự) và allow_draft (true hoặc false)"
+            "value": "type nhận text (1 đến 500 ký tự, tối đa 2000 đơn vị UTF-16) và allow_draft (true hoặc false)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "type 接受 text（1 到 500 个字符）和 allow_draft（true 或 false）"
+            "value": "type 接受 text（1 到 500 个字符，最多 2000 个 UTF-16 单元）和 allow_draft（true 或 false）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "type 接受 text（1 到 500 個字元）和 allow_draft（true 或 false）"
+            "value": "type 接受 text（1 到 500 個字元，最多 2000 個 UTF-16 單元）和 allow_draft（true 或 false）"
           }
         }
       }

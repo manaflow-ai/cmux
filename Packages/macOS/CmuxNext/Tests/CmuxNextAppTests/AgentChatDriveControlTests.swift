@@ -74,6 +74,25 @@ import Testing
         #expect(throws: ControlError.self) { try Params(raw) }
     }
 
+    /// The page types the text as a person's keys: nothing a key can't type, nothing that would start a
+    /// composer command in an empty draft (the host can't see the draft, so a leading `!` is always refused).
+    @Test func typedTextIsPlainKeysOnly() throws {
+        for good in ["hello", "a!b", "naïve 👩‍👩‍👧 ok", "tab\u{00A0}space", String(repeating: "👍", count: 500)] {
+            #expect(Params.isTypable(good), "\(good)")
+            #expect(try Params(["tab": "t", "type": ["text": .string(good)]]).type?.text == good)
+        }
+        for bad in ["!help", "  !x", "a\nb", "a\rb", "a\tb", "\u{0}", "\u{1B}[2J", "a\u{7F}", "a\u{85}b", "a\u{9F}", "a\u{2028}b", "a\u{2029}b"] {
+            #expect(!Params.isTypable(bad), "\(bad.debugDescription)")
+            for draft in [false, true] {
+                #expect(throws: ControlError.self) { try Params(["tab": "t", "type": ["text": .string(bad), "allow_draft": .bool(draft)]]) }
+            }
+        }
+        // 500 graphemes, but more than 2000 UTF-16 units: each family emoji is 8.
+        let long = String(repeating: "👩‍👩‍👧", count: 300)
+        #expect(long.count == 300 && long.utf16.count > 2000)
+        #expect(throws: ControlError.self) { try Params(["tab": "t", "type": ["text": .string(long)]]) }
+    }
+
     @Test func aTestIDIsANameNeverASelector() {
         #expect(Params.isTestID("tool-card_2"))
         #expect(Params.isTestID(String(repeating: "Z", count: 80)))

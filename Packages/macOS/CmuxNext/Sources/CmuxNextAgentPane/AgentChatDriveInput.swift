@@ -118,20 +118,22 @@ public struct AgentChatDriveInput {
     public nonisolated static let counterNames = ["LayoutCount", "RecalcStyleCount", "LayoutDuration", "RecalcStyleDuration"]
 
     /// Chromium's layout and style counters now (`Performance.enable`, then `Performance.getMetrics`),
-    /// the start of a span; nil on WebKit, which has none for the app, or when Chromium gave none.
+    /// the start of a span: nil on WebKit, which has none for the app, or when `Performance.enable`
+    /// failed; empty when it went in but Chromium gave no metrics.
     public func startEngineCounters() async -> [String: Double]? {
         guard case .chromium(_, let page) = engine else { return nil }
         guard (try? await page.devTools("Performance.enable", params: [:])) != nil else { return nil }
-        return await Self.metrics(page)
+        return await Self.metrics(page) ?? [:]
     }
 
-    /// How much each counter grew since `start` (Chromium's names; the durations in seconds), and
-    /// `Performance.disable`. Nil on WebKit or when Chromium gave no metrics.
+    /// How much each counter grew since `start` (Chromium's names; the durations in seconds), then
+    /// `Performance.disable`, sent only when ``startEngineCounters()``'s enable went in (a non-nil
+    /// `start`). Nil on WebKit, or when Chromium gave no metrics.
     public func engineCounters(since start: [String: Double]?) async -> [String: Double]? {
-        guard case .chromium(_, let page) = engine else { return nil }
-        let end = start == nil ? nil : await Self.metrics(page)
+        guard case .chromium(_, let page) = engine, let start else { return nil }
+        let end = await Self.metrics(page)
         _ = try? await page.devTools("Performance.disable", params: [:])
-        guard let start, let end else { return nil }
+        guard !start.isEmpty, let end else { return nil }
         var deltas: [String: Double] = [:]
         for name in Self.counterNames { if let to = end[name], let from = start[name] { deltas[name] = to - from } }
         return deltas
