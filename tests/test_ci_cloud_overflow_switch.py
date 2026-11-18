@@ -77,7 +77,7 @@ class FakeActions:
             # probe starting while another stalls pass a list.
             if isinstance(self.probe, list):
                 return self.probe
-            labels = (*switch.PROBE_LABELS, DRILL)
+            labels = (*switch.HEALTH_LABELS, DRILL)
             return [{**self.probe, "name": switch.probe_job_name(label)} for label in labels] if self.probe else []
         return self.run_jobs.get(run_id, [])
 
@@ -659,6 +659,43 @@ class MainTests(unittest.TestCase):
         self.assertEqual(writer.writes, [("MACOS_RUNNER_PR", "blacksmith-6vcpu-macos-26"),
                                          ("CI_CLOUD_OVERFLOW_SAVED", None)])
 
+    def test_health_only_probes_report_but_never_decide(self) -> None:
+        # 2026-11-18: 32 vCPU started nothing from about 23:12Z while RUNNER_POOLS kept linux_16 and linux_32
+        # on it, because no probe asked for it. The extra sizes are probed for CI_CLOUD_LABEL_HEALTH only:
+        # the overflow decision still reads PROBE_LABELS alone.
+        started = {**probe_job(6, runner_name="bs-1", status="in_progress")}
+        stalled = probe_job(6)
+        extra = [label for label in switch.HEALTH_LABELS if label not in switch.PROBE_LABELS]
+        self.assertIn("blacksmith-32vcpu-ubuntu-2404", extra)
+        jobs = [{**started, "name": switch.probe_job_name(label)} for label in switch.PROBE_LABELS]
+        jobs += [{**(stalled if label == "blacksmith-32vcpu-ubuntu-2404" else started),
+                  "name": switch.probe_job_name(label)} for label in extra]
+        record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
+            "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
+        env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_MACOS_RUNNER_PR": "glaeda-std-xcode-26.6",
+               "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+        writer = FakeSwitch()
+        code, out, _ = run_main(env, FakeActions(jobs), writer)
+        self.assertEqual(code, 0)
+        # The decision probes all started: overflow comes back on, whatever 32 vCPU does.
+        self.assertIn("outcome=started", out)
+        self.assertEqual(writer.writes, [("MACOS_RUNNER_PR", "blacksmith-6vcpu-macos-26"),
+                                         ("CI_CLOUD_OVERFLOW_SAVED", None)])
+        self.assertEqual(writer.health[-1]["labels"]["blacksmith-32vcpu-ubuntu-2404"], "stalled")
+        self.assertEqual(writer.health[-1]["labels"]["blacksmith-8vcpu-ubuntu-2404"], "started")
+        # A probe is still queued, so the run must end itself and free the concurrency group.
+        self.assertIn("all_started=false", out)
+        writer = FakeSwitch()
+        _, out, _ = run_main(env, FakeActions([{**job, **started, "name": job["name"]} for job in jobs]), writer)
+        self.assertIn("all_started=true", out)
+        self.assertEqual(set(writer.health[-1]["labels"]), set(switch.HEALTH_LABELS))
+        # A health-only probe that never shows up decides nothing and is left out of the health.
+        writer = FakeSwitch()
+        _, out, _ = run_main(env, FakeActions(jobs[:len(switch.PROBE_LABELS)]), writer)
+        self.assertIn("outcome=started", out)
+        self.assertIn("all_started=false", out)
+        self.assertEqual(set(writer.health[-1]["labels"]), set(switch.PROBE_LABELS))
+
     def test_a_partial_result_writes_nothing_but_health(self) -> None:
         # Review at 437df955 and edbbce33: per-size moves belong to the RUNNER_POOLS reconciler, which
         # reads CI_CLOUD_LABEL_HEALTH. The switch neither flips nor writes a record on a partial result.
@@ -858,10 +895,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertIs(probe["strategy"]["fail-fast"], False)
         matrix = probe["strategy"]["matrix"]["label"]
         listed = json.loads(re.search(r"\|\| '(\[.*?\])'", matrix).group(1))
-        self.assertEqual(tuple(listed), switch.PROBE_LABELS)
+        # Every x64 Linux size a pool can point at, decision probes first (HEALTH_LABELS).
+        self.assertEqual(tuple(listed), switch.HEALTH_LABELS)
         self.assertTrue(probe["runs-on"].endswith("|| matrix.label }}"))
         # Unless every probe started, the run ends itself, so a queued probe frees the group.
-        self.assertIn("if: always() && steps.switch.outputs.outcome != 'started'", self.text)
+        self.assertIn("if: always() && steps.switch.outputs.all_started != 'true'", self.text)
 
     def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:
         # Its own bounded selector, never a single label: on 2026-11-03 the literal

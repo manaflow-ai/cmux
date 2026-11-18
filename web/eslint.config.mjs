@@ -33,6 +33,9 @@ const eslintConfig = defineConfig([
       // Streams the gzip transcript bytes from S3 and decodes them as they
       // arrive; a byte stream is not a typed data call.
       "dashboard-app/screens/vault/transcript-viewer.tsx",
+      // DELETE /api/account, the account deletion route the iPhone app also
+      // calls with native tokens; not a dashboard procedure.
+      "dashboard-app/lib/delete-account.ts",
       // Talks to the iroh presence worker on its own origin, not a cmux API.
       "dashboard-app/screens/mobile-devices/**",
     ],

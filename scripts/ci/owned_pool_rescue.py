@@ -10,7 +10,7 @@ from the default branch, with Actions write, as one sweeper (SWEEP=1,
 sweep()): it finds the runs placed on an owned pool by their fixed-name
 markers and gives each a thread running follow(), the per-run watch described
 below. A dispatch with a run's id (WATCH_RUN_ID) watches that run alone,
-checked as a workflow_run event's run would be.
+at its current attempt, whatever its number, with attempt 1's rules (dispatch_target()).
 
 The script waits for ci.yml's `changes` job, which runs the picker. When the
 picker chose a persistent pool, that job uploads a marker artifact
@@ -159,8 +159,12 @@ Blacksmith has room (STALL_MOVE, stall_scan(), stall_move()).
 One bound overrides those soft holds (OWNED_WAIT_BOUND_SECONDS, 45 minutes; Leo, 2026-11-16: "no required check
 waits past a bound on any owned label; past it, it moves to Blacksmith"): a job of a pull request's run that has
 waited that long for a runner moves to Blacksmith though the label has no free slot, is stalled, or has a deeper
-queue, and past the sweeper's move cap (one move a scan still). A running sibling, a delivery run, a re-run that would
-stay on the owned labels, and vars.CI_BLACKSMITH_MACOS off still keep it.
+queue, and past the sweeper's move cap (one move a scan still). A running sibling, a delivery run, and a re-run that
+would stay on the owned labels still keep it. vars.CI_BLACKSMITH_MACOS off does not: the pickers keep the paid escape
+label for re-runs then too (simple_pool_picker._retry_label(), ios_runner_pool.resolve()), so the bot's re-run of a
+test-ios.yml attempt 1 or a ci.yml attempt 2 still leaves the minis (bot_rerun_leaves_owned()); only the cmux-next
+stall scan, whose re-run takes the side label while the switch is off, moves between owned labels instead
+(OWNED_STALL_MOVE).
 
 E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
 e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
@@ -518,6 +522,8 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/agent-brands.yml",  # feat-cmux-next only
     ".github/workflows/app-host-test-rerun.yml",
     ".github/workflows/auth-refresh-tests.yml",
+    ".github/workflows/billing.yml",
+    ".github/workflows/billing-nightly.yml",  # calls billing.yml (ios-billing); feat-cmux-next has its own
     ".github/workflows/cloud-command-deadlines.yml",
     ".github/workflows/cloud-machine-tests.yml",
     ".github/workflows/cloud-task-local-tests.yml",
@@ -715,8 +721,8 @@ LAST_OWNED_ATTEMPT = 2
 # outputs), or is placed afresh after a placement re-run (long_owned_wait()); either way a lend drain can refuse it too, and before 2026-10-07
 # nothing re-ran it (#18147's scheme compile, 02:23Z). It is watched for
 # refusals only: when every failed job of it was refused, its failed jobs are
-# re-run as attempt 4, which cmux-next.yml sends to Blacksmith. Minis-first
-# still holds for attempts 1 to 3, and no attempt past 3 is watched.
+# re-run as attempt 4. Minis-first still holds for attempts 1 to 3; the sweeper watches no bot attempt past 3,
+# and a long owned wait on attempt 3 is placed again once (places_again()).
 REFUSAL_RESCUE_ATTEMPT = LAST_OWNED_ATTEMPT + 1
 # The bot's re-runs: the workflow token's, and cmux-bot's since ci-owned-pool-rescue.yml mints that App's
 # token for its mutations. A re-run by anyone else is a person's (owned_rerun()). Run 40444295785, a DEV
@@ -735,8 +741,8 @@ UNSTARTED_STALL_SECONDS = 180
 OPEN_HEAD_FAILOVER = "open-head failover"
 # How long a cmux-next Mac job waits on an owned label, busy or not, before the open-head failover places its run
 # again (long_owned_wait()); next_macos_cascade.OWNED_REPLACE_MINUTES is the same figure. Only a placement re-run
-# moves it, so the placement reads the routes afresh, and only through the last attempt the bot's placement runs on
-# (CMUX_NEXT_LAST_PLACED_ATTEMPT): at most two re-placements of a run. On 2026-11-10 cmux#40330's run 42858473381
+# moves it, so the placement reads the routes afresh, through the bot's attempt 3, and on any attempt a dispatch
+# names (places_again()): at most three automatic re-placements of a run. On 2026-11-10 cmux#40330's run 42858473381
 # was placed on its attempt 2 at 17:32Z while Blacksmith 6 vCPU was stalled, so its fast tier and generated files
 # took glaeda-side-std-xcode-26.6, which was not dark (11 runners busy) but held 55 jobs, the oldest for 21 hours;
 # attempt 2 was the last placement, so nothing placed them again once Blacksmith moved.
@@ -757,7 +763,8 @@ STD_SIDE_LABEL = re.compile(r"glaeda-side-std-(xcode-[0-9]+(?:\.[0-9]+)*)")
 LIGHT_RERUN_CLAUSE = re.compile(r"needs\.macos-placement\.outputs\.placed_attempt == format\('\{0\}', "
                                 r"github\.run_attempt\) && contains\(needs\.macos-placement\.outputs\.light_jobs, "
                                 r"' ([A-Za-z0-9_-]+) '\)")
-# The last attempt cmux-next.yml's macos-placement runs on for a rescue bot (next_macos_cascade.LAST_PLACED_ATTEMPT).
+# The last attempt a bounded head's macos-placement runs on for a rescue bot (CMUX_NEXT_ATTEMPT_3_PLACEMENT); a head
+# with CMUX_NEXT_BOT_PLACEMENT places every bot attempt.
 CMUX_NEXT_LAST_PLACED_ATTEMPT = 3
 # What the head's macos-placement `if` says when it runs on the bot's attempt 3: without it a re-run of attempt 2
 # would carry the old placement, so the failover gives attempt 2 no placement re-run.
@@ -1920,6 +1927,11 @@ class GitHub:
         (end_on_spent), before this thread has sent any write. After a cancel, its reads and re-run wait as before."""
         return self.end_on_spent and not getattr(self._limits, "wrote", False)
 
+    def sent_write(self) -> bool:
+        """Whether this thread (one watch of the sweeper) has sent any write: before one, a watch that ends on a read
+        error or a rate limit changed nothing, so the sweeper may watch the run again (sweep(), WatchKept)."""
+        return bool(getattr(self._limits, "wrote", False))
+
     def _fresh_token(self, stale: str | None = None) -> None:
         """Swap in a new installation token when the current one is TOKEN_REFRESH_SECONDS old, or when
         it is still `stale` (the Authorization a request was refused with: concurrent 401s mint once)."""
@@ -2659,7 +2671,7 @@ class Target:
     # their own concurrency group, so a newer push does not cancel this one.
     push_branch: str = ""
     # cmux-next's bot attempt 3 (REFUSAL_RESCUE_ATTEMPT): still on the minis, so a
-    # refusal there goes to Blacksmith as attempt 4; a long queue is not moved.
+    # refusal there is re-run as attempt 4; a long owned wait is placed again (places_again()).
     refusals_only: bool = False
     # The run's event (pull_request, push, schedule, ...); "" when unread, which never_fails_over() treats as a
     # delivery event.
@@ -2667,6 +2679,15 @@ class Target:
     # Shared workflows carry delivery runs in their API name/display title.
     name: str = ""
     display_title: str = ""
+    # A dispatch named this run (WATCH_RUN_ID, dispatch_target()): its current attempt is watched with attempt 1's
+    # rules whatever its number, the open-head failover may place it again past REFUSAL_RESCUE_ATTEMPT
+    # (places_again()), and while its open head keeps it the watch looks again until the watch limit (follow()).
+    # The watch still ends at its one rescue: a dispatch re-places a run at most once.
+    dispatched: bool = False
+    # The owned side label a placement re-run of this run's Mac jobs falls back to (rerun_side_label(), follow()'s
+    # `side_label`), or "" (Blacksmith macOS on, or not known): open_head_failover() never re-places a long wait
+    # onto the label it waits on.
+    rerun_side: str = ""
 
     @property
     def picker_job(self) -> str:
@@ -2747,6 +2768,35 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
                   e2e=e2e, side=side or portable, path=str(path), attempt_started_at=attempt_started,
                   event=str(run.get("event") or ""), name=str(run.get("name") or ""),
                   display_title=str(run.get("display_title") or ""))
+
+
+def dispatch_target(run: Mapping[str, Any], repository: str) -> Target | str:
+    """The run a dispatch names (WATCH_RUN_ID) to watch, at its current attempt, or why it is none.
+
+    Attempt 1 is judged as its workflow_run event is (target_from_event()), and watched as dispatched unless it is a
+    delivery build. A later attempt is judged as attempt 1
+    and then watched at its own number with attempt 1's rules (Target.dispatched): a dispatch is a person's or an
+    agent's ask about this run now. Before 2026-11-17 it answered "not watched: attempt N; its first attempt's
+    watch follows it", which no watch did: five cmux-next runs sat 5 to 7 hours on their bot attempt 3 on
+    glaeda-side-std-xcode-26.6 (cmux#44757's run 44018861106 among them) and a dispatch for each was a no-op. A
+    nightly, DEV or promote build past attempt 1 keeps the rules the sweeper resumes it by (sweep_target()). The
+    run_attempt input is not read: the run's live attempt is watched, and a sweeper's watch of the same attempt stands
+    down at its cancel, which re-reads the attempt first."""
+    attempt = int(run.get("run_attempt") or 0)
+    if attempt <= 1:
+        # cmux#44805's run 44067910921 (2026-11-17): attempt 1's Debug compile waited 5 hours on a side label, and
+        # a watch dating that wait from its own first sighting ended at its first open-head answer.
+        target = target_from_event({"workflow_run": run}, repository)
+        if isinstance(target, str) or is_delivery_target(target):
+            return target
+        return dataclasses.replace(target, dispatched=True)
+    first = target_from_event({"workflow_run": {**run, "run_attempt": 1}}, repository)
+    if isinstance(first, str):
+        return first
+    if is_delivery_target(first):
+        return (f"attempt {attempt} of a delivery build; the sweeper resumes the attempts its rules allow "
+                "(sweep_target())")
+    return dataclasses.replace(first, attempt=attempt, dispatched=True)
 
 
 def completed_target(event: Mapping[str, Any], repository: str) -> Target | str:
@@ -3115,7 +3165,7 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
             # finished run. A ci.yml attempt-1 full re-run never gets here (repicks(), above).
             names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
             return "refused", f"{names} refused by {job_pool(turned_away[0])} at job start", held
-        past = past_wait_bound(target, looked, now(), seen)
+        past = past_wait_bound(target, looked, now(), seen, side_label=side_label)
         if past:
             log(f"moving past the owned wait bound ({OWNED_WAIT_BOUND_SECONDS // 60} min): {past}"
                 + (f", though the re-run takes {held}" if held else ""))
@@ -3185,11 +3235,13 @@ def owned_wait(job: Mapping[str, Any], now: dt.datetime, first_seen: dt.datetime
 
 
 def past_wait_bound(target: "Target", jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
-                    first_seen: Mapping[Any, dt.datetime] | None = None) -> str:
+                    first_seen: Mapping[Any, dt.datetime] | None = None, *, side_label: str = "") -> str:
     """The owned jobs of `target` waiting past OWNED_WAIT_BOUND_SECONDS, named for the log, or "" when none is or the
     bound does not apply: a delivery run, or a run whose bot re-run of failed jobs stays on the owned labels
-    (bot_rerun_leaves_owned(); a cmux-next attempt the stall scan moves instead, stall_scan())."""
-    if is_delivery_target(target) or not bot_rerun_leaves_owned(target.path, target.attempt):
+    (bot_rerun_leaves_owned(), with `side_label` from rerun_side_label(): while vars.CI_BLACKSMITH_MACOS is off a
+    cmux-next re-run takes that owned label on every attempt; a cmux-next attempt the stall scan moves instead,
+    stall_scan())."""
+    if is_delivery_target(target) or not bot_rerun_leaves_owned(target.path, target.attempt, side_label=side_label):
         return ""
     seen = first_seen or {}
     waits = [(str(job.get("name") or job.get("id")), owned_wait(job, now, seen.get(job.get("id")))) for job in jobs]
@@ -3197,7 +3249,7 @@ def past_wait_bound(target: "Target", jobs: Sequence[Mapping[str, Any]], now: dt
                      for name, waited in sorted(waits) if waited >= OWNED_WAIT_BOUND_SECONDS)
 
 
-def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
+def bot_rerun_leaves_owned(path: str, attempt: int, *, side_label: str = "") -> bool:
     """Whether a bot's re-run of failed jobs of `attempt` sends a leg queued on an owned label elsewhere.
 
     queue_janitor.py's unclaimed-leg rule cancels a run whose owned leg no runner claimed within its bound
@@ -3205,7 +3257,12 @@ def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
     as next_attempt() describes the routes:
     - a side lane other than cmux-next takes its Blacksmith default from attempt 2 on (cmux-tui.yml's
       macOS legs read `github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-...-macos-...'`);
-    - cmux-next keeps the minis through REFUSAL_RESCUE_ATTEMPT and takes Blacksmith after it;
+    - cmux-next keeps the minis through REFUSAL_RESCUE_ATTEMPT and takes Blacksmith after it, but only while
+      vars.CI_BLACKSMITH_MACOS is `on`: `side_label` (rerun_side_label(), "" under `on`) names the owned label its
+      Mac fallbacks (`vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER`) take on every attempt
+      otherwise, so then no attempt leaves (2026-11-17: the switch unset, a bot's attempt 3 and 4 of a job queued
+      on glaeda-side-std-xcode-26.6 rejoined that queue at its back). A caller with no `side_label` judges the
+      switch `on`;
     - ci.yml's re-run of failed jobs reuses attempt 1's placement through LAST_OWNED_ATTEMPT;
     - test-ios.yml, ios-screenshots.yml, iroh-release-gate.yml and cmux-next-dev-daily.yml take their retry
       route from attempt 2;
@@ -3219,7 +3276,7 @@ def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
     if path in OWNED_EVERY_ATTEMPT_PATHS:
         return False
     if path == CMUX_NEXT_WORKFLOW_PATH:
-        return following > REFUSAL_RESCUE_ATTEMPT
+        return following > REFUSAL_RESCUE_ATTEMPT and not side_label
     if path == CI_WORKFLOW_PATH:
         return following > LAST_OWNED_ATTEMPT
     if path in DISPATCH_WORKFLOW_PATHS:
@@ -3391,7 +3448,8 @@ def nightly_retry_destinations(api: GitHub, target: Target, sleep: Callable[[flo
 
 # The Blacksmith label a re-run of a picker-routed workflow takes after the picker put attempt 1 on an owned pool
 # (the only placement the sweeper watches): test-ios.yml's jobs read `retry_runs_on` from its runner job, which
-# ios_runner_pool.py sets to SMALL_RUNNER for a persistent placement (a test keeps them equal). retry_labels()
+# ios_runner_pool.py sets to SMALL_RUNNER for a persistent placement, whatever vars.CI_BLACKSMITH_MACOS says (a test
+# keeps them equal: BotRerunRouteTests). retry_labels()
 # cannot see through a picker output (PICKED_RETRY), so without this every Blacksmith label counted: on
 # 2026-11-16 one Seed DerivedData job queued on blacksmith-12vcpu-macos-26 from 09:33Z held run 43863208774's
 # ios-simulator-build on glaeda-ios-sim, whose every carrier was held off, from 13:21Z on.
@@ -3411,9 +3469,10 @@ CMUX_NEXT_SIDE_FALLBACK = "glaeda-side-std-xcode-26.6"
 
 
 def rerun_side_label(env: Mapping[str, str]) -> str:
-    """The owned side label a bot's re-run of a cmux-next.yml run's failed jobs takes through REFUSAL_RESCUE_ATTEMPT,
-    from ci-owned-pool-rescue.yml's SIDE_LANE_RUNNER (vars.CI_SIDE_LANE_RUNNER) and STALL_BLACKSMITH_MACOS
-    (vars.CI_BLACKSMITH_MACOS), or "" while that switch is `on` and the re-run takes RUNNER_POOLS' Blacksmith label.
+    """The owned side label a bot's re-run of a cmux-next.yml run's failed jobs takes on every attempt, from
+    ci-owned-pool-rescue.yml's and ci-queue-janitor.yml's SIDE_LANE_RUNNER (vars.CI_SIDE_LANE_RUNNER) and
+    STALL_BLACKSMITH_MACOS (vars.CI_BLACKSMITH_MACOS), or "" while that switch is `on` and the re-run takes
+    RUNNER_POOLS' Blacksmith label.
     The re-run carries attempt 1's placement, so its Mac jobs fall through to
     `vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER` whatever label they waited on: run 43718265555's
     daemon tests waited on glaeda-gui-std-xcode-26.6 and attempt 2 took the side label (2026-11-15)."""
@@ -3488,7 +3547,13 @@ def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callab
     if not isinstance(snapshot, Mapping):
         return "busy", ""
     if side_label and target.path == CMUX_NEXT_WORKFLOW_PATH \
-            and not bot_rerun_leaves_owned(target.path, target.attempt):
+            and not bot_rerun_leaves_owned(target.path, target.attempt, side_label=side_label):
+        if side_label in set(sources) and not target.pr_number and not push_tip_failover(target):
+            # The re-run takes the label the job waits on: the cancel only sends it to the back of the same queue.
+            # A pull request run at its head and a push run at its tip move only by the stall-aware failover, which
+            # re-runs the placement (rescue(), open_head_failover()), never the failed jobs alone.
+            return "deeper", (f"{side_label} is the label it waits on, so its re-run would only rejoin that queue "
+                              "at its back")
         deeper = deeper_queue(snapshot, sources, side_label)
         return ("deeper", deeper) if deeper else ("free", "")
     states = blacksmith_states(snapshot, now)
@@ -3524,11 +3589,17 @@ def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callab
 
 
 def next_attempt(target: Target) -> str:
-    """Where a re-run of failed jobs goes next."""
+    """Where a re-run of failed jobs goes next. A cmux-next.yml re-run past LAST_OWNED_ATTEMPT leaves the minis only
+    while vars.CI_BLACKSMITH_MACOS is `on`; otherwise its Mac jobs take `target.rerun_side` (rerun_side_label()) again,
+    and the line names that label (cmux#45612: with the switch off, run 44067209239's attempt 4 was logged as "takes
+    Blacksmith: a mini refused attempt 3" and queued on glaeda-side-std-xcode-26.6)."""
     following = target.attempt + 1
     if target.path == CMUX_NEXT_WORKFLOW_PATH:
         if following <= LAST_OWNED_ATTEMPT:
             return f"attempt {following} stays on the side lane's owned label"
+        if target.rerun_side:
+            return (f"attempt {following} rejoins {target.rerun_side}: vars.CI_BLACKSMITH_MACOS is not on, so "
+                    "cmux-next.yml's Mac fallback is the side label")
         if following > REFUSAL_RESCUE_ATTEMPT:
             return f"attempt {following} takes Blacksmith: a mini refused attempt {target.attempt}"
         return f"attempt {following} takes the side lane's Blacksmith overflow after the long mini queue"
@@ -4260,8 +4331,8 @@ def failover_plan(api: GitHub, target: Target, jobs: Sequence[Mapping[str, Any]]
                   log: Callable[[str], None]) -> PlacementRerun | None:
     """The placement-only rerun for a supported workflow, or ``None``.
 
-    cmux-next re-runs the placement of attempt 1, and of a pull request run's attempt 2 when the head's placement
-    runs on the bot's attempt 3 (placement_rerun()). Portable light workflows
+    cmux-next re-runs the placement of attempt 1, and of a pull request run's later attempt that places_again() allows when the head's placement
+    runs on the bot's next attempt (placement_rerun()). Portable light workflows
     use the same placement-only shape on any current pull-request attempt.
     The placement job must be proven current
     before the run can be cancelled; an older workflow without that graph
@@ -4274,10 +4345,10 @@ def failover_plan(api: GitHub, target: Target, jobs: Sequence[Mapping[str, Any]]
             return None
         key, name = PORTABLE_PLACEMENT_KEY, PORTABLE_PLACEMENT_JOB
     elif cmux_next:
-        # Attempt 1, and a pull request run's attempt 2 when the head places the bot's attempt 3
-        # (CMUX_NEXT_LAST_PLACED_ATTEMPT, placement_rerun()).
+        # Attempt 1, and a pull request run's later attempt the failover may place again (places_again()) when the
+        # head places the bot's next attempt (placement_rerun()).
         if not (target.attempt == 1 and (target.pr_number or push_tip_failover(target))
-                or 1 < target.attempt < CMUX_NEXT_LAST_PLACED_ATTEMPT and target.pr_number):
+                or 1 < target.attempt and places_again(target) and target.pr_number):
             return None
         key, name = CMUX_NEXT_PLACEMENT_KEY, CMUX_NEXT_PLACEMENT_JOB
     else:
@@ -4303,13 +4374,25 @@ def job_key(job: Mapping[str, Any]) -> Any:
     return job.get("id") if job.get("id") is not None else str(job.get("name") or "")
 
 
+def places_again(target: "Target") -> bool:
+    """Whether the open-head failover may place this cmux-next attempt again (a placement re-run, failover_plan()):
+    attempts 1 to REFUSAL_RESCUE_ATTEMPT, the ones the sweeper watches for the bot (owned_rerun()), and any attempt a
+    dispatch names (Target.dispatched). The head's placement must still run on the bot's next attempt
+    (placement_rerun()). The loop guard: the sweeper never adopts the bot's attempt past REFUSAL_RESCUE_ATTEMPT, and a
+    dispatch's watch ends at its one rescue, so nothing re-places a run on its own past attempt 4. Before
+    2026-11-17 this stopped at attempt 2 (CMUX_NEXT_LAST_PLACED_ATTEMPT), though the head places every bot attempt
+    since 2026-11-15 (CMUX_NEXT_BOT_PLACEMENT): cmux#44757's run 44018861106 and four others waited 5 to 7 hours on
+    their bot attempt 3 on glaeda-side-std-xcode-26.6, and a dispatch naming one answered "not watched: attempt 3"."""
+    return target.attempt <= REFUSAL_RESCUE_ATTEMPT or target.dispatched
+
+
 def long_owned_wait(target: "Target", job: Mapping[str, Any], label: str, now: dt.datetime,
                     first_seen: dt.datetime | None = None) -> bool:
     """Whether a cmux-next pull request run's Mac job has waited OWNED_REPLACE_SECONDS on an owned (glaeda-) label,
-    on an attempt the bot's placement may place again (before CMUX_NEXT_LAST_PLACED_ATTEMPT). The label need not be
+    on an attempt the bot's placement may place again (places_again()). The label need not be
     dark: a saturated one whose queue the job is not getting through is as stuck for the job."""
     return (target.path == CMUX_NEXT_WORKFLOW_PATH and bool(target.pr_number)
-            and target.attempt < CMUX_NEXT_LAST_PLACED_ATTEMPT and label.startswith("glaeda-")
+            and places_again(target) and label.startswith("glaeda-")
             and queued_seconds(job, now, first_seen) >= OWNED_REPLACE_SECONDS)
 
 
@@ -4339,13 +4422,13 @@ def light_wait(target: "Target", job: Mapping[str, Any], label: str, snapshot: M
                now: dt.datetime, first_seen: dt.datetime | None = None) -> str:
     """The light side label a cmux-next pull request run's Mac job may move to, or "": it has waited
     LIGHT_MOVE_SECONDS on a std side label (glaeda-side-std-xcode-<v>), on an attempt the bot's placement may place
-    again (before CMUX_NEXT_LAST_PLACED_ATTEMPT), while the same version's light side label has a runner listening
+    again (places_again()), while the same version's light side label has a runner listening
     beyond its queue (light_room()). Only a placement re-run moves it, and only a job the head shows reads the
     re-run's light placement (PlacementRerun.light_readers, checked by open_head_failover()): the measured
     light-fit jobs (feat-cmux-next .github/runners.json `light_fit`). Never a push, nightly, DEV or promote run."""
     match = STD_SIDE_LABEL.fullmatch(label)
     if not (match and target.path == CMUX_NEXT_WORKFLOW_PATH and target.pr_number and not target.nightly
-            and target.attempt < CMUX_NEXT_LAST_PLACED_ATTEMPT
+            and places_again(target)
             and queued_seconds(job, now, first_seen) >= LIGHT_MOVE_SECONDS):
         return ""
     light = f"glaeda-side-light-{match.group(1)}"
@@ -4466,7 +4549,7 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
       fresh snapshot shows nothing running there (started_nothing()), or nothing started there since the job began
       waiting (label_quiet()). Or, for a cmux-next pull request run whose placement re-run is shown (failover_plan(),
       never the settled re-run), a Mac job has waited OWNED_REPLACE_SECONDS on an owned label, busy or not
-      (long_owned_wait()), on attempt 1 or 2: the placement then runs again on the bot's next attempt. Or, the same
+      (long_owned_wait()), on an attempt places_again() allows: the placement then runs again on the bot's next attempt. Or, the same
       way and sooner (the light move), a Mac job that has waited LIGHT_MOVE_SECONDS on the std side label while a
       light side runner listens (light_wait()), when the head shows the job reads the re-run's light placement
       (PlacementRerun.light_readers): the re-run gives it the idle light runner. A job's wait starts at the later of its created_at and when a watch first saw it
@@ -4527,6 +4610,17 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
         # but only by a placement re-run (checked below, once the plan is read).
         long_wait = [] if dead else [(job, label) for job, label in waiting
                                      if long_owned_wait(target, job, label, at, seen.get(job_key(job)))]
+        # With Blacksmith macOS off the placement re-run finds no idle runner (side_lane_placement.rerun_main()) and
+        # defers the job to the side label again: re-placing a long wait on that label only puts it back in the same
+        # queue and resets its age. Measured 2026-11-17 16:22Z: 46-58 glaeda-side-std-xcode-26.6 joins an hour of
+        # such churn, 124 of its 222 queued jobs on attempt 3. The light move (light_wait()) still applies, as it
+        # names an idle light runner the re-run's placement uses.
+        same = [(job, label) for job, label in long_wait if target.rerun_side and label == target.rerun_side]
+        if same:
+            log(f"no long-wait re-placement for run {target.run_id}: "
+                f"{', '.join(sorted({str(job.get('name') or job.get('id')) for job, _ in same}))} waits on "
+                f"`{target.rerun_side}`, and its placement re-run would put it back on {target.rerun_side}")
+            long_wait = [pair for pair in long_wait if pair not in same]
         # A light-fit job waiting on the std side label while a light side runner listens: placed again sooner, by a
         # placement re-run whose light placement the job reads (checked below, once the plan is read).
         light_moves = [] if dead or long_wait else [
@@ -5495,7 +5589,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     else:
         with open(env["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
             event = json.load(handle)
-    target = completed_target(event, repository) if event.get("action") == "completed" else \
+    target = dispatch_target(event["workflow_run"] or {}, repository) if run_id else \
+        completed_target(event, repository) if event.get("action") == "completed" else \
         target_from_event(event, repository)
     if isinstance(target, str):
         return finish(f"not watched: {target}")
@@ -5764,8 +5859,13 @@ def long_queue_move(api: GitHub, target: Target, side_label: str, *, now: Callab
 def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | None,
            now: Callable[[], dt.datetime], sleep: Callable[[float], None], log: Callable[[str], None],
            rescue_sleep: Callable[[float], None] | None = None, latest: dt.datetime | None = None,
-           light_retry: bool = False, side_seconds: int | None = None, side_label: str = "") -> str:
+           light_retry: bool = False, side_seconds: int | None = None, side_label: str = "",
+           kept: WatchKept | None = None) -> str:
     """Watch one run and rescue it when it needs it. Returns the outcome; raises READ_ERRORS or Aborted.
+
+    `kept` (WatchKept) carries an earlier watch's start and job sightings into a watch the sweeper took up again
+    after that one ended on a read error or a rate limit before any write: each job's budget keeps counting from
+    when it was first seen, so a job already past it is judged at the first look.
 
     The sweeper stops a watch by making `sleep` raise; a rescue paces itself
     with `rescue_sleep` (default `sleep`) so a cancel it started is always
@@ -5775,6 +5875,8 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     rescue_sleep = rescue_sleep or sleep
     clock = now
     effective_seconds = side_seconds if target.path == CMUX_NEXT_WORKFLOW_PATH and side_seconds is not None else seconds
+    if side_label and not target.rerun_side:
+        target = dataclasses.replace(target, rerun_side=side_label)
     if (target.nightly and target.push_branch == "nightly-next" and target.event == "push"
             and target.attempt == 1):
         effective_seconds = max(effective_seconds, NIGHTLY_NEXT_BOOTSTRAP_SECONDS)
@@ -5801,12 +5903,19 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     # A rescue may run past the watch deadline, within the job's own timeout,
     # so a cancel is never started without the time to settle and re-run.
     started = clock()
+    # A watch taken up again gets a fresh watch limit (a rescue needs its deadline's room), never a fresh budget.
+    kept = WatchKept() if kept is None else kept
+    if kept.started is None:
+        kept.started = started
+    else:
+        log(f"watching again: the first watch began at {kept.started:%H:%M:%SZ}, and {len(kept.seen)} job(s) keep "
+            "their first sighting, so their budget is not reset")
     deadline = started + dt.timedelta(seconds=target.watch_limit)
     rescue_deadline = capped(deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS))
     # Every attempt gets the queue allowance: a re-run's owned jobs queue on the owned labels like attempt 1's.
     first_budget = effective_seconds + queue_extra
-    seen: dict[Any, dt.datetime] = {}
-    sign_seen: dict[Any, dt.datetime] = {}
+    seen: dict[Any, dt.datetime] = kept.seen
+    sign_seen: dict[Any, dt.datetime] = kept.sign_seen
     sign_text: list[str | None] = []
     outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
                             log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen,
@@ -5959,16 +6068,22 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                         refused=(outcome == "refused") if target.e2e or target.side else None,
                         refusal=outcome == "refused", first_seen=seen)
         log(result)
-        if nightly_left(result) or result.startswith(PUSH_TIP_LEFT) or (
+        # A dispatched watch (Target.dispatched) of a run the open head keeps looks again, like a push run left at its
+        # tip: a watch dates a job's wait from its own first sighting, so a run queued for hours meets the long owned
+        # wait (long_owned_wait()) only OWNED_REPLACE_SECONDS into the watch. Run 44018861106's dispatched watch
+        # (2026-11-17 15:46Z) answered "not rescued: PR #44757 is open at the run's head" at its first look and ended.
+        open_head_left = target.dispatched and OPEN_HEAD_RULE in result and REFUSAL_LEFT not in result
+        if nightly_left(result) or result.startswith(PUSH_TIP_LEFT) or open_head_left or (
                 outcome == "refused" and REFUSAL_LEFT in result and clock() < deadline):
             # A sibling started after the look: watch on, as before, until nothing else runs or the watch ends.
-            # A push run left at its tip is looked at again every FAILOVER_LOOK_SECONDS: its label may go quiet
-            # (the failover), or a newer push may supersede it (superseded_push_cancel()). A refusal not re-run now
-            # (REFUSAL_LEFT) is watched on until the run ends, when its failed jobs are re-run.
+            # A push run left at its tip, and a dispatched run its open head keeps, is looked at again every
+            # FAILOVER_LOOK_SECONDS: its label may go quiet or its wait grow long (the failover), or a newer push may
+            # supersede it (superseded_push_cancel()). A refusal not re-run now (REFUSAL_LEFT) is watched on until the
+            # run ends, when its failed jobs are re-run.
             if clock() >= deadline:
                 return ("stopped: watch limit reached with a started nightly still running"
                         if result.startswith(NIGHTLY_BUSY) else f"stopped: watch limit reached; {result}")
-            if result.startswith(PUSH_TIP_LEFT):
+            if result.startswith(PUSH_TIP_LEFT) or open_head_left:
                 sleep(FAILOVER_LOOK_SECONDS)
             outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep, log=log,
                                     deadline=deadline, floor_seconds=effective_seconds, seen=seen,
@@ -6686,7 +6801,8 @@ def stall_target(run: Mapping[str, Any], repository: str) -> Target | str:
     attempt = int(run.get("run_attempt") or 0)
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
     if attempt < 1 or actor in RESCUE_ACTORS and attempt > REFUSAL_RESCUE_ATTEMPT:
-        return f"attempt {attempt} takes Blacksmith"
+        # where it runs depends on vars.CI_BLACKSMITH_MACOS (next_attempt()); either way no stall move re-runs it again
+        return f"attempt {attempt} is a bot's re-run past attempt {REFUSAL_RESCUE_ATTEMPT}"
     if dispatch:
         # Judged as its pull request's run: rescue() re-checks that the pull request is open at this head
         # (pull_moved()) before any cancel, as for a pull_request run.
@@ -7000,6 +7116,50 @@ def code_changed(client: Any, running: Mapping[str, str], log: Callable[[str], N
     return sorted(name for name in CODE_FILES if (current.get(name) or "") != (running.get(name) or ""))
 
 
+# A sweeper's watch that ends on a read error, a read refused for a rate limit or QuotaSpent before it sent any write
+# (GitHub.sent_write()) changed nothing, so the sweeper takes the run up again on a later tick, no earlier than the
+# rate limit's reset when it is known, else after this. Before, the run stayed in `seen` and its watch was over for
+# the sweeper's remaining five hours, while the next sweepers waited behind it in the concurrency group: cmux#44053's
+# test-ios.yml run 44019100451 (2026-11-17) had ios-simulator-build queued on [glaeda-std-xcode-26.6, glaeda-ios-sim]
+# from 04:44Z; its watch's read was refused for the cmux-bot installation's spent budget at 05:24Z, about 30 s before
+# the budget would have moved it to retry_runs_on, gave up at 05:39Z, and nothing looked at the run again for hours.
+RELEASE_BACKOFF_SECONDS = 5 * 60
+
+
+@dataclasses.dataclass
+class WatchKept:
+    """What a watch the sweeper takes up again keeps from the one that ended (follow()): when that one began, and
+    when it first saw each job queued (watch()'s `seen`) or each signing job (`sign_seen`)."""
+    started: dt.datetime | None = None
+    seen: dict[Any, dt.datetime] = dataclasses.field(default_factory=dict)
+    sign_seen: dict[Any, dt.datetime] = dataclasses.field(default_factory=dict)
+
+
+def release_delay(client: Any, error: BaseException) -> float:
+    """Seconds until a released run may be watched again: until the rate limit's reset (the refusal's own
+    X-RateLimit-Reset, else a spent budget_left()) or its Retry-After when known, else RELEASE_BACKOFF_SECONDS."""
+    headers = getattr(error, "headers", None)
+    try:
+        get = {str(key).lower(): str(value).strip() for key, value in (headers or {}).items()}.get
+    except AttributeError:
+        get = {}.get
+    reset: float | None = None
+    if get("x-ratelimit-remaining") == "0" and (get("x-ratelimit-reset") or "").isdigit():
+        reset = float(get("x-ratelimit-reset") or 0)
+    elif (get("retry-after") or "").isdigit():
+        return max(float(get("retry-after") or 0), float(SWEEP_TICK_SECONDS))
+    if reset is None and hasattr(client, "budget_left"):
+        try:
+            remaining, at = client.budget_left()
+        except Exception:  # noqa: BLE001 - an unread budget leaves the backoff
+            remaining, at = None, None
+        if remaining is not None and remaining < BUDGET_RESERVE and at:
+            reset = at
+    if reset is None:
+        return float(RELEASE_BACKOFF_SECONDS)
+    return max(reset - time.time() + 5, float(SWEEP_TICK_SECONDS))
+
+
 def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | None,
           now: Callable[[], dt.datetime], log: Callable[[str], None],
           sweep_seconds: int = SWEEP_SECONDS, tick_seconds: float = SWEEP_TICK_SECONDS,
@@ -7028,6 +7188,9 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     # The watch thread of each adopted run: a side lane's watch stops once the fleet accepted its jobs,
     # and a runner stopped after that fails the run later, so the failed-run listing takes it up again.
     watching: dict[int, threading.Thread] = {}
+    # Runs whose watch ended on a read error or a rate limit before any write: (when it may be watched again, whether
+    # it was a late marker's, what the new watch keeps). Written by the watch threads, under `lock`.
+    released: dict[int, tuple[dt.datetime, bool, WatchKept]] = {}
     started = now()
     latest = started + dt.timedelta(seconds=sweep_seconds + RESCUE_GRACE_SECONDS)
     since = started - dt.timedelta(seconds=SWEEP_FINISHED_SECONDS)
@@ -7038,23 +7201,36 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         if stopping.wait(delay):
             raise Stopping("the sweeper is handing over")
 
-    def one(target: Target) -> None:
+    def release(target: Target, kept: WatchKept, error: BaseException, say: Callable[[str], None]) -> None:
+        """Watch the run again on a later tick (RELEASE_BACKOFF_SECONDS) when this watch sent no write."""
+        wrote = getattr(client, "sent_write", None)
+        if not callable(wrote) or wrote():
+            return
+        at = now() + dt.timedelta(seconds=release_delay(client, error))
+        with lock:
+            released[target.run_id] = (at, target.late, kept)
+        say(f"nothing was written: watched again from {at:%H:%M:%SZ}, keeping this watch's job sightings")
+
+    def one(target: Target, kept: WatchKept) -> None:
         def say(text: str) -> None:
             log(f"[run {target.run_id}] {text}")
         try:
             outcome = follow(client, target, seconds=seconds, queue_rounds=queue_rounds,
                              now=now, sleep=watch_sleep, log=say, rescue_sleep=wait, latest=latest,
-                             light_retry=light_retry, side_seconds=side_seconds, side_label=side_label)
+                             light_retry=light_retry, side_seconds=side_seconds, side_label=side_label, kept=kept)
         except Stopping:
             outcome = "handed over"
         except QuotaSpent as error:
             outcome = "quota spent"
             say(f"stopped: {error.why}")
+            release(target, kept, error, say)
         except (*READ_ERRORS, Aborted) as error:
             outcome = "gave up"
             say(f"gave up: {error}")
             if target.nightly:
                 log(gave_up(target, error))  # unprefixed, so the runner reads the annotation
+            if isinstance(error, READ_ERRORS):
+                release(target, kept, error, say)
         except Exception as error:  # noqa: BLE001 - one run's bug must not end every other watch
             outcome = "error"
             say(f"error: {type(error).__name__}: {error}")
@@ -7066,6 +7242,10 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
 
     def adopt(run_id: int, late: bool, *, refusals_known: bool = True) -> bool:
         """Watch the run if it needs it. False when it could not be judged yet (a read failed): try later."""
+        with lock:
+            pending = released.get(run_id)
+        if pending is not None and now() < pending[0]:
+            return False  # released (one()): not before its time, whichever listing names it
         was_seen = run_id in seen
         seen.add(run_id)
         try:
@@ -7106,12 +7286,17 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         target = sweep_target(run, repository, late=late, full_rerun=full_rerun, since=since, stranded=stranded)
         if isinstance(target, str):
             log(f"[run {run_id}] not watched: {target}")
+            with lock:
+                released.pop(run_id, None)
             # An ended watch no longer makes the queued listing take it up again: it would be read every listing.
             watching.pop(run_id, None)
             return True
         if run_id in refusals_runs:
             target = dataclasses.replace(target, refusals_only=True)
-        thread = threading.Thread(target=one, args=(target,), name=f"run-{run_id}", daemon=True)
+        with lock:
+            released.pop(run_id, None)
+        kept = pending[2] if pending is not None else WatchKept()
+        thread = threading.Thread(target=one, args=(target, kept), name=f"run-{run_id}", daemon=True)
         thread.start()
         threads.append(thread)
         watching[run_id] = thread
@@ -7184,6 +7369,13 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 if run_id in seen or (created is not None and created < oldest):
                     continue
                 adopt(run_id, late)
+        # A watch that ended on a read error or a rate limit before any write (one()) is taken up again once due,
+        # at any age: its run was adopted before.
+        with lock:
+            due = sorted((run_id, late) for run_id, (at, late, _) in released.items() if now() >= at)
+        for run_id, late in due:
+            if not (watching.get(run_id) and watching[run_id].is_alive()):
+                adopt(run_id, late, refusals_known=refusals_listed)
         # A re-run of failed jobs goes back to the minis with no marker of its own; two listings a tick.
         try:
             reruns = client.owned_reruns(SWEEP_LISTING)

@@ -261,57 +261,91 @@ class SeedDerivedData(unittest.TestCase):
         seed.start(self.derived, "p-j6-base", "p-j6-", "base", 0)
         self.assertFalse(self.derived.with_name(self.derived.name + ".seed.ticket").exists())
         self.assertFalse((self.root / "calls").exists())
+        # Packages resolve before adopt clones it, so start marks it used: a seed landing meanwhile spares it.
+        self.assertTrue(seed.used_recently(cache / "p-j6-base"))
         # Without the cache it downloads as before.
         del os.environ["CMUX_SEED_LOCAL_CACHE"]
         self.assertIsNone(seed.cached("p-j6-base"))
 
-    def test_the_local_cache_keeps_only_the_newest_seeds_on_a_short_disk(self):
+    def stash_old(self, cache, *keys):
+        """Stash KEYS in order, each landed long before the next and none used."""
+        for index, key in enumerate(keys):
+            seed.stash(self.derived, key)
+            os.utime(cache / key, (1000 + index, 1000 + index))
+
+    def test_the_local_cache_keeps_only_the_newest_seed_whatever_the_disk(self):
         cache = self.root / "seeds"
         os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
         (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
         (self.derived / seed.MANIFEST).write_text("{}")
-        with mock.patch.object(seed, "free_bytes", return_value=0):
-            for index, key in enumerate(("k-1", "k-2", "k-3")):
-                seed.stash(self.derived, key)
-                os.utime(cache / key, (1000 + index, 1000 + index))
-            seed.stash(self.derived, "k-4")
-        self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-3", "k-4"])
+        self.assertEqual(seed.LOCAL_KEEP, 1)
+        roomy = mock.Mock(free=4 * 1024**4)
+        # A roomy disk keeps no more than a full one: free space plays no part.
+        for free in (roomy, mock.Mock(free=0)):
+            with mock.patch.object(seed.shutil, "disk_usage", return_value=free):
+                self.stash_old(cache, "k-1", "k-2", "k-3")
+                seed.stash(self.derived, "k-4")
+            self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-4"])
+            seed.clear_tree(cache)
         # Never a path outside the cache, whatever the key.
         seed.stash(self.derived, "../escape")
         self.assertFalse((self.root / "escape").exists())
         self.assertIsNone(seed.cached("../k-3"))
-
-    def test_the_local_cache_keeps_more_than_two_seeds_on_a_roomy_disk(self):
-        cache = self.root / "seeds"
-        os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
-        (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
-        (self.derived / seed.MANIFEST).write_text("{}")
-        roomy_free_bytes = 400 * 1024**3
-        self.assertGreater(seed.LOCAL_KEEP_MIN_FREE_BYTES, 0)
-        self.assertGreater(roomy_free_bytes, seed.LOCAL_KEEP_MIN_FREE_BYTES)
-        # Keep this absolute so a zeroed production floor cannot make the test stay green.
-        with mock.patch.object(seed, "free_bytes", return_value=roomy_free_bytes):
-            for index, key in enumerate(("k-1", "k-2", "k-3", "k-4")):
-                seed.stash(self.derived, key)
-                os.utime(cache / key, (1000 + index, 1000 + index))
-        self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-1", "k-2", "k-3", "k-4"])
 
     def test_the_prune_spares_a_seed_a_job_may_be_cloning(self):
         cache = self.root / "seeds"
         os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
         (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
         (self.derived / seed.MANIFEST).write_text("{}")
-        import time
-        with mock.patch.object(seed, "free_bytes", return_value=0):
-            seed.stash(self.derived, "k-old")
-            os.utime(cache / "k-old", (1000, 1000))
-            seed.stash(self.derived, "k-1")
-            # Touched a minute ago, as adopt does just before cloning it.
-            os.utime(cache / "k-1", (time.time() - 60, time.time() - 60))
-            seed.stash(self.derived, "k-2")
-            seed.stash(self.derived, "k-3")
-        # Past the newest two, but only the stale one goes.
+        self.stash_old(cache, "k-old", "k-1")
+        # Touched a minute ago, as a seed that just landed for a concurrent job.
+        os.utime(cache / "k-1", (time.time() - 60, time.time() - 60))
+        seed.stash(self.derived, "k-2")
+        seed.stash(self.derived, "k-3")
+        # Past the newest, but only the stale one goes.
         self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-1", "k-2", "k-3"])
+
+    def test_the_prune_spares_a_seed_a_job_used_in_the_last_twelve_hours(self):
+        """A job marks the seed it picks (start, adopt, prefer); landing newer seeds
+        does not prune it until LOCAL_USED_SECONDS pass, and its mark goes with it."""
+        cache = self.root / "seeds"
+        os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
+        (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
+        (self.derived / seed.MANIFEST).write_text("{}")
+        for key in ("k-used", "k-stale"):
+            seed.stash(self.derived, key)
+            seed.mark_used(cache / key)  # a job picks it while it is the newest
+        self.stash_old(cache, "k-idle")
+        marks = cache / seed.USED_MARKS
+        stale = time.time() - seed.LOCAL_USED_SECONDS - 60
+        os.utime(marks / "k-stale", (stale, stale))
+        # mark_used also touches the seed (glaeda-disk reads that as last use); age it past the grace.
+        for key in ("k-used", "k-stale"):
+            os.utime(cache / key, (1000, 1000))
+        seed.stash(self.derived, "k-new")
+        self.assertEqual(sorted(p.name for p in cache.iterdir() if p.name != seed.USED_MARKS), ["k-new", "k-used"])
+        self.assertEqual(sorted(p.name for p in marks.iterdir()), ["k-used"])
+        # The marks directory is never a seed, and adopt marks the seed it clones.
+        self.assertIsNone(seed.cached(seed.USED_MARKS))
+        (marks / "k-used").unlink()
+        os.environ["FAKE_MODE"] = "fail"
+        (cache / "k-used" / seed.MANIFEST).write_text("{}")
+        with mock.patch.object(seed.sys, "platform", "linux"):
+            result = seed.adopt(self.source, self.derived, "k-used", "k-")
+        self.assertEqual((result["hit"], result["local"]), ("true", "local"))
+        self.assertTrue(seed.used_recently(cache / "k-used"))
+
+    def test_a_job_that_landed_after_a_used_seed_stays_the_newest(self):
+        """The newest is the seed that landed last, not the one a job touched last."""
+        cache = self.root / "seeds"
+        for name in ("k-old", "k-new"):
+            (cache / name).mkdir(parents=True)
+        os.utime(cache / "k-old", (3000, 3000))  # used after k-new landed, twelve hours ago
+        os.utime(cache / "k-new", (2000, 2000))
+        births = {"k-old": 1000.0, "k-new": 2000.0}
+        with mock.patch.object(seed, "landed", side_effect=lambda path: births[path.name]):
+            seed.prune_local(cache)
+        self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-new"])
 
     def prefetch_store(self, prefix="admission-derived-data-v1-macOS-ARM64-fp-"):
         store = self.root / "state"
@@ -1709,7 +1743,7 @@ class Wiring(unittest.TestCase):
 
 
 class PruneLocal(unittest.TestCase):
-    """Kept seeds use the disk: only the count cap or a short disk prunes them."""
+    """Kept seeds: each root's newest, plus any a job used lately, whatever the disk holds."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -1729,55 +1763,35 @@ class PruneLocal(unittest.TestCase):
             os.utime(path, (old, old))
 
     def left(self, cache=None):
-        return sorted(entry.name for entry in (cache or self.cache).iterdir())
+        return sorted(entry.name for entry in (cache or self.cache).iterdir() if not entry.name.startswith("."))
 
-    def disk(self, short_by_seeds):
-        """A disk SHORT_BY_SEEDS deletes under the floor, each delete freeing 8 GiB."""
-        start = seed.LOCAL_KEEP_MIN_FREE_BYTES - short_by_seeds * 8 * 1024**3
-        roots = [self.cache, *(p for p in self.state.glob("cmux-ci-*/seeds"))]
-        total = sum(len(list(root.iterdir())) for root in roots)
-
-        def free(_):
-            now = sum(len(list(root.iterdir())) for root in roots)
-            return start + (total - now) * 8 * 1024**3
-        return mock.patch.object(seed, "free_bytes", side_effect=free)
-
-    def test_a_roomy_disk_keeps_every_seed_under_the_cap(self):
-        with self.disk(0):
-            seed.prune_local(self.cache)
-        self.assertEqual(len(self.left()), 10)
-        with self.disk(0), mock.patch.object(seed, "LOCAL_KEEP", 4):
-            seed.prune_local(self.cache)
-        self.assertEqual(self.left(), ["s0", "s1", "s2", "s3"])
-
-    def test_a_short_disk_drops_the_oldest_until_there_is_room(self):
-        with self.disk(3):
-            seed.prune_local(self.cache)
-        self.assertEqual(self.left(), [f"s{index}" for index in range(7)])
-
-    def test_a_short_disk_drops_the_oldest_of_any_root(self):
-        """The root that triggers the prune is not the one holding the oldest seeds."""
+    def test_every_root_keeps_only_its_newest_seed_on_any_disk(self):
         other = self.state / "cmux-ci-2" / "seeds"
-        self.make(other, "t", 5, offset=20)  # all older than every s seed
-        with self.disk(2):
-            seed.prune_local(self.cache)
-        self.assertEqual(self.left(other), ["t0", "t1", "t2"])
-        self.assertEqual(len(self.left()), 10)
-        with self.disk(3):
-            seed.prune_local(other)
-        self.assertEqual(self.left(other), ["t0", "t1"])  # each root keeps its newest two
-        self.assertEqual(len(self.left()), 8)
+        self.make(other, "t", 5, offset=20)
+        for free in (4 * 1024**4, 0):
+            with mock.patch.object(seed.shutil, "disk_usage", return_value=mock.Mock(free=free)):
+                seed.prune_local(self.cache)
+        self.assertEqual(self.left(), ["s0"])
+        self.assertEqual(self.left(other), ["t0"])  # another root's prune keeps that root's newest too
 
-    def test_a_delete_that_frees_nothing_stops_the_prune(self):
-        with mock.patch.object(seed, "free_bytes", return_value=0):
-            seed.prune_local(self.cache)
-        self.assertEqual(len(self.left()), 9)
-
-    def test_the_newest_two_the_spared_and_the_recent_always_stay(self):
-        os.utime(self.cache / "s8")
-        with self.disk(20):
+    def test_the_newest_the_spared_the_recent_and_the_used_always_stay(self):
+        os.utime(self.cache / "s8")  # touched just now: within the grace
+        seed.mark_used(self.cache / "s6")
+        old = time.time() - seed.PRUNE_GRACE_SECONDS - 600
+        os.utime(self.cache / "s6", (old, old))  # its mark, not its mtime, keeps it
+        # Landing order stays s0 newest, as APFS birth times would keep it whatever was touched.
+        with mock.patch.object(seed, "landed", side_effect=lambda path: -int(path.name[1:])):
             seed.prune_local(self.cache, spare=self.cache / "s5")
-        self.assertEqual(self.left(), ["s0", "s5", "s8"])  # touching s8 made it one of the newest two
+        self.assertEqual(self.left(), ["s0", "s5", "s6", "s8"])
+
+    def test_a_mark_past_twelve_hours_lets_its_seed_go(self):
+        seed.mark_used(self.cache / "s3")
+        stale = time.time() - seed.LOCAL_USED_SECONDS - 1
+        os.utime(self.cache / seed.USED_MARKS / "s3", (stale, stale))
+        os.utime(self.cache / "s3", (stale, stale))
+        seed.prune_local(self.cache)
+        self.assertEqual(self.left(), ["s0"])
+        self.assertEqual(list((self.cache / seed.USED_MARKS).iterdir()), [])
 
 
 if __name__ == "__main__":

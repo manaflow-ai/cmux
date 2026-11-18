@@ -143,10 +143,14 @@ jobs:
     # read: the slot admits only nightly jobs, so its queue moves (on 2026-10-29 the canary of build 4095550219401,
     # run 40959228667, sat on the side label behind 43 PR jobs; the slot takes no PR job). A refused attempt is
     # re-run by owned_pool_rescue.SIDE_WORKFLOW_PATHS onto the same pool. With no nightly slot named, a scheduled
-    # run takes Blacksmith macOS 26, never the side label, which no rescue watches for it. A dispatch, which the slot
-    # refuses, and a same-repository pull request take the side label on attempt 1, then vars.MACOS_RUNNER_26, then
-    # Blacksmith macOS 26. Never a GitHub-hosted Mac (tests/test_ci_no_github_hosted_macos.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name == 'schedule' && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # run takes Blacksmith macOS 26 while vars.CI_BLACKSMITH_MACOS is `on`; off, it takes the side label instead,
+    # except github-actions[bot]'s attempt 3 and later, which still take Blacksmith macOS 26 (the rescue's escape;
+    # tests/test_seed_derived_data.py's test_no_retry_attempt_of_any_workflow_takes_an_owned_label). A dispatch,
+    # which the slot refuses, and a same-repository pull request take the side label on attempt 1 with
+    # CI_PR_POOL_OWNED=1; later attempts take it too while the switch is off (that bot escape aside), then
+    # vars.MACOS_RUNNER_26, then Blacksmith macOS 26. Never a GitHub-hosted Mac
+    # (tests/test_ci_no_github_hosted_macos.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name == 'schedule' && (vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26') || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -215,6 +219,11 @@ jobs:
           [[ "$SHORT" =~ ^[0-9a-f]{7,40}$ ]] || { echo "invalid CMUXCommit '$SHORT'" >&2; exit 1; }
           sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHORT" --jq .sha)"
           git fetch --no-tags --depth=1 origin "$sha"
+          # The owned Macs keep this checkout between jobs but empty RUNNER_TEMP, so an earlier job's worktree
+          # can still be registered here with its folder gone ("is a missing but already registered worktree",
+          # run 44020590372). Remove one whose folder survived, then prune the rest.
+          git worktree remove --force "$RUNNER_TEMP/build-src" 2>/dev/null || true
+          git worktree prune
           git worktree add --detach "$RUNNER_TEMP/build-src" "$sha"
           echo "dir=$RUNNER_TEMP/build-src" >> "$GITHUB_OUTPUT"
           echo "harness from $sha (CMUXCommit $SHORT)"
@@ -259,6 +268,14 @@ jobs:
           if [ -d "$RUNNER_TEMP/canary-mount" ]; then
             hdiutil detach "$RUNNER_TEMP/canary-mount" -force >/dev/null 2>&1 || true
           fi
+
+      # Unregister the harness worktree so the next job on this runner starts clean, also after a failed or
+      # timed-out canary (a cancelled job's is cleared by the prune before the next add).
+      - name: Remove the harness worktree
+        if: always() && steps.harness.outcome != 'skipped'
+        run: |
+          git worktree remove --force "$RUNNER_TEMP/build-src" 2>/dev/null || true
+          git worktree prune
 
   # The durable verdict (nightly-next-verdict.yml writes verdicts/<build>.json
   # next to the cmux NEXT appcast in R2). The train's base is the newest feed

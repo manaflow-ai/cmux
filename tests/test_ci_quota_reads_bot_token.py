@@ -5,7 +5,9 @@ On 2026-11-17 00:40Z the repository's GITHUB_TOKEN pool (1,000 requests an hour,
 workflow) ran dry, and four scheduled jobs on main went red at once: required-checks drift (run
 43989794349, "API rate limit exceeded for installation"), triage radar (43989604298, only "GitHub API
 request failed (403)"), cmux-tui registry delivery (43989417033, only "HTTP Error 403: Forbidden") and
-the full-suite issue sync (44010289849, only "returned non-zero exit status 1"). These tests pin that:
+the full-suite issue sync (44010289849, only "returned non-zero exit status 1"). The classic API
+guard on pull requests into main failed its files listing the same way (44033322032), and merge_hold
+cannot excuse it: the workflow never runs on main. These tests pin that:
 
 - each of those jobs mints the cmux-bot token and reads with it, github.token as GH_FALLBACK_TOKEN;
 - each script asks a refused read once more with the fallback token, and keeps writes on it;
@@ -22,6 +24,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 import urllib.error
 from unittest import mock
@@ -44,6 +47,7 @@ radar = load("triage_radar_under_test", ROOT / "scripts/ci/triage-radar.py")
 drift = load("required_status_checks_under_test", ROOT / "scripts/ci/required_status_checks.py")
 delivery = load("check_release_delivery_under_test", ROOT / "cmux-tui/scripts/check_release_delivery.py")
 suite = load("main_full_suite", ROOT / "scripts/ci/main_full_suite.py")
+guard = load("classic_api_guard_under_test", ROOT / "scripts/ci/classic_api_guard.py")
 
 
 class Response(io.BytesIO):
@@ -197,6 +201,79 @@ class FullSuiteSync(unittest.TestCase):
             self.assertEqual(suite.main(["--repo", "manaflow-ai/cmux", "report"]), 1)
         self.assertRegex(stderr.getvalue(), re.escape("::error::gh api -X GET repos/manaflow-ai/cmux/"))
         self.assertIn("API rate limit exceeded for installation", stderr.getvalue())
+
+
+class ClassicApiGuard(unittest.TestCase):
+    WORKFLOW = WORKFLOWS / "classic-api-guard.yml"
+
+    def files_urlopen(self, refuse: dict[str, int], seen: list[tuple[str, str]], files: list[dict]):
+        def urlopen(request, timeout=30):  # noqa: ANN001, ANN202
+            token = (request.get_header("Authorization") or "").split()[-1]
+            seen.append((request.get_method(), token))
+            code = refuse.get(token)
+            if code:
+                body = json.dumps({"message": LIMIT}).encode()
+                raise urllib.error.HTTPError(request.full_url, code, "Forbidden", {}, io.BytesIO(body))  # type: ignore[arg-type]
+            page = int(re.search(r"[?&]page=(\d+)", request.full_url).group(1))
+            return Response(json.dumps(files[(page - 1) * 100:page * 100]).encode())
+        return urlopen
+
+    def run_guard(self, env: dict[str, str], refuse: dict[str, int], files: list[dict], body: str = ""):
+        seen: list[tuple[str, str]] = []
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            body_file = pathlib.Path(tmp) / "body.md"
+            body_file.write_text(body)
+            with mock.patch.object(guard.urllib.request, "urlopen", self.files_urlopen(refuse, seen, files)), \
+                    mock.patch.dict(guard.os.environ, env, clear=True), contextlib.redirect_stdout(out):
+                code = guard.main(["--base", "main", "--body-file", str(body_file), "--pr", "7",
+                                   "--repository", "manaflow-ai/cmux", "--expected-files", str(len(files))])
+        return code, out.getvalue(), seen
+
+    def test_the_job_mints_cmux_bot_read_only_and_keeps_github_token_as_the_fallback(self) -> None:
+        text = self.WORKFLOW.read_text(encoding="utf-8")
+        mint = text.split("id: read-token", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("app-id: ${{ vars.CMUX_BOT_APP_ID }}", mint)
+        self.assertIn("continue-on-error: true", mint)
+        self.assertEqual(sorted(re.findall(r"permission-([a-z-]+): (\w+)", mint)),
+                         [("contents", "read"), ("pull-requests", "read")])
+        step = text.split("- name: Check the changed paths against classic's auto-deploys\n", 1)[1]
+        self.assertIn("GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}", step)
+        self.assertIn("GH_FALLBACK_TOKEN: ${{ github.token }}", step)
+        self.assertIn("--pr \"$PR\"", step)
+        self.assertLess(text.index("id: read-token"), text.index("- name: Check the changed paths"))
+
+    def test_a_refused_listing_is_asked_again_with_the_workflow_token(self) -> None:
+        files = [{"filename": "docs/a.md"}]
+        code, out, seen = self.run_guard({"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "workflow"}, {"app": 403}, files)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(seen, [("GET", "app"), ("GET", "workflow")])
+        self.assertIn("No classic auto-deployed API path changed", out)
+
+    def test_a_failed_listing_names_githubs_message(self) -> None:
+        code, out, _ = self.run_guard({"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "workflow"},
+                                      {"app": 403, "workflow": 403}, [{"filename": "docs/a.md"}])
+        self.assertEqual(code, 1)
+        self.assertIn("HTTP 403", out)
+        self.assertIn("API rate limit exceeded for installation", out)
+
+    def test_without_an_app_token_it_reads_on_github_token_alone(self) -> None:
+        # A failed or skipped mint leaves GH_TOKEN as github.token, the fallback the same token.
+        code, out, seen = self.run_guard({"GH_TOKEN": "workflow", "GH_FALLBACK_TOKEN": "workflow"}, {},
+                                         [{"filename": "docs/a.md"}])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(seen, [("GET", "workflow")])
+
+    def test_the_listing_pages_and_counts_a_rename_once(self) -> None:
+        files = [{"filename": f"docs/{i}.md"} for i in range(150)]
+        files[3] = {"filename": "docs/new.md", "previous_filename": "docs/old.md"}
+        seen: list[tuple[str, str]] = []
+        with mock.patch.object(guard.urllib.request, "urlopen", self.files_urlopen({}, seen, files)):
+            paths, records = guard.list_files(guard.Reader("workflow"), "manaflow-ai/cmux", 7)
+        self.assertEqual(records, 150)
+        self.assertEqual(len(paths), 151)
+        self.assertIn("docs/old.md", paths)
+        self.assertEqual(len(seen), 2)
 
 
 if __name__ == "__main__":
