@@ -708,6 +708,33 @@ class Workflow(unittest.TestCase):
         cancels = [i for i, c in enumerate(made) if c.startswith(f"cancel {old}")]
         self.assertTrue(cancels and cancels[0] < made.index(runs[1]), made)
 
+    def test_a_look_rejoins_its_head_step_at_that_steps_hq_commit(self) -> None:
+        # #45082, 2026-11-17: its head step hv-45082-70e741a61349 was queued at 23:06 at HQ 1848f209. A run at 23:38 sent
+        # the same key at the controller's newer HQ commit, got "HTTP 409: step_key already names a different step"
+        # (the ref is part of the request), ran a fresh step instead, and the head step ran at 00:32 for nobody.
+        old_ref, now_ref = "1" * 40, HEAD
+        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-ref-")))
+        jobs = [{"id": "aaaaaaaaaaaaaaaaaaaaaaaa", "step_key": f"hv-7-{HEAD[:12]}", "ref": old_ref, "state": "queued",
+                 "created_at": "2026-11-17T23:06:52Z"},
+                {"id": "bbbbbbbbbbbbbbbbbbbbbbbb", "step_key": "hv-8-0123456789ab", "ref": "2" * 40, "state": "queued",
+                 "created_at": "2026-11-17T23:10:00Z"}]
+        (scratch / "all.json").write_text(json.dumps(jobs))
+        body = (f"if [[ $1 == status && $2 == --all ]]; then cat '{scratch / 'all.json'}'; exit 0; fi\n"
+                "if [[ $1 == run ]]; then echo 'cmux-ci: step aaaaaaaaaaaaaaaaaaaaaaaa (light, key x)'; exit 75; fi\n"
+                "[[ $1 == cancel ]] && exit 0\nexit 1\n")
+        env, calls = self.look_env(scratch, body, "99", "")
+        subprocess.run(["bash", "-c", self.look_steps()[0]], cwd=ROOT, env=env, capture_output=True, text=True)
+        runs = [c for c in calls.read_text().splitlines() if c.startswith("run ")]
+        self.assertEqual(len(runs), 1, runs)
+        self.assertIn(f"--ref {old_ref} ", runs[0])
+        # With no step under the head key yet, the look runs at the controller's own HQ commit.
+        (scratch / "all.json").write_text(json.dumps(jobs[1:]))
+        calls.unlink()
+        env, calls = self.look_env(scratch, body, "100", "")
+        subprocess.run(["bash", "-c", self.look_steps()[0]], cwd=ROOT, env=env, capture_output=True, text=True)
+        runs = [c for c in calls.read_text().splitlines() if c.startswith("run ")]
+        self.assertIn(f"--ref {now_ref} ", runs[0])
+
     def test_a_look_at_a_new_head_cancels_the_prs_steps_at_other_heads(self) -> None:
         # A look that stopped waiting leaves its head's step queued for `look again`; when the author pushes meanwhile,
         # that retry never looks (the PR moved), so the new head's look retires the old step. Other PRs' are not touched.
