@@ -275,10 +275,10 @@ impl Hub {
         found.ok_or_else(|| refused("unknown_prompt", "no prompt of this chat matches"))
     }
 
-    /// Chats on this machine working in `session`'s repository now (a turn running or waiting on
+    /// Chats on this machine working in repository `root` now (a turn running or waiting on
     /// the person), the chat itself and its sub-sessions included: a reset of the files would be
     /// overwritten by, or overwrite, their work.
-    fn chats_sharing(&self, session: &Session, root: &Path) -> Vec<Value> {
+    fn chats_sharing(&self, root: &Path) -> Vec<Value> {
         self.session_handles()
             .into_iter()
             .filter(|other| {
@@ -314,8 +314,7 @@ impl Hub {
             let config = self.config.read().await;
             config.profile(&harness).and_then(|p| crate::config::turn_cut(&harness, p)).is_some()
         };
-        let files =
-            self.rewind_files_plan(session, &cwd, &prompt, request.dry_run || request.files).await;
+        let files = self.rewind_files_plan(&cwd, &prompt, request.dry_run || request.files).await;
         if request.dry_run {
             let mut reply = json!({
                 "promptId": prompt.prompt_id,
@@ -400,7 +399,6 @@ impl Hub {
     /// Whether `prompt`'s files can be reset now, and the dry run's answer when they can.
     async fn rewind_files_plan(
         &self,
-        session: &Session,
         cwd: &Path,
         prompt: &RewindPrompt,
         wanted: bool,
@@ -419,7 +417,7 @@ impl Hub {
         let Some(root) = crate::git_state::repo_root(cwd) else {
             return blocked("not_git", "this chat's folder is not a git repository");
         };
-        let shared = self.chats_sharing(session, &root);
+        let shared = self.chats_sharing(&root);
         if !shared.is_empty() {
             return FilesPlan::Blocked(json!({
                 "reason": "shared",
@@ -456,7 +454,7 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let cwd = session.meta().cwd.clone();
         if let Some(root) = crate::git_state::repo_root(&cwd) {
-            let shared = self.chats_sharing(session, &root);
+            let shared = self.chats_sharing(&root);
             if !shared.is_empty() {
                 return Err(refused("shared", "a chat is working in this folder")
                     .with_data(json!({"reason": "shared", "sharedWith": shared})));
