@@ -31,11 +31,12 @@ pub enum Group {
     Type,
     Widgets,
     Keys,
+    Apps,
 }
 
 impl Group {
     pub const ALL: &'static [Group] =
-        &[Group::Look, Group::Layout, Group::Type, Group::Widgets, Group::Keys];
+        &[Group::Look, Group::Layout, Group::Type, Group::Widgets, Group::Keys, Group::Apps];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -44,6 +45,7 @@ impl Group {
             Group::Type => "Type",
             Group::Widgets => "Widgets",
             Group::Keys => "Keys",
+            Group::Apps => "App looks",
         }
     }
 }
@@ -85,6 +87,23 @@ const CLOCK_WEATHER: &[(&str, &str)] = &[
         "customize/main.js",
         include_str!("../../../../skills/cmux-customization/templates/clock-weather/main.js"),
     ),
+];
+
+/// A look-alike carries its theme file and its chat stylesheet, kept as real
+/// files beside the recipe so they read and diff like any theme or stylesheet.
+const CODEX_APP: &[(&str, &str)] = &[
+    ("themes/codex-app.json", include_str!("../recipes/apps/codex-app/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/codex-app/agent-pane.css")),
+];
+
+const TRUE_BLACK: &[(&str, &str)] = &[
+    ("themes/true-black.json", include_str!("../recipes/apps/true-black/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/true-black/agent-pane.css")),
+];
+
+const CLAUDE_CODE_APP: &[(&str, &str)] = &[
+    ("themes/claude-code-app.json", include_str!("../recipes/apps/claude-code-app/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/claude-code-app/agent-pane.css")),
 ];
 
 /// Every recipe, in the order a guide lists them.
@@ -169,6 +188,30 @@ pub const RECIPES: &[Recipe] = &[
         profile: include_str!("../recipes/glass.json"),
         includes: &[],
     },
+    Recipe {
+        name: "codex-app",
+        title: "Like the Codex app",
+        group: Group::Apps,
+        ask: "make cmux look and work like the Codex app",
+        profile: include_str!("../recipes/codex-app.json"),
+        includes: CODEX_APP,
+    },
+    Recipe {
+        name: "true-black",
+        title: "True black, chats by project",
+        group: Group::Apps,
+        ask: "make cmux true black with a dense sidebar of chats by project",
+        profile: include_str!("../recipes/true-black.json"),
+        includes: TRUE_BLACK,
+    },
+    Recipe {
+        name: "claude-code-app",
+        title: "Like the Claude Code desktop app",
+        group: Group::Apps,
+        ask: "make cmux look and work like the Claude Code desktop app",
+        profile: include_str!("../recipes/claude-code-app.json"),
+        includes: CLAUDE_CODE_APP,
+    },
 ];
 
 /// The recipe called `name`.
@@ -200,7 +243,9 @@ impl Recipe {
 
     /// The parts it changes, by name (`settings`, `views`, `keybindings`).
     pub fn parts(&self) -> Vec<&'static str> {
-        let Ok(profile) = self.profile() else { return Vec::new() };
+        let Ok(profile) = self.profile() else {
+            return Vec::new();
+        };
         let mut parts: Vec<Part> = profile.files.keys().map(|path| Part::of(path)).collect();
         if !profile.settings.is_empty() {
             parts.push(Part::Settings);
