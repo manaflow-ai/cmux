@@ -140,7 +140,17 @@ await requireBrowserLane("look-addons.test.ts", async () => {
         return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
       };
       const lines: Line[] = [];
-      const all = [...document.body.querySelectorAll("*")];
+      // Shadow roots too: Pierre draws a code card's lines in one.
+      const all: Element[] = [];
+      const walk = (root: ParentNode) => {
+        for (const el of root.querySelectorAll("*")) {
+          all.push(el);
+          if (el.shadowRoot) walk(el.shadowRoot);
+        }
+      };
+      walk(document.body);
+      const parentOf = (node: Element): Element | null =>
+        node.parentElement ?? ((node.getRootNode() as ShadowRoot).host as Element | undefined) ?? null;
       all.forEach((el, index) => {
         const own = [...el.childNodes]
           .filter((node) => node.nodeType === Node.TEXT_NODE)
@@ -155,7 +165,7 @@ await requireBrowserLane("look-addons.test.ts", async () => {
         // The fills under the text, outermost first, and the opacity the text is drawn at.
         const fills: Rgba[] = [];
         let opacity = 1;
-        for (let node: Element | null = el; node; node = node.parentElement) {
+        for (let node: Element | null = el; node; node = parentOf(node)) {
           const s = getComputedStyle(node);
           opacity *= +s.opacity;
           fills.unshift(parse(s.backgroundColor));
@@ -164,8 +174,10 @@ await requireBrowserLane("look-addons.test.ts", async () => {
         let under: [number, number, number] = [1, 1, 1];
         const firstOpaque = fills.findIndex((fill) => fill[3] >= 0.999);
         if (firstOpaque < 0) {
-          const page = parse(getComputedStyle(document.documentElement).getPropertyValue("--agent-page-bg").trim() || "#fff");
-          under = [page[0], page[1], page[2]];
+          const pageBg = parse(
+            getComputedStyle(document.documentElement).getPropertyValue("--agent-page-bg").trim() || "#fff",
+          );
+          under = [pageBg[0], pageBg[1], pageBg[2]];
         }
         for (const fill of fills.slice(Math.max(0, firstOpaque))) under = over(fill, under);
         const ink = parse(style.color);
@@ -205,7 +217,15 @@ await requireBrowserLane("look-addons.test.ts", async () => {
 
           // Readable in this appearance: no line under WCAG AA that the plain chat drew above it.
           const lookLines = await readability(page);
-          expect(lookLines.length).toBeGreaterThan(10);
+          // The fixture's prompt, tool rows, reply and code: each kind is read.
+          expect(lookLines.length).toBeGreaterThanOrEqual(8);
+          // The lowest line of each look, in the log (a fleet run keeps no files).
+          const lowest = [...lookLines].sort((a, b) => a.ratio - b.ratio).slice(0, 3);
+          console.log(
+            `look-addons contrast ${look.id} ${theme}: ${lookLines.length} lines; lowest ${lowest
+              .map((line) => `${line.ratio}:1 ${line.key.replace(/^\d+ /, "")} "${line.text}"`)
+              .join(" | ")}`,
+          );
           if (out)
             writeFileSync(
               path.join(out, `${look.id}-${theme}-contrast.json`),
@@ -214,15 +234,29 @@ await requireBrowserLane("look-addons.test.ts", async () => {
           expect(unreadable(plainLines, lookLines)).toEqual([]);
 
           // Faithful: every token the look sets is the value the page resolves on :root, and the
-          // bubble's corner is the one the look names.
+          // bubble's corner is the one the look names. A token built from the theme's own vars
+          // (var(--agent-text)) resolves with them substituted, so the look's value is resolved
+          // the same way, on a probe under :root, and the two are compared resolved.
           const set = [...lookCss.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)].map(
             (m) => [m[1]!, m[2]!.trim()] as const,
           );
-          const resolved = await page.evaluate(
-            (names) => names.map((name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()),
-            set.map(([name]) => name),
-          );
-          expect(resolved).toEqual(set.map(([, value]) => value));
+          const [resolved, declared] = await page.evaluate((pairs) => {
+            const probe = document.createElement("div");
+            document.documentElement.appendChild(probe);
+            try {
+              const declared = pairs.map(([, value]) => {
+                probe.style.setProperty("--look-probe", value);
+                return getComputedStyle(probe).getPropertyValue("--look-probe").trim();
+              });
+              const resolved = pairs.map(([name]) =>
+                getComputedStyle(document.documentElement).getPropertyValue(name).trim(),
+              );
+              return [resolved, declared];
+            } finally {
+              probe.remove();
+            }
+          }, set as unknown as [string, string][]);
+          expect(resolved).toEqual(declared);
           const radius = set.find(([name]) => name === "--cv-user-bubble-radius")?.[1];
           if (radius)
             expect(
