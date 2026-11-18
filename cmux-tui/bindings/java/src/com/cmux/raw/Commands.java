@@ -204,6 +204,7 @@ public final class Commands {
     public static final CommandMetadata PUT_BLOB = new CommandMetadata("put-blob", Authority.CONTROL, 12, "icon-assets-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PUT_FRONTEND_PROJECTION = new CommandMetadata("put-frontend-projection", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PUT_SESSION = new CommandMetadata("put-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata QUICK_TERMINAL = new CommandMetadata("quick-terminal", Authority.CONTROL, 12, "quick-terminal-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata READ_SCREEN = new CommandMetadata("read-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata READ_SCROLLBACK = new CommandMetadata("read-scrollback", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata REATTACH_VIEW = new CommandMetadata("reattach-view", Authority.CONTROL, 12, "sizing-view-detach-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -512,6 +513,7 @@ public final class Commands {
         values.put("put-blob", PUT_BLOB);
         values.put("put-frontend-projection", PUT_FRONTEND_PROJECTION);
         values.put("put-session", PUT_SESSION);
+        values.put("quick-terminal", QUICK_TERMINAL);
         values.put("read-screen", READ_SCREEN);
         values.put("read-scrollback", READ_SCROLLBACK);
         values.put("reattach-view", REATTACH_VIEW);
