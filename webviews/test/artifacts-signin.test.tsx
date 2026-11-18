@@ -5,8 +5,11 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { pageError, type PageClient } from "../src/pages/shared/pageClient";
+import type { PageClient } from "../src/pages/shared/pageClient";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { pageError } = await importWithDom(() => import("../src/pages/shared/pageClient"));
 
 const scope = globalThis as Record<string, unknown>;
 // The page's file tree (@pierre/trees) defines a custom element when it loads.

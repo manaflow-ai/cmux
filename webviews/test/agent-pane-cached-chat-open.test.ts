@@ -14,9 +14,11 @@
 //   - a chat whose attach fails does not stay on screen as if it had been read.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { AcpmuxDirectClient } = await importWithDom(() => import("../src/agent-session/acpmux/direct"));
 
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
