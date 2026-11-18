@@ -38,7 +38,7 @@ import {
   useSyncExternalStore,
   type ComponentProps,
 } from "react";
-import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
+import { measureElement as measureRow, useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
 import { useDecoration } from "../../theme/decorations";
 import type { Strings } from "../shared/i18n";
@@ -335,12 +335,25 @@ function WindowedRows({
     return () => resize?.disconnect();
   }, [scroller]);
   const getItemKey = useCallback((index: number) => entries[index]!.id, [entries]);
-  const estimateSize = useCallback(() => (rows.titlesOnly ? 32 : 52), [rows.titlesOnly]);
+  // A row not drawn yet is guessed as tall as the first row measured, so drawing one as the list
+  // scrolls does not move every row under it (TanStack places each again when a size differs from
+  // its guess).
+  const measured = useMemo<{ size?: number }>(() => ({}), []);
+  const estimateSize = useCallback(() => measured.size ?? (rows.titlesOnly ? 32 : 52), [measured, rows.titlesOnly]);
+  const measureElement = useCallback(
+    (element: Element, entry: ResizeObserverEntry | undefined, instance: Virtualizer<HTMLElement, Element>) => {
+      const size = measureRow(element, entry, instance);
+      if (measured.size === undefined && size > 0) measured.size = size;
+      return size;
+    },
+    [measured],
+  );
   const virtualizer = useVirtualizer<HTMLElement, Element>({
     count: entries.length,
     getScrollElement: scroller,
     estimateSize,
     getItemKey,
+    measureElement,
     gap: place.gap,
     scrollMargin: place.top,
     overscan: ROW_OVERSCAN,

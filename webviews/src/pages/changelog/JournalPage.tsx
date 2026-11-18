@@ -300,12 +300,27 @@ export function useDayWindow(
     const index = Number((event.target as Element).closest("[data-index]")?.getAttribute("data-index"));
     setFocused(Number.isInteger(index) ? index : undefined);
   };
+  // Each day's key, read once per list: TanStack asks for every day's key after a day changes size.
+  const keys = useMemo(() => days.map(dayKey), [days]);
+  // A day not drawn yet is guessed as tall as the first day measured, so drawing one as the page
+  // scrolls does not move every day under it (TanStack places each again when a size differs from
+  // its guess); `height` guesses until then.
+  const first = useMemo<{ size?: number }>(() => ({}), []);
   const sizes = useMemo(
     () => ({
-      estimateSize: (index: number) => (typeof height === "number" ? height : height(days[index]!)),
-      getItemKey: (index: number) => dayKey(days[index]!),
+      estimateSize: (index: number) => first.size ?? (typeof height === "number" ? height : height(days[index]!)),
+      getItemKey: (index: number) => keys[index]!,
+      measureElement: (
+        element: Element,
+        entry: ResizeObserverEntry | undefined,
+        instance: Virtualizer<Window, Element>,
+      ) => {
+        const size = withMarginBelow(element, entry, instance);
+        if (first.size === undefined && size > 0) first.size = size;
+        return size;
+      },
     }),
-    [days, height],
+    [days, keys, height, first],
   );
   const rangeExtractor = useCallback(
     (range: Range) => {
@@ -321,7 +336,6 @@ export function useDayWindow(
     enabled: windowed,
     overscan: DAY_OVERSCAN,
     scrollMargin: top,
-    measureElement: withMarginBelow,
     rangeExtractor,
     ...sizes,
   });
