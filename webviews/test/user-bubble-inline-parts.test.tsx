@@ -161,7 +161,8 @@ try {
             { kind: "text", text: "that please" },
           ]),
           undefined,
-          async () => undefined,
+          // acpmux still reading the image.
+          () => new Promise<never>(() => {}),
         );
         const block = host.querySelector<HTMLElement>("[data-inline-attachment-strip]")!;
         const bubble = host.querySelector<HTMLElement>(".cv-user__bubble")!;
@@ -175,7 +176,8 @@ try {
         expect(bubble.querySelector(".cv-user__inline-image, .cv-user__inline-file, .cv-user__video, img")).toBeNull();
         expect(bubble.querySelector("[data-inline-content]")!.textContent).toBe("look at this and that please");
         // The placeholder's box is the thumbnail's own (120 tall, 4:3), so nothing moves when it lands.
-        const placeholder = block.querySelector<HTMLElement>(".cv-user__image-placeholder")!;
+        const placeholder = block.querySelector<HTMLElement>(".cv-user__inline-image > .cv-user__image-placeholder")!;
+        expect(placeholder).not.toBeNull();
         expect(placeholder.style.width).toBe("160px");
         expect(placeholder.style.aspectRatio).toBe("160 / 120");
       } finally {
@@ -378,7 +380,7 @@ try {
         { id: "strip-shot", mimeType: "image/png", name: "strip-shot.png" },
       ],
     });
-    expect(inlineShape()).toEqual(["image:placed-shot.png", "image:strip-shot.png", "lookhere"]);
+    expect(inlineShape()).toEqual(["image:placed-shot.png", "image:strip-shot.png", "look\nhere"]);
     expect(
       [...host.querySelectorAll("[data-inline-attachment-strip] img")].map((img) => img.getAttribute("alt")),
     ).toEqual(["placed-shot.png", "strip-shot.png"]);
@@ -399,7 +401,7 @@ try {
       undefined,
       async () => undefined,
     );
-    expect(inlineShape()).toEqual(["image:local.png", "lookhere"]);
+    expect(inlineShape()).toEqual(["image:local.png", "look\nhere"]);
     expect(host.querySelector("[data-inline-attachment-strip] img")?.getAttribute("src")).toBe(src);
   });
 
@@ -513,6 +515,8 @@ try {
       clearImageEntries();
       resetTranscriptDisclosure();
       resetSourceIcons();
+      // Every view draws the same tree now: start from an empty one, so the icons are asked for again.
+      await act(async () => root.render(null));
       const asked: string[] = [];
       (dom.window as unknown as Record<string, unknown>).cmuxAcpmuxActions = {
         "attachment.sourceIcon": async (params: Record<string, unknown>) => {
