@@ -275,18 +275,10 @@ fn codex_cli_at(
     Ok(CodexCli { program, globals: codex_globals(args).to_vec(), env: layered.env })
 }
 
-/// The global options before `app-server` in a bridge launch's args, read
-/// the way `codex_app_server::is_launch` reads them: `--flag=value` is one
-/// word, `-c value` and `--flag value` are two.
+/// The global options before `app-server` in a bridge launch's args
+/// (`codex_app_server::launch_globals`, the one reading every path shares).
 pub(crate) fn codex_globals(args: &[String]) -> &[String] {
-    let mut i = 0;
-    while let Some(a) = args.get(i) {
-        if a == "app-server" || !a.starts_with('-') {
-            return &args[..i];
-        }
-        i += if a.contains('=') { 1 } else { 2 };
-    }
-    &args[..i.min(args.len())]
+    crate::codex_app_server::launch_globals(args)
 }
 
 /// Whether harness `id` is signed in.

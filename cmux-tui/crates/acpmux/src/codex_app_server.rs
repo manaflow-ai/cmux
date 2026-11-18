@@ -480,6 +480,43 @@ pub fn is_profile_launch(argv: &[String]) -> bool {
     argv.split_first().is_some_and(|(program, args)| is_launch(program, args))
 }
 
+/// The global options before `app-server` in a bridge launch's args, read the way
+/// [`is_launch`] reads them: `--flag=value` is one word, `-c value` and `--flag value` are two.
+pub fn launch_globals(args: &[String]) -> &[String] {
+    let mut i = 0;
+    while let Some(a) = args.get(i) {
+        if a == "app-server" || !a.starts_with('-') {
+            return &args[..i];
+        }
+        i += if a.contains('=') { 1 } else { 2 };
+    }
+    &args[..i.min(args.len())]
+}
+
+/// The codex a profile's launch runs, and the global options (`-c key=value`, `-p profile`,
+/// `--enable x`) that pick its config: every path that runs this profile's codex by another
+/// command (the terminal of Toggle Terminal and Chat, the live model list) asks here, so it runs
+/// the binary and config the chat runs. `argv` and `env` are the profile as spawned
+/// (`Hub::spawn_profile_for`: defaults, preset, chat store, expansions).
+///
+/// The bridge (`codex app-server`) runs `CODEX_PATH` when set, else its own argv0, with its
+/// globals (`agent::command`). An ACP adapter (codex-acp) runs `CODEX_PATH` when set, else
+/// `fallback` (codex on the login PATH, else the managed codex): its argv0 is the adapter.
+/// A `CODEX_PATH` that still holds an unresolved `${...}` reference is not a program yet.
+pub fn launch_codex(
+    argv: &[String],
+    env: &std::collections::BTreeMap<String, String>,
+    fallback: impl FnOnce() -> Option<String>,
+) -> Option<(String, Vec<String>)> {
+    let configured = env.get("CODEX_PATH").filter(|p| !p.is_empty() && !p.contains("${")).cloned();
+    match argv.split_first() {
+        Some((program, args)) if is_launch(program, args) => {
+            Some((configured.unwrap_or_else(|| program.clone()), launch_globals(args).to_vec()))
+        }
+        _ => configured.or_else(fallback).map(|program| (program, Vec::new())),
+    }
+}
+
 /// A translator for one app-server process. It takes one-shot audio prompts
 /// (the composer's mic) from any app-server that accepts them: the library
 /// advertises `promptCapabilities.audio` only to Codex 0.145.0 or later, so
@@ -654,6 +691,44 @@ mod tests {
         // An answer with no history is logged as it was.
         let small = json!({"id": 8, "result": {"thread": {"id": "t", "turns": []}}});
         assert_eq!(logged(&small), small);
+    }
+
+    /// Every path that runs a profile's codex by another command reads it here, as the launch
+    /// (`agent::command`) picks it: CODEX_PATH, else the bridge's argv0; an adapter's argv0 is
+    /// never codex.
+    #[test]
+    fn launch_codex_is_the_binary_and_config_the_launch_runs() {
+        let words = |w: &[&str]| w.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        let env = |kv: &[(&str, &str)]| {
+            kv.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+        };
+        let none = || None;
+        let bridge = words(&["/u/codex", "-c", "x=y", "--enable=f", "app-server", "--listen"]);
+        assert_eq!(
+            launch_codex(&bridge, &env(&[]), none),
+            Some(("/u/codex".into(), words(&["-c", "x=y", "--enable=f"])))
+        );
+        assert_eq!(
+            launch_codex(&bridge, &env(&[("CODEX_PATH", "/opt/c")]), none),
+            Some(("/opt/c".into(), words(&["-c", "x=y", "--enable=f"])))
+        );
+        // An empty or unresolved CODEX_PATH is no program.
+        for path in ["", "${env:CODEX}"] {
+            assert_eq!(
+                launch_codex(&bridge, &env(&[("CODEX_PATH", path)]), none).map(|(p, _)| p),
+                Some("/u/codex".into())
+            );
+        }
+        let adapter = words(&["npx", "@zed-industries/codex-acp"]);
+        assert_eq!(launch_codex(&adapter, &env(&[]), none), None);
+        assert_eq!(
+            launch_codex(&adapter, &env(&[]), || Some("/m/codex".into())),
+            Some(("/m/codex".into(), vec![]))
+        );
+        assert_eq!(
+            launch_codex(&adapter, &env(&[("CODEX_PATH", "/opt/c")]), || Some("/m".into())),
+            Some(("/opt/c".into(), vec![]))
+        );
     }
 
     /// What `translator()` tells the hub about audio once an app-server that
