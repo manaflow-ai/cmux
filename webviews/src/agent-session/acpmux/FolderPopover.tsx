@@ -168,7 +168,8 @@ export function FolderPopover({
   // fail), nor on a Cloud service with no GitHub App (#46018). It is pinned with the actions under the
   // scrolling folders, so a long folder list never hides it.
   const githubConnect =
-    githubStatus === "not_connected" || (githubStatus === "unavailable" && github?.state.status?.reason === "signed_out");
+    githubStatus === "not_connected" ||
+    (githubStatus === "unavailable" && github?.state.status?.reason === "signed_out");
   const githubRows = [
     ...repos.map((repo) => GITHUB_REPO + repo.fullName),
     // Connected: the way to GitHub's own page for the installation always shows, so a team whose
