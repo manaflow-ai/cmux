@@ -8,7 +8,6 @@ import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
-import type { ActiveTeamTag } from "./TeamTag";
 import {
   DevicesIcon,
   EnvironmentIcon,
@@ -27,7 +26,6 @@ import {
   runCloudMachine,
   useCloudMachines,
   useCloudSignedIn,
-  useCloudTeam,
   withCloudMachines,
   withCloudSleep,
   type CloudMachine,
@@ -47,7 +45,7 @@ import {
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
 import { FolderPopover } from "./FolderPopover";
-import { GitHubMark } from "./GitHubInstallCard";
+import { GitHubMark } from "./GitHubIcons";
 import { githubFolderRepo, useGitHubPicker, type GitHubPicker } from "./githubRepos";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
@@ -192,7 +190,6 @@ export function ComposerContext({
   runDetails,
   cloudWorksOn,
   cloudSignedIn: cloudSignedInSeam,
-  cloudTeam: cloudTeamSeam,
   extraFolders,
   cloudEnvironment: cloudEnvironmentSeam,
   cloudEnvironmentDropUp,
@@ -314,8 +311,6 @@ export function ComposerContext({
   cloudWorksOn?: string;
   /// Gallery seam; the app's Cloud account state (cloudMachines.ts) is used when omitted.
   cloudSignedIn?: boolean;
-  /// Gallery seam; the app's active team (cloudMachines.ts `useCloudTeam`) is used when omitted.
-  cloudTeam?: ActiveTeamTag;
   /// A new chat's extra folders (extraFolders.ts, acpmux `additionalDirectories`): the folder menu's
   /// Add another folder… adds one of the picked machine's folders, and each added one can be removed. The
   /// list is the machine's: another machine picked starts over. `onBrowse` is this Mac's folder
@@ -351,12 +346,8 @@ export function ComposerContext({
   const accountMachines = useCloudMachines();
   const accountSignedIn = useCloudSignedIn();
   const cloudSignedIn = cloudSignedInSeam ?? accountSignedIn;
-  const accountTeam = useCloudTeam();
   const pageGitHub = useGitHubPicker();
   const github = githubSeam ?? pageGitHub;
-  // The team Cloud runs in, named on the environment menu's Cloud row (Leo, 2026-11-09: "i guess is
-  // team? it's kinda hard to realize tho"), never on the chip's face; none while signed out.
-  const cloudTeam = cloudSignedIn === false ? undefined : (cloudTeamSeam ?? accountTeam);
   const shownMachines = cloudMachines ?? accountMachines;
   // The page's own acpmux by name: this Mac, or the machine a remote route reaches (chatMachine.ts).
   const ownName = ownMachineName(summary, localName, peerKinds, route);
@@ -747,6 +738,8 @@ export function ComposerContext({
     folderPicks.current += 1;
     setBrowseError(undefined);
     onCloudMachinePicked?.(undefined);
+    // A GitHub repository runs on Cloud: its pick with This Mac still picked moves the new chat there.
+    if (githubFolderRepo(cwd) && runMode && runMode.mode !== "cloud" && !started && !readOnly) runMode.onMode("cloud");
     onProject?.(cwd);
     const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
     if (environment) savedRows.onPick(environment.id);
@@ -844,7 +837,6 @@ export function ComposerContext({
     // A fresh home may not have a Cloud list reply yet: EnvironmentPicker offers Sign in for Cloud
     // (in place of Cloud) only once the app said signed out, never before it knows.
     cloudSignedIn,
-    ...(cloudTeam ? { cloudTeam } : {}),
     ...(savedRows ? { saved: savedRows } : {}),
     ...(onRefreshMachines ? { onOpen: onRefreshMachines } : {}),
     ...(runMode && !started && !readOnly ? { runMode } : {}),
@@ -1034,8 +1026,10 @@ export function ComposerContext({
               {...(onNewProject ? { onNewProject } : {})}
               {...((folderDetail ?? folderNote) && !currentFolder ? { note: folderDetail ?? folderNote } : {})}
               {...(extra ? { extra } : {})}
-              // A new chat with Cloud picked also offers the person's GitHub repositories.
-              {...(cloudSide && !sandboxPicked && !readOnly ? { github } : {})}
+              // A new chat that can run on Cloud also offers the person's GitHub repositories, with This
+              // Mac picked too: Connect to GitHub is found without knowing to pick Cloud first, and a
+              // repository's pick moves the chat to Cloud (pickFolder).
+              {...((cloudSide || (runMode !== undefined && !started)) && !sandboxPicked && !readOnly ? { github } : {})}
             />
           ) : (
             <LocationPicker

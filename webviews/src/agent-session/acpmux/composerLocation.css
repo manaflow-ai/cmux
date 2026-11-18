@@ -167,8 +167,10 @@
 }
 @media (hover: hover) and (pointer: fine) {
   /* A location control is a text/icon affordance.  Its transparent hit area must not turn
-     into a full rounded pill on hover; the open state above remains the persistent menu cue. */
-  .acpmux-location-button.ui-ghost:hover {
+     into a full rounded pill on hover; the open state above remains the persistent menu cue, the
+     pointer over it or not (Lawrence 2026-11-17: this rule outranked it, so an open chip's pill
+     flickered off and on as the pointer crossed it; test/menu-hover-snap.test.ts). */
+  .acpmux-location-button.ui-ghost:hover:not([aria-expanded="true"], [data-popup-open]) {
     background: transparent;
     color: var(--agent-text);
   }
@@ -1282,24 +1284,6 @@
 .acpmux-location-lock + .acpmux-location-check { margin-left: 0; }
 .acpmux-github-error { display: flex; align-items: center; gap: var(--ds-space-2); }
 .acpmux-github-error-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The install card in place of the list: centered, the mark, a title, one line, one full-width button. */
-.acpmux-github-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--ds-space-1);
-  padding: var(--ds-space-4) var(--ds-space-3) var(--ds-space-3);
-  text-align: center;
-}
-.acpmux-github-card-back { position: absolute; top: var(--ds-space-1); left: var(--ds-space-1); color: var(--agent-muted); }
-.acpmux-github-card-mark { display: inline-flex; margin-bottom: var(--ds-space-1); color: var(--agent-text); }
-.acpmux-github-card-mark .acpmux-icon { width: 24px; height: 24px; }
-.acpmux-github-card-title { margin: 0; color: var(--agent-text); font-weight: 600; }
-.acpmux-github-card-subtitle { margin: 0 0 var(--ds-space-2); color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
-.acpmux-github-card .acpmux-github-card-install { align-self: stretch; }
-.acpmux-github-card-waiting { display: flex; margin: 0; min-height: var(--ds-control-row); align-items: center; color: var(--agent-muted); }
-.acpmux-github-card-error { margin: var(--ds-space-1) 0 0; color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
 
 /* Codex's speed bolt (FastToggle.tsx; Leo 2026-10-21: "KEEP it for Codex"), just left of the mic and
    drawn as the mic is: a 28 px button with no bezel and no disc, a plain 16 px outline glyph in muted
@@ -1861,8 +1845,7 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-.acpmux-env-row :is(.acpmux-env-key, .acpmux-env-count, .acpmux-team-tag) + .acpmux-location-check { margin-left: 6px; }
-.acpmux-location-row:not(.acpmux-env-row) .acpmux-team-tag + .acpmux-location-check { margin-left: 4px; }
+.acpmux-env-row :is(.acpmux-env-key, .acpmux-env-count) + .acpmux-location-check { margin-left: 6px; }
 .acpmux-env-popover .acpmux-env-icon { flex: none; color: var(--agent-muted); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="ssh"] { color: var(--agent-ansi-2, currentColor); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="cloud"] { color: var(--agent-ansi-4, currentColor); }
@@ -1963,17 +1946,11 @@
   }
 }
 
-/* The active team on the Cloud row (TeamTag.tsx; the composer chip's face says only Cloud): its icon
-   and name in the secondary ink, after the label, cut with an ellipsis before the label is. */
+/* The active team tag (TeamTag.tsx, drawn by the ActiveTeamDesigns gallery; the Environment menu's Cloud row
+   says only Cloud, https://github.com/manaflow-ai/cmux/issues/45695): its icon and name in the secondary ink. */
 .acpmux-team-tag { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 4px; min-width: 0; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); white-space: nowrap; }
 .acpmux-team-tag > svg { flex: none; }
 .acpmux-team-tag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-/* In the environment picker the team is the Cloud row's secondary text, laid out as This Mac's
-   ⌥⌘1 (.acpmux-env-key): the label left and whole, the team at the trailing edge in the
-   shortcut's caption type and ink, 6 px before the check's own 16 px column. The team cuts
-   (never "Cloud"), at a cap so a long team name does not widen the menu. */
-.acpmux-location-row .acpmux-location-name:has(+ .acpmux-team-tag) { flex-shrink: 0; }
-.acpmux-location-row .acpmux-team-tag { flex: 0 1 auto; max-width: 18ch; margin-left: auto; padding-left: 16px; font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 /* Composer chips keep the MacBook's wide aspect; menus keep their shared icon column. */
 :is(.acpmux-location-button, .acpmux-location-readonly) > .acpmux-icon.acpmux-macbook-icon {
   width: calc(var(--ui-ghost-icon-size) * 1.25);

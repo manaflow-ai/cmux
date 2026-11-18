@@ -321,7 +321,7 @@ for (const cell of CELLS) {
       if (folder) expect(starts[0]!.params.cwd).toBe(folder);
       else expect(starts[0]!.params).toMatchObject({ home: true });
       expect(starts[0]!.params.cwd).not.toBe(SCRATCH);
-      // The Where control says Cloud and nothing else: the team is the app's active one, named in its own picker.
+      // The Where control says Cloud and nothing else, never the team (https://github.com/manaflow-ai/cmux/issues/45695).
       const where = host.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"] button');
       expect(where?.textContent?.trim()).toBe("Cloud");
       return;
