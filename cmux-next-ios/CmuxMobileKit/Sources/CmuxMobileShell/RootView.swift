@@ -97,6 +97,11 @@ public struct RootView: View {
     /// cleared on sign-out, where Welcome crossfades in, settled.
     @State private var welcomeCut = false
     @AppStorage("cmuxMobile.setupComplete") private var setupComplete = false
+    /// Setup ended in this session (its last page, or nothing left to ask). The shell follows it
+    /// at once, whatever the stored flag reads back: a launch argument (`-cmuxMobile.setupComplete
+    /// NO`, `-cmux-mobile-setup-step`) pins the stored flag, and setup could never be left. Cleared
+    /// on sign-out.
+    @State private var setupFinished = false
     /// The account whose preferences are live (`AccountPreferences`); sign-out
     /// puts them away under it.
     @State private var accountUserID: String?
@@ -134,6 +139,7 @@ public struct RootView: View {
 
     private var destination: Destination {
         guard auth.isSignedIn else { return .welcome }
+        if setupFinished { return .shell }
         return accountSetupComplete && !options.forceSetup ? .shell : .setup
     }
 
@@ -164,9 +170,11 @@ public struct RootView: View {
                             startChat: { prompt in
                                 firstChat.prompt = prompt
                                 setupComplete = true
+                                setupFinished = true
                             }
                         ) {
                             setupComplete = true
+                            setupFinished = true
                             theme.haptics.success()
                         }
                     case .shell:
@@ -429,6 +437,8 @@ public struct RootView: View {
         live = nil
         shellModel.discard { $0.cloudChats = nil }
         setupPlan = nil
+        setupFinished = false
+        firstChat.prompt = nil
         asksNotifications = nil
         if auth.isMock {
             // The next account starts on Home, not in this one's workspace.
