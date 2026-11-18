@@ -8,8 +8,9 @@
 //! Only the hub knows that; `run` exits with `EXIT_NEEDS_SETUP` when it hears it.
 
 use super::consent::LocalConsent;
-use super::identity::{self, Account, Device};
+use crate::capture::Readback;
 use crate::capture_backend::{x_display, CaptureBackend};
+use cmux_hub_host::identity::{self, Account, Device};
 use serde_json::{json, Value};
 
 pub const SCHEMA: &str = "cmux.screen-share.status/1";
@@ -27,6 +28,7 @@ pub fn gather(now_ms: u64) -> Facts {
         size: None,
         portal_granted: false,
         portal_control: false,
+        readback: None,
     };
     let Some(dir) = dir.filter(|_| enabled) else {
         return Facts { enabled, setup_ok: false, consent: None, capture: idle };
@@ -48,16 +50,26 @@ pub fn gather(now_ms: u64) -> Facts {
 fn probe_capture(backend: CaptureBackend) -> Capture {
     match backend {
         CaptureBackend::X11 => {
-            let display = x_display(None, None, std::env::var("DISPLAY").ok().as_deref());
+            let env = std::env::var("DISPLAY").ok().filter(|v| !v.is_empty());
+            // Without a DISPLAY (a command over ssh), the virtual display this machine's host
+            // shares, if it has one.
+            let virtual_display = env.is_none().then(super::setup::virtual_display).flatten();
+            let env = env.or_else(|| virtual_display.map(|n| format!(":{n}")));
+            let display = x_display(None, None, env.as_deref());
             // Only a local display is probed: a `host:N` display is a TCP connection.
             let local = display.starts_with(':') || display.starts_with("unix:");
-            let size = local.then(|| x11_root_size(&display)).flatten();
+            let probe = local.then(|| x11_probe(&display)).flatten();
+            // A stopped virtual display is no reason to say unsupported: the host starts it
+            // when a share needs it.
+            let stopped_virtual = virtual_display
+                .is_some_and(|n| !std::path::Path::new(&format!("/tmp/.X11-unix/X{n}")).exists());
             Capture {
                 backend,
-                usable: !local || size.is_some(),
-                size,
+                usable: !local || probe.is_some() || stopped_virtual,
+                size: probe.map(|(size, _)| size),
                 portal_granted: false,
                 portal_control: false,
+                readback: probe.map(|(_, readback)| readback),
             }
         }
         CaptureBackend::Portal => Capture {
@@ -65,17 +77,25 @@ fn probe_capture(backend: CaptureBackend) -> Capture {
             usable: backend.available().is_ok() && session_bus(),
             size: None,
             portal_granted: portal_token_saved(),
+            readback: None,
             portal_control: crate::capture_backend::portal_control_granted(),
         },
     }
 }
 
-/// The root window size of the X display, when it accepts a connection.
-fn x11_root_size(display: &str) -> Option<(u32, u32)> {
+/// The root window size of the X display, when it accepts a connection, and how a capture
+/// would read its pixels back (a one-page shared segment, freed when the connection closes).
+fn x11_probe(display: &str) -> Option<((u32, u32), Readback)> {
     use x11rb::connection::Connection;
     let (conn, screen) = x11rb::connect(Some(display)).ok()?;
     let root = conn.setup().roots.get(screen)?;
-    Some((root.width_in_pixels.into(), root.height_in_pixels.into()))
+    let size = (root.width_in_pixels.into(), root.height_in_pixels.into());
+    // No warning here: `status` is polled; the capture itself warns once per session.
+    let readback = match crate::capture::shm_works(&conn, 4096) {
+        Ok(_) => Readback::Shm,
+        Err(_) => Readback::Core,
+    };
+    Some((size, readback))
 }
 
 /// Whether there is a session bus to reach the portal on (no call is made).
@@ -121,6 +141,8 @@ pub struct Capture {
     pub size: Option<(u32, u32)>,
     /// A portal restore token is saved, so Start needs nobody at the screen.
     pub portal_granted: bool,
+    /// X11: how a capture reads pixels back here, when the display answered.
+    pub readback: Option<Readback>,
     /// The saved grant is RemoteDesktop's, so portal sessions apply a viewer's input.
     pub portal_control: bool,
 }
@@ -160,10 +182,16 @@ pub fn status_json(facts: &Facts, version: &str) -> Value {
         }),
         _ => Value::Null,
     };
+    // `getimage` is a slower capture than `xshm`: the status says so, not only a log.
+    let capture_backend = match (capture.backend, capture.readback) {
+        (CaptureBackend::Portal, _) => Some("portal"),
+        (CaptureBackend::X11, readback) => readback.map(Readback::name),
+    };
     json!({
         "schema": SCHEMA,
         "platform": "linux",
         "state": state,
+        "capture_backend": capture_backend,
         "control": facts.enabled && applies_input && consent.is_some_and(|c| c.full),
         "display": display,
         "helperVersion": version,
@@ -186,7 +214,18 @@ mod tests {
             size,
             portal_granted: false,
             portal_control: false,
+            readback: Some(Readback::Shm),
         }
+    }
+
+    #[test]
+    fn a_core_getimage_capture_says_so_in_the_status() {
+        let v = status_json(&ready(FULL, x11(Some((1920, 1080)))), "v");
+        assert_eq!(v["capture_backend"], "xshm");
+        let slow = Capture { readback: Some(Readback::Core), ..x11(Some((1920, 1080))) };
+        assert_eq!(status_json(&ready(FULL, slow), "v")["capture_backend"], "getimage");
+        let unknown = Capture { readback: None, usable: false, ..x11(None) };
+        assert_eq!(status_json(&ready(FULL, unknown), "v")["capture_backend"], Value::Null);
     }
 
     fn ready(consent: LocalConsent, capture: Capture) -> Facts {
@@ -206,6 +245,7 @@ mod tests {
                 "schema": "cmux.screen-share.status/1",
                 "platform": "linux",
                 "state": "granted",
+                "capture_backend": "xshm",
                 "control": true,
                 "display": {"capture": "x11", "width": 1920, "height": 1080},
                 "helperVersion": "1.2.3",
@@ -286,9 +326,11 @@ mod tests {
             usable: true,
             size: None,
             portal_granted: false,
+            readback: None,
             portal_control: false,
         };
         let v = status_json(&ready(FULL, portal.clone()), "v");
+        assert_eq!(v["capture_backend"], "portal");
         assert_eq!(v["state"], "needs_grant");
         assert_eq!(missing(&v), ["portal_grant"]);
         // Without a RemoteDesktop grant the portal applies no input: control allowed is still
@@ -327,6 +369,7 @@ mod tests {
                 usable: true,
                 size: None,
                 portal_granted: false,
+                readback: None,
                 portal_control: false,
             },
         };
@@ -349,6 +392,7 @@ mod tests {
                                     size: None,
                                     portal_granted,
                                     portal_control: false,
+                                    readback: None,
                                 };
                                 let facts = Facts { enabled, setup_ok, consent, capture };
                                 let v = status_json(&facts, "v");

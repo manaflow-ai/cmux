@@ -169,8 +169,13 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     # The app's idle memory, empty and with 10 idle agent chats open (memory-agents-cron.py, bench_memory.py on the
     # acpmux test agent): the rows behind goals ram-baseline and memory-per-chat in cmuxterm-hq's NOW (CMUX-571).
-    {"name": "memory-agents", "args": [*MEASURE, "--suite=memory-agents", "--agents=10"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "run_seconds": 1500},
+    # It measures the bench configuration (Release optimization, split-spring.sh --config=bench), the build people
+    # run: the goal compares it with other apps' release builds and with the 2026-11-08 Release baseline (app process
+    # 243-285 MB). Rows before this were the Debug build, whose app process read 323.3 MB at 8c515cc5, so a Debug row
+    # read as growth that was the build. The bench build is the one throughput uses: one build serves both parts.
+    {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
+     "run_seconds": 2400},  # 1500 s for the bench, plus a cold bench build (800 s) when this part runs first
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
     # CMUX-571 goal terminal-throughput reads terminal.throughput.ratio. One step runs both terminals. NEXT runs in the
@@ -634,20 +639,28 @@ def paired_ratio_rows(rounds):
     god / small ratio (god_ratio_rows over that round's PERF_ROW lines, both chats played at once), and the row is the
     median over the rounds, with its 95% interval (ci_lo, ci_hi, ci_width), the per-round ratios and their count. A row
     needs GOD_PAIRED_MIN_ROUNDS rounds that measured it. Run one after the other, a round's ratio swung 0.5x to 1.9x on
-    the same code; paired, about 0.08x (cmux#43874)."""
+    the same code; paired, about 0.08x (cmux#43874).
+    The small chat's least value (GOD_RATIO_MIN) is judged on the median of the rounds' small p95, not per round: in a
+    paired round both chats run on the runner at the same speed, so a fast round (small token p95 3.6 ms, god 4.4 ms)
+    is as good a pair as a slow one. Judged per round, that one fast round of five dropped the token and thought rows
+    under GOD_PAIRED_MIN_ROUNDS, and the board read the one-run ratio (1.578) in place of the paired median (1.384) at
+    83b6f50f (perf cron run 43797713590)."""
     per = {}
     for each in rounds:
-        rows = each.get("rows") if isinstance(each, dict) else None
-        for name, r in god_ratio_rows(webui_rows(rows)).items():
+        for name, r in _paired_round_ratios(each).items():
             per.setdefault(name, []).append(r)
     out = {}
     for name, rs in sorted(per.items()):
         if len(rs) < GOD_PAIRED_MIN_ROUNDS:
             continue
+        small = median([r["small_p95"] for r in rs])
+        if small <= max(rs[0].get("twin_floor") or 0, rs[0]["least"]):
+            continue
         ratios = [r["p95"] for r in rs]
         mid = round(median(ratios), 3)
         lo, hi = median_interval(ratios)
-        out[name] = {**rs[0], "p50": mid, "p95": mid, "god_p95": round(median([r["god_p95"] for r in rs]), 4),
+        first = {k: v for k, v in rs[0].items() if k not in ("least", "twin_floor")}
+        out[name] = {**first, "p50": mid, "p95": mid, "god_p95": round(median([r["god_p95"] for r in rs]), 4),
                      "small_p95": round(median([r["small_p95"] for r in rs]), 4), "paired": True, "rounds": len(rs),
                      "ci_lo": round(lo, 3), "ci_hi": round(hi, 3), "ci_width": round(hi - lo, 3),
                      "round_ratios": ratios, "measure_version": max(r["measure_version"] for r in rs)}
@@ -659,14 +672,26 @@ def paired_settled(rounds):
     GOD_PAIRED_MIN_ROUNDS or more rounds whose 95% interval is narrower than GOD_PAIRED_CI_WIDTH."""
     if len(rounds) < GOD_PAIRED_MIN_ROUNDS:
         return False
-    board = [r for n, r in paired_ratio_rows(rounds).items() if GOD_PAIRED_BOARD_RE.match(n)]
-    return bool(board) and all(r["ci_width"] < GOD_PAIRED_CI_WIDTH for r in board)
+    # Every board row the rounds measured must have its median, not just the ones that did: a board row with no
+    # median (heap settled, token and thought short of rounds) stopped the rounds at five at 83b6f50f.
+    measured = {n for each in rounds for n in _paired_round_ratios(each) if GOD_PAIRED_BOARD_RE.match(n)}
+    published = paired_ratio_rows(rounds)
+    return bool(measured) and all(n in published and published[n]["ci_width"] < GOD_PAIRED_CI_WIDTH
+                                  for n in measured)
 
 
-def god_ratio_rows(rows):
+def _paired_round_ratios(each):
+    """One paired round's {webui.god_ratio.<twin>: row} (pure), with no least-twin cut (paired_ratio_rows judges
+    that on the rounds' median) and the twin's floor and least kept as twin_floor and least for it."""
+    rows = each.get("rows") if isinstance(each, dict) else None
+    return god_ratio_rows(webui_rows(rows), least_twin=False)
+
+
+def god_ratio_rows(rows, least_twin=True):
     """{webui.god_ratio.<twin>: row} for each god row with an ordinary twin in ROWS (pure): god p95 / twin p95, unit
     x, budget GOD_RATIO_MAX. Rows of another unit, slopes and per-operation rows, and twins at or under their noise
-    floor get none."""
+    floor get none. With least_twin False that last cut is left to the caller, and each row carries the twin's floor
+    and least value (twin_floor, least)."""
     out = {}
     for name, god in rows.items():
         m = re.match(r"^webui\.([a-z0-9_]+)\.god\.(.+)$", name)
@@ -681,13 +706,15 @@ def god_ratio_rows(rows):
         if not isinstance(small, (int, float)) or not isinstance(big, (int, float)) or small <= 0:
             continue
         least = GOD_RATIO_MIN_RATE if name.endswith("_per_s") else GOD_RATIO_MIN[unit]
-        if small <= max(twin.get("floor") or 0, least):
+        if least_twin and small <= max(twin.get("floor") or 0, least):
             continue
         ratio = round(big / small, 3)
         version = max(god.get("measure_version") or DIFF_LEGACY_VERSION, twin.get("measure_version") or DIFF_LEGACY_VERSION)
-        out[f"webui.god_ratio.{m.group(1)}.{m.group(2)}"] = {
-            "p50": ratio, "p95": ratio, "unit": "x", "budget": GOD_RATIO_MAX, "floor": 0.1, "measure_version": version,
-            "god_p95": big, "small_p95": small}
+        key = f"webui.god_ratio.{m.group(1)}.{m.group(2)}"
+        out[key] = {"p50": ratio, "p95": ratio, "unit": "x", "budget": GOD_RATIO_MAX, "floor": 0.1,
+                    "measure_version": version, "god_p95": big, "small_p95": small}
+        if not least_twin:
+            out[key].update(twin_floor=twin.get("floor") or 0, least=least)
     return out
 
 
@@ -1358,6 +1385,25 @@ def http_json(url, timeout=30):
         return json.load(r)
 
 
+# What a measurement step asks the host to have free (the controller's min_free_bytes of a bench or measure job).
+MEASURE_MIN_FREE_BYTES = 11811160064
+
+
+def disk_starved(w):
+    """Why the worker cannot be leased a measurement step for want of disk, or "" (pure): its free disk is under
+    MEASURE_MIN_FREE_BYTES and its heartbeat counts too little evictable for the controller or worker to free it."""
+    free = w.get("free_bytes")
+    if not isinstance(free, (int, float)) or isinstance(free, bool) or free >= MEASURE_MIN_FREE_BYTES:
+        return ""
+    evictable = (w.get("disk") or {}).get("evictable_bytes")
+    if not isinstance(evictable, (int, float)) or isinstance(evictable, bool):
+        evictable = 0
+    if free + evictable >= MEASURE_MIN_FREE_BYTES:
+        return ""
+    return (f"disk {free / 1e9:.1f} GB free of the {MEASURE_MIN_FREE_BYTES / 1e9:.1f} GB a measurement step needs, "
+            f"{evictable / 1e9:.1f} GB evictable")
+
+
 def fleet_verdict(status, workers, jobs, worker, yield_mode, mine=()):
     """None when the fleet lets the perf cron run a part on `worker` now, else the reason it yields.
     status: /v1/status; workers: `cmux-ci workers` ({name: heartbeat}); jobs: /v1/jobs (all recent)."""
@@ -1366,6 +1412,12 @@ def fleet_verdict(status, workers, jobs, worker, yield_mode, mine=()):
         return f"{worker} is not a controller worker now"
     if not w.get("healthy"):
         return f"{worker} is not healthy"
+    starved = disk_starved(w)
+    if starved:
+        # Healthy and idle, yet the controller leases it nothing: a measurement step asks MEASURE_MIN_FREE_BYTES and the
+        # worker has nothing to evict. 2026-11-16: the bench host sat at 10.9 GB free, every request to it queued until
+        # the cron gave it up, and no Mac row was stored for 34 h (tabs-keep-speed red).
+        return f"{worker} is not healthy: {starved}"
     seen = parse_iso((w.get("last_seen") or "")[:19] + "Z") if w.get("last_seen") else None
     if not seen or hours_between(seen, now_utc()) * 3600 > 180:
         return f"{worker} has not been seen for over 3 minutes"
@@ -3415,6 +3467,67 @@ def cmd_report(o):
     print_calls("report")
 
 
+def load_budgets():
+    """The budgets module and perf-budgets.json (with the animation budgets), for rows_of_part."""
+    mod = load_budgets_module()
+    budgets = json.load(open(os.path.join(HERE, "perf-budgets.json")))
+    budgets["_animations"] = animation_budgets(mod)
+    return mod, budgets
+
+
+def part_rows_named(cur, name, p, report, mod, budgets, worker):
+    """A finished part's rows as the measurement stores them (named row@host, with the refresh, macOS, measurement
+    version and part config they were measured under), and the refresh the part saw (None when it saw none). One
+    function for the finish of a measurement and for the part-by-part store (store_part_rows), so a row reads the same
+    in both."""
+    part_rows = rows_of_part(PART_BY_NAME[name], report, mod, budgets)
+    # Each fleet part's rows carry the refresh that part saw (split-spring.sh puts its display into the
+    # report): a part that saw none leaves its frame rows unknown, never another part's rate.
+    r = refresh_ms_of(report)
+    if not is_linux_part(name):
+        for row in part_rows.values():
+            row.setdefault("refresh_ms", r)
+            row.setdefault("macos", macos_minor(p.get("macos")))
+            if isinstance(cur.get("measure_version"), int):
+                row.setdefault("measure_version", cur["measure_version"])
+    config = (cur.get("configs") or {}).get(name) if isinstance(cur.get("configs"), dict) else None
+    if isinstance(config, str):
+        for row in part_rows.values():
+            row.setdefault("part_config", config)
+    # Each part's rows carry the host that ran that part (a Mac worker, or the Linux part's runner class).
+    return host_rows(part_rows, worker), r
+
+
+def store_part_rows(state, cur, name, p, report, mod, budgets, run_url, t):
+    """Store a finished tip part's rows now, tagged with the tip's SHA (state['part_rows'], state['part_stored']),
+    instead of only when the whole measurement ends: a part that finishes keeps its rows when another part fails, the
+    host goes quiet or the tip is replaced (rows and comparison at the end of the measurement are unchanged: this
+    store feeds neither row_history nor any regression). A complete part only (an incomplete one is judged at the
+    finish); a bisect step measures an old commit, not the tip. Returns the number of rows stored."""
+    if cur.get("kind") != "tip" or report_is_incomplete(PART_BY_NAME[name], report):
+        return 0
+    named, _ = part_rows_named(cur, name, p, report, mod, budgets, p.get("worker"))
+    store = state.setdefault("part_rows", {})
+    keep = ("p50", "p95", "unit", "refresh_ms", "macos", "measure_version", "part_config")
+    for row_name, row in named.items():
+        if isinstance(row, dict) and isinstance(row.get("p95"), (int, float)):
+            store[row_name] = {**{k: v for k, v in row.items() if k in keep},
+                               "sha": cur["sha"], "at": iso(t), "run_url": run_url, "part": name}
+    state.setdefault("part_stored", {})[name] = {"sha": cur["sha"], "at": iso(t), "run_url": run_url, "rows": len(named)}
+    return len(named)
+
+
+def stale_parts(state, now):
+    """The parts whose newest stored rows (store_part_rows) are older than STALE_HOURS, oldest first; per part, not
+    per measurement: a measurement that keeps failing one part leaves the others' rows fresh."""
+    old = []
+    for name, e in (state.get("part_stored") or {}).items():
+        at = parse_iso((e or {}).get("at")) if isinstance(e, dict) else None
+        if at and hours_between(at, now) > STALE_HOURS:
+            old.append((e["at"], name))
+    return [n for _, n in sorted(old)]
+
+
 def report(o):
     t = now_utc()
     state = load_state(o.dir, t)
@@ -3492,11 +3605,15 @@ def report(o):
                 mark_host(state, result["worker"], macos=cur["macos"], at=iso(t))
             with open(os.path.join(o.dir, "parts", f"{part}.json"), "w") as dst:
                 json.dump({"measurement": measurement_id(cur), "report": report_value}, dst)
+            if isinstance(report_value, dict):
+                try:
+                    stored_mod, stored_budgets = load_budgets()
+                    store_part_rows(state, cur, part, entry, report_value, stored_mod, stored_budgets, o.run_url, t)
+                except Exception as error:  # a row that does not parse is the finish's to report; never fail the tick
+                    print(f"perf-cron report: part {part}: rows not stored now ({error!r})", file=sys.stderr)
     if cur and not cur["parts_todo"] and (changed or o.finish):
         changed = True
-        mod = load_budgets_module()
-        budgets = json.load(open(os.path.join(HERE, "perf-budgets.json")))
-        budgets["_animations"] = animation_budgets(mod)
+        mod, budgets = load_budgets()
         rows, refresh = {}, []
         for name, p in cur["parts"].items():
             # Only a part that finished in THIS measurement: a failed, yielded-out or build_failed part, or a file
@@ -3528,24 +3645,10 @@ def report(o):
                     # for next_now(): do not immediately chain another tick
                     # into a still-open regression after partial coverage.
                     fleet_done = False
-            part_rows = rows_of_part(PART_BY_NAME[name], report, mod, budgets)
-            # Each fleet part's rows carry the refresh that part saw (split-spring.sh puts its display into the
-            # report): a part that saw none leaves its frame rows unknown, never another part's rate.
-            r = refresh_ms_of(report)
+            named, r = part_rows_named(cur, name, p, report, mod, budgets, worker)
             if r:
                 refresh.append(r)
-            if not is_linux_part(name):
-                for row in part_rows.values():
-                    row.setdefault("refresh_ms", r)
-                    row.setdefault("macos", macos_minor(p.get("macos")))
-                    if isinstance(cur.get("measure_version"), int):
-                        row.setdefault("measure_version", cur["measure_version"])
-            config = (cur.get("configs") or {}).get(name) if isinstance(cur.get("configs"), dict) else None
-            if isinstance(config, str):
-                for row in part_rows.values():
-                    row.setdefault("part_config", config)
-            # Each part's rows carry the host that ran that part (a Mac worker, or the Linux part's runner class).
-            rows.update(host_rows(part_rows, worker))
+            rows.update(named)
         refresh_ms = sorted(refresh)[len(refresh) // 2] if refresh else None
         sha = cur["sha"]
         fleet_ran = any(p.get("state") in ("done", "incomplete") and not is_linux_part(n)
@@ -3575,6 +3678,10 @@ def report(o):
     stale = stale_hours(state, t) > STALE_HOURS
     if stale:
         line += f"; stale: no finished measurement since {stale_basis(state)}"
+    old_parts = stale_parts(state, t)
+    if old_parts:
+        line += (f"; {len(old_parts)} of {len(state.get('part_stored') or {})} part(s) stored no rows for over "
+                 f"{STALE_HOURS} h: {', '.join(old_parts[:8])}")
     # An issue update GitHub refused for the rate limit is made by the next tick (its event and summary are kept).
     retry = state.pop("issue_retry", None) if not event else None
     if retry:

@@ -255,6 +255,7 @@ reloads the view, and the app installs itself the first time. No restart, no
 install click.
 
 - A new view of its own (a sidebar section or a Session Info section): run `cmux ext new NAME --kind sidebar|session-info --json` in a folder, edit its `src/main.ts`, then `cmux ext dev --once --json` until ok.
+  To share it from GitHub: `cmux ext new NAME --repo OWNER/REPO`, then `cmux ext publish --json` says what is left (push, `cmux ext pack` and a release, the registry PR) ([extensions.md](references/extensions.md)).
 - `implements["cmux.section/1"]` is its one sidebar section; `options.defaultRegion`
   `top`, `middle` or `bottom` (the band under the workspace list). cmux places it
   there the first time it sees it, and the person's later move or removal wins.
