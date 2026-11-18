@@ -51,6 +51,18 @@ describe("the person's own devices", () => {
     expect(await host.user!.none((f) => f.type === "session.request" || f.type === "session.ticket")).toBe(true);
   });
 
+  it("a pending request reaches the host again when its socket comes back", async () => {
+    const { host, viewer } = await setup();
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "ask" });
+    const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
+    expect(res.json.session.state).toBe("pending");
+    const sid = res.json.session.id as string;
+    // The host's first socket drops before it shows the prompt; the one it opens next must get it.
+    const again = await host.connect();
+    const req = await again.next((f) => f.type === "session.request" && f.session?.id === sid);
+    expect(req.session).toMatchObject({ id: sid, viewerId: viewer.id, scope: "view" });
+  });
+
   it("admission follows membership: a removed device loses its open session and the next one", async () => {
     const { host, viewer } = await setup();
     const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "full" });
