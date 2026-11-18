@@ -20,9 +20,18 @@ CefRefPtr<CefBrowserHost> HostOf(int browser_id) {
   return browser ? browser->GetHost() : nullptr;
 }
 
+// Experiment (lane/rtc-alloy-experiment, not for merge): UI thread only.
+bool g_experiment_alloy_next = false;
+
 }  // namespace
 
 extern "C" {
+
+// Experiment: not in the header (the ABI identity stays the base's); Swift
+// resolves it as an optional symbol.
+__attribute__((visibility("default"))) void cmux_shim_experiment_alloy_next(int on) {
+  g_experiment_alloy_next = on != 0;
+}
 
 int cmux_shim_create_window(int request, void* parent_view, int width, int height, const char* url,
                             const char* profile_cache_path) {
@@ -32,6 +41,13 @@ int cmux_shim_create_window(int request, void* parent_view, int width, int heigh
   CefWindowInfo info;
   info.SetAsChild((__bridge CefWindowHandle)(__bridge NSView*)parent_view, CefRect(0, 0, width, height));
   info.runtime_style = CEF_RUNTIME_STYLE_CHROME;
+  // Experiment (lane/rtc-alloy-experiment, not for merge): a cmux page's browser
+  // (CEFPaneHost turns cmux_shim_experiment_alloy_next on around this call
+  // when CMUX_CHAT_ALLOY=1) is Alloy style: a child NSView of parent_view, no
+  // Chrome browser window, tab strip or toolbar views to build.
+  if (g_experiment_alloy_next) {
+    info.runtime_style = CEF_RUNTIME_STYLE_ALLOY;
+  }
   CefBrowserSettings settings;
   settings.background_color = BackgroundColor();
   // cmux draws the hovered link itself (CMUX_SHIM_STATUS_MESSAGE): Chrome's

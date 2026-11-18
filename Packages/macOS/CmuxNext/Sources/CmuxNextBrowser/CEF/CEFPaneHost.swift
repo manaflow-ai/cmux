@@ -265,9 +265,14 @@ final class CEFPaneHost {
             ChatOpenTrace.shared.mark(.cefWindowCreate, chromiumPane: key.pane.rawValue)
             #endif
             let initialURL = tab.takeInitialURLString()
+            // Experiment (lane/rtc-alloy-experiment, not for merge): with CMUX_CHAT_ALLOY=1 a cmux page's
+            // browser is created Alloy style (the shim's experiment switch, for this one call).
+            let alloy = key.pane.rawValue.hasPrefix("cmux-page-") && ProcessInfo.processInfo.environment["CMUX_CHAT_ALLOY"] == "1"
             let create = {
                 CEFStartSteps.shared.createWindow {
-                    shim.createWindow(request, Unmanaged.passUnretained(self.hostView).toOpaque(),
+                    if alloy { shim.experimentAlloyNext?(1) }
+                    defer { if alloy { shim.experimentAlloyNext?(0) } }
+                    return shim.createWindow(request, Unmanaged.passUnretained(self.hostView).toOpaque(),
                                       max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32, initialURL, contextKey)
                 }
             }
