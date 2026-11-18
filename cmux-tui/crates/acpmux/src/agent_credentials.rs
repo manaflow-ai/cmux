@@ -81,6 +81,11 @@ pub const OPENAI_KEY_PROVIDER: &str = "openai_api_key";
 /// Where the OpenAI key's provider sends.
 pub const OPENAI_BASE: &str = "https://api.openai.com/v1";
 
+/// The spawn env variable that names the credential's variable (never its value), so the agent
+/// host that holds the env can give the credential back to the next daemon ([`recover`]). An
+/// `ACPMUX_` name: a daemon's own env never passes one to an agent (`agent/command.rs`).
+pub const MARK: &str = "ACPMUX_AGENT_CREDENTIAL";
+
 /// The longest value taken (a ChatGPT JWT is a few KiB).
 const MAX_VALUE_BYTES: usize = 16 * 1024;
 
@@ -168,6 +173,24 @@ impl AgentCredential {
     /// The variable names (never a value).
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.env.keys().map(String::as_str)
+    }
+}
+
+impl serde::Serialize for AgentCredential {
+    /// `{env: {NAME: value}}`, only on an agent host's own socket (`HostFrame::HostHello`).
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap as _;
+        let mut map = s.serialize_map(Some(1))?;
+        map.serialize_entry("env", &self.env)?;
+        map.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for AgentCredential {
+    /// Read back through [`AgentCredential::parse`]: the same rules as a start's.
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let value = Value::deserialize(d)?;
+        Self::parse(&value).map_err(|e| serde::de::Error::custom(e.message))
     }
 }
 

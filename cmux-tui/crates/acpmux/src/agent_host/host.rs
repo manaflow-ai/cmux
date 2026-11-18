@@ -1551,6 +1551,7 @@ impl State {
                 acked_h: self.acked_h,
                 max_out_id: self.max_out_id,
                 exited,
+                credential: None,
             });
             self.controller = Some(Controller { id, tx, resumed: false });
             self.last_owner = Some(id);

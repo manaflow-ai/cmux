@@ -271,6 +271,48 @@ async fn detach_hands_off_and_a_second_owner_supersedes_the_first() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The Cloud journey's "turn after resume" (run 44308479289): a Claude chat started on the owner's
+/// launch credential, its daemon restarted, the agent hibernated after two idle minutes, and the
+/// next wake ran Claude with no login ("Not logged in"). The credential lived only in the old
+/// daemon's memory; the host that held the spawn env gives it to the daemon that adopts it.
+#[tokio::test]
+async fn an_adopting_controller_gets_back_the_credential_its_harness_started_with() {
+    use acpmux::agent_credentials::{self, AgentCredential, CLAUDE_OAUTH};
+    const TOKEN: &str = "sk-ant-oat01-adopted-launch-token";
+    let dir = scratch("cred");
+    let credential = AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: TOKEN}})).unwrap();
+    let mut credentialed = spec(&dir, "s-cred");
+    let mut env: std::collections::BTreeMap<String, String> =
+        credentialed.env.iter().cloned().collect();
+    assert!(agent_credentials::apply(&credential, "claude", &mut Vec::new(), &mut env));
+    credentialed.env = env.into_iter().collect();
+    let record = link::spawn(&launcher(), &credentialed).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let (first, adopted) = connected(&record, 0).await;
+    assert_eq!(adopted.credential.as_ref(), Some(&credential), "the starting daemon's hello");
+    first.detach().await.expect("detach acknowledged");
+
+    // The next daemon (a restart) adopts the host: the credential comes back with the hello.
+    let (second, adopted) = connected(&record, 0).await;
+    assert_eq!(adopted.credential.as_ref(), Some(&credential), "the adopting daemon's hello");
+    assert!(!format!("{adopted:?}").contains(TOKEN), "its Debug never shows the value");
+    let mut logged = 0;
+    second.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&second, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+
+    // A host started with no credential gives none back.
+    let record = link::spawn(&launcher(), &spec(&dir, "s-plain")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let (plain, adopted) = connected(&record, 0).await;
+    assert_eq!(adopted.credential, None);
+    let mut logged = 0;
+    plain.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&plain, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[tokio::test]
 async fn an_incompatible_controller_is_refused_and_the_agent_keeps_running() {
     let dir = scratch("incompat");

@@ -136,6 +136,12 @@ pub enum HostFrame {
         max_out_id: i64,
         /// The harness exit code once it exited (`Some(None)` = killed).
         exited: Option<Option<i32>>,
+        /// The owner's Cloud credential the harness was started with (`agent_credentials.rs`
+        /// `recover`, from the spawn env this host holds in memory), so a daemon that restarts
+        /// starts the chat's next agent on it again. Only on this 0600 socket; its `Debug` never
+        /// shows a value. None from a host of an older build, or one started without it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        credential: Option<crate::agent_credentials::AgentCredential>,
     },
     Incompatible {
         min: u16,

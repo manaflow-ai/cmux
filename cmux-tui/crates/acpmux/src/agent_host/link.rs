@@ -243,6 +243,8 @@ pub struct Adopted {
     pub acked_h: u64,
     pub max_out_id: i64,
     pub exited: Option<Option<i32>>,
+    /// The owner's Cloud credential its harness started with (`HostFrame::HostHello::credential`).
+    pub credential: Option<crate::agent_credentials::AgentCredential>,
 }
 
 pub enum Connect {
@@ -579,6 +581,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             acked_h,
             max_out_id,
             exited,
+            credential,
         }) => Adopted {
             version,
             host_build,
@@ -588,6 +591,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
             acked_h,
             max_out_id,
             exited,
+            credential,
         },
         Some(HostFrame::Incompatible { min, max, host_build }) => {
             return Ok(Connect::Incompatible { min, max, host_build });
