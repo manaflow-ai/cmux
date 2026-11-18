@@ -253,7 +253,7 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         uploads = [s for s in steps() if "upload-artifact" in s.get("uses", "")]
         self.assertEqual(len(uploads), 1)
         self.assertEqual(
-            uploads[0]["with"]["path"].split(),
+            [p.strip() for p in uploads[0]["with"]["path"].splitlines() if p.strip()],
             ["${{ runner.temp }}/machine-join-e2e/evidence.json", "${{ runner.temp }}/machine-join-e2e/frame.png"],
         )
         # The picture is read as the viewer (never as root, which would follow a link the viewer planted),
