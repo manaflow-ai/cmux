@@ -1,10 +1,10 @@
 //! The smaller window handlers' ops (`window_notifications_*`,
 //! `window_history_*`, `window_remote_*`, `window_browser_*`,
-//! `window_files_*`, `window_appearance_*`, `window_launch_*`): their tables
+//! `window_files_*`, `window_appearance_*`, `window_launch_*`, `window_restore_*`): their tables
 //! and refusals.
 
 use cmux_window_rules::{
-    appearance, browser, files, history, launch, notifications, remote, screen_share,
+    appearance, browser, files, history, launch, notifications, remote, restore, screen_share,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -139,8 +139,17 @@ struct Keymap {
     changed: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RestoreOrder {
+    #[serde(default)]
+    windows: Vec<restore::SavedWindow>,
+    adopted: Option<String>,
+}
+
 /// The domains whose ops this module answers.
-const DOMAINS: [&[u8]; 7] = [
+const DOMAINS: [&[u8]; 8] = [
+    b"window_restore_",
     b"window_notifications_",
     b"window_history_",
     b"window_remote_",
@@ -158,6 +167,11 @@ pub(crate) fn handles(operation: &[u8]) -> bool {
 /// One op of the smaller window handlers.
 pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     let answer = match operation {
+        // Which saved windows a launch makes now (the front one) and which follow, one per turn.
+        b"window_restore_order" => {
+            let request: RestoreOrder = read(request)?;
+            value(restore::order(&request.windows, request.adopted.as_deref()))?
+        }
         // Which unread tabs a notification verb acknowledges and opens.
         b"window_notifications_plan" => {
             let request: Unread = read(request)?;
@@ -262,6 +276,11 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
         b"window_launch_snapshot_verdict" => {
             let facts: launch::SnapshotFacts = read(request)?;
             json!({ "verdict": launch::verdict(&facts) })
+        }
+        // Where the launch's front window lands: the last workspace and tab, or Home (Leo ask-b7aac8d3f9).
+        b"window_launch_landing" => {
+            let facts: launch::LandingFacts = read(request)?;
+            value(launch::landing(&facts))?
         }
         _ => return Err(ERR_INVALID),
     };

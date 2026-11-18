@@ -152,7 +152,7 @@ public final class AgentPaneCloudMachines {
         /// list is gone. A failed, superseded or merely cached read is not complete.
         public var complete: Bool
         /// The team Cloud works in (the active team): its name, and whether it is the person's own.
-        /// The page names it on the Cloud row and face (webviews TeamTag.tsx).
+        /// The page keeps it for diagnostics; the Cloud row and face say only Cloud (cmux issue 45695).
         public var team: Team?
         /// The account's teams as the team menu lists them (`teams` of the reply): the page names a
         /// team only when it is one of these (webviews TeamTag.tsx `activeTeamFromReply`).
