@@ -52,10 +52,28 @@ extension PageWebView {
         pendingRestartNotice = nil
     }
 
-    /// Ends the page's renderer by force (``PageChromiumPage/endRenderer()``): every page in it
-    /// ends too. Returns the pid ended (0: ended, pid unknown), nil when nothing was ended.
-    public func endHungRenderer() -> Int32? {
-        guard !isClosed else { return nil }
-        return chromiumPage?.rendererProcess?.endRenderer()
+    /// Ends the one renderer `pages` share, by force (``PageRendererProcess/endRenderer()``):
+    /// every page is marked first to reload as a repair and to show `notice` once it loads again,
+    /// then the first open page's renderer ends (and every page in it with it); when nothing
+    /// ended, the marks are taken back. Returns the pid ended (0: ended, pid unknown), or nil.
+    public static func endHungRenderer(of pages: [PageWebView], notice: String) -> Int32? {
+        for page in pages { page.prepareForRendererEnd(notice: notice) }
+        let renderer = pages.lazy.filter { !$0.isClosed }.compactMap { $0.chromiumPage?.rendererProcess }.first
+        guard let ended = renderer?.endRenderer() else {
+            for page in pages { page.cancelRendererEnd() }
+            return nil
+        }
+        return ended
+    }
+
+    /// This page in the watchdog's log line: who it is (``logIdentity``, else its page id), its
+    /// pane, whether it shows, and its last page-to-host message (seq, name, age at `now`, in
+    /// `systemUptime` seconds). Every page of a hung renderer is named: they share one main
+    /// thread, so the host cannot tell which page's script holds it.
+    public func livenessLogEntry(visible: Bool, now: TimeInterval) -> String {
+        let messages = pageMessages
+        let last = messages.lastUptime.map { String(format: "%.0f s ago", now - $0) } ?? "never"
+        let who = logIdentity?() ?? "page \(descriptor.id)"
+        return "[\(who) pane=\(healthPartID) \(visible ? "visible" : "hidden") lastMessage=#\(messages.count) \(messages.lastName ?? "none") \(last)]"
     }
 }

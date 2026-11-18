@@ -271,13 +271,7 @@ final class AppHealthPageFeed: PageHealthFeed {
         let footprint = usage.map { ByteCountFormatter.string(fromByteCount: Int64(clamping: $0.physFootprint), countStyle: .memory) } ?? "unknown"
         let cpuTotal = usage.map { String(format: "%.0f s", Double($0.cpuNanos) / 1e9) } ?? "unknown"
         let now = ProcessInfo.processInfo.systemUptime
-        let named = members.prefix(8).map { page -> String in
-            let messages = page.pageMessages
-            let last = messages.lastUptime.map { String(format: "%.0f s ago", now - $0) } ?? "never"
-            let who = page.logIdentity?() ?? "page \(page.descriptor.id)"
-            let shownWord = timedVisible(page) ? "visible" : "hidden"
-            return "[\(who) pane=\(page.healthPartID) \(shownWord) lastMessage=#\(messages.count) \(messages.lastName ?? "none") \(last)]"
-        }.joined(separator: " ")
+        let named = members.prefix(8).map { $0.livenessLogEntry(visible: timedVisible($0), now: now) }.joined(separator: " ")
         let more = members.count > 8 ? " +\(members.count - 8) more" : ""
         logger.error("""
             agent chat renderer hung: ending it renderer=\(action.id, privacy: .public) pid=\(pid ?? 0) \
@@ -285,10 +279,7 @@ final class AppHealthPageFeed: PageHealthFeed {
             cpu=\(cpu, privacy: .public) cpuTotal=\(cpuTotal, privacy: .public) pages=\(members.count) \
             \(named, privacy: .public)\(more, privacy: .public)
             """)
-        let notice = AppHealthStrings.chatRestarted
-        for page in members { page.prepareForRendererEnd(notice: notice) }
-        guard target.endHungRenderer() != nil else {
-            for page in members { page.cancelRendererEnd() }
+        guard PageWebView.endHungRenderer(of: [target] + members.filter { $0 !== target }, notice: AppHealthStrings.chatRestarted) != nil else {
             logger.error("agent chat renderer \(action.id, privacy: .public) could not be ended (no single renderer process)")
             return false
         }
