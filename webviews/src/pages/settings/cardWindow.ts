@@ -223,7 +223,9 @@ function CardBusy({ busy, children }: { busy: boolean; children?: ReactNode }) {
  * fieldset's `disabled` changes: with a screen reader already running, a waiting control stayed
  * focusable, and the control pressed stayed unfocusable after the answer. A mark on the control
  * itself refreshes it, as `disabled` on each control did. Runs again when `mounted` changes, so a
- * control mounted while busy is marked; one that already says aria-disabled (React's) is left alone. */
+ * control mounted while busy is marked; one that already says aria-disabled (React's) is left alone.
+ * A control a row mounts on its own while busy (an account's Rename back from a cancelled rename,
+ * with no new list) is marked as it lands in `root`, watched only while busy, so still no row renders. */
 export function useWaitingControls(
   root: RefObject<HTMLElement | null>,
   selector: string,
@@ -237,10 +239,25 @@ export function useWaitingControls(
       marked.current = [];
       return;
     }
-    for (const control of root.current?.querySelectorAll<HTMLElement>(selector) ?? []) {
-      if (control.hasAttribute("aria-disabled")) continue;
+    const mark = (control: HTMLElement) => {
+      if (control.hasAttribute("aria-disabled")) return;
       control.setAttribute("aria-disabled", "true");
       marked.current.push(control);
-    }
+    };
+    const node = root.current;
+    if (!node) return;
+    for (const control of node.querySelectorAll<HTMLElement>(selector)) mark(control);
+    if (typeof MutationObserver === "undefined") return;
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const added of record.addedNodes) {
+          if (!(added instanceof HTMLElement)) continue;
+          if (added.matches(selector)) mark(added);
+          for (const control of added.querySelectorAll<HTMLElement>(selector)) mark(control);
+        }
+      }
+    });
+    observer.observe(node, { childList: true, subtree: true });
+    return () => observer.disconnect();
   }, [root, selector, busy, mounted]);
 }

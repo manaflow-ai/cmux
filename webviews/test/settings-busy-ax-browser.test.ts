@@ -158,4 +158,49 @@ await requireBrowserLane("settings-busy-ax-browser.test.ts", async () => {
       }
     });
   }
+
+  // An account's Rename comes back when its rename is cancelled; cancelled while a change waits, it
+  // mounts with no new list, so the card's own pass never saw it.
+  if (run) {
+    test(`chromium: a harness's accounts: with the accessibility tree live, a Rename brought back by a cancel while a change waits is disabled and not focusable, and comes back on answer`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 1200, height: 900 } });
+      try {
+        await gotoBenchPage(page, { ...served, url: `${served.url}#card=accounts&n=3` });
+        await requireProductionReact(page, { dev: served.dev });
+        await page.waitForFunction(() => (window as { axReady?: boolean }).axReady === true);
+        const rows = page.locator('[data-card="harnesses"] [data-harness="codex"] [data-account]');
+        const rename =
+          '[data-card="harnesses"] [data-harness="codex"] [data-account="codex-2"] [data-account-action="rename"]';
+        await page.locator(rename).click();
+        const form = rows.nth(1).locator("[data-account-rename]");
+        await form.waitFor();
+        const target = rows.nth(2).locator('[role="switch"]');
+        await target.scrollIntoViewIfNeeded();
+        await painted(page);
+        // The tree is live before the change, as with a screen reader running.
+        const cdp = await page.context().newCDPSession(page);
+        await cdp.send("Accessibility.enable");
+        await cdp.send("Accessibility.getFullAXTree");
+
+        await page.evaluate(() => window.axHold());
+        await target.click();
+        await target.and(page.locator(":disabled")).waitFor();
+        await form.locator('button[type="button"]').click();
+        await page.locator(rename).waitFor();
+        await painted(page);
+        expect(await page.evaluate(() => window.axCalls())).toBe(1);
+        expect(await page.locator(rename).getAttribute("aria-disabled")).toBe("true");
+        expect(await axStates(cdp, rename)).toEqual([{ focusable: false, disabled: true }]);
+
+        await page.evaluate(() => window.axAnswer());
+        await page.waitForFunction((rename) => !document.querySelector(rename)!.closest("fieldset:disabled"), rename);
+        await painted(page);
+        expect(await page.locator(rename).getAttribute("aria-disabled")).toBeNull();
+        expect(await axStates(cdp, rename)).toEqual([{ focusable: true, disabled: false }]);
+        await cdp.detach();
+      } finally {
+        await page.close();
+      }
+    });
+  }
 });
