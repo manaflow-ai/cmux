@@ -181,6 +181,8 @@ pub enum Input {
         harness: Option<String>,
         /// Its lifetime (action_lifetime.rs), decided as it starts.
         made: Option<crate::action_lifetime::Made>,
+        /// It starts under the goal (goal.rs).
+        goal: bool,
     },
     /// A subagent's first prompt (view and task) is sent: its inbox follows.
     SubagentPrompted {
@@ -964,6 +966,10 @@ pub struct Brain {
     /// The wall clock (ms since the epoch) the subagent watch reads; tests
     /// set their own (`set_clock`).
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// When this host started (wall clock, ms since the epoch, as acpmux
+    /// stamps events): a subagent session that closed before it closed
+    /// with the last host (`resume_closed`).
+    born_ms: u64,
     /// Each running subagent's folded events (sub_watch.rs), by id: kept
     /// between ticks so each tick reads only the new events.
     watches: HashMap<String, crate::sub_watch::Watch>,
@@ -1209,6 +1215,7 @@ impl Brain {
             agent_key_grace: crate::agent_keys::REVOKE_AFTER_DONE,
             max_live: None,
             clock: Arc::new(now_ms),
+            born_ms: now_ms(),
             watches: HashMap::new(),
             sub_close_on_finish: false,
             resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
@@ -1652,7 +1659,8 @@ impl Brain {
                 policy,
                 harness,
                 made,
-            } => self.sub_started(&id, session_id, policy, harness, made),
+                goal,
+            } => self.sub_started(&id, session_id, policy, harness, made, goal),
             Input::SubagentPrompted { id } => {
                 self.sub_prompted(&id);
                 self.stop_if_cancelled(&id);
