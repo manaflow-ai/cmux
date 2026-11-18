@@ -86,6 +86,15 @@ def owned_class(label: str) -> str:
     return match.group("class") if match else ""
 
 
+def role_label_of(label: str, role: str) -> str:
+    """An owned label's `role` label (root, side, gui) on the same machines, or "" for any other label."""
+    match = OWNED_FAMILY.fullmatch(label or "")
+    if not match:
+        return ""
+    namespace = f"{match.group('namespace')}-" if match.group("namespace") else ""
+    return f"glaeda-{namespace}{role}-{match.group('class')}-xcode-{match.group('version')}"
+
+
 def owned_family(label: str) -> str:
     """Return a namespace-qualified family key for any owned label."""
     match = OWNED_FAMILY.fullmatch(label or "")
@@ -155,6 +164,11 @@ class Pool:
     stalled: bool = False
     # Minutes its oldest queued job has waited by now (the snapshot's figure plus its age).
     waited: float = 0.0
+    # An owned pool with a GUI runner: its gui role label is configured in CI_OWNED_POOL_SLOTS or an
+    # online runner of the pool carries it (state_from()). A full or unit suite (State.gui_required)
+    # never waits on one without: run 44150654568's tests-build-and-lag took the light root label and
+    # XCTest timed out enabling automation mode on cmux21. True when unknown (a State built by hand).
+    gui: bool = True
 
     @property
     def available(self) -> int:
@@ -245,7 +259,7 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
         for pool in sorted(state.owned, key=lambda pool: owned_order(pool.label)):
             # AWS is deliberately compile-only until its console login is
             # reliable. Keep GUI suites on a pool that advertises a GUI token.
-            if state.gui_required and _owned_namespace(pool.label) == "aws":
+            if state.gui_required and (_owned_namespace(pool.label) == "aws" or not pool.gui):
                 continue
             # A pool with no online runner is no queue to wait in.
             if pool.capacity > 0:
@@ -504,6 +518,12 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
     owned: list[Pool] = []
     if runners is not None:
         xcode_app = env.get("CMUX_CI_XCODE_APP_PR", "")
+        # Every configured label, role labels too (write_outputs() reads them the same way).
+        try:
+            raw_slots = json.loads(env.get("CI_OWNED_POOL_SLOTS") or "{}")
+        except (TypeError, ValueError):
+            raw_slots = {}
+        configured = {str(label) for label in raw_slots} if isinstance(raw_slots, dict) else set()
         labels = {label for label in _slots(env.get("CI_OWNED_POOL_SLOTS"))
                   if owned_matches_xcode(label, xcode_app)}
         # Only the configured class pools: a runner can carry an owned-looking
@@ -519,8 +539,11 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
             family = owned_family(label)
             queued = sum(count(name, "queued") for name in pools if owned_family(str(name)) == family)
             free = max(0, idle - queued)
+            gui_label = role_label_of(label, "gui")
+            gui = bool(gui_label) and (gui_label in configured or any(
+                item.get("name") == gui_label for runner in online for item in runner.get("labels", ())))
             owned.append(Pool(label, len(online), len(online) - idle, queued, free=free,
-                               xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", ""))))
+                               xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", "")), gui=gui))
     age = snapshot_age(snapshot)
     # Each label on its own evidence (blacksmith_dead() or a fresh RUNNER_POOLS `_dead` mark), never
     # dead_macos_26()'s "both dead says nothing": with both dead a cleared queue read as free slots, so
@@ -709,13 +732,7 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
         pass
     def role_label(role: str) -> str:
         """Return the configured role label for the selected owned pool."""
-        if not choice.owned:
-            return ""
-        match = OWNED_FAMILY.fullmatch(choice.label)
-        if not match:
-            return ""
-        namespace = f"{match.group('namespace')}-" if match.group("namespace") else ""
-        return f"glaeda-{namespace}{role}-{match.group('class')}-xcode-{match.group('version')}"
+        return role_label_of(choice.label, role) if choice.owned else ""
 
     root = role_label("root")
     side = role_label("side")
