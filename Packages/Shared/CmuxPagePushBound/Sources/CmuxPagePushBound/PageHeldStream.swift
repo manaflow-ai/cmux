@@ -58,6 +58,11 @@ public struct PageShedEpisode: Sendable, Equatable {
     public struct Ending: Sendable, Equatable {
         public var dropped: Int
         public var deferred: [String]
+
+        public init(dropped: Int, deferred: [String]) {
+            self.dropped = dropped
+            self.deferred = deferred
+        }
     }
 
     /// Frames dropped in the running episode; nil while none runs.
