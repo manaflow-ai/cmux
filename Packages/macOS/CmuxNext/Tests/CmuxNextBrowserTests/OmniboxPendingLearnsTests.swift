@@ -41,6 +41,17 @@ struct OmniboxPendingLearnsTests {
         #expect(pending.learns == [a, b])
     }
 
+    @Test func everyTextTheEditRegisteredIsTaughtAgainInOrder() throws {
+        var pending = OmniboxPendingLearns()
+        let url = try #require(URL(string: "https://example.com/"))
+        let match = OmniboxPreloadMatch(url: url, kind: .urlWhatYouTyped)
+        pending.ended(.init(registrations: [.init(text: "ex", matches: [match]), .init(text: "example.com", matches: [match])],
+                            opened: url)) { _ in 0 }
+        var registered: [String] = []
+        pending.replay(register: { registered.append($0.text) }, open: { _ in 1 })
+        #expect(registered == ["ex", "example.com"])
+    }
+
     @Test func atMostCapacityWaitAndTheOldestGoFirst() throws {
         var pending = OmniboxPendingLearns()
         for index in 0...OmniboxPendingLearns.capacity {
