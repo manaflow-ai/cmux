@@ -55,7 +55,7 @@ public nonisolated struct HomeChiefRoster: Hashable, Sendable, Codable {
     }
 
     init(_ list: ChiefList) {
-        self.init(main: list.main.map(ConversationID.init),
+        self.init(main: list.main.map { ConversationID($0) },
                   places: Dictionary(uniqueKeysWithValues: list.places.map { (ConversationID($0.key), $0.value) }))
     }
 
