@@ -183,7 +183,7 @@ import Testing
         let work = BackgroundWork(label: "test.launch-times")
         let recorder = LaunchTimesRecorder(file: file, work: work,
                                            info: ["CFBundleShortVersionString": "1.0.0", "CFBundleVersion": "200"]) { _ in
-            asked.count.withLock { count in count += 1; return count == 1 }
+            asked.count.withLock { count in count += 1; return (preWarmed: count == 1, reason: count == 1 ? "full" : "no_record") }
         }
         recorder.write(marks: Self.marks)
         let first = try await Self.lines(file, until: { $0.count == 2 })
@@ -198,7 +198,7 @@ import Testing
         let records = file.records()
         #expect(records.map(\.build) == ["199", "200"])
         #expect(records.last?.priorChatPaintedMs == 1234.5 && records.last?.priorChatLiveMs == 1490.2)
-        #expect(records.last?.prewarmed == true, "the rewrite keeps the first read's answer")
+        #expect(records.last?.prewarmed == true && records.last?.prewarmReason == "full", "the rewrite keeps the first read's answer")
         #expect(records.last?.preMainMs == 41.3, "and every other column")
         // A late first write (the Home gate after the chat) keeps the chat's columns and is no third line.
         recorder.write(marks: Self.marks)
