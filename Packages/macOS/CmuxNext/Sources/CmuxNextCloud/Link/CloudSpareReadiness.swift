@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Leo, Cloud V0 item 1 ("A chat starts in a few seconds: ready spare"): the person's warm spare made ready in this
 /// app run before any claim, so the start that claims it has little left to do but open its chat. On a warm's answer
@@ -127,9 +128,15 @@ public final class CloudSpareReadiness {
 
     private func keyAhead(_ machine: String, scope: Scope) async {
         guard !isKeyed(machine, scope: scope, instance: dependencies.keyedInstance(machine)) else { return }
-        guard let instance = await dependencies.key(machine, scope), dependencies.scope() == scope else { return }
+        guard let instance = await dependencies.key(machine, scope), dependencies.scope() == scope else {
+            Self.log.info("cloud spare \(machine, privacy: .public): not keyed ahead (its daemon is not idle or not up yet, or the account changed); the start keys it")
+            return
+        }
         keyed[machine] = Keyed(scope: scope, instance: instance)
+        Self.log.info("cloud spare \(machine, privacy: .public): keyed ahead for approvals")
     }
+
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.spare")
 
     private func linkAhead(_ machine: String, team: String?, scope: Scope) async {
         if let held = links[machine], fits(held, scope: scope), held.team == team { return }
@@ -144,8 +151,10 @@ public final class CloudSpareReadiness {
         guard up, dependencies.scope() == scope else {
             links[machine] = nil
             end(link)
+            Self.log.info("cloud spare \(machine, privacy: .public): no link ahead (it did not come up, or the account changed); the start links it")
             return
         }
+        Self.log.info("cloud spare \(machine, privacy: .public): linked ahead")
     }
 
     private func fits(_ held: Held, scope: Scope) -> Bool { held.scope == scope && now() < held.until && !held.link.fenced() }
