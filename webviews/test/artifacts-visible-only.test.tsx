@@ -104,7 +104,8 @@ function bigHost(n: number): PageClient {
     message: `Revision ${index}`,
     authorName: "cmux",
     time: Date.UTC(2026, 10, 18) - index * 60_000,
-    trailers: {},
+    // Shown as "claude · bench": text with spaces just above the change.
+    trailers: { harness: "claude", machine: "bench" },
   }));
   return {
     call: async <R,>(op: string, params: unknown): Promise<R> => {
@@ -243,4 +244,65 @@ test("the line a selection starts on stays mounted while the pane scrolls far pa
   expect(anchor.isConnected).toBe(true);
   expect(lines().length).toBeLessThanOrEqual(81);
   expect(Number((lines()[1] as HTMLElement).dataset.index)).toBeGreaterThan(300);
+});
+
+/** What a copy of the document's selection writes, and whether the page took the copy. */
+function copySelection(): { text: string; taken: boolean } {
+  let text = "";
+  const event = new dom.window.Event("copy", { bubbles: true, cancelable: true }) as Event & {
+    clipboardData: { setData(type: string, text: string): void };
+  };
+  event.clipboardData = { setData: (_type, data) => (text = data) };
+  dom.window.document.dispatchEvent(event);
+  return { text, taken: event.defaultPrevented };
+}
+
+function select(range: Range) {
+  const selection = dom.window.getSelection()!;
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+test("a copy across lines that are not mounted keeps the spaces the selection starts and ends with", async () => {
+  const { pane } = await mount(1_000);
+  const line = (index: number) => host.querySelector<HTMLElement>(`.artifacts-line[data-index="${index}"]`)!;
+  const commits = host.querySelectorAll(".artifacts-commit");
+  const trailers = commits[0]!.querySelector(".artifacts-trailers")!.firstChild!;
+  const nextMessage = commits[1]!.querySelector(".artifacts-commit-message")!.firstChild!;
+  expect(trailers.textContent).toBe("claude · bench");
+  expect(nextMessage.textContent).toBe("Revision 1");
+  const added = (from: number, to: number) => Array.from({ length: to - from }, (_, at) => `+line ${from + at}`);
+
+  // From " · bench" (the chosen revision's trailers, above the change) to "+line " of line 500,
+  // scrolled into view: lines 1 to 499 around the window are not all mounted. Chromium and WebKit
+  // copy this selection with every line mounted as " · bench\n+line 0\n…\n+line 499\n+line ".
+  await act(async () => {
+    pane.scrollTop = LINE * 480;
+    pane.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(line(1)).toBeNull();
+  const range = dom.window.document.createRange();
+  range.setStart(trailers, "claude".length);
+  range.setEnd(line(500).childNodes[1]!, "line ".length);
+  select(range);
+  const into = copySelection();
+  expect(into.taken).toBe(true);
+  expect(into.text).toBe([" · bench", ...added(0, 500), "+line "].join("\n"));
+
+  // From " 3" in line 3 to "Revision " (the next revision's message, below the change): both ends'
+  // spaces are what the selection holds, as the range reads them.
+  await act(async () => {
+    pane.scrollTop = 0;
+    pane.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  range.setStart(line(3).childNodes[1]!, "line".length);
+  range.setEnd(nextMessage, "Revision ".length);
+  select(range);
+  const out = copySelection();
+  expect(out.taken).toBe(true);
+  expect(out.text.startsWith(" 3\n+line 4\n")).toBe(true);
+  expect(out.text.endsWith("\n+line 999\nRevision ")).toBe(true);
+  expect(out.text).toBe([" 3", ...added(4, 1_000), "Revision "].join("\n"));
 });
