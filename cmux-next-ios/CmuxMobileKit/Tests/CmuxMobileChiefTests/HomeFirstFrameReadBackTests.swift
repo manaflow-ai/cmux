@@ -10,7 +10,7 @@ import UIKit
 /// faster/percievably load faster". A read-back of Home's first frame after a relaunch: the real
 /// `ConversationsHome` in a window over a list kept by the last run, no Mac link at all. The first
 /// layout pass (the first frame, before any run loop turn) must already list the kept rows, not
-/// "Connecting to <Mac>…" over an empty list. It saves that frame and the next ones as PNGs and a
+/// "Connecting to <Mac>…" over an empty list. It saves that frame, and the one after the whole list lands, as PNGs and a
 /// log as attachments.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(2))) struct HomeFirstFrameReadBackTests {
@@ -28,7 +28,7 @@ import UIKit
         }
     }
 
-    @Test func readBackHomesFirstFrameOverKeptRows() throws {
+    @Test func readBackHomesFirstFrameOverKeptRows() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "home-first-frame-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let key = MacHomeRowsCache.key(account: "user-a", macID: "mac-1")
@@ -61,8 +61,11 @@ import UIKit
             log.append("\(name): feed.rows=\(feed.rows?.count ?? -1) kept=\(feed.isShowingKeptRows) note=\(String(describing: note)) list.items=\(items)")
             let format = UIGraphicsImageRendererFormat()
             format.scale = 2
-            let shot = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
-                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            let shot = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { context in
+                // The layer tree as drawn (a window snapshot is blank in a test host).
+                UIColor.systemBackground.setFill()
+                context.fill(window.bounds)
+                window.layer.render(in: context.cgContext)
             }
             if let png = shot.pngData() { Attachment.record(png, named: "home-\(name).png") }
             return items
@@ -71,9 +74,9 @@ import UIKit
         // The first frame: one layout pass, no run loop turn in between.
         let firstItems = frame("first-frame")
         let firstRows = feed.rows?.count
-        // The frames after it: the whole kept list lands off the main thread.
-        for _ in 0 ..< 30 { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
-        _ = frame("after-600ms")
+        // A frame after it: the whole kept list (200 rows) lands from its read off the main thread.
+        let wholeList = await eventually { feed.rows?.count == 200 }
+        _ = frame("whole-list")
         Attachment.record(log.joined(separator: "\n"), named: "home-first-frame-readback.txt")
 
         #expect(firstRows != nil, "the first frame has the kept rows on the feed")
@@ -82,6 +85,7 @@ import UIKit
                                   macsMayExist: true, searching: false, failing: false) != .connecting)
         // The Chief pin and a note are at most a few items; the kept rows are many more.
         #expect(firstItems >= 10, "the first frame lists the kept rows (\(log.joined(separator: "; ")))")
+        #expect(wholeList, "the whole kept list follows the head")
     }
 }
 
