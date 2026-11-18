@@ -29,6 +29,12 @@ hotpatch = ["cmux-tui-core/hotpatch", "dep:cmux-terminal-client"]
 # Measurement only: the daemon's heap by allocation site (dhat), written to the file
 # CMUX_TUI_DHAT_OUT names when it exits (src/heap_profile.rs). No shipped build enables it.
 dhat-heap = ["dep:dhat"]
+# The iPhone connection host (`cmux-mobile-host`, run by argv[0]) in a build for
+# a unix other than macOS: measurement only (scripts/measure/fold-hosts.sh builds
+# the Linux binary with it to stand in for the Mac's). The macOS build always
+# carries it (below); no shipped build enables this, so the Linux binary a
+# remote host fetches over ssh does not grow.
+fold-mobile-host = ["dep:cmux-mobile-host"]
 
 # The whole program. src/main.rs stays the crate root (its dispatch tables are
 # where they always were); the cmux-tui binary is a small entry point that
@@ -140,6 +146,8 @@ crossterm = { workspace = true, features = ["serde", "event-stream"] }
 crossbeam-channel.workspace = true
 anyhow.workspace = true
 dhat = { version = "0.3", optional = true }
+# `fold-mobile-host` (measurement on Linux); the macOS table below always takes it.
+cmux-mobile-host = { path = "../../../cmux-next-ios/rust/crates/cmux-mobile-host", optional = true }
 bytes.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
@@ -304,6 +312,11 @@ cmux-action-catalog.workspace = true
 cmux-egress = { workspace = true, features = ["capture"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# The cmux-next app's iPhone connection host runs from this binary by argv[0]
+# (`cmux-mobile-host`, a link beside bin/cmux; CMUX-570). It stays its own
+# Cargo workspace (cmux-next-ios/rust) with its own binary for its tests, the
+# Linux tree and a bundle whose cmux does not carry it.
+cmux-mobile-host = { path = "../../../cmux-next-ios/rust/crates/cmux-mobile-host" }
 # `cmux carrier dial`: the device's Noise key in the login Keychain (carrier/noise_key.rs).
 # All three are already in the graph through rustls-native-certs.
 core-foundation = "0.10"

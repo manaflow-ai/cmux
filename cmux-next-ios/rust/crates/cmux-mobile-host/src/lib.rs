@@ -24,6 +24,7 @@ pub(crate) mod cloud_acp;
 pub mod config;
 pub mod control;
 pub mod dial_mailbox;
+pub mod entry;
 pub mod host;
 pub mod lan;
 pub mod link_deflate;
