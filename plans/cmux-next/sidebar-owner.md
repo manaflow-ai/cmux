@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-18 (lane/sidebar-customize-stress, ask-2b329124aa): Sidebar-Look: no visual change. Sidebar customization
+  (`sidebar.sections`, `sidebar.workspaces`) under stress. A selection change re-projects the sidebar only when it shows
+  or hides a row (the old selection was kept only for being selected, Rust's `selection_spared`, or the new one is a
+  hidden row); before, any hide rule made every click run every row through the planner. Regroup rules apply in one
+  pass per section (`SidebarCustomizationPlanner.moveIntoGroups`) instead of a search and a projection copy per move.
+  Regression: `SidebarCustomizationScaleTests` (CmuxNextAppTests).
+
 - 2026-11-18 (a590, grid base red): Sidebar-Look: an unread dot beside a status mark sits one column in again, as before
   #44449. d8917c9 (#44449) made the trailing pitch the control plus a tenth of it (17.6 or 20.53 pt), and
   `SidebarColumns` rounded the pitches back from the trailing edge up with no tolerance, so one pitch could count as two

@@ -185,8 +185,7 @@ fn sidebar_customization_stress() {
     }
 }
 
-/// The longest id a problem path quotes.
-const MAX_QUOTED: usize = 64;
+use crate::sidebar_row_layout::MAX_QUOTED;
 
 #[test]
 fn a_huge_or_unicode_workspace_key_is_quoted_short() {
@@ -240,6 +239,37 @@ fn conflicting_rules_resolve_the_same_way_every_time() {
     assert_eq!(reply.section_order, ["b", "a"]);
     let again = respond(&request);
     assert_eq!(serde_json::to_value(&reply).unwrap(), serde_json::to_value(&again).unwrap());
+    // Only the selection keeps ws_a and section a: the next selection change must plan again.
+    assert!(reply.selection_spared);
+}
+
+#[test]
+fn the_plan_says_when_only_the_selection_keeps_a_row_shown() {
+    // The app re-plans on a selection change only when this is true (or the new selection is
+    // hidden), so a click on a shown row costs the same at 50 workspaces and 20,000.
+    let with = |selected: Option<&str>| {
+        let request: Request = serde_json::from_value(json!({
+            "sections": {"hidden": ["recents"]},
+            "workspaces": {"ws_h": {"hidden": true}, "ws_v": {"order": 1}},
+            "selected": selected,
+            "input": [
+                {"id": "projects", "region": "middle", "nodes": [
+                    {"id": "ws_h", "kind": "workspace", "workspace_ids": ["ws_h"]},
+                    {"id": "ws_v", "kind": "workspace", "workspace_ids": ["ws_v"]}
+                ]},
+                {"id": "recents", "region": "bottom", "nodes": [
+                    {"id": "ws_r", "kind": "workspace", "workspace_ids": ["ws_r"]}
+                ]}
+            ]
+        }))
+        .unwrap();
+        respond(&request).selection_spared
+    };
+    assert!(with(Some("ws_h")), "a hidden row kept for its selection");
+    assert!(with(Some("ws_r")), "a row of a hidden section kept for its selection");
+    assert!(!with(Some("ws_v")), "a shown row");
+    assert!(!with(Some("unknown")), "a selection the sidebar does not list");
+    assert!(!with(None));
 }
 
 #[test]

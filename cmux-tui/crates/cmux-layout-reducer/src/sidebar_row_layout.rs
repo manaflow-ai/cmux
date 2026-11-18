@@ -128,6 +128,19 @@ pub struct Response {
     pub problems: Vec<Problem>,
 }
 
+/// The most characters of a written value a problem quotes.
+pub const MAX_QUOTED: usize = 64;
+
+/// `text` as a problem quotes it: whole up to [`MAX_QUOTED`] characters, else its first
+/// [`MAX_QUOTED`] and an ellipsis. A pasted megabyte in a settings file is reported, never
+/// copied into every answer and every Settings diagnostic.
+pub fn quote(text: &str) -> String {
+    match text.char_indices().nth(MAX_QUOTED) {
+        None => text.to_owned(),
+        Some((cut, _)) => format!("{}…", &text[..cut]),
+    }
+}
+
 fn known(token: &str) -> Option<&'static str> {
     TOKENS.iter().copied().find(|t| *t == token)
 }
@@ -215,7 +228,7 @@ fn layout(written: &[Value], at: &str, problems: &mut Vec<Problem>) -> Response 
                 problems.push(Problem {
                     at: here(),
                     why: "unknownToken",
-                    token: Some(text.to_owned()),
+                    token: Some(quote(text)),
                 });
                 continue;
             };

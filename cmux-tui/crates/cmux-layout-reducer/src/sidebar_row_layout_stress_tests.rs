@@ -13,9 +13,6 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::time::Instant;
 
-/// The longest token text a problem quotes.
-const MAX_QUOTED: usize = 64;
-
 const KINDS: &[&str] = &["terminal", "agent", "browser", "mixed"];
 const AGENTS: &[&str] = &["claude", "codex", "opencode", "pi", "gemini", "amp", "cursor", "droid"];
 
