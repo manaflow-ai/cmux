@@ -646,11 +646,12 @@ fn a_round_trip_from_the_cloud_to_a_mini_and_home_loses_nothing() {
     let _ = first.kill();
     assert!(
         !src.join("state/moved.json").exists(),
-        "the home answers again"
+        "the home answers again: {}",
+        said()
     );
     assert_eq!(local_memory(&src).len(), 4);
     let conv = conversation(&src);
-    assert_eq!(conv.len(), 5, "{conv:?}");
+    assert_eq!(conv.len(), 5, "{conv:?}\n{}", said());
     assert_eq!(conv[4]["parts"][0]["text"], "said on the mini");
     assert!(
         on_mini.join("state/moved.json").exists(),
