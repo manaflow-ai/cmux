@@ -40,6 +40,8 @@ public struct TerminalChatToggleGalleryRoot: View {
         TabsView(source: source, isShowingOverview: $showingOverview)
             .tabsKitTheme(.mobile)
             .tint(CmuxMobileTheme.standard.colors.label.color)
+            // A container, so the gallery id does not replace its controls' own identifiers.
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("terminalChatToggleGallery")
     }
 }

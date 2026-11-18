@@ -5,7 +5,7 @@ import XCTest
 /// (`TerminalChatToggleGalleryRoot`): the production tabs chrome and terminal page on a mock Codex
 /// session. Each still is a kept attachment named `toggle-<variant>-<look>-<state>`.
 ///
-/// - menu: the page as it opens (nothing on it), then the page menu with Show Chat leading.
+/// - menu: the page as it opens (nothing on it), then the page menu (a tap on the title) with Show Chat leading.
 /// - navbar: the page with the small Chat button, then after a tap (the chat face).
 /// - gesture: the page with its first-show hint, the page once the hint has gone, then after a
 ///   swipe in from the trailing edge (the chat face).
@@ -27,9 +27,21 @@ final class TerminalChatToggleVariantsCaptureUITests: XCTestCase {
         ]
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launch()
-        XCTAssertTrue(app.otherElements["terminalChatToggleGallery"].waitForExistence(timeout: 20)
-            || app.buttons["Page Menu"].waitForExistence(timeout: 10), "gallery did not draw")
+        XCTAssertTrue(app.descendants(matching: .any)["terminalChatToggleGallery"].firstMatch.waitForExistence(timeout: 20)
+            || title(app).waitForExistence(timeout: 10), "gallery did not draw")
         return app
+    }
+
+    /// The terminal's title pill: on a terminal tab (a title address) a tap on it opens the page
+    /// menu; the leading Page Menu glyph is hidden there and takes no touches.
+    @MainActor
+    private func title(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "codex")).firstMatch
+    }
+
+    @MainActor
+    private func labelled(_ app: XCUIApplication, _ label: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", label)).firstMatch
     }
 
     @MainActor
@@ -53,14 +65,14 @@ final class TerminalChatToggleVariantsCaptureUITests: XCTestCase {
             let app = launch("menu", dark: dark)
             settle(2.5)
             keep("toggle-menu-\(look)-page")
-            let menu = app.buttons["Page Menu"].firstMatch
-            if menu.waitForExistence(timeout: 5) {
-                menu.tap()
+            let pill = title(app)
+            if pill.waitForExistence(timeout: 5) {
+                pill.tap()
                 settle(1.2)
-                XCTAssertTrue(app.buttons["Show Chat"].waitForExistence(timeout: 5), "no Show Chat row (\(look))")
+                XCTAssertTrue(labelled(app, "Show Chat").waitForExistence(timeout: 5), "no Show Chat row (\(look))")
                 keep("toggle-menu-\(look)-menu-open")
             } else {
-                XCTFail("no Page Menu button (\(look))")
+                XCTFail("no title pill (\(look))")
             }
             app.terminate()
         }
@@ -89,11 +101,13 @@ final class TerminalChatToggleVariantsCaptureUITests: XCTestCase {
         for dark in [true, false] {
             let look = dark ? "dark" : "light"
             let app = launch("gesture", dark: dark)
-            settle(1.5)
-            XCTAssertTrue(app.staticTexts["terminalChat.variant.hint"].exists || app.otherElements["terminalChat.variant.hint"].exists
-                || app.staticTexts["Swipe in from the right edge for Chat"].exists, "no hint (\(look))")
+            // The gallery holds the hint 12 s from the page's first show.
+            let hint = labelled(app, "Swipe in from the right edge")
+            XCTAssertTrue(hint.waitForExistence(timeout: 10), "no hint (\(look))")
+            settle(0.6)
             keep("toggle-gesture-\(look)-hint")
-            settle(5)
+            XCTAssertTrue(hint.waitForNonExistence(timeout: 20), "hint stayed (\(look))")
+            settle(1)
             keep("toggle-gesture-\(look)-page")
             let window = app.windows.firstMatch
             let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.995, dy: 0.45))

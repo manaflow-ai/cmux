@@ -100,6 +100,10 @@ struct TerminalChatEdgeSwipe: View {
     /// How far in from the edge a swipe starts, and how far it travels to swap.
     static let edgeWidth: CGFloat = 22
     static let travel: CGFloat = 70
+    /// How long the hint stays: longer in the review gallery, so its still is taken after launch settles.
+    static var hintSeconds: Double {
+        ProcessInfo.processInfo.arguments.contains("-cmux-mobile-terminal-chat-toggle-gallery") ? 12 : 4
+    }
 
     var body: some View {
         let theme = CmuxMobileTheme.standard
@@ -152,7 +156,7 @@ struct TerminalChatEdgeSwipe: View {
             guard !Self.hinted else { return }
             Self.hinted = true
             withAnimation(.easeOut(duration: 0.25)) { hintVisible = true }
-            do { try await Task.sleep(for: .seconds(4)) } catch { return }
+            do { try await Task.sleep(for: .seconds(Self.hintSeconds)) } catch { return }
             withAnimation(.easeIn(duration: 0.4)) { hintVisible = false }
         }
     }
