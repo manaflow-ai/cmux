@@ -275,7 +275,6 @@ extension RemoteHandlers {
     }
 }
 
-
 /// Set Screen Sharing Quality… (`remote.setQuality`): a remote desktop tab's quality preset. The
 /// session toolbar's Quality menu runs this action on its own tab (`RemoteViewPageTab.onPickQuality`),
 /// so the menu and the palette run one handler; the palette offers it while a remote desktop

@@ -182,7 +182,6 @@ enum BrowserToolbarHandlers {
     }
 }
 
-
 /// Palette rows of two hand-built browser menus, which run these actions themselves so the menu and
 /// the palette run one handler:
 /// - `browser.goToHistoryEntry` (`entry`: the offset from the current page): a row of the Back and
