@@ -57,6 +57,7 @@ mod history_ops;
 pub mod history_search;
 #[cfg(unix)]
 pub mod projfs_mount;
+pub mod projfs_owners;
 #[cfg(unix)]
 pub mod projfs_rendezvous;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.

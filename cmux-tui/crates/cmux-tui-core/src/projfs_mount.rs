@@ -31,6 +31,7 @@ use cmux_process::{Child, Command, Stdio};
 use serde_json::{Map, Value};
 
 use crate::fs_ops::Roots;
+use crate::projfs_owners::Owners;
 use crate::projfs_rendezvous::{Caller, Refusal, envelope, mount_id, only};
 
 #[path = "projfs_upper.rs"]
@@ -58,7 +59,9 @@ static SERVICE: OnceLock<Mounter> = OnceLock::new();
 #[must_use]
 pub fn installed() -> Option<&'static Mounter> {
     let fs = crate::fs_ops::installed()?;
-    Some(SERVICE.get_or_init(|| Mounter::new(fs.roots().clone(), Arc::new(own_helper))))
+    let owners = crate::projfs_rendezvous::installed()?.owners();
+    let make = || Mounter::new(fs.roots().clone(), Arc::new(own_helper)).with_owners(owners);
+    Some(SERVICE.get_or_init(make))
 }
 
 /// `<this executable> projfs <args>`.
@@ -91,11 +94,11 @@ pub fn answer_line(
         return envelope(&id, Err(bad("unknown projfs op")));
     };
     request.remove("cmd");
-    if caller != Caller::Remote {
+    let Some(principal) = caller.principal() else {
         let denied =
             Refusal { code: "projfs.permission_denied", message: "permission denied".into() };
         return envelope(&id, Err(denied));
-    }
+    };
     let Some(mounter) = mounter else {
         let unavailable = Refusal {
             code: "projfs.unavailable",
@@ -104,9 +107,9 @@ pub fn answer_line(
         return envelope(&id, Err(unavailable));
     };
     let result = match cmd {
-        "projfs.mount" => mounter.mount(&request, socket),
-        "projfs.upper" => mounter.upper(&request),
-        _ => mounter.unmount(&request),
+        "projfs.mount" => mounter.mount(&request, socket, principal),
+        "projfs.upper" => mounter.upper(&request, principal),
+        _ => mounter.unmount(&request, principal),
     };
     envelope(&id, result)
 }
@@ -117,6 +120,18 @@ fn bad(message: impl Into<String>) -> Refusal {
 
 fn failed(message: impl Into<String>) -> Refusal {
     Refusal { code: "projfs.helper_failed", message: message.into() }
+}
+
+/// The refusal of a path param `key` that is not what `need` says inside the roots (also what
+/// another principal's folder answers).
+fn outside(key: &str, need: Need) -> Refusal {
+    Refusal {
+        code: "projfs.outside_roots",
+        message: format!(
+            "{key} must be a {} inside this machine's work folders, with no symlink on the way",
+            if need == Need::File { "file" } else { "folder" }
+        ),
+    }
 }
 
 fn timed_out(what: &str, wait: Duration) -> Refusal {
@@ -156,6 +171,7 @@ pub struct Mounter {
     unmount_wait: Duration,
     upper_wait: Duration,
     upper_max_bytes: usize,
+    owners: Arc<Owners>,
 }
 
 impl Mounter {
@@ -173,7 +189,15 @@ impl Mounter {
         unmount_wait: Duration,
     ) -> Self {
         let (upper_wait, upper_max_bytes) = (UPPER_WAIT, MAX_UPPER_BYTES);
-        Self { roots, command, ready_wait, unmount_wait, upper_wait, upper_max_bytes }
+        let owners = Arc::new(Owners::new());
+        Self { roots, command, ready_wait, unmount_wait, upper_wait, upper_max_bytes, owners }
+    }
+
+    /// This starter keeping its mounts' owners in `owners` (the rendezvous's).
+    #[must_use]
+    pub fn with_owners(mut self, owners: Arc<Owners>) -> Self {
+        self.owners = owners;
+        self
     }
 
     /// This starter with `projfs.upper`'s bounds (tests shorten them).
@@ -183,20 +207,42 @@ impl Mounter {
         self
     }
 
-    /// `projfs.mount`: starts the helper and answers its first line.
+    /// `projfs.mount` by `principal`: starts the helper and answers its first line. The mount
+    /// id and its folders become `principal`'s; another principal's are refused as folders
+    /// that are not there.
     pub fn mount(
         &self,
         params: &Map<String, Value>,
         socket: Option<&Path>,
+        principal: &str,
     ) -> Result<Value, Refusal> {
         only(params, &["mount", "manifest", "at", "state"])?;
         let mount = mount_id(params)?;
         let manifest = self.inside(params, "manifest", Need::File)?;
         let at = self.inside(params, "at", Need::Dir)?;
         let state = self.inside(params, "state", Need::Dir)?;
-        let mut args: Vec<String> = ["mount", "--mount", &mount, "--manifest", &manifest]
+        if !self.owners.claim(principal, &mount, &[&state, &at]) {
+            return Err(outside("state", Need::Dir));
+        }
+        let answer = self.start_mount(&mount, &manifest, &at, &state, socket);
+        if !answer.as_ref().is_ok_and(|line| line.get("ok") == Some(&Value::Bool(true))) {
+            self.owners.release(principal, &state);
+        }
+        answer
+    }
+
+    /// Starts the helper's `mount` and answers its first line.
+    fn start_mount(
+        &self,
+        mount: &str,
+        manifest: &str,
+        at: &str,
+        state: &str,
+        socket: Option<&Path>,
+    ) -> Result<Value, Refusal> {
+        let mut args: Vec<String> = ["mount", "--mount", mount, "--manifest", manifest]
             .into_iter()
-            .chain(["--at", &at, "--state", &state])
+            .chain(["--at", at, "--state", state])
             .map(str::to_owned)
             .collect();
         if let Some(socket) = socket.and_then(Path::to_str) {
@@ -223,24 +269,41 @@ impl Mounter {
             Line::Late => {
                 end(&mut child);
                 // What it mounted before it hung, if anything, is taken down again.
-                let _ = self.run_unmount(&at, &state);
+                let _ = self.run_unmount(at, state);
                 Err(timed_out("mount", self.ready_wait))
             }
         }
     }
 
-    /// `projfs.unmount`: runs the helper's `unmount` and answers its line.
-    pub fn unmount(&self, params: &Map<String, Value>) -> Result<Value, Refusal> {
+    /// `projfs.unmount` by `principal`: runs the helper's `unmount` and answers its line.
+    /// Another principal's folders answer as folders that are not there; an unmount that
+    /// answered `ok` lets them go.
+    pub fn unmount(&self, params: &Map<String, Value>, principal: &str) -> Result<Value, Refusal> {
         only(params, &["at", "state"])?;
         let at = self.inside(params, "at", Need::Named)?;
         let state = self.inside(params, "state", Need::Dir)?;
-        self.run_unmount(&at, &state)
+        if !self.owners.may_use_place(principal, &state) {
+            return Err(outside("state", Need::Dir));
+        }
+        if !self.owners.may_use_place(principal, &at) {
+            return Err(outside("at", Need::Named));
+        }
+        let answer = self.run_unmount(&at, &state)?;
+        if answer.get("ok") == Some(&Value::Bool(true)) {
+            self.owners.release(principal, &state);
+            self.owners.release(principal, &at);
+        }
+        Ok(answer)
     }
 
-    /// `projfs.upper`: runs the helper's `upper` and answers its line, within its bounds.
-    pub fn upper(&self, params: &Map<String, Value>) -> Result<Value, Refusal> {
+    /// `projfs.upper` by `principal`: runs the helper's `upper` and answers its line, within its
+    /// bounds. Another principal's `state` answers as a folder that is not there.
+    pub fn upper(&self, params: &Map<String, Value>, principal: &str) -> Result<Value, Refusal> {
         only(params, &["state"])?;
         let state = self.inside(params, "state", Need::Dir)?;
+        if !self.owners.may_use_place(principal, &state) {
+            return Err(outside("state", Need::Dir));
+        }
         let args: Vec<String> =
             ["upper", "--state", &state].into_iter().map(str::to_owned).collect();
         let child = self.start(&args)?;
@@ -288,13 +351,7 @@ impl Mounter {
             .get(key)
             .and_then(Value::as_str)
             .ok_or_else(|| bad(format!("{key} is an absolute path")))?;
-        let outside = || Refusal {
-            code: "projfs.outside_roots",
-            message: format!(
-                "{key} must be a {} inside this machine's work folders, with no symlink on the way",
-                if need == Need::File { "file" } else { "folder" }
-            ),
-        };
+        let outside = || outside(key, need);
         if need == Need::Named {
             let (folder, name) = path.rsplit_once('/').ok_or_else(outside)?;
             if matches!(name, "" | "." | "..") {

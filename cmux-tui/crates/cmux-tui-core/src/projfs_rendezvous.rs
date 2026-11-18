@@ -28,7 +28,11 @@
 //!   of whose wants is open, or to a batch never handed out (or forgotten), is refused
 //!   (`projfs.unknown_batch`) and its bytes are dropped.
 //! - `projfs.status {mount?}`: `{mounts:[{mount, queued, batches_out, polling, fetching,
-//!   bytes_answered, last_answer_age_ms}]}`.
+//!   bytes_answered, last_answer_age_ms}]}`; a remote caller sees only the mounts it owns.
+//!
+//! A mount is the principal's that mounted it ([`crate::projfs_owners`]): another principal's
+//! `projfs.next` and `projfs.answer` get what a mount that does not exist gets (`batch:null`
+//! after the wait, `projfs.unknown_batch`), and never touch its queue.
 //! - `projfs.mount`, `projfs.unmount` and `projfs.upper`: the Mac, over the link: start and
 //!   stop the mount helper itself, and read its overlay's upper layer ([`crate::projfs_mount`]).
 //!
@@ -38,7 +42,9 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
+
+use crate::projfs_owners::Owners;
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
@@ -132,14 +138,26 @@ pub fn remote_frame_command(line: &str) -> Option<&'static str> {
 }
 
 /// Who sent a frame, as the connection says.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Caller {
     /// A trusted local (Unix socket) connection that is not a remote client: the mount helper.
     Local,
-    /// A remote client with a principal checked for this frame: the Mac over the link.
-    Remote,
+    /// A remote client with a principal checked for this frame (its participant id): the Mac
+    /// over the link. A mount is that principal's alone ([`crate::projfs_owners`]).
+    Remote(String),
     /// Anything else (a WebSocket, a remote client without a principal): refused.
     Denied,
+}
+
+impl Caller {
+    /// The remote principal, for a remote caller.
+    #[must_use]
+    pub fn principal(&self) -> Option<&str> {
+        match self {
+            Self::Remote(principal) => Some(principal),
+            Self::Local | Self::Denied => None,
+        }
+    }
 }
 
 /// A refused request: its wire code and display text.
@@ -189,11 +207,12 @@ pub fn answer_line(service: Option<&Rendezvous>, caller: Caller, line: &str) -> 
     let allowed = match cmd {
         "projfs.fetch" => caller == Caller::Local,
         "projfs.status" => caller != Caller::Denied,
-        _ => caller == Caller::Remote,
+        _ => caller.principal().is_some(),
     };
     if !allowed {
         return envelope(&id, Err(Refusal::denied()));
     }
+    let principal = caller.principal().unwrap_or_default();
     let Some(service) = service else {
         return envelope(
             &id,
@@ -205,9 +224,9 @@ pub fn answer_line(service: Option<&Rendezvous>, caller: Caller, line: &str) -> 
     };
     let result = match cmd {
         "projfs.fetch" => service.fetch(request),
-        "projfs.next" => service.next(request),
-        "projfs.answer" => service.answer(request),
-        _ => service.status(&request),
+        "projfs.next" => service.next(request, principal),
+        "projfs.answer" => service.answer(request, principal),
+        _ => service.status(&request, caller.principal()),
     };
     envelope(&id, result)
 }
@@ -247,6 +266,8 @@ pub struct Rendezvous {
     /// How far this service's clock runs ahead of the monotonic clock, in milliseconds: always
     /// 0, except in tests that move time on.
     ahead_ms: AtomicU64,
+    /// Whose each mount is (shared with the mount ops, [`crate::projfs_mount`]).
+    owners: Arc<Owners>,
 }
 
 #[derive(Default)]
@@ -354,7 +375,14 @@ impl Rendezvous {
             changed: Condvar::new(),
             limits,
             ahead_ms: AtomicU64::new(0),
+            owners: Arc::new(Owners::new()),
         }
+    }
+
+    /// The owners of this service's mounts, for the mount ops to share.
+    #[must_use]
+    pub fn owners(&self) -> Arc<Owners> {
+        self.owners.clone()
     }
 
     /// This service's clock: the monotonic clock, moved on by [`Self::advance`] in tests.
@@ -444,13 +472,20 @@ impl Rendezvous {
         }
     }
 
-    /// `projfs.next`: a batch of queued wants, waiting for some when there are none.
-    pub fn next(&self, params: Map<String, Value>) -> Result<Value, Refusal> {
+    /// `projfs.next` by `principal`: a batch of queued wants, waiting for some when there are
+    /// none. Another principal's mount answers as one with nothing queued, and is not touched.
+    pub fn next(&self, params: Map<String, Value>, principal: &str) -> Result<Value, Refusal> {
         only(&params, &["mount", "wait_ms"])?;
         let mount = mount_id(&params)?;
         let wait = self.wait_for(&params)?;
         let deadline = later(self.now(), wait);
         let mut state = lock(&self.state);
+        if !self.owners.may_use_mount(principal, &mount) {
+            while self.now() < deadline {
+                state = self.wait_until(state, deadline);
+            }
+            return Ok(json!({ "batch": null }));
+        }
         let queue = state.mount(&mount, self.now())?;
         queue.polling = queue.polling.saturating_add(1);
         self.changed.notify_all();
@@ -480,8 +515,13 @@ impl Rendezvous {
         Ok(answer)
     }
 
-    /// `projfs.answer`: completes a batch's wants and wakes their fetches.
-    pub fn answer(&self, mut params: Map<String, Value>) -> Result<Value, Refusal> {
+    /// `projfs.answer` by `principal`: completes a batch's wants and wakes their fetches.
+    /// Another principal's mount answers as one that does not exist.
+    pub fn answer(
+        &self,
+        mut params: Map<String, Value>,
+        principal: &str,
+    ) -> Result<Value, Refusal> {
         only(&params, &["mount", "batch", "results"])?;
         let mount = mount_id(&params)?;
         let id = params.get("batch").and_then(Value::as_str).map(str::to_owned);
@@ -491,6 +531,9 @@ impl Rendezvous {
         };
         let now = self.now();
         let mut state = lock(&self.state);
+        if !self.owners.may_use_mount(principal, &mount) {
+            return Err(unknown_batch());
+        }
         let queue = state.mounts.get_mut(&mount).ok_or_else(unknown_batch)?;
         if queue.expire(now) {
             self.changed.notify_all();
@@ -554,8 +597,13 @@ impl Rendezvous {
         }
     }
 
-    /// `projfs.status`: the counts of one mount, or of every mount.
-    pub fn status(&self, params: &Map<String, Value>) -> Result<Value, Refusal> {
+    /// `projfs.status`: the counts of one mount, or of every mount; for a remote `principal`,
+    /// only of the mounts it owns.
+    pub fn status(
+        &self,
+        params: &Map<String, Value>,
+        principal: Option<&str>,
+    ) -> Result<Value, Refusal> {
         only(params, &["mount"])?;
         let wanted = match params.get("mount") {
             None => None,
@@ -566,6 +614,9 @@ impl Rendezvous {
         let mut mounts: Vec<(String, Value)> = Vec::new();
         for (name, queue) in &mut state.mounts {
             if wanted.as_ref().is_some_and(|w| w != name) {
+                continue;
+            }
+            if principal.is_some_and(|principal| !self.owners.owns_mount(principal, name)) {
                 continue;
             }
             if queue.expire(now) {

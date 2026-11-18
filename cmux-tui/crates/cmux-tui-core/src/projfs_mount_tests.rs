@@ -82,8 +82,17 @@ fn line(cmd: &str, params: &Value) -> String {
     request.to_string()
 }
 
+/// The Mac that mounts these tests' folders, and another paired install on the same machine.
+const MAC: &str = "remote_mac";
+const OTHER: &str = "remote_other";
+
 fn call(mounter: &Mounter, cmd: &str, params: &Value) -> Value {
-    answer_line(Some(mounter), Caller::Remote, Some(Path::new("/run/d.sock")), &line(cmd, params))
+    call_as(mounter, MAC, cmd, params)
+}
+
+fn call_as(mounter: &Mounter, principal: &str, cmd: &str, params: &Value) -> Value {
+    let caller = Caller::Remote(principal.into());
+    answer_line(Some(mounter), caller, Some(Path::new("/run/d.sock")), &line(cmd, params))
 }
 
 const READY: &str = r#"echo '{"ok":true,"mount":"p-1","at":"x","entries":3,"bytes":9,"ms":{}}'"#;
@@ -94,11 +103,13 @@ fn only_the_mac_over_the_link_may_mount_and_only_on_a_cloud_host() {
     let root = Root::new("callers");
     let mounter = mounter(&root, READY, UNMOUNTED, Duration::from_secs(10));
     for caller in [Caller::Local, Caller::Denied] {
+        let label = format!("{caller:?}");
         let answer =
             answer_line(Some(&mounter), caller, None, &line("projfs.mount", &root.params()));
-        assert_eq!(answer["error_code"], "projfs.permission_denied", "{caller:?}");
+        assert_eq!(answer["error_code"], "projfs.permission_denied", "{label}");
     }
-    let answer = answer_line(None, Caller::Remote, None, &line("projfs.unmount", &root.params()));
+    let mac = Caller::Remote(MAC.into());
+    let answer = answer_line(None, mac, None, &line("projfs.unmount", &root.params()));
     assert_eq!(answer["error_code"], "projfs.unavailable");
     assert_eq!(answer["id"], 7);
     assert_eq!(frame_command(&line("projfs.next", &json!({}))), None);
@@ -256,8 +267,9 @@ fn the_upper_layer_is_the_macs_over_the_link_only_and_inside_the_roots() {
     );
     let params = json!({ "state": root.at("chat/state") });
     for caller in [Caller::Local, Caller::Denied] {
+        let label = format!("{caller:?}");
         let answer = answer_line(Some(&mounter), caller, None, &line("projfs.upper", &params));
-        assert_eq!(answer["error_code"], "projfs.permission_denied", "{caller:?}");
+        assert_eq!(answer["error_code"], "projfs.permission_denied", "{label}");
     }
     let outside = Root::new("upper-elsewhere");
     std::os::unix::fs::symlink(outside.path.join("chat"), root.path.join("link")).unwrap();
@@ -270,6 +282,43 @@ fn the_upper_layer_is_the_macs_over_the_link_only_and_inside_the_roots() {
     assert_eq!(call(&mounter, "projfs.upper", &extra)["error_code"], "projfs.bad_request");
     assert!(!Path::new(&ran).exists(), "no helper ran for a refused request");
     assert_eq!(frame_command(&line("projfs.upper", &params)), Some("projfs.upper"));
+}
+
+#[test]
+fn a_mount_its_upper_layer_and_its_unmount_are_its_principals_alone() {
+    let root = Root::new("owner");
+    let (ran, undone) = (root.at("ran"), root.at("undone"));
+    let upper = format!("touch '{ran}'; {CHANGES}");
+    let unmount = format!("touch '{undone}'; {UNMOUNTED}");
+    let roots = Roots::new([root.path.clone()]);
+    let command = helper_with_upper(READY, &unmount, &upper);
+    let mounter =
+        Mounter::with_waits(roots, command, Duration::from_secs(10), Duration::from_secs(10));
+    assert_eq!(call(&mounter, "projfs.mount", &root.params())["data"]["ok"], true);
+    let state = json!({ "state": root.at("chat/state") });
+    let both = json!({ "at": root.at("chat/at"), "state": root.at("chat/state") });
+    // What a folder that is not there answers.
+    let missing = call(&mounter, "projfs.upper", &json!({ "state": root.at("chat/missing") }));
+    assert_eq!(missing["error_code"], "projfs.outside_roots");
+    let mut again = root.params();
+    again["mount"] = json!("p-2");
+    for (cmd, params) in [
+        ("projfs.upper", &state),
+        ("projfs.unmount", &both),
+        ("projfs.mount", &root.params()),
+        ("projfs.mount", &again),
+    ] {
+        let theirs = call_as(&mounter, OTHER, cmd, params);
+        assert_eq!(theirs["error_code"], missing["error_code"], "{cmd}: {theirs}");
+        assert_eq!(theirs["error"], missing["error"], "{cmd}: {theirs}");
+    }
+    assert!(!Path::new(&ran).exists(), "no upper read ran for another principal");
+    assert!(!Path::new(&undone).exists(), "no unmount ran for another principal");
+    assert_eq!(call(&mounter, "projfs.upper", &state)["ok"], true);
+    assert!(Path::new(&ran).exists());
+    // The owner unmounts: the folders are free for whoever mounts them next.
+    assert_eq!(call(&mounter, "projfs.unmount", &both)["data"]["ok"], true);
+    assert_eq!(call_as(&mounter, OTHER, "projfs.mount", &root.params())["data"]["ok"], true);
 }
 
 #[test]

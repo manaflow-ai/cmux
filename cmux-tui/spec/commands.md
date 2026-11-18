@@ -11504,6 +11504,20 @@ idle one used least recently past that. Bad params are `projfs.bad_request`;
 a caller the op is not for gets `projfs.permission_denied`. A waiting op
 holds only its own connection.
 
+A projected folder belongs to the principal (the link's paired install)
+whose `projfs.mount` made it: its mount id and its `state` and `at` folders.
+Only that principal's `projfs.next`, `projfs.answer`, `projfs.upper` and
+`projfs.unmount` reach it; another principal gets exactly what a folder that
+does not exist gets (`batch:null` after its wait, `projfs.unknown_batch`, or
+`projfs.outside_roots` naming `state`), and another principal's
+`projfs.mount` of the same id or folders is `projfs.outside_roots` too.
+`projfs.status` from the link lists only the caller's own mounts (a local
+caller sees every mount). A successful `projfs.unmount` lets the folders
+go. The owners are kept in memory (at most 1024, the oldest forgotten past
+that); a mount id or folder with no owner (after a restart of the daemon
+while its helper kept serving) becomes the first principal's that uses it.
+`projfs.fetch` (the helper, local only) is unchanged.
+
 `projfs.mount` starts the mount helper (`cmux-tui projfs mount --mount
 --manifest --at --state --socket`, the daemon's own executable and socket)
 in a session of its own, stdin and stderr closed, so it outlives the

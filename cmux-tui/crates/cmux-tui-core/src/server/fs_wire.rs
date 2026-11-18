@@ -150,17 +150,17 @@ fn transport_allows_fs(mux: &Mux, client: u64) -> bool {
 }
 
 /// Who sent a `projfs.*` frame: the mount helper on a trusted local connection that is not a
-/// remote client, or the Mac as a remote client whose principal is good for this frame. A
-/// poisoned registry or relay lock refuses (fail closed).
+/// remote client, or the Mac as a remote client whose principal is good for this frame (with
+/// that principal's participant id, which owns the mounts it makes). A poisoned registry or
+/// relay lock refuses (fail closed).
 fn projfs_caller(mux: &Mux, client: u64) -> crate::projfs_rendezvous::Caller {
     use crate::projfs_rendezvous::Caller;
     if !mux.is_remote_client(client) {
         return if mux.control_clients.is_unix(client) { Caller::Local } else { Caller::Denied };
     }
-    if transport_allows_fs(mux, client) && mux.frame_principal(client).is_some() {
-        Caller::Remote
-    } else {
-        Caller::Denied
+    match transport_allows_fs(mux, client).then(|| mux.frame_principal(client)).flatten() {
+        Some(principal) => Caller::Remote(principal.participant()),
+        None => Caller::Denied,
     }
 }
 

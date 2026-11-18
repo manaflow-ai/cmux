@@ -215,7 +215,8 @@ fn daemon(rendezvous: Arc<Rendezvous>, socket: &Path) {
                 use std::io::{BufRead as _, Write as _};
                 let mut out = stream.try_clone().unwrap();
                 for line in BufReader::new(stream).lines().map_while(Result::ok) {
-                    let answer = answer_line(Some(&rendezvous), Caller::Remote, &line);
+                    let mac = Caller::Remote("remote_mac".into());
+                    let answer = answer_line(Some(&rendezvous), mac, &line);
                     if out.write_all(format!("{answer}\n").as_bytes()).is_err() {
                         return;
                     }

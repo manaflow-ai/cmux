@@ -16,6 +16,16 @@ fn service() -> Arc<Rendezvous> {
     Arc::new(Rendezvous::new())
 }
 
+/// The Mac that mounts the folders of these tests, over its link.
+fn mac() -> Caller {
+    Caller::Remote("remote_mac".into())
+}
+
+/// Another paired install on the same machine.
+fn other() -> Caller {
+    Caller::Remote("remote_other".into())
+}
+
 /// One request line through [`answer_line`].
 fn call(service: &Rendezvous, caller: Caller, request: &Value) -> Value {
     answer_line(Some(service), caller, &request.to_string())
@@ -72,7 +82,7 @@ fn next_then_fetch_rendezvous_and_the_answer_keeps_the_order() {
     let service = service();
     let poller = {
         let service = service.clone();
-        thread::spawn(move || call(&service, Caller::Remote, &next_line(10_000)))
+        thread::spawn(move || call(&service, mac(), &next_line(10_000)))
     };
     assert!(service.settle(MOUNT, SETTLE, |c| c["polling"] == 1), "the Mac is polling");
     let wants = vec![want("a.txt", 0, 3), want("dir/b", 4, 2), want("c", 0, 1), want("d", 0, 1)];
@@ -89,11 +99,11 @@ fn next_then_fetch_rendezvous_and_the_answer_keeps_the_order() {
         {"status": "gone"},
         {"status": "failed", "reason": "unreadable"},
     ]);
-    let answered = call(&service, Caller::Remote, &answer_line_for(batch, results.clone()));
+    let answered = call(&service, mac(), &answer_line_for(batch, results.clone()));
     assert_eq!(answered["data"]["answered"], 4, "{answered}");
     let fetched = fetch.join().unwrap();
     assert_eq!(fetched["data"]["results"], results, "{fetched}");
-    let status = call(&service, Caller::Remote, &json!({"id": 9, "cmd": "projfs.status"}));
+    let status = call(&service, mac(), &json!({"id": 9, "cmd": "projfs.status"}));
     let counts = &status["data"]["mounts"][0];
     assert_eq!(
         (counts["mount"].as_str(), counts["bytes_answered"].as_u64()),
@@ -108,17 +118,17 @@ fn fetch_then_next_rendezvous() {
     let fetch = fetch_in_background(&service, fetch_line(vec![want("x", 0, 2)], 10_000));
     assert!(service.settle(MOUNT, SETTLE, |c| c["queued"] == 1), "the want is queued");
     let started = Instant::now();
-    let next = call(&service, Caller::Remote, &next_line(10_000));
+    let next = call(&service, mac(), &next_line(10_000));
     assert!(started.elapsed() < Duration::from_secs(5), "queued wants answer the poll at once");
     let batch = &next["data"]["batch"];
-    call(&service, Caller::Remote, &answer_line_for(batch, json!([{"status": "withheld"}])));
+    call(&service, mac(), &answer_line_for(batch, json!([{"status": "withheld"}])));
     assert_eq!(fetch.join().unwrap()["data"]["results"], json!([{"status": "withheld"}]));
 }
 
 #[test]
 fn a_poll_with_nothing_queued_answers_null_after_its_wait() {
     let service = service();
-    let next = call(&service, Caller::Remote, &next_line(50));
+    let next = call(&service, mac(), &next_line(50));
     assert_eq!(next["data"], json!({"batch": null}), "{next}");
 }
 
@@ -128,22 +138,22 @@ fn a_batch_whose_lease_ends_goes_to_the_next_poll() {
     let service = Arc::new(Rendezvous::with_limits(limits));
     let fetch =
         fetch_in_background(&service, fetch_line(vec![want("a", 0, 1), want("b", 0, 1)], 10_000));
-    let first = call(&service, Caller::Remote, &next_line(10_000));
+    let first = call(&service, mac(), &next_line(10_000));
     let first = &first["data"]["batch"];
     assert_eq!(first["wants"].as_array().map(Vec::len), Some(2), "{first}");
     // That Mac went away; the next poll waits for the lease to end and gets the same wants.
-    let second = call(&service, Caller::Remote, &next_line(10_000));
+    let second = call(&service, mac(), &next_line(10_000));
     let second = &second["data"]["batch"];
     assert_ne!(first["id"], second["id"]);
     assert_eq!(first["wants"], second["wants"]);
     // The first Mac's answer comes in late, before the second's: its wants are still open, so
     // it lands, and the second answer then has nothing left to complete.
     let results = json!([{"status": "bytes", "data_b64": b64(b"1")}, {"status": "gone"}]);
-    let late = call(&service, Caller::Remote, &answer_line_for(first, results.clone()));
+    let late = call(&service, mac(), &answer_line_for(first, results.clone()));
     assert_eq!(late["data"]["answered"], 2, "{late}");
     assert_eq!(fetch.join().unwrap()["data"]["results"], results);
     let away = json!([{"status": "away"}, {"status": "away"}]);
-    let after = call(&service, Caller::Remote, &answer_line_for(second, away));
+    let after = call(&service, mac(), &answer_line_for(second, away));
     assert_eq!(code(&after), "projfs.unknown_batch", "{after}");
 }
 
@@ -165,7 +175,7 @@ fn an_answer_past_its_lease_completes_the_wants_still_open() {
     assert!(service.settle(MOUNT, SETTLE, |c| c["queued"] == 1));
     let long = fetch_in_background(&service, fetch_line_for("b", 100_000));
     assert!(service.settle(MOUNT, SETTLE, |c| c["queued"] == 2));
-    let next = call(&service, Caller::Remote, &next_line(0));
+    let next = call(&service, mac(), &next_line(0));
     let batch = next["data"]["batch"].clone();
     assert_eq!(batch["wants"].as_array().map(Vec::len), Some(2), "{next}");
     // The answer takes 40 s to cross the link: the lease ends, and the short reader gives up.
@@ -175,7 +185,7 @@ fn an_answer_past_its_lease_completes_the_wants_still_open() {
         {"status": "bytes", "data_b64": b64(b"A")},
         {"status": "bytes", "data_b64": b64(b"B")},
     ]);
-    let late = call(&service, Caller::Remote, &answer_line_for(&batch, results));
+    let late = call(&service, mac(), &answer_line_for(&batch, results));
     assert_eq!(late["ok"], true, "{late}");
     assert_eq!(late["data"]["answered"], 1, "only the open want: {late}");
     let got = long.join().unwrap();
@@ -184,7 +194,7 @@ fn an_answer_past_its_lease_completes_the_wants_still_open() {
     // Nothing of that batch is open any more: the same answer again is unknown.
     let again = call(
         &service,
-        Caller::Remote,
+        mac(),
         &answer_line_for(&batch, json!([{"status": "gone"}, {"status": "gone"}])),
     );
     assert_eq!(code(&again), "projfs.unknown_batch", "{again}");
@@ -195,14 +205,14 @@ fn a_late_answer_whose_wants_a_later_batch_answered_is_unknown() {
     let service = slow_link_service();
     let fetch = fetch_in_background(&service, fetch_line_for("a", 100_000));
     assert!(service.settle(MOUNT, SETTLE, |c| c["queued"] == 1));
-    let first = call(&service, Caller::Remote, &next_line(0))["data"]["batch"].clone();
+    let first = call(&service, mac(), &next_line(0))["data"]["batch"].clone();
     service.advance(LEASE + Duration::from_secs(1));
-    let second = call(&service, Caller::Remote, &next_line(0))["data"]["batch"].clone();
+    let second = call(&service, mac(), &next_line(0))["data"]["batch"].clone();
     assert_eq!(first["wants"], second["wants"], "handed out again");
     let gone = json!([{"status": "gone"}]);
-    assert_eq!(call(&service, Caller::Remote, &answer_line_for(&second, gone.clone()))["ok"], true);
+    assert_eq!(call(&service, mac(), &answer_line_for(&second, gone.clone()))["ok"], true);
     assert_eq!(fetch.join().unwrap()["data"]["results"], gone);
-    let late = call(&service, Caller::Remote, &answer_line_for(&first, gone));
+    let late = call(&service, mac(), &answer_line_for(&first, gone));
     assert_eq!(code(&late), "projfs.unknown_batch", "{late}");
 }
 
@@ -217,16 +227,16 @@ fn expired_batches_remembered_are_bounded() {
     // again as a new batch: one more expired batch than are remembered.
     let mut batches = Vec::new();
     for _ in 0..=MAX_EXPIRED_BATCHES {
-        batches.push(call(&service, Caller::Remote, &next_line(0))["data"]["batch"].clone());
+        batches.push(call(&service, mac(), &next_line(0))["data"]["batch"].clone());
         service.advance(LEASE + Duration::from_secs(1));
     }
     let oldest = batches.first().unwrap();
     let count = oldest["wants"].as_array().map_or(0, Vec::len);
     let results = Value::Array(vec![json!({"status": "gone"}); count]);
-    let forgotten = call(&service, Caller::Remote, &answer_line_for(oldest, results.clone()));
+    let forgotten = call(&service, mac(), &answer_line_for(oldest, results.clone()));
     assert_eq!(code(&forgotten), "projfs.unknown_batch", "{forgotten}");
     let newest = batches.last().unwrap();
-    let answered = call(&service, Caller::Remote, &answer_line_for(newest, results));
+    let answered = call(&service, mac(), &answer_line_for(newest, results));
     assert_eq!(answered["data"]["answered"], count, "{answered}");
     assert_eq!(fetch.join().unwrap()["data"]["results"].as_array().map(Vec::len), Some(count));
 }
@@ -235,11 +245,11 @@ fn expired_batches_remembered_are_bounded() {
 fn a_fetch_past_its_wait_still_takes_the_answer_of_a_batch_a_mac_holds() {
     let service = service();
     let fetch = fetch_in_background(&service, fetch_line(vec![want("a", 0, 1)], 100));
-    let next = call(&service, Caller::Remote, &next_line(10_000));
+    let next = call(&service, mac(), &next_line(10_000));
     let batch = next["data"]["batch"].clone();
     // The fetch's own wait ends while the Mac holds its want: it waits for that answer.
     assert!(!service.settle(MOUNT, Duration::from_millis(300), |c| c["fetching"] == 0));
-    call(&service, Caller::Remote, &answer_line_for(&batch, json!([{"status": "gone"}])));
+    call(&service, mac(), &answer_line_for(&batch, json!([{"status": "gone"}])));
     assert_eq!(fetch.join().unwrap()["data"]["results"], json!([{"status": "gone"}]));
 }
 
@@ -264,10 +274,10 @@ fn the_wants_are_bounded() {
     }
     for mount in ["", "a b", "../x", &"m".repeat(MAX_MOUNT_ID + 1)] {
         let line = json!({"id": 1, "cmd": "projfs.next", "mount": mount, "wait_ms": 0});
-        assert_eq!(code(&call(&service, Caller::Remote, &line)), "projfs.bad_request", "{mount:?}");
+        assert_eq!(code(&call(&service, mac(), &line)), "projfs.bad_request", "{mount:?}");
     }
     let line = json!({"id": 1, "cmd": "projfs.next", "mount": "m", "wait_ms": -1});
-    assert_eq!(code(&call(&service, Caller::Remote, &line)), "projfs.bad_request");
+    assert_eq!(code(&call(&service, mac(), &line)), "projfs.bad_request");
 }
 
 #[test]
@@ -292,7 +302,7 @@ fn the_queue_of_a_mount_is_bounded() {
 fn answers_are_checked_against_their_batch() {
     let service = service();
     let fetch = fetch_in_background(&service, fetch_line(vec![want("a", 0, 2)], 10_000));
-    let next = call(&service, Caller::Remote, &next_line(10_000));
+    let next = call(&service, mac(), &next_line(10_000));
     let batch = next["data"]["batch"].clone();
     for bad in [
         json!([]),
@@ -303,15 +313,15 @@ fn answers_are_checked_against_their_batch() {
         json!([{"status": "gone", "extra": 1}]),
         json!([{"status": "failed", "reason": "r".repeat(MAX_REASON_BYTES + 1)}]),
     ] {
-        let answer = call(&service, Caller::Remote, &answer_line_for(&batch, bad.clone()));
+        let answer = call(&service, mac(), &answer_line_for(&batch, bad.clone()));
         assert_eq!(code(&answer), "projfs.bad_request", "{bad}");
     }
     let unknown =
         json!({"id": 3, "cmd": "projfs.answer", "mount": MOUNT, "batch": "b999", "results": []});
-    assert_eq!(code(&call(&service, Caller::Remote, &unknown)), "projfs.unknown_batch");
+    assert_eq!(code(&call(&service, mac(), &unknown)), "projfs.unknown_batch");
     // A refused answer leaves the batch out: the right one still completes the fetch.
     let good = json!([{"status": "bytes", "data_b64": b64(b"ok")}]);
-    assert_eq!(call(&service, Caller::Remote, &answer_line_for(&batch, good.clone()))["ok"], true);
+    assert_eq!(call(&service, mac(), &answer_line_for(&batch, good.clone()))["ok"], true);
     assert_eq!(fetch.join().unwrap()["data"]["results"], good);
 }
 
@@ -320,7 +330,7 @@ fn idle_mounts_past_the_bound_are_forgotten() {
     let service = service();
     for i in 0..=MAX_MOUNTS {
         let line = json!({"id": 1, "cmd": "projfs.next", "mount": format!("m{i}"), "wait_ms": 0});
-        assert_eq!(call(&service, Caller::Remote, &line)["ok"], true);
+        assert_eq!(call(&service, mac(), &line)["ok"], true);
     }
     let status = call(&service, Caller::Local, &json!({"id": 1, "cmd": "projfs.status"}));
     assert_eq!(status["data"]["mounts"].as_array().map(Vec::len), Some(MAX_MOUNTS));
@@ -331,8 +341,9 @@ fn only_the_helper_fetches_and_only_the_mac_takes_and_answers() {
     let service = service();
     let fetch = fetch_line(vec![want("a", 0, 1)], 0);
     assert_eq!(call(&service, Caller::Local, &fetch)["ok"], true, "a local connection may fetch");
-    for caller in [Caller::Remote, Caller::Denied] {
-        assert_eq!(code(&call(&service, caller, &fetch)), "projfs.permission_denied", "{caller:?}");
+    for caller in [mac(), Caller::Denied] {
+        let label = format!("{caller:?}");
+        assert_eq!(code(&call(&service, caller, &fetch)), "projfs.permission_denied", "{label}");
     }
     let answer =
         json!({"id": 3, "cmd": "projfs.answer", "mount": MOUNT, "batch": "b0", "results": []});
@@ -347,6 +358,40 @@ fn only_the_helper_fetches_and_only_the_mac_takes_and_answers() {
     let unserved = answer_line(None, Caller::Local, &fetch.to_string());
     assert_eq!(code(&unserved), "projfs.unavailable");
     assert_eq!(unserved["id"], 1);
+}
+
+#[test]
+fn another_principal_can_neither_take_answer_nor_see_a_mount() {
+    let service = service();
+    assert!(service.owners().claim("remote_mac", MOUNT, &["/w/state", "/w/at"]));
+    let fetch = fetch_in_background(&service, fetch_line(vec![want("a", 0, 1)], 10_000));
+    assert!(service.settle(MOUNT, SETTLE, |c| c["queued"] == 1));
+    // Another install polls the mount: nothing, as for a mount that does not exist, and the
+    // queued want stays for the owner.
+    let theirs = call(&service, other(), &next_line(50));
+    assert_eq!(theirs["data"], json!({"batch": null}), "{theirs}");
+    assert!(service.settle(MOUNT, SETTLE, |c| c["queued"] == 1 && c["batches_out"] == 0));
+    for status in [
+        json!({"id": 9, "cmd": "projfs.status"}),
+        json!({"id": 9, "cmd": "projfs.status", "mount": MOUNT}),
+    ] {
+        assert_eq!(call(&service, other(), &status)["data"], json!({"mounts": []}), "{status}");
+    }
+    let nowhere = json!({"id": 2, "cmd": "projfs.next", "mount": "nowhere", "wait_ms": 50});
+    assert_eq!(call(&service, other(), &nowhere)["data"], theirs["data"]);
+    let mine = call(&service, mac(), &json!({"id": 9, "cmd": "projfs.status"}));
+    assert_eq!(mine["data"]["mounts"][0]["mount"], MOUNT, "{mine}");
+    let batch = call(&service, mac(), &next_line(10_000))["data"]["batch"].clone();
+    // A forged answer to the owner's batch is refused as to a mount that does not exist.
+    let forged = json!([{"status": "bytes", "data_b64": b64(b"X")}]);
+    let refused = call(&service, other(), &answer_line_for(&batch, forged.clone()));
+    assert_eq!(code(&refused), "projfs.unknown_batch", "{refused}");
+    let mut elsewhere = answer_line_for(&batch, forged);
+    elsewhere["mount"] = json!("elsewhere");
+    assert_eq!(code(&call(&service, other(), &elsewhere)), "projfs.unknown_batch");
+    let good = json!([{"status": "bytes", "data_b64": b64(b"A")}]);
+    assert_eq!(call(&service, mac(), &answer_line_for(&batch, good.clone()))["ok"], true);
+    assert_eq!(fetch.join().unwrap()["data"]["results"], good);
 }
 
 #[test]
