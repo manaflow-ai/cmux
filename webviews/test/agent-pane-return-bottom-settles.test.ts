@@ -125,17 +125,22 @@ await requireBrowserLane("agent-pane-return-bottom-settles.test.ts", async () =>
 
     const settle = () =>
       page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    // The streamed turn drawn and followed: the view sits at the end before the reader scrolls away.
+    // The streamed turn drawn and followed: the view sits at the end, and the transcript's height and row count held
+    // for 10 frames in a row (as agent-pane-older-paging-return-keeps-rows.test.ts waits).
     await page.waitForFunction(
       () => {
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const w = window as any;
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+        if (!scroller) return false;
         const distance = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
-        return (window as any).__settleClient.following === true && Math.abs(distance) < 1;
+        const shape = `${scroller.scrollHeight}:${scroller.querySelectorAll(".acpmux-row").length}`;
+        w.__settleQuiet =
+          w.__settleQuiet?.shape === shape ? { shape, frames: w.__settleQuiet.frames + 1 } : { shape, frames: 0 };
+        return w.__settleClient.following === true && Math.abs(distance) < 1 && w.__settleQuiet.frames >= 10;
       },
       null,
       { timeout: 10_000, polling: "raf" },
     );
-    await settle();
 
     // The reader scrolls up a screen and a half; the turn streams on while they read, past what the client holds
     // before it sheds while following, as in the run that saw the gap.
