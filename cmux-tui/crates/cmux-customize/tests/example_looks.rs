@@ -34,8 +34,7 @@ fn addons() -> Vec<String> {
 const MINE: &str = "{\n  // my settings\n  \"appearance\": { \"accent\": \"blue\" },\n  \"terminal\": { \"fontSize\": 15 }\n}\n";
 
 fn receipt(read: &setup::Setup, installed: &setup::Installed, name: &str) -> Receipt {
-    let reference =
-        Reference::parse(&format!("github.com/manaflow-ai/cmux/examples/looks/{name}")).unwrap();
+    let reference = Reference::parse(&format!("github.com/manaflow-ai/cmux-{name}-look")).unwrap();
     Receipt {
         id: read.manifest.id.clone(),
         name: read.manifest.name.clone(),

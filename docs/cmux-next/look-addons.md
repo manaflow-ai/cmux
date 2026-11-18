@@ -2,7 +2,7 @@
 
 A look for cmux NEXT (the colors, the chat's type and prompt bubble, the sidebar's rows and hover
 card) can be written entirely outside cmux, as one folder you install and remove in one step. This
-page shows how, with the two looks in [`examples/looks`](../../examples/looks) as the worked example,
+page shows how, with the two looks [Studio](https://github.com/manaflow-ai/cmux-studio-look) and [Paper](https://github.com/manaflow-ai/cmux-paper-look) as the worked example,
 and lists what a look cannot change yet.
 
 ## The four parts
@@ -16,7 +16,7 @@ A look is a [setup](../../examples/looks/studio/cmux-setup.json) (`cmux-setup.js
 | The chat's paint | `agent-pane/theme.css` | only the tokens of `cmux.agentPane.style/1` ([below](#the-chat-stylesheet-cmuxagentpanestyle1)), on `:root` | on save |
 | The sidebar | `customize/cmux-app.json` and `customize/main.js` | the hover card (`cmux.hovercard/1`) and row decorations (`cmux.sidebar.rows/1`), [sidebar-customization.md](sidebar-customization.md) | on save |
 
-Install one from its repo with `cmux setup install HOST/OWNER/REPO[/PATH][@REF]` (a look in this repo: `github.com/manaflow-ai/cmux/examples/looks/studio@feat-cmux-next`), take it off with `cmux setup remove ID`. It is
+Install one from its repo with `cmux setup install HOST/OWNER/REPO[/PATH][@REF]` (a look is a small repo of its own, like dotfiles: `cmux setup install github.com/manaflow-ai/cmux-studio-look`), take it off with `cmux setup remove ID`. It is
 one library layer: your own settings stay, and removing it puts back exactly what was there.
 
 ## The chat stylesheet: `cmux.agentPane.style/1`
