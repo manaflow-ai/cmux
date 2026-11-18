@@ -45,7 +45,7 @@ fi
 # or another owner can be read, on any platform's runtime directory.
 sockdir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-web.XXXXXX")
 sock=$sockdir/$session.sock
-CMUX_TUI_PAGES_DIR=$pages "$bin" --socket "$sock" --headless --ws "127.0.0.1:$port" &
+CMUX_TUI_PAGES_DIR=$pages "$bin" --session "$session" --socket "$sock" --headless --ws "127.0.0.1:$port" &
 daemon=$!
 trap 'kill "$daemon" 2>/dev/null; wait "$daemon" 2>/dev/null; rm -rf "$sockdir"' EXIT INT TERM
 
