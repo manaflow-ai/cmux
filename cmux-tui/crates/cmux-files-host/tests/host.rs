@@ -238,12 +238,46 @@ fn run_without_a_signed_copy_runs_the_program_in_its_place() {
     assert!(!staged, "nothing unsigned is staged");
 }
 
-/// With the pinned, team-signed bundle (CMUX_FILES_HOST_SIGNED_APP, the unzipped asset), two
-/// different DEV apps run their programs under one staged host executable: one macOS identity.
+/// The pinned, team-signed bundle: CMUX_FILES_HOST_SIGNED_APP, else the asset of
+/// scripts/cmux-next/files-host-dev.pin.json through ensure-cua-pinned-asset.sh (its cache, the
+/// fleet store or R2), unzipped into a temporary folder.
+fn signed_app() -> Option<(Option<tempfile::TempDir>, PathBuf)> {
+    if let Some(app) = std::env::var_os("CMUX_FILES_HOST_SIGNED_APP") {
+        return Some((None, PathBuf::from(app)));
+    }
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let pin = repo.join("scripts/cmux-next/files-host-dev.pin.json");
+    if !pin.exists() {
+        return None;
+    }
+    let output = std::process::Command::new("/bin/bash")
+        .arg(repo.join("scripts/cmux-next/ensure-cua-pinned-asset.sh"))
+        .arg(&pin)
+        .arg("--optional")
+        .output()
+        .ok()?;
+    let zip = String::from_utf8(output.stdout).ok()?.trim().to_owned();
+    if zip.is_empty() {
+        eprintln!("the pinned asset is unavailable: {}", String::from_utf8_lossy(&output.stderr));
+        return None;
+    }
+    let dir = tempfile::tempdir().ok()?;
+    let status = std::process::Command::new("/usr/bin/ditto")
+        .args(["-x", "-k"])
+        .arg(&zip)
+        .arg(dir.path())
+        .status()
+        .ok()?;
+    let app = dir.path().join(cmux_files_host::BUNDLE_NAME);
+    (status.success() && app.is_dir()).then_some((Some(dir), app))
+}
+
+/// With the pinned, team-signed bundle, two different DEV apps run their programs under one
+/// staged host executable: one macOS identity.
 #[test]
 fn two_dev_apps_share_one_staged_host_with_the_signed_pin() {
-    let Some(signed) = std::env::var_os("CMUX_FILES_HOST_SIGNED_APP").map(PathBuf::from) else {
-        eprintln!("skipped: CMUX_FILES_HOST_SIGNED_APP names no signed cmux Files (dev).app");
+    let Some((_unzipped, signed)) = signed_app() else {
+        eprintln!("skipped: no signed cmux Files (dev).app (no pin, or the asset is unavailable)");
         return;
     };
     let fixture = Fixture::new();

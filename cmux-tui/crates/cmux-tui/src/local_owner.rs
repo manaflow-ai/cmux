@@ -1095,6 +1095,16 @@ mod tests {
             assert_eq!(direct.get_program(), program.as_os_str(), "{launcher:?}");
             assert_eq!(direct.get_args().count(), 0, "{launcher:?}");
         }
+        // Shells under the owner never inherit the launcher.
+        for command in [through, super::owner_command(program, None)] {
+            assert!(
+                command
+                    .get_envs()
+                    .any(|(key, value)| key == super::OWNER_LAUNCHER_ENV && value.is_none()),
+                "the owner's environment drops {}",
+                super::OWNER_LAUNCHER_ENV
+            );
+        }
     }
 
     #[test]

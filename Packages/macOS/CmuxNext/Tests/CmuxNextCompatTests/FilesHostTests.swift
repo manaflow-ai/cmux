@@ -8,14 +8,14 @@ struct FilesHostTests {
     private static let embedded = "/Applications/cmux DEV one.app/" + FilesHost.embeddedExecutable
 
     private static func host(_ identifier: String?, environment: [String: String] = [:],
-                             embedded: Bool = true) -> FilesHost? {
+                             embedded: Bool = true, isDebugBuild: Bool = true) -> FilesHost? {
         FilesHost(bundleURL: app, bundleIdentifier: identifier, environment: environment,
-                  isExecutable: { embedded && $0 == Self.embedded })
+                  isDebugBuild: isDebugBuild, isExecutable: { embedded && $0 == Self.embedded })
     }
 
     @Test func aDevBuildThatEmbedsTheHelperUsesIt() throws {
         for identifier in ["com.cmuxterm.app.debug", "com.cmuxterm.app.debug.files-tcc",
-                           "com.cmuxterm.app.debug.next", "com.cmuxterm.app.staging.one"] {
+                           "com.cmuxterm.app.debug.next"] {
             let host = try #require(Self.host(identifier), "\(identifier)")
             #expect(host.executable.path == Self.embedded)
         }
@@ -23,9 +23,34 @@ struct FilesHostTests {
 
     @Test func releaseChannelsNeverUseItEvenWithACopyInside() {
         for identifier in ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.nightly.cmux-next",
-                           "com.cmuxterm.app.rc", "com.cmuxterm.app.debugger", "com.cmuxterm.cua", nil] {
+                           "com.cmuxterm.app.rc", "com.cmuxterm.app.staging", "com.cmuxterm.app.staging.one",
+                           "com.cmuxterm.app.debugger", "com.cmuxterm.cua", nil] {
             #expect(Self.host(identifier) == nil, "\(identifier ?? "nil")")
         }
+    }
+
+    /// Production safety (docs/cmux-files-host.md, "Production"): a Release-configuration compile
+    /// (stable, NIGHTLY, RC, the NEXT DEV daily `com.cmuxterm.app.debug.next`, `--release` tags)
+    /// never uses the helper, whatever its bundle id and even with a copy inside, and never
+    /// looks at the disk for it.
+    @Test func aReleaseCompileNeverUsesOrLooksForIt() {
+        for identifier in ["com.cmuxterm.app.debug", "com.cmuxterm.app.debug.next", "com.cmuxterm.app.debug.files-tcc",
+                           "com.cmuxterm.app", "com.cmuxterm.app.nightly"] {
+            var looked = false
+            let host = FilesHost(bundleURL: Self.app, bundleIdentifier: identifier, environment: [:],
+                                 isDebugBuild: false, isExecutable: { _ in looked = true; return true })
+            #expect(host == nil, "\(identifier)")
+            #expect(!looked, "\(identifier)")
+        }
+    }
+
+    /// The test bundle is a Debug compile, so the default reads `#if DEBUG`.
+    @Test func theDefaultFollowsTheCompile() {
+        #if DEBUG
+        #expect(FilesHost.isDebugBuild)
+        #else
+        #expect(!FilesHost.isDebugBuild)
+        #endif
     }
 
     @Test func aBuildWithoutTheHelperOrSwitchedOffRunsAsBefore() {
