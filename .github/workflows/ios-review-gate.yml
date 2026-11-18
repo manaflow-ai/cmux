@@ -7,8 +7,10 @@ run-name: >-
 # machine can find that App Review would reject: the reviewer's path walked on
 # iPhone, iPad (the iPhone app in compatibility mode) and iPhone Duo, the
 # dead-control walk, the guideline lint on the source, metadata, URLs and the
-# exact binary, the rejection-history check, `asc validate --strict`, and an
-# agent reviewer pass that follows reviewer-setup.md on the simulator.
+# exact binary, the rejection-history check and `asc validate --strict`.
+# Every check is deterministic: no model judges the build (an agent reviewer
+# pass on the iPad leg was removed, since it could answer differently on the
+# same build and failed every app change while its API quota was spent).
 #
 # The production pipeline calls it (workflow_call) on the exact feat-cmux-next
 # SHA it builds, before upload, and refuses to submit unless it is green on
@@ -19,9 +21,9 @@ run-name: >-
 # A scheduled run would fire only from the default branch's copy of this file,
 # so there is none here. Notes (*.md) and cmux-next-ios/verify/ evidence are
 # not the app: a change to only those walks no reviewer path (cmux#43251,
-# SECURITY.md and verify/parity-mac.md, took a Mac per device and the agent
-# pass's quota). AppStoreReview/ stays in: the agent pass follows
-# reviewer-setup.md. The last matching pattern wins, so the negations come
+# SECURITY.md and verify/parity-mac.md, took a Mac per device).
+# AppStoreReview/ stays in: the lint reads its metadata, rejection history and
+# known blockers. The last matching pattern wins, so the negations come
 # after the includes they narrow and before the one they re-include.
 # docs: cmux-next-ios/AppStoreReview/APP-REVIEW-GATE.md.
 on:
@@ -71,10 +73,13 @@ on:
         description: Optional run id whose `app-store-ipa` artifact is the exact binary to lint
         required: false
         default: ""
+      # Accepted and ignored: the agent reviewer pass is gone. main's ios-app-review-readiness.yml
+      # still dispatches with inputs[agent_pass]=true, and GitHub refuses (422) a dispatch that
+      # names an undeclared input. Drop this once main no longer sends it.
       agent_pass:
-        description: Run the agent reviewer pass (Claude on the simulator)
+        description: Ignored (the agent reviewer pass was removed); kept so older dispatchers still work
         required: false
-        default: true
+        default: false
         type: boolean
   workflow_call:
     inputs:
@@ -92,10 +97,11 @@ on:
         type: string
         required: false
         default: ""
+      # Accepted and ignored, as on workflow_dispatch above (a caller still passing it keeps working).
       agent_pass:
         type: boolean
         required: false
-        default: true
+        default: false
       gate_ref:
         description: Where the gate's own scripts come from when called from another branch (resolved to one SHA)
         type: string
@@ -310,18 +316,11 @@ jobs:
         # iphone and ipad always; duo only when the plan's device list says
         # the image has it (it has not so far, so it takes no Mac).
         family: ${{ fromJSON(needs.plan.outputs.families) }}
-    # The 6 vCPU macOS 26 pool (ephemeral Blacksmith Macs): the job holds a
-    # secret (the agent pass's Claude token), so it takes no owned Mac
-    # (.github/runners.json picker_followup). A fork pull request takes the
+    # The 6 vCPU macOS 26 pool (ephemeral Blacksmith Macs) until a picker
+    # routes it (.github/runners.json picker_followup). A fork pull request takes the
     # same label directly, since it reads no repository variables.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
-    # The agent pass reads CLAUDE_CODE_OAUTH_TOKEN; a credentialed job runs in
-    # an environment (tests/test_supplychain_security.py). NEXT's development
-    # environment, with no deployment record.
-    environment:
-      name: cmux-next-development
-      deployment: false
     env:
       LANE: ${{ needs.plan.outputs.lane }}
     steps:
@@ -392,8 +391,10 @@ jobs:
             --out "$RESULTS/device-plan-mismatch.json"
       # CmuxMobileLinkFFI.xcframework is built only when what it is built from changes
       # (.github/scripts/ios_link_ffi_key.py): each job built it from scratch,
-      # about 3 minutes of a Mac (run 43652999096). A pull request only
-      # reads the cache; other events save what they built.
+      # about 3 minutes of a Mac (run 43652999096). It lives in cmux NEXT's
+      # R2 bucket: the Blacksmith Macs' GitHub store kept no save for a later
+      # run (runs 43708277177 to 43721191135). Every run reads it with no
+      # credential; seed-link-ffi below writes it on feat-cmux-next.
       - name: The framework's inputs
         id: ffi-key
         if: env.UDID != ''
@@ -408,38 +409,72 @@ jobs:
       - name: Restore the framework built from the same inputs
         id: ffi
         if: env.UDID != '' && steps.ffi-key.outputs.key != ''
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          # The key names the Xcode build and the runner; the Linux writer
+          # is not the Mac that built it.
+          CI_CACHE_R2_NAMESPACE: ios-link-ffi
         with:
-          path: |
-            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
-            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+          backend: r2
+          # One directory per entry: the framework and its generated Swift.
+          path: ${{ runner.temp }}/link-ffi
           key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
+      - name: Put the restored framework in place
+        id: ffi-place
+        if: env.UDID != '' && steps.ffi.outputs.cache-hit == 'true'
+        # An incomplete entry builds the framework instead of failing the leg.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          test -d "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.xcframework"
+          test -f "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.swift"
+          kit=cmux-next-ios/CmuxMobileKit
+          rm -rf "$kit/Frameworks/CmuxMobileLinkFFI.xcframework"
+          mkdir -p "$kit/Frameworks" "$kit/Sources/CmuxMobileLinkFFI"
+          cp -R "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.xcframework" "$kit/Frameworks/"
+          cp "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.swift" "$kit/Sources/CmuxMobileLinkFFI/"
       # cmux-next-ios/rust pins the same toolchain as cmux-tui.
       - name: Set up pinned Rust
-        if: env.UDID != '' && steps.ffi.outputs.cache-hit != 'true'
+        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Cache cargo
-        if: env.UDID != '' && steps.ffi.outputs.cache-hit != 'true'
+        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
           workspaces: cmux-next-ios/rust
           key: ios-review-gate
       - name: Build CmuxMobileLinkFFI.xcframework
-        if: env.UDID != '' && steps.ffi.outputs.cache-hit != 'true'
+        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         env:
           JOBS: "6"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
-      - name: Save the framework for later runs
-        if: env.UDID != '' && steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
-        # Another job saving the same key first is not a failure.
+      # This job never holds the bucket's write credentials: one leg hands
+      # what it built to seed-link-ffi.
+      - name: Stage the framework for the cache writer
+        id: ffi-out
+        if: env.UDID != '' && steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name == 'push' && matrix.family == 'iphone'
         continue-on-error: true
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        env:
+          FFI_KEY: ${{ steps.ffi-key.outputs.key }}
+        run: |
+          set -euo pipefail
+          kit=cmux-next-ios/CmuxMobileKit
+          out="$RUNNER_TEMP/link-ffi-out"
+          mkdir -p "$out/framework"
+          cp -R "$kit/Frameworks/CmuxMobileLinkFFI.xcframework" "$out/framework/"
+          cp "$kit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift" "$out/framework/"
+          printf '%s\n' "$FFI_KEY" > "$out/key"
+      - name: Hand the framework to the cache writer
+        if: steps.ffi-out.outcome == 'success' && steps.ffi.outputs.cache-hit != 'true' && github.event_name == 'push'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          path: |
-            cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
-            cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
-          key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
+          name: ios-link-ffi-framework
+          path: ${{ runner.temp }}/link-ffi-out
+          retention-days: 1
+          if-no-files-found: ignore
       - name: Build the app and the gate for testing
         if: env.UDID != ''
         working-directory: cmux-next-ios
@@ -489,65 +524,6 @@ jobs:
           xcrun xcresulttool export attachments --path "$RESULTS/$family.xcresult" --output-path "$RESULTS/screens/$family" >/dev/null 2>&1 || true
           # The report job decides; this step only records.
           exit 0
-      - name: Agent reviewer pass
-        # Push and pull_request carry no inputs, and an absent input compares
-        # equal to false; only an explicit false skips. It reviews on the
-        # iPad, as it did when one job walked every device in turn, so only
-        # the iPad leg runs it.
-        if: >-
-          matrix.family == 'ipad' && env.UDID != ''
-          && (github.event_name == 'push' || github.event_name == 'pull_request' || inputs.agent_pass)
-        # A check, not advice: a pass that judged nothing fails this step and
-        # the report (app_review_agent_pass.py). It used to be allowed to
-        # fail, and with axe never installed it ended in two
-        # seconds as a pass on every run (job 132387096997).
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # The homebrew tap's formula (cameroncooke/homebrew-axe) uses an
-          # install DSL the runner's Homebrew refuses ("undefined method
-          # 'run'"), so its pinned archive is installed as the formula does.
-          AXE_URL: https://github.com/cameroncooke/AXe/releases/download/v2.0.4/AXe-macOS-homebrew-v2.0.4.tar.gz
-          AXE_SHA256: 4997a7305814d1bcbb925bf1f81667177e204fe58855d99c4896b85d749e181a
-          FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-        run: |
-          set -euo pipefail
-          if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-            if [ "$FORK_PULL_REQUEST" = true ]; then
-              # A fork pull request gets no secrets: the skip is named, and
-              # the report shows it as a warning.
-              echo "::notice::no agent token for this event (fork pull request); skipping the agent pass"
-              echo '{"skipped":true,"reason":"no agent token for this event (fork pull request)"}' > "$RESULTS/agent-skipped.json"
-              exit 0
-            fi
-            # Anywhere else a missing token is a configuration error (an
-            # environment without the secret, a caller without secrets:
-            # inherit), never a skip.
-            echo '[{"severity":"blocker","guideline":"2.1","rule":"agent.unavailable","source":"agent reviewer pass","message":"the agent pass could not run: CLAUDE_CODE_OAUTH_TOKEN is not set for this run","where":""}]' > "$RESULTS/agent-findings.json"
-            echo "::error::CLAUDE_CODE_OAUTH_TOKEN is not set for this run; the agent reviewer pass cannot run" >&2
-            exit 1
-          fi
-          axe_dir="$RUNNER_TEMP/axe"
-          rm -rf "$axe_dir" && mkdir -p "$axe_dir"
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/axe.tar.gz" "$AXE_URL"
-          echo "$AXE_SHA256  $RUNNER_TEMP/axe.tar.gz" | shasum -a 256 --check --strict
-          tar -xzf "$RUNNER_TEMP/axe.tar.gz" -C "$axe_dir"
-          axe_bin="$(find "$axe_dir" -maxdepth 2 -type f -name axe | head -n 1)"
-          axe_home="$(dirname "$axe_bin")"
-          # The archive ships unsigned: sign the frameworks, then the
-          # executable that loads them (the formula's post-install step).
-          codesign --force --sign - --timestamp=none \
-            "$axe_home/Frameworks/FBControlCore.framework" \
-            "$axe_home/Frameworks/FBSimulatorControl.framework" \
-            "$axe_bin"
-          export PATH="$axe_home:$PATH"
-          axe --version
-          npm install -g @anthropic-ai/claude-code > "$RUNNER_TEMP/npm.log" 2>&1 || { tail -n 30 "$RUNNER_TEMP/npm.log"; exit 1; }
-          claude --version
-          app_path="$(find "$DERIVED/Build/Products" -maxdepth 2 -path '*iphonesimulator/CmuxMobileApp.app' | head -n 1)"
-          python3 -I .review-gate/cmux-next-ios/scripts/app_review_agent_pass.py \
-            --udid "$UDID" --app "$app_path" \
-            --setup cmux-next-ios/AppStoreReview/reviewer-setup.md \
-            --out "$RESULTS/agent-pass" --findings "$RESULTS/agent-findings.json"
       - name: Upload results
         if: always()
         continue-on-error: true
@@ -559,7 +535,6 @@ jobs:
             ${{ env.RESULTS }}/*.json
             ${{ env.RESULTS }}/*.log
             ${{ env.RESULTS }}/screens
-            ${{ env.RESULTS }}/agent-pass
           if-no-files-found: error
           retention-days: 3
       # The xcresult bundles (about 1 GB) are not uploaded: their test results,
@@ -649,6 +624,66 @@ jobs:
           path: asc-*.json
           retention-days: 3
 
+  # Writes the framework a leg built into cmux NEXT's R2 bucket, which the
+  # legs read with no credential. The write credentials live in the
+  # next-cache-writer environment (feat-cmux-next only), held by this Linux
+  # job alone (tests/test_ci_pull_request_caches_are_read_only.py).
+  seed-link-ffi:
+    needs: reviewer-path
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+    # A seed that fails never turns the push run red; the report does not need it.
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      # r2-cache.sh saves nothing without it.
+      CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+      CI_CACHE_R2_NAMESPACE: ios-link-ffi
+    steps:
+      - name: Fetch the framework a leg built
+        id: fetched
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ios-link-ffi-framework
+          path: ${{ runner.temp }}/link-ffi
+      - name: The framework's key
+        id: staged
+        if: steps.fetched.outcome == 'success'
+        run: |
+          set -euo pipefail
+          key="$(head -c 128 "$RUNNER_TEMP/link-ffi/key" | tr -d '[:space:]')"
+          if [[ "$key" =~ ^[0-9a-f]{64}$ ]] && [ -d "$RUNNER_TEMP/link-ffi/framework/CmuxMobileLinkFFI.xcframework" ] \
+              && [ -f "$RUNNER_TEMP/link-ffi/framework/CmuxMobileLinkFFI.swift" ]; then
+            echo "key=$key" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::the handed-off framework is incomplete; nothing saved"
+          fi
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.staged.outputs.key != ''
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/cache-save
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+          sparse-checkout-cone-mode: false
+      - name: Save the framework for later runs
+        if: steps.staged.outputs.key != ''
+        # Another run saving the same key first is not a failure.
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/link-ffi/framework
+          key: ios-link-ffi-xcframework-${{ steps.staged.outputs.key }}
+
   report:
     needs: [plan, lint, reviewer-path, asc-validate]
     if: always() && needs.plan.result == 'success'
@@ -683,7 +718,6 @@ jobs:
         id: report
         env:
           ASC_RESULT: ${{ needs.asc-validate.result }}
-          EXPECT_AGENT: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || inputs.agent_pass }}
           JUDGED_SHA: ${{ needs.plan.outputs.sha }}
           # A direct push or pull_request run fails on a new blocker only:
           # the ones in known-blockers.json were there before it. A
@@ -701,16 +735,11 @@ jobs:
           # download-artifact puts a lone artifact straight into in/, not
           # in/<name>/, so find the files by name wherever they landed.
           args+=(--expect-lint --expect-device iphone --expect-device ipad --expect-device-or-skipped duo)
-          # The agent pass ran unless a dispatch or caller turned it off: its
-          # verdict, or its named skip (a fork pull request), must arrive.
-          if [ "$EXPECT_AGENT" = true ]; then args+=(--expect-agent); fi
-          while IFS= read -r f; do args+=(--agent-skipped "$f"); done < <(find in -name 'agent-skipped.json' -type f | sort)
           while IFS= read -r f; do args+=(--skipped "$f"); done < <(find in -name '*.skipped.json' -type f | sort)
           while IFS= read -r f; do args+=(--lint "$f"); done < <(find in -name 'lint-*.json' -type f | sort)
           for fam in iphone ipad duo; do
             while IFS= read -r f; do args+=(--xcresult-json "$f"); done < <(find in -name "$fam.json" -type f | sort)
           done
-          while IFS= read -r f; do args+=(--extra "$f"); done < <(find in -name 'agent-findings.json' -type f | sort)
           while IFS= read -r f; do args+=(--suite-status "$f"); done < <(find in -name '*.status.json' -type f | sort)
           for fam in iphone ipad duo; do
             while IFS= read -r f; do args+=(--suite-log "$f"); done < <(find in -name "$fam.log" -type f | sort)

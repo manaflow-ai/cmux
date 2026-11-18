@@ -143,8 +143,8 @@ pub enum PeerCmd {
         #[arg(long)]
         user_id: Option<String>,
     },
-    /// Request screen/control consent through the daemon. Changing it requires
-    /// the local app's person proof; a shell or agent cannot grant consent.
+    /// Screen/control consent. From the cmux app (its person proof), or as this Mac's admin
+    /// with sudo (`sudo acpmux machine consent grant --control`); a plain shell is refused.
     Consent {
         #[command(subcommand)]
         cmd: ConsentCmd,
@@ -191,6 +191,11 @@ pub enum PeerCmd {
         /// commit than this one (the machine refuses that otherwise).
         #[arg(long)]
         allow_downgrade: bool,
+        /// Restart the daemon even when an update restarted it in the last
+        /// hour. Without it the machine refuses inside that hour, in its own
+        /// install step, and nothing is changed.
+        #[arg(long)]
+        now: bool,
     },
     /// Copy this binary to a machine you added (or every one with --all) and restart
     /// its daemon. The previous binary is kept and put back when the
@@ -214,6 +219,12 @@ pub enum PeerCmd {
         /// than the one pushed, or one with local changes: never a move back.
         #[arg(long)]
         keep_newer: bool,
+        /// Restart the daemon even when an update (this one, another machine's,
+        /// or the machine's own acpmux-update.timer) restarted it in the last
+        /// hour. Without it such a machine is left alone (`busy`, reason
+        /// `restartWindow`) until the hour is over.
+        #[arg(long)]
+        now: bool,
         /// Install the pushed binary even when the machine's acpmux is built
         /// from a newer commit. Without it the machine refuses that move back
         /// (`current`, reason `newerInstalled`) in its own install step, so a
@@ -243,11 +254,17 @@ pub enum PeerCmd {
     /// the installed ~/.local/bin/acpmux differs from the channel's, download
     /// this machine's binary, check its sha256, install it and restart the
     /// daemon, agents kept; a daemon that does not come back on it is rolled
-    /// back. Prints the row `machine update` prints for a machine.
+    /// back. An update restarts the daemon at most once an hour, whichever
+    /// update it is (this one or `machine update` from another machine);
+    /// within the hour the machine is left alone until the next run. Prints
+    /// the row `machine update` prints for a machine.
     SelfUpdate {
         /// The channel to follow.
         #[arg(long, default_value = "feat-cmux-next")]
         channel: String,
+        /// Restart the daemon even when an update restarted it in the last hour.
+        #[arg(long)]
+        now: bool,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,
@@ -435,23 +452,32 @@ pub enum TunnelCmd {
 
 #[derive(Subcommand)]
 pub enum ConsentCmd {
-    /// Ask the app to grant screen or control consent (exactly one of --screen, --control).
+    /// Grant screen, control or signed-in-machines consent (exactly one). Under sudo it is set
+    /// here as this Mac's admin; otherwise the daemon takes it only from the cmux app.
+    #[command(group(clap::ArgGroup::new("surface").required(true).args(["screen", "control", "signed_in_machines"])))]
     Grant {
         /// Screen recording.
-        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
+        #[arg(long)]
         screen: bool,
         /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
+        /// Control from this person's other machines signed in to the same account.
+        #[arg(long)]
+        signed_in_machines: bool,
     },
-    /// Ask the app to revoke screen or control consent (exactly one of --screen, --control).
+    /// Revoke screen, control or signed-in-machines consent (exactly one), the same ways.
+    #[command(group(clap::ArgGroup::new("surface").required(true).args(["screen", "control", "signed_in_machines"])))]
     Revoke {
         /// Screen recording.
-        #[arg(long, conflicts_with = "control", required_unless_present = "control")]
+        #[arg(long)]
         screen: bool,
         /// Keyboard and mouse control.
         #[arg(long)]
         control: bool,
+        /// Control from this person's other machines signed in to the same account.
+        #[arg(long)]
+        signed_in_machines: bool,
     },
 }
 

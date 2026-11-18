@@ -73,7 +73,7 @@ import os
         let freshChildren = RemoteChildLifetime()
         let child = try freshChildren.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
         defer { close(child.stdout) }
-        freshChildren.watch(child, name: "capture-prepared-host-restart") { status in
+        freshChildren.watch(child) { status in
             if status >= 0 { freshChildren.reaped(child) }
         }
         close(child.stdin)
@@ -88,7 +88,7 @@ import os
         let children = RemoteChildLifetime()
         let probe = try children.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
         defer { close(probe.stdout) }
-        children.watch(probe, name: "capture-prepare-probe") { status in
+        children.watch(probe) { status in
             if status >= 0 { children.reaped(probe) }
         }
         let release = Task {
@@ -112,7 +112,7 @@ import os
         #expect(result.code == "remote_prepare_timeout" && !result.leaseBound)
         #expect(children.accepting)
         #expect(try CaptureLeaseMarker.read(stateDirectory: fixture.state) == nil)
-        children.watch(probe, name: "capture-prepare-stalled-probe") { status in
+        children.watch(probe) { status in
             if status >= 0 { children.reaped(probe) }
         }
         close(probe.stdin)
@@ -196,6 +196,41 @@ import os
         let prepared = await fixture.producer().prepare(binding, children: RemoteChildLifetime(), workerAbsent: true)
         #expect(prepared.code == "no_remote_started")
         #expect(await fixture.producer().beginUnpreparedCleanup(binding) == false)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func rejectedUnpreparedCleanupNeverFreezesOrSignals() async throws {
+        let fixture = try Fixture(); defer { fixture.remove() }
+        let binding = try fixture.binding
+        // A prepared marker exists, so the unprepared path does not own this namespace;
+        // a host whose HOME is not the private root does not own it either.
+        _ = await fixture.producer().prepare(binding, children: RemoteChildLifetime(), workerAbsent: true)
+        let wrongHome = RemoteCaptureLease(stateDirectory: fixture.state, keychainScope: fixture.scope, home: NSHomeDirectory(),
+                                           empty: { true }, remove: { .init(identities: 0, relays: 0) })
+        for lease in [fixture.producer(), wrongHome] {
+            let children = RemoteChildLifetime()
+            let child = try children.spawn(executable: "/bin/cat", arguments: [], environment: [:], logPath: "/dev/null")
+            children.watch(child) { status in
+                if status >= 0 { children.reaped(child) }
+            }
+            let stops = OSAllocatedUnfairLock(initialState: 0)
+            let result = await lease.cleanupUnprepared(binding, children: children,
+                                                       stopWorkers: { stops.withLock { $0 += 1 } }, timeout: .seconds(1))
+            #expect(result.code == "remote_lease_mismatch")
+            #expect(children.accepting && stops.withLock { $0 } == 0)
+            // The tracked child was never signalled.
+            #expect(await children.waitUntilEmpty(timeout: .milliseconds(200)) == false)
+            close(child.stdin)
+            #expect(await children.waitUntilEmpty(timeout: .seconds(5)))
+            close(child.stdout)
+        }
+        // An owned markerless namespace still closes admission and stops the workers.
+        let fresh = try Fixture(); defer { fresh.remove() }
+        let children = RemoteChildLifetime()
+        let stops = OSAllocatedUnfairLock(initialState: 0)
+        let cleaned = await fresh.producer().cleanupUnprepared(try fresh.binding, children: children,
+                                                               stopWorkers: { stops.withLock { $0 += 1 } }, timeout: .seconds(1))
+        #expect(cleaned.code == "no_remote_started" && cleaned.verifiedAbsent && cleaned.quiescent)
+        #expect(!children.accepting && stops.withLock { $0 } == 1)
     }
 
     @Test func deletionFailureRetainsMarkerAndFailsClosed() async throws {

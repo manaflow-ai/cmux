@@ -44,6 +44,12 @@ the workflow (Leo, 2026-11-14: "ios e2e yes on feat next"), and
 `workflow_dispatch` still runs it on any allowed branch. On a pull request,
 `route` skips the Mac job when the diff only touches prose and images
 (`*.md`, `docs/`, `plans/`, `release-notes/`, `images/`, `art/`).
+Until the federated identity admits `pull_request` runs
+([Secrets and tailnet identity](#secrets-and-tailnet-identity)), `route` also
+skips the backend and Mac jobs on every pull request unless the repository
+variable `IOS_E2E_PR_TAILNET` is `true`: without it every PR run's tailnet
+join was refused 403 and every PR into `feat-cmux-next` went red (since
+#42973). Dispatch the workflow to run the lane meanwhile.
 
 ## Per-run backend
 

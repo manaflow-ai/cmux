@@ -140,13 +140,13 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
         shuttingDown = true
         children.freeze()
         screen.setWanted(false)
-        children.stopOwnedChildren()
         let children = self.children, layout = self.layout
-        // task-owner: one bounded shutdown per host; exit only after every tracked child was reaped.
+        // task-owner: one bounded shutdown per host. A child that outlives SIGTERM by 15 s gets
+        // SIGKILL; the host then exits either way, so frozen admission never outlives it.
+        // The daemon's own group-absence check still holds capture closed for any survivor.
         Task.detached {
-            guard await children.waitUntilEmpty(timeout: .seconds(15)) else {
-                logger.error("remote child shutdown deadline expired; host retained for diagnosis")
-                return
+            if !(await children.terminate(grace: .seconds(15), kill: .seconds(5))) {
+                logger.error("remote children were not reaped after SIGKILL; exiting anyway")
             }
             unlink(layout.supervisorSocket)
             unlink(layout.appSocket)
@@ -154,16 +154,40 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: Quit & Reopen
+    // MARK: Quit
 
-    /// macOS asks to quit and reopen cmux Remote after a Screen Recording
-    /// grant. The new grant reaches the features through new workers; the host
-    /// keeps its daemon link and stays.
+    /// System Settings' "Quit & Reopen" after a Screen Recording grant: the
+    /// new grant reaches the features through new workers, and the host keeps
+    /// its daemon link and stays. Any other quit (Activity Monitor, `quit app`,
+    /// logout) is the person's: the daemon hears it, so it does not start the
+    /// host again on its own, and the host ends its workers and exits.
     public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        logger.notice("quit requested (Quit & Reopen after a grant): restarting workers instead")
-        let core = self.core
-        Task.detached { await core.refresh(forceRestart: true) }
-        return .terminateCancel
+        let quitter = Self.quitSenderBundleID()
+        if Self.isQuitAndReopen(senderBundleID: quitter) {
+            logger.notice("quit requested (Quit & Reopen after a grant): restarting workers instead")
+            let core = self.core
+            Task.detached { await core.refresh(forceRestart: true) }
+            return .terminateCancel
+        }
+        logger.notice("quit requested by \(quitter ?? "unknown", privacy: .public): stopping")
+        core.announceQuit()
+        shutDown()
+        // shutDown exits once the workers are reaped; logout waits for that exit.
+        return .terminateLater
+    }
+
+    /// The bundle id of the process that sent the quit Apple event, if any.
+    static func quitSenderBundleID() -> String? {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              let pid = event.attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr))?.int32Value, pid > 0 else {
+            return nil
+        }
+        return NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+    }
+
+    /// Whether a quit is System Settings' Quit & Reopen after a privacy grant.
+    nonisolated static func isQuitAndReopen(senderBundleID: String?) -> Bool {
+        senderBundleID == "com.apple.systempreferences" || senderBundleID == "com.apple.Settings"
     }
 }
 
@@ -240,6 +264,13 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         if lock.withLock({ draining }), host?.screen.busy == false {
             Task { @MainActor in self.host?.shutDown() }
         }
+    }
+
+    /// The person quit cmux Remote: tells the daemon before the host exits.
+    func announceQuit() {
+        let line = RemoteWire.event("quit")
+        let channels = lock.withLock { supervisors }
+        for channel in channels { channel.write(line) }
     }
 
     /// Probes the grants. A grant that appeared since a worker started
@@ -396,15 +427,9 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             result = await host.captureLease.prepare(binding, children: host.children,
                                                     workerAbsent: host.screen.pid == nil && host.computerUse.running.isEmpty)
         } else if method == "capture.cleanup.unprepared" {
-            host.children.freeze()
-            host.screen.setWanted(false)
-            host.children.stopOwnedChildren()
-            let exited = await host.children.waitUntilEmpty(timeout: .seconds(15))
-            guard exited, await host.captureLease.beginUnpreparedCleanup(binding) else {
-                return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: exited ? "remote_lease_mismatch" : "remote_worker_timeout",
-                                                                            leaseBound: true).fields)
-            }
-            result = await host.captureLease.cleanup(binding, writersExited: exited, unprepared: true)
+            let screen = host.screen
+            result = await host.captureLease.cleanupUnprepared(binding, children: host.children,
+                                                               stopWorkers: { screen.setWanted(false) })
         } else {
             guard await host.captureLease.beginCleanup(binding) else {
                 return RemoteWire.answer(id: id, result: CaptureLeaseResult(code: "remote_lease_mismatch").fields)

@@ -27,7 +27,7 @@ import Testing
         (.homeMessages, PageFactory.homeChannelsEngineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
         (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard), (.taskManager, .standard),
-        (.serverCards, WebCardPanel.engineOptions),
+        (.serverCards, ServerPanelPopover.engineOptions),
     ]
 
     /// The pages that still show in WebKit, and why (webviews-chromium-AUDIT.md).

@@ -11,9 +11,12 @@
 //! work with cmux quit and in safe mode.
 
 mod ask;
+mod dir;
+mod expire;
 mod library;
 mod pr;
 mod render;
+mod source;
 #[cfg(test)]
 mod tests;
 
@@ -39,14 +42,24 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize try [NAME|FILE] [--minutes N] Try it on: applied now, back by itself in N minutes (10)
   cmux customize keep                         Keep what you are trying on
   cmux customize revert                       Stop trying it on: put back what was there before
-  cmux customize use pr:N                     Try pull request N on this cmux: on top of your library
-                                              (`library off pr-N` puts back what was under it)
+  cmux customize use CODE                     Try code not in your build: on top of your library, live
+    pr:N                                      a pull request (CI publishes its web layer)
+    branch:NAME | sha:SHA                     a branch's tip or a commit of manaflow-ai/cmux, pushed, no PR
+    dir:PATH [--watch]                        your working copy, built here: no push, no CI; --watch
+                                              builds and applies it again on every save
+    OWNER/REPO@REF                            a fork's branch, from the layer the fork's own CI published
+                                              (cmux-web-layer-fork.yml): it runs that fork's code in your cmux
+                                              (`library off NAME` puts back what was under any of them)
   cmux customize profiles                     The saved profiles
+  cmux customize recipes [--open]             Ten ready-made changes to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
 
 If a layer broke cmux (no app needed, with cmux quit too):
   cmux customize library status               Which layers are on, in one line (also in `cmux version`)
-  cmux customize library off --code           Every pull request layer off; cmux serves its own pages
+  cmux customize library expire               Turn off layers past their bound: a merged or closed PR,
+                                              a code layer on over 24 h, a hand overlay as old
+  cmux customize library on web-dev-overlay   Turn an expired hand-installed overlay back on
+  cmux customize library off --code           Every code layer off (PR, branch, folder, fork); cmux serves its own pages
   cmux customize library reset                Every layer off: settings, files and web-dev.json as before any
 
 You can also edit the files yourself (`cmux customize paths`): every save shows in cmux at
@@ -85,6 +98,7 @@ const VERBS: &[&str] = &[
     "save",
     "use",
     "profiles",
+    "recipes",
     "try",
     "keep",
     "revert",
@@ -134,6 +148,8 @@ pub(super) enum Request {
         note: String,
     },
     Use {
+        /// `--watch` (a `dir:` source only): build and apply again on a save.
+        watch: bool,
         source: String,
     },
     /// A try-on of a profile, or with `None` of what is live now.
@@ -149,6 +165,9 @@ pub(super) enum Request {
         wait: bool,
     },
     Profiles,
+    Recipes {
+        open: bool,
+    },
     Library(library::Request),
     Paths,
     Schema {
@@ -192,6 +211,11 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             none(Request::Generations)
         }
         "profiles" => none(Request::Profiles),
+        "recipes" | "recipe" => match rest {
+            [] => Ok(Request::Recipes { open: false }),
+            [flag] if flag == "--open" => Ok(Request::Recipes { open: true }),
+            _ => Err("customize recipes takes only --open".to_owned()),
+        },
         "keep" => none(Request::Keep),
         "revert" => none(Request::Revert),
         "settle" => match rest {
@@ -221,12 +245,19 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                     .to_owned()),
             }
         }
-        "use" => match rest {
-            [source] if !source.starts_with('-') || pr::pr_number(source).is_some() => {
-                Ok(Request::Use { source: source.clone() })
+        "use" => {
+            let watch = rest.iter().any(|word| word == "--watch");
+            let words: Vec<&String> = rest.iter().filter(|word| *word != "--watch").collect();
+            match words.as_slice() {
+                [source] if watch && !matches!(source::parse(source), Some(source::Source::Dir(_))) => {
+                    Err("--watch is for a folder: cmux customize use dir:PATH --watch".to_owned())
+                }
+                [source] if !source.starts_with('-') || source::parse(source).is_some() => {
+                    Ok(Request::Use { watch, source: (*source).clone() })
+                }
+                _ => Err("customize use needs one profile NAME or FILE, or code: pr:N, branch:NAME, sha:SHA, dir:PATH or OWNER/REPO@REF".to_owned()),
             }
-            _ => Err("customize use needs one profile NAME or FILE, or pr:N".to_owned()),
-        },
+        }
         "brief" => match wish_of(rest)? {
             (wish, options) if options == AskOptions::default() => Ok(Request::Brief { wish }),
             _ => Err("customize brief takes only the wish (it starts no chat)".to_owned()),
@@ -556,15 +587,17 @@ pub(super) fn execute(
         Request::Save { name, note } => {
             Answer::Saved(customize.save_profile(&name, &note, now_ms)?)
         }
-        Request::Use { source } if pr::pr_number(&source).is_some() => {
-            let pr = pr::pr_number(&source).unwrap_or_default();
-            pr::use_pr(customize, pr, origin, now_ms)?
-        }
-        Request::Use { source } => {
-            let profile = customize.load_profile(&source)?;
-            let begun = customize.preview_profile(&profile, origin, now_ms)?;
-            Answer::Using { name: profile.name, begun, status: customize.status()? }
-        }
+        Request::Use { source, watch } => match source::parse(&source) {
+            Some(source::Source::Dir(path)) => {
+                dir::use_dir(customize, &path, watch, origin, now_ms)?
+            }
+            Some(code) => pr::use_code(customize, code, origin, now_ms)?,
+            None => {
+                let profile = customize.load_profile(&source)?;
+                let begun = customize.preview_profile(&profile, origin, now_ms)?;
+                Answer::Using { name: profile.name, begun, status: customize.status()? }
+            }
+        },
         Request::Try { source, duration_ms } => {
             let profile =
                 source.as_deref().map(|source| customize.load_profile(source)).transpose()?;
@@ -577,8 +610,31 @@ pub(super) fn execute(
         ),
         Request::Settle { .. } => Answer::Settled(settled, "settle"),
         Request::Profiles => Answer::Profiles(customize.profiles()?),
+        Request::Recipes { open } => recipes(customize, open, chat)?,
         Request::Library(request) => library::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
         Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),
     })
+}
+
+/// Writes the recipes (cmux-customize-recipes) where `use` reads them, and
+/// with `open` shows their guide in cmux's Markdown page, where each
+/// recipe's command has a Run button: the one-click Try it. The recipes
+/// are profiles, so trying one is `use`: a draft, then apply or discard.
+fn recipes(
+    customize: &Customize,
+    open: bool,
+    chat: &dyn ask::Chat,
+) -> Result<render::Answer, Failure> {
+    let dir = customize.roots().state_dir.join("recipes");
+    let written = cmux_customize_recipes::write_all(&dir).map_err(Error::from)?;
+    let opened = open.then(|| {
+        let guide = written.guide.display().to_string();
+        match chat.run(&["open".to_owned(), guide]) {
+            Ok(result) if result.ok => Ok(()),
+            Ok(result) => Err(result.stderr.trim().to_owned()),
+            Err(error) => Err(error),
+        }
+    });
+    Ok(render::Answer::Recipes { written, opened })
 }
