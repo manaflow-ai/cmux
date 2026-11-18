@@ -210,8 +210,22 @@ checkout_clear "$CO/.build/DerivedData/cmux-one"
 checkout_clear "$RT/other-checkout/.build/DerivedData/cmux-measure"
 [[ $status -eq 2 && -d "$RT/other-checkout/.build/DerivedData/cmux-measure/Build" ]] \
   || fail "another checkout's measurement DerivedData was cleared (exit $status)"
+checkout_clear "$MEASURE/../cmux-one"
+[[ $status -eq 2 && -d "$CO/.build/DerivedData/cmux-one/Build" ]] || fail "a .. path from the measurement DerivedData was cleared (exit $status)"
 rm -rf "$MEASURE"; ln -s "$victim" "$MEASURE"
 checkout_clear "$MEASURE"
 [[ $status -eq 2 && -d "$victim/Build" ]] || fail "a link named like the measurement DerivedData cleared $victim (exit $status)"
+# An empty path and / are refused. These two run with a stand-in rm that only records its call, so a broken
+# guard removes nothing.
+mkdir -p "$TMP/norm"
+printf '%s\n' '#!/bin/bash' "echo \"\$*\" >> \"$TMP/rm-calls\"" > "$TMP/norm/rm"; chmod +x "$TMP/norm/rm"
+no_rm_clear() {
+  status=0
+  env -i PATH="$TMP/norm:/usr/bin:/bin" /bin/bash "$CO/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$1" >"$TMP/out" 2>&1 || status=$?
+}
+no_rm_clear ""
+[[ $status -ne 0 && ! -e "$TMP/rm-calls" ]] || fail "an empty path was accepted (exit $status)"
+no_rm_clear /
+[[ $status -eq 2 && ! -e "$TMP/rm-calls" ]] || fail "the path / was accepted (exit $status)"
 
 printf 'release compile DerivedData tests: ok\n'
