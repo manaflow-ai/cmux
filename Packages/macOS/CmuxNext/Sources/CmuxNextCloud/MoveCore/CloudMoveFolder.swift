@@ -305,12 +305,13 @@ public nonisolated struct CloudNewWorkspacePlacement: Sendable, Equatable {
     }
 
     /// What New Workspace does when it does not start a new machine: open here (with why, worded by
-    /// `openedHere` and the refusal texts) or on the pinned machine. Nil: start the new machine.
-    public func outcome(signInFirst: String, noWindow: String, atMachineCap: String,
-                        openedHere: (String) -> String) -> CloudNewWorkspacePlan.Outcome? {
+    /// `openedHere` and the refusal texts) or on the pinned machine while `connected` says it is (a paused
+    /// or unreachable one opens here and says so, never nothing). Nil: start the new machine.
+    public func outcome(signInFirst: String, noWindow: String, atMachineCap: String, pinnedMachineDown: String,
+                        openedHere: (String) -> String, connected: (String) -> Bool) -> CloudNewWorkspacePlan.Outcome? {
         switch (target, refusal) {
         case (.newCloudMachine, _): nil
-        case (.machine(let id), _): .machine(id)
+        case (.machine(let id), _): connected(id) ? .machine(id) : .thisMac(notice: openedHere(pinnedMachineDown))
         case (.thisMac, nil): .thisMac(notice: nil)
         case (.thisMac, .unavailable(let reason)?): .thisMac(notice: openedHere(reason))
         case (.thisMac, .signedOut?): .thisMac(notice: openedHere(signInFirst))

@@ -1,6 +1,66 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.newWorkspace.pinnedMachineDown": {
+      "comment": "The reason in the New Workspace toast when the folder is pinned (Settings > Machines, Where Folders Run) to a machine that is paused or not connected.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine this folder is pinned to is not connected; resume it, then open the workspace again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Maschine, an die dieser Ordner gebunden ist, ist nicht verbunden; setze sie fort und öffne den Arbeitsbereich dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine à laquelle ce dossier est associé n’est pas connectée ; reprenez-la, puis rouvrez l’espace de travail."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجهاز المثبّت عليه هذا المجلد غير متصل؛ استأنفه، ثم افتح مساحة العمل مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina a la que está fijada esta carpeta no está conectada; reanúdala y vuelve a abrir el espacio de trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此資料夾固定的機器未連線；請恢復它，然後再次開啟工作區。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件夹固定的机器未连接；请恢复它，然后再次打开工作区。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더가 고정된 머신이 연결되어 있지 않습니다. 머신을 재개한 다음 작업 공간을 다시 여세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダが固定されたマシンは接続されていません。再開してから、もう一度ワークスペースを開いてください。"
+          }
+        }
+      }
+    },
     "cloud.newWorkspace.atMachineCap": {
       "comment": "The reason in the New Workspace toast when the person's cap on running Cloud machines (Settings > Machines) is reached.",
       "extractionState": "manual",

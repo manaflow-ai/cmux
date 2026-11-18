@@ -330,8 +330,8 @@ extension CloudHandlers {
         // Pins, the toggle, Cloud's own refusals and the cap (Rust's `moves::placement`), from what the app knows now: no read on Cmd-N's turn.
         let placement = CloudNewWorkspacePlacement.decide(.init(newWorkspacesInCloud: setting.inCloud(in: root), workspacePins: setting.pins(in: root), autoMachineCap: setting.machineCap(in: root)),
             .init(byPerson: invocation.isPersonsOwnRun, namesMachineOrCommand: names, cwd: cwd, runningMachines: running, unavailableReason: cloud.unavailableReason, signedIn: cloud.isSignedIn, hasWindow: window != nil))
-        if let here = placement.outcome(signInFirst: CloudStrings.signInFirst, noWindow: CloudStrings.newWorkspaceNoWindow, atMachineCap: CloudStrings.newWorkspaceAtMachineCap,
-                                        openedHere: CloudStrings.newWorkspaceOpenedHere) { return here }
+        if let here = placement.outcome(signInFirst: CloudStrings.signInFirst, noWindow: CloudStrings.newWorkspaceNoWindow, atMachineCap: CloudStrings.newWorkspaceAtMachineCap, pinnedMachineDown: CloudStrings.newWorkspacePinnedMachineDown,
+                                        openedHere: CloudStrings.newWorkspaceOpenedHere, connected: { services.machines.daemon(machine: $0)?.connection != nil }) { return here }
         // The app server's create copies no folder: the workspace opens in the machine's empty folder.
         guard let plan = CloudNewWorkspacePlan(inCloud: true, inheritsFolder: false, cwd: cwd, byPerson: invocation.isPersonsOwnRun, namesMachineOrCommand: names)
         else { return .thisMac(notice: nil) }

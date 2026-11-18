@@ -148,7 +148,7 @@ extension AppActions {
         // Only a window shows the machine's progress; without one, or without Cloud, it opens here and says so.
         let cloudRoute = CloudHandlers.startNewWorkspaceInCloud(invocation, cwd: spawn.cwd ?? spawn.inheritedCwd, window: focus.shows ? sourceWindow?.state : nil, services)
         guard case let (cloudNotice, pinnedMachine)? = cloudRoute.opensHere else { return }
-        if pinnedMachine != nil { spawn.inheritedCwd = nil } // a pinned machine (`cloud.workspacePins`) starts in its own folder
+        if pinnedMachine != nil { (spawn.cwd, spawn.inheritedCwd) = (nil, nil) } // a pinned machine (`cloud.workspacePins`) starts in its own folder
 
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new

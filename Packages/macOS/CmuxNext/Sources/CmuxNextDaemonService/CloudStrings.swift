@@ -22,6 +22,8 @@ public enum CloudStrings {
     public static func newWorkspaceOpenedHere(_ reason: String) -> String {
         String(format: String(localized: "cloud.newWorkspace.openedHere", defaultValue: "This workspace opened on this Mac, not in Cloud. %@", table: "Cloud", bundle: .module), reason)
     }
+    /// Why: the folder is pinned to a machine (`cloud.workspacePins`) that is paused or not connected now.
+    public static var newWorkspacePinnedMachineDown: String { String(localized: "cloud.newWorkspace.pinnedMachineDown", defaultValue: "The machine this folder is pinned to is not connected; resume it, then open the workspace again.", table: "Cloud", bundle: .module) }
     /// Why: as many Cloud machines run as the person's cap for new workspaces allows (`cloud.autoMachineCap`).
     public static var newWorkspaceAtMachineCap: String { String(localized: "cloud.newWorkspace.atMachineCap", defaultValue: "Your running Cloud machines are at the cap you set in Settings > Machines.", table: "Cloud", bundle: .module) }
     /// Why: no window was open to show a new Cloud machine's progress (Cmd-N with every window closed).

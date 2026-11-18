@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCloud
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -87,10 +88,29 @@ struct CloudNewWorkspaceEntryTests {
         let services = try await Self.services(settings: #"{"cloud":{"newWorkspacesInCloud":true,"workspacePins":{"/w/app":"thisMac","/w/big":"machine:m_9"}}}"#)
         let route = { (cwd: String) in CloudHandlers.startNewWorkspaceInCloud(ActionInvocation(origin: .user), cwd: cwd, window: nil, services) }
         #expect(route("/w/app/src") == .thisMac(notice: nil))
-        #expect(route("/w/big") == .machine("m_9"))
+        // m_9 is not connected here (no such machine in these services): it opens here and says why, never nothing.
+        guard case .thisMac(let down) = route("/w/big") else { Issue.record("a pin to an unconnected machine did not open here"); return }
+        #expect(down?.isEmpty == false)
         guard case .thisMac(let notice) = route("/w/other") else { Issue.record("an unpinned folder started a creation"); return }
         #expect(notice?.isEmpty == false, "the toggle still applies, and no window means it opened here and says why")
         #expect(services.cloud.creations.all.isEmpty)
+    }
+
+    /// The decision opens a pinned machine's workspace there only while it is connected.
+    @Test func aPinnedMachineOpensThereOnlyWhileConnected() {
+        let pinned = CloudNewWorkspacePlacement(target: .machine("m_9"))
+        let outcome = { (up: Bool) in pinned.outcome(signInFirst: "s", noWindow: "w", atMachineCap: "c", pinnedMachineDown: "down",
+                                                     openedHere: { "here: " + $0 }, connected: { _ in up }) }
+        #expect(outcome(true) == .machine("m_9"))
+        #expect(outcome(false) == .thisMac(notice: "here: down"))
+        #expect(CloudNewWorkspacePlacement(target: .newCloudMachine).outcome(signInFirst: "s", noWindow: "w", atMachineCap: "c", pinnedMachineDown: "d",
+                                                                         openedHere: { $0 }, connected: { _ in true }) == nil)
+    }
+
+    /// A pin written from the home folder reads as its absolute path.
+    @Test func aPinFromTheHomeFolderReadsAsItsPath() {
+        let root = CmuxNextSettings.JSONValue.object(["cloud": .object(["workspacePins": .object(["~/code/app": .string("cloud"), "/abs": .string("thisMac"), "/n": .number(1)])])])
+        #expect(CloudNewWorkspaceSetting().pins(in: root, home: "/Users/me") == ["/Users/me/code/app": "cloud", "/abs": "thisMac"])
     }
 
     @Test(arguments: ["socket", "app", "agent", "terminal"])
