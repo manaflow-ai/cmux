@@ -125,6 +125,9 @@ enum DebugKey {
         services.keyRouter.trace = { trace.append($0) }
         TerminalKeyEquivalent.trace = { trace.append($0) }
         defer { services.keyRouter.trace = nil; TerminalKeyEquivalent.trace = nil }
+        // Off the app's sendEvent, for every route below: `interceptKeyDown` takes a pane composer's key first (cmux#45273).
+        let probesKey = TypingLatencyProbe.isEnabled && !DebugNativeInput.usesAppKitPath(window)
+        if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
         // As in AppKit's dispatch, the menu gate sees this key as the current event.
         let (handledBy, action) = services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
             if services.keyRouter.interceptKeyDown(event, in: window) {
@@ -139,17 +142,14 @@ enum DebugKey {
             if DebugNativeInput.usesAppKitPath(window) {
                 DebugNativeInput.sendThroughApp([event])
             } else {
-                // Off the app's sendEvent (a window that is not key), the typing probe opens its sample here.
-                if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
                 DebugNativeInput.runPaneMonitors(event, in: window, services: services)
                 window.sendEvent(event)
-                if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.mark(.dispatchEnd) }
             }
-            // `probe: "commit"`: the key went to a text view (Home's composer, the omnibar), so the
-            // typing probe writes its row at the frame that commits the edit, not at a terminal echo.
-            if params["probe"]?.stringValue == "commit" { TypingLatencyProbe.shared.closeAtCommit() }
             return (window !== shell ? "page" : "responder", .null)
         }
+        // `mark` keeps the first hop. `probe: "commit"`: the key reached a text view, so the row is written at the commit, not a terminal echo.
+        if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) }
+        if params["probe"]?.stringValue == "commit" { TypingLatencyProbe.shared.closeAtCommit() }
         if params["target"]?.stringValue == "palette" {
             // The palette's own report: open or closed, its page, a refusal
             // notice, and key-downs that reached the system beep.
