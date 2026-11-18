@@ -84,7 +84,11 @@ Glaeda minis for the lanes the pool picker routes to them. WarpBuild is paid
 overflow and is not a steady state for any lane. Most jobs in `manaflow-ai`
 avoid GitHub-hosted runners; the small exception set is documented in
 "Guard" and stays explicit because those jobs need hosted provenance,
-attestation, watch, CLA, or Intel capacity.
+attestation, the Blacksmith outage watch, CLA, or Intel capacity. The
+`ci-cloud-overflow-probe.yml` watch is intentionally pinned to the served
+4-vCPU Blacksmith control runner: the observed failure was the 2-vCPU trusted
+selector queuing and holding the concurrency group, so the control job must not
+inherit that variable while it moves Linux overflow between Blacksmith labels.
 
 **The table below is the intended steady state, not a live readout.** Repository
 variables drift, and a stale table is worse than no table. For what is actually

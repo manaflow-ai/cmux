@@ -17,19 +17,12 @@ import yaml
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-# The watch's own bounded CI_TRUSTED_RUNNER selector: ephemeral labels only, never a probed size.
-WATCH_SELECTOR = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
-    '["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'
-    "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}"
-)
+WATCH_RUNNER = "blacksmith-4vcpu-ubuntu-2404"
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import check_repo_variables as check  # noqa: E402
 import cloud_overflow_switch as switch  # noqa: E402
 sys.path.insert(0, str(ROOT / "tests"))
-from test_ci_fork_runner_routing import (  # noqa: E402
-    ADVERSARIAL_VARIABLE_VALUES, evaluate_runs_on, parse_expression, runner_label_errors)
 import signing_runner_variables as signing  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "ci-cloud-overflow-probe.yml"
@@ -901,30 +894,14 @@ class WorkflowTests(unittest.TestCase):
         # Unless every probe started, the run ends itself, so a queued probe frees the group.
         self.assertIn("if: always() && steps.switch.outputs.all_started != 'true'", self.text)
 
-    def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:
-        # Its own bounded selector, never a single label: on 2026-11-03 the literal
-        # blacksmith-6vcpu-macos-26 was dead and the watch queued 19 minutes (run 41688532704),
-        # so the hosted light rescue it carries ran every 20-25 minutes (cmuxterm-hq#6671).
+    def test_watch_uses_fixed_served_control_runner_and_passes_every_switched_variable(self) -> None:
+        # The cancelled runs inherited the stalled 2 vCPU trusted selector.
+        # Pin the control job to the served 4 vCPU label so that variable cannot
+        # move it into the same queue.
         runs_on = re.search(r"name: Watch the probe and switch overflow\n(?:.*\n)*?\s+runs-on: (.*)", self.text).group(1)
         runs_on, _, comment = runs_on.partition(" # ")
-        self.assertEqual(runs_on, WATCH_SELECTOR)
+        self.assertEqual(runs_on, WATCH_RUNNER)
         self.assertTrue(comment.startswith("ephemeral-required:"), comment)
-        self.assertEqual(runner_label_errors(runs_on), [])
-        # Whatever CI_TRUSTED_RUNNER holds (unset, a stray value, a probed size the switch's
-        # alternate failover may write, hosted Ubuntu set by hand), the watch never takes a size
-        # the probes ask for, so it never queues beside a stalled probe and holds the group
-        # (2026-10-28), and never GitHub-hosted Ubuntu: on 2026-10-27 the watch queued 94 minutes
-        # there behind the switch's own failover.
-        tree = parse_expression(runs_on[3:-2])
-        values = {"", *ADVERSARIAL_VARIABLE_VALUES, *switch.PROBE_LABELS, switch.TRUSTED_FAILOVER,
-                  *switch.ALTERNATE_FAILOVERS.values(), "blacksmith-2vcpu-ubuntu-2404",
-                  "blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
-        for value in sorted(values):
-            label = evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
-                                            "vars.CI_TRUSTED_RUNNER": value})
-            with self.subTest(CI_TRUSTED_RUNNER=value):
-                self.assertNotIn(label, switch.PROBE_LABELS)
-                self.assertIn(label, {"blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"})
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:
@@ -940,8 +917,6 @@ class WorkflowTests(unittest.TestCase):
         # selector whose expression bounds CI_TRUSTED_RUNNER to ephemeral labels, may carry it.
         for name, job in yaml.safe_load(self.text)["jobs"].items():
             if "secrets." not in json.dumps(job) and "create-github-app-token" not in json.dumps(job):
-                continue
-            if job["runs-on"] == WATCH_SELECTOR:
                 continue
             self.assertNotIn("${{", job["runs-on"], name)
             self.assertTrue(job["runs-on"].startswith(switch.CLOUD_PREFIX), name)
