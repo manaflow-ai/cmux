@@ -13,12 +13,18 @@ starts the `cmux-cua` server from that list exactly as an agent does (for the he
 
 It writes everything to $CUA_PROBE_OUT/agent-result.json (the screenshot to screenshot.png) and
 answers the prompt with a one-line summary. The test window's state file is $CUA_PROBE_TARGET.
+
+With CUA_PROBE_LOCKED=1 (cua-helper-v2-live.py --lock-with: the screen is locked) a `mac_locked`
+answer stops nothing: a refused check_permissions counts as no missing grant, a refused list_windows
+takes the window id from the state file, and a refused get_window_state still goes on to the one
+click (at the checkbox's pixel), so each call's answer on the locked screen is recorded.
 """
 import base64, json, os, select, subprocess, sys, threading, time
 
 OUT = os.environ["CUA_PROBE_OUT"]
 TARGET = os.environ["CUA_PROBE_TARGET"]
 TITLE = os.environ.get("CUA_PROBE_TITLE", "")
+LOCKED = os.environ.get("CUA_PROBE_LOCKED") == "1"
 lock = threading.Lock()
 servers_by_session = {}
 
@@ -108,6 +114,11 @@ def failed(call):
     return "error" in reply or bool((reply.get("result") or {}).get("isError"))
 
 
+def refused_locked(call):
+    """The helper's ScreenLockedRefusal (its code and message start with mac_locked)."""
+    return "mac_locked" in json.dumps(call.get("reply") or {})
+
+
 def find(node, predicate):
     if isinstance(node, dict):
         if predicate(node):
@@ -179,8 +190,12 @@ def probe(servers):
                                  "source": granted.get("source")}
         missing = [name for name, key in (("Accessibility", "accessibility"), ("Screen Recording", "screen_recording"))
                    if granted.get(key) is not True]
+        perms_locked = LOCKED and refused_locked(perms)
+        if perms_locked:
+            report["permissions_refused_mac_locked"] = True
+            missing = []
         report["missing_grants"] = missing
-        if failed(perms) or missing:
+        if (failed(perms) and not perms_locked) or missing:
             report["skipped"] = "screenshot and click skipped: " + (
                 "check_permissions failed" if failed(perms) else "missing " + " and ".join(missing))
             return report
@@ -191,6 +206,8 @@ def probe(servers):
         report["steps"].append(windows)
         window = find(payload(windows), lambda n: n.get("title") == TITLE and "window_id" in n) or \
             find(payload(windows), lambda n: "window_id" in n)
+        if not window and LOCKED and target.get("window_number"):
+            window = {"window_id": target["window_number"], "title": TITLE, "from": "the test window's state file"}
         if not window:
             report["error"] = "list_windows found no window of the test window's pid"
             return report
@@ -206,7 +223,8 @@ def probe(servers):
                                     "bytes": os.path.getsize(os.path.join(OUT, "screenshot.png"))}
         if failed(shot):
             report["error"] = "get_window_state failed"
-            return report
+            if not LOCKED:
+                return report
         state = payload(shot)
         checkbox = find(state, lambda n: any("cua-probe-target" in str(n.get(k, "")) for k in ("label", "title", "name", "description", "value", "text"))
                         and ("element_token" in n or "element_index" in n))

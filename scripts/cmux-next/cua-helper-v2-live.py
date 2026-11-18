@@ -2,14 +2,29 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Live check of the cmux Computer Use helper v2: agent -> acpmux cua-mcp -> helper v2 -> Cua Driver.
 
-  cua-helper-v2-live.py --job <cmux-ci job id> --tag <the build's tag> [--out DIR]
+  cua-helper-v2-live.py (--job <cmux-ci job id> | --app PATH) --tag <the build's tag> [--out DIR]
+      [--while-locked] [--lock-with PROGRAM] [--window-python PATH]
 
 Run it on the GUI host only, as one GUI-slot job:
   nx-remote --needs gui --ref <sha> -- python3 scripts/cmux-next/cua-helper-v2-live.py --job ID --tag TAG
 It downloads the tagged DEV build of `--job` (built from an exact pushed SHA with
-`cmux-ci build cmux --backend-mode local`) and starts it with no activation, an isolated cmux.json
-(`computerUse.enabled = true`, `computerUse.driver = "upstream"`) and its own ACPMUX_HOME, whose
-config.json adds one harness, `cuaprobe` (cua_v2_probe_agent.py: a scripted ACP agent, no model).
+`cmux-ci build cmux --backend-mode local`), or takes the unpacked .app at `--app` (a tagged DEV
+build with that tag), and starts it with no activation, an isolated cmux.json
+(`computerUse.enabled = true`, `computerUse.driver = "upstream"`, and `computerUse.whileLocked =
+true` with `--while-locked`) and its own ACPMUX_HOME, whose config.json adds one harness,
+`cuaprobe` (cua_v2_probe_agent.py: a scripted ACP agent, no model). `--window-python` is the python
+that runs the test window (default /usr/bin/python3).
+
+`--lock-with PROGRAM` locks the screen before step 5: it runs `PROGRAM lock` (the lockprobe of
+scripts/measure/macos-locked-screen-cu, which calls SACLockScreenImmediate and prints JSON with
+session.locked), and the session must read locked. Only in a throwaway guest
+(macos-locked-screen-cu.sh app=SHA): a locked fleet Mac needs a restart or a break-glass password.
+With `--while-locked`, step 5 must then work on the locked screen: get_window_state returns a
+screenshot with content (screenshot.png in --out), the test window records the click, and the
+session still reads locked afterward (`PROGRAM state`). Without `--while-locked`, the opposite:
+get_window_state answers `mac_locked`, the test window records no click, and the session still
+reads locked. With `--lock-with` the agent goes on past `mac_locked` answers (it takes the window id
+from the test window's own state file), so every call of step 5 is made and each answer recorded.
 
 Checks, each recorded in cua-helper-v2-live.json in --out:
 1. The build embeds "cmux Computer Use (dev).app" (com.cmuxterm.cua.dev).
@@ -41,14 +56,21 @@ sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown, pty_count  # noqa: E402
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--job", required=True)
+parser.add_argument("--job")
+parser.add_argument("--app", help="an unpacked tagged DEV .app to use instead of downloading --job")
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or "/tmp/cua-helper-v2-live")
+parser.add_argument("--while-locked", action="store_true", help="cmux.json also gets computerUse.whileLocked = true")
+parser.add_argument("--lock-with", metavar="PROGRAM", help="lock the screen with `PROGRAM lock` before step 5")
+parser.add_argument("--window-python", default="/usr/bin/python3", help="the python that runs the test window")
 opts = parser.parse_args()
+if not opts.job and not opts.app:
+    parser.error("one of --job or --app is required")
 OUT = os.path.realpath(opts.out)
 os.makedirs(OUT, exist_ok=True)
 LOG = open(os.path.join(OUT, "live.log"), "a")
-report = {"job": opts.job, "tag": opts.tag, "checks": []}
+report = {"job": opts.job, "tag": opts.tag, "while_locked": opts.while_locked, "lock_with": opts.lock_with,
+          "checks": []}
 failures = []
 missing_grants = []
 
@@ -78,17 +100,22 @@ def wait(predicate, seconds, step=0.25):
     return None
 
 
-# 1. The fleet build.
-zip_path = os.path.join(OUT, "app.zip")
-if not os.path.exists(zip_path):
-    subprocess.run([os.path.expanduser("~/.local/bin/cmux-ci"), "artifact", opts.job, zip_path], check=True,
-                   env=dict(os.environ, CMUX_CI_CONTROLLER="http://100.89.225.106:18765"))
-app_dir = os.path.join(OUT, "app")
-if not os.path.isdir(app_dir):
-    subprocess.run(["ditto", "-x", "-k", zip_path, app_dir], check=True)
-APP = next(iter(glob.glob(os.path.join(app_dir, "*.app"))), None)
-if not APP:
-    sys.exit("no .app in the artifact")
+# 1. The fleet build (or the .app given).
+if opts.app:
+    APP = os.path.realpath(opts.app)
+    if not (APP.endswith(".app") and os.path.isfile(os.path.join(APP, "Contents/Info.plist"))):
+        sys.exit(f"--app {opts.app} is not an app bundle")
+else:
+    zip_path = os.path.join(OUT, "app.zip")
+    if not os.path.exists(zip_path):
+        subprocess.run([os.path.expanduser("~/.local/bin/cmux-ci"), "artifact", opts.job, zip_path], check=True,
+                       env=dict(os.environ, CMUX_CI_CONTROLLER="http://100.89.225.106:18765"))
+    app_dir = os.path.join(OUT, "app")
+    if not os.path.isdir(app_dir):
+        subprocess.run(["ditto", "-x", "-k", zip_path, app_dir], check=True)
+    APP = next(iter(glob.glob(os.path.join(app_dir, "*.app"))), None)
+    if not APP:
+        sys.exit("no .app in the artifact")
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     INFO = plistlib.load(f)
 BINARY = os.path.join(APP, "Contents/MacOS", INFO["CFBundleExecutable"])
@@ -121,14 +148,18 @@ for path in (HOME_ACP, WORK):
     os.makedirs(path, exist_ok=True)
 CONFIG = os.path.join(OUT, "cmux.json")
 with open(CONFIG, "w") as f:
-    json.dump({"computerUse": {"enabled": True, "driver": "upstream"}}, f)
+    computer_use = {"enabled": True, "driver": "upstream"}
+    if opts.while_locked:
+        computer_use["whileLocked"] = True
+    json.dump({"computerUse": computer_use}, f)
 TITLE = f"cmux CUA v2 probe {secrets.token_hex(4)}"
 TARGET = os.path.join(OUT, "window-state.json")
 STOP = os.path.join(OUT, "window-stop")
 with open(os.path.join(HOME_ACP, "config.json"), "w") as f:
     json.dump({"harnesses": {"cuaprobe": {
         "argv": [sys.executable, os.path.join(HERE, "cua_v2_probe_agent.py")],
-        "env": {"CUA_PROBE_OUT": OUT, "CUA_PROBE_TARGET": TARGET, "CUA_PROBE_TITLE": TITLE},
+        "env": dict({"CUA_PROBE_OUT": OUT, "CUA_PROBE_TARGET": TARGET, "CUA_PROBE_TITLE": TITLE},
+                    **({"CUA_PROBE_LOCKED": "1"} if opts.lock_with else {})),
         "description": "cua-helper-v2-live.py scripted agent"}},
         # No real agent ever starts: the probe is the default and no session is pre-created.
         "defaultHarness": "cuaprobe", "pool": {"enabled": False}}, f, indent=1)
@@ -201,6 +232,85 @@ def frontmost():
     return subprocess.run(["lsappinfo", "info", "-only", "name", asn], capture_output=True, text=True).stdout.strip() or None
 
 
+def lockprobe(command):
+    """`--lock-with PROGRAM COMMAND` (lock or state): its last JSON line, or {"error": ...}."""
+    try:
+        done = subprocess.run([opts.lock_with, command], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"error": str(error)}
+    for line in reversed(done.stdout.splitlines()):
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return {"error": f"exit {done.returncode}, no JSON: {done.stdout[-200:]} {done.stderr[-200:]}"}
+
+
+def is_mac_locked(reply):
+    """Whether a tool's reply is the helper's ScreenLockedRefusal (its code and message start "mac_locked")."""
+    return reply is not None and "mac_locked" in json.dumps(reply)
+
+
+def image_stats(path):
+    """Width, height, distinct colours (of up to 4096 sampled pixels) and the lit share (any channel above 24)
+    of a screenshot, so a black or flat lock-screen picture does not count as one with content. A PNG of
+    8-bit RGB or RGBA is read here; anything else is first converted with `sips`."""
+    import struct, zlib
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            converted = path + ".stats.png"
+            subprocess.run(["sips", "-s", "format", "png", path, "--out", converted], capture_output=True, timeout=60)
+            with open(converted, "rb") as f:
+                data = f.read()
+        pos, idat, width = 8, b"", 0
+        while pos < len(data):
+            length, kind = struct.unpack(">I4s", data[pos:pos + 8])
+            body = data[pos + 8:pos + 8 + length]
+            if kind == b"IHDR":
+                width, height, depth, colour, _, _, interlace = struct.unpack(">IIBBBBB", body)
+                if depth != 8 or colour not in (2, 6) or interlace:
+                    return {"w": width, "h": height, "error": f"PNG depth {depth} colour {colour} interlace {interlace}"}
+                bpp = 3 if colour == 2 else 4
+            elif kind == b"IDAT":
+                idat += body
+            pos += 12 + length
+        raw = zlib.decompress(idat)
+        stride = width * bpp
+        rows, previous = [], bytearray(stride)
+        for y in range(height):
+            kind, line = raw[y * (stride + 1)], bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+            for i in range(stride):
+                a = line[i - bpp] if i >= bpp else 0
+                b, c = previous[i], previous[i - bpp] if i >= bpp else 0
+                if kind == 1:
+                    line[i] = (line[i] + a) & 255
+                elif kind == 2:
+                    line[i] = (line[i] + b) & 255
+                elif kind == 3:
+                    line[i] = (line[i] + (a + b) // 2) & 255
+                elif kind == 4:
+                    p = a + b - c
+                    pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                    line[i] = (line[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+            rows.append(line)
+            previous = line
+        step = max(1, int((width * height / 4096) ** 0.5))
+        colours, lit, seen = set(), 0, 0
+        for y in range(0, height, step):
+            for x in range(0, width, step):
+                pixel = tuple(rows[y][x * bpp:x * bpp + 3])
+                colours.add(pixel)
+                lit += max(pixel) > 24
+                seen += 1
+        return {"w": width, "h": height, "colors": len(colours), "lit": round(lit / max(seen, 1), 3)}
+    except (OSError, ValueError, struct.error, zlib.error, subprocess.TimeoutExpired, IndexError, UnboundLocalError) as error:
+        return {"error": f"cannot read {path}: {error!r}"}
+
+
 env = dict(os.environ)
 env.update({"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
             "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1000,700",
@@ -213,7 +323,7 @@ app = None
 since = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 try:
     report["frontmost_before"] = frontmost()
-    window = subprocess.Popen(["/usr/bin/python3", os.path.join(HERE, "cua_v2_probe_window.py"), TARGET, STOP, TITLE,
+    window = subprocess.Popen([opts.window_python, os.path.join(HERE, "cua_v2_probe_window.py"), TARGET, STOP, TITLE,
                                "--seconds", "600"], stdin=subprocess.DEVNULL,
                               stdout=open(os.path.join(OUT, "window.log"), "a"), stderr=subprocess.STDOUT)
     report["window_pid"] = window.pid
@@ -299,8 +409,15 @@ try:
         report["nc"] = raw_out
         check("4 raw nc -U connect is refused", '"error":"refused"' in raw_out and '"ok":false' in raw_out, raw_out[:300])
 
+    # 5L. Lock the screen first (--lock-with): the session must read locked before the agent starts.
+    if opts.lock_with:
+        locked_before = lockprobe("lock")
+        report["lock"] = locked_before
+        check("5L the session reads locked before the agent's step (lockprobe lock)",
+              (locked_before.get("session") or {}).get("locked") is True, json.dumps(locked_before)[:300])
+
     # 5. One agent session: the scripted agent drives cmux-cua through acpmux cua-mcp.
-    session = subprocess.run([ACPMUX, "exec", "-m", "cuaprobe", "--cwd", WORK, "--policy", "approve-all", "--timeout", "150",
+    session =subprocess.run([ACPMUX, "exec", "-m", "cuaprobe", "--cwd", WORK, "--policy", "approve-all", "--timeout", "150",
                               "take one screenshot of the probe window and click its checkbox once"],
                              env=dict(os.environ, ACPMUX_HOME=HOME_ACP, ACPMUX_SOCKET=ACP_SOCKET),
                              capture_output=True, text=True, timeout=200)
@@ -318,23 +435,53 @@ try:
           json.dumps(result.get("cua_server"))[:300])
     check("5 tools/list through the bridge", bool(result.get("tools")), json.dumps(result.get("tools"))[:400])
     perms = result.get("permissions") or {}
-    check("5 check_permissions {prompt:false} answered", perms.get("accessibility") is not None,
-          json.dumps(perms)[:300])
+    steps = {s.get("tool"): s for s in result.get("steps") or []}
+    refused_locked = sorted(name for name, s in steps.items() if is_mac_locked(s.get("reply")))
+    report["agent"]["refused_mac_locked"] = refused_locked
+    refusal_pass = bool(opts.lock_with) and not opts.while_locked
+    if refusal_pass:
+        # check_permissions may answer or be refused mac_locked (the gate refuses every call on a locked
+        # screen with the setting off): either is recorded, neither fails.
+        say("check_permissions on the locked screen:", "mac_locked" if "check_permissions" in refused_locked
+            else json.dumps(perms)[:300])
+    else:
+        check("5 check_permissions {prompt:false} answered", perms.get("accessibility") is not None,
+              json.dumps(perms)[:300])
     missing_grants[:] = result.get("missing_grants") or []
-    if missing_grants:
+    if refusal_pass:
+        shot_step = steps.get("get_window_state") or {}
+        check("5L whileLocked off: get_window_state on the locked screen answers mac_locked",
+              is_mac_locked(shot_step.get("reply")), json.dumps(shot_step.get("reply"))[:400])
+        clicked = json.load(open(TARGET)).get("clicks", 0) if os.path.exists(TARGET) else None
+        check("5L whileLocked off: nothing was clicked (the test window recorded no click)", clicked == 0,
+              f"clicks {clicked}; click reply {json.dumps((steps.get('click') or {}).get('reply'))[:300]}")
+    elif missing_grants:
         say("MISSING GRANT (physical step for Lawrence, on cmux-lawrence-2): System Settings > Privacy & Security > "
             + " and ".join(missing_grants) + ": turn on \"cmux Computer Use (dev)\" (com.cmuxterm.cua.dev). "
             "Screenshot and click were skipped; TCC was not changed.")
     else:
         shot = result.get("screenshot") or {}
         check("5 one screenshot (get_window_state) saved", shot.get("bytes", 0) > 0, json.dumps(shot))
-        steps = {s.get("tool"): s for s in result.get("steps") or []}
         click = steps.get("click") or {}
         click_error = (click.get("reply") or {}).get("error") or ((click.get("reply") or {}).get("result") or {}).get("isError")
         check("5 one click answered without an error", bool(click) and not click_error,
               json.dumps(click.get("reply"))[:400])
         check("5 the click landed in the test window (checkbox toggled)", result.get("click_landed") is True,
               json.dumps(result.get("window_after_click"))[:300])
+        if opts.lock_with:
+            stats = image_stats(shot.get("path")) if shot.get("path") else {"error": "no screenshot"}
+            report["screenshot_stats"] = stats
+            check("5L whileLocked on: get_window_state on the locked screen returned a screenshot with content",
+                  shot.get("bytes", 0) > 0 and stats.get("colors", 0) >= 8 and stats.get("lit", 0) >= 0.05
+                  and "get_window_state" not in refused_locked, json.dumps(dict(stats, path=shot.get("path")))[:300])
+            check("5L whileLocked on: the click on the locked screen landed in the test window",
+                  result.get("click_landed") is True and "click" not in refused_locked,
+                  json.dumps(result.get("window_after_click"))[:300])
+    if opts.lock_with:
+        locked_after = lockprobe("state")
+        report["lock_after"] = locked_after
+        check("5L the session still reads locked after the agent's step", locked_after.get("locked") is True,
+              json.dumps(locked_after)[:300])
     report["frontmost_after"] = frontmost()
     state = json.load(open(TARGET)) if os.path.exists(TARGET) else {}
     check("the test window never took focus (app never active, window never key)",
