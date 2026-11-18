@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8";
+pub const ir_sha256 = "f5d0a6b5e090b55ade56d750400aa9f29b79d28cd196d96543b828d4a12b9f22";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7890,6 +7890,8 @@ pub const NewFrontendBrowserTabRequest = struct {
     pane: wire.Field(Id) = .absent,
     /// Where the tab goes in the strip of pane; it wins over after. Needs pane; refused with workspace or split.
     place: wire.Field(TabPlace) = .absent,
+    /// The tab is private in any workspace: it keeps no closed history, remote devices never see it, and the next daemon start closes it. Its tab's extra.private is true.
+    private: ?bool = null,
     profile_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     /// With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after.
@@ -7903,6 +7905,7 @@ pub const NewFrontendBrowserTabRequest = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "activate",
+        "private",
     };
 };
 
@@ -7918,6 +7921,7 @@ pub fn newFrontendBrowserTab(client: anytype, request: NewFrontendBrowserTabRequ
             .capability = "frontend-browser-tabs-v1",
             .fields = &.{
                 .{ .name = "place", .since = null, .capability = "tab-create-place-v1" },
+                .{ .name = "private", .since = null, .capability = "private-tabs-v1" },
                 .{ .name = "split", .since = null, .capability = "frontend-browser-tab-split-v1" },
                 .{ .name = "transaction", .since = null, .capability = "tab-create-place-v1" },
                 .{ .name = "workspace", .since = null, .capability = "frontend-browser-tab-workspace-v1" },

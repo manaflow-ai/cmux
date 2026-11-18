@@ -143,6 +143,7 @@ impl CmuxClient {
             activate: None,
             after: Optional::Missing,
             place: Optional::Missing,
+            private: None,
             split: Optional::Missing,
             transaction: Optional::Missing,
             workspace: Optional::Missing,

@@ -55,7 +55,7 @@ import Testing
         let browserTabs = services.cache.browserTabs
         browserTabs.serves = { _ in true }
         browserTabs.cefUnavailable = { nil }
-        browserTabs.create = { _, pane, url, _, _, _, after, split in
+        browserTabs.create = { _, pane, url, _, _, _, after, split, _ in
             creates.made.append((pane, url, after, split))
             creates.hear.yield()
             guard let reply = creates.reply else { throw CancellationError() }
@@ -195,7 +195,7 @@ import Testing
         let made = SurfaceID(rawValue: 7)
         let url = try #require(URL(string: "https://example.com/"))
         let (heard, hear) = AsyncStream<Bool>.makeStream()
-        browserTabs.create = { _, _, _, _, _, _, _, split in
+        browserTabs.create = { _, _, _, _, _, _, _, split, _ in
             // The daemon's pane-added comes first: its pane carries the split's client-minted id.
             let split = try #require(split)
             let source = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])

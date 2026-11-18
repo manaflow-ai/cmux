@@ -46,7 +46,8 @@ struct TabTitleResolver {
             return tab.page != nil ? services.pages.storeTabItem(tab) : nil
         }
         incognitoTitle = { [weak services] tab, known in
-            guard let services, tab.kind == .browser, known ?? services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
+            guard let services, tab.kind == .browser,
+                  known.map({ $0 || services.cache.browserTabs.isPrivate(tab) }) ?? services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
             return .some(services.cache.incognitoDisplay(tab).title)
         }
     }

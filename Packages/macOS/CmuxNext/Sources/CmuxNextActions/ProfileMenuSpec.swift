@@ -65,6 +65,7 @@ public nonisolated struct ProfileMenuSpec: Sendable {
         ]
         creation = [
             Row(action: "newTab.default", title: nil, symbol: "plus"),
+            Row(action: "newPrivateTab", title: Self.text("menu.profile.privateTab", "New Private Tab"), symbol: "eyeglasses"),
             Row(action: "newIncognitoWindow", title: Self.text("menu.profile.incognito", "Incognito Window"), symbol: "eyeglasses"),
         ]
     }

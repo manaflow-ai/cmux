@@ -20279,6 +20279,17 @@
       "default": null,
       "capability": "tab-create-place-v1",
       "description": "Name of this creation (1 to 128 printable ASCII): the tab-added delta of the tab and the result carry it, and a later create request of this connection names the creation by it in place.after_creation. Refused with workspace or split."
+     },
+     "private": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "private-tabs-v1",
+      "description": "The tab is private in any workspace: it keeps no closed history, remote devices never see it, and the next daemon start closes it. Its tab's extra.private is true."
      }
     },
     "additional_properties": false

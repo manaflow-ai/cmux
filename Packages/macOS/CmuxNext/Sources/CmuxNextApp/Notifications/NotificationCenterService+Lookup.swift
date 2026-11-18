@@ -129,7 +129,7 @@ extension NotificationCenterService {
         for workspace in services?.daemon.store.workspaces ?? [] {
             if muted.contains(workspace.id), let resource = workspace.resourceID { muted.insert(resource.rawValue) }
             guard services?.windows.isIncognito(workspace: workspace.id) == false else { continue }
-            let terminals = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { $0.terminalResourceID?.rawValue }
+            let terminals = workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter { services?.cache.browserTabs.isPrivate($0) != true }.compactMap { $0.terminalResourceID?.rawValue }
             normal.formUnion([workspace.id] + [workspace.resourceID?.rawValue].compactMap { $0 } + terminals)
         }
         // Classified once the windows restored (crash leftovers discarded, ephemeral flags awaited) and the flags are known.

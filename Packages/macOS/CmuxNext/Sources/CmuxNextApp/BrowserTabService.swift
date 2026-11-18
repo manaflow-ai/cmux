@@ -28,9 +28,9 @@ final class BrowserTabService {
     /// background (`frontend-browser-activate-v1`); with `after` it lands
     /// right after that tab (`frontend-browser-insert-after-v1`); with
     /// `split` it opens in a new pane split from `pane` in one daemon commit
-    /// (`frontend-browser-tab-split-v1`). Returns the new surface.
+    /// (`frontend-browser-tab-split-v1`); `isPrivate`: `private-tabs-v1`. Returns the new surface.
     var create: @MainActor (_ daemon: DaemonService, _ pane: PaneID, _ url: String, _ engine: BrowserEngineTag, _ profile: String?,
-                            _ activate: Bool, _ after: SurfaceID?, _ split: ConversationTabSplit?) async throws -> SurfaceID
+                            _ activate: Bool, _ after: SurfaceID?, _ split: ConversationTabSplit?, _ isPrivate: Bool) async throws -> SurfaceID
     /// The daemon that owns `pane` (the App: `MachineRegistry.daemon(forPane:)`).
     var daemonForPane: @MainActor (PaneModel) -> DaemonService
     /// The daemon that owns `tab` (the App: `MachineRegistry.daemon(forTab:)`).
@@ -107,12 +107,14 @@ final class BrowserTabService {
     var emulationFollowers: [String: Task<Void, Never>] = [:]
     /// True for a pane of an incognito window (the App sets it).
     var isIncognitoPane: @MainActor (PaneModel) -> Bool = { _ in false }
-    /// True for a tab of an incognito window, by tab id (the App sets it).
+    /// True for a tab of an incognito window or a private tab in any window (``isPrivate(_:)``), by tab id (the App sets it).
     var isIncognitoTab: @MainActor (String) -> Bool = { _ in false }
     /// Where `localhost` goes for a new tab of `pane` on `daemon` with `engine` (the notice says so).
     var localhostRoute: @MainActor (DaemonService, PaneModel, BrowserEngineKind) -> RemoteLocalhostRoute? = { _, _, _ in nil }
     /// Start URLs of incognito tabs, by surface, in memory only.
     private var incognitoURLs: [SurfaceKey: String] = [:]
+    /// Private tabs that read private before their record says so (Leo, 2026-11-18: private tabs anywhere).
+    private(set) var privateTabs = PrivateTabLedger()
     /// Surfaces created in this process (`open`): pages the user asked for
     /// now, as opposed to tabs restored from the daemon.
     private var openedSurfaces: Set<SurfaceKey> = []
@@ -135,15 +137,17 @@ final class BrowserTabService {
         daemonForPane = { [local] _ in local }
         daemonForTab = { [local] _ in local }
         daemons = { [local] in [local] }
-        create = { daemon, pane, url, engine, profile, activate, after, split in
+        create = { daemon, pane, url, engine, profile, activate, after, split, isPrivate in
             // An older daemon without the capability would ignore the field: send it only when served.
             let background = !activate && daemon.supports(DaemonCapability.frontendBrowserActivate.rawValue)
             let slot = daemon.supports(DaemonCapability.frontendBrowserInsertAfter.rawValue) ? after : nil
+            let marked = isPrivate && daemon.supports(DaemonCapability.privateTabs.rawValue)
             // Through the funnel: the action scope waits for the tab's echo
             // before it maps `created` to public ids.
             return try await daemon.perform(NewFrontendBrowserTabRequest.command) { connection in
                 try await connection.newFrontendBrowserTab(url: url, engine: engine, in: pane, profileID: profile,
-                                                           activate: background ? false : nil, after: slot, split: split).surface
+                                                           activate: background ? false : nil, after: slot, split: split,
+                                                           private: marked ? true : nil).surface
             }
         }
         settled = { daemon in
@@ -245,8 +249,11 @@ final class BrowserTabService {
         incognitoURLs[key(daemonForTab(tab), tab.surface)] ?? tab.url
     }
 
-    /// Forgets incognito start URLs (the incognito session ended).
-    func forgetIncognitoURLs() { incognitoURLs.removeAll() }
+    /// Forgets incognito start URLs and the private tabs opened here (the incognito session ended).
+    func forgetIncognitoURLs() { (incognitoURLs, privateTabs) = ([:], PrivateTabLedger()) }
+
+    /// A private tab in any window (``PrivateTabLedger``); an incognito window's tab is incognito by its workspace.
+    func isPrivate(_ tab: TabModel) -> Bool { privateTabs.isPrivate(tab) { let daemon = daemonForTab(tab); return (daemon.machineID, daemon.store) } }
 
     /// Why Chromium cannot open a tab (localized), nil when it can.
     func cefUnavailableReason() -> String? {
@@ -279,7 +286,7 @@ final class BrowserTabService {
     /// fallback against the new surface (its page shows the notice). A tab
     /// of an incognito window (`incognito`, else `isIncognitoPane`) gets an
     /// opaque placeholder record; its URL stays in app memory
-    /// (`startURL(for:)`), never in the daemon's database.
+    /// (`startURL(for:)`), never in the daemon's database; in a normal pane a private tab (`private-tabs-v1`).
     /// The tab's browser profile is fixed here (`profile` when it names a
     /// known one, else the cascade) and stored on its record; an incognito
     /// tab stores none (its window's session is its store). `after` is the
@@ -291,14 +298,15 @@ final class BrowserTabService {
     func open(_ choice: BrowserEngineChoice, in pane: PaneModel, url: String, incognito: Bool? = nil, profile explicit: String? = nil,
               notice: String? = nil, activate: Bool = true, after: SurfaceID? = nil, split: ConversationTabSplit? = nil) async throws -> SurfaceID {
         let daemon = daemonForPane(pane)
-        let offTheRecord = incognito ?? isIncognitoPane(pane)
+        let incognitoPane = isIncognitoPane(pane)
+        let offTheRecord = incognito ?? incognitoPane
         let profile = offTheRecord ? nil : resolveProfile(pane, explicit)
         // A machine browser record runs there: no "runs on this Mac" notice.
         let runsHere = !daemon.isLocal && !MachineBrowserRecord.matches(URL(string: url))
         let shown = notice ?? (runsHere ? RemoteStrings.browserRunsOnThisMac(
             machineName(daemon), route: localhostRoute(daemon, pane, choice.engine == .cef ? .cef : .webkit)) : nil)
-        return try await open(choice, in: pane.handle, on: daemon, url: url, offTheRecord: offTheRecord, profile: profile,
-                              notice: shown, activate: activate, after: after, split: split)
+        return try await open(choice, in: pane.handle, on: daemon, url: url, offTheRecord: offTheRecord, isPrivate: offTheRecord && !incognitoPane,
+                              profile: profile, notice: shown, activate: activate, after: after, split: split)
     }
 
     /// `open` for a pane of `daemon` that the caller just created (the pane
@@ -308,18 +316,21 @@ final class BrowserTabService {
               profile explicit: String? = nil) async throws -> SurfaceID {
         let model = daemon.store.pane(pane)
         let profile = incognito ? nil : model.map { resolveProfile($0, explicit) } ?? explicit
-        return try await open(choice, in: pane, on: daemon, url: url, offTheRecord: incognito, profile: profile, notice: nil,
+        return try await open(choice, in: pane, on: daemon, url: url, offTheRecord: incognito, isPrivate: false, profile: profile, notice: nil,
                               activate: true, after: nil, split: nil)
     }
 
-    private func open(_ choice: BrowserEngineChoice, in pane: PaneID, on daemon: DaemonService, url: String, offTheRecord: Bool,
+    private func open(_ choice: BrowserEngineChoice, in pane: PaneID, on daemon: DaemonService, url: String, offTheRecord: Bool, isPrivate: Bool,
                       profile: String?, notice: String?, activate: Bool, after: SurfaceID?, split: ConversationTabSplit?) async throws -> SurfaceID {
         guard BrowserAvailability(enabled: browserEnabled()).allows(url) else { throw ActionFailure(message: MiscHandlerStrings.browserOff) }
         let ended = offTheRecord ? nil : split.map { openingSplits.begin($0, on: daemon) } // incognito keeps about:blank until the reply
         defer { ended?() }
-        let surface = try await create(daemon, pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate, after, split)
+        let opening = isPrivate ? privateTabs.begin(in: pane, of: daemon.store, machine: daemon.machineID) : nil
+        defer { if let opening { privateTabs.end(opening) } }
+        let surface = try await create(daemon, pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate, after, split, isPrivate)
         let key = key(daemon, surface)
         if offTheRecord { incognitoURLs[key] = url }
+        if isPrivate { privateTabs.opened(surface, machine: daemon.machineID) }
         // The tab's page may exist already (the store echoed the tab before
         // the reply): it shows the notice now; else its page takes it.
         if let notice, !showNotice(daemon, surface, notice) {

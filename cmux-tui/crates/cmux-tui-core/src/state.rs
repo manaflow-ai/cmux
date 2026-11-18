@@ -113,6 +113,9 @@ pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
 pub(crate) mod placement_shift;
 mod prelude;
+pub(crate) mod private_tabs;
+#[cfg(test)]
+mod private_tabs_tests;
 pub(crate) mod project_sources;
 pub(crate) mod project_watch;
 pub(crate) mod projects;

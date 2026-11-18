@@ -71,6 +71,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.MoveTabToSplitRequest, "keep_focus");
     try expectExplicitNullRejected(protocol.NewConversationTabResult, "transaction");
     try expectExplicitNullRejected(protocol.NewFrontendBrowserTabRequest, "activate");
+    try expectExplicitNullRejected(protocol.NewFrontendBrowserTabRequest, "private");
     try expectExplicitNullRejected(protocol.NewPaneRequest, "keep");
     try expectExplicitNullRejected(protocol.NewPaneRightRequest, "keep");
     try expectExplicitNullRejected(protocol.NewRowRequest, "keep");

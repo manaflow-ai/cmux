@@ -31,7 +31,7 @@ extension LocationTrailService {
             key: .init(machine: daemon.machineID, tab: tab.id), window: controller.state.id, workspace: workspaceID,
             pane: paneModel.id, content: content, title: title(of: tab, in: workspace),
             workspaceTitle: workspace?.displayName, machineName: daemon.machineID == MachineRegistry.localID ? nil : daemon.machineID,
-            url: tab.url, cwd: tab.cwd, isIncognito: services.windows.isIncognito(workspace: workspaceID))
+            url: tab.url, cwd: tab.cwd, isIncognito: services.windows.isIncognito(workspace: workspaceID) || services.cache.browserTabs.isPrivate(tab))
     }
 
     /// A trail entry's name for `tab`: the tab strip's (`TabTitleResolver`: a chat's, page's or user-set name), never

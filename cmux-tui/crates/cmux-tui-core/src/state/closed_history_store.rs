@@ -251,8 +251,13 @@ pub(super) fn is_ephemeral(connection: &Connection, workspace_id: &str) -> anyho
 }
 
 /// What reopen needs of one closed tab. `terminal_id` (the public terminal
-/// id) lets reopen attach a new view to a terminal that still runs.
+/// id) lets reopen attach a new view to a terminal that still runs. A
+/// private tab (`private-tabs-v1`) has none: closed history never keeps it,
+/// alone or in the group, screen or workspace that closes with it.
 fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Value>> {
+    if crate::state::private_tabs::is_marked(connection, tab_id)? {
+        return Ok(None);
+    }
     let row = connection
         .query_row(
             "SELECT content_kind, content_id, name FROM resource_tabs
@@ -862,7 +867,10 @@ fn capture_screen(
     let Some((workspace_id, position)) = workspace_of_screen(transaction, screen_id)? else {
         return Ok(());
     };
-    if closing_workspaces.contains(&workspace_id) || is_ephemeral(transaction, &workspace_id)? {
+    if closing_workspaces.contains(&workspace_id)
+        || is_ephemeral(transaction, &workspace_id)?
+        || crate::state::private_tabs::screen_holds_only_private_tabs(transaction, screen_id)?
+    {
         return Ok(());
     }
     let record = screen_record(transaction, screen_id, stashed)?;
@@ -964,6 +972,19 @@ fn capture_workspace(
             .query_map([workspace_id], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?
     };
+    // A screen of only private tabs is left out; a workspace of only such
+    // screens leaves no record (`private-tabs-v1`).
+    let had_screens = !screens.is_empty();
+    let mut kept = Vec::with_capacity(screens.len());
+    for screen in screens {
+        if !crate::state::private_tabs::screen_holds_only_private_tabs(transaction, &screen)? {
+            kept.push(screen);
+        }
+    }
+    if had_screens && kept.is_empty() {
+        return Ok(());
+    }
+    let screens = kept;
     let active_screen = transaction
         .query_row(
             "SELECT active_screen_id FROM resource_workspaces WHERE public_id = ?1",

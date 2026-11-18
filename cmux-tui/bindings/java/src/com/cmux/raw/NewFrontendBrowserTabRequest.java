@@ -22,6 +22,8 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
     private final Field<UInt64> pane;
     /** Where the tab goes in the strip of pane; it wins over after. Needs pane; refused with workspace or split. */
     private final Field<TabPlace> place;
+    /** The tab is private in any workspace: it keeps no closed history, remote devices never see it, and the next daemon start closes it. Its tab's extra.private is true. */
+    private final Field<Boolean> private_;
     private final Field<String> profileId;
     private final Field<Integer> rows;
     /** With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after. */
@@ -44,6 +46,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         this.owner = builder.owner;
         this.pane = builder.pane;
         this.place = builder.place;
+        this.private_ = builder.private_;
         this.profileId = builder.profileId;
         this.rows = builder.rows;
         this.split = builder.split;
@@ -65,6 +68,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
     public Field<String> owner() { return owner; }
     public Field<UInt64> pane() { return pane; }
     public Field<TabPlace> place() { return place; }
+    public Field<Boolean> private_() { return private_; }
     public Field<String> profileId() { return profileId; }
     public Field<Integer> rows() { return rows; }
     public Field<ConversationTabSplit> split() { return split; }
@@ -110,6 +114,10 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         if (!Wire.isMissing(rawPlace)) {
             builder.place(rawPlace == null ? null : TabPlace.fromWire(rawPlace));
         }
+        Object rawPrivate = Wire.optional(object, "private");
+        if (!Wire.isMissing(rawPrivate)) {
+            builder.private_(Wire.bool(rawPrivate, "NewFrontendBrowserTabRequest.private"));
+        }
         Object rawProfileId = Wire.optional(object, "profile_id");
         if (!Wire.isMissing(rawProfileId)) {
             builder.profileId(rawProfileId == null ? null : Wire.string(rawProfileId, "NewFrontendBrowserTabRequest.profile_id"));
@@ -151,6 +159,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         Wire.put(object, "owner", owner);
         Wire.put(object, "pane", pane);
         Wire.put(object, "place", place);
+        Wire.put(object, "private", private_);
         Wire.put(object, "profile_id", profileId);
         Wire.put(object, "rows", rows);
         Wire.put(object, "split", split);
@@ -164,11 +173,11 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewFrontendBrowserTabRequest that)) return false;
-        return Objects.equals(activate, that.activate) && Objects.equals(after, that.after) && Objects.equals(cols, that.cols) && Objects.equals(engine, that.engine) && Objects.equals(faviconUrl, that.faviconUrl) && Objects.equals(idempotencyKey, that.idempotencyKey) && Objects.equals(owner, that.owner) && Objects.equals(pane, that.pane) && Objects.equals(place, that.place) && Objects.equals(profileId, that.profileId) && Objects.equals(rows, that.rows) && Objects.equals(split, that.split) && Objects.equals(title, that.title) && Objects.equals(transaction, that.transaction) && Objects.equals(url, that.url) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(activate, that.activate) && Objects.equals(after, that.after) && Objects.equals(cols, that.cols) && Objects.equals(engine, that.engine) && Objects.equals(faviconUrl, that.faviconUrl) && Objects.equals(idempotencyKey, that.idempotencyKey) && Objects.equals(owner, that.owner) && Objects.equals(pane, that.pane) && Objects.equals(place, that.place) && Objects.equals(private_, that.private_) && Objects.equals(profileId, that.profileId) && Objects.equals(rows, that.rows) && Objects.equals(split, that.split) && Objects.equals(title, that.title) && Objects.equals(transaction, that.transaction) && Objects.equals(url, that.url) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(activate, after, cols, engine, faviconUrl, idempotencyKey, owner, pane, place, profileId, rows, split, title, transaction, url, workspace); }
+    public int hashCode() { return Objects.hash(activate, after, cols, engine, faviconUrl, idempotencyKey, owner, pane, place, private_, profileId, rows, split, title, transaction, url, workspace); }
 
     @Override
     public String toString() { return "NewFrontendBrowserTabRequest" + toWire(); }
@@ -184,6 +193,7 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         private Field<String> owner = Field.omitted();
         private Field<UInt64> pane = Field.omitted();
         private Field<TabPlace> place = Field.omitted();
+        private Field<Boolean> private_ = Field.omitted();
         private Field<String> profileId = Field.omitted();
         private Field<Integer> rows = Field.omitted();
         private Field<ConversationTabSplit> split = Field.omitted();
@@ -228,6 +238,10 @@ public final class NewFrontendBrowserTabRequest implements WireValue {
         }
         public Builder place(TabPlace value) {
             this.place = Field.ofNullable(value);
+            return this;
+        }
+        public Builder private_(Boolean value) {
+            this.private_ = Field.of(value);
             return this;
         }
         public Builder profileId(String value) {

@@ -217,6 +217,7 @@ enum AppActions {
         // action-wait-allow: a window opens only once the daemon reports its first workspace (as New Window always did); the new space is created there first.
         registry.bind("newWindow", invoke: { RoomHandlers.newWindow($0, AppActionContext(services: services)) })
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
+        registry.bind("newPrivateTab") { services.windows.newPrivateTab() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {
             services.windows.active?.window?.closeWithoutButtonFlash()
         }

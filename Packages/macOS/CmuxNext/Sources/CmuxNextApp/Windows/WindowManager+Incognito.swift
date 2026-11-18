@@ -7,9 +7,10 @@ import CmuxNextLayout
 // Incognito windows (user decision 2026-09-30): a whole window whose
 // browser pages use one off-the-record browser profile (Chromium in-memory
 // context, WebKit non-persistent store). Terminals in it are normal
-// terminals. Nothing moves between an incognito window and a normal one
-// (`WindowRegistry`), closing one closes its workspaces, the last one
-// closing deletes the browser data, and none is restored after relaunch.
+// terminals. Closing one closes its workspaces, and none is restored after relaunch. Private tabs may sit
+// in any window (Leo, 2026-11-18, `PrivateTabSession`): one uses the session's profile in a normal window,
+// and only workspaces, screens, tab groups and normal tabs never go into an incognito window. The session's
+// data goes once no incognito window and no private tab is left.
 extension WindowManager {
     /// Opens a new incognito window whose workspace holds one browser tab on
     /// `url` (a blank page when nil). Returns the window id at once; the
@@ -154,14 +155,69 @@ extension WindowManager {
         let open = value.windows.contains { value.isIncognito($0.id) }
         let pending = claims.pending.values.contains(where: value.isIncognito) || !pendingEphemeralWindows.isEmpty
         guard !open, !pending else { return }
+        // Private tabs in normal windows keep the session (Leo, 2026-11-18); the watch ends it after the last one.
+        if hasPrivateTabs() { return watchPrivateTabs() }
+        privateTabsWatch?.cancel()
+        privateTabsWatch = nil
         incognitoSession = nil
         incognitoHistoryReset?()
         services.browserStores.offTheRecord.end(profile)
     }
 
+    func hasPrivateTabs() -> Bool { services.cache.browserTabs.privateTabs.isOpening || !privateTabs().isEmpty }
+
+    /// The private tabs of normal windows (an incognito window's close with it), with their daemons.
+    func privateTabs() -> [(TabModel, DaemonService)] {
+        PrivateTabSession.tabs(of: services.machines.daemons, store: \.store, skips: isIncognito(workspace:), isPrivate: services.cache.browserTabs.isPrivate)
+    }
+
+    /// Ends the session after the last private tab (`PrivateTabSession.watch`); the session's own end cancels it.
+    func watchPrivateTabs() {
+        guard privateTabsWatch == nil, incognitoSession != nil else { return }
+        privateTabsWatch = PrivateTabSession.watch(services.machines.daemons.map(\.store)) { [weak self] in
+            guard let self, incognitoSession != nil else { self?.privateTabsWatch = nil; return false }
+            endIncognitoSessionIfUnused()
+            return true
+        }
+    }
+
+    /// New Private Tab: a private tab in the active window's focused pane (`PrivateTabSession.route`).
+    func newPrivateTab() {
+        let pane = active?.focusedPane, browserTabs = services.cache.browserTabs
+        let served = pane.map { $0.daemon.supports(DaemonCapability.privateTabs.rawValue) && browserTabs.isAvailable(in: $0.pane) } ?? false
+        switch PrivateTabSession.route(pane: pane != nil, incognitoWindow: active.map { isIncognito(window: $0.state.id) } ?? false, served: served) {
+        case .incognitoWindow: newIncognitoWindow()
+        case .windowTab: _ = pane?.newBrowserTab()
+        case .privateTab:
+            let resolved = browserTabs.resolve(requested: nil)
+            if case .refuse(let reason) = resolved { return services.registry.refuse(BrowserTabService.message(reason)) }
+            guard let pane, case .open(let choice) = resolved else { return }
+            _ = incognitoProfile() // the session begins now, so the tab's first page is incognito
+            let address = services.newTabAddress(for: choice), intent = pane.workspace?.beginFocusIntent()
+            services.registry.track(Task { [services] in
+                defer { services.windows.watchPrivateTabs() }
+                do {
+                    let surface = try await browserTabs.open(choice, in: pane.pane, url: address, incognito: true)
+                    pane.selectWhenReported(surface: surface)
+                    pane.workspace?.expectFocus(on: surface, target: .addressBar, generation: intent)
+                    return nil
+                } catch {
+                    pane.daemon.logger.error("new private tab failed: \(String(describing: error), privacy: .public)")
+                    return "new private tab: \(error)"
+                }
+            })
+        }
+    }
+
     /// Quit: incognito windows are never restored, so their workspaces
-    /// close now (on the daemons), before the window state is saved.
+    /// close now (on the daemons), before the window state is saved. Private
+    /// tabs of normal windows close too (the daemon also closes any one an
+    /// earlier run left, at its start).
     func closeIncognitoWindowsForTermination() async {
+        for (tab, daemon) in privateTabs() {
+            guard let connection = daemon.connection else { continue }
+            try? await connection.closeTab(tab.surface)
+        }
         // Incognito spaces go with their windows: none is restored.
         if let home = services.machines.local.connection {
             for space in Set(incognitoSpaces.values) { _ = try? await home.deleteProfile(space, moveTo: nil) }
@@ -232,12 +288,5 @@ extension WindowManager {
     func crossesIncognito(from source: String?, to target: String?) -> Bool {
         guard let source, let target else { return false }
         return isIncognito(workspace: source) != isIncognito(workspace: target)
-    }
-
-    /// True when moving content of workspace `source` into (a new workspace
-    /// of) window `windowID` would cross kinds.
-    func crossesIncognito(from source: String?, toWindow windowID: String) -> Bool {
-        guard let source else { return false }
-        return isIncognito(workspace: source) != isIncognito(window: windowID)
     }
 }

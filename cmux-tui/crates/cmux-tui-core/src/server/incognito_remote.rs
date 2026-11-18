@@ -213,7 +213,17 @@ pub(super) fn hidden(mux: &Mux) -> Option<Hidden> {
             }
         };
     let saved = crate::state::store::incognito_saved();
-    if ephemeral.is_empty() && saved.is_empty() {
+    // `private-tabs-v1`: a private tab in a normal workspace is hidden as an
+    // incognito workspace's tabs are (its existence, place and controls).
+    let private: HashSet<String> =
+        match mux.read_registry_state(crate::state::private_tabs::live_private_tabs) {
+            Ok(private) => private.into_iter().collect(),
+            Err(error) => {
+                eprintln!("cmux-tui: could not list private tabs for a remote device: {error:#}");
+                return Some(Hidden { all: true, current_hidden: true, ..Hidden::default() });
+            }
+        };
+    if ephemeral.is_empty() && saved.is_empty() && private.is_empty() {
         return None;
     }
     for workspace in &ephemeral {
@@ -275,6 +285,21 @@ pub(super) fn hidden(mux: &Mux) -> Option<Hidden> {
                         }
                     }
                 }
+            }
+        }
+        for (surface, tab) in &indexes.tab_ids {
+            if !private.contains(tab.as_str()) {
+                continue;
+            }
+            numbers.push(*surface);
+            hidden.names.insert(tab.as_str().to_string());
+            if let Some(id) = indexes.content_ids.get(surface) {
+                hidden.names.insert(id.as_str().to_string());
+            }
+            let identity =
+                state.surfaces.get(surface).and_then(|surface| surface.terminal_host_identity());
+            if let Some(identity) = identity {
+                hidden.names.insert(identity.terminal_id);
             }
         }
         let short_ids = super::tree_json::tree_short_ids(state);

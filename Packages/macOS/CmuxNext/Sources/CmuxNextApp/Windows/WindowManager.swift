@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAppCore
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
@@ -144,6 +145,7 @@ final class WindowManager {
     var incognitoTabHomes: [String: String] = [:]
     /// Clears what the incognito session kept in memory (omnibar history).
     var incognitoHistoryReset: (() -> Void)?
+    var privateTabsWatch: Task<Void, Never>?
 
     init(services: AppServices) {
         self.services = services

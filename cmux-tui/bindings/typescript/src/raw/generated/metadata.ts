@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8. */
+/* cmux-tui mux protocol 12, IR f5d0a6b5e090b55ade56d750400aa9f29b79d28cd196d96543b828d4a12b9f22. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "025cbb0172e56aa5d02e44c8fa0baaff67cfb3074e6ac2812b0d2c73ccd1d5b8" as const;
+export const SDK_IR_SHA256 = "f5d0a6b5e090b55ade56d750400aa9f29b79d28cd196d96543b828d4a12b9f22" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2107,6 +2107,10 @@ export const COMMAND_METADATA = {
       "place": {
         "since": null,
         "capability": "tab-create-place-v1"
+      },
+      "private": {
+        "since": null,
+        "capability": "private-tabs-v1"
       },
       "split": {
         "since": null,
@@ -24863,6 +24867,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "TabPlace"
+          }
+        },
+        "private": {
+          "capability": "private-tabs-v1",
+          "default": false,
+          "description": "The tab is private in any workspace: it keeps no closed history, remote devices never see it, and the next daemon start closes it. Its tab's extra.private is true.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "profile_id": {

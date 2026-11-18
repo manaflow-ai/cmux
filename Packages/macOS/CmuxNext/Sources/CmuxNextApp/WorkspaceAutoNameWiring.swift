@@ -14,12 +14,15 @@ struct WorkspaceAutoNameWiring {
     /// The front-tab reader over this app's setting, pages and terminals.
     var reader: WorkspaceAutoNameReader {
         let known: @MainActor (AppServices) -> Bool? = { [workspace] s in workspace.map { s.windows.isIncognito(workspace: $0) } }
+        let offTheRecord: @MainActor (AppServices, TabModel) -> Bool = { s, tab in
+            known(s).map { $0 || s.cache.browserTabs.isPrivate(tab) } ?? s.cache.browserTabs.isIncognitoTab(tab.id)
+        }
         return WorkspaceAutoNameReader(
             enabled: { [weak services] in services?.settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true },
             isNewTabPage: { [weak services] tab in services.map { RestoredNewTabPages.shows(tab, in: $0.agentTabs) } ?? false },
             livePage: { [weak services] tab in services?.cache.existingBrowser(tab.id).map { ($0.tab.state.title, $0.tab.state.url) } },
-            incognitoTitle: { [weak services] tab in services.flatMap { s -> String?? in known(s) ?? s.cache.browserTabs.isIncognitoTab(tab.id) ? .some(s.cache.incognitoDisplay(tab).title) : nil } },
-            terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0, incognito: known($0)) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
+            incognitoTitle: { [weak services] tab in services.flatMap { s -> String?? in offTheRecord(s, tab) ? .some(s.cache.incognitoDisplay(tab).title) : nil } },
+            terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0, incognito: offTheRecord($0, tab)) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
             hold: services.autoNameHold,
             allowsLegacyDefaults: { [weak services] workspace in
                 services?.machines.daemon(holding: workspace).map { !$0.supports(DaemonCapability.workspaceNameSource.rawValue) } ?? true

@@ -316,7 +316,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
             let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine, known: (daemon, ownWorkspace?.id))
             (item.machineBadge, item.machineBadgeHelp, item.machineName) = (badge?.text, badge?.help, services.machines.tabColorName(daemon.machineID, badge: badge?.text))
             // Incognito tabs have only a placeholder record in the daemon; its own workspace answers (a lookup by key walks every store).
-            let incognito = ownWorkspace.map { services.windows.isIncognito(workspace: $0) } ?? services.cache.browserTabs.isIncognitoTab(tab.id)
+            let incognito = ownWorkspace.map { services.windows.isIncognito(workspace: $0) || services.cache.browserTabs.isPrivate(tab) }
+                ?? services.cache.browserTabs.isIncognitoTab(tab.id)
             if incognito {
                 let live = services.cache.incognitoDisplay(tab)
                 (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url.flatMap { BrowserNewTabPage.isNewTabPage($0) ? nil : $0 })

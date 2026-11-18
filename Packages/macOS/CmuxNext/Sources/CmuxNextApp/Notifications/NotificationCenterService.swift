@@ -668,7 +668,7 @@ final class NotificationCenterService {
         let owner = owner ?? tab
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
         let headline = headline ?? program?.title(localizations: localizations) ?? notification.title
-        let incognito = workspace.map { services?.windows.isIncognito(workspace: $0) == true } ?? false // A permission prompt's answers and body; none in an incognito window, decided at arrival.
+        let incognito = (workspace.map { services?.windows.isIncognito(workspace: $0) == true } ?? false) || [tab, owner].contains { $0.map { services?.cache.browserTabs.isPrivate($0) == true } ?? false } // A permission prompt's answers and body; none in an incognito window, decided at arrival.
         withApproval(of: notification, tab: owner) { [weak self] asked in
             guard let self else { return }; let approval = incognito ? nil : asked
             let content = self.bannerFormatter.content(

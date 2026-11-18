@@ -2,8 +2,11 @@
 //! `resource-api-v2.md`). A workspace that a patch creates and fills with
 //! content moved out of an ephemeral workspace is marked ephemeral in that
 //! patch's transaction, so no read and no `session.events` change shows it
-//! without the flag. Content never moves between an ephemeral workspace and
-//! a normal workspace that already exists.
+//! without the flag. Panes and screens never move between an ephemeral
+//! workspace and a normal workspace that already exists. A tab may (Leo,
+//! 2026-11-18: "drop the 9/30 rule and allow private tabs anywhere"): one
+//! that leaves an ephemeral workspace for a normal one is marked private
+//! (`private_tabs`), so it stays private where it lands.
 //!
 //! The rule runs where every move path meets, the resource patch (as closed
 //! history does), so the raw commands, the v2 operations and the CLI share
@@ -33,6 +36,8 @@ pub(crate) fn carry_ephemeral(
     }
     let places = Places::of(patch);
     let mut moves = Vec::new();
+    // Each moved tab's public id with the workspaces it moves between.
+    let mut tab_moves: Vec<(String, (String, String))> = Vec::new();
     let mut created = HashSet::new();
     for change in &patch.changes {
         match change {
@@ -70,25 +75,25 @@ pub(crate) fn carry_ephemeral(
                 let to = tab.pane_id.as_str();
                 if let Some(from) = live_parent(transaction, "resource_tabs", "pane_id", id)?
                     && from != to
+                    && let Some(between) = places
+                        .workspace_of_pane(transaction, &from)?
+                        .zip(places.workspace_of_pane(transaction, to)?)
                 {
-                    moves.extend(
-                        places
-                            .workspace_of_pane(transaction, &from)?
-                            .zip(places.workspace_of_pane(transaction, to)?),
-                    );
+                    tab_moves.push((id.to_string(), between));
                 }
             }
             _ => {}
         }
     }
     moves.retain(|(from, to)| from != to);
-    if moves.is_empty() {
+    tab_moves.retain(|(_, (from, to))| from != to);
+    if moves.is_empty() && tab_moves.is_empty() {
         return Ok(());
     }
     // A new workspace that receives ephemeral content is ephemeral; then
-    // every move must join two workspaces of the same kind.
+    // every pane and screen move must join two workspaces of the same kind.
     let mut flags = HashMap::new();
-    for (from, to) in &moves {
+    for (from, to) in moves.iter().chain(tab_moves.iter().map(|(_, between)| between)) {
         for id in [from, to] {
             if !flags.contains_key(id) {
                 flags.insert(id.clone(), is_ephemeral(transaction, id)?);
@@ -96,7 +101,7 @@ pub(crate) fn carry_ephemeral(
         }
     }
     let mut marked = HashSet::new();
-    for (from, to) in &moves {
+    for (from, to) in moves.iter().chain(tab_moves.iter().map(|(_, between)| between)) {
         if flags[from] && created.contains(to) {
             marked.insert(to.clone());
         }
@@ -104,6 +109,19 @@ pub(crate) fn carry_ephemeral(
     for (from, to) in &moves {
         let target = flags[to] || marked.contains(to);
         anyhow::ensure!(flags[from] == target, MIXED_MOVE_ERROR);
+    }
+    // A private tab may join any workspace (`private-tabs-v1`): one that
+    // leaves an ephemeral workspace for a normal one stays private by its own
+    // mark. A normal tab still never enters an ephemeral workspace (its page
+    // would close with the incognito window and leave no record).
+    let ephemeral = |id: &String| flags.get(id).copied().unwrap_or(false);
+    for (tab, (from, to)) in &tab_moves {
+        let into_ephemeral = ephemeral(to) || marked.contains(to);
+        if ephemeral(from) && !into_ephemeral {
+            super::private_tabs::mark_private(transaction, tab)?;
+        } else if !ephemeral(from) && into_ephemeral {
+            anyhow::ensure!(super::private_tabs::is_marked(transaction, tab)?, MIXED_MOVE_ERROR);
+        }
     }
     for workspace in &marked {
         super::store::mark_workspace_ephemeral(transaction, workspace)?;

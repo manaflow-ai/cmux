@@ -53,13 +53,17 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
 
     /// The listed tabs with their workspace ids, one turn behind the store: the host's view (`providerTabs`, the waits).
     private var localBrowserTabs: [(model: TabModel, workspace: String)] {
-        (listed?.observedItems ?? []).flatMap { entry in entry.tabs.map { (model: $0, workspace: entry.workspace) } }
+        let browserTabs = services?.cache.browserTabs
+        return (listed?.observedItems ?? []).flatMap { entry in
+            entry.tabs.filter { browserTabs?.isPrivate($0) != true }.map { (model: $0, workspace: entry.workspace) }
+        }
     }
 
     /// Tab `targetID` as the list will hold it, from the store's index for that one tab now (exact in the turn of
     /// a create or a close; no session walk): a browser tab of a local workspace, not incognito.
     private func announceable(_ targetID: String) -> (model: TabModel, workspace: String)? {
-        guard let services, let found = services.daemon.store.tab(id: targetID, of: .browser), !services.windows.isIncognito(workspace: found.workspace) else { return nil }
+        guard let services, let found = services.daemon.store.tab(id: targetID, of: .browser), !services.windows.isIncognito(workspace: found.workspace),
+              !services.cache.browserTabs.isPrivate(found.tab) else { return nil }
         return (found.tab, found.workspace.id)
     }
     func isDrivable(_ targetID: String) -> Bool { announceable(targetID) != nil }

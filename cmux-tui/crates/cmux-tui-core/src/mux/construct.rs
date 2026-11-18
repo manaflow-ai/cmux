@@ -586,6 +586,8 @@ impl Mux {
         timings.lap("restore.reconcile");
         mux.close_ephemeral_workspaces()?;
         timings.lap("workspace.close_ephemeral");
+        mux.close_private_tabs()?;
+        timings.lap("tab.close_private");
         // cx-6so.49: host losses whose respawn an earlier owner never ran
         // (it shut down first, or a session shutdown ended the shell).
         #[cfg(any(unix, windows))]

@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import Foundation
+public import Foundation
 import os
 
 /// The workspaces of open incognito windows, in a small app-local file
@@ -12,19 +12,19 @@ import os
 /// only incognito workspaces the daemon does not know as such (a tab torn
 /// off into a new workspace). It also lists the incognito spaces
 /// (spaces-overhaul-DESIGN.md rule 2), which the next launch deletes.
-final class IncognitoWorkspaceLedger {
+public final class IncognitoWorkspaceLedger {
     private let url: URL
     private var written: (workspaces: Set<String>, spaces: Set<String>)?
     /// The latest write; the next one waits for it, so writes land in order.
     private var lastWrite: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "incognito")
 
-    init(url: URL) {
+    public init(url: URL) {
         self.url = url
     }
 
     /// `<Application Support>/<bundle id>/incognito-workspaces.json`.
-    static func forApplication(bundleIdentifier: String?) -> IncognitoWorkspaceLedger {
+    public static func forApplication(bundleIdentifier: String?) -> IncognitoWorkspaceLedger {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
@@ -39,15 +39,15 @@ final class IncognitoWorkspaceLedger {
 
     /// True when the last run left incognito workspaces: the file exists
     /// only while it lists some (an existence check, no read).
-    var hasLeftovers: Bool { FileManager.default.fileExists(atPath: url.path) }
+    public var hasLeftovers: Bool { FileManager.default.fileExists(atPath: url.path) }
 
     /// The ids the last run left (read off the main thread).
-    func load() async -> [String] {
+    public func load() async -> [String] {
         await document()?.workspaces ?? []
     }
 
     /// The incognito spaces the last run left (read off the main thread).
-    func loadSpaces() async -> [String] {
+    public func loadSpaces() async -> [String] {
         await document()?.spaces ?? []
     }
 
@@ -64,7 +64,7 @@ final class IncognitoWorkspaceLedger {
     /// Records `ids` and the incognito `spaces` when they changed (written off the main thread). Returns the
     /// write, which a caller may await (nil when nothing changed).
     @discardableResult
-    func record(_ ids: Set<String>, spaces: Set<String> = []) -> Task<Void, Never>? {
+    public func record(_ ids: Set<String>, spaces: Set<String> = []) -> Task<Void, Never>? {
         if let written, written.workspaces == ids, written.spaces == spaces { return nil }
         written = (ids, spaces)
         let url = url, logger = logger

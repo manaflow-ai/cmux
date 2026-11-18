@@ -161,7 +161,8 @@ enum SessionWire {
             return SessionStateMirror.TabRecord(zoom: zoom, back: urls("back"), forward: urls("forward"),
                                                 icon: extra?["icon"]?.stringValue, emulation: extra?["emulation"],
                                                 markedUnread: extra?["marked_unread"] == .bool(true),
-                                                attention: TabAttention(extra?["attention"]))
+                                                attention: TabAttention(extra?["attention"]),
+                                                isPrivate: extra?["private"] == .bool(true))
         }
 
         var progress: TerminalProgressReport? {

@@ -65,6 +65,9 @@ public final class TabModel: Identifiable {
     /// The device a browser tab emulates, as the daemon resolved it
     /// (`extra.emulation`, browser-devices-v1); the engine applies it as is.
     public internal(set) var emulation: JSONValue?
+    /// A private (incognito) browser tab, which may sit in any window (`extra.private`, private-tabs-v1;
+    /// Leo, 2026-11-18). Its pages use the incognito session's profile and nothing of it is kept.
+    public internal(set) var isPrivate = false
     /// Marked unread by hand (Mark Tab Unread, `tab-mark-unread-v1`): a flag on the tab record
     /// in the daemon, apart from ``notification``. Every client shows it; a client clears it
     /// when the person views the tab. This client's own write shows at once
@@ -403,6 +406,7 @@ public final class TabModel: Identifiable {
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
         if emulation != record.emulation { emulation = record.emulation }
+        if isPrivate != record.isPrivate { isPrivate = record.isPrivate }
         if recordAttention != record.attention { attentionGeneration &+= 1 }
         recordAttention = record.attention
         if pendingAttentionClear != record.attention { pendingAttentionClear = nil }

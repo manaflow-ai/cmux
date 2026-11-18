@@ -84,6 +84,21 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("window"),
         ..Action::DEFAULT
     },
+    // A private tab in any window, beside normal tabs (Leo, 2026-11-18: "drop the 9/30 rule and
+    // allow private tabs anywhere"). No default shortcut.
+    Action {
+        id: "newPrivateTab",
+        group: GROUP,
+        title: t("ActionCatalog", "action.newPrivateTab", "New Private Tab"),
+        keywords: &["private", "incognito", "browser", "off the record", "tab"],
+        category: "window",
+        symbol: "eyeglasses",
+        surfaces: PALETTE | KEYBOARD | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "app new-private-tab",
+        main_menu: Some("window"),
+        ..Action::DEFAULT
+    },
     Action {
         id: "closeWindow",
         group: GROUP,
