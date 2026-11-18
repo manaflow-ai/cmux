@@ -271,9 +271,11 @@ impl SearchIndex {
         }
         let quote = |word: &&str| format!("\"{}\"", word.replace('"', "\"\""));
         let mut expression = long.iter().map(quote).collect::<Vec<_>>().join(" AND ");
-        // The trigram index cannot find a word shorter than three letters, so
-        // only longer exclusions apply here.
-        for word in filter.excluded.iter().filter(|word| word.chars().count() >= MIN_TEXT_WORD) {
+        // The trigram index cannot find a word shorter than three letters:
+        // those exclusions test the matched rows' text instead.
+        let (long_out, short_out): (Vec<&String>, Vec<&String>) =
+            filter.excluded.iter().partition(|word| word.chars().count() >= MIN_TEXT_WORD);
+        for word in long_out {
             expression.push_str(" NOT ");
             expression.push_str(&quote(&word.as_str()));
         }
@@ -283,6 +285,10 @@ impl SearchIndex {
         // query, so a rare kind does not test the match row by row over the whole index.
         let mut sql_filter = kind_filter("+d.kind", &kinds, &mut values);
         sql_filter.push_str(&time_filter("+d.at_ms", &filter, &mut values));
+        for word in short_out {
+            sql_filter.push_str(" AND docs_text.text NOT LIKE ? ESCAPE '\\'");
+            values.push(Sql::Text(format!("%{}%", escape_like(word))));
+        }
         values.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
         let sql = format!(
             "SELECT d.key, d.kind, d.target, d.position, d.title, d.at_ms, \
@@ -322,15 +328,20 @@ impl SearchIndex {
         sql_filter.push_str(&time_filter("d.at_ms", filter, &mut values));
         let mut sql = format!(
             "SELECT d.key, d.kind, d.target, d.position, d.title, d.at_ms \
-             FROM docs d WHERE 1{sql_filter}"
+             FROM docs d LEFT JOIN docs_text t ON t.rowid = d.id WHERE 1{sql_filter}"
         );
         for word in words {
             sql.push_str(" AND instr(lower(d.title), lower(?)) > 0");
             values.push(Sql::Text((*word).to_owned()));
         }
+        // An exclusion leaves out a doc whose name or text has it.
         for word in &filter.excluded {
-            sql.push_str(" AND instr(lower(d.title), lower(?)) = 0");
+            sql.push_str(
+                " AND instr(lower(d.title), lower(?)) = 0 \
+                 AND (t.text IS NULL OR t.text NOT LIKE ? ESCAPE '\\')",
+            );
             values.push(Sql::Text(word.clone()));
+            values.push(Sql::Text(format!("%{}%", escape_like(word))));
         }
         sql.push_str(" ORDER BY d.id DESC LIMIT ?");
         values.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
@@ -432,6 +443,11 @@ fn kind_filter(column: &str, kinds: &[SearchKind], values: &mut Vec<Sql>) -> Str
     }
     values.extend(kinds.iter().map(|kind| Sql::Text(kind.as_str().to_owned())));
     format!(" AND {column} IN ({})", vec!["?"; kinds.len()].join(", "))
+}
+
+/// `text` as a literal inside a `LIKE ... ESCAPE '\'` pattern.
+fn escape_like(text: &str) -> String {
+    text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 /// ` AND` clauses bounding `column` to `filter`'s time window.

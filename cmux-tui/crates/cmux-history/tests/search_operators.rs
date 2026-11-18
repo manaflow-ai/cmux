@@ -3,6 +3,7 @@
 
 use cmux_history::{SearchDoc, SearchIndex, SearchKind};
 
+const HOUR_MS: i64 = 3_600_000;
 const DAY_MS: i64 = 86_400_000;
 const NOW: i64 = 1_800_000_000_000;
 const DAY_START: i64 = 1_799_971_200_000;
@@ -24,8 +25,8 @@ fn index() -> SearchIndex {
     let mut index = SearchIndex::open_in_memory().expect("index");
     let docs = [
         doc("old-chat", SearchKind::Chat, "deploy the staging api", NOW - 30 * DAY_MS),
-        doc("chat", SearchKind::Chat, "deploy the prod api", NOW - DAY_MS / 2),
-        doc("command", SearchKind::Command, "cargo deploy --prod", NOW - 2 * DAY_MS),
+        doc("chat", SearchKind::Chat, "deploy the prod api", NOW - 2 * HOUR_MS),
+        doc("command", SearchKind::Command, "cargo deploy --prod qa Straße", NOW - 2 * DAY_MS),
         doc("tab", SearchKind::Tab, "", NOW - DAY_MS),
     ];
     index.append("test", &docs, Some(1)).expect("append");
@@ -65,6 +66,17 @@ fn exclusions_and_phrases() {
     let index = index();
     assert_eq!(keys(&index, "deploy -staging"), ["command", "chat"]);
     assert_eq!(keys(&index, "\"the prod\""), ["chat"]);
+    // A word too short for the trigram index is still left out.
+    assert_eq!(keys(&index, "deploy -qa"), ["chat", "old-chat"]);
+    // Exclusions alone test the text too, not only names.
+    assert_eq!(keys(&index, "-staging"), ["tab", "command", "chat"]);
+}
+
+#[test]
+fn words_reach_the_index_as_typed() {
+    // The trigram index folds case and diacritics only, so `ß` must not be
+    // sent as `ss`.
+    assert_eq!(keys(&index(), "Straße"), ["command"]);
 }
 
 #[test]
