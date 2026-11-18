@@ -4,7 +4,7 @@
 scripts/cmux-cua-helper-key.sh decides when the nightly may reuse a published unsigned helper
 (scripts/ci/nightly-steps/app-assemble-computer-use-helper.sh), so every input that changes the
 helper's bytes must change the key, and the recorded fields must hash to it (publish-cmux-cua-helper.sh
-checks a run's key.txt that way). The source bundle publish-cmux-cua-helper.sh makes from a depth-1
+checks a run's key.txt that way). The source bundle publish-cmux-cua-helper.sh makes from a full
 fetch must clone and check out the pinned commit, as build-cmux-cua.sh's CMUX_CUA_SOURCE_BUNDLE seed does.
 """
 
@@ -84,7 +84,7 @@ class KeyTest(unittest.TestCase):
 
 
 class SourceBundleTest(unittest.TestCase):
-    def test_a_depth_one_bundle_seeds_the_pinned_commit(self) -> None:
+    def test_the_bundle_seeds_the_pinned_commit(self) -> None:
         tmp = Path(tempfile.mkdtemp())
         try:
             git = ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "protocol.file.allow=always"]
@@ -99,7 +99,7 @@ class SourceBundleTest(unittest.TestCase):
             src = tmp / "src.git"
             # The same commands publish-cmux-cua-helper.sh runs.
             subprocess.run(git + ["init", "-q", "--bare", str(src)], check=True)
-            subprocess.run(git + ["-C", str(src), "fetch", "-q", "--depth=1", f"file://{up}", sha], check=True)
+            subprocess.run(git + ["-C", str(src), "fetch", "-q", f"file://{up}", sha], check=True)
             subprocess.run(git + ["-C", str(src), "update-ref", "refs/heads/pinned", sha], check=True)
             subprocess.run(git + ["-C", str(src), "symbolic-ref", "HEAD", "refs/heads/pinned"], check=True)
             bundle = tmp / "b.bundle"

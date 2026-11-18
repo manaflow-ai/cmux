@@ -82,7 +82,7 @@ fi
 
 # The source bundle: one ref at the pinned commit, so build-cmux-cua.sh can seed an empty cache from it.
 git init --quiet --bare "$work/src.git"
-git -C "$work/src.git" fetch --quiet --depth=1 "$repo_url" "$pinned_sha"
+git -C "$work/src.git" fetch --quiet "$repo_url" "$pinned_sha"
 git -C "$work/src.git" update-ref refs/heads/pinned "$pinned_sha"
 git -C "$work/src.git" symbolic-ref HEAD refs/heads/pinned
 bundle="$work/cmux-cua-$pinned_sha.bundle"
