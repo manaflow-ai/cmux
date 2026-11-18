@@ -4,9 +4,13 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { noChat, summary, user } from "../src/gallery/fixtures/acpmux";
-import { canResumeFromComposer } from "../src/agent-session/acpmux/composer/resumeControl";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat, summary, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { canResumeFromComposer } = await importWithDom(
+  () => import("../src/agent-session/acpmux/composer/resumeControl"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
