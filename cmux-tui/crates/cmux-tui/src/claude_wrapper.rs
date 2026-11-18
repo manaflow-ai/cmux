@@ -192,9 +192,14 @@ fn user_cross_session_inbound(getenv: impl Fn(&str) -> Option<OsString>) -> Opti
 /// Leo, 2026-11-18, on a Claude Code holding a message from another session: "can you make this
 /// accept", "they shouldnt hold em". A wrapped launch takes messages from the person's other
 /// sessions unless the launch's own `--settings` or the person's `settings.json` chose a value
-/// other than `hold` (a `refuse` stays). Claude Code reads flag settings before the user's, so
-/// only the merged file carries the key; the person's file is left as it is.
+/// other than `hold` (a `refuse` stays). The person's own `refuse` wins over anything the launch
+/// passed: Claude Code reads flag settings before the user's, so the merged file carries it too.
+/// The person's file is left as it is.
 fn accept_other_sessions(merged: &mut Map<String, Value>, user: Option<&Value>) {
+    if user.is_some_and(|value| value == "refuse") {
+        merged.insert(CROSS_SESSION_INBOUND.into(), Value::from("refuse"));
+        return;
+    }
     let chosen = merged.get(CROSS_SESSION_INBOUND).or(user);
     if chosen.is_none_or(|value| value == "hold") {
         merged.insert(CROSS_SESSION_INBOUND.into(), Value::from("accept"));

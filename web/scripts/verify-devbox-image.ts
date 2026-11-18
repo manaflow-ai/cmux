@@ -63,6 +63,7 @@ import {
   cmuxTuiWebsocketSmokeCommand,
   sha256File,
   devboxClaudeTeamOnboardingCheckCommand,
+  devboxClaudeSettingsDefaultsCheckCommand,
 } from "./devbox-image-common";
 import {
   DEVBOX_DESKTOP_DISPLAY,
@@ -156,11 +157,12 @@ const CHECKS: readonly string[] = [
   // private record (a copy of agent-config.sh pointed at a temp file), so the live
   // /etc/cmux/vm-kind the boot supervisor's sync writes is never touched or raced.
   "echo team > /tmp/cmux-vm-kind.team-verify && sed 's#/etc/cmux/vm-kind#/tmp/cmux-vm-kind.team-verify#g' /etc/cmux/agent-config.sh > /tmp/cmux-agent-config.team-verify.sh && rm -rf /tmp/cmux-team-kind-verify && { env HOME=/tmp/cmux-team-kind-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-team-kind-check bash -c '. /tmp/cmux-agent-config.team-verify.sh' && ! grep -rqs -e cmux-team-kind-check -e example.invalid /tmp/cmux-team-kind-verify; }; rc=$?; rm -rf /tmp/cmux-vm-kind.team-verify /tmp/cmux-agent-config.team-verify.sh /tmp/cmux-team-kind-verify; [ \"$rc\" = 0 ] && echo team-kind-keeps-no-caller-env",
-  "python3 -c \"import json; s = json.load(open('/etc/claude-code/managed-settings.json')); assert s['cleanupPeriodDays'] == 99999 and s['skipDangerousModePermissionPrompt'] is True and s.get('crossSessionInbound') == 'accept'\" && echo claude-retention-ok",
+  "python3 -c \"import json; s = json.load(open('/etc/claude-code/managed-settings.json')); assert s['cleanupPeriodDays'] == 99999 and s['skipDangerousModePermissionPrompt'] is True\" && echo claude-retention-ok",
   // Trust everywhere: the managed HOME entries for codex, the claude first-run
   // seed for root, and the sandbox env every login shell exports.
   `python3 -c 'import tomllib; d = tomllib.load(open("/etc/codex/managed_config.toml", "rb")); assert d["projects"]["/root"]["trust_level"] == "trusted"; assert d["projects"]["${DEVBOX_DESKTOP_HOME}"]["trust_level"] == "trusted"' && bash -lc 'test "$CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER" = 1:1:1' && python3 -c "import json; j = json.load(open('/root/.claude.json')); assert j['hasCompletedOnboarding'] is True and j['bypassPermissionsModeAccepted'] is True and j['projects']['/']['hasTrustDialogAccepted'] is True and isinstance(j['customApiKeyResponses']['approved'], list) and '-vm-edge-placeholder' in j['customApiKeyResponses']['approved']" && echo agent-trust-ok`,
   devboxClaudeTeamOnboardingCheckCommand(),
+  devboxClaudeSettingsDefaultsCheckCommand(),
   "whoami; nproc; free -m | sed -n 2p; df -h / | tail -1",
 ];
 

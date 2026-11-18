@@ -75,6 +75,7 @@ import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
 import {
   cmuxTuiWebsocketSmokeCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
+  devboxClaudeSettingsDefaultsCommand,
   devboxFileBytes,
   devboxGhosttyVersion,
   devboxIdentityCheckCommand,
@@ -284,19 +285,6 @@ export const AGENT_SIGN_IN_FILES = [
   { name: "agent-auth.sh", path: "/etc/cmux/agent-auth.sh" },
   { name: "claude-onboarding.py", path: "/etc/cmux/claude-onboarding.py" },
 ] as const;
-
-/**
- * A Claude Code managed drop-in every machine keeps, whatever its model route (agentModelRouteSyncScript never
- * touches it): messages from the person's other Claude Code sessions are delivered, not held. Leo, 2026-11-18,
- * on a Claude Code holding another session's message: "can you make this accept", "they shouldnt hold em".
- */
-export function claudeManagedDropIn(): { path: string; text: string; mode: number } {
-  return {
-    path: "/etc/claude-code/managed-settings.d/50-cmux-cross-session.json",
-    text: `${JSON.stringify({ crossSessionInbound: "accept" }, null, 2)}\n`,
-    mode: 0o644,
-  };
-}
 
 /**
  * The model route of every agent acpmux starts on the machine: the coderouter edge alias
@@ -1017,9 +1005,9 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv()), 0o644);
   for (const file of AGENT_SIGN_IN_FILES) await writeGuestFile(vm, file.path, devboxFileBytes(file.name), 0o644);
   await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
-  await L.step(vm, "agent-model-route-dirs", `install -d -m 755 /etc/claude-code /etc/claude-code/managed-settings.d /etc/codex ${AGENT_MODEL_ROUTE_DIR}`);
-  const claudeDropIn = claudeManagedDropIn();
-  await writeGuestFile(vm, claudeDropIn.path, claudeDropIn.text, claudeDropIn.mode);
+  // After wireCmuxTui, whose hook install wrote the work user's ~/.claude/settings.json; this only adds keys it lacks.
+  await L.step(vm, "claude-settings-defaults", devboxClaudeSettingsDefaultsCommand());
+  await L.step(vm, "agent-model-route-dirs", `install -d -m 755 /etc/claude-code /etc/codex ${AGENT_MODEL_ROUTE_DIR}`);
   for (const file of agentModelRouteFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
   await writeGuestFile(vm, AGENT_MODEL_ROUTE_SYNC_PATH, agentModelRouteSyncScript(), 0o755);
   for (const file of agentModelRouteUnitFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
