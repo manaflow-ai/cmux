@@ -159,16 +159,25 @@ pub fn migrate(settings: &Value) -> (Value, Vec<Notice>) {
 
 /// [`find`], for a change in place.
 fn find_mut<'a>(members: &'a mut Map<String, Value>, path: &[String]) -> Option<&'a mut Value> {
-    let split = (1..=path.len()).find(|&split| match members.get(&path[..split].join(".")) {
-        Some(_) if split == path.len() => true,
-        Some(Value::Object(child)) => find(child, &path[split..]).is_some(),
+    let (head, rest) = splits(path).find(|(head, rest)| match members.get(head) {
+        Some(_) if rest.is_empty() => true,
+        Some(Value::Object(child)) => find(child, rest).is_some(),
         _ => false,
     })?;
-    let head = members.get_mut(&path[..split].join("."))?;
-    if split == path.len() {
-        return Some(head);
+    let value = members.get_mut(&head)?;
+    if rest.is_empty() {
+        return Some(value);
     }
-    find_mut(head.as_object_mut()?, &path[split..])
+    find_mut(value.as_object_mut()?, rest)
+}
+
+/// Each way to spell `path` as one key and what is under it, shortest first:
+/// (`a`, [b, c]), (`a.b`, [c]), (`a.b.c`, []).
+fn splits(path: &[String]) -> impl Iterator<Item = (String, &[String])> {
+    (1..=path.len()).filter_map(move |at| {
+        let (head, rest) = path.split_at_checked(at)?;
+        Some((head.join("."), rest))
+    })
 }
 
 /// [`migrate`] for settings by dotted key (a profile's or a setup's).
@@ -188,28 +197,27 @@ fn path(dotted: &str) -> Vec<String> {
 /// Where `path` is in `members`, spelled any way (`a.b.c`, `a: {b.c}`,
 /// `a.b: {c}`, ...): the first spelling found, in that order.
 fn find<'a>(members: &'a Map<String, Value>, path: &[String]) -> Option<&'a Value> {
-    (1..=path.len()).find_map(|split| {
-        let head = members.get(&path[..split].join("."))?;
-        if split == path.len() {
-            return Some(head);
+    splits(path).find_map(|(head, rest)| {
+        let value = members.get(&head)?;
+        if rest.is_empty() {
+            return Some(value);
         }
-        find(head.as_object()?, &path[split..])
+        find(value.as_object()?, rest)
     })
 }
 
 /// Removes `path` from `members` (spelled any way) and returns its value and
 /// whether it was one dotted key at the top. An object it leaves empty goes too.
 fn take(members: &mut Map<String, Value>, path: &[String]) -> Option<(Value, bool)> {
-    for split in 1..=path.len() {
-        let head = path[..split].join(".");
-        if split == path.len() {
+    for (head, rest) in splits(path) {
+        if rest.is_empty() {
             if let Some(value) = members.remove(&head) {
                 return Some((value, true));
             }
             continue;
         }
         let Some(Value::Object(child)) = members.get_mut(&head) else { continue };
-        if let Some((value, _)) = take(child, &path[split..]) {
+        if let Some((value, _)) = take(child, rest) {
             if child.is_empty() {
                 members.remove(&head);
             }
