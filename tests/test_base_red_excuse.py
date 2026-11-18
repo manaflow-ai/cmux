@@ -7649,6 +7649,27 @@ class WsCheckMovedRun(unittest.TestCase):
                                           created_at="2026-11-18T15:03:50Z", updated_at="2026-11-18T15:20:00Z"))
         with self.assertRaisesRegex(excuse.Refused, r"run 11 .*2 runs .*13, 14"):
             self.judge()
+        # A verdict beside a run still going is as unknown: either may be the one the status meant.
+        self.gh.listed[-1].update(status="in_progress", conclusion=None)
+        with self.assertRaisesRegex(excuse.Refused, r"run 11 .*2 runs .*13, 14"):
+            self.judge()
+
+    def test_a_snapshot_run_is_held_to_its_receipt_naming_the_replacement(self):
+        # Run 44334431026 was a cmux-ci snapshot run: its WS_CHECK_RESULT names the snapshot, not the commit, so the
+        # replacement's own FAST_CHECKS_RECEIPT must name the snapshot and the replacement, and its run-name the
+        # snapshot (the base commit's verdict here, read as before: no tested-tree check).
+        snapshot = "5" * 40
+        for receipt_run, excused in ((23, True), (21, False)):
+            with self.subTest(receipt_run=receipt_run):
+                self.move(self.gh.TIP, 21, 23, self.red("test_a"))
+                log = self.gh.logs[231].replace(f'"head": "{self.gh.TIP}"', f'"head": "{snapshot}"')
+                receipt = json.dumps({"source_sha": snapshot, "run_id": receipt_run, "source_tree": "7" * 40})
+                self.gh.logs[231] = f"{log}\n2026-11-05T04:39:28.0000000Z FAST_CHECKS_RECEIPT={receipt}"
+                if excused:
+                    self.assertIn("every failure", self.judge()[0])
+                else:
+                    with self.assertRaisesRegex(excuse.Refused, r"WS_CHECK_RESULT of run 23 is from another checkout"):
+                        self.judge()
 
     def test_only_a_later_run_of_its_own_run_name_is_its_replacement(self):
         for kwargs in ({"title": f"Fast checks {'5' * 40} job {'7' * 32}"}, {"created": "2026-11-18T14:59:00Z"}):

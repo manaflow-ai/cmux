@@ -6423,12 +6423,15 @@ def ws_check_tested_tree(repo: str, base: str, sha: str, snapshot: dict, tip: st
 # dispatches the same body again on another label (the build fleet's, or Blacksmith's), then cancels the stuck run.
 # ws-check run 44334431026 was moved so, its `ws-check` status still linked it, and it read "cancelled: no result to
 # read", so no red judged there could be excused as a base red. The replacement carries the stuck run's run-name
-# (WS_CHECK_RUN_NAME: the snapshot, and the broker's job id; the runner is not in it), so it is the later
-# fast-checks.yml workflow_dispatch run of exactly that name, made after the stuck run and before WS_CHECK_MOVE_S past
-# its cancel. A replacement cancelled in turn (moved again) is passed over; the one with a verdict decides, and is then
-# held to every check a linked run is (its WS_CHECK_RESULT, receipt and the status's counts). Two with a verdict are
-# refused (which one the status meant is unknown), one still running is no result yet, and a cancelled run with no
-# replacement, or one with no cmux-ci run-name (fleet-reconciler's, one run for many heads), stays no result.
+# (WS_CHECK_RUN_NAME: the snapshot commit, made once per dispatching call, and the broker's job id when the broker
+# dispatched it; the runner is not in it), so it is the later fast-checks.yml workflow_dispatch run of exactly that
+# name, made after the stuck run and before WS_CHECK_MOVE_S past its cancel. A replacement cancelled in turn (moved
+# again) is passed over; the one left decides, and is then held to every check a linked run is (its WS_CHECK_RESULT,
+# the receipt's run id, the status's counts, the tested tree). Two left (a verdict beside another verdict or a run
+# still going) are refused, since which one the status meant is unknown; one still running is no result yet; and a
+# cancelled run with no replacement, or one with no cmux-ci run-name (fleet-reconciler's, one run for many heads),
+# stays no result. A move to the build-fleet controller (hq fast_checks_fleet.run_on_fleet) leaves no Actions run to
+# follow, but it takes manaflow-ai/cmux dispatches only, never a ws-check run (WS_CHECK_REPOS' host).
 WS_CHECK_WORKFLOW = "fast-checks.yml"
 WS_CHECK_MOVE_S = 900
 
@@ -6453,16 +6456,14 @@ def ws_check_moved_run(host: str, run: dict, github) -> tuple[dict | None, str]:
                     and isinstance(found.get("id"), int) and found["id"] > int(run.get("id") or 0)
                     and (when := created(found)) is not None and start <= when <= until
                     and (path is None or found.get("path") in (None, path))), key=lambda found: found["id"])
-    judged = [found for found in later
-              if found.get("status") == "completed" and found.get("conclusion") in ("success", "failure")]
-    if len(judged) > 1:
-        raise Refused(f"run {run.get('id')} was moved, but {len(judged)} runs carry its run-name after it "
-                      f"({', '.join(str(found['id']) for found in judged)}): which one holds its verdict is unknown")
-    if judged:
-        return judged[0], ""
-    running = [found for found in later if found.get("status") != "completed"]
-    if running:
-        return running[-1], ""
+    # Every candidate that is not a cancel (moved on in turn): a verdict, or a run still going that may give one.
+    live = [found for found in later if found.get("status") != "completed"
+            or found.get("conclusion") in ("success", "failure")]
+    if len(live) > 1:
+        raise Refused(f"run {run.get('id')} was moved, but {len(live)} runs carry its run-name after it "
+                      f"({', '.join(str(found['id']) for found in live)}): which one holds its verdict is unknown")
+    if live:
+        return live[0], ""
     return None, (f"no run took its run-name after it (no move to another label within {WS_CHECK_MOVE_S} s of its "
                   "cancel)")
 
