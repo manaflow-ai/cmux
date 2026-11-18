@@ -1022,5 +1022,42 @@ class CapBound(unittest.TestCase):
         self.assertIsNone(runner_pools.grows_before_shrinking(["blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"]))
 
 
+
+class RefusedRead(unittest.TestCase):
+    """A refused snapshot read is asked once more with the workflow token (2026-11-18 11:18Z: the cmux-bot read
+    token got 403, the writer judged on the probe alone, and every Linux pool went to the 2 vCPU release valve)."""
+
+    FOUR, EIGHT = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"
+    SIXTEEN, THIRTY_TWO = "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"
+    TWO = "blacksmith-2vcpu-ubuntu-2404"
+
+    class Refused:
+        def snapshot(self, *, now):
+            raise RuntimeError("HTTP Error 403: Forbidden")
+
+    def pass_with(self, fallback):
+        # The 11:18Z probe: 2 vCPU started, every other size waited out its minutes behind the vCPU cap.
+        switch = Main.Switch({runner_pools.HEALTH_VARIABLE: json.dumps(health({
+            self.TWO: "started", self.FOUR: "stalled", self.EIGHT: "stalled", self.SIXTEEN: "stalled",
+            self.THIRTY_TWO: "stalled"}))})
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": ""}, api=self.Refused(), switch=switch, now=NOW,
+                                           **({"fallback": fallback} if fallback is not None else {})), 0)
+        return json.loads(switch.writes[0][1])
+
+    def test_the_fallback_snapshot_keeps_serving_sizes_live(self) -> None:
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["generated_at"] = runner_pools.iso(NOW - dt.timedelta(minutes=1))
+        snapshot["label_started"] = {label: runner_pools.iso(NOW - dt.timedelta(minutes=2))
+                                     for label in (self.FOUR, self.EIGHT, self.SIXTEEN, self.THIRTY_TWO)}
+        value = self.pass_with(Main.Api(snapshot))
+        self.assertEqual(value["_dead"], {})
+        self.assertEqual((value["linux"], value["linux_8"], value["linux_16"], value["linux_32"]),
+                         (self.FOUR, self.EIGHT, self.SIXTEEN, self.THIRTY_TWO))
+
+    def test_a_refused_fallback_still_judges_on_the_probe(self) -> None:
+        value = self.pass_with(self.Refused())
+        self.assertIn(self.SIXTEEN, value["_dead"])
+        self.assertNotEqual(value["linux_16"], self.THIRTY_TWO)
+
 if __name__ == "__main__":
     unittest.main()
