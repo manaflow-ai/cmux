@@ -248,8 +248,8 @@ impl EventFilter {
     /// True when no record with this `dir` and `kind` can match, so a store can
     /// pass its line without parsing it. False means "parse and ask `matches`":
     /// an `in` record's kind alone does not say whether it is an agent update,
-    /// except for the kinds that never are (raw harness lines, responses, load
-    /// replays and bookkeeping updates).
+    /// except for the kinds that never are (raw harness lines of any harness,
+    /// `is_raw_harness_kind`; responses, load replays and bookkeeping updates).
     pub fn surely_skips(&self, dir: &[u8], kind: &[u8]) -> bool {
         // A subagent's records are agent updates, never mux records.
         if self.subagent.is_some() && dir != b"in" {
@@ -309,13 +309,35 @@ fn is_agent_update(rec: &EventRecord) -> bool {
 }
 
 /// A record a chat transcript renders: an agent `session/update` that is
-/// not a load replay or bookkeeping, or a mux record in `TRANSCRIPT_MUX_KINDS`.
+/// not a load replay, bookkeeping or a raw harness line, or a mux record in
+/// `TRANSCRIPT_MUX_KINDS`.
 pub fn is_transcript(rec: &EventRecord) -> bool {
     if is_agent_update(rec) {
         return !rec.kind.ends_with(".replay")
+            && !is_raw_harness_kind(rec.kind.as_bytes())
             && !NON_TRANSCRIPT_UPDATES.contains(&rec.kind.as_str());
     }
     rec.dir == "mux" && TRANSCRIPT_MUX_KINDS.contains(&rec.kind.as_str())
+}
+
+/// Whether `kind` has the shape of a raw harness line: a line a harness adapter logged as its
+/// own protocol's, `<harness>.<method>` (`codex_app_server.rs` `tap_kind`: `codex.response`,
+/// `codex.turn/diff/updated`; `claude_stdio` `logged_kind`: `claude.assistant`,
+/// `claude.system.init`), whatever the harness: a run of lowercase ASCII letters and digits, a
+/// dot, then the method. Such a line is never a transcript record, and a long chat's are most of
+/// its bytes (a Codex chat's `codex.response` lines, about 1.5 MB each, were half of one 4.7 GB
+/// log), so a page passes them unparsed.
+///
+/// Safe because no transcript record has the shape. A live agent update's kind is its
+/// `sessionUpdate` (`hub/tap.rs`), which ACP and the agents acpmux runs name in snake_case
+/// without a dot (`agent_message_chunk`, `tool_call_update`, `plan`, `subagent_progress`, ...);
+/// `is_transcript` leaves out one that has it all the same, so a page skips only what it would
+/// drop. The mux kinds in `TRANSCRIPT_MUX_KINDS` hold no dot, and only an `in` kind is asked.
+fn is_raw_harness_kind(kind: &[u8]) -> bool {
+    let Some(dot) = kind.iter().position(|b| *b == b'.') else { return false };
+    dot > 0
+        && dot + 1 < kind.len()
+        && kind[..dot].iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
 }
 
 /// Whether a record with this `dir` and `kind` may be a transcript record
@@ -324,10 +346,10 @@ fn transcript_may_match(dir: &[u8], kind: &[u8]) -> bool {
     match dir {
         b"mux" => TRANSCRIPT_MUX_KINDS.iter().any(|k| k.as_bytes() == kind),
         // A live agent update's kind is its `sessionUpdate` (hub/tap.rs); a raw
-        // harness line keeps its `claude.` method and a reply is `response`.
+        // harness line keeps its `<harness>.<method>` and a reply is `response`.
         b"in" => {
             !kind.ends_with(b".replay")
-                && !kind.starts_with(b"claude.")
+                && !is_raw_harness_kind(kind)
                 && kind != b"response"
                 && !NON_TRANSCRIPT_UPDATES.iter().any(|k| k.as_bytes() == kind)
         }
@@ -879,6 +901,59 @@ mod transcript_kind_tests {
         assert!(is_transcript(&mux("policy_unenforced")));
         let transcript = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
         assert!(!transcript.surely_skips(b"mux", b"policy_unenforced"));
+    }
+
+    /// A raw harness line is left out of a transcript page unparsed, whatever its harness, and no
+    /// transcript record has its shape (`is_raw_harness_kind`).
+    #[test]
+    fn raw_harness_lines_are_never_transcript_records() {
+        let transcript = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
+        for kind in [
+            "codex.response",
+            "codex.turn/diff/updated",
+            "codex.hook/started",
+            "claude.assistant",
+            "claude.system.init",
+            "zed9.response",
+        ] {
+            assert!(is_raw_harness_kind(kind.as_bytes()), "{kind}");
+            assert!(transcript.surely_skips(b"in", kind.as_bytes()), "{kind}");
+            // Even one an agent sent as an update is left out, so the skip drops nothing a
+            // page would keep.
+            let rec = EventRecord {
+                seq: 1,
+                at: 0,
+                dir: "in".into(),
+                kind: kind.into(),
+                msg: json!({"method": method::SESSION_UPDATE, "params": {"sessionId": "s", "update": {"sessionUpdate": kind}}}),
+                host_seq: None,
+            };
+            assert!(!transcript.matches(&rec), "{kind}");
+        }
+        let updates = [
+            "user_message_chunk",
+            "agent_message_chunk",
+            "agent_thought_chunk",
+            "tool_call",
+            "tool_call_update",
+            "plan",
+            "session_info_update",
+            "subagent_spawned",
+            "subagent_state_update",
+            "subagent_progress",
+            "background_task_update",
+            "compaction",
+            "task_progress",
+        ];
+        for kind in updates.iter().chain(TRANSCRIPT_MUX_KINDS) {
+            assert!(!is_raw_harness_kind(kind.as_bytes()), "{kind} looks like a raw harness line");
+        }
+        for kind in updates {
+            assert!(!transcript.surely_skips(b"in", kind.as_bytes()), "{kind}");
+        }
+        for kind in ["", ".x", "codex.", "Codex.response", "agent_message_chunk.replay"] {
+            assert!(!is_raw_harness_kind(kind.as_bytes()), "{kind:?}");
+        }
     }
 
     /// A suggested next prompt reaches a `transcript` stream live, but no page holds it: pages
