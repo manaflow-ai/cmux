@@ -21,6 +21,7 @@ export type LoadProfile = {
  * core taken (a Release compile, a test suite, a dozen streaming chats).
  */
 export const LOAD_PROFILES: Record<Exclude<GalleryLoad, "none">, LoadProfile> = {
+  // motion-allow: a simulated long task, not a motion
   busy: { frameMs: 6, longTaskMs: 80, longTaskEveryMs: 1500 },
   saturated: { frameMs: 11, longTaskMs: 250, longTaskEveryMs: 2000 },
 };

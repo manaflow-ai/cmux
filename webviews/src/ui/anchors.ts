@@ -96,6 +96,7 @@ export const FLICK_SPEED = 1.1;
 /** A release this far past the box's edge, in px, takes the thing away. */
 export const EDGE_OUT = 24;
 /** Moves older than this, in ms, no longer count toward the release speed. */
+// motion-allow: a velocity sampling window, not a motion
 const VELOCITY_WINDOW_MS = 80;
 
 export type DragRelease =

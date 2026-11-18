@@ -610,3 +610,12 @@ staging branch first; the Worker never runs DDL. Deploys run only from CI,
 gated by the environment variable `CMUX_VM_DEPLOY_ENABLED`, and create or
 update the environment's Hyperdrive config before deploying; the workflow header
 lists the GitHub environments and the secrets each needs.
+
+The staging database fault switch (`src/db/fault.ts`) holds a share of queries
+for a set time inside a window of at most an hour: `latency` then runs them,
+`stall` then fails them as a database that stopped answering. It is the Worker
+secret `CMUX_VM_DB_FAULT`, off unless set, read only where `ENVIRONMENT` is
+`staging`, and it turns itself off at the window's end. Set it with
+`cmux-vm.yml` action `db-fault-staging` (`db_fault`: the JSON, or `off`); the
+Cloud chaos suite's database-stall scenario does. Each held query logs
+`cmux-vm database fault` with its operation.

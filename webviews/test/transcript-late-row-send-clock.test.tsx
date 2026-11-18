@@ -59,7 +59,7 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configu
 installJsdomScroller(dom.window as never, () => VIEWPORT);
 
 // The page's send clock (`--agent-motion-send`): a gallery's 180 ms, or "" for the scale's step (0).
-let sendClock = "180ms";
+let sendClock = "180ms"; // motion-allow: a gallery's own send clock
 const realStyle = dom.window.getComputedStyle.bind(dom.window);
 dom.window.getComputedStyle = ((element: Element, pseudo?: string | null) => {
   const style = realStyle(element, pseudo);
@@ -244,7 +244,7 @@ test("on the product's 0 send clock, a send's rows land at once: no send chase",
   } finally {
     await act(async () => root.unmount());
     container.remove();
-    sendClock = "180ms";
+    sendClock = "180ms"; // motion-allow: a gallery's own send clock
   }
 });
 
