@@ -21899,6 +21899,24 @@
       "/data/write_path": {
         "ty": "object"
       },
+      "/data/write_path/commits_by_writer": {
+        "ty": "array"
+      },
+      "/data/write_path/commits_by_writer/*": {
+        "ty": "object"
+      },
+      "/data/write_path/commits_by_writer/*/commits": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/write_path/commits_by_writer/*/wal_frames": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/write_path/commits_by_writer/*/writer": {
+        "ty": "string",
+        "required": true
+      },
       "/data/write_path/effect_intent_batches": {
         "ty": "uint64",
         "required": true
