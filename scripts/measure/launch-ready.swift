@@ -1,6 +1,9 @@
 // One launch of a cmux NEXT app the way the Dock launches it (CMUX-629, CMUX-631), timed from outside the app.
 //
-//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [shell|keys]]]
+//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES]]]   MODES: shell, keys, home, comma-separated
+//
+// With `home` (launch-ready.sh front=home) it shows Home before the quit (`action.run home.show`, focus allowed), so
+// the next launch is a relaunch whose last front was Home; `front` is read after that.
 //
 // With `shell` (launch-ready.sh state=bare), once the app marks `window_usable` the probe opens a terminal the way a
 // person's first one opens (`action.run newSurface` on the app's socket) and records `shell_requested`; the app's
@@ -34,7 +37,7 @@ import Darwin
 
 let args = CommandLine.arguments
 guard args.count >= 4 else {
-    FileHandle.standardError.write(Data("usage: launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [shell|keys]]]\n".utf8)); exit(2)
+    FileHandle.standardError.write(Data("usage: launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES]]]\n".utf8)); exit(2)
 }
 let appURL = URL(fileURLWithPath: args[1]), homeRoot = URL(fileURLWithPath: args[2]), label = args[3]
 let settle = args.count > 4 ? Double(args[4]) ?? 6 : 6
@@ -42,8 +45,8 @@ let socketPath = args.count > 5 ? args[5] : homeRoot.appendingPathComponent("app
 guard socketPath.utf8.count <= 103 else { // sun_path less its NUL: the app could bind no socket there
     FileHandle.standardError.write(Data("launch-ready: socket path \(socketPath.utf8.count) bytes, over 103: \(socketPath)\n".utf8)); exit(2)
 }
-let opensShell = args.count > 6 && args[6] == "shell"
-let typesKeys = args.count > 6 && args[6] == "keys"
+let modes = Set(args.count > 6 ? args[6].split(separator: ",").map(String.init) : [])
+let opensShell = modes.contains("shell"), typesKeys = modes.contains("keys"), showsHome = modes.contains("home")
 var shellRequested: Double?
 let home = homeRoot.appendingPathComponent("h"), tmp = homeRoot.appendingPathComponent("t")
 for sub in ["Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"] {
@@ -147,6 +150,13 @@ func ownWindowOnScreen(_ pid: pid_t) -> Bool {
 }
 
 // One request on the app's control socket (line JSON, release methods only): its result, or nil.
+/// front=home: Home in front before the quit (the docked Home, the dock tab selected), then a moment for the window to
+/// commit it, so the quit saves Home as the last front.
+func showHome() {
+    _ = lineRequest(socketPath, ["id": 1, "method": "action.run", "params": ["action": "home.show", "focus": true, "wait": true] as [String: Any]])
+    Thread.sleep(forTimeInterval: 0.5)
+}
+
 func rpc(_ method: String) -> [String: Any]? {
     guard let object = lineRequest(socketPath, ["id": 1, "method": method, "params": [String: Any]()]),
           object["ok"] as? Bool == true else { return nil }
@@ -364,6 +374,7 @@ let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
         }
     }
     if let seen = windowSeenAt, quitSent == nil, t - seen >= settle * 1000 {
+        if showsHome { showHome() }
         frontAtQuit = front()
         if typesKeys { keysRead = sentText(since: returnSent ?? seen, sent: Array(keySequence.prefix(keyPosts.count))) }
         quitSent = now(); kill(pid, SIGTERM)

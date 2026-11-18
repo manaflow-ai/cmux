@@ -38,6 +38,9 @@
 #                and keys_text; LR-KEYS SIDE MEDIAN N/M prints the side's median first_key_ms and how many of its M
 #                launches sent a message holding any key. A keys=1 launch opens no terminal (state=bare's shell
 #                request moves focus). Default keys=0: no keys.
+#   front=home   (state=kept) before every quit the probe shows Home (action.run home.show), so each measured launch
+#                is a relaunch whose last front was Home: LR-USABLE then says whether Home's box took keys on a
+#                relaunch to Home. Default: the front the session's own last launch left.
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
@@ -54,7 +57,7 @@ main() {
   cd "$(dirname "$0")/../.." || exit 3
   local out="$PWD/.build/launch-ready" dmg=nightly base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 arg rc=0 i side
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-  LR_STATE=kept LR_KEYS=0
+  LR_STATE=kept LR_KEYS=0 LR_FRONT=
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
   LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
@@ -69,6 +72,7 @@ main() {
       profile=0|profile=1) profile="${arg#profile=}" ;;
       state=kept|state=bare) LR_STATE="${arg#state=}" ;;
       keys=0|keys=1) LR_KEYS="${arg#keys=}" ;;
+      front=home) LR_FRONT=home ;;
       session=small|session=stress3) session="${arg#session=}" ;;
       prerun=*) prerun="${arg#prerun=}" ;;
       copy=same|copy=fresh) copy="${arg#copy=}" ;;
@@ -77,6 +81,7 @@ main() {
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
+  [[ -z "$LR_FRONT" || "$LR_STATE" == kept ]] || { echo "front=home is a relaunch case: it takes state=kept" >&2; exit 2; }
   [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
   [[ "$LR_STATE" == kept || ( "$session" == small && "$machines" == 0 ) ]] \
     || { echo "state=bare empties the home before each launch: it takes no session=$session or machines=$machines" >&2; exit 2; }
@@ -282,14 +287,19 @@ probe() {
   [[ "$line" != *'"error"'* ]]
 }
 
-# probe_mode LABEL: the probe's last argument. keys=1 types into a measured launch (runN) and opens no terminal; else
-# state=bare opens one (shell); else none.
+# probe_mode LABEL: the probe's last argument, comma-separated modes. keys=1 types into a measured launch (runN) and
+# opens no terminal; else state=bare opens one (shell). front=home shows Home before every quit (home), so each next
+# launch is a relaunch to Home.
 probe_mode() {
+  local modes=()
   if [[ "${LR_KEYS:-0}" == 1 ]]; then
-    [[ "$1" == run* ]] && echo keys
+    [[ "$1" == run* ]] && modes+=(keys)
   elif [[ "$LR_STATE" == bare ]]; then
-    echo shell
+    modes+=(shell)
   fi
+  [[ "${LR_FRONT:-}" == home ]] && modes+=(home)
+  local IFS=,
+  echo "${modes[*]}"
 }
 
 # seed OUT SIDE: one more launch of SIDE's copy with SIDE's home, in which launch-ready-seed.py makes the stress3

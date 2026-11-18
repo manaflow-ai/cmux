@@ -1036,6 +1036,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash scripts/measure/tests/tab-switch-submodule-refs.test.sh
 
+      # launch-ready.sh's own tests (summary lines, defaults, keys=1, front=home, quiesce): none ran in CI before
+      # (2026-11-18), so a harness change reached the fleet runs untested.
+      - name: launch-ready.sh's tests
+        if: ${{ !cancelled() }}
+        run: for t in scripts/measure/tests/launch-ready-*.test.sh; do bash "$t" || exit 1; done
+
       - name: install-zig-ci.sh installs only a reviewed Zig
         if: ${{ !cancelled() }}
         run: python3 tests/test_install_zig_ci_reviewed_version.py
