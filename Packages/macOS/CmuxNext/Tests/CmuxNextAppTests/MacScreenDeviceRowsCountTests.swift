@@ -104,4 +104,25 @@ struct MacScreenDeviceRowsCountTests {
         #expect(views(under: home).contains { $0.accessibilityIdentifier() == "macScreen.home.name.Mac \(count - 1)" })
         #expect(rows(home).count <= bound(rowHeight: height))
     }
+
+    /// The list's own counters: a device change makes no section and one row; a width change frames each
+    /// mounted row once and makes none (600 wide: the column narrows below its 620 cap).
+    @Test(arguments: [100, 10_000])
+    func countersShowOneRowPerChangeAndOneFramePerMountedRowOnAWidthChange(count: Int) throws {
+        let (window, home) = page(count)
+        defer { window.close() }
+        let list = try #require(home.deviceRows)
+        let sections = home.sectionsMade
+        var before = list.counts
+        home.build(MacScreenHomeSnapshot(devices: .list(Self.devices(count, renamed: 5)), sharingLook: .list))
+        settle(home)
+        #expect(home.sectionsMade == sections)
+        #expect(list.counts.made - before.made == 1)
+        before = list.counts
+        window.setContentSize(NSSize(width: 600, height: Self.viewport.height))
+        settle(home)
+        print("mac-screen-rows n=\(count) alive=\(list.counts.alive) widthChangeFramed=\(list.counts.framed - before.framed) widthChangeMade=\(list.counts.made - before.made)")
+        #expect(list.counts.made == before.made)
+        #expect(list.counts.framed - before.framed == list.counts.alive)
+    }
 }

@@ -186,30 +186,32 @@ extension MacScreenHomeView {
             signIn.setAccessibilityIdentifier("macScreen.home.signIn")
             content = MacScreenStack.make(.vertical, spacing: 8, alignment: .leading, [MacScreenHomeParts.note(text), signIn])
         case let .list(list):
-            let rows = MacScreenStack.make(.vertical, spacing: 0, alignment: .leading)
-            let views = look == .classic ? list.map(classicRow) : quietRows(list, look: look)
-            for (index, view) in views.enumerated() {
-                MacScreenStack.addFullWidth(view, to: rows)
-                if index < views.count - 1, colors.borders { MacScreenStack.addFullWidth(rowSeparator(), to: rows) }
-            }
-            content = rows
+            let section = yourDevicesList()
+            deviceRows?.update(deviceRowValues(list, look: look), separators: colors.borders)
+            return section
         }
         return MacScreenHomeParts.section(L.t("macScreen.home.yourDevices", "Your Devices"), content: content)
     }
 
-    private func rowSeparator() -> NSView {
-        let line = MacScreenFill(\.separator)
-        line.heightAnchor.constraint(equalToConstant: 1).isActive = true
-        let inset = NSView()
-        inset.translatesAutoresizingMaskIntoConstraints = false
-        inset.addSubview(line)
-        NSLayoutConstraint.activate([
-            line.leadingAnchor.constraint(equalTo: inset.leadingAnchor, constant: 50),
-            line.trailingAnchor.constraint(equalTo: inset.trailingAnchor),
-            line.topAnchor.constraint(equalTo: inset.topAnchor),
-            line.bottomAnchor.constraint(equalTo: inset.bottomAnchor),
-        ])
-        return inset
+    /// Your Devices over a windowed list (``MacScreenDeviceRows``): the page updates its rows as values,
+    /// and only the rows near the viewport are views.
+    func yourDevicesList() -> NSView {
+        let rows = MacScreenDeviceRows(make: { [weak self] row in self?.rowView(row) ?? NSView() },
+                                       separator: { MacScreenFill(\.separator) },
+                                       paint: { [weak self] view in self?.paint(view) })
+        rows.onHeightChange = { [weak self] in self?.needsLayout = true }
+        deviceRows = rows
+        return MacScreenHomeParts.section(L.t("macScreen.home.yourDevices", "Your Devices"), content: rows)
+    }
+
+    /// The view of one row.
+    private func rowView(_ row: MacScreenDeviceRow) -> NSView {
+        switch row {
+        case let .quiet(device, state): quietRow(device, state: state)
+        case let .classic(device): classicRow(device)
+        case let .offlineGroup(count, _): offlineGroupRow(count: count)
+        case let .offlineCount(count): offlineCountRow(count)
+        }
     }
 
     // MARK: Quiet rows (Leo 2026-11-16: "this needs to shut up")
@@ -234,26 +236,40 @@ extension MacScreenHomeView {
         return device.macScreenShared ? .usable : .sharingOff
     }
 
+    /// The rows of `list` in `look`, as values: one pass over the devices, no views.
+    func deviceRowValues(_ list: [MacScreenHomeSnapshot.Device], look: MacScreenDevicesLook) -> [MacScreenDeviceRow] {
+        look == .classic ? list.map(MacScreenDeviceRow.classic) : quietRows(list, look: look)
+    }
+
     /// Viewable Macs first, then online ones that are not, then offline ones (folded, listed or counted by `look`).
-    private func quietRows(_ list: [MacScreenHomeSnapshot.Device], look: MacScreenDevicesLook) -> [NSView] {
-        let order: [RowState] = [.usable, .sharingOff, .blocked]
-        var views = order.flatMap { state in list.filter { Self.rowState($0) == state }.map { quietRow($0, state: state) } }
-        let offline = list.filter { Self.rowState($0) == .offline }
-        guard !offline.isEmpty else { return views }
+    private func quietRows(_ list: [MacScreenHomeSnapshot.Device], look: MacScreenDevicesLook) -> [MacScreenDeviceRow] {
+        var groups: [RowState: [MacScreenDeviceRow]] = [:]
+        for device in list {
+            let state = Self.rowState(device)
+            groups[state, default: []].append(.quiet(device, state))
+        }
+        var rows = [RowState.usable, .sharingOff, .blocked].flatMap { groups[$0] ?? [] }
+        let offline = groups[.offline] ?? []
+        guard !offline.isEmpty else { return rows }
         switch look {
         case .quiet:
-            views.append(offlineGroupRow(count: offline.count))
-            if offlineExpanded { views += offline.map { quietRow($0, state: .offline) } }
+            rows.append(.offlineGroup(count: offline.count, expanded: offlineExpanded))
+            if offlineExpanded { rows += offline }
         case .offlineLines, .classic:
-            views += offline.map { quietRow($0, state: .offline) }
+            rows += offline
         case .onlineOnly:
-            let count = MacScreenText(String(format: L.t("macScreen.home.offlineCount", "%d offline"), offline.count),
-                                      font: MacScreenType.caption, ink: \.tertiary)
-            count.setAccessibilityIdentifier("macScreen.home.offlineCount")
-            views.append(MacScreenStack.make(.horizontal, spacing: 0, alignment: .centerY, [count, MacScreenSpacer()],
-                                             insets: NSEdgeInsets(top: 8, left: 54, bottom: 8, right: 14)))
+            rows.append(.offlineCount(offline.count))
         }
-        return views
+        return rows
+    }
+
+    /// The online-only look's "N offline" row.
+    private func offlineCountRow(_ offline: Int) -> NSView {
+        let count = MacScreenText(String(format: L.t("macScreen.home.offlineCount", "%d offline"), offline),
+                                  font: MacScreenType.caption, ink: \.tertiary)
+        count.setAccessibilityIdentifier("macScreen.home.offlineCount")
+        return MacScreenStack.make(.horizontal, spacing: 0, alignment: .centerY, [count, MacScreenSpacer()],
+                                   insets: NSEdgeInsets(top: 8, left: 54, bottom: 8, right: 14))
     }
 
     private func quietRow(_ device: MacScreenHomeSnapshot.Device, state: RowState) -> NSView {
