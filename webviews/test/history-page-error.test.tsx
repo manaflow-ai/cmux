@@ -2,8 +2,10 @@ import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { LASTING_MS } from "../src/ui/lasting";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { LASTING_MS } = await importWithDom(() => import("../src/ui/lasting"));
 
 const scope = globalThis as Record<string, unknown>;
 const names = [

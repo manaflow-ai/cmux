@@ -6,7 +6,6 @@
 // the ± opens Branch, so there a file with work-tree changes gets Stage too (cx-4ukqc, run 2).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { currentLanguage, setPaneLanguage } from "../src/agent-session/acpmux/i18n";
 import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -43,6 +42,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+const { currentLanguage, setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 
 // diffGitSource installs the viewer's git strings over the agent pane's string tables and switches
 // the pane's language to the viewer's (diff-viewer/git.ts). Both are process-wide, and bun runs
