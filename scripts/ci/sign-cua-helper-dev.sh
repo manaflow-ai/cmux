@@ -13,6 +13,16 @@
 # Writes DIR/cmux-computer-use-dev-macos-arm64.zip and DIR/cua-helper-dev.pin.json.
 # The workflow uploads the zip to R2 at the pin's r2_key.
 set -euo pipefail
+# The entries of DIR (dotfiles too), sorted and space-joined. LC_ALL=C pins
+# both ls and sort to byte order: under en_US.UTF-8 they put
+# libcua_driver_sdk.dylib before libWebRTC.dylib, which made the exact
+# comparison reject a good helper.
+# shellcheck disable=SC2012 # bundle file names, one per line; any oddity fails the match
+entries() { LC_ALL=C ls -A "$1" | LC_ALL=C sort | tr '\n' ' '; }
+# True when DIR holds exactly NAMES, in any order.
+holds_only() { local dir="$1"; shift; [[ "$(entries "$dir")" == "$(printf '%s\n' "$@" | LC_ALL=C sort | tr '\n' ' ')" ]]; }
+# Sourced (scripts/ci/tests/sign-cua-helper-dev.test.sh): define the helpers only.
+[[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
 usage="usage: sign-cua-helper-dev.sh UNSIGNED.zip --identity NAME --keychain PATH --out DIR"
 zip="${1:?$usage}"; shift
 identity=""; keychain=""; out=""
@@ -46,18 +56,18 @@ app="$work/cmux Computer Use (dev).app"
 [[ -z "$(find "$app" -type d -name '*.framework' -print)" ]] ||
   { echo "error: the helper must not contain a nested .framework" >&2; exit 1; }
 remote="$app/Contents/MacOS/cmux-remote"
-macos="$(ls "$app/Contents/MacOS" | tr '\n' ' ')"
-frameworks="$(ls "$app/Contents/Frameworks" | tr '\n' ' ')"
+macos="$app/Contents/MacOS"
+frameworks="$app/Contents/Frameworks"
 if [[ -e "$remote" ]]; then
-  [[ "$macos" == "cmux-cua-helper cmux-remote " ]] ||
-    { echo "error: Contents/MacOS must hold only cmux-cua-helper and cmux-remote (has: $macos)" >&2; exit 1; }
-  [[ "$frameworks" == "libWebRTC.dylib libcua_driver_sdk.dylib " ]] ||
-    { echo "error: Contents/Frameworks must hold only libWebRTC.dylib and libcua_driver_sdk.dylib (has: $frameworks)" >&2; exit 1; }
+  holds_only "$macos" cmux-cua-helper cmux-remote ||
+    { echo "error: Contents/MacOS must hold only cmux-cua-helper and cmux-remote (has: $(entries "$macos"))" >&2; exit 1; }
+  holds_only "$frameworks" libcua_driver_sdk.dylib libWebRTC.dylib ||
+    { echo "error: Contents/Frameworks must hold only libcua_driver_sdk.dylib and libWebRTC.dylib (has: $(entries "$frameworks"))" >&2; exit 1; }
 else
-  [[ "$macos" == "cmux-cua-helper " ]] ||
-    { echo "error: Contents/MacOS must hold only cmux-cua-helper (has: $macos)" >&2; exit 1; }
-  [[ "$frameworks" == "libcua_driver_sdk.dylib " ]] ||
-    { echo "error: Contents/Frameworks must hold only libcua_driver_sdk.dylib (has: $frameworks)" >&2; exit 1; }
+  holds_only "$macos" cmux-cua-helper ||
+    { echo "error: Contents/MacOS must hold only cmux-cua-helper (has: $(entries "$macos"))" >&2; exit 1; }
+  holds_only "$frameworks" libcua_driver_sdk.dylib ||
+    { echo "error: Contents/Frameworks must hold only libcua_driver_sdk.dylib (has: $(entries "$frameworks"))" >&2; exit 1; }
 fi
 tree="$(/usr/libexec/PlistBuddy -c 'Print :CmuxHelperSourceTree' "$app/Contents/Info.plist")"
 sdk="$(/usr/libexec/PlistBuddy -c 'Print :CmuxCuaDriverSDKSha256' "$app/Contents/Info.plist")"
