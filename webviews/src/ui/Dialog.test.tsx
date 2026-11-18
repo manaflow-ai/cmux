@@ -5,8 +5,10 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { Dialog, DialogDescription, DialogTitle } from "./Dialog";
 import { settleReact } from "../../test/support/domTeardown";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { Dialog, DialogDescription, DialogTitle } = await importWithDom(() => import("./Dialog"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

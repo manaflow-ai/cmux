@@ -5,9 +5,11 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { SetupState } from "../home-messages/cards/setup/setupModel";
 import type { PageClient } from "../shared/pageClient";
-import { SetupCardPage } from "./SetupCardPage";
-import { SETUP_OPS } from "./ops";
-import { SetupCardStore } from "./store";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { SetupCardPage } = await importWithDom(() => import("./SetupCardPage"));
+const { SETUP_OPS } = await importWithDom(() => import("./ops"));
+const { SetupCardStore } = await importWithDom(() => import("./store"));
 
 const fresh: SetupState = {
   agents: [

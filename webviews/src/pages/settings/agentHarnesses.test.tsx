@@ -5,7 +5,9 @@
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
-import { userMessage } from "../shared/userMessage";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { userMessage } = await importWithDom(() => import("../shared/userMessage"));
 
 const restore = installDom();
 afterAll(() => restore());

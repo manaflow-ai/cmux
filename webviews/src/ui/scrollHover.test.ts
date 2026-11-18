@@ -2,14 +2,10 @@
 // hover card (Leo, 2026-11-10: "just tried this touchpad scrolling the github preview is kinda bad").
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
-  movedFrom,
-  onWheel,
-  pointerPlace,
-  resetPointerRestForTests,
-  slidUnderStillPointer,
-  trackPointerRest,
-} from "./scrollHover";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { movedFrom, onWheel, pointerPlace, resetPointerRestForTests, slidUnderStillPointer, trackPointerRest } =
+  await importWithDom(() => import("./scrollHover"));
 
 afterEach(() => resetPointerRestForTests());
 

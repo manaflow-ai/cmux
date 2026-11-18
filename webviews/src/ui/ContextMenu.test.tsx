@@ -6,11 +6,15 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
-import { installNativeMenu, type NativeMenuRequest } from "./nativeMenu";
-import { contextDescription } from "./popupDescriptors";
+import type { ContextMenuItem } from "./ContextMenu";
+import type { NativeMenuRequest } from "./nativeMenu";
 import type { PopupHost } from "./popupHost";
-import { UiProvider } from "./UiProvider";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { ContextMenu } = await importWithDom(() => import("./ContextMenu"));
+const { installNativeMenu } = await importWithDom(() => import("./nativeMenu"));
+const { contextDescription } = await importWithDom(() => import("./popupDescriptors"));
+const { UiProvider } = await importWithDom(() => import("./UiProvider"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

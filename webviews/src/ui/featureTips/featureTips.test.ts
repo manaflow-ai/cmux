@@ -4,10 +4,15 @@
 // infrequent like app installation level frequent and if they havent used the browser".
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { createTipController, pageOverlayOpen, type ShownTip, type TipAnchor, type TipController } from "./controller";
+import type { ShownTip, TipAnchor, TipController } from "./controller";
 import { firstSentence, generatedTips, GENERATED, highlightTip } from "../../../scripts/pages/gen-feature-tips.mjs";
-import { TIP_IDLE_MS, TIP_SETTLE_MS, type FeatureTipEntry } from "./policy";
-import { memoryTipHost, TIP_INTERVAL_DAYS, type TipHost } from "./store";
+import type { FeatureTipEntry } from "./policy";
+import type { TipHost } from "./store";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { createTipController, pageOverlayOpen } = await importWithDom(() => import("./controller"));
+const { TIP_IDLE_MS, TIP_SETTLE_MS } = await importWithDom(() => import("./policy"));
+const { memoryTipHost, TIP_INTERVAL_DAYS } = await importWithDom(() => import("./store"));
 
 const TIPS: FeatureTipEntry[] = [
   {

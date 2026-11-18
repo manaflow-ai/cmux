@@ -5,9 +5,11 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { Popover } from "./Popover";
-import { usePopoverTrigger } from "./popoverTrigger";
 import { settleReact } from "../../test/support/domTeardown";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { Popover } = await importWithDom(() => import("./Popover"));
+const { usePopoverTrigger } = await importWithDom(() => import("./popoverTrigger"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

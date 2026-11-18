@@ -3,12 +3,14 @@ import { readFileSync } from "node:fs";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { MOTION_EASE_OUT, MOTION_MS, MOTION_SPRING } from "../../motion/scale.generated";
-import { DepthLayer } from "./DepthLayer";
-import { motionMode } from "./motionMode";
-import { SlidingIndicator } from "./SlidingIndicator";
-import { swapFrames, ViewSwap } from "./ViewSwap";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { MOTION_EASE_OUT, MOTION_MS, MOTION_SPRING } = await importWithDom(() => import("../../motion/scale.generated"));
+const { DepthLayer } = await importWithDom(() => import("./DepthLayer"));
+const { motionMode } = await importWithDom(() => import("./motionMode"));
+const { SlidingIndicator } = await importWithDom(() => import("./SlidingIndicator"));
+const { swapFrames, ViewSwap } = await importWithDom(() => import("./ViewSwap"));
 
 // The ui/motion primitives: the selection and the new view are there on the click, and the motion is
 // transform (or opacity, clip) only, finite, and off under Reduce Motion or motion off.

@@ -2,7 +2,11 @@ import { afterAll, afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
-import { CUSTOM_DENSITIES_KEY, CUSTOM_DENSITY_KEY, DENSITY_KEY, customDensities, resolve } from "./density";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { CUSTOM_DENSITIES_KEY, CUSTOM_DENSITY_KEY, DENSITY_KEY, customDensities, resolve } = await importWithDom(
+  () => import("./density"),
+);
 
 const restore = installDom();
 afterAll(() => restore());

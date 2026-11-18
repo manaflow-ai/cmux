@@ -1,10 +1,14 @@
 // Tooltips reveal the full label in a compact bubble, independent of the source row width.
 import { afterEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { HoverGroup, HoverIntent } from "./hoverIntent";
-import { installTooltips, tooltipPosition, tooltipWidth, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./titleTooltips";
-import { UI_TOOLTIP_GAP } from "./tooltipTokens";
-import { setPopupInsetTop } from "./popupInset";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { HoverGroup, HoverIntent } = await importWithDom(() => import("./hoverIntent"));
+const { installTooltips, tooltipPosition, tooltipWidth, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } = await importWithDom(
+  () => import("./titleTooltips"),
+);
+const { UI_TOOLTIP_GAP } = await importWithDom(() => import("./tooltipTokens"));
+const { setPopupInsetTop } = await importWithDom(() => import("./popupInset"));
 
 test("full labels stay content-sized and bounded even on wide truncated rows", () => {
   for (const width of [140, 600, 900]) {

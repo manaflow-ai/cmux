@@ -2,8 +2,10 @@ import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { LASTING_MS, useLasting } from "./lasting";
 import { settleReact } from "../../test/support/domTeardown";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { LASTING_MS, useLasting } = await importWithDom(() => import("./lasting"));
 
 // Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD". A link down or connecting on a launch
 // shows nothing; only one that lasts past the grace is said. The grace runs on a clock the test moves.

@@ -2,11 +2,13 @@
 // like the palette's, and the preview's app accent derives from it; a theme file's
 // `# cmux-accent` line is the theme's accent before any edit.
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { deriveAppTheme } from "../../theme/appTheme";
-import { parseGhosttyTheme } from "../../theme/ghosttyTheme";
-import { mockThemeColors } from "./mockThemes";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { deriveAppTheme } = await importWithDom(() => import("../../theme/appTheme"));
+const { parseGhosttyTheme } = await importWithDom(() => import("../../theme/ghosttyTheme"));
+const { mockThemeColors } = await importWithDom(() => import("./mockThemes"));
 
 const restore = installDom();
 afterAll(() => restore());

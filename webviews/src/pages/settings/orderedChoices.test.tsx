@@ -3,7 +3,9 @@
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
-import { orderedChoiceValues } from "./editors/OrderedChoicesEditor";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { orderedChoiceValues } = await importWithDom(() => import("./editors/OrderedChoicesEditor"));
 
 const restore = installDom();
 afterAll(() => restore());

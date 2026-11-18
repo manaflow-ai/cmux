@@ -6,8 +6,10 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { Notice, noticeButtons, noticeRole } from "./Notice";
-import { createNoticeQueue, NoticeStack } from "./NoticeStack";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { Notice, noticeButtons, noticeRole } = await importWithDom(() => import("./Notice"));
+const { createNoticeQueue, NoticeStack } = await importWithDom(() => import("./NoticeStack"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -7,10 +7,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import fs from "node:fs";
 import path from "node:path";
-import { Button } from "./Button";
-import { Input } from "./Input";
-import { Switch } from "./Switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./Tabs";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { Button } = await importWithDom(() => import("./Button"));
+const { Input } = await importWithDom(() => import("./Input"));
+const { Switch } = await importWithDom(() => import("./Switch"));
+const { Tabs, TabsContent, TabsList, TabsTrigger } = await importWithDom(() => import("./Tabs"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

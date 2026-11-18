@@ -5,10 +5,13 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { createStrings } from "../../shared/i18n";
-import { RecipientField } from "./RecipientField";
-import { EMPTY_DRAFT, type HomeContact, type RecipientDraft } from "./recipients";
+import type { HomeContact, RecipientDraft } from "./recipients";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { createStrings } = await importWithDom(() => import("../../shared/i18n"));
+const { RecipientField } = await importWithDom(() => import("./RecipientField"));
+const { EMPTY_DRAFT } = await importWithDom(() => import("./recipients"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();

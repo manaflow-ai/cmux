@@ -2,7 +2,9 @@
 // is this even so wide in the first place?").
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { fitTooltipWidth } from "./tooltipFit";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { fitTooltipWidth } = await importWithDom(() => import("./tooltipFit"));
 
 let dom: JSDOM | undefined;
 afterEach(() => {

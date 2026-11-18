@@ -4,8 +4,11 @@ import { afterEach, expect, test } from "bun:test";
 import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PageMenu } from "./PageMenu";
-import { installNativeMenu, type NativeMenuRequest } from "../../ui/nativeMenu";
+import type { NativeMenuRequest } from "../../ui/nativeMenu";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { PageMenu } = await importWithDom(() => import("./PageMenu"));
+const { installNativeMenu } = await importWithDom(() => import("../../ui/nativeMenu"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

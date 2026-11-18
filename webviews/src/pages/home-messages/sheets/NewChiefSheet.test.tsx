@@ -4,9 +4,11 @@ import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { createStrings } from "../../shared/i18n";
 import type { ComposeOutcome } from "./model";
-import { NewChiefSheet } from "./NewChiefSheet";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { createStrings } = await importWithDom(() => import("../../shared/i18n"));
+const { NewChiefSheet } = await importWithDom(() => import("./NewChiefSheet"));
 
 const scope = globalThis as Record<string, unknown>;
 const GLOBALS = [

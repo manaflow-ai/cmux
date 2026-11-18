@@ -2,7 +2,9 @@
 // never in a fill fit to a bubble selected earlier (router-review follow-up on cmux#37649).
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { SELECTION_FILL_PROPERTY, updateSelectionFill } from "./adaptiveSelection";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { SELECTION_FILL_PROPERTY, updateSelectionFill } = await importWithDom(() => import("./adaptiveSelection"));
 
 let dom: JSDOM | undefined;
 afterEach(() => {

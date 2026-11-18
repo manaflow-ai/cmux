@@ -3,8 +3,10 @@
 // pages/shared/desktop.ts); counting it held every tip back on every page.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { installTooltips } from "./titleTooltips";
-import { isRendered, openOverlay } from "./openOverlay";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { installTooltips } = await importWithDom(() => import("./titleTooltips"));
+const { isRendered, openOverlay } = await importWithDom(() => import("./openOverlay"));
 
 let dom: JSDOM;
 let uninstall: (() => void) | undefined;

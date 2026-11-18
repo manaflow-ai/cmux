@@ -6,8 +6,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { IllustratedEmpty } from "./IllustratedEmpty";
 import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { IllustratedEmpty } = await importWithDom(() => import("./IllustratedEmpty"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

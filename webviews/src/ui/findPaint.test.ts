@@ -3,7 +3,9 @@
 // them, as the `light-dark()` rules they replace would have followed by themselves.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { clearAdaptiveFind, paintAdaptiveFind } from "./findPaint";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { clearAdaptiveFind, paintAdaptiveFind } = await importWithDom(() => import("./findPaint"));
 
 const NAME = "test-find";
 const colors = { match: "rgb(255, 199, 0)", current: "rgb(232, 130, 30)", currentInk: "rgb(26, 18, 8)" };

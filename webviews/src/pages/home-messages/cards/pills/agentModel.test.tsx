@@ -4,9 +4,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { cardStrings } from "../strings";
-import { AgentPills } from "./AgentPills";
-import { agentPills } from "./agentModel";
+import { importWithDom } from "../../../../../test/support/importWithDom";
+
+const { cardStrings } = await importWithDom(() => import("../strings"));
+const { AgentPills } = await importWithDom(() => import("./AgentPills"));
+const { agentPills } = await importWithDom(() => import("./agentModel"));
 
 const strings = cardStrings(["en"]);
 

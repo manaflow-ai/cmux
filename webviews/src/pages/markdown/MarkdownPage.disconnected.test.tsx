@@ -3,15 +3,9 @@
 import { act } from "react";
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { LASTING_MS } from "../../ui/lasting";
 import { teardownDom } from "../../../test/support/domTeardown";
-import { createStrings } from "../shared/i18n";
-import { pageError, type PageClient } from "../shared/pageClient";
-import { MarkdownPage } from "./MarkdownPage";
+import type { PageClient } from "../shared/pageClient";
 import table from "./generated/strings.json";
-import { MARKDOWN_CONFIG_OP } from "./host";
-import { MarkdownStore } from "./store";
-import { L } from "./strings";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -26,6 +20,13 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
+const { LASTING_MS } = await import("../../ui/lasting");
+const { createStrings } = await import("../shared/i18n");
+const { pageError } = await import("../shared/pageClient");
+const { MarkdownPage } = await import("./MarkdownPage");
+const { MARKDOWN_CONFIG_OP } = await import("./host");
+const { MarkdownStore } = await import("./store");
+const { L } = await import("./strings");
 const { createRoot } = await import("react-dom/client");
 const strings = createStrings(table);
 const settle = async () => {

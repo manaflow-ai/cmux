@@ -2,11 +2,13 @@ import { afterAll, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { installDom } from "../settings/testDom";
-import { createStrings } from "../shared/i18n";
-import { importState } from "./fixtures";
 import table from "./generated/strings.json";
-import { OnboardingPage } from "./Onboarding";
-import { OnboardingStore } from "./store";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { createStrings } = await importWithDom(() => import("../shared/i18n"));
+const { importState } = await importWithDom(() => import("./fixtures"));
+const { OnboardingPage } = await importWithDom(() => import("./Onboarding"));
+const { OnboardingStore } = await importWithDom(() => import("./store"));
 
 const restore = installDom();
 afterAll(restore);

@@ -2,9 +2,13 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { UiProvider } from "./UiProvider";
-import { createPopupHost, type PopupEvent } from "./popupHost";
-import { useNativePopup, type NativePopupEvent, type NativePopupModel } from "./nativePopup";
+import type { PopupEvent } from "./popupHost";
+import type { NativePopupEvent, NativePopupModel } from "./nativePopup";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { UiProvider } = await importWithDom(() => import("./UiProvider"));
+const { createPopupHost } = await importWithDom(() => import("./popupHost"));
+const { useNativePopup } = await importWithDom(() => import("./nativePopup"));
 
 let root: Root | undefined;
 let dom: JSDOM | undefined;

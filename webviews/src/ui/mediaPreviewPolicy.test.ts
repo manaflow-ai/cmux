@@ -1,6 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
-import { MEDIA_PREVIEW_DWELL, HoverIntent, type HoverClock } from "./hoverIntent";
-import { mediaPreviewAllowed } from "./mediaPreviewPolicy";
+import type { HoverClock } from "./hoverIntent";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { MEDIA_PREVIEW_DWELL, HoverIntent } = await importWithDom(() => import("./hoverIntent"));
+const { mediaPreviewAllowed } = await importWithDom(() => import("./mediaPreviewPolicy"));
 
 const scope = globalThis as Record<string, unknown>;
 const savedWindow = scope.window;

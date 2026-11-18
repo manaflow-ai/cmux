@@ -8,10 +8,14 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import slotsSchema from "../../../../schemas/theme/slots.json";
-import { JumpToLatest } from "../../agent-session/acpmux/VirtualTranscript";
-import { ArrowDown } from "../../agent-session/acpmux/conversation/icons";
-import { configureThemeSlots, slotVariantIds } from "../registry";
-import { JUMP_TO_BOTTOM_VARIANTS, jumpToBottomSlot, registerJumpToBottomVariants } from "./index";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { JumpToLatest } = await importWithDom(() => import("../../agent-session/acpmux/VirtualTranscript"));
+const { ArrowDown } = await importWithDom(() => import("../../agent-session/acpmux/conversation/icons"));
+const { configureThemeSlots, slotVariantIds } = await importWithDom(() => import("../registry"));
+const { JUMP_TO_BOTTOM_VARIANTS, jumpToBottomSlot, registerJumpToBottomVariants } = await importWithDom(
+  () => import("./index"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

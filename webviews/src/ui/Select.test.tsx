@@ -2,7 +2,9 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { Select } from "./Select";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { Select } = await importWithDom(() => import("./Select"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

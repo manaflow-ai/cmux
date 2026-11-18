@@ -4,12 +4,14 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
-import { MockTasksProvider } from "./mockProvider";
-import { TasksStore } from "./store";
-import { UnsentStrip } from "./TasksPage";
-import { TasksOps } from "./types";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { createStrings } = await importWithDom(() => import("../shared/i18n"));
+const { MockTasksProvider } = await importWithDom(() => import("./mockProvider"));
+const { TasksStore } = await importWithDom(() => import("./store"));
+const { UnsentStrip } = await importWithDom(() => import("./TasksPage"));
+const { TasksOps } = await importWithDom(() => import("./types"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();

@@ -6,8 +6,10 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ScrollArea } from "./ScrollArea";
 import { settleReact } from "../../test/support/domTeardown";
+import { importWithDom } from "../../test/support/importWithDom";
+
+const { ScrollArea } = await importWithDom(() => import("./ScrollArea"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();

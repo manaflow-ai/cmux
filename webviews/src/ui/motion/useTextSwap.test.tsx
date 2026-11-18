@@ -3,8 +3,11 @@ import { afterEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { MOTION_MS } from "../../motion/scale.generated";
-import {
+import { settleReact } from "../../../test/support/domTeardown";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { MOTION_MS } = await importWithDom(() => import("../../motion/scale.generated"));
+const {
   TEXT_SWAP_FADE,
   TEXT_SWAP_GONE_AT,
   TEXT_SWAP_MAX_GHOSTS,
@@ -12,8 +15,7 @@ import {
   TEXT_SWAP_ROOT,
   TEXT_SWAP_SHOW_FROM,
   useTextSwap,
-} from "./useTextSwap";
-import { settleReact } from "../../../test/support/domTeardown";
+} = await importWithDom(() => import("./useTextSwap"));
 
 // The live line's words change as Claude desktop's do (Leo, 2026-11-05): the new words are in the
 // DOM on the commit, the old ones leave as an inert copy, what follows slides by the width change,

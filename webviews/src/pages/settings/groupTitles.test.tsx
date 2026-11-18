@@ -4,7 +4,9 @@
 // there the title is the only thing that says which page a row is from.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { installDom } from "./testDom";
-import { shownGroupTitle } from "./components/GroupList";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { shownGroupTitle } = await importWithDom(() => import("./components/GroupList"));
 
 const restore = installDom();
 afterAll(() => restore());

@@ -1,9 +1,13 @@
 // Font family rows (FontPicker): fonts picked lately first, each family drawn in its own face, the
 // arrow keys preview the highlighted font live, Return writes it, Escape reverts with no write.
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { DEFAULT_FONT_ROW, fontFace, fontRows, recentAfterPick, RECENT_FONT_LIMIT } from "./fontPickerModel";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { DEFAULT_FONT_ROW, fontFace, fontRows, recentAfterPick, RECENT_FONT_LIMIT } = await importWithDom(
+  () => import("./fontPickerModel"),
+);
 
 const restore = installDom();
 afterAll(() => restore());

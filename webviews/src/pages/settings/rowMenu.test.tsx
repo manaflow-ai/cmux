@@ -1,8 +1,10 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { act } from "react";
-import { mockManagedKey } from "./mockProvider";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { mockManagedKey } = await importWithDom(() => import("./mockProvider"));
 
 const restore = installDom();
 afterAll(() => restore());

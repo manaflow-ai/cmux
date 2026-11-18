@@ -3,12 +3,15 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { createStrings } from "../../shared/i18n";
-import { ConversationList, type ConversationListProps } from "./ConversationList";
-import { ME, sampleConversations } from "./fixtures";
-import { listMetrics } from "./layout";
-import { listModel } from "./model";
+import type { ConversationListProps } from "./ConversationList";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { importWithDom } from "../../../../test/support/importWithDom";
+
+const { createStrings } = await importWithDom(() => import("../../shared/i18n"));
+const { ConversationList } = await importWithDom(() => import("./ConversationList"));
+const { ME, sampleConversations } = await importWithDom(() => import("./fixtures"));
+const { listMetrics } = await importWithDom(() => import("./layout"));
+const { listModel } = await importWithDom(() => import("./model"));
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

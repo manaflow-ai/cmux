@@ -3,16 +3,13 @@
 // back, every change is one undo step, and an editor opening never moves the picker grid.
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { installDom } from "./testDom";
-import {
-  formatWhen,
-  modeOf,
-  nextWhen,
-  parseWhen,
-  renameWhen,
-  writesFor,
-  type WallpaperValues,
-} from "./wallpaperSwitch";
+import type { WallpaperValues } from "./wallpaperSwitch";
 import type { Rendered } from "./testing";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { formatWhen, modeOf, nextWhen, parseWhen, renameWhen, writesFor } = await importWithDom(
+  () => import("./wallpaperSwitch"),
+);
 
 const restore = installDom();
 afterAll(() => restore());

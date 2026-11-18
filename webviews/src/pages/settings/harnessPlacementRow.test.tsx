@@ -1,6 +1,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
-import { HARNESS_PLACEMENT_KEY as key } from "../../ui/harnessPlacement";
+import { importWithDom } from "../../../test/support/importWithDom";
+
+const { HARNESS_PLACEMENT_KEY: key } = await importWithDom(() => import("../../ui/harnessPlacement"));
 
 const restore = installDom();
 afterAll(restore);
