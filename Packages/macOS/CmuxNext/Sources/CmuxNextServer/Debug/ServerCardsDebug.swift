@@ -88,7 +88,7 @@ public enum ServerCardsDebug {
                     continuation.yield(step("install", "ok", "cmux-tui 0.42.1"))
                     if state == "failed" {
                         continuation.yield(step("daemon", "fail", "The daemon did not start.", fix: "Run cmux-tui daemon start on studio."))
-                        continuation.finish(throwing: CancellationError())
+                        continuation.finish()
                     } else {
                         hold.continuation = continuation
                     }
