@@ -403,7 +403,7 @@ impl Mux {
                     Some(landing.index)
                 }
                 (None, None) => {
-                    takes_active = activate && placed.takes_active(&state, target);
+                    takes_active = placed.takes_active(&state, target, activate);
                     joins = joined_group(&state, presentation, target, after);
                     insertion_index(&state, presentation, target, after)
                 }
