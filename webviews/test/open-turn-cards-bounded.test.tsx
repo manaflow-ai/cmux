@@ -450,9 +450,8 @@ test("the summary card mounts only the subagents its body shows, and scrolls to 
     proto.getBoundingClientRect = laidOut;
   }
   console.log(`summary-subagents ${[40, 400, 4_000].map((n) => `${n}=${JSON.stringify(drawn[n])}`).join(" ")}`);
-  // 40 fit, all drawn; past that, as many as a window shows and the overscan (WindowedRows firstRowCount), whatever
-  // the chat ran.
+  // 40 fit, all drawn; past that, a window's rows and the overscan (WindowedRows, 48 here), whatever the chat ran.
   expect(drawn[40]!.lines).toBe(40);
-  expect(drawn[400]!.lines).toBeLessThanOrEqual(firstRowCount(dom.window.innerHeight));
+  expect(drawn[400]!.lines).toBeLessThanOrEqual(firstRowCount(1_024));
   expect(drawn[4_000]).toEqual(drawn[400]!);
 });
