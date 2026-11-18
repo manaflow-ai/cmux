@@ -84,6 +84,8 @@ test("with no server the page says how to connect one", async () => {
   page.provider.mcpServers = { loading: false, problem: null, servers: [] };
   await act(async () => card(page.container).querySelector<HTMLButtonElement>('[data-mcp-action="refresh"]')!.click());
   await settle();
-  expect(card(page.container).querySelector("[data-mcp-empty]")!.textContent).toContain("approve it on the card");
+  expect(card(page.container).querySelector("[data-mcp-empty]")!.textContent).toContain(
+    "Approve one when an agent asks",
+  );
   page.unmount();
 });
