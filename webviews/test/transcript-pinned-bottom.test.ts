@@ -168,7 +168,9 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
       const tops: (number | null)[] = [at()];
       const own = window as unknown as { __rowTops: typeof tops; __stopRowTops: () => void };
       own.__rowTops = tops;
-      own.__stopRowTops = window.cmuxAfterPaint(() => tops.push(at()));
+      own.__stopRowTops = window.cmuxAfterPaint(() => {
+        tops.push(at());
+      });
     });
   const rowTops = (page: Page) =>
     page.evaluate(() => {
