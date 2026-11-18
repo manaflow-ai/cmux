@@ -100,6 +100,9 @@ async function mount(n: number) {
           transfers={[]}
           strings={strings}
         />
+        <button type="button" id="after">
+          after
+        </button>
       </div>,
     );
   const client = {
@@ -202,9 +205,66 @@ test("the row with focus stays mounted while the body scrolls far past it", asyn
   });
   expect(button.isConnected).toBe(true);
   expect(dom.window.document.activeElement).toBe(button);
-  expect(rows().length).toBeLessThanOrEqual(71);
+  expect(rows().length).toBeLessThanOrEqual(75);
   const positions = [...rows()].map((row) => Number(row.getAttribute("aria-posinset")));
-  expect(positions[0]).toBe(3);
-  expect(positions[1]).toBeGreaterThan(300);
+  // The first entry, the focused one and its neighbours, the window far below, the last entry.
+  expect(positions.slice(0, 4)).toEqual([1, 2, 3, 4]);
+  expect(positions[4]).toBeGreaterThan(300);
+  expect(positions.at(-1)).toBe(1000);
   expect(rows()[0]!.getAttribute("aria-setsize")).toBe("1000");
+});
+
+const TABBABLE = "button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
+async function scrollBody(body: HTMLElement, top: number) {
+  await act(async () => {
+    body.scrollTop = top;
+    body.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+/** One Tab as a browser does it (jsdom moves no focus on Tab): the next tab stop in document order
+ *  takes focus, and a row out of view scrolls into view in the body. */
+async function tab(body: HTMLElement, shift = false) {
+  const document = dom.window.document;
+  const stops = [...document.querySelectorAll<HTMLElement>(TABBABLE)];
+  const next = stops[stops.indexOf(document.activeElement as HTMLElement) + (shift ? -1 : 1)];
+  await act(async () => next?.focus());
+  const row = next?.closest<HTMLElement>("[data-index]");
+  if (row) {
+    const top = Number(row.dataset.index) * ROW;
+    if (top < body.scrollTop || top + ROW > body.scrollTop + BODY)
+      await scrollBody(body, top < body.scrollTop ? top : top + ROW - BODY);
+  }
+}
+
+const name = (index: number) => `file-${String(index).padStart(5, "0")}.txt`;
+/** The entry whose row holds focus. */
+const focusedEntry = () =>
+  dom.window.document.activeElement?.closest<HTMLElement>("[data-path]")?.dataset.path?.split("/").pop();
+const rowOf = (index: number) => host.querySelector<HTMLElement>(`[data-path="${FOLDER}/${name(index)}"]`);
+
+test("Tab from a focused row the body scrolled 20,000 px away goes to the next entry", async () => {
+  const { body } = await mount(1_000);
+  await act(async () => rowOf(2)!.querySelector<HTMLElement>(".cloud-file-remove")!.focus());
+  await scrollBody(body, 20_000);
+  await tab(body);
+  expect(focusedEntry()).toBe(name(3));
+});
+
+test("Shift-Tab from a focused row the body scrolled 20,000 px away goes to the entry before it", async () => {
+  const { body } = await mount(1_000);
+  await act(async () => rowOf(5)!.querySelector<HTMLElement>(".cloud-file-name")!.focus());
+  await scrollBody(body, 20_000);
+  await tab(body, true);
+  expect(focusedEntry()).toBe(name(4));
+});
+
+test("Shift-Tab into the list from the control after it enters at the last entry", async () => {
+  const { body } = await mount(1_000);
+  await act(async () => dom.window.document.getElementById("after")!.focus());
+  await tab(body, true);
+  expect(focusedEntry()).toBe(name(999));
+  expect(rowOf(999)).not.toBeNull();
 });

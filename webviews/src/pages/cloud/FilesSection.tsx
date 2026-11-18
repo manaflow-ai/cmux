@@ -179,8 +179,9 @@ function scrollParentOf(node: HTMLElement): HTMLElement {
  * page body that scrolls them, from where the list starts in it (scrollMargin): about one viewport
  * each side, in the flow between two blocks standing in for the rest. Rows are memoized on their
  * entry with stable handlers, so a scroll draws only the rows it brings in and a relisting only the
- * rows that changed. The row that has focus stays mounted, and Tab moves on through the next rows as
- * each focused one scrolls into view.
+ * rows that changed. The row that has focus, its neighbours and the first and last rows stay mounted,
+ * so the browser's own Tab and Shift-Tab go to the next row in list order (and into the list at its
+ * first or last entry), each focused row scrolling into view. No row is selected or deep-linked.
  */
 function FileRows({
   store,
@@ -253,14 +254,16 @@ function FileRows({
     estimateSize: () => rowHeight.current || ROW_ESTIMATE,
     getItemKey: rowKey,
     overscan: Math.max(MIN_OVERSCAN, Math.ceil(viewportHeight / (rowHeight.current || ROW_ESTIMATE))),
-    // The row with focus stays mounted, so a scroll away never drops focus to the page.
+    // The row with focus stays mounted, so a scroll away never drops focus to the page; so do its
+    // neighbours and the first and last rows, the browser's next tab stops: Tab and Shift-Tab go on
+    // in list order, and into the list at its first or last entry.
     rangeExtractor: (range: Range) => {
       const indexes = defaultRangeExtractor(range);
-      if (focusedIndex >= 0 && !indexes.includes(focusedIndex)) {
-        indexes.push(focusedIndex);
-        indexes.sort((a, b) => a - b);
-      }
-      return indexes;
+      const kept = [0, entries.length - 1];
+      if (focusedIndex >= 0) kept.push(focusedIndex - 1, focusedIndex, focusedIndex + 1);
+      for (const index of kept)
+        if (index >= 0 && index < entries.length && !indexes.includes(index)) indexes.push(index);
+      return indexes.sort((a, b) => a - b);
     },
   });
   const measure = useCallback(
