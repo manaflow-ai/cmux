@@ -10,6 +10,7 @@ import React, {
   useState,
   useSyncExternalStore,
   useInsertionEffect,
+  useEffectEvent,
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
@@ -558,10 +559,10 @@ const RowFrame = React.memo(function RowFrame({
   const [loadFading] = useState(loadFade);
   // A prompt sent from the latest row: what the composer drew of it moves into this row's bubble and
   // previews, as its entrance (conversation/sendMorph.ts). Its first mount only, before it paints.
-  useLayoutEffect(() => {
+  const morphOnMount = useEffectEvent(() => {
     if (messageEntering && row.kind === "user" && ref.current) playSendMorph(ref.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the frame's first mount only
-  }, []);
+  });
+  useLayoutEffect(() => morphOnMount(), []);
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
     [index, onRowKeyDown],
@@ -575,7 +576,7 @@ const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => {
     if (acpmuxPerf.enabled) acpmuxPerf.render(`frame:${row.id}`);
   });
-  useLayoutEffect(() => {
+  const countMount = useEffectEvent(() => {
     // Mounts and same-commit remounts, counted only while measuring (loadDebug.ts `loadTick`).
     const id = row.id;
     acpmuxPerf.rowMounted(id);
@@ -585,29 +586,29 @@ const RowFrame = React.memo(function RowFrame({
       acpmuxPerf.rowUnmounted(id);
       noteUnmounted(`row:${id}`);
     };
-    // The id the frame mounted with: a message run's line can take over its first row's frame
-    // (model.ts `rowFrameKey`), so the count is closed under the id it opened with.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useLayoutEffect(() => {
+  });
+  // The id the frame mounted with: a message run's line can take over its first row's frame
+  // (model.ts `rowFrameKey`), so the count is closed under the id it opened with.
+  useLayoutEffect(() => countMount(), []);
+  // Only the first mount fades.
+  const loadFadeOnMount = useEffectEvent(() => {
     if (loadFading) onLoadFaded(row.id);
-    // Only the first mount fades.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useLayoutEffect(() => {
+  });
+  useLayoutEffect(() => loadFadeOnMount(), []);
+  // Only the first mount enters.
+  const enterOnMount = useEffectEvent(() => {
     if (entering) onEntered(rowFrameKey(row));
-    // Only the first mount enters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  });
+  useLayoutEffect(() => enterOnMount(), []);
   // A generic row's entrance starts on the frame that first draws it, not at this commit: WebKit
   // starts its clock here, and a busy main thread drew the row only after its fade had ended, whole
   // at once (conversation/entranceClock.ts). Messages keep their own send clock.
-  useLayoutEffect(() => {
+  const holdEntranceOnMount = useEffectEvent(() => {
     if (!entering || messageEntering || !ref.current) return undefined;
     return holdEntranceForFirstFrame(ref.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the frame's first mount only
-  }, []);
-  useLayoutEffect(() => {
+  });
+  useLayoutEffect(() => holdEntranceOnMount(), []);
+  const olderFadeOnMount = useEffectEvent(() => {
     const node = ref.current;
     if (!node || !olderFade) return;
     // A warm-window copy has rendered too: consume eligibility and start its fade before paint,
@@ -615,23 +616,23 @@ const RowFrame = React.memo(function RowFrame({
     onOlderShown(row.id);
     node.dataset.olderShown = "true";
     return olderFade.watch(node, () => onOlderShown(row.id));
-    // Only the first mount fades.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  });
+  // Only the first mount fades.
+  useLayoutEffect(() => olderFadeOnMount(), []);
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node || !observer) return;
     observer.observe(node);
     return () => observer.unobserve(node);
   }, [observer]);
-  useLayoutEffect(() => {
+  const writeSetSizeOnMount = useEffectEvent(() => {
     // The mount that puts this row in the list writes its `aria-setsize`. A later length is written
     // by the transcript's own sweep, which runs only when the length changed, so a streamed token
     // reads no mounted row at all.
     ref.current?.setAttribute("aria-setsize", setSizeRef.current);
-    // Only this mount: the ref holds the length, so a changed one re-runs nothing here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  });
+  // Only this mount: the ref holds the length, so a changed one re-runs nothing here.
+  useLayoutEffect(() => writeSetSizeOnMount(), []);
   useLayoutEffect(() => {
     const node = ref.current;
     if (node) return queueDrawn(node, row.id, row.version, replyActions, status);
