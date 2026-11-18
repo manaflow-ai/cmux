@@ -87,6 +87,28 @@ pub(crate) fn marked_tabs(
     Ok(statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<_, _>>()?)
 }
 
+/// Whether screen `screen_id` (a public id) holds live tabs and every one is
+/// private: closed history records no such screen, nor a workspace of only
+/// such screens (an empty container would reopen in their place).
+pub(crate) fn screen_holds_only_private_tabs(
+    connection: &Connection,
+    screen_id: &str,
+) -> anyhow::Result<bool> {
+    if !table_ready(connection)? {
+        return Ok(false);
+    }
+    let (tabs, private): (i64, i64) = connection.query_row(
+        "SELECT COUNT(*), COUNT(p.tab_id) FROM resource_tabs AS t
+         JOIN resource_panes AS pane ON pane.public_id = t.pane_id
+         LEFT JOIN private_tabs AS p ON p.tab_id = t.public_id
+         WHERE pane.screen_id = ?1 AND pane.deleted_revision IS NULL
+           AND t.deleted_revision IS NULL",
+        [screen_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    Ok(tabs > 0 && tabs == private)
+}
+
 fn table_ready(connection: &Connection) -> anyhow::Result<bool> {
     Ok(connection
         .query_row(

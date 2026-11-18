@@ -92,6 +92,25 @@ fn a_private_tab_leaves_no_closed_history() {
     mux.shutdown();
 }
 
+/// A workspace whose every tab is private closes without a record: no empty
+/// container reopens in its place.
+#[test]
+fn a_workspace_of_only_private_tabs_is_not_recorded() {
+    let mux = Mux::new_for_test("private-tab-only", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 2);
+    for tab in &tabs {
+        mux.mark_tab_private(*tab).unwrap();
+    }
+    let workspace = mux.with_state(|state| {
+        let (index, _) = state.screen_of(state.pane_of(tabs[0]).unwrap()).unwrap();
+        state.workspaces[index].public_id.to_string()
+    });
+    mutate(&mux, "workspace.close", json!({"workspace": workspace}), "close-private-only");
+    let records = closed(&mux);
+    assert!(records.is_empty(), "{records:?}");
+    mux.shutdown();
+}
+
 /// Restore of a mix: the next start closes the private tabs and keeps the
 /// normal ones, in their order, in the same normal workspace.
 #[test]
