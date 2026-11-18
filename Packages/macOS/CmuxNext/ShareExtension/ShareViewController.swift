@@ -13,6 +13,18 @@ final class ShareViewController: NSViewController {
         view = NSView(frame: .zero)
     }
 
+    /// A picture shared as bytes, not a file (Photos, a browser): written to this extension's own
+    /// temporary folder, which the app (not sandboxed) reads like any other opened file.
+    private static func saved(_ data: Data) -> URL? {
+        let jpeg = data.starts(with: [0xFF, 0xD8, 0xFF])
+        let png: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
+        guard let bytes = jpeg || data.starts(with: png)
+            ? data : NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:]) else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Shared \(UUID().uuidString).\(jpeg ? "jpg" : "png")")
+        return (try? bytes.write(to: url)) == nil ? nil : url
+    }
+
     override func beginRequest(with context: NSExtensionContext) {
         super.beginRequest(with: context)
         let providers = (context.inputItems as? [NSExtensionItem] ?? []).flatMap { $0.attachments ?? [] }
@@ -24,7 +36,14 @@ final class ShareViewController: NSViewController {
                 .first(where: { provider.hasItemConformingToTypeIdentifier($0) }) else { continue }
             group.enter()
             provider.loadItem(forTypeIdentifier: type, options: nil) { item, _ in
-                let url = (item as? URL) ?? (item as? Data).flatMap { URL(dataRepresentation: $0, relativeTo: nil) }
+                var url = item as? URL
+                if url == nil, let data = item as? Data {
+                    url = type == UTType.fileURL.identifier
+                        ? URL(dataRepresentation: data, relativeTo: nil) : Self.saved(data)
+                } else if url == nil, let image = item as? NSImage {
+                    url = image.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0) }
+                        .flatMap { $0.representation(using: .png, properties: [:]) }.flatMap(Self.saved)
+                }
                 if let url, url.isFileURL {
                     lock.lock()
                     found.append((index, url))

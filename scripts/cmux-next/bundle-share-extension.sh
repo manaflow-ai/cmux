@@ -45,7 +45,7 @@ plist_get() {
 
 xml_escape() {
   local s="$1"
-  s="${s//&/&amp;}"; s="${s//</&lt;}"; s="${s//>/&gt;}"
+  s="${s//&/"&amp;"}"; s="${s//</"&lt;"}"; s="${s//>/"&gt;"}"
   printf '%s' "$s"
 }
 
@@ -106,7 +106,7 @@ stamp_plist() { # <app> <plist path>
   values="$(app_identity "$1")" || return 1
   local id name version short minimum
   { read -r id; read -r name; read -r version; read -r short; read -r minimum; } <<< "$values"
-  write_plist "$2" "$id" "$name" "$version" "$short" "$minimum"
+  write_plist "$2" "$id" "$name" "$version" "$short" "$minimum" || return 1
   echo "$id.share"
 }
 
@@ -119,7 +119,7 @@ if [[ "${1:-}" == "--stamp" ]]; then
     echo "note: $app carries no Share extension"
     exit 0
   fi
-  id="$(stamp_plist "$app" "$appex/Contents/Info.plist")"
+  id="$(stamp_plist "$app" "$appex/Contents/Info.plist")" || exit 1
   echo "stamped the Share extension: $APPEX ($id)"
   exit 0
 fi
@@ -135,8 +135,8 @@ minimum="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 read -r -a archs <<< "${ARCHS:-arm64}"
 mkdir -p "$work"
 
-# The executable: compiled again only when the source, archs or target change.
-key="$( { echo "${archs[*]} $minimum"; shasum -a 256 "$SOURCE" "$0"; } | shasum -a 256 | cut -d' ' -f1)"
+# The executable: compiled again only when the source, archs, target or toolchain change.
+key="$( { echo "${archs[*]} $minimum"; xcrun --sdk macosx swiftc --version 2>&1; xcrun --sdk macosx --show-sdk-version; shasum -a 256 "$SOURCE" "$0"; } | shasum -a 256 | cut -d' ' -f1)"
 binary="$work/$EXECUTABLE-$key"
 if [[ ! -f "$binary" ]]; then
   rm -f "$work/$EXECUTABLE"-*
@@ -156,13 +156,14 @@ if [[ ! -f "$binary" ]]; then
 fi
 
 mkdir -p "$app/Contents/PlugIns"
-tmp="$(mktemp -d "$app/Contents/PlugIns/.share-extension.XXXXXX")"
+# Staged outside the app: an interrupted build leaves nothing in PlugIns for release signing to trip on.
+tmp="$(mktemp -d "$work/stage.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 staged="$tmp/$APPEX"
 mkdir -p "$staged/Contents/MacOS"
 cp "$binary" "$staged/Contents/MacOS/$EXECUTABLE"
 chmod 755 "$staged/Contents/MacOS/$EXECUTABLE"
-id="$(stamp_plist "$app" "$staged/Contents/Info.plist")"
+id="$(stamp_plist "$app" "$staged/Contents/Info.plist")" || exit 1
 
 identity="${EXPANDED_CODE_SIGN_IDENTITY:-}"
 [[ -n "$identity" ]] || identity="-"
