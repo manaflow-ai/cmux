@@ -207,7 +207,9 @@ import Testing
     /// the same 6,000 cases on every run.
     @Test func randomFrameStreamsNeverDrawAWrongScreenSilently() async {
         // The cases run in `fuzzShards` parts at once, each on a thread of its own: one thread
-        // took 39 to 52 s in CI, the whole rest of the run waiting on it.
+        // took 39 to 52 s in CI, the whole rest of the run waiting on it. Three, not one per core:
+        // six parts took enough of a 6-vCPU runner that the main actor fell 9 to 20 s behind and
+        // main-actor tests with deadlines failed (run 44211263917).
         let shards = await withTaskGroup(of: FuzzReport.self) { group in
             for shard in 0..<Self.fuzzShards {
                 group.addTask { await onProofThread { Self.fuzz(shard: shard, of: Self.fuzzShards) } }
@@ -224,7 +226,7 @@ import Testing
     }
 
     static let fuzzCases = 6000
-    static let fuzzShards = 6
+    static let fuzzShards = 3
 
     struct FuzzReport: Sendable {
         var fixtures = 0
