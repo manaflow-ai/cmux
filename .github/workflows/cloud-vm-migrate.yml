@@ -1,6 +1,22 @@
 name: Cloud VM DB migration
 
+# Vercel deploys cmux.com from every push to main, so a push that adds a
+# migration applies it here on the same push: staging, then production. The
+# production build waits for it (web/tools/migration-deploy-gate.mjs) and does
+# not go live until production has every migration the code ships; the
+# previous deployment keeps serving meanwhile. Migrations therefore must be
+# expand-only (the live code must keep working once they apply); a push that
+# adds a contract statement (drop, rename, type change, SET NOT NULL) stops in
+# preflight for a person to dispatch target=production
+# (web/scripts/cloud-vm/contract-migrations.mjs). Incident 2026-11-18: #42784
+# and #44965 shipped readers of apple_subscriptions.carried_* while the last
+# production run was 2026-10-29.
 on:
+  push:
+    branches: [main]
+    paths:
+      - "web/db/migrations/**"
+      - "web/db/no-transaction-migrations.json"
   workflow_dispatch:
     inputs:
       target:
@@ -20,7 +36,9 @@ permissions:
 
 concurrency:
   # Production also migrates staging. One group prevents two runs from
-  # applying to the same database at once.
+  # applying to the same database at once (apply-migrations.mjs also holds a
+  # Postgres advisory lock). A push run migrates its pushed commit, so a newer
+  # push run that replaces a pending one applies a superset.
   group: cloud-vm-migrate
   cancel-in-progress: false
 
@@ -36,10 +54,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
+          # A push migrates the commit it pushed; a production dispatch takes main's tip.
+          ref: ${{ github.event_name != 'push' && inputs.target == 'production' && 'refs/heads/main' || github.sha }}
       - name: Pin migration source
         id: source
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: List the migrations this push adds
+        if: ${{ github.event_name == 'push' }}
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BEFORE" =~ ^[0-9a-f]{40}$ || "$BEFORE" =~ ^0+$ ]]; then
+            echo "::error::No previous commit for this push; dispatch cloud-vm-migrate.yml with target=production after checking its migrations."
+            exit 1
+          fi
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --no-recurse-submodules --quiet --depth=1 origin "$BEFORE" || {
+              echo "::error::Cannot fetch $BEFORE (history rewritten?); dispatch cloud-vm-migrate.yml with target=production after checking its migrations."
+              exit 1
+            }
+          fi
+          git diff --relative --name-only --diff-filter=AM "$BEFORE" HEAD -- db/migrations \
+            | { grep '/migration\.sql$' || true; } > "$RUNNER_TEMP/added-migrations.txt"
+          echo "Migrations added or changed by this push:"
+          cat "$RUNNER_TEMP/added-migrations.txt"
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -48,12 +87,19 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Cloud VM migration preflight
         run: bun run cloud-vm:preflight -- --schema-only .
+      - name: Hold contract migrations for a person
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          mapfile -t added < "$RUNNER_TEMP/added-migrations.txt"
+          bun scripts/cloud-vm/contract-migrations.mjs ${added[@]+"${added[@]}"}
       - name: Rehearse Iroh cleanup on isolated Postgres
         if: ${{ inputs.cleanup_iroh_challenges }}
         run: bun run cloud-vm:preflight -- .
 
   migrate-staging:
-    if: ${{ inputs.target == 'staging' || inputs.target == 'production' }}
+    # A push has no inputs and migrates staging, then production.
+    if: ${{ github.event_name == 'push' || inputs.target == 'staging' || inputs.target == 'production' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     needs: preflight
     environment: cloud-vm-staging
@@ -95,7 +141,7 @@ jobs:
         run: bun run cloud-vm:cleanup-iroh -- staging --apply
 
   migrate-production:
-    if: ${{ inputs.target == 'production' }}
+    if: ${{ github.event_name == 'push' || inputs.target == 'production' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     needs: [preflight, migrate-staging]
     environment: cloud-vm-production
