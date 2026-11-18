@@ -37,18 +37,24 @@ public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     /// fallen a bound behind the producer. It runs on the reader's queue, not behind the backlog in
     /// ``stream``, so it arrives while the consumer is still busy with that backlog.
     private let onPause: (@Sendable () -> Void)?
+    /// Called on the reader's queue each time reading resumes after a pause, once the consumer has
+    /// released half of what it held.
+    private let onResume: (@Sendable () -> Void)?
 
     /// Creates a reader that holds at most `maxPendingChunks` unreleased chunks or
     /// `maxPendingBytes` unreleased bytes, reading at most `maxReadChunkBytes` at a time.
-    /// `onPause` runs on the reader's queue each time reading stops at a bound.
+    /// `onPause` runs on the reader's queue each time reading stops at a bound, and `onResume`
+    /// each time it starts again.
     public init(
         label: String,
         maxPendingChunks: Int,
         maxPendingBytes: Int,
         maxReadChunkBytes: Int = 64 * 1024,
-        onPause: (@Sendable () -> Void)? = nil
+        onPause: (@Sendable () -> Void)? = nil,
+        onResume: (@Sendable () -> Void)? = nil
     ) {
         self.onPause = onPause
+        self.onResume = onResume
         // Accounting keeps at most maxPendingChunks unreleased chunks, so the
         // stream's buffer never holds more than that.
         let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
@@ -198,6 +204,7 @@ public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
               pendingChunks <= maxPendingChunks / 2,
               pendingBytes <= maxPendingBytes / 2 else { return }
         paused = false
+        onResume?()
         if draining {
             drain()
         } else {

@@ -138,6 +138,8 @@ final class RemoteTmuxControlConnection {
     /// The catch-up after the reader fell a bound behind: whether one is asked for, and the seeds
     /// and queued panes it waits on. See ``requestCatchUpAfterFallingBehind()``.
     var catchUp = RemoteTmuxCatchUpCoordinator()
+    /// The stdout reader paused and has not resumed: the parser is still a bound behind.
+    var stdoutReaderIsBehind = false
     /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
     /// (style tokens stripped) — exactly the text a native tmux client draws
     /// in that pane's header, custom formats included. Seeded by the
@@ -810,6 +812,12 @@ final class RemoteTmuxControlConnection {
                     guard let self, self.processGeneration == pauseGeneration else { return }
                     self.requestCatchUpAfterFallingBehind()
                 }
+            },
+            onResume: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, self.processGeneration == pauseGeneration else { return }
+                    self.stdoutReaderCaughtUp()
+                }
             }
         )
         let reader = outPipe.fileHandleForReading
@@ -1099,6 +1107,7 @@ final class RemoteTmuxControlConnection {
     /// (reconnect) from a clean slate.
     private func teardownProcessHandles() {
         processGeneration &+= 1
+        stdoutReaderIsBehind = false
         ingestTask?.cancel()
         ingestTask = nil
         stderrTask?.cancel()

@@ -159,6 +159,41 @@ extension RemoteTmuxPaneSeedTransportTests {
         #expect(!fixture.connection.catchUp.isRunning)
     }
 
+    /// A catch-up's own capture replies can fill the read bound, so the reader pauses during the
+    /// catch-up with no live output behind it. Once the reader has caught up before the catch-up
+    /// ends, that pause must not start another catch-up: its captures would fill the bound again,
+    /// and the cycle would repeat with nothing new to show.
+    @Test func aPauseFromTheCatchUpsOwnRepliesDoesNotStartAnother() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(7))
+        )
+        var repaints = 0
+        let token = fixture.connection.addObserver(onPaneSeed: { _, seed in
+            if seed.restartsLiveStream { repaints += 1 }
+        })
+        defer { fixture.connection.removeObserver(token) }
+
+        fixture.connection.requestCatchUpAfterFallingBehind()
+        // The capture replies fill the bound, then the parser works through them.
+        fixture.connection.requestCatchUpAfterFallingBehind()
+        fixture.connection.stdoutReaderCaughtUp()
+        finishPendingCommands(
+            on: fixture.connection,
+            captureRows: ["current screen"],
+            paneHeight: 24,
+            startingAt: 400
+        )
+
+        #expect(repaints == 1, "a pause from the catch-up's own replies started another catch-up")
+        #expect(!fixture.connection.catchUp.isRequested)
+        #expect(!fixture.connection.catchUp.isRunning)
+    }
+
     /// The last catch-up seed can also leave without finishing: its pane disappears and tmux
     /// answers the capture with "can't find pane". A pause kept during that catch-up still has
     /// to start the next one.

@@ -12,11 +12,13 @@ import Testing
         let pipe = Pipe()
         let bound = 1000
         let (pauseStream, pauseContinuation) = AsyncStream<Void>.makeStream()
+        let (resumeStream, resumeContinuation) = AsyncStream<Void>.makeStream()
         let reader = RemoteTmuxProcessOutputReader(
             label: "remote-tmux-process-output-reader-held-test",
             maxPendingChunks: 64,
             maxPendingBytes: bound,
-            onPause: { pauseContinuation.yield() }
+            onPause: { pauseContinuation.yield() },
+            onResume: { resumeContinuation.yield() }
         )
         let held = HeldOutputChunks()
         reader.attach(to: pipe.fileHandleForReading)
@@ -49,6 +51,8 @@ import Testing
         }
         #expect(held.byteCount == bound)
         for chunk in held.stopHolding() { reader.release(chunk) }
+        var resumes = resumeStream.makeAsyncIterator()
+        #expect(await resumes.next() != nil, "the reader resumed without saying so")
 
         #expect(await capture.value == payload)
     }

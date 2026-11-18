@@ -8,15 +8,32 @@ extension RemoteTmuxControlConnection {
     /// the attach seeds capture every pane anyway.
     func requestCatchUpAfterFallingBehind() {
         guard enterReceived else { return }
+        stdoutReaderIsBehind = true
         catchUp.request()
         catchUpAfterFallingBehind()
+    }
+
+    /// The stdout reader resumed: the parser has worked through half of what it held.
+    func stdoutReaderCaughtUp() {
+        stdoutReaderIsBehind = false
     }
 
     /// Starts a catch-up that was requested while another one waited on tmux, once none does.
     /// Every way a seed leaves ``pendingPaneSeeds`` (finished, cancelled, its pane gone, or its
     /// window dropped from the topology) ends here, so the request cannot outlive the catch-up.
+    ///
+    /// The pause behind the request may have come from the catch-up's own capture replies, which
+    /// can fill the read bound with no live output behind them. Starting another catch-up then
+    /// would send more captures and repeat the cycle. So the request starts one only while the
+    /// reader is still behind: whatever it holds now arrived after every capture. Otherwise the
+    /// request is withdrawn, and a later pause asks again.
     func startRequestedCatchUp() {
-        if catchUp.shouldStart { catchUpAfterFallingBehind() }
+        guard catchUp.shouldStart else { return }
+        guard stdoutReaderIsBehind else {
+            catchUp.withdrawRequest()
+            return
+        }
+        catchUpAfterFallingBehind()
     }
 
     /// Repaints every pane from tmux once the stream has fallen a full read bound behind.

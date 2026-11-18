@@ -34,6 +34,11 @@ public struct RemoteTmuxCatchUpCoordinator: Equatable, Sendable {
         isRequested = true
     }
 
+    /// Forgets a request that no longer needs a catch-up.
+    public mutating func withdrawRequest() {
+        isRequested = false
+    }
+
     /// Starts a catch-up, which answers any request made so far.
     public mutating func begin() {
         isRequested = false
