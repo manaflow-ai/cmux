@@ -152,19 +152,23 @@ struct NewTabHostMarkTests {
 
     /// The row calls the report of the page's web view: the one that the web view's own `paste(_:)` calls before
     /// WebKit's paste, and the one that its `performDragOperation(_:)` calls with the files of the drag. No pasteboard
-    /// is read and nothing goes to the page.
+    /// is read and nothing goes to the page. A view on the page host (the app's default) has the 2 reports on its
+    /// page object, which gives them to its web view; a view on the old host has them on its own web view. The app
+    /// gives the 2 hosts one pair of reports (`AgentPaneView.installContextMenu`), and the row takes the pair of
+    /// the host that the view has.
     @Test(arguments: ["paste", "drop"]) func aPasteOrAFileDropThatThePagesWebViewReportsMarksThePage(input: String) async throws {
         try await Rows.row("cn-host-mark-\(input)") { services, pane, _, _ in
             let (page, _) = try Self.shownPage(services, pane)
-            let web = try #require(page.webView as? AgentPaneWKWebView, "setup: the page's web view is not the package's WebKit one")
+            let old = page.webView as? AgentPaneWKWebView
+            let host = page.page != nil ? "the page host" : "the old host"
             if input == "paste" {
-                let report = try #require(web.onPaste, "setup: the page's web view has no report of a paste")
+                let report = try #require(page.page?.onPaste ?? old?.onPaste, "setup: the page's web view has no report of a paste (\(host))")
                 report()
             } else {
-                let report = try #require(web.onFilesDropped, "setup: the page's web view has no report of a file drop")
+                let report = try #require(page.page?.onFilesDropped ?? old?.onFilesDropped, "setup: the page's web view has no report of a file drop (\(host))")
                 report([FileManager.default.temporaryDirectory.appending(path: "cn-host-mark-drop.txt")])
             }
-            print("NewTabHostMarkTests: a \(input) that the page's web view reported: \(Self.state(page))")
+            print("NewTabHostMarkTests: a \(input) that the page's web view reported (\(host)): \(Self.state(page))")
             #expect(page.model.hostTouch.marked && page.model.hostTouch.by == input, "a \(input) that the page's web view reported set no mark of a \(input): \(Self.state(page))")
             #expect(page.model.userTouched, "a page with the host's mark of a \(input) does not count as a touched one")
         }

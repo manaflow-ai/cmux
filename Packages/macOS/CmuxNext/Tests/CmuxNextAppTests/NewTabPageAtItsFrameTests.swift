@@ -54,16 +54,18 @@ struct NewTabPageAtItsFrameTests {
     typealias BuiltPage = (key: String, selected: Bool, note: String)
 
     /// The app with an empty pool of prewarmed pages, so each New Tab page is made cold. `body` gets the pane that
-    /// Cmd-T opens in, its window, and the count of page views built since the setup.
-    static func withAnEmptyPool(_ install: String,
+    /// Cmd-T opens in, its window, and the count of page views built since the setup. `usedPages` false: the setup
+    /// does not count the app's New Tab pages as used, for a row whose pages must be ones that the person did not
+    /// touch (the first New Tab tab that a pane shows next then takes the view of the app's own first page).
+    static func withAnEmptyPool(_ install: String, usedPages: Bool = true,
                                 _ body: (AppServices, NSWindow, PaneController, () -> Int) async throws -> Void) async throws {
-        try await withThePagesOfAnEmptyPool(install) { services, window, pane, pages in
+        try await withThePagesOfAnEmptyPool(install, usedPages: usedPages) { services, window, pane, pages in
             try await body(services, window, pane) { pages().count }
         }
     }
 
     /// `withAnEmptyPool` with each built page view by its tab, in the order of the builds.
-    private static func withThePagesOfAnEmptyPool(_ install: String,
+    private static func withThePagesOfAnEmptyPool(_ install: String, usedPages: Bool = true,
                                                   _ body: (AppServices, NSWindow, PaneController, @escaping () -> [BuiltPage]) async throws -> Void) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: install)
@@ -73,7 +75,7 @@ struct NewTabPageAtItsFrameTests {
             pool.dropAll()
             pool.makeSpare = { _ in nil }
             // No idle page either: the pane's own first New Tab page counts as used, so the first key's tab does not take its view.
-            NewTabOpenFramesTests.useEachNewTabPage(services)
+            if usedPages { NewTabOpenFramesTests.useEachNewTabPage(services) }
             // Each page view that the tab store builds or adopts tells this; the app's own listener still hears it.
             var pages: [BuiltPage] = [], engines: [String] = []
             let wired = tabs.onPageBuilt

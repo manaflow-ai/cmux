@@ -15,11 +15,15 @@ import Testing
 /// A window has one New Tab key hold (`NewTabInputCoordinator`). The hold of a New Tab key takes each letter and
 /// each Delete of its window while its pane shows a New Tab page: the page of any tab, not only the page of the
 /// hold's own tab. The case: New Tab key, the page of the first new tab reports and has the keyboard, New Tab key,
-/// and the person goes back to the first new tab before the page of the second new tab reported. A letter that the
-/// person types there goes into the second tab's hold. It comes late (at the report of the second page), or, when
-/// the second page does not report in the hold's limit of 2 s, the hold ends with no field ready and drops the
-/// letter: the view that has the keyboard then is the view that had it at the second New Tab key
-/// (`NewTabHoldKeyboard`), and a key for that view is not given on.
+/// and the person goes back to the first new tab before the page of the second new tab reported. Without a rule
+/// for that tab, a letter that the person types there goes into the second tab's hold. It comes late (at the report
+/// of the second page), or, when the second page does not report in the hold's limit of 2 s, the hold ends with no
+/// field ready and drops the letter: the view that has the keyboard then is the view that had it at the second New
+/// Tab key (`NewTabHoldKeyboard`), and a key for that view is not given on.
+///
+/// The hold's rule for that tab (`Entry.owns`): after the hold's page showed, the tab that the pane showed before
+/// the key is not the hold's, also when it is a New Tab page. A key there ends the hold, and the key router passes
+/// the key on at once. The rule names that one tab: a third New Tab tab of the pane is in no row here.
 ///
 /// The rule of these rows: a letter that a person types in a new tab whose field is ready goes to that tab. It does
 /// not wait for another tab's page, and it is not lost.
@@ -472,6 +476,15 @@ struct NewTabHoldInTheFirstNewTabTests {
     /// person types there waits for that tab's page: at the page's report, with the token of the tab's key hold and
     /// a ready field, the app types the letter into the page that the second new tab has, one time, and nothing
     /// into a page of the first new tab.
+    ///
+    /// The letter comes to the page by one of 2 ways, and the row wants one of them, one time. Way 1, a page whose
+    /// field was not ready before the report (the second tab has a page view of its own): the key router queues
+    /// the letter and the app types it by its edit call (`PageInputReadiness.editor`). Way 2, a page whose field
+    /// was ready before the letter (the second tab took the page view of the first tab, whose field reported): the
+    /// hold gives the letter on as a key-down, and the key router passes it on to the page's view, whose web view
+    /// has the keyboard. For way 2 the row reads the host's mark of a key on that view (`AgentPaneHostTouch`), which
+    /// the hold's replay sets when it gives a key to an agent page's view; the view had no mark before the letter.
+    /// Limit: the row does not read the key event that the web view gets.
     @Test func aLetterInTheSecondNewTabBeforeItsReportIsTypedIntoThatTab() async throws {
         try await Self.withScene { scene in
             let typed = Typed()
@@ -481,6 +494,9 @@ struct NewTabHoldInTheFirstNewTabTests {
             try #require(shows, "setup: the pane does not show the page of the second new tab after one frame of the app")
             let creationHold = scene.router.creationInputCoordinator.isHolding(in: scene.window)
             let keyboard = scene.keyboard(two)
+            let view2 = try #require(scene.services.agentTabs.existingView(two.tab2), "setup: the second new tab has no page view")
+            let readyBefore = page2.isReady, markBefore = view2.model.hostTouch.marked
+            try #require(!markBefore, "setup: the page view of the second new tab has the host's mark before the letter (by \(view2.model.hostTouch.by ?? "none")): way 2 then proves nothing")
 
             let key = try scene.keys.press("b", code: 11, command: false)
             let held = key.took && scene.input.log.last?.hasPrefix("hold key #") == true
@@ -490,18 +506,30 @@ struct NewTabHoldInTheFirstNewTabTests {
             page2.receive(true)
             await LargeSessionWindowFixture.drainMain()
             let got = (first: typed.into(two.tab1), second: typed.into(two.tab2))
+            // Way 2: the hold's replay gave the letter as a key-down to the page view that the second tab still has, whose web view has the keyboard.
+            let touch = view2.model.hostTouch
+            let stillTheTabs = scene.services.agentTabs.existingView(two.tab2) === view2
+            let asAKey = touch.marked && touch.by == "key" && stillTheTabs && scene.window.firstResponder === view2.webView
             print("""
                 NewTabHoldInTheFirstNewTabTests: row 3, a letter in the second new tab before its report: the key router took \
                 the letter: \(key.took) (the key hold took it: \(held); the window's creation hold was there before the \
                 letter: \(creationHold)); the hold gave its key on at the page's report: \(gaveOn); the app made the edits \
                 \(got.first) in the first new tab's page and \(got.second) in the second new tab's page; the 2 new tabs had \
-                one page view: \(two.onePage); the keyboard at the letter: \(keyboard), after the report: \
+                one page view: \(two.onePage); the field of the second tab's page was ready before the letter: \
+                \(readyBefore); the page view of the second tab got the letter as a key-down (the host's mark of a key, \
+                the view is still the tab's, its web view has the keyboard): \(asAKey) (the mark: \(touch.marked), by \
+                \(touch.by ?? "none")); the keyboard at the letter: \(keyboard), after the report: \
                 \(scene.keyboard(two)); the test's view got \(scene.old.keys) keys; the hold's log ends: \(scene.holdLog)
                 """)
-            #expect(got.second == [.insert("b")],
+            let byTheEdit = got.second == [.insert("b")] && !asAKey
+            let byTheKey = got.second.isEmpty && asAKey && readyBefore
+            #expect(held && gaveOn, "the key hold of the second new tab did not take the letter (\(held)) or did not give it on at the page's report (\(gaveOn)). The hold's log ends: \(scene.holdLog)")
+            #expect(byTheEdit || byTheKey,
                     """
-                    the app made the edits \(got.second) in the page of the second new tab, want the letter one time. The key \
-                    router took the letter: \(key.took). The hold's log ends: \(scene.holdLog)
+                    the letter did not come to the second new tab one time: the app made the edits \(got.second) in its \
+                    page (way 1 wants the letter one time and no key-down), and its page view got the letter as a key-down: \
+                    \(asAKey), with a field that was ready before the letter: \(readyBefore) (way 2 wants the key-down, a \
+                    ready field and no edit). The key router took the letter: \(key.took). The hold's log ends: \(scene.holdLog)
                     """)
             #expect(got.first.isEmpty, "the app made the edits \(got.first) in a page of the first new tab, want none")
             #expect(scene.old.keys == 0, "the view that had the keyboard before the first New Tab key got \(scene.old.keys) keys, want 0")
