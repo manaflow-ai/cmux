@@ -270,7 +270,7 @@ final class NewTabSparePool {
         if refill != .idle { usedThisSession = true } // idle work (Cmd-N's reservation) served no open: a launch keeps one page
         observeWindows()
         if target == nil, let window { retarget(window) }
-        guard let view = slot.take() else { return nil }
+        guard let view = slot.takeToShow() else { return nil }
         // Hand the parked page out now; its replacement comes once this open settled (`still`), the quiet-input warm
         // as the backstop. The next spare already has its own cover: the key's turn captures nothing.
         defer {
@@ -309,7 +309,7 @@ final class NewTabSparePool {
         guard lastRecycleRefusal == nil, returns.arrived(view, in: parking, of: target) else { lastRecycleRefusal = lastRecycleRefusal ?? "not in the window"; return false }
         BenchSpans.measure("pool.recycle") {
             view.adoptNewTab(NewTabPage.sparePage(services))
-            slot.parked(view)
+            slot.park(view)
         }
         schedulePrepare()
         if !refills.isOpening { snapshotParked(view) } // never a capture while an open settles (as `fitParked`)
@@ -405,7 +405,7 @@ final class NewTabSparePool {
         view.frame = parking.bounds
         view.autoresizingMask = [.width, .height]
         parking.addSubview(view)
-        slot.parked(view)
+        slot.park(view)
         snapshotParked(view)
         schedulePrepare()
         if wantsPage { scheduleWarm() }

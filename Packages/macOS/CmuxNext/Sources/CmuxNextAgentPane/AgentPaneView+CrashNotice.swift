@@ -87,6 +87,8 @@ extension AgentPaneView {
         model.cloudAsks.pageReloaded()
         // A page that came back before its owed retry ran needs none.
         crashRetry.cancel()
+        // A new document forgot that the page waits parked (``setParked(_:)``).
+        if parked { sendParked() }
         guard let notice = crashNotice else { return }
         notice.removeFromSuperview()
         crashNotice = nil

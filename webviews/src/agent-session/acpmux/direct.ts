@@ -243,6 +243,7 @@ import {
 } from "./conversation/promptCoach";
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
+import { onPageParkedChange, pageParked } from "./pageParked";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -2023,7 +2024,7 @@ function stopWaiting(wait: () => void): void {
     document.removeEventListener("visibilitychange", drawShown);
 }
 function drawShown(): void {
-  if (!pageShown()) return;
+  if (!pageDrawn()) return;
   document.removeEventListener("visibilitychange", drawShown);
   const due = [...waitingForShow];
   waitingForShow.clear();
@@ -2043,7 +2044,7 @@ export const nextFrame = (run: () => void): (() => void) => {
   let stopPending: (() => void) | undefined;
   const frame = () => {
     if (done) return;
-    if (!pageShown()) return waitForShow(frame);
+    if (!pageDrawn()) return waitForShow(frame);
     let ran = false;
     let drawn: unknown;
     let fallback: ReturnType<typeof setTimeout> | undefined;
@@ -2056,7 +2057,7 @@ export const nextFrame = (run: () => void): (() => void) => {
       if (ran || done) return;
       ran = true;
       stop();
-      if (!pageShown()) return waitForShow(frame);
+      if (!pageDrawn()) return waitForShow(frame);
       done = true;
       run();
     };
@@ -3095,6 +3096,8 @@ export class AcpmuxDirectClient {
   private frameSnapshot?: string;
   /// Another chat changed while the page was hidden: the list draws again when it shows.
   private listChangedWhileHidden = false;
+  /// Stops hearing the host park or take this page (`parkedChanged`).
+  private stopParked?: () => void;
   /// `isWorking` as the last snapshot said it, and a hidden page's draw of a change other than its
   /// text stream (`emitInFrame`): one 50 ms timer at a time, which ends when it fires or on close.
   private drawnWorking = false;
@@ -3798,6 +3801,7 @@ export class AcpmuxDirectClient {
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.showChanged);
+    this.stopParked = onPageParkedChange(this.parkedChanged);
     this.stopAttention = pageAttention()?.subscribe(this.attentionChanged);
     // The chat on screen is handed over when this page goes away as well as when it is left, so a
     // tab closed or reloaded on a chat leaves that chat warm for the next tab (keptAttachments.ts
@@ -6127,6 +6131,17 @@ export class AcpmuxDirectClient {
     if (!this.opening) this.emit("session changed");
   };
 
+  /// The host parked this page or took it (pageParked.ts). A taken page draws the other chats'
+  /// changes it left in this turn, not the next frame: the host takes the spare in the script that
+  /// adopts it, and the adoption's first render must not draw the list as it was when it parked.
+  private parkedChanged = (): void => {
+    if (this.listChangedWhileHidden && pageShown() && !this.closed) {
+      this.listChangedWhileHidden = false;
+      this.emit("session changed");
+    }
+    this.showChanged();
+  };
+
   /// The page was hidden or shown (a tab in a background workspace, an occluded window): acpmux
   /// leaves a turn that ends while nobody shows the chat unread, and showing it is seeing it.
   private showChanged = (): void => {
@@ -8347,8 +8362,8 @@ export class AcpmuxDirectClient {
     // Everything else draws within 50 ms as before, since the page's effects still act on it while
     // hidden (a subagent's own pane, the tab's header). A turn starting or ending draws at once, each
     // one, so the header refreshes on every end (App.tsx `pane.tabState`).
-    if (!pageShown() && this.workingNow() !== this.drawnWorking) return this.emit(connection);
-    if (!pageShown() && !streamGrew) {
+    if (!pageDrawn() && this.workingNow() !== this.drawnWorking) return this.emit(connection);
+    if (!pageDrawn() && !streamGrew) {
       this.hiddenDraw ??= setTimeout(() => {
         this.hiddenDraw = undefined;
         const pending = this.frameSnapshot;
@@ -16319,6 +16334,8 @@ export class AcpmuxDirectClient {
   }
   private stopPageListeners(): void {
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
+    this.stopParked?.();
+    this.stopParked = undefined;
     this.stopAttention?.();
     this.stopAttention = undefined;
     if (typeof window !== "undefined") {
@@ -16682,8 +16699,16 @@ function transcriptSeq(session: Session | undefined): number | undefined {
   return typeof seq === "number" && Number.isFinite(seq) ? seq : undefined;
 }
 
-function pageShown(): boolean {
+/// Whether the page draws frames: what its frames and snapshot draws wait on (`nextFrame`,
+/// `emitInFrame`). A parked page draws, so the spare and a kept chat have painted when taken.
+function pageDrawn(): boolean {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
+
+/// Whether someone can see the page: it draws and the host has not parked it (pageParked.ts). What
+/// its data work waits on: other chats' changes, reconnects, read ahead, and what acpmux hears.
+function pageShown(): boolean {
+  return pageDrawn() && !pageParked();
 }
 
 /// Whether the reader sees the chat: the page shows and their hand was on it lately (attention.ts).

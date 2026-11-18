@@ -77,10 +77,42 @@ extension AgentPaneView {
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-places', {detail: \(detail)}))")
     }
 
+    /// The page waits parked (true) or was taken to be shown (false). Chromium is told a parked page
+    /// is visible on purpose, so it has painted when taken (``PageWebView/setChromiumVisibility(_:)``);
+    /// this tells the page itself, whose data work then waits as a hidden page's does: another chat's
+    /// change no longer draws it in the renderer the shown chats share. A page still loading hears it
+    /// again once its document loaded (``pageLoadedAgain()``). Callers take the page before they adopt
+    /// it, in the same turn, so the adoption draws the list as it is now.
+    public func setParked(_ parked: Bool) {
+        guard parked != self.parked else { return }
+        self.parked = parked
+        sendParked()
+    }
+
+    func sendParked() {
+        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-parked', {detail: {parked: \(parked)}}))")
+    }
+
     private func show(_ page: AgentPaneNewTab, sending sent: AgentPaneNewTab? = nil) {
         // The page's own part, joined in the page with the shared text that its document has (``AgentPaneNewTabShared``).
         guard model.newTab == page, let json = model.newTabScriptValue(sent ?? page) else { return }
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-adopt', {detail: \(json)}))")
         applyTheme()
+    }
+}
+
+extension AgentPaneSpareSlot where Spare == AgentPaneView {
+    /// ``parked(_:)``, and the page hears that it waits parked (``AgentPaneView/setParked(_:)``).
+    @MainActor public mutating func park(_ view: AgentPaneView) {
+        guard shouldWarm else { return }
+        parked(view)
+        view.setParked(true)
+    }
+
+    /// ``take()``, and the page hears that it was taken to be shown.
+    @MainActor public mutating func takeToShow() -> AgentPaneView? {
+        guard let view = take() else { return nil }
+        view.setParked(false)
+        return view
     }
 }
