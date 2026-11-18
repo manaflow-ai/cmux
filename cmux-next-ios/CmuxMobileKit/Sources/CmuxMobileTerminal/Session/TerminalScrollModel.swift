@@ -114,12 +114,16 @@ public struct TerminalScrollModel: Equatable, Sendable {
     public mutating func reset() { state = .following }
 
     /// A mirror reset's replay is in: the reader goes back to their rows
-    /// (TerminalReadingMark), unless a finger took the page meanwhile.
-    /// Returns the anchor the controller puts the page on itself while a
-    /// gesture holds the page; nil when the state places it (or keeps it).
+    /// (TerminalReadingMark), whatever a gesture did since the reset. That
+    /// gesture moved a page of the old replay's rows (the reset follows the
+    /// old document's bottom), so its anchor names other rows in the new
+    /// replay: past a history window's end, the Mac's screen (#43189, step
+    /// 86896cb9e08d3fe4de04a693). Returns the anchor the controller puts the
+    /// page on itself while a gesture still holds it (the state stays the
+    /// gesture's until it settles); nil when the state places it.
     @discardableResult
     public mutating func restoreReading(_ anchor: Anchor) -> Anchor? {
-        guard state == .following else { return nil }
+        if isInteracting { return anchor }
         state = .reading(anchor)
         return nil
     }
