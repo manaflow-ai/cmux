@@ -166,7 +166,7 @@ const bubbleInkChat = chat([
   summary(5.9, { status: "completed", durationMs: 24_000, toolCount: 1 }),
 ]);
 const BUBBLE_PILL_TINT =
-  "--cv-user-bubble-tint: light-dark(color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)), color-mix(in srgb, var(--agent-accent) 50%, var(--agent-page-bg)));";
+  "--cv-user-bubble-tint: light-dark(color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)), color-mix(in srgb, var(--agent-accent) 38%, var(--agent-page-bg)));";
 const BUBBLE_PILL_INK = "--cv-user-bubble-text: light-dark(var(--agent-page-bg), var(--agent-text));";
 /// A play that sends `css` as the person's agent-pane/theme.css (AgentPaneCustomization.swift's path).
 const applyLookCss =

@@ -60,13 +60,14 @@ await requireBrowserLane("look-addons.test.ts", async () => {
       () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
     );
 
-  async function open(page: Page, variant: string, theme: "light" | "dark") {
+  async function open(page: Page, variant: string, theme: "light" | "dark", accent?: "blue") {
     const port = (vite.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, {
         variant,
         theme: theme === "light" ? "Apple System Colors Light" : "Apple System Colors",
         colorScheme: theme,
+        accent,
       })}`,
     );
     await page.locator(".cv-user__bubble").first().waitFor();
@@ -327,13 +328,20 @@ await requireBrowserLane("look-addons.test.ts", async () => {
   // and stay readable in both appearances; the same fill without the ink, or the ink over a pale
   // fill, must fail the contrast check, so the check guards the token and not only the tint.
   const PILL_TINT =
-    "--cv-user-bubble-tint: light-dark(color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)), color-mix(in srgb, var(--agent-accent) 50%, var(--agent-page-bg)));";
+    "--cv-user-bubble-tint: light-dark(color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)), color-mix(in srgb, var(--agent-accent) 38%, var(--agent-page-bg)));";
   const PILL_INK = "--cv-user-bubble-text: light-dark(var(--agent-page-bg), var(--agent-text));";
-  for (const theme of ["dark", "light"] as const) {
-    test(`a filled pill with its own ink (${theme}): lands, moves no box, reads`, async () => {
+  // Over a blue accent (the pill Codex draws) and over the neutral one, where the theme's accent is
+  // its own text color, so the pill's mix must still leave room for the ink.
+  for (const [theme, accent] of [
+    ["dark", "blue"],
+    ["light", "blue"],
+    ["dark", undefined],
+    ["light", undefined],
+  ] as const) {
+    test(`a filled pill with its own ink (${theme}, ${accent ?? "neutral"} accent): lands, moves no box, reads`, async () => {
       const page = await browser.newPage({ viewport: { width: 1000, height: 900 } });
       try {
-        await open(page, VARIANT, theme);
+        await open(page, VARIANT, theme, accent);
         const plain = await boxes(page);
         const plainLines = await readability(page);
         await applyLook(page, `:root { ${PILL_TINT} ${PILL_INK} }`);
@@ -351,7 +359,7 @@ await requireBrowserLane("look-addons.test.ts", async () => {
         expect(ink).toBe(wanted);
         // The fill is the pill's, opaque: no glass grey under the ink.
         expect(bubbleBg).not.toBe("rgba(0, 0, 0, 0)");
-        if (out) writeFileSync(path.join(out, `pill-${theme}.png`), await page.screenshot());
+        if (out) writeFileSync(path.join(out, `pill-${theme}-${accent ?? "neutral"}.png`), await page.screenshot());
         // Unset again: the bubble draws exactly what it did.
         await applyLook(page, "");
         expect(moved(plain, await boxes(page))).toEqual([]);

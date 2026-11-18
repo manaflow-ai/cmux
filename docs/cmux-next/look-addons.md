@@ -41,7 +41,7 @@ both ends come from the theme, so it reads over a light theme and a dark one):
 :root {
   --cv-user-bubble-tint: light-dark(
     color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)),
-    color-mix(in srgb, var(--agent-accent) 50%, var(--agent-page-bg))
+    color-mix(in srgb, var(--agent-accent) 38%, var(--agent-page-bg))
   );
   --cv-user-bubble-text: light-dark(var(--agent-page-bg), var(--agent-text));
 }
