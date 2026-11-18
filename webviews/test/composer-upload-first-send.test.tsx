@@ -8,17 +8,16 @@ import { JSDOM } from "jsdom";
 import { act, useImperativeHandle, type Ref } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
-import {
-  useAttachmentIntake,
-  useSendWhenAttached,
-  type AttachmentIntakeOptions,
-} from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
-import {
-  retryUploadLater,
-  UPLOAD_AUTO_RETRIES,
-  UPLOAD_RETRY_DELAY_MS,
-} from "../src/agent-session/acpmux/composer/uploadRetry";
+import type { AttachmentIntakeOptions } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { useAttachmentIntake, useSendWhenAttached } = await importWithDom(
+  () => import("../src/agent-session/acpmux/composer/attachmentIntakeModel"),
+);
+const { retryUploadLater, UPLOAD_AUTO_RETRIES, UPLOAD_RETRY_DELAY_MS } = await importWithDom(
+  () => import("../src/agent-session/acpmux/composer/uploadRetry"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node", "Element"] as const;

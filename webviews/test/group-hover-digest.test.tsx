@@ -8,15 +8,14 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import {
-  GroupHoverLookContext,
-  MessageGroupHover,
-  type GroupHoverList,
-  hoverMessages,
-  inboxHover,
-} from "../src/agent-session/acpmux/conversation/MessageGroupHover";
+import type { GroupHoverList } from "../src/agent-session/acpmux/conversation/MessageGroupHover";
 import type { IncomingMessage } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { GroupHoverLookContext, MessageGroupHover, hoverMessages, inboxHover } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/MessageGroupHover"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -10,9 +10,14 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useRef } from "react";
 import type { Root } from "react-dom/client";
-import { type ComposerAttachment, remoteRecordingAttachment } from "../src/agent-session/acpmux/attachments";
-import { useAttachmentIntake, useSendWhenAttached } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
+import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { remoteRecordingAttachment } = await importWithDom(() => import("../src/agent-session/acpmux/attachments"));
+const { useAttachmentIntake, useSendWhenAttached } = await importWithDom(
+  () => import("../src/agent-session/acpmux/composer/attachmentIntakeModel"),
+);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT", "Node"] as const;

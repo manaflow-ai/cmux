@@ -7,6 +7,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -71,9 +72,11 @@ afterEach(async () => {
   saved.clear();
 });
 
-const { MessageComposer } = await import("../src/pages/home-messages/transcript/MessageComposer");
-const { MessagesTranscript } = await import("../src/pages/home-messages/transcript/MessagesTranscript");
-const { createTranscriptStrings } = await import("../src/pages/home-messages/transcript/strings");
+const { MessageComposer } = await importWithDom(() => import("../src/pages/home-messages/transcript/MessageComposer"));
+const { MessagesTranscript } = await importWithDom(
+  () => import("../src/pages/home-messages/transcript/MessagesTranscript"),
+);
+const { createTranscriptStrings } = await importWithDom(() => import("../src/pages/home-messages/transcript/strings"));
 type HomeMessage = import("../src/pages/home-channels/types").HomeMessage;
 type HomeConversation = import("../src/pages/home-channels/types").HomeConversation;
 
