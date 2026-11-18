@@ -182,6 +182,40 @@ test("a copy across lines that are not mounted copies them from the diff", async
   expect(inside.defaultPrevented).toBe(false);
 });
 
+test("a copy across lines that are not mounted keeps the spaces the selection starts and ends with", async () => {
+  host = dom.window.document.getElementById("root")!;
+  root = createRoot(host);
+  const text = diffLines(1_000).join("\n");
+  await act(async () =>
+    root!.render(
+      <div className="feed-detail-scroll">
+        <DiffPreview attachment={{ id: "a", name: "my change.diff", mime: "text/x-diff", size: 0, text }} />
+        <p id="after">Reply below</p>
+      </div>,
+    ),
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(Number((lines()[lines().length - 1] as HTMLElement).dataset.index)).toBeLessThan(999);
+  const name = [...host.querySelector(".feed-diff-name")!.childNodes].find((node) => node.nodeType === 3)!;
+  expect(name.textContent).toBe("my change.diff");
+  // From " change.diff" (the attachment's name, above the lines) to "Reply " (below them): the range
+  // reads both ends' spaces, and the copy keeps them.
+  const range = dom.window.document.createRange();
+  range.setStart(name, "my".length);
+  range.setEnd(host.querySelector("#after")!.firstChild!, "Reply ".length);
+  const selection = dom.window.getSelection()!;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  let copied = "";
+  const event = new dom.window.Event("copy", { bubbles: true, cancelable: true }) as Event & {
+    clipboardData: { setData(type: string, text: string): void };
+  };
+  event.clipboardData = { setData: (_type, data) => (copied = data) };
+  dom.window.document.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(true);
+  expect(copied).toBe([" change.diff", text, "Reply "].join("\n"));
+});
+
 test("select-all copies the whole diff, its end in the block below the window, and mounts no more lines", async () => {
   const { pane } = await mount(10_000);
   const box = host.querySelector<HTMLElement>(".feed-diff-lines")!;

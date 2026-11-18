@@ -248,7 +248,8 @@ function pointOf(root: HTMLElement, node: Node, offset: number, edge: "start" | 
   return edge === "start" ? { line, char: 0 } : { line: line - 1, char: Number.POSITIVE_INFINITY };
 }
 
-/** The selected text before or after the lines, as the browser's range reads it. */
+/** The selected text before or after the lines, as the browser's range reads it: untrimmed, so a
+ *  selection that starts or ends on a space copies it. */
 function outside(range: Range, root: HTMLElement, side: "before" | "after"): string {
   const part = root.ownerDocument.createRange();
   if (side === "before") {
@@ -258,7 +259,7 @@ function outside(range: Range, root: HTMLElement, side: "before" | "after"): str
     part.setStartAfter(root);
     part.setEnd(range.endContainer, range.endOffset);
   }
-  return part.toString().trim();
+  return part.toString();
 }
 
 interface RowProps {
