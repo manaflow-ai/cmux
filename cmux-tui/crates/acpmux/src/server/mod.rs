@@ -2361,6 +2361,7 @@ mod cancel_classes_tests;
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
 mod client_request;
+pub(crate) mod controls;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;

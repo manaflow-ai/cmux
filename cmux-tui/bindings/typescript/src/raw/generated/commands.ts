@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362. */
+/* cmux-tui mux protocol 12, IR e36fafb2ce1a616e5734761cd2e6761fc809fb67e42d9cd6d9f8ee0829e4a6a7. */
 
 
 import type * as T from "./types.js";
@@ -2144,6 +2144,7 @@ export type RemoteHostCallResult = T.JsonValue;
 /** Protocol v12; authority: local-admin. */
 export interface RemoteHostConfigRequest extends CmuxRequestBase {
   cmd: "remote-host-config";
+  "app_permissions"?: (T.RemoteHostAppPermissions) | null;
   "computer_use"?: (boolean) | null;
   "headless"?: (boolean) | null;
   "screen_sharing"?: (boolean) | null;

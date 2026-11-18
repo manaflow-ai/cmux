@@ -1,5 +1,7 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-16 (lane/sidebar-share-icon, ask-3d308b4cbd): Sidebar-Look: Leo, 2026-11-16, on the share arrow drawn on every row: "Holy moly is THIS the icon for screen sharing???". Workspace rows draw no screen button (the revert below, ask-035c65b611, stands). Where Share and View screen remain, on the machine header and the Projects header, they draw a screen (`remote.display`), never the generic share arrow (`action.share`), and show on hover only; the header keeps the slot so the name never moves. While This Mac shares (`SidebarMachine.screenShared`, from this device's `HubDevice.macScreenShared`), those headers draw the screen in the accent at rest, labelled "Sharing screen": the sharing badge. VoiceOver reaches a hidden header button through the header's custom action. The header's + stays at rest (cx-g2kk). Regression: `SidebarScreenActionTests`, `SidebarRowControlsAtRestTests` (no row draws an action at rest); gallery `AASidebarScreenActionsGalleryTests.renderStates` (four glyph variants).
+
 - 2026-11-17 (chief-group-rail): Sidebar-Look: Lawrence, 2026-11-17: "chief workspaces group missing left rail". The
   host makes "Chief's workspaces" with no color, and a group with no color drew only its block (`sidebar.noColorGroup`)
   with a fully clear line, so it had no left rail while each colored group beside it had one. Every open group now draws
