@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { memo, useEffect, useId, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { flushSync } from "react-dom";
+import { focusRoute } from "../../../ui/focusRoute";
 import { Popover, type UiAnchor } from "../../../ui/Popover";
-import { useScrollEdges } from "../../../ui/scrollEdges";
+import { VirtualList } from "../../../ui/VirtualList";
 import { postNative } from "../native";
 import { NativeError } from "../nativeError";
 import { useT, type Translate } from "../i18n";
@@ -90,31 +92,63 @@ function errorCode(error: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
-/// One repository: its name and a quiet source (or "Attaching") label.
-function CloudRepositoryOption({
+/// A row's height: the 28 px option and the 4 px gap under it (sessionInfo.css).
+const ROW_HEIGHT = 32;
+const rowHeight = () => ROW_HEIGHT;
+
+/// One repository: its name and a quiet source (or "Attaching") label. Memoized on plain values
+/// and the list's stable row style, so a scroll, a focus move or a keystroke in the search field
+/// does not draw the rows already in view again.
+const CloudRepositoryOption = memo(function CloudRepositoryOption({
   fullName,
   detail,
   disabled,
+  index,
+  setSize,
+  style,
   onAttach,
+  onFocusIndex,
+  onTabFrom,
 }: {
   fullName: string;
   detail: string;
   disabled: boolean;
-  onAttach: () => void;
+  index: number;
+  setSize: number;
+  style: CSSProperties;
+  onAttach: (fullName: string) => void;
+  onFocusIndex: (index: number | undefined) => void;
+  /// Tab or Shift+Tab from this row to the next one, which may not be drawn yet.
+  onTabFrom: (index: number, setSize: number, back: boolean) => boolean;
 }) {
   return (
-    <button
-      type="button"
-      className="acpmux-cloud-repository-option"
-      data-action="repository-option"
-      disabled={disabled}
-      onClick={onAttach}
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a row of the windowed list.
+    <div
+      role="listitem"
+      className="acpmux-cloud-repository-row"
+      style={style}
+      aria-posinset={index + 1}
+      aria-setsize={setSize}
     >
-      <span className="acpmux-cloud-repository-name">{fullName}</span>
-      <span className="acpmux-cloud-repository-source">{detail}</span>
-    </button>
+      <button
+        type="button"
+        className="acpmux-cloud-repository-option"
+        data-action="repository-option"
+        disabled={disabled}
+        onClick={() => onAttach(fullName)}
+        onFocus={() => onFocusIndex(index)}
+        onBlur={() => onFocusIndex(undefined)}
+        onKeyDown={(event) => {
+          if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) return;
+          if (onTabFrom(index, setSize, event.shiftKey)) event.preventDefault();
+        }}
+      >
+        <span className="acpmux-cloud-repository-name">{fullName}</span>
+        <span className="acpmux-cloud-repository-source">{detail}</span>
+      </button>
+    </div>
   );
-}
+});
 
 export function CloudRepositoryPicker({
   session,
@@ -137,7 +171,19 @@ export function CloudRepositoryPicker({
   const t = useT();
   const [query, setQuery] = useState("");
   const [repos, setRepos] = useState<CloudRepo[]>([]);
-  const listEdges = useScrollEdges();
+  /// The row holding focus stays mounted when it scrolls out of view (VirtualList's active row).
+  const [focusedIndex, setFocusedIndex] = useState<number>();
+  const listId = useId();
+  /// Tab walks every repository as it did when all were drawn: the next row is made the list's
+  /// active row (drawn and scrolled to) before it takes focus, so a held Tab does not run past the
+  /// drawn rows. From the first or last row the browser moves focus out of the list.
+  const tabFrom = (index: number, setSize: number, back: boolean) => {
+    const next = index + (back ? -1 : 1);
+    if (next < 0 || next >= setSize) return false;
+    flushSync(() => setFocusedIndex(next));
+    const row = document.getElementById(listId)?.querySelector<HTMLElement>(`[aria-posinset="${next + 1}"] button`);
+    return focusRoute(row, "person", "Tab to the next repository");
+  };
   const [connectUrl, setConnectUrl] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [attaching, setAttaching] = useState<string>();
@@ -191,12 +237,12 @@ export function CloudRepositoryPicker({
     return () => window.clearTimeout(timer);
   }, [open, query, request, session, t]);
 
-  const attach = (repo: CloudRepo) => {
+  const attach = (fullName: string) => {
     if (attaching) return;
-    setAttaching(repo.fullName);
+    setAttaching(fullName);
     setError(undefined);
     void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
-      .then(() => request<AddReply>("cloud.repo.add", { repo: repo.fullName }))
+      .then(() => request<AddReply>("cloud.repo.add", { repo: fullName }))
       .then((reply) => {
         if (reply?.state === "done" && !(reply as { code?: unknown }).code && reply.repo) {
           onAttached({ repo: reply.repo, folder: reply.folder, head: reply.head });
@@ -240,25 +286,39 @@ export function CloudRepositoryPicker({
               const first = repos[0];
               if (first) {
                 event.preventDefault();
-                attach(first);
+                attach(first.fullName);
               }
             }
           }}
         />
         {loading && <div className="acpmux-cloud-repository-progress">{t("cloudRepository.searching")}</div>}
         {!loading && repos.length > 0 && (
-          <ul ref={listEdges} className="acpmux-cloud-repository-list ui-scroll-edge-fade">
-            {repos.map((repo) => (
-              <li key={repo.fullName}>
+          <VirtualList
+            role="list"
+            id={listId}
+            className="acpmux-cloud-repository-list"
+            fade
+            count={repos.length}
+            estimateSize={rowHeight}
+            activeIndex={focusedIndex}
+            renderRow={(index, style) => {
+              const repo = repos[index]!;
+              return (
                 <CloudRepositoryOption
+                  key={repo.fullName}
                   fullName={repo.fullName}
                   detail={attaching === repo.fullName ? t("cloudRepository.attaching") : sourceLabel(repo.source, t)}
                   disabled={Boolean(attaching)}
-                  onAttach={() => attach(repo)}
+                  index={index}
+                  setSize={repos.length}
+                  style={style}
+                  onAttach={attach}
+                  onFocusIndex={setFocusedIndex}
+                  onTabFrom={tabFrom}
                 />
-              </li>
-            ))}
-          </ul>
+              );
+            }}
+          />
         )}
         {!loading && repos.length === 0 && !error && (
           <div className="acpmux-cloud-repository-empty">{t("cloudRepository.empty")}</div>

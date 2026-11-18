@@ -1696,14 +1696,18 @@ button.acpmux-session-info-scope__parent:focus-visible {
   color: var(--agent-text);
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
 }
+/* A windowed list (ui/VirtualList): only the rows in view are drawn, each ROW_HEIGHT (32 px) tall,
+   the option and a 4 px gap under it. Its rows are placed absolutely and give the popover no width,
+   so the list takes the popover's widest content width, as a long repository name did. */
 .acpmux-cloud-repository-list {
-  display: grid;
-  gap: 4px;
+  width: min(344px, calc(100vw - 48px));
   max-height: 260px;
-  overflow: auto;
   padding: 0;
   margin: 0;
-  list-style: none;
+}
+.acpmux-cloud-repository-row {
+  box-sizing: border-box;
+  padding-bottom: 4px;
 }
 .acpmux-cloud-repository-option {
   display: flex;
