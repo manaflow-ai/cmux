@@ -33,6 +33,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::Failure;
+use super::github::GitHub;
 use super::render::Answer;
 use super::source::{Source, ref_slug};
 
@@ -169,14 +170,30 @@ pub(super) fn failure(why: String) -> Failure {
     Failure::from(Error::Library(why))
 }
 
-/// GETs, one current-thread runtime per verb.
+/// GETs, one current-thread runtime per verb. A GET to GitHub carries the
+/// person's GitHub token when they have one (github.rs); no other host ever
+/// sees it, also not through a redirect (reqwest drops the header when one
+/// leaves the origin).
 pub(super) struct Http {
     runtime: tokio::runtime::Runtime,
     client: reqwest::Client,
+    github: GitHub,
+    /// Looked up at the first GET to GitHub, then kept.
+    token: std::cell::OnceCell<Option<String>>,
 }
 
 impl Http {
     pub(super) fn new() -> Result<Http, Failure> {
+        Http::build(GitHub::default(), std::cell::OnceCell::new())
+    }
+
+    /// An `Http` that takes `github`'s origins for GitHub's and has `token`.
+    #[cfg(test)]
+    pub(super) fn for_test(github: GitHub, token: Option<&str>) -> Result<Http, Failure> {
+        Http::build(github, std::cell::OnceCell::from(token.map(str::to_owned)))
+    }
+
+    fn build(github: GitHub, token: std::cell::OnceCell<Option<String>>) -> Result<Http, Failure> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -187,19 +204,30 @@ impl Http {
             .user_agent(concat!("cmux-customize/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|error| failure(format!("could not start an HTTP client: {error}")))?;
-        Ok(Http { runtime, client })
+        Ok(Http { runtime, client, github, token })
+    }
+
+    fn token(&self) -> Option<&str> {
+        self.token.get_or_init(super::github::token).as_deref()
     }
 
     /// The body of `url`, `None` on a 404.
-    fn get(&self, url: &str, limit: u64) -> Result<Option<Vec<u8>>, Failure> {
+    pub(super) fn get(&self, url: &str, limit: u64) -> Result<Option<Vec<u8>>, Failure> {
+        self.get_as(url, limit, "application/json, application/gzip")
+    }
+
+    fn get_as(&self, url: &str, limit: u64, accept: &str) -> Result<Option<Vec<u8>>, Failure> {
+        let token = if self.github.owns(url) { self.token() } else { None };
         self.runtime.block_on(async {
-            let mut response = self
-                .client
-                .get(url)
-                .header(reqwest::header::ACCEPT, "application/json, application/gzip")
-                .send()
-                .await
-                .map_err(|error| failure(format!("{url}: {error}")))?;
+            let mut request = self.client.get(url).header(reqwest::header::ACCEPT, accept);
+            if let Some(token) = token {
+                let mut value = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+                    .map_err(|_| failure("the GitHub token is not a header value".into()))?;
+                value.set_sensitive(true);
+                request = request.header(reqwest::header::AUTHORIZATION, value);
+            }
+            let mut response =
+                request.send().await.map_err(|error| failure(format!("{url}: {error}")))?;
             if response.status() == reqwest::StatusCode::NOT_FOUND {
                 return Ok(None);
             }
@@ -219,7 +247,7 @@ impl Http {
         })
     }
 
-    fn get_json(&self, url: &str) -> Result<Option<Value>, Failure> {
+    pub(super) fn get_json(&self, url: &str) -> Result<Option<Value>, Failure> {
         match self.get(url, 4 * 1024 * 1024)? {
             None => Ok(None),
             Some(bytes) => serde_json::from_slice(&bytes)
@@ -279,16 +307,44 @@ impl Published {
         }
     }
 
-    /// A fork's release download folder.
-    fn fork_release(&self) -> Option<String> {
+    /// A fork's release: its repo and tag.
+    fn fork_release(&self) -> Option<(&str, String)> {
         match self {
-            Published::Fork { repo, reference } => Some(format!(
-                "https://github.com/{repo}/releases/download/{FORK_TAG}{}",
-                ref_slug(reference)
-            )),
+            Published::Fork { repo, reference } => {
+                Some((repo.as_str(), format!("{FORK_TAG}{}", ref_slug(reference))))
+            }
             _ => None,
         }
     }
+}
+
+/// Asset `name` of fork `source`'s release, `None` when there is none (or the
+/// source is no fork). Signed in, it reads through the releases API, the only
+/// way to a private fork's asset; a token GitHub refuses falls back to the
+/// public download link, which is all there is without one.
+pub(super) fn fork_asset(
+    http: &Http,
+    source: &Published,
+    name: &str,
+    limit: u64,
+) -> Result<Option<Vec<u8>>, Failure> {
+    let Some((repo, tag)) = source.fork_release() else { return Ok(None) };
+    if http.token().is_some() {
+        let url = format!("{}/repos/{repo}/releases/tags/{tag}", http.github.api);
+        match http.get_json(&url) {
+            Ok(None) => return Ok(None),
+            Ok(Some(release)) => {
+                let Some(asset) = super::github::asset_url(&http.github, &release, name) else {
+                    return Ok(None);
+                };
+                return http.get_as(&asset, limit, "application/octet-stream");
+            }
+            Err(error)
+                if error.message.contains("HTTP 401") || error.message.contains("HTTP 403") => {}
+            Err(error) => return Err(error),
+        }
+    }
+    http.get(&format!("{}/{repo}/releases/download/{tag}/{name}", http.github.web), limit)
 }
 
 /// The published pointer for `source`: the one built on `commit` when there
@@ -298,8 +354,13 @@ fn pointer(
     source: &Published,
     commit: Option<&str>,
 ) -> Result<Option<Value>, Failure> {
-    if let Some(release) = source.fork_release() {
-        return http.get_json(&format!("{release}/layer.json"));
+    if matches!(source, Published::Fork { .. }) {
+        return match fork_asset(http, source, "layer.json", 4 * 1024 * 1024)? {
+            None => Ok(None),
+            Some(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(|_| {
+                failure(format!("{}: its layer.json is not JSON", source.source_text()))
+            }),
+        };
     }
     let base = base_url();
     let prefix = source.ours().unwrap_or_default();
@@ -424,10 +485,10 @@ fn install(customize: &Customize, http: &Http, layer: &CodeLayer) -> Result<(), 
     if !layer.has_web() || customize.layer_ready(&layer.web) {
         return Ok(());
     }
-    if let Some(release) = Published::of(layer).and_then(|source| source.fork_release()) {
-        let url = format!("{release}/web-bundles.tar.gz");
-        let bytes =
-            http.get(&url, MAX_ARCHIVE)?.ok_or_else(|| failure(format!("{url}: not found")))?;
+    if let Some(source) = Published::of(layer).filter(|p| matches!(p, Published::Fork { .. })) {
+        let url = format!("{}: web-bundles.tar.gz", source.source_text());
+        let bytes = fork_asset(http, &source, "web-bundles.tar.gz", MAX_ARCHIVE)?
+            .ok_or_else(|| failure(format!("{url}: not found")))?;
         let got = hex(&Sha256::digest(&bytes));
         if got != layer.web {
             return Err(failure(format!(

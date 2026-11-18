@@ -19,7 +19,7 @@ a video, click through it; compile checks, CI and suites come after the look. Of
 | Web, a PR | `cmux customize use pr:N` | `cmux customize library off pr-N` |
 | Web, a pushed branch or commit | `cmux customize use branch:NAME` or `sha:SHA` | `cmux customize library off NAME` |
 | Web, your working copy | `cmux customize use dir:PATH --watch` (again about 19 s after each save, on a fleet Mac), or `cmux live start` ([below](#start-in-30-seconds)) | `library off NAME`, `cmux live stop` |
-| Web, a fork's branch | `cmux customize use OWNER/REPO@REF`, from the fork's own workflow, never our CI | `library off NAME` |
+| Web, a fork's branch | `cmux customize use OWNER/REPO@REF`, from the fork's own workflow, never our CI; a private repo reads with your GitHub sign-in (`GH_TOKEN`, `GITHUB_TOKEN` or `gh auth login`), sent only to GitHub and never stored | `library off NAME` |
 | Terminal daemon and acpmux Rust | `scripts/cmux-next/hot-apply.py apply SHA` ([below](#a-merged-commit-in-the-running-app-before-the-nightly)), about 2.7 s | `hot-apply.py rollback` |
 | A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>` | `cmux app try undo` |
 | Swift, Rust the app links, resources | a build: `hot-apply.py plan SHA` says which | |
