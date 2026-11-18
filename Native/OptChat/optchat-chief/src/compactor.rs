@@ -1164,6 +1164,7 @@ impl AcpmuxCompactor {
             env: Default::default(),
             fast: self.spec.fast,
             peer: None,
+            stop_condition: None,
         };
         let id = self
             .port

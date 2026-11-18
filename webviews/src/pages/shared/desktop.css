@@ -887,6 +887,23 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   ):is(:hover, [data-highlighted]) {
   transition-duration: 0s !important;
 }
+/* MENU-ROW-SNAP (Lawrence 2026-11-17, "fix these hover bugs"): a menu's highlight moves as an
+   NSMenu's does, in one frame both ways. The row the pointer or the arrows leave clears in the
+   frame the next one lights, so two rows are never lit at once and none stays lit after the pointer
+   leaves the menu (the row's own 80 ms fade-out did both). Only the rows of a popup (every menu,
+   combobox and popover list is a .ui-popup); a list on a page keeps its cross-fade. A row's
+   keyframe motion (rowPresence.ts) is an animation, not a transition, so it still runs. */
+.ui-popup
+  :is(
+    .ui-menu-item,
+    .ui-combobox-item,
+    [role="option"],
+    [role="menuitem"],
+    [role="menuitemradio"],
+    [role="menuitemcheckbox"]
+  ) {
+  transition-duration: 0s !important;
+}
 
 /* SYNCED-SPINNERS (user 2026-10-20): the one spinner animation of every page. Clockwise, one
    `--cmux-spinner-period` per turn (the motion-scale block above: the native spinner's turn too,

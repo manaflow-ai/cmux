@@ -59,6 +59,36 @@ export const integrationCompletionApi = (at: { readonly api: string; readonly ho
   return staging && integrationEnvironmentHint(state) === "development" ? { url: DEVELOPMENT_API_URL, environment: "development" } : { url: api }
 }
 
+/** The `ret` claim of an integration state's JWT, unverified (the API verifies the state when the app completes it). */
+const stateReturnHint = (state: string | undefined): string | undefined => {
+  const ret = unverifiedStateClaims(state)?.ret
+  return typeof ret === "string" ? ret : undefined
+}
+
+/**
+ * A connect the app started (#46018): the state's return link is the app's own `<scheme>://integration/complete`.
+ * The provider's redirect goes straight on to it with `state`, `code`, `installation_id`, `setup_action` and `error`,
+ * and the app finishes the connection with its own sign-in: no page here, no web session. Undefined for any other
+ * connect (one started here, or from a chat), which this page finishes as before. The link is only a hint read from
+ * the unverified state: the app sends the state back, and the API completes only a state signed for that person.
+ */
+export const integrationAppHandoff = (search: {
+  state?: string
+  code?: string
+  installation_id?: string
+  setup_action?: string
+  error?: string
+}): string | undefined => {
+  const ret = stateReturnHint(search.state)
+  if (!ret || ret.length > 512 || !RETURN_TO_PATTERN.test(ret) || !ret.endsWith("://integration/complete")) return undefined
+  const query = new URLSearchParams()
+  for (const key of ["state", "code", "installation_id", "setup_action", "error"] as const) {
+    const value = search[key]
+    if (value) query.set(key, value)
+  }
+  return `${ret}?${query.toString()}`
+}
+
 export const integrationCompletionRequest = (state: string, extra: { code?: string; installation_id?: string; setup_action?: string } = {}) => ({
   params: {
     state,
@@ -82,6 +112,7 @@ export const RETURN_TO_PATTERN = new RegExp(
     `(?:workspace/ws_|pane/pane_|tab/tab_)${RETURN_HEX}(?:\\?machine=machine_${RETURN_HEX})?` +
     `|session/${RETURN_SESSION}(?:\\?machine=machine_${RETURN_HEX})?(?:#turn-${RETURN_SESSION})?` +
     `|agent/[a-z0-9-]{1,64}/[A-Za-z0-9._:-]{1,256}(?:\\?${RETURN_HINT}(?:&${RETURN_HINT}){0,2})?` +
+    `|integration/complete` +
     `)$`,
 )
 

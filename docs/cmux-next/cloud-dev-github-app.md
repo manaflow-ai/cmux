@@ -21,7 +21,11 @@ one sign-in project, so the staging console's session is valid on the developmen
 production console never forwards. Tests pin the URLs to `wrangler.jsonc`
 (`backend/apps/dashboard/test-server/integration-callback-route.test.ts`).
 
-A development connect ends on "Connected to the development Cloud", or returns to the chat or
+A connect the cmux app started never reaches that step: the callback page sends the browser
+straight back to the app (`integrationAppHandoff`, the state's `<scheme>://integration/complete`
+return link), and the DEV build finishes it on the development API with its own sign-in. The
+forwarding above is for a connect started from a chat or from the console, which the page
+finishes itself: it ends on "Connected to the development Cloud", or returns to the chat or
 GitHub's configure page like any other connect.
 
 ## The App
@@ -112,6 +116,7 @@ GitHub's key download is PKCS#1 (`BEGIN RSA PRIVATE KEY`). The script converts i
    Never replace an existing one.
 4. `bunx wrangler secret bulk ~/.secrets/cmux-next-integrations-development.json --env development`.
 5. Check: signed in to a DEV build on the `dev` Cloud environment,
-   `GET /v1/integrations/github/status?team=<team>` reports GitHub configured. Connect GitHub,
-   install `cmux-cloud-dev` on a test repository, and the staging console's callback says
-   "Connected to the development Cloud".
+   `GET /v1/integrations/github/status?team=<team>` reports GitHub configured. Connect GitHub
+   from the folder menu, install `cmux-cloud-dev` on a test repository, and the browser returns
+   to the DEV build, which shows the repository. A connect started from a chat ends on the
+   staging console's "Connected to the development Cloud".

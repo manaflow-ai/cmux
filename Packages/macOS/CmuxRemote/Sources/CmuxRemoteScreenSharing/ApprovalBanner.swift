@@ -6,8 +6,8 @@ import Foundation
 
 /// The approval banner for a device hub request (permission Ask), shown by
 /// the Screen Sharing worker, so it appears with the cmux app quit too: the
-/// asking device's name and key fingerprint, the scope, and Deny, Allow Once,
-/// Always Allow View Only, Always Allow Full Control. A floating,
+/// who asks and what it could do, and Allow (remembered for that Mac: the
+/// hub's Always), Allow Only This Time and Not Now. A floating,
 /// non-activating panel at the top right of the main screen, over every app
 /// (full-screen ones too); it never takes the keyboard or the frontmost app.
 /// One request at a time, oldest first; it gives up after the protocol's
@@ -51,8 +51,10 @@ final class ApprovalBanner {
         changed()
     }
 
-    func answer(_ choice: ApprovalChoice) {
-        guard let request = current, !answering else { return }
+    /// Answers the request a button was drawn for: a click that lands after the next request took
+    /// its place answers nothing.
+    func answer(_ choice: ApprovalChoice, for requestID: String? = nil) {
+        guard let request = current, requestID == nil || requestID == request.id, !answering else { return }
         answering = true
         render()
         Task { [weak self] in
@@ -92,10 +94,10 @@ final class ApprovalBanner {
             panel.request = request.id
             panel.shown()
         }
-        panel.onAllow = { [weak self] in self?.answer($0) }
+        panel.onAllow = { [weak self, id = request.id] in self?.answer($0, for: id) }
         self.panel = panel
         let hadKeys = panel.isKeyWindow
-        let content = ApprovalView(request: request, error: error, enabled: !answering) { [weak self] in self?.answer($0) }
+        let content = ApprovalView(request: request, error: error, enabled: !answering) { [weak self, id = request.id] in self?.answer($0, for: id) }
         panel.contentView = content
         content.layoutSubtreeIfNeeded()
         let size = content.fittingSize
@@ -294,17 +296,18 @@ enum ApprovalLook {
     }
 }
 
-/// The banner's content (AppKit), as the cmux dialog card draws a request: the app icon at the left; the title, the
-/// scope, the asking device's key fingerprint on an inset well, a failed answer; then the four answers stacked the
-/// card's width: Allow Once, Always Allow View Only, Always Allow Full Control, and Deny last as quiet red text
-/// (Escape). SECURITY: only the person's own click answers an Allow (``ApprovalPanel``); any press or Escape denies.
+/// The banner's content (AppKit), as the cmux dialog card draws a request and as the app's Mac Screen prompt words
+/// it: the app icon at the left; who asks, what it can do and what Allow keeps, the asking device's key on an inset
+/// well, a failed answer; then three answers stacked the card's width: Allow (the hub's Always at the scope asked
+/// for, so this Mac is not asked again), Allow Only This Time, and Not Now last as quiet red text (Escape).
+/// SECURITY: only the person's own click answers an Allow (``ApprovalPanel``); any press or Escape denies.
 @MainActor
 final class ApprovalView: NSView {
     static let width: CGFloat = 432
     private let answer: (ApprovalChoice) -> Void
     private let stack = NSStackView()
     private(set) var buttons: [ApprovalButton] = []
-    /// The three Allows and what each answers (``ApprovalPanel`` reads the person's click on them).
+    /// The two Allows and what each answers (``ApprovalPanel`` reads the person's click on them).
     private(set) var allows: [(ApprovalButton, ApprovalChoice)] = []
 
     init(request: SessionRequest, error: String?, enabled: Bool, answer: @escaping (ApprovalChoice) -> Void) {
@@ -348,10 +351,17 @@ final class ApprovalView: NSView {
             font: look.titleFont, width: textWidth)
         stack.addArrangedSubview(title)
         stack.setCustomSpacing(look.subtitleGap, after: title)
-        stack.addArrangedSubview(Self.label(String(format: RemoteText.t("macScreen.approval.scope", "Asks for %@."), request.scope.remoteTitle),
-                                            font: look.bodyFont, color: .secondaryLabelColor, width: textWidth))
+        let full = request.scope == .full
+        stack.addArrangedSubview(Self.label(full
+                ? RemoteText.t("macScreen.approval.bodyFull", "It can see your screen and use your mouse and keyboard.")
+                : RemoteText.t("macScreen.approval.bodyView", "It can see your screen but can’t control it."),
+            font: look.bodyFont, color: .secondaryLabelColor, width: textWidth))
+        stack.addArrangedSubview(Self.label(String(format: full
+                ? RemoteText.t("macScreen.approval.remembersFull", "Allow lets %@ control this Mac from now on. Change it in Devices.")
+                : RemoteText.t("macScreen.approval.remembersView", "Allow lets %@ see this Mac from now on. Change it in Devices."),
+            request.viewerName), font: look.bodyFont, color: .secondaryLabelColor, width: textWidth))
         if let fingerprint = request.viewerKeyFingerprint {
-            stack.addArrangedSubview(Self.label(RemoteText.t("macScreen.approval.fingerprint", "Device key fingerprint"), font: look.captionFont,
+            stack.addArrangedSubview(Self.label(RemoteText.t("macScreen.approval.deviceKey", "Device key"), font: look.captionFont,
                                                 color: .secondaryLabelColor, width: textWidth))
             stack.addArrangedSubview(CodeWell(Self.fingerprintLines(fingerprint), width: textWidth))
         }
@@ -365,12 +375,15 @@ final class ApprovalView: NSView {
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = look.buttonGap
-        let order: [(ApprovalChoice, ApprovalButton.Role, String?)] = [
-            (.once, .primary, nil), (.alwaysView, .secondary, nil), (.alwaysFull, .secondary, nil), (.deny, .quietDestructive, "esc"),
+        // Allow remembers this Mac (the hub's Always at the scope asked for), so the next request is not asked.
+        let order: [(ApprovalChoice, String, ApprovalButton.Role, String?)] = [
+            (full ? .alwaysFull : .alwaysView, RemoteText.t("macScreen.approval.allow", "Allow"), .primary, nil),
+            (.once, RemoteText.t("macScreen.approval.onlyThisTime", "Allow Only This Time"), .secondary, nil),
+            (.deny, RemoteText.t("macScreen.approval.notNow", "Not Now"), .quietDestructive, "esc"),
         ]
-        for (choice, role, key) in order {
-            // SECURITY: an Allow's own action answers nothing; Deny takes any press.
-            let button = ApprovalButton(choice.title, role: role, key: key) { if choice == .deny { answer(choice) } }
+        for (choice, label, role, key) in order {
+            // SECURITY: an Allow's own action answers nothing; Not Now takes any press.
+            let button = ApprovalButton(label, role: role, key: key) { if choice == .deny { answer(choice) } }
             if choice != .deny { allows.append((button, choice)) }
             button.isEnabled = enabled
             button.setAccessibilityIdentifier("macScreen.approval.\(choice.rawValue)")
