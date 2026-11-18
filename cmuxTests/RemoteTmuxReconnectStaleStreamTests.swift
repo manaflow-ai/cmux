@@ -99,21 +99,16 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let goURL = root.appendingPathComponent("go")
-        let fullURL = root.appendingPathComponent("full")
         #expect(mkfifo(goURL.path, 0o600) == 0)
-        #expect(mkfifo(fullURL.path, 0o600) == 0)
 
         // The control client enters control mode, answers its attach, and waits for the test. It
-        // then writes far more pane %1 output than the reader may hold, without blocking, and says
-        // "full" once the pipe has stayed full for a second: the reader stopped at its bound. The
-        // rest follows with ordinary blocking writes, then one line for pane %2, which the test
-        // waits for. Commands from the connection are read and ignored.
+        // then writes far more pane %1 output than the reader may hold, then one line for pane %2,
+        // which the test waits for. Commands from the connection are read and ignored.
         let floodURL = root.appendingPathComponent("flood.py")
         try writeExecutable(
             at: floodURL,
             contents: """
-            import os, select, sys, threading
-            go, full = sys.argv[1], sys.argv[2]
+            import os, sys, threading
             def ignore_commands():
                 while os.read(0, 65536):
                     pass
@@ -124,27 +119,11 @@ import Testing
                 while view:
                     view = view[os.write(1, view):]
             write_all(b"\\033P1000p%begin 1 1 0\\n%end 1 1 0\\n")
-            with open(go, "rb") as f:
+            with open(sys.argv[1], "rb") as f:
                 f.read()
-            block = memoryview((b"%output %1 " + b"x" * 1000 + b"\\n") * 64)
-            total, written, offset, said_full = 48 << 20, 0, 0, False
-            os.set_blocking(1, False)
-            while written < total:
-                try:
-                    n = os.write(1, block[offset:])
-                except BlockingIOError:
-                    if said_full:
-                        select.select([], [1], [])
-                    elif not select.select([], [1], [], 1.0)[1]:
-                        with open(full, "w") as f:
-                            f.write("full\\n")
-                        said_full = True
-                    continue
-                written += n
-                offset = (offset + n) % len(block)
-            os.set_blocking(1, True)
-            if offset:
-                write_all(block[offset:])
+            block = (b"%output %1 " + b"x" * 1000 + b"\\n") * 64
+            for _ in range((48 << 20) // len(block) + 1):
+                write_all(block)
             write_all(b"%output %2 flood-end\\n")
             reader.join()
             """
@@ -155,7 +134,7 @@ import Testing
             contents: """
             #!/bin/sh
             case "$*" in *-CC*) ;; *) exit 0 ;; esac
-            exec /usr/bin/env python3 -I '\(floodURL.path)' '\(goURL.path)' '\(fullURL.path)'
+            exec /usr/bin/env python3 -I '\(floodURL.path)' '\(goURL.path)'
             """
         )
         let previousSSH = getenv(sshOverrideKey).map { String(cString: $0) }
@@ -164,8 +143,17 @@ import Testing
             if let previousSSH { setenv(sshOverrideKey, previousSSH, 1) } else { unsetenv(sshOverrideKey) }
         }
 
+        // The reader says on its own queue when it stops at its bound, so the test can wait for
+        // that while it holds the main actor.
+        // The write handle lives as long as the reader holds the callback.
+        let pauses = Pipe()
+        let pauseWriter = pauses.fileHandleForWriting
         let host = RemoteTmuxHost(destination: "backlog-\(UUID().uuidString)@example.test")
-        let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
+        let connection = RemoteTmuxControlConnection(
+            host: host,
+            sessionName: "dev",
+            onStdoutReaderPause: { try? pauseWriter.write(contentsOf: Data("p".utf8)) }
+        )
         var paneOneBytes = 0
         let (floodEnded, floodEndedContinuation) = AsyncStream<Void>.makeStream()
         let token = connection.addObserver(onPaneOutput: { paneId, data in
@@ -186,15 +174,13 @@ import Testing
             layout: RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(1))
         )
 
-        let fullFD = open(fullURL.path, O_RDONLY | O_NONBLOCK)
-        try #require(fullFD >= 0)
-        defer { close(fullFD) }
         let goFD = open(goURL.path, O_WRONLY)
         try #require(goFD >= 0)
         close(goFD)
-        // The main actor is held until the reader has stopped, so the whole backlog is waiting.
-        var full = pollfd(fd: fullFD, events: Int16(POLLIN), revents: 0)
-        try #require(poll(&full, 1, 60_000) == 1, "the reader never stopped at its bound")
+        // The main actor is held until the reader has stopped at its bound, so the whole backlog
+        // is waiting. The deadline only catches a reader that never stops.
+        var paused = pollfd(fd: pauses.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+        try #require(poll(&paused, 1, 60_000) == 1, "the reader never stopped at its bound")
 
         for await _ in floodEnded { break }
 

@@ -39,15 +39,22 @@ public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     /// next turn, before the next queued chunk is parsed.
     public let pauses: AsyncStream<Void>
     private let pauseContinuation: AsyncStream<Void>.Continuation
+    /// Called on the reader's queue each time reading stops at a bound, for an observer that
+    /// cannot wait for ``pauses``: a pause happens when the consumer is busy, and a main-actor
+    /// consumer of ``pauses`` only runs once it is not.
+    private let onPause: (@Sendable () -> Void)?
 
     /// Creates a reader that holds at most `maxPendingChunks` unreleased chunks or
     /// `maxPendingBytes` unreleased bytes, reading at most `maxReadChunkBytes` at a time.
+    /// `onPause` runs on the reader's queue each time reading stops at a bound.
     public init(
         label: String,
         maxPendingChunks: Int,
         maxPendingBytes: Int,
-        maxReadChunkBytes: Int = 64 * 1024
+        maxReadChunkBytes: Int = 64 * 1024,
+        onPause: (@Sendable () -> Void)? = nil
     ) {
+        self.onPause = onPause
         // Accounting keeps at most maxPendingChunks unreleased chunks, so the
         // stream's buffer never holds more than that.
         let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
@@ -211,6 +218,7 @@ public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         guard !paused else { return }
         paused = true
         pauseContinuation.yield()
+        onPause?()
         setSourceSuspended(true)
     }
 

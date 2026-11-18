@@ -51,6 +51,31 @@ import Testing
         #expect(await capture.value == payload)
     }
 
+    /// The pause callback runs on the reader's own queue, so a caller whose thread is busy, as a
+    /// main actor parsing a backlog is, still learns that the reader stopped.
+    @Test(.timeLimit(.minutes(1))) func pauseCallbackRunsWhileNothingConsumes() throws {
+        let pipe = Pipe()
+        let signal = Pipe()
+        let signalWriter = signal.fileHandleForWriting
+        let reader = RemoteTmuxProcessOutputReader(
+            label: "remote-tmux-process-output-reader-on-pause-test",
+            maxPendingChunks: 64,
+            maxPendingBytes: 100,
+            onPause: { try? signalWriter.write(contentsOf: Data("p".utf8)) }
+        )
+        defer {
+            reader.close()
+            try? pipe.fileHandleForWriting.close()
+            try? pipe.fileHandleForReading.close()
+        }
+        reader.attach(to: pipe.fileHandleForReading)
+        try pipe.fileHandleForWriting.write(contentsOf: Data(repeating: 1, count: 1_000))
+
+        // Nothing reads the stream or the pause stream, and this thread blocks until the callback.
+        var paused = pollfd(fd: signal.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+        #expect(poll(&paused, 1, 30_000) == 1, "the reader stopped without calling back")
+    }
+
     /// A connection tearing down can let go of a paused reader before its queued close runs, and
     /// that close holds the reader weakly. The reader still has to cancel its suspended read
     /// source, which Dispatch traps on releasing, and end its streams.

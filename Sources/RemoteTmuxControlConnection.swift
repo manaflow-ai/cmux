@@ -607,13 +607,19 @@ final class RemoteTmuxControlConnection {
     /// overrides it (which tests do, to assert argv without spawning anything).
     let transportProfile: RemoteTmuxTransportProfile
 
+    /// Runs on the stdout reader's queue each time it stops at its bound, while the main actor
+    /// may still be busy with the backlog. Lets a caller that holds the main actor see the pause.
+    private let onStdoutReaderPause: (@Sendable () -> Void)?
+
     init(
         host: RemoteTmuxHost,
         sessionName: String,
         attachMode: RemoteTmuxControlAttachMode = .attach,
         transportProfile: RemoteTmuxTransportProfile? = nil,
-        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
+        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
+        onStdoutReaderPause: (@Sendable () -> Void)? = nil
     ) {
+        self.onStdoutReaderPause = onStdoutReaderPause
         self.transportProfile = transportProfile ?? host.transportProfile
         self.host = host
         self.sessionName = sessionName
@@ -794,7 +800,8 @@ final class RemoteTmuxControlConnection {
         let stdoutPipeReader = RemoteTmuxProcessOutputReader(
             label: "com.cmux.remote-tmux.stdout.\(UUID().uuidString)",
             maxPendingChunks: Self.maxPendingStdoutChunks,
-            maxPendingBytes: Self.maxPendingStdoutBytes
+            maxPendingBytes: Self.maxPendingStdoutBytes,
+            onPause: onStdoutReaderPause
         )
         let reader = outPipe.fileHandleForReading
         stdoutPipeReader.attach(to: reader)
