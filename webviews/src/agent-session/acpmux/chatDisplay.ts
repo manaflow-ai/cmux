@@ -123,7 +123,7 @@ export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
 /// (conversation/PromptCoachCard.tsx). Off, the page asks acpmux for no rewrite and draws no card.
 /// Not part of ChatDisplay.
 export const PROMPT_COACH_KEY = "agentPane.display.promptCoach";
-/// Settings > Agent Chat > Composer Style (composerLook.ts), Codex by default; the look dots write it.
+/// Settings > Agent Chat > Composer Style (composerLook.ts), Claude by default; the look dots write it.
 /// The agent pages' storage ends with the launch (AgentPaneView.sharedDataStore and Chromium's
 /// off-the-record profile), so a pick kept only there came back as Codex after every restart (Leo,
 /// 2026-11-14: "if i picked the claude style composer it should remember it after restart instead

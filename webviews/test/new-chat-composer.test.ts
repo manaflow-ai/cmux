@@ -122,7 +122,9 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
 
   for (const variant of ["claude", "project", "remote"])
     test(`${variant}: the new chat's card is the started chat's card`, async () => {
-      const started = await card(variant === "claude" ? "started" : "started-codex");
+      // `project` and `remote` stage no look: a viewer who never picked gets Claude's, the default
+      // (Leo, 2026-11-18: "plus, we wanted to have the claude style by default...").
+      const started = await card("started");
       const fresh = await card(variant);
       expect(fresh.component).toBe("Composer");
       expect(started.component).toBe("Composer");
@@ -131,16 +133,10 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
       expect(fresh.radii.every((radius) => parseFloat(radius) > 0)).toBe(true);
       expect(fresh.ring).toBe(started.ring);
       expect(fresh.strip).not.toBeNull();
-      if (variant === "claude") {
-        // A saved Claude choice keeps separate location chips above the card.
-        expect(fresh.look).toBeNull();
-        expect(fresh.top - fresh.strip!.bottom).toBeGreaterThanOrEqual(2);
-        expect(fresh.top - fresh.strip!.bottom).toBeLessThanOrEqual(10);
-      } else {
-        // New viewers use Codex's filled tray, tucked 10px beneath the same card.
-        expect(fresh.look).toBe("codex");
-        expect(fresh.top - fresh.strip!.bottom).toBeCloseTo(-10, 1);
-      }
+      // Claude's look keeps separate location chips above the card.
+      expect(fresh.look).toBeNull();
+      expect(fresh.top - fresh.strip!.bottom).toBeGreaterThanOrEqual(2);
+      expect(fresh.top - fresh.strip!.bottom).toBeLessThanOrEqual(10);
     });
 
   // Codex's look keeps its tray (composerLook.css); the card over it is the started Codex chat's.
