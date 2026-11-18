@@ -690,9 +690,14 @@ mod tests {
                 root.display(),
                 point.display()
             );
-            let error =
-                plan_with_mount_id(&p, &[ssh.clone()], &info, &strings(&["true"]), |_| Ok(1))
-                    .unwrap_err();
+            let error = plan_with_mount_id(
+                &p,
+                std::slice::from_ref(&ssh),
+                &info,
+                &strings(&["true"]),
+                |_| Ok(1),
+            )
+            .unwrap_err();
             assert!(error.contains("is also visible at"), "{}: {error}", point.display());
         }
     }

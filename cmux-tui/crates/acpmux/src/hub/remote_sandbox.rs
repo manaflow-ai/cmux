@@ -1791,10 +1791,10 @@ mod endpoint_tests {
         };
         let missing = root.join("missing");
         let unwritable = root.join("no-such-dir/w");
-        assert_eq!(run(&[missing.clone()], &[unwritable.clone()]), "a=0");
+        assert_eq!(run(std::slice::from_ref(&missing), std::slice::from_ref(&unwritable)), "a=0");
         assert_eq!(run(&[root.join("present")], &[unwritable]), "a=1");
         let writable = root.join("w");
-        assert_eq!(run(&[missing], &[writable.clone()]), "a=1");
+        assert_eq!(run(&[missing], std::slice::from_ref(&writable)), "a=1");
         assert!(!writable.exists(), "the probe removes a write that worked");
         assert_eq!(run(&[], &[]), "a=0");
         let _ = std::fs::remove_dir_all(root);
