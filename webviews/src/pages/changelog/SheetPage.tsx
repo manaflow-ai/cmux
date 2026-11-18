@@ -32,7 +32,7 @@
 // section, unfolds the area that hides it, and marks it for a moment (useFocusScroll).
 // A curated change whose highlight carries a before/after pair shows it under its line
 // (MediaCompare.tsx); the sheet shows no other pictures.
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Button } from "../../ui/Button";
 import { Icon } from "../settings/icons";
@@ -49,7 +49,7 @@ import {
   type ReleaseView,
 } from "./model";
 import { withoutWorkCodes } from "./readableChange";
-import { DayRoom, dayKey, dayRef, journalKeys, loadNear, sameDay, useDayWindow } from "./JournalPage";
+import { dayGap, dayKey, dayRef, journalKeys, loadNear, sameDay, useDayWindow } from "./JournalPage";
 import { Maintenance, Media } from "./ReleaseParts";
 import { publicPullNumber, pullURL } from "./ChangePullRequest";
 import type { ChangelogFocus, ChangelogSnapshot, ChangelogStore } from "./store";
@@ -100,7 +100,8 @@ export function SheetPage({
           {shown.days.map(({ index, gap }) => {
             const day = days[index]!;
             return (
-              <DayRoom key={dayKey(day)} gap={gap}>
+              <Fragment key={dayKey(day)}>
+                {dayGap(gap)}
                 <SheetDay
                   index={index}
                   measure={shown.measure}
@@ -112,7 +113,7 @@ export function SheetPage({
                   entry={entry}
                   kept={kept}
                 />
-              </DayRoom>
+              </Fragment>
             );
           })}
           {shown.after > 0 && <div aria-hidden="true" style={{ height: shown.after }} />}
