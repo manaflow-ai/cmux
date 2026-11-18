@@ -162,7 +162,8 @@ class DownSpill(unittest.TestCase):
         self.assertEqual((member, record), (SIXTEEN, None))
         self.assertTrue(any("no later live member has room" in line for line in lines))
         # Not much faster than the backlog it would leave: stay.
-        close = self.load({"sixteen": 20, "eight": 10}, sixteen=60, eight=20)
+        close = self.load({"sixteen": 20, "thirty_two": 20, "eight": 10, "four": 10},
+                          sixteen=60, thirty_two=40, eight=20, four=20)
         self.assertEqual(self.choose(close)[:2], (SIXTEEN, None))
 
     def test_never_below_the_floor_and_never_onto_a_dead_size(self):
@@ -170,7 +171,9 @@ class DownSpill(unittest.TestCase):
         self.assertNotIn(TWO, self.candidates())
         self.assertEqual(self.choose(load)[0], SIXTEEN)
         fresh = self.load({"sixteen": 85, "thirty_two": 80, "eight": 5}, sixteen=60, thirty_two=40)
-        self.assertEqual(self.choose(fresh, dead={EIGHT})[0], SIXTEEN)
+        # A size with nothing queued in the sample has room: 8 vCPU dead, 4 vCPU next; both dead, stay.
+        self.assertEqual(self.choose(fresh, dead={EIGHT})[0], FOUR)
+        self.assertEqual(self.choose(fresh, dead={EIGHT, FOUR})[0], SIXTEEN)
 
     def test_a_drain_brings_it_back(self):
         load = self.load({"sixteen": 85, "thirty_two": 80, "eight": 5}, sixteen=60, thirty_two=40)
