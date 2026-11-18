@@ -316,11 +316,11 @@ impl Hub {
         };
         let files = self.rewind_files_plan(&cwd, &prompt, request.dry_run || request.files).await;
         if request.dry_run {
-            let mut reply = json!({
-                "promptId": prompt.prompt_id,
-                "conversation": if conversation { json!("native") } else { Value::Null },
-                "files": Value::Null,
-            });
+            let mut reply = Map::new();
+            reply.insert("promptId".into(), json!(prompt.prompt_id));
+            let native = if conversation { json!("native") } else { Value::Null };
+            reply.insert("conversation".into(), native);
+            reply.insert("files".into(), Value::Null);
             match files {
                 FilesPlan::Ready { checkpoint, preview } => {
                     let paths: Vec<Value> = preview
@@ -331,17 +331,19 @@ impl Hub {
                         .filter_map(|f| f.get("path").cloned())
                         .take(PATHS_SHOWN)
                         .collect();
-                    reply["files"] = json!({
+                    reply.insert("files".into(), json!({
                         "checkpointId": checkpoint,
                         "total": preview.get("files_total").and_then(Value::as_u64).unwrap_or(paths.len() as u64),
                         "paths": paths,
                         "baseChanged": preview.get("base_changed").and_then(Value::as_bool).unwrap_or(false),
                         "complete": preview.get("complete").and_then(Value::as_bool).unwrap_or(true),
-                    });
+                    }));
                 }
-                FilesPlan::Blocked(blocked) => reply["filesBlocked"] = blocked,
+                FilesPlan::Blocked(blocked) => {
+                    reply.insert("filesBlocked".into(), blocked);
+                }
             }
-            return Ok(reply);
+            return Ok(Value::Object(reply));
         }
         if !request.conversation && !request.files {
             return Err(RpcError::invalid_params("rewind the conversation, the files, or both"));
@@ -353,15 +355,20 @@ impl Hub {
             ));
         }
         // The files first: a refused restore leaves the conversation as it was.
-        let mut undo = json!({"sessionId": session.id});
+        let mut undo = Map::new();
+        undo.insert("sessionId".into(), json!(session.id));
+        let mut safety_id: Option<String> = None;
         let mut restored = 0;
         if request.files {
             let checkpoint = match files {
                 FilesPlan::Ready { checkpoint, .. } => checkpoint,
                 FilesPlan::Blocked(blocked) => {
-                    let reason = blocked["reason"].as_str().unwrap_or("unavailable");
-                    let message =
-                        blocked["message"].as_str().unwrap_or("the files cannot be reset");
+                    let reason =
+                        blocked.get("reason").and_then(Value::as_str).unwrap_or("unavailable");
+                    let message = blocked
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("the files cannot be reset");
                     return Err(refused(reason, message).with_data(blocked.clone()));
                 }
             };
@@ -371,29 +378,32 @@ impl Hub {
                 Answer::Ok(v) => {
                     restored = v.get("files_total").and_then(Value::as_u64).unwrap_or(0);
                     if let Some(safety) = v.get("safety_checkpoint_id").and_then(Value::as_str) {
-                        undo["safetyCheckpointId"] = json!(safety);
+                        undo.insert("safetyCheckpointId".into(), json!(safety));
+                        safety_id = Some(safety.to_owned());
                     }
                 }
                 Answer::Refused { reason, message } => return Err(refused(&reason, message)),
             }
         }
-        let mut reply = json!({"undo": undo, "filesRestored": restored});
+        let mut reply = Map::new();
+        reply.insert("undo".into(), Value::Object(undo));
+        reply.insert("filesRestored".into(), json!(restored));
         if request.conversation {
             match fork(session.clone(), prompt.prompt_id.clone()).await {
                 Ok(new) => {
-                    reply["sessionId"] = json!(new.id);
-                    reply["prompt"] = json!({"text": prompt.text});
+                    reply.insert("sessionId".into(), json!(new.id));
+                    reply.insert("prompt".into(), json!({"text": prompt.text}));
                 }
                 Err(e) => {
                     // The conversation stayed: put the files back too, so nothing half happened.
-                    if let Some(safety) = reply["undo"]["safetyCheckpointId"].as_str() {
+                    if let Some(safety) = &safety_id {
                         let _ = self.rewind_undo_at(&cwd, safety).await;
                     }
                     return Err(e);
                 }
             }
         }
-        Ok(reply)
+        Ok(Value::Object(reply))
     }
 
     /// Whether `prompt`'s files can be reset now, and the dry run's answer when they can.

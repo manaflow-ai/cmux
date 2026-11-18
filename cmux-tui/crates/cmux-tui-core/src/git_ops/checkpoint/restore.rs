@@ -246,13 +246,15 @@ fn listed(plan: &Plan) -> Value {
 }
 
 fn conflict(conflicts: &[(Vec<u8>, &'static str)]) -> ResourceError {
-    let first = &conflicts[0];
-    let message = format!(
-        "{} path(s) cannot be restored safely; the first, {}, is {}",
-        conflicts.len(),
-        String::from_utf8_lossy(&first.0),
-        first.1.replace('_', " ")
-    );
+    let message = match conflicts.first() {
+        Some((path, why)) => format!(
+            "{} path(s) cannot be restored safely; the first, {}, is {}",
+            conflicts.len(),
+            String::from_utf8_lossy(path),
+            why.replace('_', " ")
+        ),
+        None => "a path cannot be restored safely".to_owned(),
+    };
     let paths = conflicts
         .iter()
         .take(MAX_CONFLICTS_LISTED)
@@ -388,13 +390,8 @@ fn blocked(
     live: &Stored,
     gitlinks: &HashSet<Vec<u8>>,
 ) -> Option<&'static str> {
-    let mut end = 0;
-    while let Some(offset) = path[end..].iter().position(|byte| *byte == b'/') {
-        end += offset;
-        if gitlinks.contains(&path[..end]) {
-            return Some("submodule");
-        }
-        end += 1;
+    if scan::parents(path).any(|prefix| gitlinks.contains(prefix)) {
+        return Some("submodule");
     }
     if !(step.write.is_some() || step.remove) {
         return None;
@@ -420,10 +417,7 @@ fn parent_blocked(
     path: &[u8],
     removed: &HashSet<Vec<u8>>,
 ) -> Option<&'static str> {
-    let mut end = 0;
-    while let Some(offset) = path[end..].iter().position(|byte| *byte == b'/') {
-        end += offset;
-        let prefix = &path[..end];
+    for prefix in scan::parents(path) {
         match std::fs::symlink_metadata(scan::join(root, prefix)) {
             Ok(metadata) if metadata.is_dir() => {
                 if std::fs::symlink_metadata(scan::join(root, prefix).join(".git")).is_ok() {
@@ -434,7 +428,6 @@ fn parent_blocked(
             Ok(_) => return Some("parent_not_folder"),
             Err(_) => return None,
         }
-        end += 1;
     }
     None
 }
@@ -452,14 +445,15 @@ fn list(git: &WriteGit<'_>, tree: &str) -> Result<Tree, ResourceError> {
     let mut entries = Tree::new();
     for record in scan::records(&output.stdout) {
         // `<mode> <type> <oid>\t<path>`
-        let Some(tab) = record.iter().position(|byte| *byte == b'\t') else { continue };
-        let header = String::from_utf8_lossy(&record[..tab]);
+        let mut parts = record.splitn(2, |byte| *byte == b'\t');
+        let (Some(header), Some(path)) = (parts.next(), parts.next()) else { continue };
+        let header = String::from_utf8_lossy(header);
         let mut fields = header.split(' ');
         let (Some(mode), Some(_), Some(oid)) = (fields.next(), fields.next(), fields.next()) else {
             return Err(failed(OPERATION, "git_failed", "unexpected ls-tree output"));
         };
         let entry = Entry { mode: mode.to_string(), oid: oid.to_string() };
-        entries.insert(record[tab + 1..].to_vec(), entry);
+        entries.insert(path.to_vec(), entry);
     }
     Ok(entries)
 }

@@ -7,7 +7,7 @@ use crate::cli::run::resolve_id;
 use crate::daemon::connect;
 use crate::rpc::method;
 use anyhow::{Result, bail};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// `session rewind`'s arguments.
 #[derive(clap::Args, Debug, Clone)]
@@ -49,22 +49,24 @@ pub(crate) async fn run(args: &RewindArgs, json_out: bool) -> Result<()> {
         if json_out {
             print_json(&v)
         } else {
-            println!("put back {} files", v["filesRestored"].as_u64().unwrap_or(0));
+            println!(
+                "put back {} files",
+                v.get("filesRestored").and_then(Value::as_u64).unwrap_or(0)
+            );
         }
         return Ok(());
     }
-    let mut params = json!({
-        "sessionId": id,
-        "conversation": !args.files_only,
-        "files": args.files,
-        "dryRun": args.dry_run,
-    });
+    let mut params = Map::new();
+    params.insert("sessionId".into(), json!(id));
+    params.insert("conversation".into(), json!(!args.files_only));
+    params.insert("files".into(), json!(args.files));
+    params.insert("dryRun".into(), json!(args.dry_run));
     match (&args.prompt, args.seq) {
-        (Some(prompt), _) => params["promptId"] = json!(prompt),
-        (None, Some(seq)) => params["seq"] = json!(seq),
+        (Some(prompt), _) => params.insert("promptId".into(), json!(prompt)),
+        (None, Some(seq)) => params.insert("seq".into(), json!(seq)),
         (None, None) => bail!("name the prompt: --prompt PROMPT_ID or --seq SEQ"),
-    }
-    let v = client.request(method::MUX_REWIND, params).await?;
+    };
+    let v = client.request(method::MUX_REWIND, Value::Object(params)).await?;
     if json_out {
         print_json(&v);
     } else if args.dry_run {
@@ -77,11 +79,11 @@ pub(crate) async fn run(args: &RewindArgs, json_out: bool) -> Result<()> {
 
 fn dry_run_text(v: &Value) -> String {
     let mut out = String::new();
-    out.push_str(match v["conversation"].as_str() {
+    out.push_str(match v.get("conversation").and_then(Value::as_str) {
         Some(_) => "conversation: can go back (a new chat, this one stays)\n",
         None => "conversation: this chat's agent cannot go back to before a prompt\n",
     });
-    if let Some(files) = v["files"].as_object() {
+    if let Some(files) = v.get("files").and_then(Value::as_object) {
         let total = files.get("total").and_then(Value::as_u64).unwrap_or(0);
         out.push_str(&format!("files: {total} would be reset\n"));
         for path in files.get("paths").and_then(Value::as_array).into_iter().flatten() {
@@ -97,10 +99,10 @@ fn dry_run_text(v: &Value) -> String {
 
 fn applied_text(v: &Value) -> String {
     let mut out = String::new();
-    if let Some(new) = v["sessionId"].as_str() {
+    if let Some(new) = v.get("sessionId").and_then(Value::as_str) {
         out.push_str(&format!("rewound chat: {new}\n"));
     }
-    let restored = v["filesRestored"].as_u64().unwrap_or(0);
+    let restored = v.get("filesRestored").and_then(Value::as_u64).unwrap_or(0);
     if let Some(safety) = v.pointer("/undo/safetyCheckpointId").and_then(Value::as_str) {
         out.push_str(&format!("files reset: {restored}; undo with --undo {safety}\n"));
     }

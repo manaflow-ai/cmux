@@ -271,6 +271,15 @@ pub(super) fn behind_a_link(root: &Path, relative: &[u8], folders: &mut HashSet<
     false
 }
 
+/// Each leading folder of `relative`, outermost first (`a`, `a/b` for `a/b/c`).
+pub(super) fn parents(relative: &[u8]) -> impl Iterator<Item = &[u8]> {
+    relative
+        .iter()
+        .enumerate()
+        .filter(|(_, byte)| **byte == b'/')
+        .filter_map(move |(end, _)| relative.get(..end))
+}
+
 /// Credential file names an untracked file is never stored under.
 const CREDENTIAL_NAMES: [&str; 8] = [
     ".env",

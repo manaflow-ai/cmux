@@ -189,15 +189,12 @@ fn unchanged(apply: &Apply<'_>, plan: &Plan) -> Result<(), ResourceError> {
 /// missing parent is fine: nothing past it exists, and `place` makes it a folder (an Undo that
 /// brings back a file in a folder the restore emptied and removed).
 fn parent_not_a_folder(root: &Path, path: &[u8]) -> bool {
-    let mut end = 0;
-    while let Some(offset) = path[end..].iter().position(|byte| *byte == b'/') {
-        end += offset;
-        match fs::symlink_metadata(scan::join(root, &path[..end])) {
+    for prefix in scan::parents(path) {
+        match fs::symlink_metadata(scan::join(root, prefix)) {
             Ok(metadata) if metadata.is_dir() => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => return false,
             _ => return true,
         }
-        end += 1;
     }
     false
 }
@@ -243,9 +240,8 @@ fn remove(root: &Path, path: &[u8]) -> io::Result<()> {
         Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
         _ => {}
     }
-    let mut parent = path;
-    while let Some(slash) = parent.iter().rposition(|byte| *byte == b'/') {
-        parent = &parent[..slash];
+    let parents = scan::parents(path).collect::<Vec<_>>();
+    for parent in parents.into_iter().rev() {
         if fs::remove_dir(scan::join(root, parent)).is_err() {
             break;
         }
@@ -256,10 +252,8 @@ fn remove(root: &Path, path: &[u8]) -> io::Result<()> {
 /// Writes `entry` at `path`: a temporary file or link beside it, renamed
 /// over it. Parent folders are made, never followed through a link.
 fn place(root: &Path, path: &[u8], entry: &Entry, bytes: &[u8]) -> io::Result<()> {
-    let mut end = 0;
-    while let Some(offset) = path[end..].iter().position(|byte| *byte == b'/') {
-        end += offset;
-        let folder = scan::join(root, &path[..end]);
+    for prefix in scan::parents(path) {
+        let folder = scan::join(root, prefix);
         match fs::symlink_metadata(&folder) {
             Ok(metadata) if metadata.is_dir() => {}
             Ok(_) => return Err(io::Error::other("a parent is not a folder")),
@@ -276,7 +270,6 @@ fn place(root: &Path, path: &[u8], entry: &Entry, bytes: &[u8]) -> io::Result<()
             }
             Err(error) => return Err(error),
         }
-        end += 1;
     }
     let target = scan::join(root, path);
     let directory = target.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
