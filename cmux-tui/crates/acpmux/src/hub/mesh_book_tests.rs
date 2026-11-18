@@ -11,7 +11,13 @@ fn hub() -> Arc<Hub> {
 }
 
 fn daemon(id: &str, host: &str, user: &str) -> BookDaemon {
-    BookDaemon { daemon_id: id.into(), host: host.into(), user: user.into(), last_seen_at: 5 }
+    BookDaemon {
+        daemon_id: id.into(),
+        host: host.into(),
+        user: user.into(),
+        last_seen_at: 5,
+        ..Default::default()
+    }
 }
 
 fn session(id: &str, name: &str, host: &str, daemon: &str, state: &str) -> BookSession {
@@ -144,4 +150,102 @@ async fn only_a_change_is_announced_and_a_stop_empties_the_list() {
     );
     assert!(hub.all_session_summaries().is_empty());
     assert!(hub.peers().is_empty());
+}
+
+fn reading() -> Value {
+    json!({
+        "ram": {"freeBytes": 34_000_000_000u64, "totalBytes": 68_000_000_000u64},
+        "load": [1.5, 1.0, 0.5], "cpus": 16, "liveSessions": 2,
+        "pressure": {"ok": true, "over": [], "cores": 16}, "build": "0.1.0",
+    })
+}
+
+fn with_health(mut book: AddressBook, host: &str, health: Value, at: u64) -> AddressBook {
+    for d in book.daemons.iter_mut().filter(|d| d.host == host) {
+        d.health = Some(health.clone());
+        d.health_at = Some(at);
+    }
+    book
+}
+
+fn peer(hub: &Hub, name: &str) -> Value {
+    hub.peers().into_iter().find(|p| p["name"] == name).expect("a peer")
+}
+
+/// A hub machine's row carries the health the book returned for it, as a linked peer's row
+/// does, so placement and `machine ls` read it; a field the hub should not have sent is dropped.
+#[test]
+fn a_hub_row_with_fresh_health_carries_it() {
+    let hub = hub();
+    let mut sent = reading();
+    sent["path"] = json!("/home/someone");
+    hub.apply_mesh_book(with_health(book(), "machine-b", sent, 1_000), "person-1", Some("d-a"));
+    let b = peer(&hub, "machine-b");
+    assert_eq!(b["health"], reading());
+    let at = b["healthAt"].as_u64().expect("healthAt");
+    assert!(crate::store::now_ms().saturating_sub(at) < 5_000, "this machine's clock: {at}");
+    assert_eq!(b.get("healthStaleSecs"), None);
+    assert!(crate::cli::peer_status::resources(&b).contains("ram 34.0 GB free"), "{b}");
+    // A teammate's machine's reading is not kept.
+    let mut teammate = with_health(book(), "teammate-box", reading(), 1_000);
+    teammate.daemons.retain(|d| d.host != "machine-b");
+    assert!(health_by_host(&teammate, "person-1", Some("d-a"), &|_| false).is_empty());
+}
+
+/// A reading the book has not renewed for longer than the bound reads as unread, and says how
+/// old it is; a renewed one (a newer hub time) is fresh again.
+#[test]
+fn a_stale_hub_reading_is_not_carried_and_says_its_age() {
+    let hub = hub();
+    hub.apply_mesh_book(
+        with_health(book(), "machine-b", reading(), 1_000),
+        "person-1",
+        Some("d-a"),
+    );
+    let aged = crate::store::now_ms() - crate::mesh_health::HUB_HEALTH_STALE_MS - 30_000;
+    hub.mesh_book.lock().unwrap().health.get_mut("machine-b").unwrap().read_at = aged;
+    // The same reading again (the same hub time) does not renew it.
+    hub.apply_mesh_book(
+        with_health(book(), "machine-b", reading(), 1_000),
+        "person-1",
+        Some("d-a"),
+    );
+    let b = peer(&hub, "machine-b");
+    assert_eq!(b.get("health"), None, "{b}");
+    assert_eq!(b["healthAt"], json!(aged));
+    let secs = b["healthStaleSecs"].as_u64().expect("its age");
+    assert!((120..125).contains(&secs), "{secs}");
+    let line = crate::cli::peer_status::resources(&b);
+    assert!(line.starts_with("resources unknown (the hub's last reading is 12"), "{line}");
+    hub.apply_mesh_book(
+        with_health(book(), "machine-b", reading(), 2_000),
+        "person-1",
+        Some("d-a"),
+    );
+    assert_eq!(peer(&hub, "machine-b")["health"], reading());
+}
+
+/// A hub that sends no health (one from before it) lists the machine as today: no health, no
+/// age, and a reading kept from before is dropped with it; a stop drops every reading.
+#[test]
+fn a_book_with_no_health_reads_as_today() {
+    let hub = hub();
+    hub.apply_mesh_book(
+        with_health(book(), "machine-b", reading(), 1_000),
+        "person-1",
+        Some("d-a"),
+    );
+    hub.apply_mesh_book(book(), "person-1", Some("d-a"));
+    let b = peer(&hub, "machine-b");
+    for key in ["health", "healthAt", "healthStaleSecs"] {
+        assert_eq!(b.get(key), None, "{key}: {b}");
+    }
+    assert_eq!(crate::cli::peer_status::resources(&b), "resources unknown");
+    hub.apply_mesh_book(
+        with_health(book(), "machine-b", reading(), 1_000),
+        "person-1",
+        Some("d-a"),
+    );
+    hub.set_mesh_book(Default::default(), Vec::new());
+    assert!(hub.mesh_book.lock().unwrap().health.is_empty());
 }

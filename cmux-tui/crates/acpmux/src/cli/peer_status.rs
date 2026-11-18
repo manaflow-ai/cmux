@@ -169,6 +169,11 @@ fn line(h: &Value) -> String {
 pub fn resources(p: &Value) -> String {
     let Some(h) = p.get("health").filter(|h| h.is_object() && h.get("unsupported").is_none())
     else {
+        // A machine only the hub reaches whose reading the book has not renewed
+        // (`mesh_book_hosts`).
+        if let Some(secs) = p.get("healthStaleSecs").and_then(Value::as_u64) {
+            return format!("resources unknown (the hub's last reading is {secs}s old)");
+        }
         return "resources unknown".to_owned();
     };
     let mut parts = Vec::new();

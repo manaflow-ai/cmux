@@ -20,6 +20,9 @@ pub(crate) struct MeshBook {
     rows: BTreeMap<String, (Bare, Arc<RemoteSession>)>,
     /// Each machine listed, with its newest heartbeat (ms since the epoch).
     hosts: BTreeMap<String, u64>,
+    /// Each listed machine's newest host health reading the book carried (`health_by_host`).
+    /// Kept only for a machine `hosts` lists.
+    health: BTreeMap<String, HubHealth>,
     /// The book reads so far: a row no read lists now has an older one (`Bare::read`).
     reads: u64,
     /// Each machine listed, by its hub `daemonId` (its node key: what the hub carrier dials and
@@ -59,6 +62,36 @@ pub(crate) fn mine_by_key(
         .take(MAX_BOOK_ROWS)
         .map(|d| (d.daemon_id.clone(), d.host.clone()))
         .collect()
+}
+
+/// A machine's host health as the book carried it (`mesh_health::book_health`), the hub's time of
+/// it, and when this daemon first read that reading (ms, this machine's clock): a reading the
+/// book keeps returning unchanged, or a book this daemon stopped reading, ages from then.
+struct HubHealth {
+    value: Value,
+    hub_at: u64,
+    read_at: u64,
+}
+
+/// The newest health reading of each machine of `book` [`mine`] lists, with the hub's time of it.
+/// One pass over the daemons: O(machines), whatever their sessions.
+pub(crate) fn health_by_host(
+    book: &AddressBook,
+    own_user: &str,
+    own_daemon: Option<&str>,
+    skip: &dyn Fn(&str) -> bool,
+) -> BTreeMap<String, (u64, Value)> {
+    let mut out: BTreeMap<String, (u64, Value)> = BTreeMap::new();
+    for d in book.daemons.iter().filter(|d| is_mine(d, own_user, own_daemon, skip)) {
+        let Some(value) = d.health.as_ref().and_then(crate::mesh_health::book_health) else {
+            continue;
+        };
+        let at = d.health_at.unwrap_or(d.last_seen_at);
+        if out.get(&d.host).is_none_or(|(was, _)| at > *was) {
+            out.insert(d.host.clone(), (at, value));
+        }
+    }
+    out
 }
 
 /// What a hub row is built from beside its key: `row_of` reads a session through this alone, and
@@ -162,8 +195,29 @@ impl Hub {
         let skip = |host: &str| ssh.contains(host);
         #[cfg(feature = "hub-carrier")]
         self.set_mesh_book_machines(mine_by_key(&book, own_user, own_daemon, &skip));
+        let health = health_by_host(&book, own_user, own_daemon, &skip);
         let (hosts, sessions) = mine(book, own_user, own_daemon, &skip);
         self.set_mesh_book(hosts, sessions);
+        self.set_mesh_book_health(health);
+    }
+
+    /// Replace each listed machine's health reading (`health_by_host`). A reading whose hub time
+    /// is unchanged keeps the time this daemon first read it.
+    pub(crate) fn set_mesh_book_health(&self, readings: BTreeMap<String, (u64, Value)>) {
+        let now = now_ms();
+        let mut book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        let mut kept = BTreeMap::new();
+        for (host, (hub_at, value)) in readings {
+            if !book.hosts.contains_key(&host) {
+                continue;
+            }
+            let read_at = match book.health.get(&host) {
+                Some(was) if was.hub_at == hub_at => was.read_at,
+                _ => now,
+            };
+            kept.insert(host, HubHealth { value, hub_at, read_at });
+        }
+        book.health = kept;
     }
 
     /// Replace the machines the book lists by `daemonId` (`mine_by_key`). Empty when the relay
@@ -244,6 +298,8 @@ impl Hub {
                 Default::default()
             };
             book.hosts = hosts;
+            let MeshBook { health, hosts, .. } = &mut *book;
+            health.retain(|host, _| hosts.contains_key(host));
             (gone, changed, moved, came, left)
         };
         if !gone.is_empty() || !changed.is_empty() || moved {
@@ -321,21 +377,34 @@ impl Hub {
     }
 
     /// The machines the hub lists for this person, as `peers` lists an ssh peer: connected, with
-    /// their session count and newest heartbeat.
+    /// their session count and newest heartbeat, and the `health` and `healthAt` (this machine's
+    /// clock) of the book's reading of it, as a linked peer's row has them. A reading older than
+    /// `HUB_HEALTH_STALE_MS` reads as unread: no `health`, and its age in `healthStaleSecs`.
     pub(super) fn mesh_book_hosts(&self) -> Vec<Value> {
+        let now = now_ms();
         let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
         book.hosts
             .iter()
             .map(|(host, seen)| {
                 let count = book.rows.values().filter(|(_, r)| &r.peer == host).count();
-                json!({
+                let mut row = json!({
                     "name": host,
                     "connected": true,
                     "state": "connected",
                     "via": "hub",
                     "lastSeen": seen,
                     "sessions": count,
-                })
+                });
+                if let Some(h) = book.health.get(host) {
+                    let age = now.saturating_sub(h.read_at);
+                    row["healthAt"] = json!(h.read_at);
+                    if age <= crate::mesh_health::HUB_HEALTH_STALE_MS {
+                        row["health"] = h.value.clone();
+                    } else {
+                        row["healthStaleSecs"] = json!(age / 1000);
+                    }
+                }
+                row
             })
             .collect()
     }

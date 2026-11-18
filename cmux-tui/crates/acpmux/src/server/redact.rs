@@ -100,6 +100,8 @@ fn redact_peer_row(peer: &mut Value) {
     if let Some(row) = peer.as_object_mut() {
         row.remove("health");
         row.remove("healthAt");
+        // A hub-only machine's reading age (`mesh_book_hosts`).
+        row.remove("healthStaleSecs");
     }
 }
 

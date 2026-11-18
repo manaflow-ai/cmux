@@ -307,6 +307,40 @@ impl Halt {
     }
 }
 
+/// How long one reading of this daemon's own host health rides its heartbeats. They come every
+/// 10 s, or 2.5 s apart after a start; a reading reads the budget meter, a disk and the health
+/// loop's problems, so it is taken at most this often.
+const OWN_HEALTH_EVERY: Duration = Duration::from_secs(30);
+
+/// How long one reading may take before the heartbeat goes with the last one.
+// timeout: a slow reading never holds back the heartbeat that keeps this daemon listed.
+const OWN_HEALTH_BUDGET: Duration = Duration::from_secs(2);
+
+/// This daemon's last reading for its heartbeats (`mesh_health::heartbeat_health`).
+#[derive(Default)]
+struct OwnHealth {
+    taken: Option<(Instant, Option<serde_json::Value>)>,
+}
+
+impl OwnHealth {
+    async fn read(&mut self, hub: &Arc<Hub>) -> Option<serde_json::Value> {
+        if let Some((at, v)) = &self.taken
+            && at.elapsed() < OWN_HEALTH_EVERY
+        {
+            return v.clone();
+        }
+        let read = super::peer_status::host_health(hub, Origin::Peer);
+        let Ok(reading) = tokio::time::timeout(OWN_HEALTH_BUDGET, read).await else {
+            // The last one goes again while it is within two periods, then none.
+            let recent = |at: &Instant| at.elapsed() < 2 * OWN_HEALTH_EVERY;
+            return self.taken.as_ref().filter(|(at, _)| recent(at)).and_then(|(_, v)| v.clone());
+        };
+        let v = crate::mesh_health::heartbeat_health(&reading);
+        self.taken = Some((Instant::now(), v.clone()));
+        v
+    }
+}
+
 async fn heartbeats(
     hub: Weak<Hub>,
     client: Arc<dyn MeshHub>,
@@ -322,17 +356,18 @@ async fn heartbeats(
     let host = crate::pairing::machine_name();
     let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
     let mut failing = false;
+    let mut own_health = OwnHealth::default();
     loop {
         if hub_ended(&hub) {
             break;
         }
         let began = tokio::time::Instant::now();
         let covered = beat.covers();
-        let sessions = match hub.upgrade() {
-            Some(hub) => hub.mesh_rows().await,
+        let (sessions, health) = match hub.upgrade() {
+            Some(hub) => (hub.mesh_rows().await, own_health.read(&hub).await),
             None => break,
         };
-        let listing = Heartbeat { host: host.clone(), sessions, leaving: false };
+        let listing = Heartbeat { host: host.clone(), sessions, leaving: false, health };
         let mut taken = false;
         let wait = tokio::select! {
             r = client.heartbeat(&listing) => match r {
@@ -427,7 +462,7 @@ async fn heartbeats(
         hub.set_mesh_book_machines(Default::default());
         hub.set_mesh_book(Default::default(), Vec::new());
     }
-    let last = Heartbeat { host, sessions: Vec::new(), leaving: true };
+    let last = Heartbeat { host, sessions: Vec::new(), leaving: true, health: None };
     // timeout: the leaving heartbeat is best effort; the relay must still end.
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
 }

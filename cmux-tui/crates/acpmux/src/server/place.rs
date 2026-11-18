@@ -56,6 +56,7 @@ async fn this_machine(hub: &Hub) -> Candidate {
         local: true,
         health: super::peer_status::host_health(hub, Origin::Peer).await,
         health_at: Some(crate::store::now_ms()),
+        via_hub: false,
     }
 }
 
@@ -190,8 +191,13 @@ pub(super) fn role_refusal(host: &str, work: Work) -> Option<String> {
 fn named_refusal(registry: &Value, host: &str, work: Work) -> Option<String> {
     let hosts = crate::placement::lane_hosts(Some(registry))?;
     crate::placement::registry_lanes(&hosts, host)?;
-    let only =
-        [Candidate { name: host.to_owned(), local: false, health: Value::Null, health_at: None }];
+    let only = [Candidate {
+        name: host.to_owned(),
+        local: false,
+        health: Value::Null,
+        health_at: None,
+        via_hub: false,
+    }];
     let v = crate::placement::place(&only, Some(registry), work);
     if let Some(r) = v.pointer("/hosts/0/refused").and_then(Value::as_str) {
         return Some(format!("{host}: {r}"));
@@ -229,7 +235,7 @@ mod tests {
     use super::*;
 
     fn here(health: Value) -> [Candidate; 1] {
-        [Candidate { name: "box".into(), local: true, health, health_at: None }]
+        [Candidate { name: "box".into(), local: true, health, health_at: None, via_hub: false }]
     }
 
     fn health(ram_gb: u64, live: u64) -> Value {
@@ -317,6 +323,7 @@ mod tests {
             local,
             health: Value::Null,
             health_at: None,
+            via_hub: false,
         };
         let kept = off_interactive_hosts(
             vec![c("mac", true), c("laptop", false), c("desk", false), c("lane", false)],
@@ -347,7 +354,7 @@ mod tests {
     }
 
     fn named(name: &str, local: bool, health: Value) -> Candidate {
-        Candidate { name: name.into(), local, health, health_at: None }
+        Candidate { name: name.into(), local, health, health_at: None, via_hub: false }
     }
 
     /// design/agent-dispatch.md: `dispatch --host auto` never starts a new lane on a person's

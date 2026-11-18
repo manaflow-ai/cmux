@@ -53,6 +53,13 @@ pub struct BookDaemon {
     pub user: String,
     #[serde(default)]
     pub last_seen_at: u64,
+    /// The host health its last heartbeat carried (`mesh_health`), or none: a hub or daemon
+    /// from before it sends none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<Value>,
+    /// When the hub took that reading (ms, the hub's clock).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health_at: Option<u64>,
 }
 
 /// One live session in the address book, as its daemon's heartbeat listed it.
@@ -81,6 +88,10 @@ pub struct Heartbeat {
     /// a message sent before the restarted daemon polls again is not leased to the dead one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub leaving: bool,
+    /// This daemon's host health now (`mesh_health::heartbeat_health`); none on the leaving
+    /// heartbeat, which clears the hub's copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health: Option<Value>,
 }
 
 /// The most sessions one heartbeat lists.
