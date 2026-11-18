@@ -314,6 +314,7 @@ public final class CloudAuth {
     /// own store whatever it says).
     nonisolated static func launchDevAccount(configuration: CloudConfiguration, environment: [String: String], home: String,
                                              read: (String) -> DevSignInFile = readDevSignInFile) -> Bool {
+        guard adoptsNightlySession(configuration: configuration, devAccount: false) else { return true }
         return devAccountConfigured(environment: environment, home: home, read: read)
     }
 
@@ -349,15 +350,23 @@ public final class CloudAuth {
         let named = { (key: String) in !(environment[key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         if ["CMUX_DEV_AUTH_ACCOUNT", "CMUX_AUTH_CREDENTIALS_FILE", "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_UITEST_STACK_EMAIL"]
             .contains(where: named) { return true }
+        // The file's name only: the home folder names the person.
+        let unreadable = { (path: String) -> Bool in
+            let name = URL(fileURLWithPath: path).lastPathComponent
+            fileLog.notice("dev account: \(name, privacy: .public) is there but unreadable; counted as configured, NIGHTLY's session not adopted")
+            return true
+        }
         let accountPath = home + "/.config/cmux/dev-account", secretsPath = home + "/.secrets/cmuxterm-dev.env"
         switch read(accountPath) {
         case .contents(let account) where !account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty: return true
-        case .unreadable, .contents, .missing: break
+        case .unreadable: return unreadable(accountPath)
+        case .contents, .missing: break
         }
         let secrets: String
         switch read(secretsPath) {
         case .contents(let text): secrets = text
-        case .unreadable, .missing: return false
+        case .unreadable: return unreadable(secretsPath)
+        case .missing: return false
         }
         return secrets.split(whereSeparator: \.isNewline).contains { raw in
             var line = raw.trimmingCharacters(in: .whitespaces)

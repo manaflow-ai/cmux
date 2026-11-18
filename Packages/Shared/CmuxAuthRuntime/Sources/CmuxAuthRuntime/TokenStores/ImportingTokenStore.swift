@@ -120,6 +120,16 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
     /// is still only read. True when a session was adopted.
     public func retryImport() async -> Bool {
         await settle()
+        guard !wrote, (await primary.getStoredRefreshToken() ?? "").isEmpty else { return false }
+        for (index, source) in sources.enumerated() {
+            guard let pair = await source() else { continue }
+            // A write while the source answered wins.
+            guard !wrote, (await primary.getStoredRefreshToken() ?? "").isEmpty else { return false }
+            await primary.setTokens(accessToken: pair.accessToken, refreshToken: pair.refreshToken)
+            adopted.insert(pair.refreshToken)
+            log.log("importing.store: adopted a session from source \(index) when asked again hasAccess=\(pair.accessToken != nil)")
+            return true
+        }
         return false
     }
 
