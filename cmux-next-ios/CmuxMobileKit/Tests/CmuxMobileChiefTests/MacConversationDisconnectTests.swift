@@ -6,16 +6,18 @@ import Testing
 /// CMUX-30: when the Mac's link dropped, an open Mac conversation was replaced
 /// by a full-screen "Couldn't load this conversation." that hid the transcript
 /// and the composer. The conversation stays, marked as not live, with Try Again.
+/// These loaders mark at once (`quiet: .zero`), as past the quiet bound; under it nothing
+/// is said (``MacConversationQuietReconnectTests``).
 @MainActor
 @Suite struct MacConversationDisconnectTests {
     struct Offline: Error {}
 
     private func session() -> ChiefSession {
-        ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
     }
 
     @Test func aDroppedLinkKeepsTheOpenConversationOnScreen() async {
-        let loader = MacConversationLoader()
+        let loader = MacConversationLoader(quiet: .zero)
         let open = session()
         await loader.load { open }
         #expect(loader.session === open)
@@ -32,7 +34,7 @@ import Testing
     }
 
     @Test func aFirstOpenWithNothingToShowStillFails() async {
-        let loader = MacConversationLoader()
+        let loader = MacConversationLoader(quiet: .zero)
         await loader.load { throw Offline() }
         #expect(loader.failed)
         #expect(loader.session == nil)
@@ -56,7 +58,7 @@ import Testing
     @Test func aFailedFirstOpenShowsTheConversationNotAFullScreenError() async {
         // The user, 2026-11-13: a full-screen "Couldn't load this conversation." hid everything.
         // The conversation opens (title, what was kept, composer) under its own bar.
-        let loader = MacConversationLoader()
+        let loader = MacConversationLoader(quiet: .zero)
         let kept = session()
         var tries = 0
         await loader.load({ throw Offline() }, fallback: kept, tryAgain: { tries += 1 })
@@ -76,7 +78,7 @@ import Testing
     }
 
     @Test func theKeptConversationSaysItIsNotLiveAndOffersTryAgain() async {
-        let loader = MacConversationLoader()
+        let loader = MacConversationLoader(quiet: .zero)
         let open = session()
         await loader.load { open }
         var tries = 0
@@ -95,13 +97,15 @@ import Testing
         #expect(loader.session === open)
     }
 
-    @Test func reconnectingReplacesTheKeptConversationAndCarriesWhatWasWritten() async {
-        let loader = MacConversationLoader()
+    @Test func reconnectingReplacesTheKeptConversation() async {
+        let loader = MacConversationLoader(quiet: .zero)
         let open = session()
         await loader.load { open }
         await loader.load({ throw Offline() }, tryAgain: {})
-        open.send(ConversationComposeMessage(text: "Run the tests again"), asksForAlerts: false)
-        #expect(open.outbox.map(\.text) == ["Run the tests again"])
+        // Offline, with the kept conversation on screen (its store has a sender): nothing is queued
+        // for the Mac's return (no outbox), and no Not Delivered bubble is made.
+        #expect(!open.send(ConversationComposeMessage(text: "Run the tests again"), asksForAlerts: false))
+        #expect(!open.store.messages.contains { $0.text == "Run the tests again" })
 
         let live = session()
         await loader.load { live }
@@ -109,9 +113,6 @@ import Testing
         #expect(loader.session === live)
         #expect(!loader.isStale)
         #expect(!loader.failed)
-        // Nothing written while the Mac was away is lost.
-        #expect(live.outbox.map(\.text) == ["Run the tests again"])
-        #expect(open.outbox.isEmpty)
         // The stale marks go with it.
         #expect(open.unavailableTitle == nil)
         #expect(live.unavailableTitle == nil)
@@ -119,7 +120,7 @@ import Testing
     }
 
     @Test func theSameSessionComingBackClearsItsStaleBar() async {
-        let loader = MacConversationLoader()
+        let loader = MacConversationLoader(quiet: .zero)
         let open = session()
         await loader.load { open }
         await loader.load({ throw Offline() }, tryAgain: {})

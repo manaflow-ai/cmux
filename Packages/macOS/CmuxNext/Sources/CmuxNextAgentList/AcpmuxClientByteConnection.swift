@@ -18,6 +18,7 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
     /// The drop callback a ``reconnect(path:refused:)`` opens again with.
     private var reopenClose: (@Sendable () -> Void)?
     private var reads = 0
+    private var bytesRead = 0
     private let client: AcpmuxClient
     private let queue = DispatchQueue(label: "cmux.acpmux-client.driver", qos: .utility) // qos-allow: socket bytes are background transport work
     private var input = Data()
@@ -155,6 +156,7 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
     private func receive(_ bytes: Data) {
         guard !closed else { return }
         reads += 1
+        bytesRead += bytes.count
         input.append(bytes)
         processInput()
     }
@@ -162,7 +164,9 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
     private func processInput() {
         guard !closed else { return }
         drainChanges()
-        while !input.isEmpty, pending.count < maxBatchBytes {
+        // The same guard as `drainChanges`: a framed batch that is out takes no read either, so a
+        // reconnect's first read stays unread until the batch is acknowledged.
+        while !input.isEmpty, pending.count < maxBatchBytes, !(framesChanges && pendingDelivery) {
             let result = client.received(input)
             guard result.isSuccess else {
                 fail()
@@ -231,12 +235,17 @@ public nonisolated final class AcpmuxClientByteConnection: @unchecked Sendable {
     }
 
     /// What the driver holds now (tests): the batch, the change it could not hold, the bytes the
-    /// core has not taken, and the number of socket reads so far.
-    internal func heldForTesting() async -> (pending: Int, deferred: Int, input: Int, reads: Int) {
+    /// core has not taken, the number of socket reads so far and the bytes they held.
+    internal func heldForTesting() async -> (pending: Int, deferred: Int, input: Int, reads: Int, bytes: Int) {
         await withCheckedContinuation { continuation in
             queue.async { [self] in
-                continuation.resume(returning: (pending.count, deferredChange?.count ?? 0, input.count, reads))
+                continuation.resume(returning: (pending.count, deferredChange?.count ?? 0, input.count, reads, bytesRead))
             }
         }
+    }
+
+    /// Fails the connection as bad bytes would (tests): it closes and `onClose` runs.
+    internal func failForTesting() {
+        queue.async { [self] in fail() }
     }
 }

@@ -114,6 +114,25 @@ import Testing
         #expect(none.contains("no staged bundle of 300"))
     }
 
+    /// Leo's NIGHTLY update log read "cmux exit 11" for a SIGSEGV of Chromium's pre-warm and "exit 255" for each helper
+    /// that loaded the framework: a crash names its signal, and a helper's 255 says it loaded.
+    @Test func aCrashNamesItsSignalAndAHelpersLoadSaysSo() async throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        let app = try Self.stage(root, "u1", "x1", build: "200", bins: [], helpers: ["cmux Helper (GPU)"])
+        let executable = app.appending(path: "Contents/MacOS/cmux")
+        try "#!/bin/sh\n[ \"$1\" = \"\(StagedUpdatePrewarm.chromiumArgument)\" ] && kill -SEGV $$\nexit 0\n"
+            .write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let helper = app.appending(path: "Contents/Frameworks/cmux Helper (GPU).app/Contents/MacOS/cmux Helper (GPU)")
+        try "#!/bin/sh\nexit 255\n".write(to: helper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+        let line = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork())
+        #expect(line.contains("cmux signal 11 "), "a SIGSEGV read as an exit status: \(line)")
+        #expect(line.contains("cmux Helper (GPU) exit 255 (framework loaded) "), "\(line)")
+        #expect(line.contains("cmux exit 0 "), "the first run exits on its own: \(line)")
+    }
+
     /// The helpers' --version runs none of the framework's code, so the pre-warm reads every page of every regular
     /// file under Contents/Frameworks once: empty files and symbolic links are skipped, a file one byte past three
     /// pages is four pages.

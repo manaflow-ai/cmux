@@ -360,6 +360,9 @@ class GeneratedClientMixin:
     def feed_local_read(self, items: List[str]) -> JsonValue:
         return self._invoke_command('feed-local-read', FeedLocalReadRequest(items=items))
 
+    def float_pane(self, pane: Id, *, h: Union[float, None, MissingType] = MISSING, mode: Union[str, None, MissingType] = MISSING, transaction: Union[int, None, MissingType] = MISSING, w: Union[float, None, MissingType] = MISSING, x: Union[float, None, MissingType] = MISSING, y: Union[float, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('float-pane', FloatPaneRequest(pane=pane, h=h, mode=mode, transaction=transaction, w=w, x=x, y=y))
+
     def focus_direction(self, dir: PaneDirection, *, pane: Union[Id, None, MissingType] = MISSING) -> FocusDirectionResult:
         return self._invoke_command('focus-direction', FocusDirectionRequest(dir=dir, pane=pane))
 
@@ -591,6 +594,9 @@ class GeneratedClientMixin:
     def put_session(self, session_id: str, transport: Union[JsonValue, None], *, capabilities: Union[JsonValue, None, MissingType] = MISSING, follow_with: Union[str, None, MissingType] = MISSING, machine_name: Union[str, None, MissingType] = MISSING, session_name: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('put-session', PutSessionRequest(session_id=session_id, transport=transport, capabilities=capabilities, follow_with=follow_with, machine_name=machine_name, session_name=session_name))
 
+    def quick_terminal(self, screen: Id, *, h: Union[float, None, MissingType] = MISSING, mode: Union[str, None, MissingType] = MISSING, w: Union[float, None, MissingType] = MISSING, x: Union[float, None, MissingType] = MISSING, y: Union[float, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('quick-terminal', QuickTerminalRequest(screen=screen, h=h, mode=mode, w=w, x=x, y=y))
+
     def read_screen(self, surface: Id) -> ReadScreenResult:
         return self._invoke_command('read-screen', ReadScreenRequest(surface=surface))
 
@@ -618,8 +624,8 @@ class GeneratedClientMixin:
     def remote_host_call(self, method: str, *, params: Union[JsonValue, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('remote-host-call', RemoteHostCallRequest(method=method, params=params))
 
-    def remote_host_config(self, *, computer_use: Union[bool, None, MissingType] = MISSING, headless: Union[bool, None, MissingType] = MISSING, screen_sharing: Union[bool, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('remote-host-config', RemoteHostConfigRequest(computer_use=computer_use, headless=headless, screen_sharing=screen_sharing))
+    def remote_host_config(self, *, app_permissions: Union[RemoteHostAppPermissions, None, MissingType] = MISSING, computer_use: Union[bool, None, MissingType] = MISSING, headless: Union[bool, None, MissingType] = MISSING, screen_sharing: Union[bool, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('remote-host-config', RemoteHostConfigRequest(app_permissions=app_permissions, computer_use=computer_use, headless=headless, screen_sharing=screen_sharing))
 
     def remote_host_status(self) -> JsonValue:
         return self._invoke_command('remote-host-status', RemoteHostStatusRequest())
@@ -1038,6 +1044,7 @@ GeneratedClientMixin.feed_local_handoff_begin.__cmux_command__ = COMMANDS['feed-
 GeneratedClientMixin.feed_local_handoff_done.__cmux_command__ = COMMANDS['feed-local-handoff-done']
 GeneratedClientMixin.feed_local_list.__cmux_command__ = COMMANDS['feed-local-list']
 GeneratedClientMixin.feed_local_read.__cmux_command__ = COMMANDS['feed-local-read']
+GeneratedClientMixin.float_pane.__cmux_command__ = COMMANDS['float-pane']
 GeneratedClientMixin.focus_direction.__cmux_command__ = COMMANDS['focus-direction']
 GeneratedClientMixin.focus_pane.__cmux_command__ = COMMANDS['focus-pane']
 GeneratedClientMixin.forget_session.__cmux_command__ = COMMANDS['forget-session']
@@ -1115,6 +1122,7 @@ GeneratedClientMixin.process_info.__cmux_command__ = COMMANDS['process-info']
 GeneratedClientMixin.put_blob.__cmux_command__ = COMMANDS['put-blob']
 GeneratedClientMixin.put_frontend_projection.__cmux_command__ = COMMANDS['put-frontend-projection']
 GeneratedClientMixin.put_session.__cmux_command__ = COMMANDS['put-session']
+GeneratedClientMixin.quick_terminal.__cmux_command__ = COMMANDS['quick-terminal']
 GeneratedClientMixin.read_screen.__cmux_command__ = COMMANDS['read-screen']
 GeneratedClientMixin.read_scrollback.__cmux_command__ = COMMANDS['read-scrollback']
 GeneratedClientMixin.reattach_view.__cmux_command__ = COMMANDS['reattach-view']

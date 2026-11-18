@@ -6,6 +6,8 @@
 //
 // `createMockClient` connects a page client to it over the protocol's in-memory transport
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
+import { runMockAgentKeys } from "./mockAgentKeys";
+import { mockModels, runMockModels } from "./mockModels";
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
 import { MockTeams } from "./mockTeams";
@@ -30,9 +32,8 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
-  type LibraryListing,
-  type LibraryRun,
   type SharesState,
+  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -43,6 +44,8 @@ import {
   type ProviderAccount,
   type IntegrationsRun,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -53,8 +56,11 @@ import {
   type SnapshotResult,
   type ThemeOverride,
   type WorkspaceBackground,
-  type KeysState,
   type CustomizeTryOn,
+  type LibraryListing,
+  type LibraryRun,
+  type ModelsRun,
+  type ModelsState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -296,6 +302,8 @@ export class MockSettingsProvider {
         return {};
       },
       "cmux.settings.devices.join_consent": (params) => {
+        if (this.joinConsentRefusal) throw new ProtocolError("cmux.app.user_only", this.joinConsentRefusal);
+        if (this.joinConsentReplyError) return { error: this.joinConsentReplyError };
         const join = this.host.devices_join;
         if (join)
           this.setHost({
@@ -624,6 +632,21 @@ export class MockSettingsProvider {
         this.worktreeReadHold
           ? this.worktreeReadHold.then(() => this.readWorktree(params as { path: string }))
           : this.readWorktree(params as { path: string }),
+      "cmux.settings.models.state": () => {
+        if (!this.models) throw new ProtocolError("cmux.settings.unavailable", "this host has no Models part");
+        return this.models;
+      },
+      "cmux.settings.models.run": (params) => {
+        const run = params as ModelsRun;
+        this.modelRuns.push(run);
+        if (!this.models) throw new ProtocolError("cmux.settings.unavailable", "this host has no Models part");
+        try {
+          this.setModels(runMockModels(this.models, run));
+        } catch (error) {
+          throw new ProtocolError("cmux.settings.invalid", error instanceof Error ? error.message : String(error));
+        }
+        return {};
+      },
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
@@ -664,6 +687,32 @@ export class MockSettingsProvider {
           providers: this.integrations.providers.map((entry) =>
             entry.id === row.id ? { ...entry, state, error: null } : entry,
           ),
+        };
+        return {};
+      },
+      "cmux.settings.mcp.state": () => this.mcpServers,
+      "cmux.settings.mcp.run": (params) => {
+        const run = params as McpServersRun;
+        if (run.action === "refresh") return {};
+        const row = this.mcpServers.servers.find((entry) => entry.name === run.name);
+        // Like the host: only a listed server.
+        if (!row) throw new ProtocolError("cmux.settings.invalid", "name must be a listed server");
+        this.mcpServerRuns.push(run);
+        this.mcpServers = {
+          ...this.mcpServers,
+          servers:
+            run.action === "remove"
+              ? this.mcpServers.servers.filter((entry) => entry.name !== run.name)
+              : this.mcpServers.servers.map((entry) =>
+                  entry.name === run.name
+                    ? {
+                        ...entry,
+                        signingIn: true,
+                        page: "https://linear.app/oauth/authorize?client_id=mock",
+                        error: null,
+                      }
+                    : entry,
+                ),
         };
         return {};
       },
@@ -716,6 +765,8 @@ export class MockSettingsProvider {
       "cmux.chief.backend.doctor",
       "cmux.settings.harnesses.state",
       "cmux.settings.harnesses.run",
+      "cmux.settings.models.state",
+      "cmux.settings.models.run",
       "cmux.settings.devices.state",
       "cmux.settings.devices.run",
       "cmux.settings.environments.state",
@@ -734,6 +785,8 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.logout",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
+      "cmux.settings.mcp.state",
+      "cmux.settings.mcp.run",
       "cmux.settings.theme.set",
       "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
@@ -789,9 +842,22 @@ export class MockSettingsProvider {
     });
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
     provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
+    provide("cmux.settings.models.changed", (ctx) => this.track(this.modelsChanged, ctx));
     provide("cmux.settings.keys.changed", (ctx) => this.track(this.keysChanged, ctx));
     provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
     provide("cmux.settings.channels.switch.changed", (ctx) => this.track(this.switchChanged, ctx));
+  }
+
+  /** Settings > Models as the app serves it (mockModels.ts); null is a host without the part. */
+  models: ModelsState | null = structuredClone(mockModels.macLogins);
+  /** Models gestures the page sent (pasted keys included, so tests can check what was sent). */
+  readonly modelRuns: ModelsRun[] = [];
+  private readonly modelsChanged = new Set<EventSourceContext>();
+
+  /** Replaces Settings > Models and tells the page, like the app's acpmux change push. */
+  setModels(models: ModelsState): void {
+    this.models = models;
+    for (const ctx of this.modelsChanged) ctx.emit(models);
   }
 
   /** Settings > Devices as the app serves it (texts already localized). */
@@ -1221,6 +1287,10 @@ export class MockSettingsProvider {
   wentBack: string | null = null;
   /** The build the card's last Switch asked for. */
   switchedTo: string | null = null;
+  /** The host's refusal of every join consent switch press (`cmux.app.user_only`); null: it runs. */
+  joinConsentRefusal: string | null = null;
+  /** The `error` a join consent switch press's reply carries (the host was busy with another write); null: it runs. */
+  joinConsentReplyError: string | null = null;
   /** The host's refusal of every Switch; null: Switch runs. */
   switchRefusal: string | null = null;
   /** Why Open Theme File's export failed (the CLI's last stderr line); null: the file opens. */
@@ -1319,6 +1389,57 @@ export class MockSettingsProvider {
       { id: "gemini", path: "~/.gemini/settings.json", state: "absent", reason: null, detail: null, error: null },
     ],
   };
+  /** The person's saved MCP servers as the app serves them (`SettingsMcpServers.state`). */
+  mcpServers: McpServersState = {
+    loading: false,
+    problem: null,
+    servers: [
+      {
+        name: "linear",
+        kind: "remote",
+        address: "https://mcp.linear.app/mcp",
+        publisher: "linear.app",
+        verified: true,
+        state: "connected",
+        problem: null,
+        scope: "agents",
+        tools: 23,
+        signingIn: false,
+        page: null,
+        error: null,
+      },
+      {
+        name: "slack",
+        kind: "remote",
+        address: "https://mcp.slack.com/mcp",
+        publisher: "slack.com",
+        verified: true,
+        state: "signInNeeded",
+        problem: null,
+        scope: "chief",
+        tools: 0,
+        signingIn: false,
+        page: null,
+        error: null,
+      },
+      {
+        name: "notes",
+        kind: "local",
+        address: "npx -y @example/notes-mcp",
+        publisher: "local",
+        verified: false,
+        state: "failed",
+        problem: "the command exited with status 1",
+        scope: "chat",
+        tools: 0,
+        signingIn: false,
+        page: null,
+        error: null,
+      },
+    ],
+  };
+  /** MCP Servers gestures the page sent (sign in, remove). */
+  readonly mcpServerRuns: McpServersRun[] = [];
   /** Agent integrations gestures the page sent (install, repair, remove). */
   readonly integrationRuns: IntegrationsRun[] = [];
 
@@ -1623,6 +1744,8 @@ export class MockSettingsProvider {
           },
         };
       }
+    } else if (run.action.startsWith("agentKey") && this.accounts.agentKeys) {
+      this.accounts = { ...this.accounts, agentKeys: runMockAgentKeys(this.accounts.agentKeys, run) };
     } else if (run.action === "remove") {
       this.accounts = rows((row) => ({ ...row, linked: row.linked.filter((account) => account.id !== run.account) }));
     } else if (run.action === "cmux.signOut" || run.action === "cmux.cancelSignIn") {
