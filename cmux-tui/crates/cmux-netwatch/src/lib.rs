@@ -553,7 +553,7 @@ fn default_route(body: &[u8]) -> Option<(u32, Option<IpAddr>)> {
     let [family, dst_len, _, _, table, _, _, kind] = *body.get(..8)? else {
         return None;
     };
-    if dst_len != 0 || kind != libc::RTN_UNICAST as u8 {
+    if dst_len != 0 || kind != libc::RTN_UNICAST {
         return None;
     }
     let mut table = u32::from(table);
@@ -563,11 +563,11 @@ fn default_route(body: &[u8]) -> Option<(u32, Option<IpAddr>)> {
         let len = usize::from(u16_at(attrs, 0)?);
         let attr = u16_at(attrs, 2)?;
         let data = attrs.get(4..len).filter(|_| len >= 4)?;
-        if attr == libc::RTA_TABLE as u16 {
+        if attr == libc::RTA_TABLE {
             table = u32_at(data, 0)?;
-        } else if attr == libc::RTA_OIF as u16 {
+        } else if attr == libc::RTA_OIF {
             index = u32_at(data, 0)?;
-        } else if attr == libc::RTA_GATEWAY as u16 {
+        } else if attr == libc::RTA_GATEWAY {
             gateway = match i32::from(family) {
                 libc::AF_INET => <[u8; 4]>::try_from(data).ok().map(IpAddr::from),
                 libc::AF_INET6 => <[u8; 16]>::try_from(data).ok().map(IpAddr::from),
@@ -576,7 +576,7 @@ fn default_route(body: &[u8]) -> Option<(u32, Option<IpAddr>)> {
         }
         attrs = attrs.get(align4(len)..).unwrap_or_default();
     }
-    (table == u32::from(libc::RT_TABLE_MAIN as u8)).then_some((index, gateway))
+    (table == u32::from(libc::RT_TABLE_MAIN)).then_some((index, gateway))
 }
 
 #[cfg(target_os = "linux")]
@@ -671,7 +671,7 @@ mod tests {
         let mut changes = Changes::new(network(&[]));
         let start = Instant::now();
         changes.message(start);
-        assert!(changes.look(start + SETTLE, network(&[up.clone()])));
+        assert!(changes.look(start + SETTLE, network(std::slice::from_ref(&up))));
         for ms in [500, 900, 1300] {
             changes.message(start + Duration::from_millis(ms));
         }
@@ -693,7 +693,7 @@ mod tests {
     /// One RTM_NEWROUTE message: an rtmsg (`family`, `dst_len`, `table`, unicast) and its
     /// attributes.
     fn route(family: u8, dst_len: u8, table: u8, attrs: &[(u16, &[u8])]) -> Vec<u8> {
-        let mut body = vec![family, dst_len, 0, 0, table, 0, 0, libc::RTN_UNICAST as u8];
+        let mut body = vec![family, dst_len, 0, 0, table, 0, 0, libc::RTN_UNICAST];
         body.extend_from_slice(&0u32.to_ne_bytes());
         for (kind, data) in attrs {
             body.extend_from_slice(&((4 + data.len()) as u16).to_ne_bytes());
@@ -719,8 +719,8 @@ mod tests {
     fn a_route_dump_gives_the_main_default_routes() {
         let (gateway, oif, metric, expires) =
             // RTA_EXPIRES is 23 (linux/rtnetlink.h).
-            (libc::RTA_GATEWAY as u16, libc::RTA_OIF as u16, libc::RTA_PRIORITY as u16, 23u16);
-        let main = libc::RT_TABLE_MAIN as u8;
+            (libc::RTA_GATEWAY, libc::RTA_OIF, libc::RTA_PRIORITY, 23u16);
+        let main = libc::RT_TABLE_MAIN;
         let index = 3u32.to_ne_bytes();
         let v6_gateway: std::net::Ipv6Addr = "fe80::1".parse().unwrap();
         let dump = |metric_value: u32, expiry: u32| {
@@ -735,12 +735,7 @@ mod tests {
                 ],
             );
             dump.extend(route(libc::AF_INET as u8, 24, main, &[(oif, &index)]));
-            dump.extend(route(
-                libc::AF_INET as u8,
-                0,
-                libc::RT_TABLE_LOCAL as u8,
-                &[(oif, &index)],
-            ));
+            dump.extend(route(libc::AF_INET as u8, 0, libc::RT_TABLE_LOCAL, &[(oif, &index)]));
             dump.extend(route(
                 libc::AF_INET6 as u8,
                 0,
