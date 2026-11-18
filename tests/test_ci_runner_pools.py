@@ -555,6 +555,8 @@ class Main(unittest.TestCase):
         self.assertEqual(value["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
         self.assertEqual(value["linux_32"], "blacksmith-8vcpu-ubuntu-2404")
         self.assertIn("blacksmith-32vcpu-ubuntu-2404", value["_dead"])
+        # linux is [4, 16] vCPU, both stalled: its valve is 2 vCPU, and the LINUX_RUNNER mirror check accepts it.
+        self.assertEqual(value["linux"], "blacksmith-2vcpu-ubuntu-2404")
         # The next pass keeps it (the writer used to reset any label outside the members). It rewrites the
         # variable only to refresh the dead marks' times.
         again = self.Switch(switch.variables)

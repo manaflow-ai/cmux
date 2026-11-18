@@ -335,9 +335,10 @@ def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[
         if name in owned:
             continue
         current = (live.get(name) or "").strip()
-        allowed = members(pools[pool]) if pool in pools else []
-        if current not in allowed:
-            found.append(f"{name}={current or 'unset'} is not a member of pools.{pool} ({', '.join(allowed)}): "
+        allowed_labels = allowed(pools[pool], pools) if pool in pools else []
+        if current not in allowed_labels:
+            found.append(f"{name}={current or 'unset'} is not a member or release valve of pools.{pool} "
+                         f"({', '.join(allowed_labels)}): "
                          f"every `vars.{name} || ...` runs-on waits on it; runner_pools.py writes the live member")
     return found
 
