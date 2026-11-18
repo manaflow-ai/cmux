@@ -144,6 +144,12 @@ SIGNATURES = (
     sig("gui-token-unavailable", MACHINE,
         r"^Could not take this Mac's gui token for the app-host tests \(take-gui exited ",
         "the runner could not acquire the GUI token for app-host tests"),
+    # Anchored so the ##[warning] line the script prints for the same
+    # condition keeps its prefix and does not match: a warning must not
+    # outweigh test failures, only the failure annotation may (#15395).
+    sig("no-console-user", MACHINE,
+        r"^No logged-in console user \(or no passwordless sudo\)",
+        "the runner has no logged-in console user for GUI tests"),
     # The CLI and the package framework it links came from different builds:
     # the runner staged products from another job. Compiled together, they match.
     sig("mixed-products", MACHINE, r"dyld\[\d+\]: Symbol not found: ",
