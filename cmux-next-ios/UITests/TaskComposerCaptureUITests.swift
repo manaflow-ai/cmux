@@ -92,8 +92,10 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             { tap(any(app, "taskComposer.agent.claude-cr"), "Claude Code Router row") },
             { closeMenu(app) },
             // Two Starts names its buttons by place: the count is on the filled one's badge then.
-            { check(app.buttons["taskComposer.start"].firstMatch.label == "Start 2"
-                    || C.any(app, "taskComposer.settings").exists, "two agents not picked") },
+            // Read a label only of a button that is there (Two Starts has no plain Start).
+            { check(C.any(app, "taskComposer.settings").exists
+                    || (app.buttons["taskComposer.start"].firstMatch.exists && app.buttons["taskComposer.start"].firstMatch.label == "Start 2"),
+                    "two agents not picked") },
         ])
     }
 
