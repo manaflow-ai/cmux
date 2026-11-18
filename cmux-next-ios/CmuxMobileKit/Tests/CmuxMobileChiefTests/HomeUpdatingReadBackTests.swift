@@ -55,75 +55,85 @@ import UIKit
         defer { window.isHidden = true }
         let shown = ContinuousClock.now
 
+        // The capsule draws at the bottom centre, under the four rows, where the page is
+        // otherwise its plain background: count the pixels there that are not background.
         var log: [String] = []
-        ScreenReadBack.pump(until: shown.advanced(by: .seconds(3)))
-        let early = ScreenReadBack.strings(in: window)
-        log.append(ScreenReadBack.line("1-kept-3s-silent", since: shown, updating: early.contains("home.note.updating")))
-        ScreenReadBack.record(window, named: "home-1-kept-3s.png")
+        await ScreenReadBack.pump(until: shown.advanced(by: .seconds(3)))
+        let early = ScreenReadBack.record(window, named: "home-1-kept-3s.png")
+        let earlyInk = ScreenReadBack.capsuleInk(early, in: window)
+        log.append(ScreenReadBack.line("1-kept-3s-silent", since: shown, ink: earlyInk))
         #expect(feed.isShowingKeptRows, "the Mac's list never came: the rows are the kept ones")
-        #expect(!early.contains("home.note.updating"), "no Updating capsule over kept rows at 3 s: \(early.sorted())")
+        #expect(earlyInk >= 0 && earlyInk < 40, "no Updating capsule over kept rows at 3 s: \(earlyInk) capsule-area pixels drawn")
 
         // Past the quiet bound (QuietStatusGate.threshold, 10 s) by 1 s.
-        ScreenReadBack.pump(until: shown.advanced(by: .seconds(11)))
-        let late = ScreenReadBack.strings(in: window)
-        log.append(ScreenReadBack.line("2-kept-past-10s-updating", since: shown, updating: late.contains("home.note.updating")))
-        ScreenReadBack.record(window, named: "home-2-kept-past-10s.png")
-        #expect(late.contains("home.note.updating"), "past the quiet bound the Updating capsule shows: \(late.sorted())")
+        await ScreenReadBack.pump(until: shown.advanced(by: .seconds(11)))
+        let late = ScreenReadBack.record(window, named: "home-2-kept-past-10s.png")
+        let lateInk = ScreenReadBack.capsuleInk(late, in: window)
+        log.append(ScreenReadBack.line("2-kept-past-10s-updating", since: shown, ink: lateInk))
+        #expect(feed.isShowingKeptRows, "still the kept rows")
+        #expect(lateInk > 400, "past the quiet bound the Updating capsule shows: \(lateInk) capsule-area pixels drawn")
 
         Attachment.record(log.joined(separator: "\n") + "\n", named: "home-readback.txt")
         print(log.joined(separator: "\n"))
     }
 }
 
-/// Drives a hosted screen on the real run loop, reads what it shows, and saves it.
+/// Drives a hosted screen on the real clock, and saves and reads what it draws.
 @MainActor
 enum ScreenReadBack {
-    /// Runs the main run loop (SwiftUI's updates, main-actor tasks, the screen's clock) until `deadline`.
-    static func pump(until deadline: ContinuousClock.Instant) {
-        while ContinuousClock.now < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        }
+    /// Suspends the test until `deadline`: the main actor is free meanwhile, so SwiftUI's
+    /// updates and the screen's own tasks (its quiet gate on the real clock) run as in the app.
+    static func pump(until deadline: ContinuousClock.Instant) async {
+        try? await ContinuousClock().sleep(until: deadline, tolerance: .milliseconds(50))
+        for _ in 0 ..< 10 { await Task.yield() }
     }
 
-    /// Every accessibility identifier and label in the window (views and SwiftUI's elements).
-    static func strings(in window: UIWindow) -> Set<String> {
-        var found = Set<String>()
-        var seen = Set<ObjectIdentifier>()
-        func visit(_ element: NSObject, depth: Int) {
-            guard depth < 64, seen.insert(ObjectIdentifier(element)).inserted else { return }
-            if let id = (element as? UIAccessibilityIdentification)?.accessibilityIdentifier, !id.isEmpty { found.insert(id) }
-            if let label = element.accessibilityLabel, !label.isEmpty { found.insert(label) }
-            if let text = (element as? UILabel)?.text, !text.isEmpty { found.insert(text) }
-            if let view = element as? UIView { for sub in view.subviews { visit(sub, depth: depth + 1) } }
-            if let elements = element.accessibilityElements as? [NSObject] {
-                for child in elements { visit(child, depth: depth + 1) }
-            } else {
-                let count = element.accessibilityElementCount()
-                if count != NSNotFound, count > 0 {
-                    for index in 0 ..< count {
-                        if let child = element.accessibilityElement(at: index) as? NSObject { visit(child, depth: depth + 1) }
-                    }
-                }
-            }
-        }
-        visit(window, depth: 0)
-        return found
-    }
-
-    static func line(_ name: String, since start: ContinuousClock.Instant, updating: Bool) -> String {
-        let ms = (ContinuousClock.now - start).components
-        let total = ms.seconds * 1000 + ms.attoseconds / 1_000_000_000_000_000
-        return "\(name.padding(toLength: 26, withPad: " ", startingAt: 0)) t=\(total)ms  updating=\(updating)"
+    static func line(_ name: String, since start: ContinuousClock.Instant, ink: Int) -> String {
+        let parts = (ContinuousClock.now - start).components
+        let ms = parts.seconds * 1000 + parts.attoseconds / 1_000_000_000_000_000
+        return "\(name.padding(toLength: 26, withPad: " ", startingAt: 0)) t=\(ms)ms  capsule_pixels=\(ink)"
     }
 
     /// The window as drawn, saved as a test attachment.
-    static func record(_ window: UIWindow, named name: String) {
+    @discardableResult
+    static func record(_ window: UIWindow, named name: String) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
-        format.scale = 2
+        format.scale = 1
         let shot = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
         if let png = shot.pngData() { Attachment.record(png, named: name) }
+        return shot
+    }
+
+    /// Pixels in the capsule's area (bottom centre, 200 x 70 pt above the safe area) that differ
+    /// from the page background, read at the bottom-left corner beside it.
+    static func capsuleInk(_ image: UIImage, in window: UIWindow) -> Int {
+        guard let cg = image.cgImage else { return -1 }
+        let width = cg.width, height = cg.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn, width > 220 else { return -1 }
+        let bottom = height - Int(window.safeAreaInsets.bottom)
+        func rgb(_ x: Int, _ y: Int) -> (Int, Int, Int) {
+            let i = (y * width + x) * 4
+            return (Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2]))
+        }
+        let background = rgb(8, bottom - 30)
+        var ink = 0
+        for y in max(0, bottom - 70) ..< bottom {
+            for x in (width / 2 - 100) ..< (width / 2 + 100) {
+                let (r, g, b) = rgb(x, y)
+                if abs(r - background.0) + abs(g - background.1) + abs(b - background.2) > 24 { ink += 1 }
+            }
+        }
+        return ink
     }
 }
 #endif

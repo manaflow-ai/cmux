@@ -14,7 +14,7 @@ import UIKit
 /// "Updating…". Each state is saved as a screenshot attachment.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(2))) struct WorkspacesUpdatingReadBackTests {
-    @Test func readBackRefreshAt3sAndPast10s() throws {
+    @Test func readBackRefreshAt3sAndPast10s() async throws {
         let store = AppStore.mock()
         // A refresh that does not end while the rows show.
         store.teamDataState = .loading
@@ -28,13 +28,13 @@ import UIKit
         let shown = ContinuousClock.now
 
         var log: [String] = []
-        pump(until: shown.advanced(by: .seconds(3)))
+        await pump(until: shown.advanced(by: .seconds(3)))
         let early = updating(in: window)
         log.append(line("1-refresh-3s-silent", since: shown, updating: early))
         record(window, named: "workspaces-1-refresh-3s.png")
         #expect(!early, "no Updating subtitle at 3 s of a refresh: \(subtitles(in: window))")
 
-        pump(until: shown.advanced(by: QuietStatusGate.threshold + .seconds(1)))
+        await pump(until: shown.advanced(by: QuietStatusGate.threshold + .seconds(1)))
         let late = updating(in: window)
         log.append(line("2-refresh-past-10s-updating", since: shown, updating: late))
         record(window, named: "workspaces-2-refresh-past-10s.png")
@@ -44,10 +44,11 @@ import UIKit
         print(log.joined(separator: "\n"))
     }
 
-    private func pump(until deadline: ContinuousClock.Instant) {
-        while ContinuousClock.now < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        }
+    /// Suspends the test until `deadline`: the main actor is free meanwhile, so SwiftUI's updates
+    /// and the screen's own task (its quiet wait on the real clock) run as in the app.
+    private func pump(until deadline: ContinuousClock.Instant) async {
+        try? await ContinuousClock().sleep(until: deadline, tolerance: .milliseconds(50))
+        for _ in 0 ..< 10 { await Task.yield() }
     }
 
     /// The navigation subtitles and every label in the window.
