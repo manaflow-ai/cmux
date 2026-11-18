@@ -112,74 +112,43 @@ class SpillChoice(unittest.TestCase):
                 self.assertFalse(spill.valid_spill(bad, LINUX))
 
 
-class DownSpill(unittest.TestCase):
-    """linux_16 also spills down to a smaller size main's policy accepts as its release valve.
+class MembersOnly(unittest.TestCase):
+    """A spill never names a size outside the pool's declared members.
 
-    2026-11-18 02:58Z: gallery health's shards (RUNNER_POOLS.linux_16) waited 16,431 s at p90 over 2 h; 16 and 32 vCPU
-    were both hours deep while 8 vCPU started jobs in a p50 of 646 s."""
+    2026-11-18 from about 13:40Z: linux_16 and linux_8 named 2 vCPU and then linux_16 spilled down to 4 vCPU, neither a
+    member. cmux-tui's thin legs took 25-44 min instead of 2-8 and 7 aarch64 legs failed with rustc OOM (job
+    134837837144): a too-small size makes a memory-heavy job fail, not only wait."""
 
-    VALVES = [EIGHT, FOUR, TWO]
-    MEMBERS = [SIXTEEN, THIRTY_TWO]
+    MEMBERS = [SIXTEEN, EIGHT, THIRTY_TWO]
 
-    def candidates(self):
-        return spill.spill_candidates("linux_16", self.MEMBERS, self.VALVES)
+    def test_candidates_are_the_declared_members_only(self):
+        self.assertEqual(spill.spill_candidates("linux_16", self.MEMBERS), self.MEMBERS)
+        self.assertEqual(spill.spill_candidates("linux", LINUX), LINUX)
 
-    def choose(self, load, record=None, *, now=NOW, dead=(), base=SIXTEEN):
-        return spill.spill_choice("linux_16", self.candidates(), {label: "x" for label in dead}, base, record, load,
-                                  now=now, members=self.MEMBERS)
-
-    @staticmethod
-    def load(oldest, **waited):
-        names = {"sixteen": SIXTEEN, "thirty_two": THIRTY_TWO, "eight": EIGHT, "four": FOUR}
-        found = {names[key]: {"queued": count + 5, "running": 50, "waited": count} for key, count in waited.items()}
-        found[spill.OLDEST] = {names[key]: minutes for key, minutes in oldest.items()}
-        found[spill.COMPLETE] = True
-        return found
-
-    def test_candidates_are_the_members_then_the_valve_down_to_its_floor(self):
-        self.assertEqual(self.candidates(), [SIXTEEN, THIRTY_TWO, EIGHT, FOUR])
-        # The linux pool keeps its members only: no down-spill.
-        self.assertEqual(spill.spill_candidates("linux", LINUX, [TWO]), LINUX)
-
-    def test_both_members_hours_deep_spill_down_to_a_size_that_is_starting_jobs(self):
-        load = self.load({"sixteen": 85, "thirty_two": 80, "eight": 12, "four": 9},
-                         sixteen=60, thirty_two=40, eight=20, four=30)
-        member, record, lines = self.choose(load)
-        self.assertEqual(member, EIGHT)
-        self.assertEqual(record, {"from": SIXTEEN, "to": EIGHT, "since": spill.iso(NOW), "running": 50})
-        self.assertTrue(any("spill to" in line for line in lines))
-        self.assertTrue(spill.valid_spill(record, self.candidates()))
-
-    def test_a_down_target_needs_a_short_wait_beside_the_backlog(self):
-        # 8 vCPU's oldest is past the bound: 4 vCPU next; both too old: stay.
-        load = self.load({"sixteen": 85, "thirty_two": 80, "eight": 45, "four": 10},
-                         sixteen=60, thirty_two=40, eight=20, four=30)
-        self.assertEqual(self.choose(load)[0], FOUR)
-        stuck = self.load({"sixteen": 85, "thirty_two": 80, "eight": 45, "four": 40},
-                          sixteen=60, thirty_two=40, eight=20, four=30)
-        member, record, lines = self.choose(stuck)
+    def test_both_large_members_backed_up_spill_to_the_member_with_room_never_below(self):
+        load = {SIXTEEN: {"queued": 65, "running": 50, "waited": 60},
+                EIGHT: {"queued": 300, "running": 47, "waited": 288},
+                THIRTY_TWO: {"queued": 45, "running": 4, "waited": 40},
+                FOUR: {"queued": 2, "running": 35, "waited": 0}, TWO: {"queued": 0, "running": 199, "waited": 0},
+                spill.COMPLETE: False}
+        member, record, lines = spill.spill_choice("linux_16", spill.spill_candidates("linux_16", self.MEMBERS), {},
+                                                   SIXTEEN, None, load, now=NOW, members=self.MEMBERS)
         self.assertEqual((member, record), (SIXTEEN, None))
         self.assertTrue(any("no later live member has room" in line for line in lines))
-        # Not much faster than the backlog it would leave: stay.
-        close = self.load({"sixteen": 20, "thirty_two": 20, "eight": 10, "four": 10},
-                          sixteen=60, thirty_two=40, eight=20, four=20)
-        self.assertEqual(self.choose(close)[:2], (SIXTEEN, None))
+        roomy = load | {EIGHT: {"queued": 3, "running": 47, "waited": 1}}
+        member, record, _ = spill.spill_choice("linux_16", spill.spill_candidates("linux_16", self.MEMBERS), {},
+                                               SIXTEEN, None, roomy, now=NOW, members=self.MEMBERS)
+        self.assertEqual(member, EIGHT)
+        self.assertIn(member, self.MEMBERS)
 
-    def test_never_below_the_floor_and_never_onto_a_dead_size(self):
-        load = self.load({"sixteen": 85, "thirty_two": 80, "eight": 45, "four": 45}, sixteen=60, thirty_two=40)
-        self.assertNotIn(TWO, self.candidates())
-        self.assertEqual(self.choose(load)[0], SIXTEEN)
-        fresh = self.load({"sixteen": 85, "thirty_two": 80, "eight": 5}, sixteen=60, thirty_two=40)
-        # A size with nothing queued in the sample has room: 8 vCPU dead, 4 vCPU next; both dead, stay.
-        self.assertEqual(self.choose(fresh, dead={EIGHT})[0], FOUR)
-        self.assertEqual(self.choose(fresh, dead={EIGHT, FOUR})[0], SIXTEEN)
+    def test_has_room_refuses_a_size_outside_the_members(self):
+        empty = {FOUR: {"queued": 0, "running": 0, "waited": 0}}
+        self.assertFalse(spill.has_room(FOUR, self.MEMBERS, SIXTEEN, empty))
+        self.assertTrue(spill.has_room(EIGHT, self.MEMBERS, SIXTEEN, empty))
 
-    def test_a_drain_brings_it_back(self):
-        load = self.load({"sixteen": 85, "thirty_two": 80, "eight": 5}, sixteen=60, thirty_two=40)
-        record = self.choose(load)[1]
-        drained = {SIXTEEN: {"queued": 0, "running": 10, "waited": 0}, spill.COMPLETE: True}
-        member, kept, _ = self.choose(drained, record, now=NOW + spill.SPILL_MIN_HOLD)
-        self.assertEqual((member, kept), (SIXTEEN, None))
+    def test_a_recorded_spill_to_a_non_member_is_dropped(self):
+        record = {"from": SIXTEEN, "to": FOUR, "since": ago(5), "running": 50}
+        self.assertFalse(spill.valid_spill(record, spill.spill_candidates("linux_16", self.MEMBERS)))
 
 
 class ServedMarks(unittest.TestCase):
@@ -424,7 +393,7 @@ class WithMainPolicy(unittest.TestCase):
         self.assertNotIn("hosted_saturated", json.loads(switch.variables["RUNNER_POOLS"]))
         self.assertEqual(json.loads(switch.variables["RUNNER_POOLS"])["linux"], FOUR)
 
-    def test_linux_16_spills_down_and_mains_check_accepts_it(self):
+    def test_linux_16_spills_to_its_8_vcpu_member_and_mains_check_accepts_it(self):
         start = self.policy.render({"linux": FOUR, "_dead": {}, "_updated": ago(60)})
         switch = self.Switch({"RUNNER_POOLS": start, "LINUX_RUNNER": FOUR, "CI_CLOUD_OVERFLOW_SAVED": ""})
         jobs = ([{"status": "queued", "labels": [SIXTEEN], "created_at": ago(80)} for _ in range(30)]
@@ -483,6 +452,9 @@ class WithMainPolicy(unittest.TestCase):
         self.assertEqual({name: value[name] for name in ("linux", "linux_4", "linux_8", "linux_16", "linux_32")},
                          {"linux": FOUR, "linux_4": FOUR, "linux_8": EIGHT, "linux_16": SIXTEEN,
                           "linux_32": THIRTY_TWO})
+        pools = self.policy.load_pools(Path(POLICY_ROOT) / ".github" / "runners.json")
+        outside = {name: value[name] for name in pools if value.get(name) not in self.policy.members(pools[name])}
+        self.assertEqual(outside, {})
 
     def test_a_value_changed_during_the_pass_is_not_overwritten(self):
         # Review of #31884: a concurrent writer's dead mark must survive this pass.
