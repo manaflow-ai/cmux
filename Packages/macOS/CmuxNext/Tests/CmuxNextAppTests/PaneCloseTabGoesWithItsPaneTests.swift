@@ -226,6 +226,105 @@ import Testing
         #expect(new.cells[tab] != nil, "after the frame that hides the old pane the new tab bar does not show the moved tab")
     }
 
+    /// A move by another client out of a pane that keeps other tabs: the tab leaves its old tab bar at once and shows
+    /// in one tab bar only, and the tab that stays takes the first place.
+    ///
+    /// The old pane stays, so no tab bar keeps a tab for a leaving pane here: the row is for the mark. The pane's state
+    /// marks the tab as moved away (`TabStripModel.departures`), so the old tab bar drops its cell with no close motion,
+    /// as for a move that this client makes. By a read of the daemon's code, the new pane's `tab-changed` is the event
+    /// that takes the tab out of its old pane. A window with no screen applies each change of a tab bar at once: there
+    /// the test holds the mark, the one tab bar and the places, not the motion.
+    @Test(.timeLimit(.minutes(1)))
+    func aTabMovedByTheDaemonOutOfAPaneThatKeepsTabsLeavesItsBarAtOnce() async throws {
+        let app = try await Fixture()
+        defer { app.close() }
+        let (tab, stays) = try await Self.addFrontTab(to: app)
+        let leaving = try app.pane(2), target = try app.pane(1)
+        let old = leaving.view.stripView, new = target.view.stripView
+        new.syncFromModel()
+        try #require(old.isShownInWindow && new.isShownInWindow, "SETUP: a tab bar does not count as shown in its window")
+        try #require(old.cells[tab] != nil && old.cells[stays] != nil && new.cells[tab] == nil,
+                     "SETUP: before the move the old tab bar does not show its two tabs, or the new one shows the tab")
+        let first = try #require(old.placed[tab]?.x, "SETUP: the tab has no place in the old tab bar")
+        let second = try #require(old.placed[stays]?.x, "SETUP: the tab that stays has no place in the old tab bar")
+        try #require(second > first + 1, "SETUP: the tab that stays (x \(second)) is not after the tab that moves (x \(first))")
+
+        // The daemon's event; then each pane's job by its one call, in the same turn, before a tab bar follows.
+        Self.report([.tabChanged(Self.delta(4, pane: 1, index: 1))], to: app.store, from: 2)
+        try #require(leaving.pane.tabs.count == 1 && target.pane.tabs.count == 2, "SETUP: the daemon's event did not move the tab in the store")
+        leaving.apply(leaving.snapshot())
+        #expect(leaving.stripModel.departures.contains(tab),
+                "the old tab bar's model does not mark the moved tab as moved away, so its tab bar closes it as a closed tab")
+        target.apply(target.snapshot())
+        func holds(_ when: String) {
+            #expect(new.cells[tab] != nil, "\(when) the new tab bar does not show the moved tab")
+            #expect(old.cells[tab] == nil && !old.dying.contains(tab),
+                    "\(when) the old tab bar still shows the moved tab (in its close motion: \(old.dying.contains(tab)))")
+            let place = old.placed[stays]?.x
+            let atFirst = place.map { abs($0 - first) < 0.5 } ?? false
+            #expect(old.cells[stays] != nil && atFirst,
+                    "\(when) the tab that stays is not at the first place (x \(String(describing: place)), the first place \(first))")
+            #expect(leaving.stripModel.departures.isEmpty, "\(when) the mark outlived the old tab bar's sync")
+        }
+        old.syncFromModel()
+        new.syncFromModel()
+        holds("in the event's turn")
+        await Self.drainMain()
+        old.syncFromModel()
+        new.syncFromModel()
+        holds("after the jobs")
+    }
+
+    /// A tab that another client moves away and back before its old tab bar's next sync (a tab bar out of sight makes
+    /// none) is no departure: its mark goes when the tab comes back into the list. So a later close of it is a close
+    /// (the tab bar keeps it for a leaving pane, and plays its close motion), not a move.
+    @Test(.timeLimit(.minutes(1)))
+    func aTabMovedAwayAndBackIsNoDeparture() async throws {
+        let app = try await Fixture()
+        defer { app.close() }
+        let (tab, _) = try await Self.addFrontTab(to: app)
+        let pane = try app.pane(2)
+        // Away and back, the pane's job after each by its one call; the tab bar makes no sync between.
+        Self.report([.tabChanged(Self.delta(4, pane: 1, index: 1))], to: app.store, from: 2)
+        pane.apply(pane.snapshot())
+        try #require(pane.stripModel.departures.contains(tab), "SETUP: the move away did not mark the tab")
+        Self.report([.tabChanged(Self.delta(4, pane: 2, index: 0))], to: app.store, from: 3)
+        pane.apply(pane.snapshot())
+        try #require(pane.stripModel.tabs.contains { $0.id == tab }, "SETUP: the move back did not put the tab in the tab bar's model")
+        #expect(!pane.stripModel.departures.contains(tab), "the tab came back into the list and kept its mark: its next close plays as a move")
+        // Its close: no pane holds the tab then, so nothing marks it.
+        Self.report([.tabClosed(Self.delta(4, pane: 2, index: nil))], to: app.store, from: 4)
+        pane.apply(pane.snapshot())
+        try #require(!pane.stripModel.tabs.contains { $0.id == tab }, "SETUP: the close left the tab in the tab bar's model")
+        #expect(!pane.stripModel.departures.contains(tab), "the closed tab is marked as moved away")
+    }
+
+    /// Gives the fixture's pane 2 a second tab, surface 4, in front of its own: the daemon's `tab-added`, then the jobs
+    /// that follow it and the tab bar's one call. Returns the new tab's and the pane's own tab's ids in the tab bar.
+    private static func addFrontTab(to app: Fixture) async throws -> (front: StripTabID, own: StripTabID) {
+        let pane = try app.pane(2)
+        let own = try #require(pane.pane.tabs.first, "SETUP: the pane has no tab in the store")
+        report([.tabAdded(delta(4, pane: 2, index: 0))], to: app.store, from: 1)
+        await drainMain()
+        pane.apply(pane.snapshot())
+        pane.view.stripView.syncFromModel()
+        let front = try #require(app.store.tab(surface: CmuxNextDaemon.SurfaceID(rawValue: 4)), "SETUP: the store has no tab for the new surface")
+        let ids = (front: StripTabID(front.id), own: StripTabID(own.id))
+        try #require(pane.stripModel.orderedTabs.map(\.id) == [ids.front, ids.own], "SETUP: the tab bar's model does not have the new tab, then the pane's own")
+        return ids
+    }
+
+    /// Applies `events` to the store as a batch of the daemon whose first event has the sequence `first`.
+    private static func report(_ events: [DaemonEvent], to store: DaemonStore, from first: UInt64) {
+        _ = store.apply(batch: events.enumerated().map { DaemonEventEnvelope(sequence: first + UInt64($0.offset), event: $0.element) })
+    }
+
+    /// The daemon's delta for the terminal tab of `surface` in `pane` of the fixture's screen, at `index`.
+    private static func delta(_ surface: UInt64, pane: UInt64, index: Int?) -> TabDelta {
+        TabDelta(workspace: 1, screen: 1, pane: CmuxNextDaemon.PaneID(rawValue: pane), surface: CmuxNextDaemon.SurfaceID(rawValue: surface),
+                 index: index, entity: terminal(surface))
+    }
+
     /// Lets the main actor run what is queued (the panes' and the tab bars' observations): a fixed number of yields,
     /// no wait for time to pass.
     private static func drainMain() async {
