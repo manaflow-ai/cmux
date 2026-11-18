@@ -281,9 +281,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The line the host shows once the page's new document loads after the liveness watchdog
     /// ended its hung renderer (``prepareForRendererEnd(notice:)``); nil otherwise.
     var pendingRestartNotice: String?
-    /// The page came back after its hung renderer was ended: its host shows `line` (one line
-    /// saying the page was restarted and why). Never silent.
-    public var onRendererRestarted: ((String) -> Void)?
+    /// The page came back after its hung renderer was ended: its host shows the toast, this page's
+    /// own (``rendererRestartedToast(_:)``: one line saying the page was restarted and why). Never silent.
+    public var onRendererRestarted: ((CmuxToast) -> Void)?
     /// Who the page is, for the watchdog's log line before it ends the renderer (the agent pane:
     /// session and tab). Nil: only the page's own id is logged.
     public var logIdentity: (@MainActor () -> String)?

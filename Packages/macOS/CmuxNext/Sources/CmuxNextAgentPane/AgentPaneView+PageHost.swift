@@ -56,9 +56,8 @@ extension AgentPaneView {
         page.reloadsAfterCrash = false
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
         // App health ended this chat's hung renderer and the chat loaded again: the pane says so in one line.
-        page.onRendererRestarted = { [weak self] line in
-            self?.model.onToast?(CmuxToast(id: "agentPane.rendererRestarted", message: line))
-        }
+        // The toast is the page's own, so one end's chats in one window (one toast center) each show theirs.
+        page.onRendererRestarted = { [weak self] toast in self?.model.onToast?(toast) }
         // The watchdog's log line names the chat it ended.
         page.logIdentity = { [weak self] in
             "session=\(self?.model.sessionId ?? "none") tab=\(self?.model.tabKey() ?? "none")"
