@@ -445,10 +445,10 @@ pub fn explain(session_id: &str, original: &str, cloud: bool, gateway: bool) -> 
     let spawned = spawned(session_id).filter(|s| s.explains)?;
     // File reads block: off a multi-thread runtime's workers.
     let work = || {
-        let agent = find(&spawned.env);
         if cloud {
-            return compose_cloud(&agent, original, gateway);
+            return compose_cloud(original, gateway);
         }
+        let agent = find(&spawned.env);
         let terminal_env = terminal_env();
         let terminal = find(&terminal_env);
         compose(
@@ -480,24 +480,16 @@ fn rc_file(shell: Option<&str>) -> &'static str {
     }
 }
 
-/// A Cloud machine's sign-in failure. The machine never holds a Claude login: its Claude reaches
-/// models only through the Cloud service's model route (the machine's coderouter edge), which holds
-/// the sign-in on the team's or the person's behalf. So the fix is never on this machine, never a
-/// terminal or a copy from the Mac: it is the route's account or the person's model gateway.
+/// A Cloud machine's sign-in failure. The machine never holds a Claude login, and the Cloud service
+/// gives it no model route (cmux#45583): its Claude runs on the person's own model connection, which
+/// the Mac sends with the chat's start (`session/new` `_meta.acpmux.credentials`, cmux#40159). So
+/// the fix is never on this machine, never a terminal, a copy from the Mac or a new machine: it is a
+/// Claude connection for Cloud in Settings > Models, and a new start that carries it.
 /// `gateway`: the machine's team has cmux's gateway, so the text names that choice too.
-fn compose_cloud(agent: &Found, original: &str, gateway: bool) -> String {
-    let mut out = String::from("Claude is not signed in here.");
-    if agent.endpoint.is_none() {
-        out.push_str(&format!(
-            " This Cloud machine's Claude has no model route (Claude home {}); start a new machine to get the current image.",
-            tilde(&agent.home)
-        ));
-    } else {
-        out.push_str(
-            " This Cloud machine reaches Claude through the Cloud service, which has no Claude account or model gateway for you.",
-        );
-        out.push_str(" Set one up with `cmux inference setup`, then send the message again.");
-    }
+fn compose_cloud(original: &str, gateway: bool) -> String {
+    let mut out = String::from(
+        "Claude is not signed in here. Add a Claude connection for Cloud in Settings > Models, then start again.",
+    );
     if gateway {
         // The card's way onto the team's own account (`server/agent_login.rs` `use_gateway`).
         out.push_str(&format!(
@@ -612,17 +604,10 @@ mod tests {
     /// the Mac, a machine route or a new machine.
     #[test]
     fn a_cloud_machine_points_at_settings_models() {
-        let none = super::Found {
-            home: dirs::home_dir().unwrap_or_default().join(".claude"),
-            ..super::Found::default()
-        };
-        let routed =
-            super::Found { endpoint: Some("coderouter.cmux.internal".into()), ..none.clone() };
-        for (agent, said) in [
-            (&none, "Not logged in · Please run /login"),
-            (&routed, "API Error: 403 No Claude upstream account"),
-        ] {
-            let text = super::compose_cloud(agent, said, false);
+        for said in
+            ["Not logged in · Please run /login", "API Error: 403 No Claude upstream account"]
+        {
+            let text = super::compose_cloud(said, false);
             assert!(text.starts_with("Claude is not signed in here."), "{text}");
             assert!(text.contains("Settings > Models"), "{text}");
             assert!(
@@ -635,10 +620,7 @@ mod tests {
             assert!(!text.contains(super::GATEWAY_OFFER), "{text}");
             assert!(text.ends_with(&format!("(Claude said: {said})")), "{text}");
         }
-        for text in [
-            super::compose_cloud(&routed, "x", false),
-            super::compose_cloud(&super::Found::default(), "x", false),
-        ] {
+        for text in [super::compose_cloud("x", false), super::compose_cloud("x", true)] {
             for word in [
                 "terminal",
                 "zshrc",
@@ -663,8 +645,7 @@ mod tests {
     /// and the gateway fallback's own failure is never explained again.
     #[test]
     fn a_cloud_machine_with_the_gateway_offers_it() {
-        let none = super::Found::default();
-        let text = super::compose_cloud(&none, "Not logged in · Please run /login", true);
+        let text = super::compose_cloud("Not logged in · Please run /login", true);
         assert!(text.contains("Or click Use cmux's gateway"), "{text}");
         // No login is copied from the Mac to a Cloud machine: the text never offers that.
         assert!(!text.contains("Set up Claude Code credentials"), "{text}");
