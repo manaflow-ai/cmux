@@ -346,6 +346,16 @@ class InstallGhMergeGreenTests(unittest.TestCase):
         self.assertIn("ci-fast-guards.yml/runs", calls)
         self.assertNotIn("--paginate", calls)
 
+    def test_a_submitter_only_mac_installs_the_tip_when_only_the_rest_read_saw_it_pass(self):
+        self.assert_ok(self.install())
+        self.submitter_only_mac("pending")
+        tip = self.commit_version("v2", tests_pass=False)
+        self.set_green(tip)
+        result = self.assert_ok(self.installer("update"))
+        self.assertIn("newest main commit", result.stderr)
+        self.assertEqual(self.gh_merge_green("x#17").stdout, "v2 x#17\n")
+        self.assertEqual((self.home / "checked").read_text().strip(), tip)
+
     def test_a_submitter_only_mac_ignores_a_green_commit_that_is_not_on_main(self):
         self.assert_ok(self.install())
         self.submitter_only_mac("pending")

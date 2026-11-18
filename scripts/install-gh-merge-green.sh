@@ -269,7 +269,8 @@ cmd_install() {
       *)
         local green=""
         [ "$sha" != "$main" ] || green="$(newest_green_main)"
-        if [ -z "$green" ] || [ "$green" = "$sha" ] || [ "$green" = "$(saved failed)" ] ||
+        # The tip itself may be the green one: glaeda-gh had not read it, the REST read did.
+        if [ -z "$green" ] || [ "$green" = "$(saved failed)" ] ||
            ! git -C "$repo" merge-base --is-ancestor "$green" "$main" 2>/dev/null; then
           say "\"$CI_TESTS_CHECK\" has not passed at ${sha:0:10} yet; kept the current install, the next update checks again"
           return 0
