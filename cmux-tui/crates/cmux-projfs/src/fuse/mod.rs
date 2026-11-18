@@ -65,6 +65,7 @@ pub struct Mounted {
     session: Option<BackgroundSession>,
     core: Arc<Core>,
     sent: Arc<Sent>,
+    ended: Ending,
 }
 
 /// Mounts `core` read-only at `mountpoint` through `fusermount3`.
@@ -80,7 +81,8 @@ pub fn mount(core: Arc<Core>, mountpoint: &Path, config: &MountConfig) -> io::Re
     ];
     options.acl = if config.allow_other { SessionACL::All } else { SessionACL::Owner };
     options.n_threads = Some(config.threads.max(1));
-    let filesystem = fs::ProjFs::new(core.clone(), config);
+    let ended = Ending { done: Arc::new(Done::default()) };
+    let filesystem = fs::ProjFs::new(core.clone(), config, EndSignal(ended.done.clone()));
     let session = fuser::spawn_mount(filesystem, mountpoint, &options)?;
     let sent = Arc::new(Sent::default());
     let (tx, rx) = mpsc::channel::<Index>();
@@ -92,7 +94,7 @@ pub fn mount(core: Arc<Core>, mountpoint: &Path, config: &MountConfig) -> io::Re
     core.set_invalidate(Some(Arc::new(move |idx| {
         let _ = tx.send(idx);
     })));
-    Ok(Mounted { session: Some(session), core, sent })
+    Ok(Mounted { session: Some(session), core, sent, ended })
 }
 
 /// Sends the kernel one invalidation per changed entry until the mount goes away.
@@ -112,6 +114,12 @@ fn invalidate_loop(core: &Core, notifier: &Notifier, rx: &mpsc::Receiver<Index>,
 }
 
 impl Mounted {
+    /// Ends when the session ends, however it ends: [`Mounted::unmount`], or the mount being
+    /// unmounted from outside (`fusermount3 -u`) and its last open file closing.
+    pub fn ending(&self) -> Ending {
+        self.ended.clone()
+    }
+
     /// How many invalidations have been sent to the kernel.
     pub fn invalidations_sent(&self) -> u64 {
         *self.sent.count.lock().unwrap_or_else(PoisonError::into_inner)
@@ -208,6 +216,19 @@ impl Ending {
                 .0;
         }
         result.clone()
+    }
+}
+
+/// Marks the session ended when dropped (the session drops the filesystem as it ends).
+pub(crate) struct EndSignal(Arc<Done>);
+
+impl Drop for EndSignal {
+    fn drop(&mut self) {
+        let mut result = self.0.result.lock().unwrap_or_else(PoisonError::into_inner);
+        if result.is_none() {
+            *result = Some(Ok(()));
+        }
+        self.0.changed.notify_all();
     }
 }
 

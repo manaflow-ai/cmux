@@ -10,8 +10,14 @@ description = "Projected folders for Cloud machines: a stat-only manifest of a M
 [lints]
 workspace = true
 
+[[bin]]
+name = "cmux-projfs"
+path = "src/bin/cmux-projfs.rs"
+
 [dependencies]
+base64.workspace = true
 libc.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
 zstd.workspace = true
 

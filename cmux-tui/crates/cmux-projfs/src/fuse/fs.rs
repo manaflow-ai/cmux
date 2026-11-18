@@ -47,11 +47,13 @@ pub(super) struct ProjFs {
     uid: u32,
     gid: u32,
     ttl: Duration,
+    /// Tells [`super::Mounted::ending`] that the session is over when the session drops this.
+    _ended: super::EndSignal,
 }
 
 impl ProjFs {
-    pub(super) fn new(core: Arc<Core>, config: &MountConfig) -> ProjFs {
-        ProjFs { core, uid: config.uid, gid: config.gid, ttl: config.ttl }
+    pub(super) fn new(core: Arc<Core>, config: &MountConfig, ended: super::EndSignal) -> ProjFs {
+        ProjFs { core, uid: config.uid, gid: config.gid, ttl: config.ttl, _ended: ended }
     }
 
     fn attr(&self, idx: Index, e: &Entry) -> FileAttr {
