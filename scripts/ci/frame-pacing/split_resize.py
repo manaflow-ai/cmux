@@ -16,6 +16,9 @@ The gestures (`GESTURES`), each traced four times:
 - `divider`: the divider beside the page dragged through the real mouse path (`debug.mouse` down
   on the divider, one drag event per 120 Hz frame, up), which the divider view tracks as a
   person's drag;
+- `divider-pause`: the same divider held down and dragged 240 points narrower and back in steps with a
+  250 ms rest between them, as a person's hand pauses on it (Leo's 2026-11-18 recording beside a long
+  chat paused this way and stalled at each pause);
 - `sidebar`: `toggleSidebar` (hide, show, hide, show): the panes move and resize together;
 - `window-edge`: the window's bottom-right corner dragged in and out by 200 x 100 points, one
   drag event per 120 Hz frame, as scripts/cmux-next/resize-frames-live.py does (AppKit's live
@@ -44,6 +47,8 @@ while it is detached and no page window is over the pane). The judge reports, pe
 
 A chat's page area is its pane's content width (`panes`), offset by the chat page's width at
 rest, and its wall clock the trace's `t0_s` on the app's clock (`resize_probe`'s `clock`).
+`seed` > 0 fills the chat with that many rows first (`debug.agent_pane` `seed_rows`, about four
+rows a turn), so the drag runs beside a long chat.
 
 Report only: no threshold fails a run.
 """
@@ -58,7 +63,9 @@ import browser_resize
 
 DRAGS = (-160, 160, -160, 160)
 PANES = ("browser", "chat")
-GESTURES = ("divider", "sidebar", "window-edge")
+GESTURES = ("divider", "divider-pause", "sidebar", "window-edge")
+# `divider-pause`: each move's points, then the rest after it, with the mouse held down throughout.
+PAUSED_DRAG = ((-80, 0.25), (-80, 0.25), (-80, 0.25), (120, 0.25), (120, 0.0))
 # The window corner's moves (points, window-local): in, out, in, out.
 EDGE_DRAGS = ((-200, -100), (200, 100), (-200, -100), (200, 100))
 TARGETS = ["dividers", "panes", "page", "window"]
@@ -116,7 +123,7 @@ def _pixels(row: list) -> tuple[float, float, str | None]:
 
 
 def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
-          gestures: tuple[str, ...] | list[str] = ("divider",)) -> None:
+          gestures: tuple[str, ...] | list[str] = ("divider",), seed: int = 0) -> None:
     """Splits right, opens the page (`pane`) in the right pane, then traces each of `gestures` four times.
 
     `strip`: then one more divider drag, held open while `debug.window_snapshot` takes the window every
@@ -175,6 +182,11 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
             time.sleep(0.5)
         chat_pane = ready.get("pane") if "error" not in ready else None
         target = {"pane": chat_pane} if chat_pane else {}
+        seeded = (driver.call("debug.agent_pane", {"action": "seed_rows", "count": seed, **target}, timeout=120)
+                  if seed > 0 else None)
+        if seeded is not None:
+            opened = {"opened": opened, "seeded": seeded}
+            time.sleep(2.0)
 
         def probe(step: str) -> dict:
             return driver.call("debug.agent_pane", {"action": "resize_probe", "step": step, **target}, timeout=20)
@@ -215,7 +227,7 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
         return rest[-1] if rest else None
 
     rest = at_rest()
-    if rest is None or (("divider" in gestures or strip) and not _divider(rest, chat_pane)):
+    if rest is None or (("divider" in gestures or "divider-pause" in gestures or strip) and not _divider(rest, chat_pane)):
         driver.save("split_resize", {"error": "no split divider in the window", "pane": pane, "split": split,
                                      "opened": opened, "rest": rest})
         return
@@ -242,7 +254,37 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
             return None
         return float(divider[1]) + float(divider[3]) / 2, float(divider[2]) + float(divider[4]) / 2
 
+    def paused_drag(x0: float, y0: float) -> dict:
+        """Pressed once at (x0, y0), then PAUSED_DRAG's moves one drag event per 120 Hz frame, each followed by its
+        rest with the mouse still down, then released where the moves end."""
+        down = driver.call("debug.mouse", {"action": "down", "x": x0, "y": y0})
+        began = time.monotonic()
+        at = began
+        x = x0
+        for dx, rest in PAUSED_DRAG:
+            steps = max(1, round(abs(dx) / 4))
+            for step in range(1, steps + 1):
+                to = x + dx * step / steps
+                driver.call("debug.mouse", {"action": "drag", "x": to, "y": y0, "to_x": to, "to_y": y0, "steps": 1,
+                                            "press": False, "release": False})
+                at += period
+                if at > time.monotonic():
+                    time.sleep(at - time.monotonic())
+            x += dx
+            at += rest
+            if at > time.monotonic():
+                time.sleep(at - time.monotonic())
+        driver.call("debug.mouse", {"action": "up", "x": x, "y": y0})
+        return {"from": [x0, y0], "dx": x - x0, "dy": 0, "down": down, "wall_s": round(time.monotonic() - began, 3)}
+
     def acts(gesture: str) -> list:
+        if gesture == "divider-pause":
+            point = divider_point()
+            if point is None:
+                return []
+            # Each drag ends 40 points right of where it began: the next starts from the divider's new place.
+            return [lambda: (lambda p: paused_drag(*p) if p else {"error": "no divider"})(divider_point())
+                    for _ in range(4)]
         if gesture == "divider":
             point = divider_point()
             if point is None:
@@ -309,7 +351,7 @@ def judge_drag(trace: dict, refresh: float) -> dict:
         samples = [sample for sample in trace.get("samples") or [] if _pane_row(sample, chat_pane)]
     else:
         samples = [sample for sample in trace.get("samples") or [] if _page(sample)]
-    if gesture == "divider":
+    if gesture in ("divider", "divider-pause"):
         samples = [sample for sample in samples if _divider(sample, chat_pane if chat else None)]
     if len(samples) < 3:
         return {"error": "no per-frame samples with a divider and a chat pane" if chat
@@ -348,7 +390,7 @@ def judge_drag(trace: dict, refresh: float) -> dict:
     window = [(i, float((sample.get("window") or [0])[0])) for i, sample in enumerate(samples)]
     # What moved the pane, and the area it should have taken from it.
     area_lags: list[int] = []
-    if gesture == "divider" and divider:
+    if gesture in ("divider", "divider-pause") and divider:
         pane_row = _pane_row(samples[0], chat_pane) if chat else None
         page_right = float(pane_row[1]) >= divider[0][1] if pane_row is not None else True
         if page_right:
@@ -504,7 +546,7 @@ def markdown_row(verdict: dict) -> str:
     def shown(value) -> str:
         return "n/a" if value is None else f"{value:g}"
 
-    what = {"divider": "a dragged divider", "sidebar": "a toggled sidebar", "window-edge": "a dragged window corner"}
+    what = {"divider": "a dragged divider", "divider-pause": "a divider dragged with pauses", "sidebar": "a toggled sidebar", "window-edge": "a dragged window corner"}
     gesture = verdict.get("gesture")
     page = "Agent chat" if verdict.get("pane") == "chat" else "Chromium page"
     return (f"| split_resize | ok | | | | {page} beside {what.get(gesture, 'a resized pane')}: page edge trails the pane "

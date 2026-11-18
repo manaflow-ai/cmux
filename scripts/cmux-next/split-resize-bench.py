@@ -18,7 +18,7 @@ Each pane runs in its own launch of the same build, back to back, with every ges
 resizes a page now (CEFTabContentView.paneResizeGestureDidChange, CEFLayerHosting).
 
 Usage: split-resize-bench.py --app APP --out DIR [--json PATH] [--tag TAG] [--pane=browser,chat|all]
-       [--gesture=divider,sidebar,window-edge|all]
+       [--gesture=divider,divider-pause,sidebar,window-edge|all] [--seed=ROWS]
 """
 
 from __future__ import annotations
@@ -42,6 +42,8 @@ parser.add_argument("--tag")
 parser.add_argument("--pane", default="browser")
 # The gestures that resize the page's pane, in each launch.
 parser.add_argument("--gesture", default="divider")
+# Rows seeded into the chat before its gestures (`--pane=chat`): 2800 is about a 700-turn chat.
+parser.add_argument("--seed", type=int, default=0)
 opts, _ = parser.parse_known_args()
 
 
@@ -80,7 +82,7 @@ def measure(pane: str, folder: Path) -> dict:
         driver = golden.Driver(app.socket, folder)
         driver.call("debug.motion", {"action": "speed", "value": "fast"})
         driver.call("debug.motion", {"action": "reduce", "value": False})
-        split_resize.drive(driver, folder, strip=True, pane=pane, gestures=gestures)
+        split_resize.drive(driver, folder, strip=True, pane=pane, gestures=gestures, seed=opts.seed if pane == "chat" else 0)
         data = json.loads((folder / "split_resize.json").read_text())
         refresh = next((float(d.get("refresh_ms") or 0) for d in data.get("drags") or [] if float(d.get("refresh_ms") or 0) > 0),
                        1000 / 60)
