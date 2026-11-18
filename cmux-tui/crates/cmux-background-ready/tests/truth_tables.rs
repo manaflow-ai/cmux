@@ -6,11 +6,11 @@ use std::ptr;
 
 use cmux_background_ready::ffi::*;
 
-const MODES: [u8; 3] = [0, 1, 2];
+const MODES: [u8; 4] = [0, 1, 2, 3];
 const ORIGINS: [u8; 5] = [0, 1, 2, 3, 4];
 const BOOLS: [bool; 2] = [false, true];
 /// Values no caller sends: each must give the safe answer.
-const UNKNOWN: [u8; 4] = [3, 7, 128, 255];
+const UNKNOWN: [u8; 4] = [4, 7, 128, 255];
 
 fn parse(s: &str) -> u8 {
     let c = CString::new(s).unwrap();
@@ -28,6 +28,7 @@ fn mode_parse_known_values() {
     assert_eq!(parse("off"), CMUX_BACKGROUND_READY_MODE_OFF);
     assert_eq!(parse("afterQuit"), CMUX_BACKGROUND_READY_MODE_AFTER_QUIT);
     assert_eq!(parse("afterQuitAndLogin"), CMUX_BACKGROUND_READY_MODE_AFTER_QUIT_AND_LOGIN);
+    assert_eq!(parse("warmAtLogin"), CMUX_BACKGROUND_READY_MODE_WARM_AT_LOGIN);
 }
 
 #[test]
@@ -43,6 +44,11 @@ fn mode_parse_null_and_garbage_are_off() {
         " afterQuit",
         "afterQuitAndLogin\n",
         "afterQuitAndLoginX",
+        "warmatlogin",
+        "WarmAtLogin",
+        "warmAtLogin ",
+        "warm",
+        "3",
         "after_quit",
         "1",
         "2",
@@ -64,7 +70,8 @@ fn on_quit_full_truth_table() {
         for origin in ORIGINS {
             for update in BOOLS {
                 for completely in BOOLS {
-                    let want = if mode != 0 && origin == 0 && !update && !completely {
+                    let want = if (mode == 1 || mode == 2) && origin == 0 && !update && !completely
+                    {
                         CMUX_BACKGROUND_READY_STAY_HIDDEN
                     } else {
                         CMUX_BACKGROUND_READY_EXIT
@@ -154,6 +161,39 @@ fn registers_login_item_only_for_mode_two() {
 }
 
 #[test]
+fn registers_preread_agent_only_for_mode_three() {
+    for mode in 0..=u8::MAX {
+        assert_eq!(cmux_background_ready_registers_preread_agent(mode), mode == 3, "mode {mode}");
+    }
+}
+
+#[test]
+fn offers_quit_completely_only_for_the_modes_that_stay() {
+    for mode in 0..=u8::MAX {
+        assert_eq!(
+            cmux_background_ready_offers_quit_completely(mode),
+            mode == 1 || mode == 2,
+            "mode {mode}"
+        );
+    }
+}
+
+#[test]
+fn warm_at_login_quits_as_off() {
+    for origin in ORIGINS.iter().copied().chain(UNKNOWN) {
+        for update in BOOLS {
+            for completely in BOOLS {
+                assert_eq!(
+                    cmux_background_ready_on_quit(3, origin, update, completely),
+                    CMUX_BACKGROUND_READY_EXIT,
+                    "origin {origin} update {update} completely {completely}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn at_launch_full_truth_table() {
     for mode in 0..=u8::MAX {
         assert_eq!(
@@ -208,6 +248,8 @@ fn off_changes_nothing() {
         }
     }
     assert!(!cmux_background_ready_registers_login_item(0));
+    assert!(!cmux_background_ready_registers_preread_agent(0));
+    assert!(!cmux_background_ready_offers_quit_completely(0));
     assert_eq!(cmux_background_ready_at_launch(0, false), 0);
     assert!(!cmux_background_ready_exits_for_update(0, false, true));
 }
