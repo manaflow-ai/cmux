@@ -4,6 +4,7 @@
 // (README.md: Debug setting `cloud.machines.layout`); the fragment `#/get` opens the storefront.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";

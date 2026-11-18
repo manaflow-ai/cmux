@@ -16,11 +16,6 @@ struct BoundActionCatalogTests {
     /// ignored, so the re-pin bot's pull request stays green. Add to it only for that case, never
     /// for a typo.
     static let awaitingRepin: Set<ActionID> = [
-        // #40159 (Cloud multiplayer): the pinned cmux-app-ffi-2bd4478a predates it.
-        "cloud.team.sessions", "cloud.team.session", "cloud.team.copyLink", "cloud.team.follow",
-        "cloud.team.unfollow", "cloud.team.reassign", "cloud.team.archive", "cloud.team.showSection",
-        "cloud.team.members", "cloud.group.members", "cloud.group.memberSet", "cloud.group.memberRemove",
-        "cloudTransferLocal",
         // #44169 (Screen Sharing viewer palette rows, step B) merged before its step A, #44164,
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
@@ -36,5 +31,20 @@ struct BoundActionCatalogTests {
             handlers bound to ids the catalog does not have (a typo, or an action the pinned app \
             FFI lacks: re-pin first, docs/ci/app-ffi-release.md): \(missing.map(\.rawValue))
             """)
+    }
+
+    /// The Team section's actions (#40159) are bound once the pin carries their rows
+    /// (cmux-app-ffi-5a927eef): before it, every one was a silent miss.
+    @Test func theCloudTeamActionsAreBound() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        let team: [ActionID] = [
+            "cloud.team.sessions", "cloud.team.session", "cloud.team.copyLink", "cloud.team.follow",
+            "cloud.team.unfollow", "cloud.team.reassign", "cloud.team.archive", "cloud.team.members",
+            "cloud.group.members", "cloud.group.memberSet", "cloud.group.memberRemove",
+        ]
+        #expect(team.filter { services.registry.action(for: $0) == nil }.map(\.rawValue) == [])
+        #expect(!services.registry.uncataloguedBindings.contains { $0.rawValue.hasPrefix("cloud.") })
     }
 }
