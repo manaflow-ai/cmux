@@ -70,6 +70,7 @@ async function linkLabels(): Promise<LinkReposLabels> {
     more: t("linkMore"),
     link: t("linkAction"),
     linking: t("linking"),
+    refresh: t("linkRefresh"),
     view: t("linkView"),
     unlink: t("linkUnlink"),
     unlinking: t("unlinking"),
