@@ -7454,14 +7454,30 @@ struct TerminalForegroundDirectoryPreferenceTests {
         )
     }
 
+    private func makeTemporaryRoot() throws -> URL {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-fg-dir-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
     @Test("prefers the foreground worktree over the shell's repo root")
-    func prefersForegroundWorktree() {
-        #expect(
-            selector(
-                "/repo",
-                "/repo/.claude/worktrees/twinkly-kindling-bubble"
-            ) == "/repo/.claude/worktrees/twinkly-kindling-bubble"
-        )
+    func prefersForegroundWorktree() throws {
+        let repo = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let worktree = repo.appendingPathComponent(".claude/worktrees/twinkly-kindling-bubble", isDirectory: true)
+        try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
+
+        #expect(selector(repo.path, worktree.path) == worktree.path)
+    }
+
+    @Test("keeps the shell directory when the foreground directory no longer exists")
+    func keepsShellDirectoryWhenForegroundDirectoryIsGone() throws {
+        let repo = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let removedWorktree = repo.appendingPathComponent("removed-worktree", isDirectory: true)
+
+        #expect(selector(repo.path, removedWorktree.path) == repo.path)
     }
 
     @Test("keeps the shell directory at the prompt")
@@ -7494,12 +7510,11 @@ struct TerminalForegroundDirectoryPreferenceTests {
 
     @Test("preserves a symlinked shell cwd instead of its realpath")
     func preservesSymlinkedShellDirectory() throws {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cmux-fg-dir-\(UUID().uuidString)", isDirectory: true)
+        let root = try makeTemporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
         let real = root.appendingPathComponent("real", isDirectory: true)
         let link = root.appendingPathComponent("link", isDirectory: true)
         try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
 
         // The shell reports the symlinked path while the foreground job's cwd
