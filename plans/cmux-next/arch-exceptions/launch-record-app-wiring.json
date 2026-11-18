@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-16",
+  "row": "app_lines",
+  "allow": 98,
+  "why": "The launch-record adapter is a narrow cross-layer seam: it reads AppServices and WindowManager state, owns the FFI snapshot lifetime, and is called by WindowRecordSaver plus the quit hooks. Moving it to a new domain target requires a separate Host protocol and Package.swift slice; keeping this lifecycle wiring in the composition root lets the record writer land without changing launch behavior or adding a dependency edge.",
+  "author": "Codex launch-record-swift-wiring",
+  "owner": "huge-blue/fable-startup-arch",
+  "receipt": "Review (independent Codex review subagent): SHIP at 4747f09d31ccc1809cf3bc6e4ea556faa988c1ea",
+  "expiry": "2026-12-16",
+  "applied_sha": "92aeb2987f12fc87762cd724d9f805cc2fa2d221"
+}

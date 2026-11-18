@@ -21,6 +21,7 @@ struct TabTitleResolver {
     var subagentTitle: @MainActor (TabModel) -> String? = { SubagentTabTitles.shared.title(ofTab: $0.id) }
     /// An agent chat's title before the user names it (`AgentChatTabTitle`).
     var chatTitle: @MainActor (TabModel) -> String = { AgentChatTabTitle.untitled($0.agentSession) }
+    var cloudStarts: AgentCloudStartTitles? // what a Cloud chat start's page, and the chat it opened until that has a title, read as
     /// The name of the workspace an asked tab is in, when the caller knows it: an agent chat
     /// with no title yet reads as it (`AgentChatTabTitle`).
     var workspaceName: String?
@@ -34,7 +35,7 @@ struct TabTitleResolver {
     /// The app's live sources. `workspace`: the one workspace every asked tab is in, when the
     /// caller knows it (a pane snapshot: `RestoredNewTabPages.shows` then looks nothing up).
     init(services: AppServices, workspace: WorkspaceHandle? = nil) {
-        let agentTabs = services.agentTabs
+        let agentTabs = services.agentTabs; cloudStarts = services.cloudStartTitles
         showsNewTabPage = { [weak agentTabs] tab in agentTabs.map { RestoredNewTabPages.shows(tab, in: $0, workspace: workspace) } ?? false }
         newTabPageTitle = { [weak services] tab in services.flatMap { AgentHistoryPage.title(tab.id, machine: $0.agentTabs.daemonListing(tab)?.machineID, $0) } }
         conversationTitle = { [weak services] tab in services?.home.tabTitle(for: tab) ?? Strings.untitledBrowser }
@@ -71,12 +72,12 @@ struct TabTitleResolver {
     /// for a terminal).
     func untitled(_ tab: TabModel, fallback: String = Strings.untitledTerminal) -> String {
         if tab.agentSession != nil {
-            if isNewTabPage(tab) { return newTabPageTitle(tab) ?? Strings.untitledBrowser }
+            if isNewTabPage(tab) { return cloudStarts?.title(of: tab) ?? newTabPageTitle(tab) ?? Strings.untitledBrowser } // a Cloud start's page reads as its chat
             // A subagent's pane is a tab on its chat's session: it shows the subagent's own name, never
             // the chat's (Leo 2026-10-30: "subagents shouldn't be tab-named the exact same as the parent").
             if let subagent = subagentTitle(tab) { return subagent }
             let title = chatTitle(tab)
-            if title == AgentPaneModel.tabTitle, let name = workspaceName.flatMap(AgentChatTabTitle.taskName) { return name }
+            if title == AgentPaneModel.tabTitle, let name = cloudStarts?.title(of: tab) ?? workspaceName.flatMap(AgentChatTabTitle.taskName) { return name }
             return title
         }
         switch tab.kind {
