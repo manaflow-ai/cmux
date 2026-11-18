@@ -186,7 +186,7 @@ import Testing
         #expect(connection.checkTransportLiveness(now: harness.clock.now) == .probe)
         let answered = await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
             harness.stdinLines().contains(RemoteTmuxTransportLiveness.probeCommand)
-                && connection.transportLiveness.probeSentAt == nil
+                && connection.transportLiveness.policy.probeSentAt == nil
         }
         #expect(answered, "the probe must reach the transport and its reply must count as an answer")
 

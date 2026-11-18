@@ -16,8 +16,6 @@ struct RemoteTmuxTransportLivenessState {
     var reconnectAttemptWatch: Task<Void, Never>?
     /// When the current reconnect attempt expires, on the `now` clock, and the process it belongs to.
     var reconnectAttemptExpiry: (at: ContinuousClock.Instant, generation: UInt64)?
-
-    var probeSentAt: ContinuousClock.Instant? { policy.probeSentAt }
 }
 
 extension RemoteTmuxControlConnection {
