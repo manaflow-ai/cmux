@@ -235,11 +235,13 @@ class SampleClient(unittest.TestCase):
         path = Path(POLICY_ROOT) / "scripts" / "ci" / "cloud_overflow_switch.py"
         found = importlib.util.spec_from_file_location("main_cloud_overflow_switch", path)
         module = importlib.util.module_from_spec(found)
+        sys.modules[found.name] = module  # dataclasses look their module up while it loads
         sys.path.insert(0, str(path.parent))
         try:
             found.loader.exec_module(module)
         finally:
             sys.path.remove(str(path.parent))
+            sys.modules.pop(found.name, None)
         self.assertEqual(spill.sample_client(module, "bot", "o/r", "workflow").fallback_token, "workflow")
 
 
