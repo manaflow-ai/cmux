@@ -122,35 +122,41 @@ final class CloudTeamSectionView: NSView {
     /// The rows of `count` to make for a clip showing `visible`: those in it and one viewport past each
     /// edge. Before the first layout (no clip height yet) the viewport is the section's tallest.
     static func realizedRange(count: Int, visible: NSRect) -> Range<Int> {
-        let viewport = visible.height > 0 ? visible.height : rowHeight * CGFloat(maxRows)
-        let first = max(0, Int(floor((visible.minY - viewport) / rowHeight)))
-        let end = min(count, Int(ceil((visible.minY + viewport * 2) / rowHeight)))
-        return first < end ? first..<end : 0..<0
+        FixedRowWindow.range(count: count, top: Double(visible.minY), height: Double(visible.height),
+                             rowHeight: Double(rowHeight), fallbackHeight: Double(rowHeight) * Double(maxRows))
     }
 
-    /// Makes the rows in range, each matched to its session by key: a row whose session did not change is
-    /// not configured again, a moved one is only framed, and one that left the range goes spare.
+    /// Makes the rows in range, each matched to its session by key (`FixedRowWindow.remount`): a row whose
+    /// session did not change is not configured again, a moved one is only framed, and one that left the
+    /// range goes spare.
     private func realize() {
         let sessions = shown.sessions
         let width = scroll.contentSize.width
+        let range = Self.realizedRange(count: sessions.count, visible: scroll.contentView.bounds)
+        listWork.walked(range.count)
+        let window = sessions[range].map { (key: $0.key, item: Optional($0)) }
+        let plan = FixedRowWindow.remount(window: window, mounted: made.mapValues(\.row))
+        for key in plan.released {
+            guard let row = made.removeValue(forKey: key) else { continue }
+            row.removeFromSuperview()
+            spare.append(row)
+        }
+        var toConfigure = Set(plan.configure)
         var kept: [String: CloudTeamSessionRowView] = [:]
         var ordered: [NSView] = []
         var remade = false
-        let range = Self.realizedRange(count: sessions.count, visible: scroll.contentView.bounds)
-        listWork.walked(range.count)
-        for index in range {
-            let session = sessions[index]
-            guard kept[session.key] == nil else { continue }
+        for position in plan.placed {
+            let session = sessions[range.lowerBound + position]
             let row: CloudTeamSessionRowView
-            if let old = made.removeValue(forKey: session.key) {
+            if let old = made[session.key] {
                 row = old
-                if old.row != session { configure(old, session) }
             } else {
                 row = spare.popLast() ?? makeRow()
-                configure(row, session)
                 remade = true
             }
-            let frame = NSRect(x: 0, y: Self.rowHeight * CGFloat(index), width: width, height: Self.rowHeight)
+            if toConfigure.remove(position) != nil { configure(row, session) }
+            let frame = NSRect(x: 0, y: Self.rowHeight * CGFloat(range.lowerBound + position), width: width,
+                               height: Self.rowHeight)
             if row.frame != frame {
                 row.frame = frame
                 listWork.laidOut()
@@ -158,10 +164,6 @@ final class CloudTeamSectionView: NSView {
             }
             kept[session.key] = row
             ordered.append(row)
-        }
-        for row in made.values {
-            row.removeFromSuperview()
-            spare.append(row)
         }
         made = kept
         // Subviews top-down, so accessibility and the key loop read the rows in list order.
