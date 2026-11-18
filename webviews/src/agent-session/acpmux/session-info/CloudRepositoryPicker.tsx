@@ -90,6 +90,32 @@ function errorCode(error: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
+/// One repository: its name and a quiet source (or "Attaching") label.
+function CloudRepositoryOption({
+  fullName,
+  detail,
+  disabled,
+  onAttach,
+}: {
+  fullName: string;
+  detail: string;
+  disabled: boolean;
+  onAttach: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="acpmux-cloud-repository-option"
+      data-action="repository-option"
+      disabled={disabled}
+      onClick={onAttach}
+    >
+      <span className="acpmux-cloud-repository-name">{fullName}</span>
+      <span className="acpmux-cloud-repository-source">{detail}</span>
+    </button>
+  );
+}
+
 export function CloudRepositoryPicker({
   session,
   anchor,
@@ -224,18 +250,12 @@ export function CloudRepositoryPicker({
           <ul ref={listEdges} className="acpmux-cloud-repository-list ui-scroll-edge-fade">
             {repos.map((repo) => (
               <li key={repo.fullName}>
-                <button
-                  type="button"
-                  className="acpmux-cloud-repository-option"
-                  data-action="repository-option"
+                <CloudRepositoryOption
+                  fullName={repo.fullName}
+                  detail={attaching === repo.fullName ? t("cloudRepository.attaching") : sourceLabel(repo.source, t)}
                   disabled={Boolean(attaching)}
-                  onClick={() => attach(repo)}
-                >
-                  <span className="acpmux-cloud-repository-name">{repo.fullName}</span>
-                  <span className="acpmux-cloud-repository-source">
-                    {attaching === repo.fullName ? t("cloudRepository.attaching") : sourceLabel(repo.source, t)}
-                  </span>
-                </button>
+                  onAttach={() => attach(repo)}
+                />
               </li>
             ))}
           </ul>
