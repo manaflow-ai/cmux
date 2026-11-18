@@ -736,10 +736,13 @@ public final class MacHomeFeed {
             isShowingKeptRows = true
         }
         let macID = macID
-        // task-owner: one disk read of the kept rows; ends with it, and its rows land only if nothing newer did
+        // task-owner: one disk read of the kept rows; ends with it, and its rows land only if nothing newer did.
+        // With a head on screen, "nothing newer" is the kept head still showing: the Mac's answer can equal
+        // the head row for row (its list shrank to it), and only the flag says the rows are the Mac's.
         Task { [weak self] in
             guard let kept = await rowsCache.load(key), let self,
-                  self.macID == macID, self.rows == head, self.rowsKey() == key, kept != head else { return }
+                  self.macID == macID, self.rows == head, head == nil || self.isShowingKeptRows,
+                  self.rowsKey() == key, kept != head else { return }
             self.setRows(kept, complete: false)
             self.isShowingKeptRows = true
         }
