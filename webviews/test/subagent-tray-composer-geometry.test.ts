@@ -43,15 +43,20 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
       try {
         await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.subagent-tray", { variant: "geometry" })}`);
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        if (look === "claude") {
-          // Narrow panes intentionally hide the look dots; this test measures the selected layout.
-          await page.evaluate(async () => {
-            const source = "/gallery/src/agent-session/acpmux/composerLook.ts";
-            const { setComposerLook } = await import(source);
-            setComposerLook("claude", { remember: false });
-          });
-          await page.waitForFunction(() => !document.querySelector('.acpmux-composer[data-composer-look="codex"]'));
-        }
+        // Each look is staged, not left to the default (Claude since 2026-11-18); narrow panes hide the
+        // look dots, so the page sets it the way the dots would.
+        await page.evaluate(async (which) => {
+          const source = "/gallery/src/agent-session/acpmux/composerLook.ts";
+          const { setComposerLook } = await import(source);
+          setComposerLook(which, { remember: false });
+        }, look);
+        await page.waitForFunction(
+          (which) =>
+            which === "codex"
+              ? !!document.querySelector('.acpmux-composer[data-composer-look="codex"]')
+              : !document.querySelector('.acpmux-composer[data-composer-look="codex"]'),
+          look,
+        );
         const head = page.locator(".acpmux-running-tray__head");
         if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
         await page.locator(RUNNING_TRAY_LINE).first().waitFor();
