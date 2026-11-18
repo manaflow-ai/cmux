@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+import CmuxNextDesign
 public import Foundation
 
 /// `sidebar.look`: the sidebar drawn like another app's (`claude`, `codex`, `studio`), or cmux's own

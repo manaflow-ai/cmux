@@ -30,7 +30,7 @@ import Testing
     static func workspace(_ id: String, _ title: String, _ folder: String, minutesAgo: Double,
                           activity: StatusIndicatorState = .idle, unread: UnreadState = .none) -> SidebarWorkspace {
         var ws = SidebarWorkspace(id: WorkspaceID("w-\(id)"), title: title, directory: folder, branch: "main",
-                                  rowKind: .harness, kind: .terminal, activity: activity)
+                                  rowKind: .agent, kind: .terminal, activity: activity)
         ws.lastActivity = Date().addingTimeInterval(-minutesAgo * 60)
         ws.unread = unread
         return ws
