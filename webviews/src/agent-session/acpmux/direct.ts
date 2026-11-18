@@ -255,6 +255,7 @@ import {
   type PresetApprovalChange,
   type PresetApprovalOutcome,
 } from "./conversation/presetApproval";
+import { readUiSurface, type UiSurface } from "./uiSurface/model";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -1768,8 +1769,18 @@ export function mergeToolItem(
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs,
       ...(provenance ? { provenance } : {}),
+      // The view acpmux normalized for this call (`cmux.ui-surface/1`): on a chat row's tool body as
+      // `uiSurface`, on a v1 update as `_meta.acpmux.uiSurface`. Each update carries it whole.
+      ...uiSurfaceOf(update, before?.uiSurface),
     },
   };
+}
+
+/// A call's agent UI surface: the update's own, else the one an earlier update left on the call.
+// perf-hot: 1ms ui-surface-stream-update
+function uiSurfaceOf(update: any, before: UiSurface | undefined) {
+  const surface = readUiSurface(update?.uiSurface ?? update?._meta?.acpmux?.uiSurface) ?? before;
+  return surface ? { uiSurface: surface } : {};
 }
 
 /// What a call says it does, in a few words: Claude Code's Bash `description` ("Run the web
@@ -14685,6 +14696,31 @@ export class AcpmuxDirectClient {
       )
         this.emit();
     }
+  }
+  /// An agent UI surface's button, approval or review was pressed (uiSurface/UiSurfaceCard.tsx):
+  /// `_acpmux/ui_surface_action {sessionId, surfaceId, actionId, values}`, the field values the card
+  /// holds keyed by `bind`. The page builds no payload: acpmux (cmux-ui-surfaces) answers with the
+  /// host-written Pending the card shows, or null when the action needs no confirmation. Prototype
+  /// stub: the Rust side implements the method (plans/cmux-next/agent-ui-surfaces-DESIGN.md).
+  uiSurfaceAction(params: { surfaceId: string; actionId: string; values: Record<string, unknown> }): Promise<unknown> {
+    return this.request("_acpmux/ui_surface_action", { ...params, sessionId: this.actingSessionId });
+  }
+  /// Confirm on a surface's pending strip: the only call that sends anything to the agent or a tool.
+  uiSurfaceConfirm(params: {
+    surfaceId: string;
+    requestId: string;
+    values?: Record<string, unknown>;
+  }): Promise<unknown> {
+    return this.request("_acpmux/ui_surface_confirm", { ...params, sessionId: this.actingSessionId });
+  }
+  /// Cancel on a surface's pending strip (or a changed value): acpmux drops the request.
+  uiSurfaceCancel(params: { surfaceId: string; requestId: string }): Promise<unknown> {
+    return this.request("_acpmux/ui_surface_cancel", { ...params, sessionId: this.actingSessionId });
+  }
+  /// One JSON-RPC message from an MCP App view's frame, forwarded whole; acpmux's mediator decides
+  /// (allowed, a Pending, refused) and answers with what to post back to the view, if anything.
+  uiSurfaceBridge(params: { surfaceId: string; message: unknown }): Promise<unknown> {
+    return this.request("_acpmux/ui_surface_bridge", { ...params, sessionId: this.actingSessionId });
   }
   /// Resolutions of memory offers whose `memory_offer` record has not been read yet, by offer id.
   private readonly memoryEarly = new Map<string, unknown[]>();

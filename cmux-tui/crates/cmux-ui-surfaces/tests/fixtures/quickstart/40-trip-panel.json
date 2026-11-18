@@ -1,0 +1,25 @@
+{
+  "about": "The standing panel: one Trip() call on the sidebar. It binds /panel, which the host keeps current, so it is drawn once.",
+  "messages": [
+    {
+      "version": "1.0",
+      "createSurface": {
+        "surfaceId": "sidebar",
+        "catalogId": "https://travel-a2ui.dev/catalogs/a2ui-travel/catalog.json",
+        "components": [
+          {
+            "id": "root",
+            "component": "Column",
+            "children": ["panel"]
+          },
+          {
+            "id": "panel",
+            "component": "Trip",
+            "heading": "Your trip to Madrid",
+            "money": true
+          }
+        ]
+      }
+    }
+  ]
+}

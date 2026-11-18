@@ -1301,6 +1301,7 @@ async fn dispatch_request_with_identity(
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_MEMORY_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_MARK_READ, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
                 method::CHAT_FIX_FROM_LINK,
+                method::MUX_UI_SURFACE_ACTION, method::MUX_UI_SURFACE_CONFIRM, method::MUX_UI_SURFACE_CANCEL, method::MUX_UI_SURFACE_BRIDGE,
                 method::CHAT_FIX_FROM_LINK_PREPARE,
                 method::MUX_PROJECT_NEW,
             ];
@@ -3542,6 +3543,53 @@ async fn dispatch_request_with_identity(
         method::MUX_PERMISSION_CHAT_REVOKE => {
             let s = hub.resolve(session_key(&params)?)?;
             Ok(hub.revoke_permission_chat(&s))
+        }
+        method::MUX_UI_SURFACE_ACTION => {
+            let s = hub.resolve(session_key(&params)?)?;
+            crate::ui_surfaces::action(&s.id, &params)
+        }
+        method::MUX_UI_SURFACE_CANCEL => {
+            let s = hub.resolve(session_key(&params)?)?;
+            crate::ui_surfaces::cancel(&s.id, &params)
+        }
+        method::MUX_UI_SURFACE_BRIDGE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            crate::ui_surfaces::bridge(&s.id, &params).await
+        }
+        method::MUX_UI_SURFACE_CONFIRM => {
+            // Person-only (`hub/person.rs`): the confirm is the person's own turn.
+            use crate::ui_surfaces::{Confirmed, view_reply};
+            let s = hub.resolve(session_key(&params)?)?;
+            match crate::ui_surfaces::confirm(&s.id, &params)? {
+                Confirmed::Prompt(text) => {
+                    let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+                    let opts = crate::hub::PromptOptions { control, ..Default::default() };
+                    let blocks = vec![json!({"type": "text", "text": text})];
+                    let (task_hub, session) = (hub.clone(), s.clone());
+                    // The turn runs as long as the agent works: answer the page now. The hub's
+                    // scope owns the task.
+                    drop(hub.scope.spawn_named("ui-surface-confirm", async move {
+                        if let Err(e) =
+                            task_hub.prompt_with(&session, blocks, "ui-surface", false, opts).await
+                        {
+                            tracing::warn!(session = %session.id, "ui surface confirm prompt failed: {e:?}");
+                        }
+                    }));
+                    Ok(json!({"sent": "agent"}))
+                }
+                Confirmed::ToolCall { server, tool, arguments, view_request_id } => {
+                    let result = crate::ui_surfaces::call_tool(&s.id, server, &tool, arguments)
+                        .await
+                        .map_err(|e| e.to_string());
+                    Ok(
+                        json!({"sent": "tool", "reply": view_reply(view_request_id.as_ref(), result)}),
+                    )
+                }
+                Confirmed::OpenLink { url, view_request_id } => {
+                    Ok(json!({"sent": "link", "openUrl": url,
+                    "reply": view_reply(view_request_id.as_ref(), Ok(json!({})))}))
+                }
+            }
         }
         method::MUX_PERMISSION_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;

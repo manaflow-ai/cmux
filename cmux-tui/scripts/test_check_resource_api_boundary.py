@@ -446,6 +446,27 @@ const HELP: &str = "cmux list-surfaces";
     def test_live_terminal_identity_env_table_names_cmux_surface_id(self) -> None:
         self.assertIn("CMUX_SURFACE_ID", CHECKER.terminal_identity_env_names(CHECKER.TUI))
 
+    def test_a2ui_wire_words_pass_only_in_the_a2ui_tool_file(self) -> None:
+        source = """\
+const NAME: &str = "ui_surface";
+const HELP: &str = "send createSurface with a surfaceId; returns surfaces";
+const OTHER: &str = "list the surface_id of every pane";
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            write(tui / "crates/cmux-tui/src/cli/mcp/ui_surface_tool.rs", source)
+            write(tui / "crates/cmux-tui/src/cli/mcp/other_tool.rs", source)
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            tool = [d for d in diagnostics if d.path.name == "ui_surface_tool.rs"]
+            other = [d for d in diagnostics if d.path.name == "other_tool.rs"]
+            # In the A2UI file only a word outside the A2UI list fails.
+            self.assertEqual([(d.line, d.code) for d in tool], [(3, "boundary.surface")])
+            # Anywhere else every one of them still fails.
+            self.assertEqual(len(other), 5)
+            self.assertEqual({d.code for d in other}, {"boundary.surface"})
+
     def test_cli_allows_relay_transport_slot_but_rejects_resource_slot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)

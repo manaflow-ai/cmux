@@ -1,0 +1,125 @@
+{
+  "schema": "renderer_to_agent.json",
+  "tests": [
+    {
+      "description": "rendererFunctionResponse: Valid message with value object",
+      "valid": true,
+      "data": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "unique-call-id-130",
+          "value": {
+            "result": "success",
+            "count": 42
+          }
+        }
+      }
+    },
+    {
+      "description": "rendererFunctionResponse: Valid message with error payload",
+      "valid": true,
+      "data": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "unique-call-id-130e",
+          "error": {
+            "code": "EXECUTION_FAILED",
+            "message": "Service unavailable"
+          }
+        }
+      }
+    },
+    {
+      "description": "rendererFunctionResponse: Invalid (missing functionCallId)",
+      "valid": false,
+      "data": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "value": {
+            "result": "success"
+          }
+        }
+      }
+    },
+    {
+      "description": "rendererFunctionResponse: Valid (scalar string value)",
+      "valid": true,
+      "data": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "unique-call-id-131a",
+          "value": "success"
+        }
+      }
+    },
+    {
+      "description": "rendererFunctionResponse: Valid (scalar number value)",
+      "valid": true,
+      "data": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "unique-call-id-131b",
+          "value": 42
+        }
+      }
+    },
+    {
+      "description": "rendererFunctionResponse: Valid (scalar boolean value)",
+      "valid": true,
+      "data": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "unique-call-id-131c",
+          "value": true
+        }
+      }
+    },
+    {
+      "description": "rendererFunctionResponse: Valid (scalar null value)",
+      "valid": true,
+      "data": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "unique-call-id-131d",
+          "value": null
+        }
+      }
+    },
+    {
+      "description": "rendererFunctionResponse: Valid (array value)",
+      "valid": true,
+      "data": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "unique-call-id-131e",
+          "value": ["one", 2, true, null]
+        }
+      }
+    },
+    {
+      "description": "rendererFunctionResponse: Invalid (both value and error provided)",
+      "valid": false,
+      "data": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "unique-call-id-135",
+          "value": "success",
+          "error": {
+            "code": "ERR",
+            "message": "both"
+          }
+        }
+      }
+    },
+    {
+      "description": "rendererFunctionResponse: Invalid (neither value nor error provided)",
+      "valid": false,
+      "data": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "unique-call-id-136"
+        }
+      }
+    }
+  ]
+}

@@ -231,6 +231,20 @@ struct DemoDriver {
             }
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case let scene where scene.hasPrefix("ui-surfaces-"):
+            // A chat whose newest turn is agent UI surface cards (`UISurfaceFixtures.Scene`:
+            // approval, review, data, charts, form). They draw as cards only with the Labs flag on
+            // (`-cmuxMobile.settings.labs.agentUiSurfaces YES`); off, they are tool rows as today.
+            let sceneName = String(scene.dropFirst("ui-surfaces-".count))
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                let mock = MockAgentSession(summary: summary, richFirstTurn: false, history: false)
+                mock.uiSurfaceScene = sceneName
+                return mock
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
         case "slow-history-chat":
             // An existing chat whose Mac answers 4 s late (AgentChatLoadingUITests): the chat
             // shows its loading state, never the new-chat screen, until the history lands.

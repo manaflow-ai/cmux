@@ -83,9 +83,38 @@ pub fn value(doc: &Value, key: &str) -> Option<Value> {
     doc.pointer(&pointer).cloned()
 }
 
+/// The settings key of the opt-in interactive agent cards (Settings > Advanced > Labs).
+pub const AGENT_UI_SURFACES_KEY: &str = "labs.agentUiSurfaces";
+
+/// Whether `labs.agentUiSurfaces` is on in `settings`. Off by default; a missing or unreadable
+/// file is off too, since the setting opts in to what an agent may put in front of the person.
+pub fn agent_ui_surfaces_in(settings: &Settings) -> bool {
+    match settings {
+        Settings::Parsed(doc) => value(doc, AGENT_UI_SURFACES_KEY) == Some(Value::Bool(true)),
+        Settings::Missing | Settings::Unreadable(_) => false,
+    }
+}
+
+/// Whether `labs.agentUiSurfaces` is on in the settings file now (read at each call).
+pub fn agent_ui_surfaces_enabled() -> bool {
+    agent_ui_surfaces_in(&read())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_ui_surfaces_is_opt_in() {
+        let on = |text: &str| agent_ui_surfaces_in(&Settings::Parsed(document(text).unwrap()));
+        assert!(on(r#"{"labs": {"agentUiSurfaces": true}}"#));
+        assert!(on(r#"{"labs.agentUiSurfaces": true}"#));
+        assert!(!on(r#"{"labs": {"agentUiSurfaces": false}}"#));
+        assert!(!on(r#"{"labs": {"agentUiSurfaces": "true"}}"#));
+        assert!(!on("{}"));
+        assert!(!agent_ui_surfaces_in(&Settings::Missing));
+        assert!(!agent_ui_surfaces_in(&Settings::Unreadable("x".into())));
+    }
 
     #[test]
     fn with_no_home_both_files_stay_relative() {

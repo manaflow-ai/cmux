@@ -84,6 +84,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "memory_resolved",
     "coach_offer",
     "coach",
+    // An MCP App's view fetched after its tool call's update (`ui_surfaces.rs` `late_views`):
+    // the tool row's `uiSurface`.
+    "ui_surface",
     // A policy narrower than approve-all that the chat's harness cannot keep
     // (`policy_mode.rs`): the chat says so where it happened.
     "policy_unenforced",

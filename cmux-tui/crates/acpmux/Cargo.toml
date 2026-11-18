@@ -93,6 +93,7 @@ cmux-local-auth.workspace = true
 # Loopback URLs a background process prints, for its preview (src/hub/process_preview.rs).
 cmux-local-url.workspace = true
 cmux-mcp-connect.workspace = true
+cmux-ui-surfaces.workspace = true
 cmux-link.workspace = true
 # The path selector (RTT with hysteresis) a peer link picks its carrier with (`peer_paths.rs`).
 cmux-transport = { path = "../cmux-transport" }

@@ -35,6 +35,7 @@ import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { scriptNoun } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { agentUiSurfacesOn } from "../agentUiSurfaces";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
@@ -3095,6 +3096,14 @@ function foregroundAgents(rows: readonly AcpmuxRow[]): number {
 }
 /// The `row` arm of `oneRowPerCall`: a file change keeps its own row in its run from pending to done.
 const keepsOwnRow = (call: AcpmuxActivity["tool"]) => isEditTool(call) && experimentArm(oneRowPerCall) === "row";
+/// A running call that carries an agent UI surface (Labs `labs.agentUiSurfaces` on) keeps its own row
+/// in its run, as a call waiting on its permission does: the surface's card draws under that row
+/// (rows/ToolActivityRow.tsx), so it streams in, node by node, while the call runs. Handed to the live
+/// line like any running call, the call had no row until it finished, and its card landed whole, a
+/// screen tall, in one frame with the call's end (bench/ui-surface-stream-frames.bench.ts: one card
+/// height over 40 updates, the live line pushed off and back, CLS 0.033 against 0.009 without).
+export const streamsOwnSurface = (call: AcpmuxActivity["tool"]) =>
+  call?.uiSurface !== undefined && isRunning(call) && agentUiSurfacesOn();
 
 /// The newest call still running in a live turn's latest row.
 function runningCall(
@@ -3119,7 +3128,8 @@ type LineCall = { tool: NonNullable<ReturnType<typeof runningCall>>; at: number;
 function lineCall(drawn: readonly AcpmuxRow[], last: AcpmuxRow): LineCall | undefined {
   // A call whose own row stays in its run (one waiting on its permission, or the `row` arm's file
   // changes) is drawn there, never on the line as well.
-  const lineable = (call: NonNullable<AcpmuxActivity["tool"]>) => !awaitsPermission(call) && !keepsOwnRow(call);
+  const lineable = (call: NonNullable<AcpmuxActivity["tool"]>) =>
+    !awaitsPermission(call) && !keepsOwnRow(call) && !streamsOwnSurface(call);
   const latest = runningCall(last, lineable);
   if (latest) return { tool: latest, at: last.at };
   // The person sent into the turn while a call ran: the call stays on the line under the prompt,
@@ -3328,7 +3338,12 @@ function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false, carried?
     // it asks about stays in sight (an ended turn's folded run keeps it in sight too: TurnRows.tsx
     // `staysInSight`).
     if (
-      (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)))
+      (row.items ?? []).some(
+        (item) =>
+          awaitsPermission(item.tool) ||
+          (keepsOwnRow(item.tool) && isRunning(item.tool!)) ||
+          streamsOwnSurface(item.tool),
+      )
     ) {
       let own = keptRuns.get(row);
       if (!own) keptRuns.set(row, (own = { ...row, foldRun: false, version: row.version * RUN_STATES }));

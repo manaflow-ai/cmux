@@ -1,0 +1,137 @@
+{
+  "name": "MCP text tool result",
+  "description": "Reads the plain text a headless MCP search tool returns and turns its records into data model rows. The tool answers with a header followed by one `Title:`, `URL:` and `Content:` record per result, separated by blank lines. The button chains the catalog's functions, each selecting the MCP catalog with its own catalogId: callMcpTool runs the search, transformData reads the `text` of the payload, split cuts it into records, regexCapture turns each record into a title and URL pair, a second transformData drops the records that did not match and names the fields, and updateDataModel writes them to /results.",
+  "messages": [
+    {
+      "version": "1.0",
+      "createSurface": {
+        "surfaceId": "gallery-mcp-text-tool-result",
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+      }
+    },
+    {
+      "version": "1.0",
+      "updateDataModel": {
+        "surfaceId": "gallery-mcp-text-tool-result",
+        "value": {
+          "query": "A2UI protocol",
+          "results": []
+        }
+      }
+    },
+    {
+      "version": "1.0",
+      "updateComponents": {
+        "surfaceId": "gallery-mcp-text-tool-result",
+        "components": [
+          {
+            "id": "root",
+            "component": "Column",
+            "children": ["heading", "query_field", "search_button", "result_list"],
+            "align": "stretch"
+          },
+          {
+            "id": "heading",
+            "component": "Text",
+            "text": "Web search"
+          },
+          {
+            "id": "query_field",
+            "component": "TextField",
+            "label": "Query",
+            "value": {
+              "@path": "/query"
+            }
+          },
+          {
+            "id": "search_button",
+            "component": "Button",
+            "child": "search_button_label",
+            "variant": "primary",
+            "action": {
+              "functionCall": {
+                "@call": "updateDataModel",
+                "catalogId": "https://a2ui.org/specification/v1_0/catalogs/mcp/catalog.json",
+                "args": {
+                  "updates": {
+                    "@call": "transformData",
+                    "catalogId": "https://a2ui.org/specification/v1_0/catalogs/mcp/catalog.json",
+                    "args": {
+                      "jmespath": "{\"/results\": [?@ != null].{title: [0], url: [1]}}",
+                      "data": {
+                        "@call": "regexCapture",
+                        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/mcp/catalog.json",
+                        "args": {
+                          "value": {
+                            "@call": "split",
+                            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/mcp/catalog.json",
+                            "args": {
+                              "value": {
+                                "@call": "transformData",
+                                "catalogId": "https://a2ui.org/specification/v1_0/catalogs/mcp/catalog.json",
+                                "args": {
+                                  "jmespath": "text",
+                                  "data": {
+                                    "@call": "callMcpTool",
+                                    "catalogId": "https://a2ui.org/specification/v1_0/catalogs/mcp/catalog.json",
+                                    "args": {
+                                      "name": "tavily-search",
+                                      "arguments": {
+                                        "query": {
+                                          "@path": "/query"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              "separator": "\n\n"
+                            }
+                          },
+                          "pattern": "^Title: (.*)\nURL: (.*)"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "search_button_label",
+            "component": "Text",
+            "text": "Search"
+          },
+          {
+            "id": "result_list",
+            "component": "Column",
+            "children": {
+              "componentId": "result_row",
+              "path": "/results"
+            }
+          },
+          {
+            "id": "result_row",
+            "component": "Column",
+            "children": ["result_title", "result_url"]
+          },
+          {
+            "id": "result_title",
+            "component": "Text",
+            "text": {
+              "@path": "title"
+            }
+          },
+          {
+            "id": "result_url",
+            "component": "Text",
+            "text": {
+              "@path": "url"
+            },
+            "variant": "caption"
+          }
+        ]
+      }
+    }
+  ]
+}

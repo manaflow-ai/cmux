@@ -67,7 +67,7 @@ struct AcpmuxRecords {
             case .toolCall(let call):
                 return ACPToolCallUpdate(toolCallId: call.id, title: call.title, kind: call.kind, status: call.status,
                                          content: call.content, locations: call.locations, rawInput: call.rawInput,
-                                         rawOutput: call.rawOutput, outputCut: call.outputCut)
+                                         rawOutput: call.rawOutput, outputCut: call.outputCut, uiSurface: call.uiSurface)
             default: continue
             }
         }

@@ -1,0 +1,92 @@
+{
+  "name": "ChildList Template Expansion",
+  "description": "Demonstrates dynamic list generation using ChildList object templates.",
+  "messages": [
+    {
+      "version": "1.0",
+      "createSurface": {
+        "surfaceId": "gallery-child-list-template",
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+        "sendDataModel": true
+      }
+    },
+    {
+      "version": "1.0",
+      "updateComponents": {
+        "surfaceId": "gallery-child-list-template",
+        "components": [
+          {
+            "id": "root",
+            "component": "Card",
+            "child": "main_column"
+          },
+          {
+            "id": "main_column",
+            "component": "Column",
+            "children": ["title_text", "item_list"],
+            "align": "stretch"
+          },
+          {
+            "id": "title_text",
+            "component": "Text",
+            "text": "### Dynamic Item List"
+          },
+          {
+            "id": "item_list",
+            "component": "List",
+            "children": {
+              "componentId": "item_row",
+              "path": "/items"
+            }
+          },
+          {
+            "id": "item_row",
+            "component": "Row",
+            "children": ["item_name", "qty_label", "item_qty"]
+          },
+          {
+            "id": "item_name",
+            "component": "Text",
+            "text": {
+              "@path": "name"
+            }
+          },
+          {
+            "id": "qty_label",
+            "component": "Text",
+            "text": " - Qty: "
+          },
+          {
+            "id": "item_qty",
+            "component": "Text",
+            "text": {
+              "@path": "quantity"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "version": "1.0",
+      "updateDataModel": {
+        "surfaceId": "gallery-child-list-template",
+        "value": {
+          "items": [
+            {
+              "name": "Apple",
+              "quantity": 10
+            },
+            {
+              "name": "Banana",
+              "quantity": 5
+            },
+            {
+              "name": "Cherry",
+              "quantity": 20
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

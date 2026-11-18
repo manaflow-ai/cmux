@@ -119,7 +119,7 @@ import {
   withHandshakeNewTab,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
-import { heldPick, withCloudStartFolder, withDraftFolder } from "./newtab/draftFolder";
+import { heldPick, withDraftFolder, withCloudStartFolder } from "./newtab/draftFolder";
 import {
   cloudModePickFor as cloudModeFor,
   cloudSendAgent,
@@ -579,8 +579,6 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -589,6 +587,8 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -836,6 +836,7 @@ import {
   withStartedSessions,
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
+import { setAgentUiSurfaces } from "./agentUiSurfaces";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { holdWebSwap, pageEditHold, pageReleaseHold } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
@@ -912,6 +913,8 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// Interactive cards from agents on or off (`labs.agentUiSurfaces`, off by default): agentUiSurfaces.ts.
+      applyAgentUiSurfaces?(on: boolean): void;
       /// How a Cloud start goes (cloudStartProgress.ts `cloudStartPushed`): `{key, step?, machine?,
       /// size?, secrets?, network?}` for the start `cloud.startChat {key}` began.
       cloudStartProgress?(push: unknown): void;
@@ -8144,6 +8147,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setPromptSurfaces(on === true);
         // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
       },
+      applyAgentUiSurfaces(on) {
+        setAgentUiSurfaces(on);
+      },
       applyWorkflowLabs(on) {
         setWorkflowLabsEnabled(on === true);
       },
@@ -9446,6 +9452,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // Approve or Not now on a no-prompt preset's card (conversation/PresetApprovalCard.tsx).
           "chat.presetApproval.answer": async ({ rowId, approve }) =>
             client.answerPresetApproval(String(rowId), approve === true),
+          // An agent UI surface's actions and MCP App bridge (uiSurface/actions.ts); acpmux decides.
+          "chat.uiSurface.action": async ({ surfaceId, actionId, values }) =>
+            client.uiSurfaceAction({
+              surfaceId: String(surfaceId),
+              actionId: String(actionId),
+              values: values && typeof values === "object" ? (values as Record<string, unknown>) : {},
+            }),
+          "chat.uiSurface.confirm": async ({ surfaceId, requestId, values }) =>
+            client.uiSurfaceConfirm({
+              surfaceId: String(surfaceId),
+              requestId: String(requestId),
+              ...(values && typeof values === "object" ? { values: values as Record<string, unknown> } : {}),
+            }),
+          "chat.uiSurface.cancel": async ({ surfaceId, requestId }) =>
+            client.uiSurfaceCancel({ surfaceId: String(surfaceId), requestId: String(requestId) }),
+          "chat.uiSurface.bridge": async ({ surfaceId, message }) =>
+            client.uiSurfaceBridge({ surfaceId: String(surfaceId), message }),
           "chat.removeFailedPrompt": async ({ rowId, rowIds }) => {
             for (const id of failedRowIds(rowId, rowIds)) client.removeFailedPrompt(id);
           },

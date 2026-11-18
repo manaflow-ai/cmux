@@ -32,6 +32,12 @@ public final class MockAgentSession: AgentSessionSource {
     private var batch: [AgentSessionEvent]?
     /// Checkpoints recorded around turns (newest last).
     var checkpointLog: [AgentCheckpoint] = []
+    /// A turn of agent UI surface cards to replay last (`MockAgentSession+UISurfaces.swift`): a
+    /// `UISurfaceFixtures.Scene` raw value. Nil: none.
+    public var uiSurfaceScene: String?
+    /// The replayed surfaces, by surface id: their tool call and their JSON now (an action's answer
+    /// and a confirm update it).
+    var uiSurfaceCalls: [String: (callID: String, surface: JSONValue)] = [:]
     /// Characters per streamed chunk and the delay between chunks (≈ 40 chars / 50 ms).
     public var chunkSize = 6
     public var chunkDelay: Duration = .milliseconds(16)
@@ -130,6 +136,8 @@ public final class MockAgentSession: AgentSessionSource {
             emit(.queuePaused(false, reason: nil))
         case .answerElevation(let ask, _):
             emit(.elevationDecision(id: ask.id))
+        case .uiSurfaceAction, .uiSurfaceConfirm, .uiSurfaceCancel:
+            _ = uiSurfaceReply(intent)
         }
     }
 
@@ -186,6 +194,7 @@ public final class MockAgentSession: AgentSessionSource {
             ACPAvailableCommand(name: "test", description: "Run the test suite", hint: "filter"),
         ])))
         emit(.update(.usage(used: history ? 48_000 : 0, size: 200_000)))
+        defer { if let uiSurfaceScene { replayUISurfaceTurn(uiSurfaceScene) } }
         guard history else { return }
         let start = Date().addingTimeInterval(-3600)
         let turnID = "history-1"

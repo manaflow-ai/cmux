@@ -1,0 +1,59 @@
+{
+  "errors": [],
+  "replies": [],
+  "sample": "10-opening-form",
+  "surfaces": [
+    {
+      "frame": null,
+      "pending": null,
+      "root": {
+        "axis": "v",
+        "children": [
+          {
+            "id": "title",
+            "style": "heading",
+            "text": "Madrid in April — two travellers",
+            "type": "text"
+          },
+          {
+            "id": "from",
+            "text": "AirportPicker (travel catalog)",
+            "type": "fallback"
+          },
+          {
+            "id": "dates",
+            "text": "DateRangePicker (travel catalog)",
+            "type": "fallback"
+          },
+          {
+            "id": "who",
+            "text": "TravelerCounter (travel catalog)",
+            "type": "fallback"
+          },
+          {
+            "action": {
+              "id": "go",
+              "name": "find_flights",
+              "privileged": true
+            },
+            "id": "go",
+            "label": "Find flights",
+            "type": "button",
+            "variant": "primary"
+          }
+        ],
+        "id": "root",
+        "type": "stack"
+      },
+      "schema": "cmux.ui-surface/1",
+      "source": {
+        "catalogId": "https://travel-a2ui.dev/catalogs/a2ui-travel/catalog.json",
+        "kind": "a2ui",
+        "server": "cmux",
+        "tool": "ui_surface"
+      },
+      "status": "ready",
+      "surfaceId": "inline-1"
+    }
+  ]
+}

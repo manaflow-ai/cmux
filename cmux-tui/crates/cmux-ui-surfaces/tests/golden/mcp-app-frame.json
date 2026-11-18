@@ -1,0 +1,27 @@
+{
+  "sample": "mcp-app-frame",
+  "surfaces": [
+    {
+      "frame": {
+        "csp": "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; connect-src 'none'; frame-src 'none'; base-uri 'self'; object-src 'none'; form-action 'none'",
+        "height": 320,
+        "html": "<!doctype html><html><body><p id=t>…</p><script>/* app */</script></body></html>"
+      },
+      "pending": null,
+      "root": {
+        "id": "root",
+        "text": "Open on Mac: this app runs in a web frame",
+        "type": "fallback"
+      },
+      "schema": "cmux.ui-surface/1",
+      "source": {
+        "kind": "mcp-app",
+        "resourceUri": "ui://get-time/mcp-app.html",
+        "server": "quickstart",
+        "tool": "get-time"
+      },
+      "status": "ready",
+      "surfaceId": "get-time-1"
+    }
+  ]
+}

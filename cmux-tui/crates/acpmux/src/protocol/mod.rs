@@ -21,6 +21,7 @@ pub mod process;
 pub mod session;
 #[cfg(test)]
 mod tests;
+pub mod ui_surface;
 
 use std::collections::BTreeMap;
 
@@ -375,6 +376,19 @@ pub fn registry() -> Vec<MethodDecl> {
         ),
         request::<PermissionChatRevokeParams, PermissionChatRevokeReceipt>(
             method::MUX_PERMISSION_CHAT_REVOKE,
+        ),
+        // Agent UI surfaces (labs.agentUiSurfaces).
+        request::<ui_surface::UiSurfaceActionParams, ui_surface::UiSurfacePending>(
+            method::MUX_UI_SURFACE_ACTION,
+        ),
+        request::<ui_surface::UiSurfaceConfirmParams, ui_surface::UiSurfaceConfirmResult>(
+            method::MUX_UI_SURFACE_CONFIRM,
+        ),
+        request::<ui_surface::UiSurfaceCancelParams, ui_surface::UiSurfaceCancelResult>(
+            method::MUX_UI_SURFACE_CANCEL,
+        ),
+        request::<ui_surface::UiSurfaceBridgeParams, ui_surface::UiSurfaceBridgeResult>(
+            method::MUX_UI_SURFACE_BRIDGE,
         ),
         untyped(method::MUX_SET_POLICY, Request),
         untyped("_acpmux/set_default_policy", Request),

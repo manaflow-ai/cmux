@@ -1025,12 +1025,9 @@ export type PresenceNote = {
 
 export interface PrewarmParams {
   _meta?: RequestMeta;
-  credentials?: unknown;
   cwd?: unknown;
   harness?: unknown;
-  model?: unknown;
   release?: unknown;
-  workspaceId?: unknown;
 }
 
 /**
@@ -2236,6 +2233,82 @@ export interface TypingParams {
   on: boolean;
   sessionId: string;
 }
+
+/** A button press: `values` are the renderer's current field values keyed by their `bind`. */
+export type UiSurfaceActionParams = {
+  actionId: string;
+  sessionId: string;
+  surfaceId: string;
+  values?: Record<string, unknown>;
+} & Record<string, unknown>;
+
+/** One JSON-RPC message an MCP App view posted. */
+export type UiSurfaceBridgeParams = {
+  message: unknown;
+  sessionId: string;
+  surfaceId: string;
+} & Record<string, unknown>;
+
+/**
+ * The decision on a view message: `reply` to post to the view, `notify` to post after it,
+ * `height` for the frame (clamped 40-1200), `blocked` why it was refused, `pending` a confirm
+ * strip, `draft` composer text (the person presses Send).
+ */
+export type UiSurfaceBridgeResult = {
+  blocked?: (string | null);
+  draft?: (string | null);
+  height?: (number | null);
+  notify?: (unknown[] | null);
+  pending?: (UiSurfacePending | null);
+  reply?: unknown;
+} & Record<string, unknown>;
+
+export type UiSurfaceCancelParams = {
+  requestId: string;
+  sessionId: string;
+  surfaceId: string;
+} & Record<string, unknown>;
+
+export type UiSurfaceCancelResult = {
+  cancelled: boolean;
+} & Record<string, unknown>;
+
+/**
+ * Confirm a Pending. `values` (the renderer's field values now) make it stale when they
+ * change what would be sent.
+ */
+export type UiSurfaceConfirmParams = {
+  requestId: string;
+  sessionId: string;
+  surfaceId: string;
+  values?: (Record<string, unknown> | null);
+} & Record<string, unknown>;
+
+/**
+ * What the confirm did: `sent: "agent"` (a user turn), `"tool"` (with the view's `reply`),
+ * `"link"` (`openUrl` for the page to open, and the view's `reply`), or `"none"` (model
+ * context, not delivered in the prototype).
+ */
+export type UiSurfaceConfirmResult = {
+  openUrl?: (string | null);
+  reply?: unknown;
+  sent: string;
+} & Record<string, unknown>;
+
+/** The host-written confirm strip. Nothing is sent until a confirm. */
+export type UiSurfacePending = {
+  actionId: string;
+  requestId: string;
+  sends: UiSurfaceSend[];
+  summary: string;
+  /** `agent`, `tool:<name>`, `link:<https url>` or `model-context`. */
+  target: string;
+} & Record<string, unknown>;
+
+export type UiSurfaceSend = {
+  label: string;
+  value: string;
+} & Record<string, unknown>;
 
 /**
  * A chat's spend and context as its harness recorded them (`usage_stats.rs`):

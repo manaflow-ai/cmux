@@ -1706,3 +1706,115 @@ fn a_reorder_of_a_full_queue_is_one_pass() {
     assert_eq!(state.queue().map(|entry| entry.id_hash).collect::<Vec<_>>(), expected);
     assert!(took < std::time::Duration::from_millis(50), "a full reorder took {took:?}");
 }
+#[test]
+fn a_tool_updates_ui_surface_is_the_rows_ui_surface_body() {
+    let surface = r#"{"schema":"cmux.ui-surface/1","surfaceId":"s1","status":"ready","root":{"id":"root","type":"text","text":"hi","style":"body"},"frame":null,"pending":null}"#;
+    let line = update(
+        1,
+        &format!(
+            r#"{{"sessionUpdate":"tool_call","toolCallId":"u","status":"completed","title":"mcp__cmux__ui_surface","_meta":{{"acpmux":{{"uiSurface":{surface}}}}}}}"#
+        ),
+    );
+    let mut s = State::default();
+    let ops = t(&mut s, Harness::V1, line.as_bytes()).unwrap();
+    let body = ops.iter().find_map(|o| match &o.change {
+        Change::Body {
+            field: BodyField::Card("uiSurface"), source: BodySource::Input(r), ..
+        } => Some(&line[r.offset..r.offset + r.length]),
+        _ => None,
+    });
+    assert_eq!(body, Some(surface));
+    // A tool update without one has no such body; a non-object is ignored.
+    let line = update(
+        2,
+        r#"{"sessionUpdate":"tool_call","toolCallId":"v","_meta":{"acpmux":{"uiSurface":"<b>"}}}"#,
+    );
+    let ops = t(&mut s, Harness::V1, line.as_bytes()).unwrap();
+    assert!(
+        !ops.iter()
+            .any(|o| matches!(o.change, Change::Body { field: BodyField::Card("uiSurface"), .. }))
+    );
+}
+#[test]
+fn a_late_ui_surface_patches_its_settled_tool_row_with_its_other_parts() {
+    let mut s = State::default();
+    let start = update(
+        1,
+        r#"{"sessionUpdate":"tool_call","toolCallId":"m","status":"pending","kind":"fetch","title":"get-time","_meta":{"claude":{"tool":"mcp__qs__get-time"}}}"#,
+    );
+    t(&mut s, Harness::V1, start.as_bytes()).unwrap();
+    let end = update(
+        2,
+        r#"{"sessionUpdate":"tool_call_update","toolCallId":"m","status":"completed","content":[{"type":"content","content":{"type":"text","text":"12:00"}}]}"#,
+    );
+    let ops = t(&mut s, Harness::V1, end.as_bytes()).unwrap();
+    let settled = ops
+        .iter()
+        .find_map(|o| match &o.change {
+            Change::Row(r) if !r.open => Some(r.clone()),
+            _ => None,
+        })
+        .expect("the call settles");
+    let surface = r#"{"schema":"cmux.ui-surface/1","surfaceId":"call-m","status":"ready","root":null,"frame":{"html":"<p>t</p>"},"pending":null}"#;
+    let late = mux(
+        3,
+        "ui_surface",
+        &format!(
+            r#"{{"toolCallId":"m","kind":"fetch","status":"completed","tool":"mcp__qs__get-time","title":"get-time","rawInput":{{}},"content":[{{"type":"content","content":{{"type":"text","text":"12:00"}}}}],"surface":{surface}}}"#
+        ),
+    );
+    let ops = t(&mut s, Harness::V1, late.as_bytes()).unwrap();
+    let body = |f: BodyField| {
+        ops.iter().find_map(|o| match &o.change {
+            Change::Body { id, field, source: BodySource::Input(r), .. }
+                if *id == settled.id && *field == f =>
+            {
+                Some(&late[r.offset..r.offset + r.length])
+            }
+            _ => None,
+        })
+    };
+    assert_eq!(body(BodyField::Card("uiSurface")), Some(surface));
+    assert_eq!(body(BodyField::Title), Some(r#""get-time""#));
+    assert!(body(BodyField::Content).is_some_and(|c| c.contains("12:00")));
+    assert_eq!(body(BodyField::Input), Some("{}"));
+    let patch = ops
+        .iter()
+        .find_map(|o| match &o.change {
+            Change::Patch(r) => Some(r.clone()),
+            _ => None,
+        })
+        .expect("a settled row is patched");
+    assert_eq!(patch.id, settled.id);
+    assert_eq!(patch.rev, settled.rev + 1);
+    assert!(!patch.open);
+    for (k, v) in
+        [("callId", "m"), ("kind", "fetch"), ("status", "completed"), ("tool", "mcp__qs__get-time")]
+    {
+        assert_eq!(patch.fields.get(k), Some(&quote(v)), "{k}");
+    }
+    // A second late surface patches again at the next rev; a call this book never held is not drawn.
+    let again = late.replace(r#""seq":3"#, r#""seq":4"#);
+    let ops = t(&mut s, Harness::V1, again.as_bytes()).unwrap();
+    assert!(ops.iter().any(|o| matches!(&o.change, Change::Patch(r) if r.rev == settled.rev + 2)));
+    let other = late
+        .replace(r#""toolCallId":"m""#, r#""toolCallId":"z""#)
+        .replace(r#""seq":3"#, r#""seq":5"#);
+    let ops = t(&mut s, Harness::V1, other.as_bytes()).unwrap();
+    assert!(!ops.iter().any(|o| matches!(o.change, Change::Patch(_) | Change::Body { .. })));
+}
+#[test]
+fn a_late_ui_surface_on_an_open_tool_row_is_its_body() {
+    let mut s = State::default();
+    let start =
+        update(1, r#"{"sessionUpdate":"tool_call","toolCallId":"o","status":"in_progress"}"#);
+    t(&mut s, Harness::V1, start.as_bytes()).unwrap();
+    let late =
+        mux(2, "ui_surface", r#"{"toolCallId":"o","surface":{"schema":"cmux.ui-surface/1"}}"#);
+    let ops = t(&mut s, Harness::V1, late.as_bytes()).unwrap();
+    assert!(
+        ops.iter()
+            .any(|o| matches!(o.change, Change::Body { field: BodyField::Card("uiSurface"), .. }))
+    );
+    assert!(!ops.iter().any(|o| matches!(o.change, Change::Patch(_))));
+}

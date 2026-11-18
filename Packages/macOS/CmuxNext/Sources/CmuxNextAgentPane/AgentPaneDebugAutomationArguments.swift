@@ -32,9 +32,11 @@ public struct AgentPaneDebugAutomationArguments {
         case "stream":
             // R104: a scripted reply streamed into `rows` synthetic rows (streamDebug.ts).
             var options: [String: Any] = [:]
-            for key in ["rows", "seconds", "chunk_chars", "chunk_ms", "nominal_ms", "trace"] {
+            for key in ["rows", "seconds", "chunk_chars", "chunk_ms", "nominal_ms", "trace", "updates", "hz"] {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
+            // `surface`: an agent UI surface card streams instead (surfaceStreamDebug.ts; `none` is its baseline).
+            if let surface = params["surface"]?.stringValue { options["surface"] = surface }
             return [options]
         case "load_seed":
             return [params["turns"]?.intValue ?? 5000]

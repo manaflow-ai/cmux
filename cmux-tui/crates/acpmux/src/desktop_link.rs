@@ -555,6 +555,47 @@ fn read_entry(env: &Env, app: App) -> Result<Option<Value>> {
     }
 }
 
+/// The MCP server `name` that a chat of `harness` started in `cwd` loads, as JSON (Codex's
+/// TOML converted): for Claude Code its project entry for `cwd` in `.claude.json`, then
+/// `cwd/.mcp.json`, then the top-level `mcpServers`; for the others their one config file.
+/// None when it is absent or the file does not read (agent UI surfaces' `ui://` fetch,
+/// `ui_surfaces.rs`).
+pub fn read_mcp_server(env: &Env, harness: &str, cwd: &Path, name: &str) -> Option<Value> {
+    let h = harness.to_ascii_lowercase();
+    let app = if h.contains("codex") {
+        App::Codex
+    } else if h.contains("opencode") {
+        App::OpenCode
+    } else if h.contains("gemini") {
+        App::GeminiCli
+    } else if h.contains("qwen") {
+        App::QwenCode
+    } else {
+        App::ClaudeCode
+    };
+    let read = |path: &Path| std::fs::read_to_string(path).ok();
+    if app == App::Codex {
+        let doc: toml::Table = toml::from_str(&read(&env.config_path(app))?).ok()?;
+        let entry = doc.get("mcp_servers")?.get(name)?;
+        return serde_json::to_value(entry).ok();
+    }
+    let key = servers_key(app);
+    if app == App::ClaudeCode {
+        let doc: Option<Value> =
+            read(&env.config_path(app)).and_then(|t| serde_json::from_str(&t).ok());
+        let project = doc.as_ref().and_then(|d| {
+            d.get("projects")?.get(cwd.to_string_lossy().as_ref())?.get(key)?.get(name).cloned()
+        });
+        let local = read(&cwd.join(".mcp.json"))
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .and_then(|d| d.get(key)?.get(name).cloned());
+        let user = doc.as_ref().and_then(|d| d.get(key)?.get(name).cloned());
+        return project.or(local).or(user);
+    }
+    let doc: Value = serde_json::from_str(&read(&env.config_path(app))?).ok()?;
+    doc.get(key)?.get(name).cloned()
+}
+
 fn write_entry(env: &Env, app: App, replace: bool) -> Result<()> {
     match app {
         App::ClaudeDesktop | App::OpenCode | App::GeminiCli | App::QwenCode => {

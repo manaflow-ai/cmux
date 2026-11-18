@@ -1,0 +1,213 @@
+{
+  "name": "Login Form with Validation",
+  "description": "Example of login form demonstrating validation checks and logic.",
+  "messages": [
+    {
+      "version": "1.0",
+      "createSurface": {
+        "surfaceId": "gallery-login-form",
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+        "sendDataModel": true
+      }
+    },
+    {
+      "version": "1.0",
+      "updateComponents": {
+        "surfaceId": "gallery-login-form",
+        "components": [
+          {
+            "id": "root",
+            "component": "Card",
+            "child": "main_column"
+          },
+          {
+            "id": "main_column",
+            "component": "Column",
+            "children": [
+              "header",
+              "email_field",
+              "password_field",
+              "login_btn",
+              "divider",
+              "signup_text"
+            ]
+          },
+          {
+            "id": "header",
+            "component": "Column",
+            "children": ["title", "subtitle"],
+            "align": "center"
+          },
+          {
+            "id": "title",
+            "component": "Text",
+            "text": "## Welcome back"
+          },
+          {
+            "id": "subtitle",
+            "component": "Text",
+            "text": "Sign in to your account",
+            "variant": "caption"
+          },
+          {
+            "id": "email_field",
+            "component": "TextField",
+            "value": {
+              "@path": "/email"
+            },
+            "label": "Email",
+            "@checks": [
+              {
+                "condition": {
+                  "@call": "required",
+                  "args": {
+                    "value": {
+                      "@path": "/email"
+                    }
+                  }
+                },
+                "message": "Email is required"
+              },
+              {
+                "condition": {
+                  "@call": "email",
+                  "args": {
+                    "value": {
+                      "@path": "/email"
+                    }
+                  }
+                },
+                "message": "Please enter a valid email address"
+              }
+            ]
+          },
+          {
+            "id": "password_field",
+            "component": "TextField",
+            "value": {
+              "@path": "/password"
+            },
+            "label": "Password",
+            "variant": "obscured",
+            "@checks": [
+              {
+                "condition": {
+                  "@call": "required",
+                  "args": {
+                    "value": {
+                      "@path": "/password"
+                    }
+                  }
+                },
+                "message": "Password is required"
+              },
+              {
+                "condition": {
+                  "@call": "length",
+                  "args": {
+                    "value": {
+                      "@path": "/password"
+                    },
+                    "min": 8
+                  }
+                },
+                "message": "Password must be at least 8 characters long"
+              }
+            ]
+          },
+          {
+            "id": "login_btn_text",
+            "component": "Text",
+            "text": "Sign in"
+          },
+          {
+            "id": "login_btn",
+            "component": "Button",
+            "child": "login_btn_text",
+            "@checks": [
+              {
+                "condition": {
+                  "@call": "and",
+                  "args": {
+                    "values": [
+                      {
+                        "@call": "email",
+                        "args": {
+                          "value": {
+                            "@path": "/email"
+                          }
+                        }
+                      },
+                      {
+                        "@call": "length",
+                        "args": {
+                          "value": {
+                            "@path": "/password"
+                          },
+                          "min": 8
+                        }
+                      }
+                    ]
+                  }
+                },
+                "message": "Please fix errors before signing in"
+              }
+            ],
+            "action": {
+              "event": {
+                "name": "login",
+                "context": {
+                  "email": {
+                    "@path": "/email"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "divider",
+            "component": "Divider"
+          },
+          {
+            "id": "signup_text",
+            "component": "Row",
+            "children": ["no_account", "signup_link"],
+            "justify": "center"
+          },
+          {
+            "id": "no_account",
+            "component": "Text",
+            "text": "Don't have an account?",
+            "variant": "caption"
+          },
+          {
+            "id": "signup_link_text",
+            "component": "Text",
+            "text": "Sign up"
+          },
+          {
+            "id": "signup_link",
+            "component": "Button",
+            "child": "signup_link_text",
+            "action": {
+              "event": {
+                "name": "signup",
+                "context": {}
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "version": "1.0",
+      "updateDataModel": {
+        "surfaceId": "gallery-login-form",
+        "value": {
+          "email": "",
+          "password": ""
+        }
+      }
+    }
+  ]
+}

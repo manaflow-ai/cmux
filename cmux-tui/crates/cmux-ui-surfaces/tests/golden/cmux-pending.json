@@ -1,0 +1,232 @@
+{
+  "sample": "cmux-pending",
+  "surfaces": [
+    {
+      "frame": null,
+      "pending": {
+        "actionId": "go",
+        "requestId": "r1",
+        "sends": [
+          {
+            "label": "reviewer",
+            "value": "Grace"
+          },
+          {
+            "label": "summary",
+            "value": "3f2a91c has 12,840 tests"
+          }
+        ],
+        "summary": "Send \"notify\" to the agent with: reviewer = Grace, summary = 3f2a91c has 12,840 tests",
+        "target": "agent"
+      },
+      "root": {
+        "axis": "v",
+        "children": [
+          {
+            "a11y": {
+              "label": "Release 1.4 summary",
+              "live": "polite"
+            },
+            "id": "title",
+            "style": "heading",
+            "text": "Release 1.4",
+            "type": "text"
+          },
+          {
+            "approve": {
+              "id": "deploy.approve",
+              "name": "approve_deploy",
+              "privileged": true
+            },
+            "deny": {
+              "id": "deploy.deny",
+              "name": "deny_deploy",
+              "privileged": true
+            },
+            "detail": "Runs the release workflow on main.",
+            "facts": [
+              {
+                "label": "Branch",
+                "value": "main"
+              },
+              {
+                "label": "Commit",
+                "value": "3f2a91c"
+              }
+            ],
+            "id": "deploy",
+            "risk": "high",
+            "title": "Deploy to production",
+            "type": "approval"
+          },
+          {
+            "bind": "/review/choice",
+            "id": "pick",
+            "multi": false,
+            "options": [
+              {
+                "detail": "Smallest change",
+                "id": "a",
+                "label": "Retry with backoff"
+              },
+              {
+                "id": "b",
+                "label": "Rewrite the client"
+              }
+            ],
+            "prompt": "Pick one; the agent continues with it.",
+            "selected": [
+              "a"
+            ],
+            "submit": {
+              "id": "pick.submit",
+              "name": "choose_fix",
+              "privileged": true
+            },
+            "title": "Which fix should land?",
+            "type": "review"
+          },
+          {
+            "id": "build",
+            "label": "Building",
+            "max": 100.0,
+            "state": "running",
+            "type": "progress",
+            "value": 42.0
+          },
+          {
+            "id": "spin",
+            "label": "Waiting for CI",
+            "state": "running",
+            "type": "progress"
+          },
+          {
+            "columns": [
+              {
+                "align": "start",
+                "key": "suite",
+                "label": "Suite"
+              },
+              {
+                "align": "end",
+                "key": "passed",
+                "label": "Passed"
+              }
+            ],
+            "id": "results",
+            "rows": [
+              [
+                "unit",
+                "1204"
+              ],
+              [
+                "integration",
+                "88"
+              ]
+            ],
+            "truncated": false,
+            "type": "table"
+          },
+          {
+            "id": "latency",
+            "kind": "line",
+            "series": [
+              {
+                "name": "p50",
+                "points": [
+                  {
+                    "x": "Mon",
+                    "y": 12.0
+                  },
+                  {
+                    "x": "Tue",
+                    "y": 9.0
+                  },
+                  {
+                    "x": "Wed",
+                    "y": 11.0
+                  }
+                ]
+              },
+              {
+                "name": "p95",
+                "points": [
+                  {
+                    "x": "Mon",
+                    "y": 40.0
+                  },
+                  {
+                    "x": "Tue",
+                    "y": 31.0
+                  },
+                  {
+                    "x": "Wed",
+                    "y": 35.0
+                  }
+                ]
+              }
+            ],
+            "type": "chart",
+            "yLabel": "ms"
+          },
+          {
+            "id": "share",
+            "kind": "pie",
+            "series": [
+              {
+                "name": "time",
+                "points": [
+                  {
+                    "x": "build",
+                    "y": 60.0
+                  },
+                  {
+                    "x": "test",
+                    "y": 40.0
+                  }
+                ]
+              }
+            ],
+            "type": "chart"
+          },
+          {
+            "id": "note",
+            "style": "caption",
+            "text": "<b>not bold</b> <script>alert(1)</script> stays text",
+            "type": "text"
+          },
+          {
+            "bind": "/release/reviewer",
+            "id": "who",
+            "input": "text",
+            "label": "Reviewer",
+            "type": "field",
+            "value": "Grace"
+          },
+          {
+            "action": {
+              "id": "go",
+              "name": "notify",
+              "privileged": true
+            },
+            "id": "go",
+            "label": "Notify reviewer",
+            "type": "button",
+            "variant": "primary"
+          }
+        ],
+        "id": "root",
+        "type": "stack"
+      },
+      "schema": "cmux.ui-surface/1",
+      "source": {
+        "catalogId": "https://cmux.com/a2ui/catalog/v1",
+        "kind": "a2ui",
+        "server": "cmux",
+        "tool": "ui_surface"
+      },
+      "status": "ready",
+      "surfaceId": "cmux-cards"
+    }
+  ]
+}

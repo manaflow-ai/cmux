@@ -61,6 +61,7 @@ dependencies = [
  "cmux-tailnet",
  "cmux-transport",
  "cmux-tui-platform",
+ "cmux-ui-surfaces",
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vault-egress",
@@ -2626,6 +2627,15 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
  "rusqlite",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-ui-surfaces"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
  "serde_json",
 ]
 

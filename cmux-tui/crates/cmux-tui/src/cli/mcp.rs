@@ -50,6 +50,7 @@ mod terminal_talk_tools;
 mod tests;
 mod tool_list;
 mod transport;
+mod ui_surface_tool;
 mod upstream;
 mod upstream_listing;
 mod v2_tools;
@@ -1099,6 +1100,12 @@ impl<B: Backend> Server<B> {
         }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments, &mut self.renders) {
+                Ok(receipt) => success(receipt, false),
+                Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
+            });
+        }
+        if name == ui_surface_tool::NAME {
+            return Ok(match ui_surface_tool::receipt(&arguments) {
                 Ok(receipt) => success(receipt, false),
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
             });

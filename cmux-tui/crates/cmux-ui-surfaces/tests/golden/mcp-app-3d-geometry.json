@@ -1,0 +1,58 @@
+{
+  "errors": [],
+  "replies": [],
+  "sample": "mcp-app-3d-geometry",
+  "surfaces": [
+    {
+      "frame": null,
+      "pending": null,
+      "root": {
+        "axis": "v",
+        "children": [
+          {
+            "id": "scene3d_heading",
+            "style": "heading",
+            "text": "Interactive 3D Holographic Geometry Studio (`ext-apps/threejs-server` — 60fps 3D orbit & responsive aspect ratio)",
+            "type": "text"
+          },
+          {
+            "bind": "/scene3d/geometry",
+            "id": "scene3d_geom_input",
+            "input": "text",
+            "label": "3D Geometry Preset (torusKnot | crystal | wave)",
+            "type": "field",
+            "value": "torusKnot"
+          },
+          {
+            "id": "scene3d_app",
+            "text": "McpApp (MCP catalog)",
+            "type": "fallback"
+          },
+          {
+            "id": "scene3d_telemetry_text",
+            "style": "body",
+            "text": "Captured 3D camera telemetry: torusKnot (yaw=0.65, pitch=0.42, zoom=4.4)",
+            "type": "text"
+          },
+          {
+            "id": "scene3d_context_text",
+            "style": "body",
+            "text": "Model context: torusKnot (yaw 0.65, zoom 4.4)",
+            "type": "text"
+          }
+        ],
+        "id": "root",
+        "type": "stack"
+      },
+      "schema": "cmux.ui-surface/1",
+      "source": {
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+        "kind": "a2ui",
+        "server": "cmux",
+        "tool": "ui_surface"
+      },
+      "status": "ready",
+      "surfaceId": "gallery-mcp-app-3d-geometry"
+    }
+  ]
+}

@@ -50,6 +50,8 @@ extension AgentTurn {
             if case .permission(let record) = item { return record.request.toolCall.id }
             return nil
         })
+        // Off (`labs.agentUiSurfaces`), a call with a surface groups as any other.
+        let surfacesOn = UISurface.isEnabled()
         for item in items {
             switch item {
             case .tool(let call):
@@ -60,6 +62,10 @@ extension AgentTurn {
                     rows.append(.edit(call))
                 } else if permissionTools.contains(call.id), call.status == .pending {
                     continue
+                } else if call.uiSurface != nil, surfacesOn {
+                    // An agent UI surface stands alone: its row draws as the card (`UISurfaceCard`).
+                    flush()
+                    rows.append(.tool(call))
                 } else if WhoElseCall(call) != nil {
                     // "Who else is working on these files" stands alone: its row draws as the card.
                     flush()

@@ -32,6 +32,9 @@ public enum CmuxMobilePreferences {
         public static let compactWorkspaceList = "cmuxMobile.settings.compactWorkspaceList"
         /// Long-press menu items the person hid (Settings → Long-Press Menus), by item id.
         public static let hiddenMenuItems = "cmuxMobile.settings.hiddenMenuItems"
+        /// Labs → Interactive Cards from Agents (`labs.agentUiSurfaces` on the Mac, off by default):
+        /// a tool row that carries an agent UI surface (`cmux.ui-surface/1`) draws as its card.
+        public static let agentUiSurfaces = "cmuxMobile.settings.labs.agentUiSurfaces"
     }
 
     /// The terminal's font size in points when the person never changed it.
@@ -108,6 +111,14 @@ public enum CmuxMobilePreferences {
 
     /// `FollowUpBehavior.queue.rawValue`.
     public static let queueFollowUp = "queue"
+
+    /// Whether agent UI surfaces draw as cards (off by default, as the Mac's `labs.agentUiSurfaces`).
+    public static func agentUiSurfaces(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.agentUiSurfaces) == nil ? defaultAgentUiSurfaces : defaults.bool(forKey: Key.agentUiSurfaces)
+    }
+
+    public static let defaultAgentUiSurfaces = false
 
     public static func compactWorkspaceList(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: Key.compactWorkspaceList)

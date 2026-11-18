@@ -1,0 +1,201 @@
+{
+  "errors": [],
+  "replies": [],
+  "sample": "contact_form_example",
+  "surfaces": [
+    {
+      "deleted": true,
+      "frame": null,
+      "pending": null,
+      "root": {
+        "children": [
+          {
+            "axis": "v",
+            "children": [
+              {
+                "axis": "h",
+                "children": [
+                  {
+                    "id": "header_icon",
+                    "name": "mail",
+                    "type": "icon"
+                  },
+                  {
+                    "id": "header_text",
+                    "style": "heading",
+                    "text": "Contact Us",
+                    "type": "text"
+                  }
+                ],
+                "id": "header_row",
+                "type": "stack"
+              },
+              {
+                "axis": "h",
+                "children": [
+                  {
+                    "axis": "v",
+                    "children": [
+                      {
+                        "id": "first_name_label",
+                        "style": "caption",
+                        "text": "First Name",
+                        "type": "text"
+                      },
+                      {
+                        "bind": "/contact/firstName",
+                        "id": "first_name_field",
+                        "input": "text",
+                        "label": "First Name",
+                        "type": "field",
+                        "value": "John"
+                      }
+                    ],
+                    "id": "first_name_group",
+                    "type": "stack"
+                  },
+                  {
+                    "axis": "v",
+                    "children": [
+                      {
+                        "id": "last_name_label",
+                        "style": "caption",
+                        "text": "Last Name",
+                        "type": "text"
+                      },
+                      {
+                        "bind": "/contact/lastName",
+                        "id": "last_name_field",
+                        "input": "text",
+                        "label": "Last Name",
+                        "type": "field",
+                        "value": "Doe"
+                      }
+                    ],
+                    "id": "last_name_group",
+                    "type": "stack"
+                  }
+                ],
+                "id": "name_row",
+                "type": "stack"
+              },
+              {
+                "axis": "v",
+                "children": [
+                  {
+                    "id": "email_label",
+                    "style": "caption",
+                    "text": "Email Address",
+                    "type": "text"
+                  },
+                  {
+                    "bind": "/contact/email",
+                    "id": "email_field",
+                    "input": "text",
+                    "label": "Email",
+                    "type": "field",
+                    "value": "john.doe@example.com"
+                  }
+                ],
+                "id": "email_group",
+                "type": "stack"
+              },
+              {
+                "axis": "v",
+                "children": [
+                  {
+                    "id": "phone_label",
+                    "style": "caption",
+                    "text": "Phone Number",
+                    "type": "text"
+                  },
+                  {
+                    "bind": "/contact/phone",
+                    "id": "phone_field",
+                    "input": "text",
+                    "label": "Phone",
+                    "type": "field",
+                    "value": "1234567890"
+                  }
+                ],
+                "id": "phone_group",
+                "type": "stack"
+              },
+              {
+                "axis": "v",
+                "children": [
+                  {
+                    "id": "pref_label",
+                    "style": "caption",
+                    "text": "Preferred Contact Method",
+                    "type": "text"
+                  },
+                  {
+                    "bind": "/contact/preference",
+                    "id": "pref_picker",
+                    "input": "choice",
+                    "label": "",
+                    "options": [
+                      {
+                        "label": "Email",
+                        "value": "email"
+                      },
+                      {
+                        "label": "Phone",
+                        "value": "phone"
+                      },
+                      {
+                        "label": "SMS",
+                        "value": "sms"
+                      }
+                    ],
+                    "type": "field",
+                    "value": ["email"]
+                  }
+                ],
+                "id": "pref_group",
+                "type": "stack"
+              },
+              {
+                "id": "divider_1",
+                "type": "divider"
+              },
+              {
+                "bind": "/contact/subscribe",
+                "id": "newsletter_checkbox",
+                "input": "checkbox",
+                "label": "Subscribe to our newsletter",
+                "type": "field",
+                "value": true
+              },
+              {
+                "action": {
+                  "id": "submit_button",
+                  "name": "submitContactForm",
+                  "privileged": true
+                },
+                "id": "submit_button",
+                "label": "Send Message",
+                "type": "button",
+                "variant": "primary"
+              }
+            ],
+            "id": "form_container",
+            "type": "stack"
+          }
+        ],
+        "id": "root",
+        "type": "card"
+      },
+      "schema": "cmux.ui-surface/1",
+      "source": {
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+        "kind": "a2ui",
+        "server": "cmux",
+        "tool": "ui_surface"
+      },
+      "status": "ready",
+      "surfaceId": "contact_form_1"
+    }
+  ]
+}

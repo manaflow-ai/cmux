@@ -860,6 +860,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 case .resumeQueue:
                     // `resume` names no prompt: it lets the whole held queue go (hub/queue_edit.rs).
                     _ = try await hub.request("_acpmux/queue_edit", .object(["sessionId": session, "op": .string("resume")]))
+                case .uiSurfaceAction, .uiSurfaceConfirm, .uiSurfaceCancel:
+                    // The reply (a Pending) is read only through `uiSurfaceRequest(_:)`.
+                    _ = await self.uiSurfaceRequest(intent)
                 }
             } catch {
                 if AcpmuxSessionSource.isFullAccessRefusal(error) { hub.fullAccessRefused() }
@@ -1490,6 +1493,28 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The whole record of a tool output the Mac sent cut (``ACPToolOutputCut``): that one seq,
     /// read with no cut, decoded off the main actor. Nil when the link is down, the read fails or
     /// the record is no tool call; the next open of the output asks again.
+    /// An agent UI surface's action, confirm or cancel (plans/cmux-next/agent-ui-surfaces-DESIGN.md), on
+    /// the link a permission answer takes, as the Mac's page sends it (`direct.ts` `uiSurfaceAction`):
+    /// `_acpmux/ui_surface_*` with this chat's session. The reply is acpmux's: an action's Pending, or
+    /// null. A refusal says why in the chat and returns nil.
+    public func uiSurfaceRequest(_ intent: AgentClientIntent) async -> JSONValue? {
+        guard let call = intent.uiSurfaceCall else { return nil }
+        guard let hub else {
+            emitLocal(.clientError("This chat is not connected to \(summary.macName)."))
+            return nil
+        }
+        var params = call.params
+        params["sessionId"] = .string(sessionID)
+        do {
+            let reply = try await hub.request(call.method, .object(params))
+            return reply == .null ? nil : reply
+        } catch {
+            if AcpmuxSessionSource.isFullAccessRefusal(error) { hub.fullAccessRefused() }
+            emitLocal(.clientError(AcpmuxSessionSource.message(error)))
+            return nil
+        }
+    }
+
     public func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? {
         guard cut.seq > 0, let hub, hub.isReady else { return nil }
         guard let reply = try? await hub.request("_acpmux/events", .object([

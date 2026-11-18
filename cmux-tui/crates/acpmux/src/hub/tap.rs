@@ -348,6 +348,49 @@ impl Hub {
                         &super::gemini_plan::gemini_homes(),
                     );
                 }
+                // labs.agentUiSurfaces: the normalized surface of a `ui_surface` call, an A2UI
+                // tool result or a cached MCP App goes into the logged update
+                // (`_meta.acpmux.uiSurface`), which the translator puts on the tool row.
+                if !kind.ends_with(".replay")
+                    && let Some(update) = params.get_mut("update")
+                {
+                    crate::ui_surfaces::annotate(
+                        &tap_session.id,
+                        update,
+                        || {
+                            let m = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                            (m.harness.clone(), m.cwd.clone())
+                        },
+                        || {
+                            // A late MCP App view is logged into this chat as a mux record, and
+                            // the fetch runs on the hub's scope. Held weakly, so the surfaces
+                            // registry keeps neither the hub nor the chat.
+                            let hub = Arc::downgrade(&tap_hub);
+                            let session = Arc::downgrade(&tap_session);
+                            let spawn_hub = hub.clone();
+                            let (late, mut late_rx) = tokio::sync::mpsc::unbounded_channel();
+                            // Ends when the registry drops the sender, or the hub's scope closes.
+                            drop(tap_hub.scope.spawn_named("ui-surface-late", async move {
+                                while let Some(msg) = late_rx.recv().await {
+                                    let (Some(hub), Some(session)) =
+                                        (hub.upgrade(), session.upgrade())
+                                    else {
+                                        return;
+                                    };
+                                    hub.append(&session, "mux", crate::ui_surfaces::LATE_KIND, msg);
+                                }
+                            }));
+                            crate::ui_surfaces::Host {
+                                late,
+                                spawn: Arc::new(move |fetch| {
+                                    if let Some(hub) = spawn_hub.upgrade() {
+                                        drop(hub.scope.spawn_named("ui-surface-fetch", fetch));
+                                    }
+                                }),
+                            }
+                        },
+                    );
+                }
                 // The chat's own thread is never one of its subagents. Seed the
                 // native roots (the current one and the earlier ones a daemon restart
                 // forgot) before handling updates so echoed root activity cannot

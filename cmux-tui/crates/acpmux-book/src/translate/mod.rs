@@ -492,6 +492,30 @@ pub struct State {
     /// Cards a cap or the byte budget let go, and offers past a card's list.
     #[serde(skip)]
     evicted_cards: u64,
+    /// The newest settled tool rows, by call id, newest last: a late `ui_surface` record (an MCP
+    /// App's view fetched after its call ended, acpmux `ui_surfaces.rs`) patches one. Not in the
+    /// checkpoint: a late surface after a restart finds no row and is a dropped tool update.
+    #[serde(skip)]
+    settled_tools: SettledTools,
+}
+/// How many settled tool rows a late surface may still patch.
+const MAX_SETTLED_TOOLS: usize = 32;
+/// The settled tool rows a late surface may patch: a cache outside the book's state, so a book
+/// restored from its checkpoint (which leaves it out) equals the one that wrote it.
+#[derive(Clone, Debug, Default)]
+struct SettledTools(Vec<(String, OwnedRow)>);
+impl PartialEq for SettledTools {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl Eq for SettledTools {}
+/// A late `ui_surface` record's parts: the row's other bodies, sent again with its surface.
+struct LateSurface<'a> {
+    key: &'a str,
+    metadata: &'a [(&'a str, &'a str)],
+    parts: &'a [(BodyField, bool, &'a serde_json::value::RawValue)],
+    surface: &'a serde_json::value::RawValue,
 }
 /// A turn-end notice that says `continued`, held whole: a patch replaces a settled row's body, so
 /// taking the mark back sends the notice again without it. Its fields are capped (the error at
@@ -1881,10 +1905,50 @@ impl State {
         if ended {
             row.open = false;
             out.row(&row);
+            row.fields.clear();
+            self.settled_tools.0.retain(|(k, _)| k != key);
+            if self.settled_tools.0.len() >= MAX_SETTLED_TOOLS {
+                self.settled_tools.0.remove(0);
+            }
+            self.settled_tools.0.push((key.into(), row));
         } else {
             row.fields.clear();
             self.tools.insert(key.into(), row);
         }
+        Ok(())
+    }
+    /// A late agent UI surface: onto the open tool row, or a patch of the settled one that sends
+    /// its other bodies and fields again (a patch replaces a settled row's whole body). A call
+    /// this book does not hold is counted as a dropped tool update.
+    fn late_surface(
+        &mut self,
+        late: &LateSurface<'_>,
+        out: &mut input::Output<'_>,
+    ) -> Result<(), Error> {
+        bounded(late.key)?;
+        if self.tools.contains_key(late.key) {
+            let parts = [(BodyField::Card("uiSurface"), false, late.surface)];
+            return self.tool(late.key, &[], &parts, false, false, out);
+        }
+        let Some((_, held)) = self.settled_tools.0.iter_mut().find(|(k, _)| k == late.key) else {
+            self.dropped_tool_updates = self.dropped_tool_updates.saturating_add(1);
+            return Ok(());
+        };
+        held.rev = held.rev.saturating_add(1);
+        let mut row = held.clone();
+        if row.field("callId", late.key) {
+            self.cut_fields = self.cut_fields.saturating_add(1);
+        }
+        for (key, value) in late.metadata {
+            if row.field(key, value) {
+                self.cut_fields = self.cut_fields.saturating_add(1);
+            }
+        }
+        for (field, append, raw) in late.parts {
+            out.body(row.id, *field, *append, raw);
+        }
+        out.body(row.id, BodyField::Card("uiSurface"), false, late.surface);
+        out.emit(Change::Patch(row));
         Ok(())
     }
 }

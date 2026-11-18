@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { onlyQuietThoughts } from "../model";
 import { ToolRows } from "../conversation/TurnRows";
+import { rowHasUiSurface, ToolUiSurfaces } from "../uiSurface/ToolUiSurfaces";
 import { type RowProps } from "./rowProps";
 
 /// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
@@ -9,6 +10,14 @@ export const ToolActivityRow = memo(
     // A finished step of only quiet thoughts draws nothing: no `.cv-tools` box either, so the row's
     // article is empty and takes no room (model.ts onlyQuietThoughts, conversation.css `:empty`).
     if (onlyQuietThoughts(row)) return null;
+    // A call that carries an agent UI surface draws it under its row (Labs `labs.agentUiSurfaces`).
+    if (rowHasUiSurface(row))
+      return (
+        <>
+          <ToolRows row={row} sessionId={sessionId} />
+          <ToolUiSurfaces row={row} />
+        </>
+      );
     return <ToolRows row={row} sessionId={sessionId} />;
   },
   (previous, next) =>

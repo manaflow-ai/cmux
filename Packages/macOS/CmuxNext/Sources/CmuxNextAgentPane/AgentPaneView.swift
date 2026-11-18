@@ -35,6 +35,8 @@ public final class AgentPaneView: NSView {
     public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
     public var shortcuts = AgentPaneShortcuts() { didSet { if shortcuts != oldValue { applyShortcuts() } } }
     public var previewFeatures = false { didSet { if previewFeatures != oldValue { applyPreviewFeatures() } } }
+    /// `labs.agentUiSurfaces`: the page draws interactive cards from agents (off by default).
+    public var agentUiSurfaces = false { didSet { if agentUiSurfaces != oldValue { applyAgentUiSurfaces() } } }
     /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
     public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
     /// The newest device chats for the New Tab cards.

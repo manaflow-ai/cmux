@@ -127,6 +127,10 @@ pub(super) struct Acpmux<'a> {
     pub subagent: Option<&'a RawValue>,
     #[serde(borrow)]
     pub segment: Cow<'a, str>,
+    /// A tool update's normalized agent UI surface (`cmux.ui-surface/1`), written by the daemon's
+    /// tap under `labs.agentUiSurfaces` (acpmux `ui_surfaces.rs`); the tool row's `uiSurface`.
+    #[serde(rename = "uiSurface", borrow)]
+    pub ui_surface: Option<&'a RawValue>,
 }
 #[derive(Deserialize, Default)]
 #[serde(default)]

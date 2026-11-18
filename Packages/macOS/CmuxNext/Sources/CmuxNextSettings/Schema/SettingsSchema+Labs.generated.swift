@@ -5,6 +5,9 @@ extension CmuxConfigSnapshot {
     /// `labs.previewFeatures`: Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.
     public nonisolated static let previewFeaturesPath = ["labs", "previewFeatures"]
     public nonisolated static let previewFeaturesDefault = false
+    /// `labs.agentUiSurfaces`: Opt-in Labs feature (plans/cmux-next/agent-ui-surfaces-DESIGN.md): lets agents and their MCP apps show forms, approvals, tables, charts and progress as cards in the chat. Off by default. The person turns it on: agents may not (agent-policy userOnly).
+    public nonisolated static let agentUiSurfacesPath = ["labs", "agentUiSurfaces"]
+    public nonisolated static let agentUiSurfacesDefault = false
     /// `labs.voiceRoom`: Unofficial Labs feature (plans/cmux-next/voice-room-DESIGN.md): Open Voice Room transcribes the mic on device, reads the screen's text on device when it changes, and posts both to the room server at labs.voiceRoomURL, whose cheap model keeps the room's memory and sends asks spoken to Chief as tasks. Off by default; while off the Voice Room actions are unavailable everywhere. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
     public nonisolated static let voiceRoomPath = ["labs", "voiceRoom"]
     public nonisolated static let voiceRoomDefault = false
@@ -34,6 +37,16 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.previewFeaturesDefault),
                 keywords: ["labs", "preview", "experimental", "beta", "prototype"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.agentUiSurfacesPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.agentUiSurfaces", "Interactive Cards from Agents"),
+                help: SettingsText.keyed("settings.labs.agentUiSurfaces.help", "Agents and their MCP apps can show forms, approvals, tables, charts and progress in the chat. Nothing is sent until you confirm."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.agentUiSurfacesDefault),
+                keywords: ["a2ui", "mcp apps", "cards", "forms", "charts", "labs"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.voiceRoomPath,

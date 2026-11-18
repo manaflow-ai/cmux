@@ -228,6 +228,7 @@ fn mux(
                 out,
             )?;
         }
+        "ui_surface" => late_surface(state, line.raw, out)?,
         "permission_request" => state.ask_permission(&ask(line.raw), out)?,
         "secret_request" => state.ask_secret(&ask(line.raw), false, out)?,
         "elevation_request" => state.ask_secret(&ask(line.raw), true, out)?,
@@ -284,6 +285,53 @@ fn mux(
     Ok(())
 }
 /// An ask's record, read leniently: a key of another type reads as none.
+/// A `ui_surface` mux record (acpmux `ui_surfaces.rs`): an MCP App's view fetched after its tool
+/// call's update was logged, with the row's other parts to send again with it.
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct LateSurfaceRecord<'a> {
+    #[serde(borrow)]
+    tool_call_id: Cow<'a, str>,
+    #[serde(borrow)]
+    kind: Cow<'a, str>,
+    #[serde(borrow)]
+    status: Cow<'a, str>,
+    #[serde(borrow)]
+    tool: Cow<'a, str>,
+    #[serde(borrow)]
+    title: Option<&'a RawValue>,
+    #[serde(borrow)]
+    raw_input: Option<&'a RawValue>,
+    #[serde(borrow)]
+    content: Option<&'a RawValue>,
+    #[serde(borrow)]
+    surface: Option<&'a RawValue>,
+}
+fn late_surface(state: &mut State, raw: &RawValue, out: &mut Output<'_>) -> Result<(), Error> {
+    let r: LateSurfaceRecord<'_> = serde_json::from_str(raw.get()).unwrap_or_default();
+    let Some(surface) = r.surface.filter(|s| s.get().starts_with('{')) else { return Ok(()) };
+    if r.tool_call_id.is_empty() {
+        return Ok(());
+    }
+    let metadata: Vec<(&str, &str)> =
+        [("kind", r.kind.as_ref()), ("status", r.status.as_ref()), ("tool", r.tool.as_ref())]
+            .into_iter()
+            .filter(|(_, v)| !v.is_empty())
+            .collect();
+    let mut parts = Vec::new();
+    if let Some(raw) = r.title {
+        parts.push((BodyField::Title, false, raw));
+    }
+    if let Some(raw) = r.raw_input {
+        parts.push((BodyField::Input, false, raw));
+    }
+    if let Some(raw) = r.content.filter(|r| r.get() != "null") {
+        parts.push((BodyField::Content, false, raw));
+    }
+    let late =
+        super::LateSurface { key: &r.tool_call_id, metadata: &metadata, parts: &parts, surface };
+    state.late_surface(&late, out)
+}
 fn ask(raw: &RawValue) -> super::asks::AskRecord<'_> {
     serde_json::from_str(raw.get()).unwrap_or_default()
 }
@@ -428,6 +476,10 @@ fn agent(
             }
             if let Some(raw) = u.meta.terminal_output.data {
                 parts.push((BodyField::Text, true, raw));
+            }
+            // An agent UI surface the daemon attached (labs.agentUiSurfaces): replaced whole.
+            if let Some(raw) = u.meta.acpmux.ui_surface.filter(|r| r.get().starts_with('{')) {
+                parts.push((BodyField::Card("uiSurface"), false, raw));
             }
             state.tool(
                 key,

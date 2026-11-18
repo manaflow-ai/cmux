@@ -1090,6 +1090,124 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "來自時區"}}
       }
     },
+    "settings.labs.agentUiSurfaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interactive Cards from Agents"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interaktive Karten von Agenten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartes interactives des agents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بطاقات تفاعلية من الوكلاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarjetas interactivas de los agentes"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "來自代理的互動卡片"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "来自代理的交互式卡片"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트의 대화형 카드"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントからのインタラクティブカード"
+          }
+        }
+      }
+    },
+    "settings.labs.agentUiSurfaces.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and their MCP apps can show forms, approvals, tables, charts and progress in the chat. Nothing is sent until you confirm."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten und ihre MCP-Apps können im Chat Formulare, Freigaben, Tabellen, Diagramme und Fortschritt anzeigen. Nichts wird gesendet, bevor du bestätigst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les agents et leurs apps MCP peuvent afficher des formulaires, des approbations, des tableaux, des graphiques et une progression dans la discussion. Rien n'est envoyé avant votre confirmation."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن للوكلاء وتطبيقات MCP الخاصة بهم عرض النماذج والموافقات والجداول والرسوم البيانية والتقدم في المحادثة. لا يُرسل أي شيء حتى تؤكد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los agentes y sus apps MCP pueden mostrar formularios, aprobaciones, tablas, gráficos y progreso en el chat. No se envía nada hasta que lo confirmes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理及其 MCP 應用程式可在聊天中顯示表單、核准、表格、圖表和進度。在你確認之前，不會傳送任何內容。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理及其 MCP 应用可以在聊天中显示表单、审批、表格、图表和进度。在你确认之前，不会发送任何内容。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트와 MCP 앱이 채팅에 양식, 승인, 표, 차트, 진행 상황을 표시할 수 있습니다. 확인하기 전에는 아무것도 전송되지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントとその MCP アプリは、チャットにフォーム、承認、表、グラフ、進行状況を表示できます。確認するまで何も送信されません。"
+          }
+        }
+      }
+    },
     "settings.placeholder.wordOrPhrase": {
       "comment": "Placeholder of a free-text list of words (Settings > Chief > Subagents show and hide words).",
       "extractionState": "manual",

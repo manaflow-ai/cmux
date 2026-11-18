@@ -2,6 +2,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { permissionCardHeight } from "./permissions/cardHeight";
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
+import type { UiSurface } from "./uiSurface/model";
 import type { PeerLinkDetail } from "./linkState";
 import { BUBBLE } from "./transcriptSpacing";
 import {
@@ -936,6 +937,9 @@ export type AcpmuxActivity = {
     /// The harness metadata that names a built-in tool. Titles are user-visible labels and are
     /// not sufficient to identify plumbing calls with names such as ToolSearch.
     provenance?: { claudeTool?: string; claudeCodeToolName?: string };
+    /// The view the call's tool or result describes, normalized by acpmux (`cmux.ui-surface/1`,
+    /// uiSurface/model.ts), drawn under the row only with Labs `labs.agentUiSurfaces` on.
+    uiSurface?: UiSurface;
   };
 };
 

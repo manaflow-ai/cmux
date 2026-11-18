@@ -171,6 +171,13 @@ public enum AgentClientIntent: Hashable, Sendable {
     case moveQueued(promptId: String, index: Int)
     /// Resume a paused queue (the Mac's Resume over its queue): `_acpmux/queue_edit {op: resume}`.
     case resumeQueue
+    /// An agent UI surface's button (DESIGN.md `uiSurfaceAction`): the action's id and the field
+    /// values the card holds, by bind. Rust answers with the surface's `pending`; nothing is sent yet.
+    case uiSurfaceAction(surfaceId: String, actionId: String, values: [String: JSONValue])
+    /// The person confirmed the pending action (`uiSurfaceConfirm`): only this sends it.
+    case uiSurfaceConfirm(surfaceId: String, requestId: String)
+    /// The person cancelled it, or changed a value under it (`uiSurfaceCancel`).
+    case uiSurfaceCancel(surfaceId: String, requestId: String)
 }
 
 public struct AgentAttachment: Hashable, Sendable, Codable, Identifiable {
@@ -285,6 +292,9 @@ public protocol AgentSessionSource: AnyObject {
     /// The whole record of a tool call output the Mac sent cut (``ACPToolOutputCut``), as the
     /// update it made, or nil when the source can't read it (the person opens it again to retry).
     func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate?
+    /// An agent UI surface intent (`uiSurfaceAction`, `uiSurfaceConfirm`, `uiSurfaceCancel`) sent to the
+    /// Mac, with its reply: an action's Pending, else nil. The default sends it and reads no reply.
+    func uiSurfaceRequest(_ intent: AgentClientIntent) async -> JSONValue?
     /// The source reads the chat's history before its first records arrive (a chat that exists
     /// on the Mac): the chat opens on a loading state until ``AgentSessionEvent/historyLoading(_:)``
     /// says it caught up, instead of the empty new-chat screen. Sources that hold the whole
@@ -330,6 +340,10 @@ public protocol AgentSessionSource: AnyObject {
 extension AgentSessionSource {
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
     public func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? { nil }
+    public func uiSurfaceRequest(_ intent: AgentClientIntent) async -> JSONValue? {
+        send(intent)
+        return nil
+    }
     public func loadEarlierHistory() {}
     public var loadsHistory: Bool { false }
     public var isStarting: Bool { false }

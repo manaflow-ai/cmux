@@ -322,6 +322,7 @@ pub mod tui;
 pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;
+pub mod ui_surfaces;
 pub(crate) mod uniichat_endpoint;
 pub mod usage_stats;
 pub mod user_settings;

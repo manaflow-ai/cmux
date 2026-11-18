@@ -1,0 +1,36 @@
+{
+  "name": "cmux catalog cards",
+  "description": "Every cmux catalog component (https://cmux.com/a2ui/catalog/v1) plus basic fields, bound to a data model. Fixture for the Mac and iPhone renderers.",
+  "messages": [
+    {"version": "1.0", "createSurface": {"surfaceId": "cmux-cards", "catalogId": "https://cmux.com/a2ui/catalog/v1", "sendDataModel": false}},
+    {"version": "1.0", "updateComponents": {"surfaceId": "cmux-cards", "components": [
+      {"id": "root", "component": "Column", "children": ["title", "deploy", "pick", "build", "spin", "results", "latency", "share", "note", "who", "go"]},
+      {"id": "title", "component": "Text", "text": "## Release 1.4", "@accessibility": {"label": "Release 1.4 summary", "live": "polite"}},
+      {"id": "deploy", "component": "ApprovalCard", "title": "Deploy to production", "detail": "Runs the release workflow on main.", "risk": "high",
+        "facts": [{"label": "Branch", "value": "main"}, {"label": "Commit", "value": {"@path": "/release/sha"}}],
+        "approveAction": {"event": {"name": "approve_deploy", "context": {"sha": {"@path": "/release/sha"}}}},
+        "denyAction": {"event": {"name": "deny_deploy"}}},
+      {"id": "pick", "component": "ReviewCard", "title": "Which fix should land?", "prompt": "Pick one; the agent continues with it.",
+        "options": [{"id": "a", "label": "Retry with backoff", "detail": "Smallest change"}, {"id": "b", "label": "Rewrite the client"}],
+        "multi": false, "value": {"@path": "/review/choice"}, "submitAction": {"event": {"name": "choose_fix"}}},
+      {"id": "build", "component": "Progress", "label": "Building", "value": 42, "max": 100, "state": "running"},
+      {"id": "spin", "component": "Progress", "label": "Waiting for CI", "state": "running"},
+      {"id": "results", "component": "Table", "columns": [{"key": "suite", "label": "Suite"}, {"key": "passed", "label": "Passed", "align": "end"}],
+        "rows": {"@path": "/results"}},
+      {"id": "latency", "component": "Chart", "kind": "line", "yLabel": "ms",
+        "series": [{"name": "p50", "points": [{"x": "Mon", "y": 12}, {"x": "Tue", "y": 9}, {"x": "Wed", "y": 11}]},
+                   {"name": "p95", "points": [{"x": "Mon", "y": 40}, {"x": "Tue", "y": 31}, {"x": "Wed", "y": 35}]}]},
+      {"id": "share", "component": "Chart", "kind": "pie", "series": [{"name": "time", "points": [{"x": "build", "y": 60}, {"x": "test", "y": 40}]}]},
+      {"id": "note", "component": "Text", "variant": "caption", "text": "<b>not bold</b> <script>alert(1)</script> stays text"},
+      {"id": "who", "component": "TextField", "label": "Reviewer", "value": {"@path": "/release/reviewer"}},
+      {"id": "go_label", "component": "Text", "text": "Notify reviewer"},
+      {"id": "go", "component": "Button", "child": "go_label", "variant": "primary",
+        "action": {"event": {"name": "notify", "context": {"reviewer": {"@path": "/release/reviewer"}, "summary": {"@call": "formatString", "args": {"value": "${/release/sha} has ${formatNumber(value: ${/release/tests})} tests"}}}}}}
+    ]}},
+    {"version": "1.0", "updateDataModel": {"surfaceId": "cmux-cards", "value": {
+      "release": {"sha": "3f2a91c", "reviewer": "Ada", "tests": 12840},
+      "review": {"choice": ["a"]},
+      "results": [{"suite": "unit", "passed": 1204}, {"suite": "integration", "passed": 88}]
+    }}}
+  ]
+}

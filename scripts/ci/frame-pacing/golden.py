@@ -33,6 +33,7 @@ import browser_resize
 import dark_load_flash
 import sidebar_content
 import split_resize
+import ui_surface_stream
 
 EPS = 0.75  # points: a value this close to its start or end counts as there
 
@@ -59,6 +60,9 @@ THRESHOLDS: dict[str, dict[str, float]] = {
     "split_resize": {},
     # Judged by dark_load_flash.py: no frame brighter than the window at rest while a page loads.
     "dark_load_flash": {},
+    # Reported only (ui_surface_stream.py): frames of a chat while an agent UI surface card streams, against
+    # the same stream without it (labs.agentUiSurfaces on).
+    "ui_surface_stream": {},
 }
 SCENARIOS = list(THRESHOLDS)
 
@@ -206,6 +210,9 @@ class Driver:
     def dark_load_flash(self) -> None:
         dark_load_flash.drive(self, self.out)
 
+    def ui_surface_stream(self) -> None:
+        ui_surface_stream.drive(self, self.out)
+
     def transcript(self) -> None:
         opened = self.call("action.run", {"action": "palette.newAgentChat"})
         # The chat opens hidden, then moves into a dock column: wait up to 10 s for a pane to show
@@ -251,6 +258,8 @@ class Driver:
             ("reduce", self.reduced),
             ("window_resize", self.window_resize),
             ("transcript_follow", self.transcript),
+            # In the chat transcript_follow opened; it turns labs.agentUiSurfaces on and back off.
+            ("ui_surface_stream", self.ui_surface_stream),
             ("capture", self.capture),
             ("browser_resize", self.browser_resize),
             ("split_resize", self.split_resize),
@@ -410,6 +419,9 @@ def judge(out: Path) -> dict[str, dict]:
         if name == "dark_load_flash":
             verdicts[name] = dark_load_flash.judge(data or {"error": "no result file"}, refresh)
             continue
+        if name == "ui_surface_stream":
+            verdicts[name] = ui_surface_stream.judge(data or {"error": "no result file"}, refresh)
+            continue
         if data is None or ("error" in data and "samples" not in data and "scroll_top" not in data and "drags" not in data):
             verdicts[name] = {"ok": False, "problems": [f"not measured: {(data or {}).get('error', 'no result file')}"]}
             continue
@@ -538,6 +550,9 @@ def markdown(out: Path, verdicts: dict[str, dict]) -> str:
             continue
         if name == "dark_load_flash":
             lines.append(dark_load_flash.markdown_row(verdict))
+            continue
+        if name == "ui_surface_stream":
+            lines.append(ui_surface_stream.markdown_row(verdict))
             continue
         limits = THRESHOLDS[name]
         bound = f"≥ {limits['min_intermediate']:g}" if "min_intermediate" in limits else f"≤ {limits['max_intermediate']:g}"

@@ -491,6 +491,10 @@ export function createAcpmuxDebug(
       return idleProbe(options);
     },
     async stream(options = {}) {
+      if (options.surface) {
+        const { runSurfaceStream } = await import("./surfaceStreamDebug");
+        return runSurfaceStream(host.replaceRows, options);
+      }
       const { runStream } = await import("./streamDebug");
       return runStream(host.replaceRows, options);
     },

@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "ui-surface-stream-update": {
+      "what": "one streamed tool-call update that carries an agent UI surface (webviews direct.ts uiSurfaceOf reads the whole normalized tree, uiSurface/ draws the card): a card streaming into a long chat must add no frame over 16.7 ms",
+      "bench": "cd webviews && bun bench/ui-surface-stream-frames.bench.ts (ui_surface_stream.with vs .without: frame gap p50/p95/max, frames over 16 ms, long tasks); live on a fleet Mac: cmux-next-frame-pacing.yml suites=golden, scenario ui_surface_stream (scripts/ci/frame-pacing/ui_surface_stream.py)",
+      "owner": "agent chat"
+    },
     "chat-rows-frame-apply": {
       "what": "one slice of a v2 chat's row batch in the frame lane (webviews rows/receiver.ts drain): parse and apply changes one at a time, give way to a pending key, commit and answer taken at the batch's end",
       "bench": "cd webviews && bun bench/page-row-store.bench.ts (v2.frame_paced: apply ms per batch, taken per frame, longest task, one 256 KiB change)",

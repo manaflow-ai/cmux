@@ -181,12 +181,15 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
     /// The Mac sent this call's output cut short (a page's oversized tool output); the whole
     /// record loads when the person opens it (``AgentChatStore/loadFullOutput(of:)``). Nil: whole.
     public var outputCut: ACPToolOutputCut?
+    /// The agent UI surface Rust attached to the call (`cmux.ui-surface/1`, the row's `uiSurface` or
+    /// the logged update's `_meta.acpmux.uiSurface`), undecoded; `UISurface(call)` reads it.
+    public var uiSurface: JSONValue?
     /// Client-side timing (first event, first terminal status).
     public var startedAt: Date?
     public var endedAt: Date?
 
     private enum CodingKeys: String, CodingKey {
-        case id = "toolCallId", title, kind, status, content, locations, rawInput, rawOutput
+        case id = "toolCallId", title, kind, status, content, locations, rawInput, rawOutput, uiSurface
         /// Client-side only (never on the wire): kept when a transcript spills to disk (`RowSpill`).
         case startedAt, endedAt, outputCut
     }
@@ -218,6 +221,7 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
         startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
         endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
         outputCut = try container.decodeIfPresent(ACPToolOutputCut.self, forKey: .outputCut) ?? ACPToolOutputCut.marked(in: decoder)
+        uiSurface = (try? container.decodeIfPresent(JSONValue.self, forKey: .uiSurface)) ?? UISurface.meta(in: decoder)
     }
 
     /// Applies a `tool_call_update`: only present fields change; `content` replaces.
@@ -229,6 +233,8 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
         if let locations = update.locations { self.locations = locations }
         if let rawInput = update.rawInput { self.rawInput = rawInput }
         if let rawOutput = update.rawOutput { self.rawOutput = rawOutput }
+        // A streamed surface comes whole in each update (Rust coalesces, DESIGN.md "Streaming").
+        if let uiSurface = update.uiSurface { self.uiSurface = uiSurface }
         // A cut update's marker is the call's; content that replaces the shown output whole
         // ends it. A rawOutput-only update leaves a cut content marked.
         if let cut = update.outputCut {
@@ -283,11 +289,13 @@ public struct ACPToolCallUpdate: Hashable, Sendable, Codable {
     public var rawOutput: JSONValue?
     /// The Mac cut this update's output (`_meta.acpmux.cut`); nil: it is whole.
     public var outputCut: ACPToolOutputCut?
+    /// The surface this update carries (`uiSurface` or `_meta.acpmux.uiSurface`), whole; nil: unchanged.
+    public var uiSurface: JSONValue?
 
     public init(
         toolCallId: String, title: String? = nil, kind: ACPToolCall.Kind? = nil, status: ACPToolCall.Status? = nil,
         content: [ACPToolCall.Content]? = nil, locations: [ACPToolCall.Location]? = nil, rawInput: JSONValue? = nil, rawOutput: JSONValue? = nil,
-        outputCut: ACPToolOutputCut? = nil
+        outputCut: ACPToolOutputCut? = nil, uiSurface: JSONValue? = nil
     ) {
         self.toolCallId = toolCallId
         self.title = title
@@ -298,10 +306,11 @@ public struct ACPToolCallUpdate: Hashable, Sendable, Codable {
         self.rawInput = rawInput
         self.rawOutput = rawOutput
         self.outputCut = outputCut
+        self.uiSurface = uiSurface
     }
 
     private enum CodingKeys: String, CodingKey {
-        case toolCallId, title, kind, status, content, locations, rawInput, rawOutput, outputCut
+        case toolCallId, title, kind, status, content, locations, rawInput, rawOutput, outputCut, uiSurface
     }
 
     public init(from decoder: any Decoder) throws {
@@ -315,6 +324,7 @@ public struct ACPToolCallUpdate: Hashable, Sendable, Codable {
         rawInput = try container.decodeIfPresent(JSONValue.self, forKey: .rawInput)
         rawOutput = try container.decodeIfPresent(JSONValue.self, forKey: .rawOutput)
         outputCut = try container.decodeIfPresent(ACPToolOutputCut.self, forKey: .outputCut) ?? ACPToolOutputCut.marked(in: decoder)
+        uiSurface = (try? container.decodeIfPresent(JSONValue.self, forKey: .uiSurface)) ?? UISurface.meta(in: decoder)
     }
 }
 

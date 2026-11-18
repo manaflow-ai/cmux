@@ -119,6 +119,7 @@ members = [
     "crates/cmux-vnc",
     "crates/cmux-encode",
     "crates/cmux-mcp-connect",
+    "crates/cmux-ui-surfaces",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-stack-auth",
@@ -238,6 +239,7 @@ default-members = [
     "crates/cmux-vnc",
     "crates/cmux-encode",
     "crates/cmux-mcp-connect",
+    "crates/cmux-ui-surfaces",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-stack-auth",
@@ -366,6 +368,7 @@ cmux-imessage = { path = "crates/cmux-imessage" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-stack-auth = { path = "crates/cmux-stack-auth" }
 cmux-mcp-connect = { path = "crates/cmux-mcp-connect" }
+cmux-ui-surfaces = { path = "crates/cmux-ui-surfaces" }
 cmux-config = { path = "crates/cmux-config" }
 cmux-customize = { path = "crates/cmux-customize" }
 cmux-customize-recipes = { path = "crates/cmux-customize-recipes" }

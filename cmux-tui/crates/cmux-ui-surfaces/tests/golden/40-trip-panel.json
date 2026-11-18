@@ -1,0 +1,32 @@
+{
+  "errors": [],
+  "replies": [],
+  "sample": "40-trip-panel",
+  "surfaces": [
+    {
+      "frame": null,
+      "pending": null,
+      "root": {
+        "axis": "v",
+        "children": [
+          {
+            "id": "panel",
+            "text": "Trip (travel catalog)",
+            "type": "fallback"
+          }
+        ],
+        "id": "root",
+        "type": "stack"
+      },
+      "schema": "cmux.ui-surface/1",
+      "source": {
+        "catalogId": "https://travel-a2ui.dev/catalogs/a2ui-travel/catalog.json",
+        "kind": "a2ui",
+        "server": "cmux",
+        "tool": "ui_surface"
+      },
+      "status": "ready",
+      "surfaceId": "sidebar"
+    }
+  ]
+}

@@ -559,6 +559,13 @@ pub mod method {
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
+    /// Agent UI surfaces (`ui_surfaces.rs`, labs.agentUiSurfaces): a button press answers with
+    /// the host-written Pending, a confirm sends it, a cancel drops it, and an MCP App view's
+    /// JSON-RPC message is classified.
+    pub const MUX_UI_SURFACE_ACTION: &str = "_acpmux/ui_surface_action";
+    pub const MUX_UI_SURFACE_CONFIRM: &str = "_acpmux/ui_surface_confirm";
+    pub const MUX_UI_SURFACE_CANCEL: &str = "_acpmux/ui_surface_cancel";
+    pub const MUX_UI_SURFACE_BRIDGE: &str = "_acpmux/ui_surface_bridge";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
     /// The signed app gives the daemon its legacy Computer Use agent endpoint.

@@ -1,0 +1,551 @@
+/* An agent UI surface card (UiSurfaceCard.tsx): the permission ask's material (.acpmux-ask in
+   conversation.css: the thin rim, the card fill, the popup radius) and its small answers
+   (.acpmux-ask-action), so a card an agent draws reads as one of the pane's own. */
+.uis-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  box-sizing: border-box;
+  min-inline-size: 0;
+  margin-block: var(--ds-space-1);
+  padding: var(--ds-space-2);
+  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
+  /* Concentric with its answers: their corner plus the card's padding (check-concentric-containers). */
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
+  background: var(--cv-card-fill);
+  color: var(--cv-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+:root[data-borders="none"] .uis-card {
+  border-color: transparent;
+}
+
+.uis-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--ds-space-2);
+  min-inline-size: 0;
+}
+.uis-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.uis-source,
+.uis-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.uis-status {
+  margin-inline-start: auto;
+}
+.uis-claimed {
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.uis-body,
+.uis-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-inline-size: 0;
+}
+.uis-stack--h {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.uis-inner-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+}
+.uis-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  margin: 0;
+  padding-inline-start: var(--ds-space-4);
+}
+.uis-divider {
+  inline-size: 100%;
+  margin: 0;
+  border: 0;
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
+}
+
+.uis-heading {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: 600;
+  line-height: var(--text-title--line-height);
+  letter-spacing: var(--text-title--letter-spacing);
+  overflow-wrap: anywhere;
+}
+.uis-text,
+.uis-caption {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.uis-caption {
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.uis-code {
+  margin: 0;
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.uis-icon {
+  display: inline-flex;
+  color: var(--cv-text-dim);
+}
+.uis-image {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin: 0;
+  padding: var(--ds-space-3);
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+}
+.uis-fallback {
+  margin: 0;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: var(--cmux-hairline, 0.5px) dashed var(--cv-card-ring);
+  border-radius: var(--ds-radius-control);
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+}
+.uis-sr {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Buttons: the ask's answers, plus a danger look for a destructive action. */
+.uis-button {
+  align-self: flex-start;
+}
+.uis-stack--h > .uis-button {
+  align-self: center;
+}
+.acpmux-ask-action.is-danger {
+  background: var(--agent-danger, var(--agent-accent));
+  color: var(--agent-accent-text, #fff);
+}
+.acpmux-ask-action.is-danger:hover {
+  background: color-mix(in srgb, var(--agent-danger, var(--agent-accent)) 88%, var(--cv-fg));
+}
+.acpmux-ask-action:active {
+  background: color-mix(in srgb, var(--cv-fg) 12%, transparent);
+}
+.acpmux-ask-action.is-primary:active {
+  background: color-mix(in srgb, var(--agent-accent) 78%, var(--cv-fg));
+}
+.acpmux-ask-action.is-danger:active {
+  background: color-mix(in srgb, var(--agent-danger, var(--agent-accent)) 78%, var(--cv-fg));
+}
+.uis-card .ui-keyhint {
+  opacity: 0.7;
+}
+
+/* Fields */
+.uis-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-inline-size: 0;
+}
+.uis-field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.uis-field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+.uis-field-label {
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.uis-field-value {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-detail);
+}
+.uis-checkbox,
+.uis-slider {
+  accent-color: var(--agent-accent);
+  margin: 0;
+}
+.uis-slider {
+  inline-size: 100%;
+}
+.uis-checkbox:focus-visible,
+.uis-slider:focus-visible,
+.uis-select:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--agent-accent);
+  outline-offset: 1px;
+}
+.uis-select {
+  block-size: var(--ds-control-compact);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+  background: transparent;
+  color: var(--cv-text);
+  font: inherit;
+  font-size: var(--text-detail);
+}
+
+/* Chips: a choice field, or a review whose options are short labels. */
+.uis-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1);
+}
+.uis-chip {
+  all: unset;
+  cursor: default;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  box-sizing: border-box;
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-2);
+  border-radius: 999px; /* radius-allow: capsule chips, as the ask's pills */
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+  color: var(--cv-text);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.uis-chip:hover {
+  background: color-mix(in srgb, var(--cv-fg) 7%, transparent);
+}
+.uis-chip:active {
+  background: color-mix(in srgb, var(--cv-fg) 12%, transparent);
+}
+.uis-chip[aria-checked="true"] {
+  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1px var(--agent-accent);
+  color: var(--cv-text);
+}
+.uis-chip:focus-visible,
+.uis-option:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--agent-accent);
+  outline-offset: 1px;
+}
+.uis-chip[aria-disabled="true"],
+.uis-option[aria-disabled="true"] {
+  opacity: 0.6;
+}
+
+/* Approval: compact (one row, like a permission ask), full (facts and a foot), danger. */
+.uis-approval {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-inline-size: 0;
+}
+.uis-approval--compact .acpmux-ask-row {
+  min-height: var(--ds-control-compact);
+}
+.uis-approval--compact .uis-approval-title {
+  flex: 1 1 10rem;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.uis-approval-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-inline-size: 0;
+}
+.uis-approval-head .uis-approval-title {
+  min-inline-size: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.uis-approval-mark {
+  display: inline-flex;
+  flex: none;
+  color: var(--agent-danger, var(--cv-text));
+}
+.uis-risk {
+  flex: none;
+  margin-inline-start: auto;
+  padding: 0 var(--ds-space-2);
+  border-radius: 999px; /* radius-allow: capsule tag */
+  background: color-mix(in srgb, var(--agent-danger, var(--cv-fg)) 14%, transparent);
+  color: var(--agent-danger, var(--cv-text));
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.uis-approval-detail {
+  margin: 0;
+  color: var(--cv-text-dim);
+  overflow-wrap: anywhere;
+}
+.uis-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--ds-space-1) var(--ds-space-3);
+  margin: 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--cv-fg) 3%, transparent);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.uis-fact {
+  display: contents;
+}
+.uis-fact dt {
+  color: var(--cv-text-dim);
+}
+.uis-fact dd {
+  margin: 0;
+  font-family: var(--cv-mono);
+  overflow-wrap: anywhere;
+}
+.uis-approval-foot,
+.uis-review-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+.uis-approval--danger {
+  padding-inline-start: var(--ds-space-3);
+  box-shadow: inset 2px 0 0 var(--agent-danger, var(--cv-fg));
+}
+.uis-answer {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  margin-inline-start: auto;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+/* Review: chips, a radio or checkbox list, or a ranked list with details. */
+.uis-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-inline-size: 0;
+}
+.uis-review-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.uis-review-prompt {
+  margin: 0;
+  color: var(--cv-text-dim);
+}
+.uis-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-inline: calc(-1 * var(--ds-space-1));
+}
+.uis-option {
+  all: unset;
+  cursor: default;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+  box-sizing: border-box;
+  padding: var(--ds-space-1);
+  border-radius: var(--ds-radius-control);
+}
+.uis-option:hover {
+  background: color-mix(in srgb, var(--cv-fg) 5%, transparent);
+}
+.uis-option:active {
+  background: color-mix(in srgb, var(--cv-fg) 10%, transparent);
+}
+.uis-option-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 16px;
+  block-size: 16px;
+  margin-block-start: var(--grid-half-step);
+  border-radius: 999px; /* radius-allow: a radio's circle */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cv-fg) 30%, transparent);
+  color: var(--agent-accent-text, #fff);
+}
+.uis-option-mark.is-box {
+  border-radius: 4px;
+}
+.uis-option[aria-checked="true"] .uis-option-mark {
+  background: var(--agent-accent);
+  box-shadow: none;
+}
+.uis-option-dot {
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 999px; /* radius-allow: a radio's dot */
+  background: currentColor;
+}
+.uis-option-rank {
+  flex: none;
+  min-inline-size: 1.25em;
+  color: var(--cv-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.uis-option-text {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+}
+.uis-option-label {
+  overflow-wrap: anywhere;
+}
+.uis-option-detail {
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+}
+.uis-review--ranked .uis-option + .uis-option {
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
+  border-radius: 0;
+}
+
+/* Table and chart: the reply's own blocks, flush in the card. */
+.uis-table,
+.uis-chart {
+  min-inline-size: 0;
+}
+.uis-table .cv-table-block,
+.uis-chart .cv-diagram {
+  margin: 0;
+}
+.uis-chart .cv-diagram__lang {
+  visibility: hidden;
+}
+
+/* Progress */
+.uis-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.uis-progress-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  color: var(--cv-text-dim);
+}
+.uis-progress.is-failed .uis-progress-head {
+  color: var(--agent-danger, var(--cv-text-dim));
+}
+.uis-progress-label {
+  min-inline-size: 0;
+  color: var(--cv-text);
+  overflow-wrap: anywhere;
+}
+.uis-progress-count {
+  margin-inline-start: auto;
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+.uis-progress-track {
+  display: block;
+  block-size: 4px;
+  border-radius: 999px; /* radius-allow: a progress track's capsule */
+  background: color-mix(in srgb, var(--cv-fg) 10%, transparent);
+  overflow: hidden;
+}
+.uis-progress-fill {
+  display: block;
+  block-size: 100%;
+  border-radius: inherit;
+  background: var(--agent-accent);
+}
+.uis-progress.is-done .uis-progress-fill {
+  background: color-mix(in srgb, var(--cv-fg) 45%, transparent);
+}
+.uis-progress.is-failed .uis-progress-fill {
+  background: var(--agent-danger, var(--cv-fg));
+}
+
+/* The confirm strip: the host's words over Cancel and Confirm, on the card's own rim. */
+.uis-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin: 0 calc(-1 * var(--ds-space-2)) calc(-1 * var(--ds-space-2));
+  padding: var(--ds-space-2);
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
+  background: color-mix(in srgb, var(--agent-accent) 6%, transparent);
+  border-end-start-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
+  border-end-end-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
+}
+.uis-confirm-summary {
+  flex: 1 1 14rem;
+  min-inline-size: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.uis-error {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  margin: 0;
+  color: var(--agent-danger, var(--cv-text));
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  overflow-wrap: anywhere;
+}
+
+/* An MCP App view in the render frame. */
+.uis-frame-view {
+  display: block;
+  inline-size: 100%;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+}
+.uis-frame-wait {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: var(--ds-control-compact);
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--cv-card-ring);
+}

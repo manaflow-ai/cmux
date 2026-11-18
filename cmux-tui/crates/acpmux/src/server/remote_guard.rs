@@ -77,6 +77,9 @@
 //!   (`hub/subagent_transcript.rs`): the unix socket, the app and a peer
 //!   forwarding for either. Nor `_acpmux/native_history`, which reads a
 //!   chat's older turns from its Claude Code transcript (`hub/native_history.rs`).
+//! - Web, Peer and every paired machine but the owner's own phone: no `_acpmux/ui_surface_*`
+//!   (`uiSurface.remote`, `ui_surface_remote`): agent UI surfaces are driven from the app's pane
+//!   and the owner's live paired phone only, default deny for everything else.
 //!
 //! The unix socket keeps today's behavior.
 
@@ -294,6 +297,47 @@ fn log_own_phone_control(hub: &crate::hub::Hub, sender: Option<&str>, m: &str, p
     }
 }
 
+/// The agent UI surface methods (`ui_surfaces.rs`, `labs.agentUiSurfaces`).
+const UI_SURFACE_METHODS: [&str; 4] = [
+    method::MUX_UI_SURFACE_ACTION,
+    method::MUX_UI_SURFACE_CONFIRM,
+    method::MUX_UI_SURFACE_CANCEL,
+    method::MUX_UI_SURFACE_BRIDGE,
+];
+
+/// Agent UI surfaces are denied to every remote connection but the app's own pane (LocalApp)
+/// and the owner's own paired phone: a connection that presented a live `phone` credential at
+/// the handshake (`sending_device`, then `Pairing::own_phone`, read from the store now, so a
+/// removed phone's next request is refused). Never the request's own word, never a listener-token
+/// Web client, another paired machine, a read-only device, a teammate or a peer daemon.
+///
+/// What the phone may do, each scoped to `sessionId` (the registry is per chat, and a surface or
+/// request id of another chat is not found): `action` and `cancel` only change that chat's
+/// held request; `bridge` classifies a view's message (`mcp_apps::classify_view_message`): it
+/// may read a `ui://` resource of the view's own server, and a `tools/call` or link only becomes
+/// a held request; `confirm` sends what the card shows: a user turn into the chat (as a phone's
+/// prompt, under the chat's mode and its D13 rules, `control_of`), a link for the page to open,
+/// or one `tools/call` of an app-visible tool on that chat's HTTP MCP server. None names a
+/// command, a path, an env or a process: nothing here spawns or reads a local file, and the MCP
+/// fetch is HTTP only (`mcp_http::server_conf` refuses stdio servers).
+fn ui_surface_remote(
+    hub: &crate::hub::Hub,
+    origin: super::Origin,
+    sender: Option<&str>,
+    m: &str,
+) -> Result<(), RpcError> {
+    if !UI_SURFACE_METHODS.contains(&m) || origin == super::Origin::LocalApp {
+        return Ok(());
+    }
+    if sender.is_some_and(|d| hub.pairing.own_phone(d)) {
+        return Ok(());
+    }
+    Err(RpcError::invalid_params(
+        "uiSurface.remote: agent UI surfaces are driven only from this machine's app or the owner's paired phone",
+    )
+    .with_data(serde_json::json!({"reason": "uiSurface.remote"})))
+}
+
 /// Check (and canonicalize the folder fields of) a request from a
 /// connection that is not the unix socket (`hint::check` adds `servedAs`).
 async fn check_inner(
@@ -319,6 +363,7 @@ async fn check_inner(
     if m == method::MUX_GITHUB_ACTION || m == method::MUX_GITHUB_APP_LEASE {
         return Err(refused(m));
     }
+    ui_surface_remote(hub, origin, sender, m)?;
     // A person's name (`author.rs`) comes over the unix socket, from a peer forwarding one it took
     // there, or from the Cloud carrier's header (`carrier::gate`); never from Web or the app.
     if crate::author::present(params)
@@ -1417,5 +1462,82 @@ mod cloud_chat_tests {
             assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
         }
         let _ = std::fs::remove_dir_all(home);
+    }
+}
+
+#[cfg(test)]
+mod ui_surface_tests {
+    use super::*;
+    use crate::server::{ConnAuth, Origin};
+
+    fn hub() -> std::sync::Arc<crate::hub::Hub> {
+        let mut config = crate::config::Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&config.store, Path::new("/nonexistent")).unwrap();
+        crate::hub::Hub::new(config, store)
+    }
+
+    async fn verdict(
+        hub: &std::sync::Arc<crate::hub::Hub>,
+        origin: Origin,
+        auth: ConnAuth,
+        sender: Option<&str>,
+        m: &str,
+    ) -> Result<(), String> {
+        let mut params = serde_json::json!({"sessionId": "c", "surfaceId": "s", "requestId": "r",
+            "actionId": "a", "values": {}, "message": {"jsonrpc": "2.0", "method": "ui/initialize"}});
+        check(hub, origin, auth, sender, m, &mut params, false).await.map_err(|e| {
+            e.data.and_then(|d| d["reason"].as_str().map(str::to_owned)).unwrap_or(e.message)
+        })
+    }
+
+    /// Default deny: every remote connection is refused the four methods but the app's own pane
+    /// and the owner's live paired phone, which the handshake names, never the request.
+    #[tokio::test]
+    async fn only_the_app_and_the_owners_phone_drive_agent_ui_surfaces() {
+        let hub = hub();
+        let (phone, _) = hub.pairing.issue_phone("phone-a").unwrap();
+        let (laptop, _) = hub.pairing.issue("laptop", crate::pairing::Role::Client).unwrap();
+        for m in UI_SURFACE_METHODS {
+            let refused = Err("uiSurface.remote".to_string());
+            for (origin, auth, sender) in [
+                (Origin::Web, ConnAuth::ListenerToken, None),
+                (Origin::Web, ConnAuth::ReadOnlyDevice, None),
+                (Origin::Web, ConnAuth::CarrierTeam, None),
+                (Origin::Peer, ConnAuth::PeerToken, None),
+                (Origin::Peer, ConnAuth::CarrierOwner, None),
+                (Origin::Peer, ConnAuth::Device, None),
+                (Origin::Peer, ConnAuth::Device, Some(laptop.id.as_str())),
+                (Origin::Peer, ConnAuth::Device, Some("dv_unknown")),
+            ] {
+                assert_eq!(
+                    verdict(&hub, origin, auth, sender, m).await,
+                    refused,
+                    "{m} {origin:?} {auth:?} {sender:?}"
+                );
+            }
+            assert_eq!(
+                verdict(&hub, Origin::Peer, ConnAuth::Device, Some(&phone.id), m).await,
+                Ok(()),
+                "{m}: the owner's phone"
+            );
+            assert_eq!(
+                verdict(&hub, Origin::LocalApp, ConnAuth::LocalApp, None, m).await,
+                Ok(()),
+                "{m}: the app's pane"
+            );
+        }
+        // A removed phone's very next request is refused.
+        hub.pairing.revoke(&phone.id).unwrap();
+        assert_eq!(
+            verdict(&hub, Origin::Peer, ConnAuth::Device, Some(&phone.id), UI_SURFACE_METHODS[1])
+                .await,
+            Err("uiSurface.remote".to_string())
+        );
+        // Other methods are not this rule's.
+        assert_ne!(
+            verdict(&hub, Origin::Web, ConnAuth::ListenerToken, None, method::MUX_STATUS).await,
+            Err("uiSurface.remote".to_string())
+        );
     }
 }

@@ -1360,6 +1360,46 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/ui_surface_action",
+      "params": {
+        "$ref": "#/types/UiSurfaceActionParams"
+      },
+      "result": {
+        "$ref": "#/types/UiSurfacePending"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/ui_surface_confirm",
+      "params": {
+        "$ref": "#/types/UiSurfaceConfirmParams"
+      },
+      "result": {
+        "$ref": "#/types/UiSurfaceConfirmResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/ui_surface_cancel",
+      "params": {
+        "$ref": "#/types/UiSurfaceCancelParams"
+      },
+      "result": {
+        "$ref": "#/types/UiSurfaceCancelResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/ui_surface_bridge",
+      "params": {
+        "$ref": "#/types/UiSurfaceBridgeParams"
+      },
+      "result": {
+        "$ref": "#/types/UiSurfaceBridgeResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/set_policy",
       "params": true,
       "result": true
@@ -7658,6 +7698,216 @@
       "required": [
         "sessionId",
         "on"
+      ],
+      "type": "object"
+    },
+    "UiSurfaceActionParams": {
+      "description": "A button press: `values` are the renderer's current field values keyed by their `bind`.",
+      "properties": {
+        "actionId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "surfaceId": {
+          "type": "string"
+        },
+        "values": {
+          "additionalProperties": true,
+          "default": {},
+          "type": "object"
+        }
+      },
+      "required": [
+        "sessionId",
+        "surfaceId",
+        "actionId"
+      ],
+      "type": "object"
+    },
+    "UiSurfaceBridgeParams": {
+      "description": "One JSON-RPC message an MCP App view posted.",
+      "properties": {
+        "message": true,
+        "sessionId": {
+          "type": "string"
+        },
+        "surfaceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "surfaceId",
+        "message"
+      ],
+      "type": "object"
+    },
+    "UiSurfaceBridgeResult": {
+      "description": "The decision on a view message: `reply` to post to the view, `notify` to post after it,\n`height` for the frame (clamped 40-1200), `blocked` why it was refused, `pending` a confirm\nstrip, `draft` composer text (the person presses Send).",
+      "properties": {
+        "blocked": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "draft": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "height": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "notify": {
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "pending": {
+          "anyOf": [
+            {
+              "$ref": "#/types/UiSurfacePending"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reply": true
+      },
+      "type": "object"
+    },
+    "UiSurfaceCancelParams": {
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "surfaceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "surfaceId",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    "UiSurfaceCancelResult": {
+      "properties": {
+        "cancelled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cancelled"
+      ],
+      "type": "object"
+    },
+    "UiSurfaceConfirmParams": {
+      "description": "Confirm a Pending. `values` (the renderer's field values now) make it stale when they\nchange what would be sent.",
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "surfaceId": {
+          "type": "string"
+        },
+        "values": {
+          "additionalProperties": true,
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId",
+        "surfaceId",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    "UiSurfaceConfirmResult": {
+      "description": "What the confirm did: `sent: \"agent\"` (a user turn), `\"tool\"` (with the view's `reply`),\n`\"link\"` (`openUrl` for the page to open, and the view's `reply`), or `\"none\"` (model\ncontext, not delivered in the prototype).",
+      "properties": {
+        "openUrl": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reply": true,
+        "sent": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sent"
+      ],
+      "type": "object"
+    },
+    "UiSurfacePending": {
+      "description": "The host-written confirm strip. Nothing is sent until a confirm.",
+      "properties": {
+        "actionId": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "sends": {
+          "items": {
+            "$ref": "#/types/UiSurfaceSend"
+          },
+          "type": "array"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "target": {
+          "description": "`agent`, `tool:<name>` or `link:<https url>`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "actionId",
+        "summary",
+        "sends",
+        "target"
+      ],
+      "type": "object"
+    },
+    "UiSurfaceSend": {
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "value"
       ],
       "type": "object"
     },

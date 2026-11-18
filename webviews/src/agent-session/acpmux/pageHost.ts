@@ -24,6 +24,7 @@ import { setTabRow } from "./header/tabRow";
 import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
+import { setAgentUiSurfaces } from "./agentUiSurfaces";
 import { setSessionStatus } from "./sessionStatus";
 import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
@@ -129,6 +130,9 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyShortcuts?.(value);
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
+    case "agentUiSurfaces":
+      // Direct, like sessionStatus: a push before the chat mounts is kept.
+      return setAgentUiSurfaces(event.value);
     case "workflowLabs":
       // Separate from the existing preview environment toggle. The host can opt the
       // experimental workflow summary in without changing preview semantics.

@@ -62,6 +62,11 @@ if "--suite=memory-agents" in sys.argv:
 if "--suite=renderer-rest" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "renderer-rest.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=renderer-rest"])
+# `--suite=ui-surface-stream`: an agent UI surface card streaming into a long chat, with and without the card
+# (scripts/cmux-next/ui-surface-stream-live.py: golden.py's `ui_surface_stream` scenario alone).
+if "--suite=ui-surface-stream" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui-surface-stream-live.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=ui-surface-stream"])
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
