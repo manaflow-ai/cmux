@@ -700,7 +700,10 @@ export class HarnessSwitch {
         if (done) return finish(done.sessionId);
         if (this.clock.now() >= deadline) return finish(undefined);
         // A shown pick's session is set before its open answers, with no change to draw: look again.
-        cancelTimer = this.clock.schedule(check, Math.min(PICK_SESSION_POLL_MS, Math.max(0, deadline - this.clock.now())));
+        cancelTimer = this.clock.schedule(
+          check,
+          Math.min(PICK_SESSION_POLL_MS, Math.max(0, deadline - this.clock.now())),
+        );
       };
       const unsubscribe = this.subscribe(() => {
         const done = settled();
