@@ -3,7 +3,7 @@ public import AppKit
 /// What a pane shows for a tab whose one view another window shows (two windows on one space,
 /// plans/cmux-next/spaces-overhaul-DESIGN.md rule 6): a page, a chat or a browser draws in one
 /// place, so this window says where it is and offers to take it.
-public final class TabShownElsewhereView: NSView {
+public final class TabShownElsewhereView: NSView, PaneCommitMotionPicture {
     private let label: ChromeLabel
     private let button: NSButton
     private let onShowHere: @MainActor () -> Void

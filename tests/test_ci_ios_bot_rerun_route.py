@@ -31,12 +31,12 @@ def jobs() -> dict:
     return yaml.safe_load(WORKFLOW.read_text())["jobs"]
 
 
-def route(expression: str, attempt: int, actor: str) -> object:
+def route(expression: str, attempt: int, actor: str, **extra: str) -> object:
     """The runs-on `expression` takes on a cmux-next lane whose runner job placed it on the owned minis: the
     picker's retry is Blacksmith, and the lane's own re-run route (retry_runs_on) is the owned label."""
     outputs = {"runs_on": OWNED, "package_runs_on": json.dumps("glaeda-std-xcode-26.6"), "retry_runs_on": OWNED,
                "label": "glaeda-std-xcode-26.6", "retry_label": "glaeda-std-xcode-26.6",
-               "bot_retry_runs_on": json.dumps(SMALL), "bot_retry_label": SMALL}
+               "bot_retry_runs_on": json.dumps(SMALL), "bot_retry_label": SMALL, **extra}
     context = {"github": {"repository_owner": "manaflow-ai", "run_attempt": str(attempt), "triggering_actor": actor,
                           "event_name": "pull_request"},
                "needs": {"runner": {"outputs": outputs}}, "vars": {}, "inputs": {}}
@@ -54,6 +54,22 @@ class IOSBotRerunRoute(unittest.TestCase):
                     self.assertEqual(route(runs_on, 2, bot), SMALL)
                 self.assertEqual(route(runs_on, 2, "teamleaderleo"), json.loads(OWNED))
                 self.assertNotEqual(route(runs_on, 1, BOTS[0]), SMALL)
+
+    def test_the_build_takes_the_sim_first_label_on_attempt_one_only(self):
+        # 2026-11-17: cmux#44053's ios-simulator-build (job 133824519208) queued from 04:44Z behind
+        # glaeda-side-std's 101 queued jobs; the picker's build_runs_on names glaeda's sim-first runner.
+        first = json.dumps("glaeda-sim-xcode-26.6")
+        runs_on = jobs()["ios-simulator-build"]["runs-on"]
+        self.assertEqual(route(runs_on, 1, BOTS[0], build_runs_on=first), "glaeda-sim-xcode-26.6")
+        # Re-runs keep their fallback.
+        for bot in BOTS:
+            self.assertEqual(route(runs_on, 2, bot, build_runs_on=first), SMALL)
+        self.assertEqual(route(runs_on, 2, "teamleaderleo", build_runs_on=first), json.loads(OWNED))
+        # A picker without the output: runs_on, as before.
+        self.assertEqual(route(runs_on, 1, "teamleaderleo"), json.loads(OWNED))
+        # mobile-core-package never reads it.
+        self.assertEqual(route(jobs()["mobile-core-package"]["runs-on"], 1, BOTS[0], build_runs_on=first),
+                         "glaeda-std-xcode-26.6")
 
     def test_the_requested_runner_follows_the_same_route(self):
         for name in ("mobile-core-package", "ios-simulator-build"):
