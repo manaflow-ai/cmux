@@ -157,8 +157,8 @@ export const CREATE_ATTEMPT_KEY = "cmux-image-create-attempt";
 /**
  * A server error says nothing about whether the create ran, and a 502 or 504 can answer while the provider still
  * boots the VM. So the attempt's own VM, found only by its CREATE_ATTEMPT_KEY value (unique to this process and
- * attempt, so never another run's builder of the same layer slug), is recorded in the ledger and deleted: after the
- * wait before a retry, and before the last error goes to the caller. A failed lookup is logged; the VM's idle
+ * attempt, so never another run's builder of the same layer slug), is recorded in the ledger and deleted (see
+ * createVmRetrying for when it looks). A failed lookup is logged; the VM's idle
  * timeout pauses it and the ledger row (when it was found) lets cleanup.ts delete it.
  */
 async function deleteAttemptVms(fs: Freestyle, ledger: Ledger, name: string, attemptId: string, log: (line: string) => void): Promise<void> {
@@ -196,21 +196,32 @@ export async function createVmRetrying(
   const log = deps.log ?? ((line: string) => console.log(line));
   const wait = deps.sleep ?? sleep;
   const run = deps.attemptPrefix ?? randomUUID();
+  // Every failed attempt's tag is checked again at each later lookup and once after the create that worked: a VM a
+  // 502 or 504 still booted can show up after its own attempt's lookup.
+  const failed: string[] = [];
+  const sweep = async () => {
+    for (const id of failed) await deleteAttemptVms(fs, ledger, options.name, id, log);
+  };
   for (let attempt = 0; ; attempt++) {
     const attemptId = `${run}-${attempt}`;
+    let created: Awaited<ReturnType<typeof createVm>>;
     try {
-      return await createVm(fs, ledger, { ...options, metadata: { [CREATE_ATTEMPT_KEY]: attemptId } });
+      created = await createVm(fs, ledger, { ...options, metadata: { [CREATE_ATTEMPT_KEY]: attemptId } });
     } catch (error) {
       const status = serverErrorStatus(error);
       if (status === undefined) throw error;
+      failed.push(attemptId);
       if (attempt >= delays.length) {
-        await deleteAttemptVms(fs, ledger, options.name, attemptId, log);
+        await sweep();
         throw error;
       }
       log(`PROVIDER ERROR: create ${options.name} from ${options.snapshotId} answered ${status} (${String(error).slice(0, 200)}); retry ${attempt + 1}/${delays.length} in ${(delays[attempt] / 1000).toFixed(0)}s`);
       await wait(delays[attempt]);
-      await deleteAttemptVms(fs, ledger, options.name, attemptId, log);
+      await sweep();
+      continue;
     }
+    await sweep();
+    return created;
   }
 }
 

@@ -69,9 +69,32 @@ describe("an image builder create the provider answers with a server error", () 
       { id: "vm-untagged", displayName: NAME, metadata: {} },
     ]);
     await createVmRetrying(h.fs, h.ledger, { name: NAME, snapshotId: "sh-agents" }, h.deps);
-    expect(h.queries).toEqual([`${CREATE_ATTEMPT_KEY}:run-0`]);
+    expect(h.queries).toEqual([`${CREATE_ATTEMPT_KEY}:run-0`, `${CREATE_ATTEMPT_KEY}:run-0`]);
     expect(h.deleted).toEqual(["vm-ghost"]);
     expect(h.ledger.live().map((r) => r.id)).toEqual(["vm-2"]);
+    expect(await deleteLiveVms()).toEqual(["vm-2"]);
+  });
+
+  test("a VM an earlier failed create made that shows up only after its own lookup is still found and deleted", async () => {
+    const h = harness(["500", "500", "ok"], { 2: [{ id: "vm-late-ghost", metadata: { [CREATE_ATTEMPT_KEY]: "run-0" } }] });
+    const created = await createVmRetrying(h.fs, h.ledger, { name: NAME, snapshotId: "sh-agents" }, h.deps);
+    expect(created.vmId).toBe("vm-3");
+    expect(h.deleted).toEqual(["vm-late-ghost"]);
+    expect(await deleteLiveVms()).toEqual(["vm-3"]);
+  });
+
+  test("a listed VM this process already holds is never deleted by the sweep", async () => {
+    const h = harness(["500", "ok"]);
+    const list = h.fs.vms.list.bind(h.fs.vms);
+    (h.fs.vms as unknown as { list: typeof list }).list = async (o) => {
+      const r = await list(o);
+      // vm-2 is the VM the second create returned; once it exists, the sweep after that create lists it.
+      const held = h.creates() >= 2 ? [{ id: "vm-2", metadata: { [CREATE_ATTEMPT_KEY]: "run-0" } }] : [];
+      return { ...r, vms: [...r.vms, ...held] } as typeof r;
+    };
+    await createVmRetrying(h.fs, h.ledger, { name: NAME, snapshotId: "sh-agents" }, h.deps);
+    expect(h.queries.length).toBe(2);
+    expect(h.deleted).toEqual([]);
     expect(await deleteLiveVms()).toEqual(["vm-2"]);
   });
 
