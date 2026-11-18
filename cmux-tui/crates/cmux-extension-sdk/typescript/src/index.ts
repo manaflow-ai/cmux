@@ -28,7 +28,7 @@ export const API_VERSION: string = scopeTable.apiVersion
 // share their names with DOM types when the author's tsconfig loads the DOM lib: name all three.
 type Globals = Omit<typeof globalThis, "Text" | "Image"> & {
   cmux: CmuxGlobal
-  Text(text: Bindable<string | number | null | undefined>): CmuxView
+  Text(text: Bindable<string | number | null | undefined> | CmuxDateText): CmuxView
   Image(source: Bindable<string> | { systemName: Bindable<string> }): CmuxView
 }
 const g = globalThis as unknown as Globals
@@ -45,7 +45,7 @@ export const { signal, computed, effect, onCleanup, untrack } = g
 export const {
   VStack, HStack, ZStack, LazyVStack, Group, ForEach, Reorderable,
   Text, Icon, Image, Button, Menu, Spacer, Divider, Row, Badge, EmptyState, Panel,
-  Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle
+  Toggle, Slider, TextField, ProgressView, Circle, Capsule, Rectangle, RoundedRectangle, Line
 } = g
 
 export type View = CmuxView
