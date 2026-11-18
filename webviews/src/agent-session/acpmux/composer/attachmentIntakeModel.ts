@@ -169,6 +169,11 @@ export type PendingAttachment = {
   /// A video's tile shape (width over height) from its file's header (composer/videoShape.ts): the
   /// loading tile is the box its chip, its poster and its sent tile keep. Unset once read, the square.
   videoShape?: number;
+  /// An image or a video whose header is still being read (a few bytes): its tile is held, zero wide
+  /// and unseen, so it first shows at its thumbnail's size, never a stand-in width. Only inside the
+  /// drop's own frame (SHAPE_WAIT_MS), never for its picture: one whose header has not answered by
+  /// then shows at the stand-in and takes its shape when it does.
+  sizing?: boolean;
   /// Sent: a prompt went with it while it was still being read or uploaded (`sendWith`). It is no
   /// longer the composer's (no tile, no send waits on it) and goes to that prompt once it is a chip.
   sent?: boolean;
@@ -182,15 +187,20 @@ export function imageShape(size: { width: number; height: number } | undefined):
   return size?.width && size.height ? { aspectRatio: String(thumbRatio(size.width, size.height)) } : undefined;
 }
 
-/// Reads `file`'s pixel size from its header and gives it to `done` once the header answers. Its
-/// tile is drawn meanwhile, at the stand-in width, and takes the thumbnail's shape then; a header
-/// that never answers (an unreadable file) leaves it at the stand-in.
-function sizeFromHeader(file: File, done: (size: { width: number; height: number }) => void) {
+/// How long a dropped or pasted image's or video's tile may be held unseen for its header, so it
+/// first shows at its final shape: inside the gesture's own frame, so the chip is there in the next
+/// paint whatever the file (Leo, 2026-11-18: "dragging and dropping attachments of any size should
+/// never take time to load"). A file's header on disk answers in a few milliseconds.
+// motion-allow: a header read deadline, not a motion
+const SHAPE_WAIT_MS = 12;
+
+/// Reads `file`'s pixel size from its header and gives it to `done` once the header answers
+/// (undefined: it gave none). Its tile shows meanwhile once SHAPE_WAIT_MS pass, and takes the
+/// thumbnail's shape then.
+function sizeFromHeader(file: File, done: (size: { width: number; height: number } | undefined) => void) {
   void imageSize(file)
     .catch(() => undefined)
-    .then((size) => {
-      if (size?.width && size.height) done({ width: size.width, height: size.height });
-    });
+    .then((size) => done(size?.width && size.height ? { width: size.width, height: size.height } : undefined));
 }
 
 /// Past this many bytes a loading tile shows no picture of the file itself, only its preview once
@@ -459,24 +469,32 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// the file input (`choose`), which the host asks only where its files came from. `again`: the
   /// failed chip whose file `given` is, read again under its id (Retry): it keeps its place in the
   /// strip and in the text, and its node there draws what the read makes.
-  /// Pending image `id`'s header answered `size`: its tile, drawn since the drop, takes its
-  /// thumbnail's shape.
+  /// Pending image `id`'s header answered `size` (undefined: none), or SHAPE_WAIT_MS passed (no
+  /// size): its tile shows, at its thumbnail's shape once it has one.
   const [sized] = useState(
-    () => (id: string, size: { width: number; height: number }) =>
+    () => (id: string, size?: { width: number; height: number }) =>
       setPending((chips) =>
-        chips.some((chip) => chip.id === id && !chip.size)
-          ? chips.map((chip) => (chip.id === id ? { ...chip, size } : chip))
+        chips.some((chip) => chip.id === id && (chip.sizing || (size && !chip.size)))
+          ? chips.map((chip) =>
+              chip.id === id ? { ...chip, sizing: false, ...(size && !chip.size ? { size } : {}) } : chip,
+            )
           : chips,
       ),
   );
-  /// Video `id`'s header answered `videoShape`: its tile, drawn square since the drop, takes the
-  /// shape, and so does the chip it already became (a chat on this Mac links it before its header).
-  const [shaped] = useState(() => (id: string, videoShape: number) => {
+  /// Video `id`'s header answered `videoShape` (undefined: none, or SHAPE_WAIT_MS passed): its tile
+  /// shows, square until it has a shape; the chip it already became takes the shape too (a chat on
+  /// this Mac links a video before its header answers).
+  const [shaped] = useState(() => (id: string, videoShape?: number) => {
     setPending((chips) =>
-      chips.some((chip) => chip.id === id && !chip.videoShape)
-        ? chips.map((chip) => (chip.id === id ? { ...chip, videoShape } : chip))
+      chips.some((chip) => chip.id === id && (chip.sizing || (videoShape && !chip.videoShape)))
+        ? chips.map((chip) =>
+            chip.id === id
+              ? { ...chip, sizing: false, ...(videoShape && !chip.videoShape ? { videoShape } : {}) }
+              : chip,
+          )
         : chips,
     );
+    if (!videoShape) return;
     setAttachments((chips) =>
       chips.some((chip) => chip.id === id && !chip.videoShape)
         ? chips.map((chip) => (chip.id === id ? { ...chip, videoShape } : chip))
@@ -495,30 +513,40 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // The chat the gesture was made in, its upload and its paths, as the gesture's own task had them.
     const current = chat?.options ?? live.current.options;
     const batch = { scope: current.scope };
-    // In the paste's or drop's own task, so React draws them before the next frame: each is the
-    // file by its name from the drop on, never held unseen for its header or its picture (Leo,
-    // 2026-11-18: "dragging and dropping attachments of any size should never take time to load.
-    // It should just be able to show you the thing").
+    // In the paste's or drop's own task, so React draws them before the next frame. An image or a
+    // video waits at most SHAPE_WAIT_MS for its header, inside that frame, never for its picture
+    // (Leo, 2026-11-18: "dragging and dropping attachments of any size should never take time to
+    // load. It should just be able to show you the thing").
     const shown: PendingAttachment[] = files.map((file) => ({
       id: again ?? crypto.randomUUID(),
       name: file.name,
       image: isImageFile(file),
       ...(isVideoName(file.name) ? { video: true } : {}),
+      ...(!isMadeFile(file) && (isImageFile(file) || isVideoName(file.name)) ? { sizing: true } : {}),
       scope: batch.scope,
     }));
     /// Each video's shape from its header, by index, for the chip it becomes before the header answers.
     const shapes: (number | undefined)[] = [];
-    // Each tile's shape and picture fill in as they come; none is waited for.
+    // Each tile's shape and picture fill in as they come; only the shape, and only within the frame.
     files.forEach((file, index) => {
       const id = shown[index]!.id;
+      const video = !isMadeFile(file) && isVideoName(file.name);
+      // timeout: a header that does not answer within the frame must not hold its tile unseen.
+      const deadline = shown[index]!.sizing
+        ? setTimeout(() => (video ? shaped(id) : sized(id)), SHAPE_WAIT_MS)
+        : undefined;
       // A video's shape from its header (videoShape.ts): the square until it answers.
-      if (!isMadeFile(file) && isVideoName(file.name))
+      if (video)
         void videoShapeOf(file).then((videoShape) => {
-          if (!videoShape) return;
-          shapes[index] = videoShape;
+          clearTimeout(deadline);
+          if (videoShape) shapes[index] = videoShape;
           shaped(id, videoShape);
         });
-      else if (!isMadeFile(file) && isImageFile(file)) sizeFromHeader(file, (size) => sized(id, size));
+      else if (!isMadeFile(file) && isImageFile(file))
+        sizeFromHeader(file, (size) => {
+          clearTimeout(deadline);
+          sized(id, size);
+        });
       // A capture the page makes (Attach Screenshot) has no bytes yet: its shape once it has.
       else if (isMadeFile(file) && isImageFile(file))
         void file.file.then(
@@ -530,7 +558,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         if (!preview) return;
         setPending((chips) =>
           chips.some((chip) => chip.id === id && !chip.failed && !chip.preview)
-            ? chips.map((chip) => (chip.id === id ? { ...chip, preview } : chip))
+            ? chips.map((chip) => (chip.id === id ? { ...chip, preview, sizing: false } : chip))
             : chips,
         );
       });

@@ -228,6 +228,8 @@ test("a drop in a chat on this Mac: every chip shows and is sendable at once, an
     unreadable("my-project", "", 0),
   ];
   await act(async () => void intake.attach(files, true, "drop"));
+  // Within the drop's frame: a tile may wait inside it for its header, never past it.
+  await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 16))));
   // Shown: none held unseen for a header or a picture that has not come.
   expect(intake.pending.map((chip) => [chip.name, "sizing" in chip && Boolean(chip.sizing)])).toEqual([
     ["Screen Recording.mov", false],

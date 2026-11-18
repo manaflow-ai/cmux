@@ -281,6 +281,17 @@
   min-width: 48px;
   max-width: 128px;
 }
+/* One whose header is still being read (attachmentIntakeModel.ts `sizing`, SHAPE_WAIT_MS at most, inside the drop's frame): held
+   zero wide and unseen, so its first frame shown is its final size, not a stand-in width. */
+:is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sizing] {
+  visibility: hidden;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+}
+.acpmux-md-inline > .acpmux-md-inline-chip[data-sizing] {
+  margin-inline: 0;
+}
 /* A loading image's own picture (composer/attachmentIntake.tsx InstantPreview), there the moment it
    is pasted or dropped, filling its tile under the spinner until its chip takes the tile's place
    (Leo, 2026-11-07: "can't we make this all "appear" a lot faster"). */
@@ -328,8 +339,8 @@
    loading, failed, with its poster or without, so nothing resizes from the paste to the sent message
    (Leo, 2026-11-10: "the preview placeholder boxes are incongruent between the initial load, then the
    second load, and the chat attachment itself"). Its poster fills the box, cropped past its bounds.
-   Square from the drop until its header answers (it is never held unseen for it). */
-.acpmux-attachment-image[data-video-shape] {
+   One still held for its header (`[data-sizing]`) stays zero wide and unseen. */
+.acpmux-attachment-image[data-video-shape]:not([data-sizing]) {
   width: calc(var(--acpmux-attach-height) * var(--acpmux-video-ratio, 1));
   min-width: 0;
   max-width: none;
