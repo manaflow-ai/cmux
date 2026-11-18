@@ -1,5 +1,5 @@
 // What a Claude Workflow call's permission ask shows while the Labs workflow surfaces are on
-// (`workflowLabs`; WorkflowAsk.tsx draws it).
+// (`workflowLabs` with Settings > Advanced > Labs, workflowCardModel `workflowLabs`; WorkflowAsk.tsx draws it).
 import { useSyncExternalStore } from "react";
 import type { Translate } from "../i18n";
 import type { AcpmuxPermission, AcpmuxWorkflowAsk } from "../model";

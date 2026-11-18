@@ -13,7 +13,8 @@ export function configureWorkflowCardSideTab(open: WorkflowCardOpener | undefine
   sideTabOpener = open;
   for (const listener of listeners) listener();
 }
-/// Whether the Labs workflow surfaces are on (`workflowLabs`): the Workflow ask then draws as the
+/// Whether the preview workflow surfaces are on (App.tsx `workflowPreview`: `workflowLabs` and Settings >
+/// Advanced > Labs, `labs.previewFeatures`, off by default): the Workflow ask then draws as the
 /// workflow approval card (PermissionCard `WorkflowAskBody`), the card says when a usage limit holds it.
 export let workflowLabs = false;
 export function configureWorkflowLabs(enabled: boolean): void {

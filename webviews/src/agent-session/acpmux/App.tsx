@@ -915,7 +915,7 @@ declare global {
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
-      /// default): the session coverage label.
+      /// default): the session coverage label, the workflow approval card and the usage-limit pause line.
       applyPreview?(on: boolean): void;
       /// How a Cloud start goes (cloudStartProgress.ts `cloudStartPushed`): `{key, step?, machine?,
       /// size?, secrets?, network?}` for the start `cloud.startChat {key}` began.
@@ -1611,6 +1611,7 @@ export type InitialChat = {
   snapshot: AcpmuxSnapshot;
   machineName?: string;
   workflowLabs?: boolean;
+  previewFeatures?: boolean;
 };
 
 /// The newest turn end of a settled view's fork points, if it named any.
@@ -1662,6 +1663,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// default, not behind Labs: Leo asked for them (2026-10-24, "leo dynamic workflows ... idk how we
   /// wanna display but here"). A host `workflowLabs` push of false still turns them off.
   const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(initialChat?.workflowLabs !== false);
+  /// Settings > Advanced > Labs (`labs.previewFeatures`, off by default; `applyPreview`). The workflow
+  /// approval card and the usage-limit pause line are newer than the workflow card and stay behind it.
+  const [previewFeatures, setPreviewFeatures] = useState(initialChat?.previewFeatures === true);
+  const workflowPreview = workflowLabsEnabled && previewFeatures;
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   /// Where this New Tab page's new chat starts, as the app knew it when the page loaded
@@ -6087,13 +6092,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     configureWorkflowCardSideTab(workflowLabsEnabled ? openWorkflowSideTab : undefined);
     return () => configureWorkflowCardSideTab(undefined);
   }, [openWorkflowSideTab, workflowLabsEnabled]);
-  useEffect(() => configureWorkflowLabs(workflowLabsEnabled), [workflowLabsEnabled]);
+  useEffect(() => configureWorkflowLabs(workflowPreview), [workflowPreview]);
   // The workflow card's "Paused at usage limit" line follows the shown chat's retry wait.
   const autoResumeRetry = snapshot.autoResume?.retry;
   const usageLimits = snapshot.summary?.usageLimits;
   useEffect(
-    () => configureUsageLimitHold(workflowLabsEnabled ? usageLimitHold(autoResumeRetry, usageLimits) : undefined),
-    [workflowLabsEnabled, autoResumeRetry, usageLimits],
+    () => configureUsageLimitHold(workflowPreview ? usageLimitHold(autoResumeRetry, usageLimits) : undefined),
+    [workflowPreview, autoResumeRetry, usageLimits],
   );
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
@@ -8153,6 +8158,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // Cloud's own checks stay: Cloud allowed by policy, a signed-in account, and an explicit
         // pick; nothing creates a paid VM without one.
         setPromptSurfaces(on === true);
+        setPreviewFeatures(on === true);
         // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
       },
       applyWorkflowLabs(on) {
