@@ -720,8 +720,6 @@ mod tests {
     use tokio::sync::watch;
     use tokio::time::{Duration, timeout};
 
-    /// The push watch never asks acpmux for its whole list in one reply: a first page, the rest
-    /// by its cursor.
     #[test]
     fn batches_follow_a_lead_that_went_out() {
         assert!(batches_follow(
@@ -735,6 +733,8 @@ mod tests {
         ));
     }
 
+    /// The push watch never asks acpmux for its whole list in one reply: a first page, the rest
+    /// by its cursor.
     #[test]
     fn the_watch_asks_for_its_first_page_only() {
         let request = watch_request();
