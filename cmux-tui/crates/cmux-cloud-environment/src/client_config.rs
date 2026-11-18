@@ -261,6 +261,30 @@ pub(crate) fn is_loopback_origin(value: &str) -> bool {
     })
 }
 
+/// A tailnet backend: `https://<host>.<tailnet>.ts.net[:port]`, the name Tailscale Serve gives a
+/// dev VM's per-tag stack. HTTPS only (Serve's certificate); a bare `ts.net` or an IP never matches.
+pub(crate) fn is_tailnet_origin(value: &str) -> bool {
+    url::Url::parse(value).is_ok_and(|url| {
+        url.scheme() == "https"
+            && matches!(url.host(), Some(url::Host::Domain(_)))
+            && url.host_str().is_some_and(|host| {
+                host.strip_suffix(".ts.net").is_some_and(|name| {
+                    name.split('.').count() >= 2
+                        && name.split('.').all(|label| {
+                            !label.is_empty()
+                                && label
+                                    .bytes()
+                                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                        })
+                })
+            })
+    })
+}
+
+fn host(value: &str) -> Option<String> {
+    url::Url::parse(value).ok()?.host_str().map(str::to_owned)
+}
+
 fn allowed_origin(value: &str, selected: &str) -> Result<(), String> {
     let origin = bare_origin(value)?;
     if is_loopback_origin(&origin) {
@@ -269,6 +293,17 @@ fn allowed_origin(value: &str, selected: &str) -> Result<(), String> {
         } else {
             Err(format!(
                 "remote client-config cannot name a loopback origin: {value}"
+            ))
+        };
+    }
+    // A tailnet stack may name its own other services (same host, any port); no other backend
+    // may send credentials to a tailnet host.
+    if is_tailnet_origin(&origin) {
+        return if is_tailnet_origin(selected) && host(&origin) == host(selected) {
+            Ok(())
+        } else {
+            Err(format!(
+                "client-config cannot name another tailnet host: {value}"
             ))
         };
     }
