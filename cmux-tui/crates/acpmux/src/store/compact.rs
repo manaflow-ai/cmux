@@ -6,7 +6,9 @@
 //! string longer than [`LONG`] bytes (a command's output, a file's text, an edit's diff, a model's
 //! text the ACP records beside them repeat), cut to its first [`KEPT`] bytes and a note of what was
 //! cut; and Claude's raw `stream_event` lines that time no request, which the tap no longer logs
-//! (`hub/tap.rs` `times_request`). Every other record, and every field a reader takes from a raw
+//! (`hub/tap.rs` `times_request`); and the other records the tap no longer logs, as no reader takes
+//! them back (`unread_records.rs`: a load's replay, thinking ticks, hook callbacks and their
+//! answers), and the thread a Codex `thread/resume` answer holds. Every other record, and every field a reader takes from a raw
 //! line (OptChat's request timing and usage, `fold.rs`; a subagent's heartbeat, `sub_watch.rs`; an
 //! API retry, `transcript.rs`), stays as written: the prompts and the agent's messages (a
 //! rehydrated agent is told them, `hub/transcript.rs`), the turn, queue and status records the log
@@ -417,9 +419,11 @@ pub(super) fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
 /// Which of Claude's raw `stream_event` lines a request's timing reads, as the tap keeps them
 /// (`hub/tap.rs` `times_request`): the main agent's `message_start`, and the first
 /// `content_block_delta` after one.
+/// The hook callbacks it dropped also go with their answers (`unread_records.rs`).
 #[derive(Default)]
 struct Timing {
     awaiting_first_delta: bool,
+    hook_calls: std::collections::HashSet<String>,
 }
 
 impl Timing {
@@ -453,6 +457,38 @@ fn compact_line<'a>(
             stats.dropped += 1;
             return None;
         }
+    }
+    // What the tap no longer logs, as no reader takes it back (`unread_records.rs`): a load's
+    // replay, a thinking tick, a hook callback and its answer.
+    let unread = std::str::from_utf8(kind).is_ok_and(crate::unread_records::unread_replay)
+        || kind == crate::unread_records::THINKING_TICK.as_bytes()
+        || (matches!(kind, b"claude.control_request" | b"claude.stdin")
+            && serde_json::from_slice::<EventRecord>(line).is_ok_and(|r| {
+                if let Some(id) = crate::unread_records::hook_callback_id(&r.msg) {
+                    timing.hook_calls.insert(id.to_owned());
+                    true
+                } else {
+                    crate::unread_records::plain_answer_id(&r.msg)
+                        .is_some_and(|id| timing.hook_calls.remove(id))
+                }
+            }));
+    if unread {
+        stats.dropped += 1;
+        return None;
+    }
+    // Codex's answer to `thread/resume`: kept without the thread it holds.
+    if line.len() > LONG
+        && kind == b"codex.response"
+        && let Ok(mut record) = serde_json::from_slice::<EventRecord>(line)
+        && record
+            .msg
+            .get_mut("params")
+            .is_some_and(crate::unread_records::leave_out_resumed_history)
+        && let Ok(mut out) = serde_json::to_vec(&record)
+    {
+        out.push(b'\n');
+        stats.trimmed += 1;
+        return Some(Cow::Owned(out));
     }
     if line.len() > LONG
         && (raw || kind.starts_with(b"tool_call"))
