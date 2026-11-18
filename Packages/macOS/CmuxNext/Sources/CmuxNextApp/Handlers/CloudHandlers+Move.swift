@@ -30,6 +30,13 @@ extension CloudHandlers {
                     ?? AgentChatUploads.stager(tab: tab, services: $0)
             }
         }
+        // A native drop's files go to a moved or peer chat's machine straight from their paths on this
+        // Mac, never through the page (``AgentPaneModel/putDropped(token:name:)``).
+        services.agentTabs.pathPutter = { [weak services] tab in
+            services.flatMap {
+                $0.cloud.uploads.pathPutter(tab: tab, services: $0) ?? AgentPeerUploads.pathPutter(tab: tab, services: $0)
+            }
+        }
         // Files dropped or pasted from Finder into a chat on this Mac go as their own paths, never a
         // copy (``AgentPaneDroppedPaths``); a moved or peer chat's still go to its machine. A New Tab page
         // answers as the chat it starts: its tab's record names this Mac's acpmux, or another

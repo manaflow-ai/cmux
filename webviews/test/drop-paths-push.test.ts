@@ -13,6 +13,7 @@ import { afterEach, expect, test } from "bun:test";
 import {
   DROP_PUSH_EVENT,
   clearPushedDrops,
+  listenForDropPush,
   noteDomDrop,
   pushedDropPaths,
   receivePushedDrop,
@@ -67,9 +68,11 @@ test("a push that lands just after the page's drop (Chromium) is used the moment
   expect(items).toEqual([{ path: "/Users/you/notes.pdf", folder: false }]);
 });
 
-test("a window event from the host is the push", async () => {
+test("an event from the host on the page's window is the push", async () => {
   const file = bigFile("a.txt", 10, []);
-  window.dispatchEvent(
+  const page = new EventTarget();
+  listenForDropPush(page);
+  page.dispatchEvent(
     new CustomEvent(DROP_PUSH_EVENT, { detail: { local: true, items: [{ path: "/tmp/x/a.txt", folder: false }] } }),
   );
   expect(await pushedDropPaths([file], async () => undefined)).toEqual([{ path: "/tmp/x/a.txt", folder: false }]);

@@ -7,7 +7,8 @@ import Foundation
 /// or started there with no folder, that the composer can't attach: the page sends their bytes (``AgentPaneUpload``), and only for a
 /// live moved chat's own tab, with a real gesture in its pane, the app writes them under this Mac's
 /// temporary `cmux-pastes` folder (owner-only), runs `cmux link access upload` for the chat's machine
-/// and work root, deletes its copy, and answers where each went on the machine. Nothing is uploaded
+/// and work root, deletes its copy, and answers where each went on the machine. A file of the
+/// person's own native drop goes from where it is (``pathPutter(tab:services:)``). Nothing is uploaded
 /// from anywhere else on this Mac, and the machine can't start an upload.
 @MainActor
 final class CloudUploads {
@@ -52,6 +53,31 @@ final class CloudUploads {
             // A staged upload names its chat session, as the peer stager requires.
             guard let session else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
             return await self.stage(request, tab: tab, session: session, services: services)
+        }
+    }
+
+    /// The put of a native drop's file on tab `tab`'s Cloud machine straight from its path on this Mac
+    /// (`cmux link access upload` of that path, as a staged file's): no copy in `cmux-pastes` and
+    /// nothing through the page. Nil unless the tab is a live Cloud chat on a connected machine.
+    func pathPutter(tab: String, services: AppServices) -> AgentPanePathPutter? {
+        guard Self.target(tab: tab, services: services) != nil else { return nil }
+        return { [weak services] file, session in
+            let failed = AgentPanePathPutReply.failure(code: "upload_failed", message: CloudUploadStrings.failed)
+            guard let services, let target = Self.target(tab: tab, services: services), target.session == session else { return failed }
+            guard let socket = await target.machine.daemon.connection?.endpoint?.socketPath else {
+                return .failure(code: "link_error", message: CloudUploadStrings.failed)
+            }
+            let answer: CloudAccessCLI.Answer
+            do {
+                answer = try await CloudAccessCLI(binary: target.binary).upload(socket: socket, remoteRoot: target.remoteRoot, files: [file.path])
+            } catch {
+                answer = CloudAccessCLI.Answer(ok: false, error: String(describing: error))
+            }
+            guard answer.ok, let path = answer.uploaded.first, answer.uploaded.count == 1 else {
+                services.cloud.logger.error("cloud upload: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .private)")
+                return .failure(code: answer.errorCode ?? "upload_failed", message: CloudUploadStrings.failed)
+            }
+            return .path(path)
         }
     }
 

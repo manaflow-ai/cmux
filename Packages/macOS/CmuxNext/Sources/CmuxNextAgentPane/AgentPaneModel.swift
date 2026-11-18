@@ -380,6 +380,9 @@ public final class AgentPaneModel {
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
+    /// The App's put of a native drop's file on this chat's machine from its path (a chat on another
+    /// machine), nil when it has none (``AgentPanePathPutter``).
+    @ObservationIgnored public var onPathPut: (@MainActor () -> AgentPanePathPutter?)?
     /// Runs the Cloud machine + latest transcript fork and opens its sibling without selecting this chat.
     /// The session is the one this pane showed when the click arrived, so a pane that switched
     /// sessions meanwhile never forks the newly selected chat.
@@ -907,6 +910,11 @@ public final class AgentPaneModel {
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
+        // A pushed native drop's file of a chat on another machine: put there from its path (``putDropped(token:name:)``).
+        case .uploadStage(.begin(let name, _, let token?, nil)) where AgentPaneDroppedPaths.isPutToken(token):
+            return await putDropped(token: token, name: name)
+        case .uploadStage(.cancel(let token)) where AgentPaneDroppedPaths.isPutToken(token):
+            return cancelDroppedPut(token)
         case .uploadStage(let stage):
             // A chat with no session yet (a new chat, the New Tab page) stages too: its stager says
             // whether it can take one. Refusing it as unsupported told the page this host is too old

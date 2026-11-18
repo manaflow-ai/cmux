@@ -159,6 +159,62 @@ public final class AgentPaneDroppedPaths {
         return picked
     }
 
+    /// The window event that hands the page a native drop's files with the drop itself
+    /// (webviews composer/dropPush.ts). Leo, 2026-11-18: "you can just send it instantly. Like, stop
+    /// blocking."
+    nonisolated static let pushEvent = "cmux-files-dropped"
+    /// What a token the page may name to have a pushed drop's file put on the chat's machine starts
+    /// with (``takePut(_:name:)``): `chat.upload.begin` with it as its `batchToken`.
+    nonisolated static let putTokenPrefix = "drop-"
+    /// Pushed files of a chat on another machine the page may still ask to have put there, by token,
+    /// oldest first; bounded to ``linkedLimit``. Only this pane's own native drop adds one.
+    private var putTokens: [(token: String, url: URL)] = []
+    /// The puts under way, by token: the tile's x cancels one (`chat.upload.cancel`).
+    var puts: [String: Task<AgentPanePathPutReply, Never>] = [:]
+
+    /// The last native drop's files for the page, pushed with the drop (``pushScript(_:)``):
+    /// `{local, items: [{path, folder, token?}]}`. `local`: the chat runs on this Mac, so each file
+    /// links where it is (and goes in ``linkedFiles``); otherwise each item has a token the page may
+    /// name once to have the host put that file on the chat's machine from its path. Nil when there
+    /// is no drop record or it holds a recording preview, whose copy only the page's ask
+    /// (`chat.attach.dropped`) makes. Reads no file: whether an item is a folder is its URL's
+    /// trailing slash (Finder's), and the page also knows WebKit's `<name>.zip` for one.
+    func pushed(local: Bool) -> [String: Any]? {
+        guard let record = held[.drop], !record.items.contains(where: \.needsSnapshot) else { return nil }
+        let items = record.items.map { item -> [String: Any] in
+            var entry: [String: Any] = ["path": item.url.path, "folder": item.url.hasDirectoryPath]
+            if !local {
+                let token = Self.putTokenPrefix + UUID().uuidString
+                putTokens.append((token, item.url))
+                entry["token"] = token
+            }
+            return entry
+        }
+        if putTokens.count > Self.linkedLimit { putTokens.removeFirst(putTokens.count - Self.linkedLimit) }
+        if local { linked(record.items.map(\.url.path)) }
+        return ["local": local, "items": items]
+    }
+
+    /// The file of pushed token `token`, once, when the page names it `name`; nil otherwise.
+    func takePut(_ token: String, name: String) -> URL? {
+        guard let index = putTokens.firstIndex(where: { $0.token == token }) else { return nil }
+        let url = putTokens.remove(at: index).url
+        return Self.named(url, name) ? url : nil
+    }
+
+    /// Whether `token` is one ``pushed(local:)`` makes (a `chat.upload.begin` or cancel naming it is a put's).
+    nonisolated static func isPutToken(_ token: String) -> Bool {
+        token.hasPrefix(putTokenPrefix)
+    }
+
+    /// The script that hands the page `payload` (``pushed(local:)``) as a window event.
+    nonisolated static func pushScript(_ payload: [String: Any]) -> String? {
+        guard JSONSerialization.isValidJSONObject(payload),
+              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8) else { return nil }
+        return "window.dispatchEvent(new CustomEvent('\(pushEvent)', {detail: \(json)}));"
+    }
+
     /// Holds files another app sent to this chat for the page to take (``takeExternal()``), after any
     /// it has not taken yet. `claimed`: the bundle id of the app they came from, when known; a file's
     /// own metadata (a screenshot's) still says first.
@@ -199,6 +255,9 @@ public final class AgentPaneDroppedPaths {
         held.removeAll()
         sourced.removeAll()
         external = nil
+        putTokens.removeAll()
+        puts.values.forEach { $0.cancel() }
+        puts.removeAll()
         retainedPaths.removeAll()
         linkedFiles.removeAll()
     }

@@ -79,6 +79,30 @@ struct AgentPeerUploads {
         }
     }
 
+    /// The put of a native drop's file on tab `tab`'s peer from its path on this Mac, nil unless it is
+    /// a peer's chat: streamed off the main actor (``AcpmuxStatusClient/putFile(socketPath:sessionId:name:file:deadline:)``),
+    /// with no staged copy and nothing through the page.
+    static func pathPutter(tab: String, services: AppServices) -> AgentPanePathPutter? {
+        guard let target = target(tab: tab, services: services) else { return nil }
+        return { file, session in
+            guard session == target.session else { return failure(.failed, machine: target.machine) }
+            do {
+                return .path(try await target.host.putFile(sessionId: target.session, name: file.lastPathComponent, file: file))
+            } catch {
+                return failure(AgentPaneFilePutFailure(error), machine: target.machine)
+            }
+        }
+    }
+
+    private static func failure(_ failure: AgentPaneFilePutFailure, machine: String) -> AgentPanePathPutReply {
+        // The codes and words of ``reply(_:machine:)``.
+        switch failure {
+        case .unsupported: .failure(code: "unsupported", message: AgentPeerUploadStrings.failed(machine))
+        case .tooLarge: .failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(machine))
+        case .failed: .failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(machine))
+        }
+    }
+
     /// Tab `tab`'s chat when its pane attaches to this Mac's acpmux and that acpmux lists its
     /// session as a peer's (``AgentActivityLane/peer``, from the same `_acpmux/watch` the page
     /// reads its chat's `peer` from).

@@ -48,8 +48,9 @@ export type IntakeEvents = {
 };
 
 /// How long the host may take to say where a drop's or paste's files are (`chat.attach.dropped`
-/// answers from memory): past it the files go as if it did not know, never held.
-export const LOCAL_PATHS_DEADLINE_MS = 3000;
+/// answers from memory; a native drop's come pushed with it, composer/dropPush.ts): past it the files
+/// go as if it did not know, never held.
+export const LOCAL_PATHS_DEADLINE_MS = 1500;
 
 /// `promise`, or undefined once `ms` pass without it settling.
 export function settleWithin<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {

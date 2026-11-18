@@ -344,6 +344,9 @@ final class AgentTabStore {
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
     var uploader: (@MainActor (_ tab: String) -> AgentPaneUploader?)?
     var uploadStager: (@MainActor (_ tab: String) -> AgentPaneUploadStager?)?
+    /// The put of a native drop's file on a chat tab's machine from its path, nil for a chat on this Mac
+    /// (``AgentPeerUploads``, ``CloudUploads``).
+    var pathPutter: (@MainActor (_ tab: String) -> AgentPanePathPutter?)?
     /// Whether a chat tab's (or its New Tab page's) dropped or pasted files go as their paths on this
     /// Mac (``AgentPaneModel/onLocalPaths``); nil: never.
     var localPaths: (@MainActor (_ tab: String) -> Bool)?
@@ -730,6 +733,10 @@ final class AgentTabStore {
         model.onUploadStage = { [weak self] in
             guard let self else { return nil }
             return uploadStager?(resolve(provisional, machine: scoped.machine))
+        }
+        model.onPathPut = { [weak self] in
+            guard let self else { return nil }
+            return pathPutter?(resolve(provisional, machine: scoped.machine))
         }
         model.onLocalPaths = { [weak self] in
             guard let self else { return false }

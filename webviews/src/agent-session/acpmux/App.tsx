@@ -240,9 +240,10 @@ import { trustedLabel } from "./trustAskModel";
 import { ElevationCard } from "./ElevationCard";
 import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
-import { type UploadProgressReport, uploadToMachine } from "./cloudUploads";
+import { type UploadCancelled, type UploadProgressReport, uploadToMachine } from "./cloudUploads";
 import { uploadForSend } from "./sendUploads";
 import { droppedPaths } from "./composer/intakeFiles";
+import { pushedDropPaths, uploadDropped } from "./composer/dropPush";
 import { useToolCards } from "./toolCards/toolCardStore";
 import {
   COMPUTER_USE_PREVIEW_RESERVE,
@@ -2730,13 +2731,28 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (taken?.kind === "recording") composerHandle.current?.attach(taken.attachment);
     return taken?.kind === "still" ? taken.file : undefined;
   }, []);
+  // A chat on another machine: a file of the person's native drop goes there from its path on this
+  // Mac, put by the host (composer/dropPush.ts); a paste, or a drop with no path, through the bridge.
   const uploadFiles = useCallback(
-    (files: File[], cancelled?: (index: number) => boolean, progress?: UploadProgressReport) =>
-      uploadToMachine(files, callNative, cancelled, progress),
+    (files: File[], cancelled?: UploadCancelled, progress?: UploadProgressReport) =>
+      uploadDropped(
+        files,
+        callNative,
+        (rest, restCancelled, restProgress) => uploadToMachine(rest, callNative, restCancelled, restProgress),
+        cancelled,
+        progress,
+      ),
     [],
   );
-  // A chat on this Mac links a dropped or pasted folder, or a file no block takes, where it is.
-  const localPaths = useCallback((kind: DroppedKind, files: File[]) => droppedPaths(kind, files, callNative), []);
+  // A chat on this Mac links a dropped or pasted folder, or a file no block takes, where it is. A
+  // native drop's paths come pushed with the drop (composer/dropPush.ts): no request, no deadline.
+  const localPaths = useCallback(
+    (kind: DroppedKind, files: File[]) =>
+      kind === "drop"
+        ? pushedDropPaths(files, () => droppedPaths(kind, files, callNative))
+        : droppedPaths(kind, files, callNative),
+    [],
+  );
   const searchFiles = useCallback<FileSearchSource>(
     (query) =>
       callNative("file.search", {
