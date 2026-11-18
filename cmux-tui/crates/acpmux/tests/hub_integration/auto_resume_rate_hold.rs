@@ -217,7 +217,7 @@ async fn six_failed_turns_in_a_row_park_the_chat_until_a_retry() {
     }
 
     // Parked: another agent's message waits, and no timer sends the continuation.
-    let late =
+    let _late =
         c.send(method::SESSION_PROMPT, from_agent(&id, "m-late", "lane", "late report")).await;
     tokio::time::sleep(Duration::from_millis(1_500)).await;
     assert_eq!(of_kind(&hub, &id, "turn_started").len(), 6, "{:?}", kinds(&hub, &id));
