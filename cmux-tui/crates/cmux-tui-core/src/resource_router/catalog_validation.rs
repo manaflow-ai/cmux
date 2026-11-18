@@ -4,8 +4,9 @@ use super::*;
 
 pub(super) fn operation_catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
+    let text = || crate::packed_catalogs::RESOURCE_OPERATIONS_V2.inflate();
     CATALOG.get_or_init(|| {
-        serde_json::from_str(CATALOG_JSON).expect("the checked-in resource operation catalog")
+        serde_json::from_str(&text()).expect("the checked-in resource operation catalog")
     })
 }
 
