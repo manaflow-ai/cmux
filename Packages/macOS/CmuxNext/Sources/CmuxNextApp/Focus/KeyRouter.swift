@@ -295,7 +295,7 @@ final class KeyRouter: BrowserKeyRouting, ParkedTypingRouter {
     }
 
     func run(_ candidate: Candidate, context: KeyContext, window: String) {
-        lastInterception = (candidate.id, window, true)
+        services?.personInput.hostMarks.ranAction(for: inputDispatch.event); lastInterception = (candidate.id, window, true) // first: the key is the app's, so a page whose view saw it is not touched by it (New Tab reads that)
         let ran: Bool
         switch candidate.source {
         case .registry(let argument):

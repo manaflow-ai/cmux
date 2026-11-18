@@ -13,6 +13,7 @@ public import CmuxNextDesign
 /// - `actAsMe`: the app's one "Computer use can act as me" grant (``AgentPaneActAsMe``); nil (tests) grants nothing.
 /// - `flickerLog`: the app run's flicker ring file (``AgentPageFlickerLog/forAppRun()``); nil (tests) writes none.
 /// - `focusLoss`: the app's focus log for a page's `focus-lost` events (``AgentPaneView/onPageFocusLost``); nil (tests) records none.
+/// - `hostMarks`: the app's host marks (`AppServices.personInput.hostMarks`, ``AgentPaneHostMarks``); nil (tests): a key's mark is never taken back.
 public struct AgentPaneShared {
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
@@ -20,10 +21,13 @@ public struct AgentPaneShared {
     public let actAsMe: AgentPaneActAsMe?
     public let flickerLog: AgentPageFlickerLog?
     public let focusLoss: AgentPaneView.PageFocusLoss?
+    public let hostMarks: AgentPaneHostMarks?
 
-    /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant, no flicker log and no focus log.
+    /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps, no grant, no flicker log, no focus log and no host marks.
     public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil,
-                actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil) {
+                actAsMe: AgentPaneActAsMe? = nil, flickerLog: AgentPageFlickerLog? = nil, focusLoss: AgentPaneView.PageFocusLoss? = nil,
+                hostMarks: AgentPaneHostMarks? = nil) {
+        self.hostMarks = hostMarks
         self.openPanel = openPanel
         self.eventSources = eventSources
         self.apps = apps
@@ -40,6 +44,7 @@ extension AgentPaneView {
         self.init(model: model, source: source, renderRate: renderRate, pageHost: pageHost, panelProvider: shared.apps.map(AppsPanelsPageProvider.init(client:)),
                   openPanel: shared.openPanel, eventSources: shared.eventSources, flickerLog: shared.flickerLog)
         model.transport.gestures.actAsMe = shared.actAsMe
+        model.hostTouch.marks = shared.hostMarks
         onPageFocusLost = shared.focusLoss
         showActAsMe(shared.actAsMe)
     }
