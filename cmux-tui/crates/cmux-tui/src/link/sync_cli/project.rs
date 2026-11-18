@@ -18,6 +18,13 @@
 //!
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
 //!     cmux link project enable | disable | status
+//!     cmux link project mark | brought-back --mark M | release [--why archived|deleted]
+//!         --socket S --at REMOTE
+//!
+//! What frees the machine's copy of the agent's edits (`cmux_tui_core::projection`): Bring Back
+//! takes `mark` before it reads the upper layer and calls `brought-back --mark M` once the edits
+//! are on this Mac; archiving or deleting the chat calls `release`. The machine's reaper frees
+//! the rest (archived chats, orphans) on its own.
 
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::fs::{FileExt as _, MetadataExt as _};
@@ -74,9 +81,19 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("disable") => set_enabled(false).map(|()| json!({"ok": true, "enabled": false})),
         Some("status") => Ok(json!({"ok": true, "enabled": enabled()})),
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
+        Some("mark") => {
+            op_command(cmux_tui_core::projection::MARK, args.get(1..).unwrap_or_default())
+        }
+        Some("brought-back") => {
+            op_command(cmux_tui_core::projection::BROUGHT_BACK, args.get(1..).unwrap_or_default())
+        }
+        Some("release") => {
+            op_command(cmux_tui_core::projection::RELEASE, args.get(1..).unwrap_or_default())
+        }
         _ => Err(anyhow::anyhow!(
             "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
-             REMOTE | enable | disable | status"
+             REMOTE | mark | brought-back --mark M | release [--why archived|deleted] --socket S \
+             --at REMOTE | enable | disable | status"
         )),
     };
     match outcome {
@@ -208,6 +225,47 @@ fn stop(args: &[String]) -> anyhow::Result<Value> {
         .is_ok_and(|status| status.success());
     let _ = std::fs::remove_file(&pid_file);
     Ok(json!({"ok": true, "stopped": stopped}))
+}
+
+/// `mark`, `brought-back` or `release` (`op`) from its flags: [`projection_op`].
+fn op_command(op: &str, args: &[String]) -> anyhow::Result<Value> {
+    let (mut socket, mut at, mut mark, mut why) = (None, None, None, None);
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        match word.as_str() {
+            "--socket" => socket = words.next().map(PathBuf::from),
+            "--at" => at = words.next().cloned(),
+            "--mark" => mark = words.next().cloned(),
+            "--why" => why = words.next().cloned(),
+            other => bail!("unknown argument {other}"),
+        }
+    }
+    let socket = socket.context("--socket is required")?;
+    let at = at.context("--at is required")?;
+    projection_op(&socket, &at, op, mark.as_deref(), why.as_deref())
+}
+
+/// One op on the machine's record of the projection at `remote` (`cmux_tui_core::projection`'s
+/// `projection.mark`, `projection.brought_back`, `projection.release`): the machine's one-line
+/// answer.
+pub(crate) fn projection_op(
+    socket: &Path,
+    remote: &str,
+    op: &str,
+    mark: Option<&str>,
+    why: Option<&str>,
+) -> anyhow::Result<Value> {
+    let mut stream = UnixStream::connect(socket)
+        .with_context(|| format!("cannot reach the machine at {}", socket.display()))?;
+    let line = json!({"id": 1, "cmd": op, "name": name_of(remote), "mark": mark, "why": why});
+    let mut bytes = serde_json::to_vec(&line)?;
+    bytes.push(b'\n');
+    stream.write_all(&bytes)?;
+    stream.flush()?;
+    stream.set_read_timeout(Some(START_WAIT))?;
+    let mut answer = String::new();
+    BufReader::new(stream).read_line(&mut answer)?;
+    serde_json::from_str(answer.trim()).with_context(|| format!("the machine answered {answer:?}"))
 }
 
 /// Whether the machine's `identify` lists `projection-v1`.

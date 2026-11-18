@@ -9,7 +9,11 @@
 //! - `whiteouts`: lower paths the agent deleted or renamed away, one per line;
 //! - `cache/`: lower bytes fetched from the Mac, whole files as `cache/<entry>` and the chunks of a
 //!   big file as `cache/<entry>.<chunk>`, with `cache/manifest-id` naming the manifest they belong
-//!   to (a new manifest starts a fresh cache).
+//!   to (a new manifest starts a fresh cache). The cache holds only clean copies of the Mac's
+//!   bytes, so it is bounded ([`DEFAULT_CACHE_MAX_BYTES`], [`Overlay::with_cache_max`]): past its
+//!   cap the least recently used blobs go, and a later read fetches them again. The upper layer is
+//!   never evicted; it goes only when its chat's edits were brought back or the chat is gone
+//!   ([`crate::state`], [`crate::reap`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
@@ -29,6 +33,10 @@ pub const CHUNK: u64 = 4 * 1024 * 1024;
 const BATCH_FILES: usize = 256;
 /// The most bytes one directory readahead batch asks for.
 const BATCH_BYTES: u64 = 16 * 1024 * 1024;
+/// The most bytes of the Mac's files one projection keeps cached on the machine's disk.
+pub const DEFAULT_CACHE_MAX_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+/// The cache's own file naming the manifest it belongs to (never evicted).
+pub const CACHE_ID_FILE: &str = "manifest-id";
 
 /// `errno` values (Linux numbers; the mount is Linux only).
 pub mod errno {
@@ -75,6 +83,51 @@ enum Node {
     Lower(u32),
 }
 
+/// The cached blobs by when they were last used, and their bytes.
+#[derive(Default)]
+struct CacheIndex {
+    blobs: HashMap<Key, (u64, u64)>,
+    order: BTreeMap<u64, Key>,
+    bytes: u64,
+    tick: u64,
+}
+
+impl CacheIndex {
+    fn insert(&mut self, key: Key, bytes: u64) {
+        self.remove(key);
+        self.tick += 1;
+        self.blobs.insert(key, (bytes, self.tick));
+        self.order.insert(self.tick, key);
+        self.bytes += bytes;
+    }
+
+    fn touch(&mut self, key: Key) {
+        if let Some(&(bytes, _)) = self.blobs.get(&key) {
+            self.insert(key, bytes);
+        }
+    }
+
+    fn remove(&mut self, key: Key) -> Option<u64> {
+        let (bytes, tick) = self.blobs.remove(&key)?;
+        self.order.remove(&tick);
+        self.bytes = self.bytes.saturating_sub(bytes);
+        Some(bytes)
+    }
+
+    /// The least recently used blob, never `keep`.
+    fn oldest(&self, keep: Key) -> Option<Key> {
+        self.order.values().copied().find(|key| *key != keep)
+    }
+}
+
+/// The key a cache file's name stands for (`<entry>` or `<entry>.<chunk>`).
+fn cache_key(name: &str) -> Option<Key> {
+    match name.split_once('.') {
+        None => Some((name.parse().ok()?, WHOLE)),
+        Some((index, part)) => Some((index.parse().ok()?, part.parse().ok()?)),
+    }
+}
+
 #[derive(Default)]
 struct Inner {
     whiteouts: BTreeSet<String>,
@@ -100,6 +153,9 @@ pub struct Overlay {
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
+    cache_index: Mutex<CacheIndex>,
+    cache_max: u64,
+    cache_evicted: AtomicU64,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -153,7 +209,7 @@ impl Overlay {
         let whiteouts_file = state.join("whiteouts");
         fs::create_dir_all(&upper)?;
         let id = format!("{:016x}\n", fnv(&bincode::serialize(manifest.as_ref())?));
-        let id_file = cache.join("manifest-id");
+        let id_file = cache.join(CACHE_ID_FILE);
         if fs::read_to_string(&id_file).ok().as_deref() != Some(id.as_str()) {
             if cache.exists() {
                 fs::remove_dir_all(&cache)?;
@@ -169,6 +225,20 @@ impl Overlay {
             .map(|text| text.lines().filter(|line| !line.is_empty()).map(str::to_owned).collect())
             .unwrap_or_default();
         let next = manifest.len() as u64 + 2;
+        // What an earlier daemon cached, oldest first by when it was written.
+        let mut blobs: Vec<(i64, Key, u64)> = fs::read_dir(&cache)?
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let key = cache_key(entry.file_name().to_str()?)?;
+                let meta = entry.metadata().ok()?;
+                meta.is_file().then(|| (mtime_of(&meta), key, meta.len()))
+            })
+            .collect();
+        blobs.sort_unstable();
+        let mut cache_index = CacheIndex::default();
+        for (_, key, bytes) in blobs {
+            cache_index.insert(key, bytes);
+        }
         Ok(Self {
             manifest,
             fetch,
@@ -184,7 +254,43 @@ impl Overlay {
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
+            cache_index: Mutex::new(cache_index),
+            cache_max: DEFAULT_CACHE_MAX_BYTES,
+            cache_evicted: AtomicU64::new(0),
         })
+    }
+
+    /// This overlay with its cache capped at `bytes` (what is over goes now).
+    #[must_use]
+    pub fn with_cache_max(mut self, bytes: u64) -> Self {
+        self.cache_max = bytes;
+        self.evict_over(None);
+        self
+    }
+
+    /// The bytes of the Mac's files cached on the machine now.
+    #[must_use]
+    pub fn cache_bytes(&self) -> u64 {
+        self.cache_index.lock().unwrap_or_else(PoisonError::into_inner).bytes
+    }
+
+    /// The bytes the cache let go to stay under its cap so far.
+    #[must_use]
+    pub fn cache_evicted(&self) -> u64 {
+        self.cache_evicted.load(Ordering::Relaxed)
+    }
+
+    /// Drops the least recently used blobs (never `keep`) until the cache is under its cap.
+    fn evict_over(&self, keep: Option<Key>) {
+        let keep = keep.unwrap_or((u32::MAX, 0));
+        let mut index = self.cache_index.lock().unwrap_or_else(PoisonError::into_inner);
+        while index.bytes > self.cache_max {
+            let Some(oldest) = index.oldest(keep) else { break };
+            let bytes = index.remove(oldest).unwrap_or(0);
+            // Gone already (the reaper trimmed it) is as good as removed.
+            let _ = fs::remove_file(self.cache_path(oldest));
+            self.cache_evicted.fetch_add(bytes, Ordering::Relaxed);
+        }
     }
 
     /// The folder that holds what the agent wrote.
@@ -479,16 +585,26 @@ impl Overlay {
     }
 
     fn cached(&self, key: Key) -> Option<Vec<u8>> {
-        let bytes = fs::read(self.cache_path(key)).ok()?;
+        let Ok(bytes) = fs::read(self.cache_path(key)) else {
+            self.cache_index.lock().unwrap_or_else(PoisonError::into_inner).remove(key);
+            return None;
+        };
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
+        self.cache_index.lock().unwrap_or_else(PoisonError::into_inner).touch(key);
         Some(bytes)
     }
 
     fn store(&self, key: Key, bytes: &[u8]) {
         let temp = self.scratch_path();
-        if fs::write(&temp, bytes).is_ok() && fs::rename(&temp, self.cache_path(key)).is_err() {
+        if fs::write(&temp, bytes).is_err() || fs::rename(&temp, self.cache_path(key)).is_err() {
             let _ = fs::remove_file(&temp);
+            return;
         }
+        self.cache_index
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(key, bytes.len() as u64);
+        self.evict_over(Some(key));
     }
 
     /// Waits until no other thread fetches `key`, then claims it.
