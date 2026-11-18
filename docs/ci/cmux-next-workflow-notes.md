@@ -449,8 +449,9 @@ own Linux runner), else a mini idle now with no nightly job waiting on its pool,
 Blacksmith label (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things
 cant our minis just run them"). Every step fails open: no output keeps each job's Blacksmith route.
 The placement code comes from the base branch, as macos-placement's does.
-This bootstrap must start independently of the labels it validates: hosted Ubuntu on attempt 1,
-then the measured paid retry route. Its consumers take live fleet capacity from its outputs.
+This bootstrap must start independently of the labels it validates: Blacksmith 2 vCPU
+(RUNNER_POOLS.linux_2) on every attempt, like the other placement bootstraps. It took hosted Ubuntu on
+attempt 1 until 2026-11-18, when GitHub-hosted runners left it queued for hours (cmux#45735). Its consumers take live fleet capacity from its outputs.
 
 ## note-26
 

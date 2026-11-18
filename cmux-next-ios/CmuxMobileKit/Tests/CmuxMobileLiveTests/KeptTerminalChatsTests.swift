@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import CmuxMobileLive
 
-/// The pairing of a terminal's agent session with its chat, kept on disk beside the transcripts:
-/// a relaunch reads it (with the Mac out of reach too), each account and Mac keeps its own, and
-/// sign-out deletes it with the transcripts.
+/// The pairing of a terminal's agent session with its chat, and the face each tab shows, kept on
+/// disk beside the transcripts: a relaunch reads them (with the Mac out of reach too), each account
+/// and Mac keeps its own, and sign-out deletes them with the transcripts.
 @MainActor
 @Suite(.timeLimit(.minutes(1))) struct KeptTerminalChatsTests {
     static func folder() -> URL {
@@ -15,13 +15,15 @@ import Testing
         AgentTranscriptCache(directory: directory, writeDelay: .milliseconds(0))
     }
 
-    @Test func aRelaunchReadsThePairingFromDisk() async throws {
+    @Test func aRelaunchReadsThePairingAndTheFaceFromDisk() async throws {
         let directory = Self.folder()
         let kept = Self.cache(directory).terminalChats
         let file = kept.file
         defer { try? FileManager.default.removeItem(at: file) }
         let chatKey = try #require(KeptTerminalChats.key("acct", "mac", "claude", "h-1"))
+        let faceKey = try #require(KeptTerminalChats.key("acct", "mac", "s2"))
         kept.keepChat("a-1", for: chatKey)
+        kept.keepFace(showsChat: false, for: faceKey)
         await kept.flush()
         // Beside the transcripts' folder, never in it (the folder's byte trim would delete it).
         #expect(kept.file.deletingLastPathComponent() == directory.deletingLastPathComponent())
@@ -36,10 +38,12 @@ import Testing
         print(line)
         Attachment.record(line, named: "offlinechat-pairing.txt")
         #expect(relaunched.chat(chatKey) == "a-1")
+        #expect(relaunched.showsChat(faceKey) == false)
         // Another account or Mac keeps none of it.
         #expect(relaunched.chat(try #require(KeptTerminalChats.key("other", "mac", "claude", "h-1"))) == nil)
         #expect(relaunched.chat(try #require(KeptTerminalChats.key("acct", "mac2", "claude", "h-1"))) == nil)
         #expect(KeptTerminalChats.key("", "mac", "claude", "h-1") == nil)
+        #expect(KeptTerminalChats.key("", "mac", "s2") == nil)
 
         // A stale pairing is forgotten, and stays forgotten after a relaunch.
         relaunched.keepChat(nil, for: chatKey)
@@ -47,6 +51,46 @@ import Testing
         let again = Self.cache(directory).terminalChats
         await again.load()
         #expect(again.chat(chatKey) == nil)
+        #expect(again.showsChat(faceKey) == false)
+    }
+
+    /// A pairings file from a build that kept no faces (only `chats`) still reads, pairings and all.
+    @Test func aFileFromABuildWithoutFacesKeepsItsPairings() async throws {
+        let file = Self.folder().appendingPathExtension("json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let older = #"{"chats":{"acct|mac|claude|h-1":{"value":"a-1","at":1}}}"#
+        try Data(older.utf8).write(to: file)
+        let kept = KeptTerminalChats(file: file, queue: DispatchQueue(label: "kept-terminal-chats-older"))
+        await kept.load()
+        #expect(kept.chat("acct|mac|claude|h-1") == "a-1")
+        #expect(kept.showsChat("acct|mac|s1") == nil)
+    }
+
+    /// A file from this build (with `faces`) read by an older build: the shapes below are the base's
+    /// `Stamped` and `Contents` (`chats` only, synthesized decoding, read with `try? JSONDecoder()` as
+    /// before), so an older build skips the unknown `faces` key and keeps every pairing.
+    @Test func anOlderBuildReadsANewerFileAndKeepsItsPairings() async throws {
+        struct OlderStamped: Codable, Equatable {
+            var value: String
+            var at: Double
+        }
+        struct OlderContents: Codable, Equatable {
+            var chats: [String: OlderStamped] = [:]
+        }
+        let directory = Self.folder()
+        let kept = Self.cache(directory).terminalChats
+        let file = kept.file
+        defer { try? FileManager.default.removeItem(at: file) }
+        let chatKey = try #require(KeptTerminalChats.key("acct", "mac", "claude", "h-1"))
+        kept.keepChat("a-1", for: chatKey)
+        let faceKey = try #require(KeptTerminalChats.key("acct", "mac", "s1"))
+        kept.keepFace(showsChat: true, for: faceKey)
+        await kept.flush()
+        let data = try Data(contentsOf: file)
+        #expect(String(decoding: data, as: UTF8.self).contains("\"faces\""))
+        let older = try #require(try? JSONDecoder().decode(OlderContents.self, from: data))
+        #expect(older.chats[chatKey]?.value == "a-1")
+        #expect(older.chats.count == 1)
     }
 
     /// Ids are opaque: a `|` in one never makes two keys one (each part is escaped), on disk too.
@@ -84,7 +128,7 @@ import Testing
         #expect(relaunched.chat(key) == nil)
     }
 
-    @Test func itKeepsItsNewestEntriesUpToItsLimit() async throws {
+    @Test func eachKindKeepsItsNewestEntriesUpToItsLimit() async throws {
         let file = Self.folder().appendingPathExtension("json")
         defer { try? FileManager.default.removeItem(at: file) }
         let queue = DispatchQueue(label: "kept-terminal-chats-test")
@@ -92,12 +136,16 @@ import Testing
         let stamped = KeptTerminalChats(file: file, limit: 2, queue: queue, now: Self.ticking())
         await stamped.load()
         for chat in ["a", "b", "c"] { stamped.keepChat(chat, for: "k-\(chat)") }
+        for tab in ["s1", "s2", "s3"] { stamped.keepFace(showsChat: tab != "s3", for: "f-\(tab)") }
         await stamped.flush()
         let read = KeptTerminalChats(file: file, limit: 2, queue: queue)
         await read.load()
         #expect(read.chat("k-a") == nil)
         #expect(read.chat("k-b") == "b")
         #expect(read.chat("k-c") == "c")
+        #expect(read.showsChat("f-s1") == nil)
+        #expect(read.showsChat("f-s2") == true)
+        #expect(read.showsChat("f-s3") == false)
     }
 
     /// A clock that moves one second per read.
