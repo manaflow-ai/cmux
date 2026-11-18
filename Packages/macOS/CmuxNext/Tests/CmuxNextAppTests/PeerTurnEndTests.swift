@@ -165,7 +165,8 @@ struct PeerTurnEndTests {
         #expect(turns.workingSessions == 0)
         #expect(!keepAwake.policy.agentsWorking, "peer-only work asked to keep this Mac awake")
         #expect(!keepAwake.policy.holds)
-        #expect(try !Self.holdsSleepAssertion(), "peer-only work holds a sleep assertion (pmset -g assertions)")
+        let peerOnly = try await Self.holdsSleepAssertion()
+        #expect(!peerOnly, "peer-only work holds a sleep assertion (pmset -g assertions)")
 
         // This Mac's own agent works: the hold is on (on adapter power, the default `sessions.keepAwake`).
         feed.handle(try Self.localChange("awake-local", indicator: "working"))
@@ -174,28 +175,36 @@ struct PeerTurnEndTests {
         #expect(keepAwake.policy.agentsWorking, "this Mac's working agent did not ask to keep it awake")
         if !keepAwake.policy.onBattery {
             #expect(keepAwake.policy.holds)
-            #expect(try Self.holdsSleepAssertion(), "this Mac's working agent holds no sleep assertion (pmset -g assertions)")
+            let local = try await Self.holdsSleepAssertion()
+            #expect(local, "this Mac's working agent holds no sleep assertion (pmset -g assertions)")
         }
 
         // Its turn ends while the peers still work: the hold goes.
         feed.handle(try Self.localChange("awake-local", indicator: "idle"))
         await LargeSessionObservationTests.until { !keepAwake.policy.agentsWorking }
         #expect(!keepAwake.policy.holds, "the peers' work kept the hold after this Mac's agent stopped")
-        #expect(try !Self.holdsSleepAssertion())
+        let after = try await Self.holdsSleepAssertion()
+        #expect(!after, "the hold stayed after this Mac's agent stopped (pmset -g assertions)")
     }
 
     private static var kept: [KeepAwakeService] = []
 
     /// Whether this process holds the keep-awake service's assertion, as `pmset -g assertions` lists it.
-    static func holdsSleepAssertion() throws -> Bool {
+    static func holdsSleepAssertion() async throws -> Bool {
+        let file = FileManager.default.temporaryDirectory.appending(path: "peer-turn-end-pmset-\(UUID().uuidString).txt")
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let out = try FileHandle(forWritingTo: file)
+        defer { try? out.close() }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
         process.arguments = ["-g", "assertions"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        try process.run()
-        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        process.waitUntilExit()
+        process.standardOutput = out
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            process.terminationHandler = { _ in done.resume() }
+            do { try process.run() } catch { process.terminationHandler = nil; done.resume() }
+        }
+        let output = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
         let pid = ProcessInfo.processInfo.processIdentifier
         return output.split(separator: "\n").contains { line in
             line.contains("pid \(pid)(") && line.contains("cmux keeps this Mac awake")
