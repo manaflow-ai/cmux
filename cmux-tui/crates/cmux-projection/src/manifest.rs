@@ -124,7 +124,9 @@ impl Manifest {
     /// The manifest as a tree again, for [`Manifest::apply`].
     fn to_tree(&self) -> Node {
         fn below(manifest: &Manifest, index: u32) -> Node {
-            let entry = &manifest.entries[index as usize];
+            let Some(entry) = manifest.entry(index) else {
+                return Node::default();
+            };
             let (first, children) = manifest.children(index);
             let mut node = Node {
                 kind: Some(entry.kind),
@@ -429,23 +431,24 @@ fn diff(base: &Manifest, at: u32, new: &Manifest, now: u32, path: &str, delta: &
     let (mut b, mut n) = (0usize, 0usize);
     let index =
         |first: u32, offset: usize| first.saturating_add(u32::try_from(offset).unwrap_or(u32::MAX));
-    while b < before.len() || n < after.len() {
-        let order = match (before.get(b), after.get(n)) {
+    loop {
+        let (old, fresh) = (before.get(b), after.get(n));
+        let order = match (old, fresh) {
             (Some(old), Some(fresh)) => old.name.cmp(&fresh.name),
             (Some(_), None) => std::cmp::Ordering::Less,
-            _ => std::cmp::Ordering::Greater,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => break,
         };
-        match order {
-            std::cmp::Ordering::Less => {
-                delta.removed.push(join(path, &before[b].name));
+        match (order, old, fresh) {
+            (std::cmp::Ordering::Less, Some(old), _) => {
+                delta.removed.push(join(path, &old.name));
                 b += 1;
             }
-            std::cmp::Ordering::Greater => {
-                everything(new, index(new_first, n), &join(path, &after[n].name), delta);
+            (std::cmp::Ordering::Greater, _, Some(fresh)) => {
+                everything(new, index(new_first, n), &join(path, &fresh.name), delta);
                 n += 1;
             }
-            std::cmp::Ordering::Equal => {
-                let (old, fresh) = (&before[b], &after[n]);
+            (_, Some(old), Some(fresh)) => {
                 let here = join(path, &fresh.name);
                 match (old.kind, fresh.kind) {
                     (Kind::Dir, Kind::Dir) => {
@@ -468,6 +471,8 @@ fn diff(base: &Manifest, at: u32, new: &Manifest, now: u32, path: &str, delta: &
                 b += 1;
                 n += 1;
             }
+            // `order` came from these two, so nothing else is left.
+            _ => break,
         }
     }
 }
