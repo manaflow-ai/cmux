@@ -1,0 +1,58 @@
+/* The Codex app look (look/README.md): Settings as the Codex app draws its settings window. A gray
+   sidebar of categories with a rounded gray selection, a white page, plain section titles, and
+   each group a white card with a hairline and 12 px corners whose pickers are plain text with a
+   chevron. Loaded last (page.css), colors and radii only, so the rows keep their heights. */
+.settings {
+  --look-control-fill: transparent;
+  --look-control-fill-hover: light-dark(#ededed, color-mix(in srgb, var(--text, currentColor) 10%, transparent));
+  --look-control-line: transparent;
+}
+.settings > .sidebar,
+:root[data-settings-look] .settings > .sidebar {
+  background: light-dark(#f4f4f4, color-mix(in srgb, var(--text, currentColor) 4%, transparent));
+  border-right: 1px solid light-dark(#ececec, color-mix(in srgb, var(--text, currentColor) 8%, transparent));
+}
+.settings .sidebar-title {
+  font-weight: var(--weight-medium, 500);
+}
+.settings .section-link,
+:root[data-settings-look] .settings .section-link {
+  border-radius: 8px;
+}
+.settings .section-link[aria-current],
+:root[data-settings-look] .settings .section-link[aria-current] {
+  background: light-dark(#e5e5e5, color-mix(in srgb, var(--text, currentColor) 12%, transparent));
+}
+.settings .section-title {
+  font-weight: var(--weight-medium, 500);
+}
+.settings .group-title {
+  font-weight: var(--weight-medium, 500);
+  color: var(--muted-text, inherit);
+}
+.settings .rows,
+:root[data-settings-look] .settings .rows {
+  border: 1px solid light-dark(#e6e6e6, color-mix(in srgb, var(--text, currentColor) 12%, transparent));
+  border-radius: 12px;
+  background: light-dark(#ffffff, transparent);
+}
+.settings .rows > .row:first-child {
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+.settings .rows > .row:last-child {
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+.settings .search-bar .search-input {
+  border-radius: 8px;
+}
+/* Pickers read as plain text with a chevron; the wash shows only on hover or while open. */
+.settings .row-control :is(.ui-select-button, .button):not(.ui-btn) {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.settings .row-control :is(.ui-select-button, .button):not(.ui-btn):is(:hover, [data-popup-open]):not(:disabled) {
+  background: var(--look-control-fill-hover);
+}

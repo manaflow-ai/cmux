@@ -8,5 +8,7 @@
 @import "./refined.css";
 @import "./look.css";
 @import "../shared/pageDensity.css";
+/* The Codex app look (look/README.md): last of the page's own sheets. */
+@import "./codexLook.css";
 
 @import "../shared/transientMaterial.css";
