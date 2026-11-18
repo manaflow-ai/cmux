@@ -7,10 +7,10 @@
 // Each round types KEYS letters into each page's composer (Playwright key events GAP ms apart) while that page's
 // daemon streams a reply into it: a reply token every 16 ms (one record a frame, the replay's burst rate), from a
 // turn started for the segment and ended after it. The sides alternate (god first on odd rounds, small first on
-// even), seconds apart, so a slow minute of a shared runner lands on both. Per key, from the page's own
-// typingStats (perf.ts: keydown's event time to the next frame's start, as the Mac bench reads it): p50 and p95.
-// A segment's p95 of 40+ keys is one round's number; the verdict is the median over rounds of each round's
-// god / small ratio with a seeded bootstrap 95% interval, as god-ratio-ab.sh reads its rounds. Rounds run until the
+// even), seconds apart, so a slow minute of a shared runner lands on both. Per key: keydown's event time to the
+// next frame's start, read as perf.ts's typing recorder reads `to_frame` (the Mac bench's number; its own count is
+// checked against the probe's). The verdict pools every key of every round per side: p50 and p95, god / small, and a
+// 95% interval from a seeded bootstrap over rounds that keeps each round's two sides together. Rounds run until the
 // p50 and p95 ratio intervals are both narrower than --width (0.05) or --max-rounds.
 // Key to frame is a latency, so it is read on the wall clock; with CLOCK=cpu each segment also reads the main
 // thread's CPU ms per second (threadTicks) while it types and streams: the load each page carries.
@@ -48,7 +48,17 @@ const TOKEN_MS = 16;
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const webviews = path.resolve(import.meta.dir, "..");
 
-type Segment = { p50: number; p95: number; max: number; keys: number; cpuMsPerS?: number; tokens: number };
+/// One side's segment of one round: each key's ms to the next frame (keyProbe), its p50, p95 and max, and the
+/// reply tokens streamed meanwhile.
+type Segment = {
+  frames: number[];
+  p50: number;
+  p95: number;
+  max: number;
+  keys: number;
+  cpuMsPerS?: number;
+  tokens: number;
+};
 type Side = {
   name: "god" | "small";
   log: ReplayLog;
@@ -70,21 +80,39 @@ export function median(values: readonly number[]): number {
   return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
 }
 
-/// The median's 95% interval: a seeded bootstrap over the rounds (pure; mulberry32, as god-ratio-ab.sh seeds its own).
-export function medianInterval(values: readonly number[], draws = 4000): [number, number] {
-  let a = 1;
-  const random = () => {
+/// The `q` quantile of `values` (pure; nearest rank, as perf.ts's typing summary reads it).
+export function quantile(values: readonly number[], q: number): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))] ?? NaN;
+}
+
+/// Init script (self-contained): each composer key's ms from its keydown event to the next frame's start, the way
+/// perf.ts's typing recorder reads `to_frame`, kept whole so rounds can be pooled.
+function keyProbe() {
+  const w = window as unknown as { __keyFrames?: number[] };
+  if (w.__keyFrames) return;
+  w.__keyFrames = [];
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (!(event.target as Element | null)?.closest?.(".acpmux-composer")) return;
+      const start = event.timeStamp;
+      requestAnimationFrame(() => w.__keyFrames!.push(performance.now() - start));
+    },
+    true,
+  );
+}
+
+/// mulberry32 (as godFixture.ts seeds its logs): a seeded bootstrap draws the same rounds every run.
+function seeded(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
     a = (a + 0x6d2b79f5) >>> 0;
     let t = a;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-  const meds: number[] = [];
-  for (let draw = 0; draw < draws; draw++)
-    meds.push(median(values.map(() => values[Math.floor(random() * values.length)]!)));
-  meds.sort((x, y) => x - y);
-  return [meds[Math.floor(draws * 0.025)]!, meds[Math.floor(draws * 0.975)]!];
 }
 
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
@@ -108,6 +136,7 @@ async function openSide(
   daemon.play = play;
   const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
   await installPaintedFrames(page);
+  await page.addInitScript(keyProbe);
   const url =
     `http://127.0.0.1:${statics}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}` +
     `&token=t&session=${encodeURIComponent(log.sessionId)}`;
@@ -162,7 +191,10 @@ async function segment(side: Side, round: number): Promise<Segment> {
   try {
     // The stream under way before the first key (its first rows drawn).
     await page.waitForTimeout(300);
-    await page.evaluate(() => (window as any).cmuxAcpmuxDebug.resetTyping());
+    await page.evaluate(() => {
+      (window as any).cmuxAcpmuxDebug.resetTyping();
+      (window as unknown as { __keyFrames: number[] }).__keyFrames.length = 0;
+    });
     if (PROFILE) {
       await side.cdp.send("Profiler.setSamplingInterval", { interval: 100 });
       await side.cdp.send("Profiler.start");
@@ -185,17 +217,22 @@ async function segment(side: Side, round: number): Promise<Segment> {
         for (const [fn, ms] of times) map.set(fn, (map.get(fn) ?? 0) + ms);
       side.keysProfiled += KEYS;
     }
-    const typing = (await page.evaluate(() => (window as any).cmuxAcpmuxDebug.typingStats())) as {
-      keys: number;
-      to_frame?: { p50_ms?: number; p95_ms?: number; max_ms?: number };
-    };
-    if (!typing.to_frame || typing.keys < KEYS * 0.9)
-      throw new Error(`${side.name}: the page counted ${typing.keys} of ${KEYS} keys`);
+    // Two more frames: the last key's frame is in.
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    const { frames, typing } = (await page.evaluate(() => ({
+      frames: [...(window as unknown as { __keyFrames: number[] }).__keyFrames],
+      typing: (window as any).cmuxAcpmuxDebug.typingStats(),
+    }))) as { frames: number[]; typing: { keys: number } };
+    // The page's own recorder heard the same keys (perf.ts): the probe measures what the typing goal measures.
+    if (frames.length < KEYS * 0.9 || typing.keys < KEYS * 0.9)
+      throw new Error(`${side.name}: ${frames.length} keys probed, ${typing.keys} recorded, of ${KEYS}`);
+    const ms = (value: number) => Math.round(value * 10) / 10;
     return {
-      keys: typing.keys,
-      p50: typing.to_frame.p50_ms ?? NaN,
-      p95: typing.to_frame.p95_ms ?? NaN,
-      max: typing.to_frame.max_ms ?? NaN,
+      frames,
+      keys: frames.length,
+      p50: ms(quantile(frames, 0.5)),
+      p95: ms(quantile(frames, 0.95)),
+      max: ms(Math.max(...frames)),
       tokens: sent,
       ...(side.cpu ? { cpuMsPerS: Math.round((cpuMs / seconds) * 10) / 10 } : {}),
     };
@@ -215,18 +252,25 @@ const textChunk = (value: string) => ({
 });
 
 type Verdict = { stat: "p50" | "p95"; ratio: number; lo: number; hi: number; small: number; god: number };
-/// Per stat, the median over rounds of god / small, its interval, and each side's median ms (pure).
-export function verdict(god: readonly Segment[], small: readonly Segment[]): Verdict[] {
+/// Per stat: each side's quantile over every key of every round, god / small, and that ratio's 95% interval from a
+/// seeded paired bootstrap over rounds (a draw takes a round's god and small keys together, so a slow minute of the
+/// runner stays paired). A round's own p95 is 2 of 40 keys; pooled, it is 5% of every key typed (pure).
+export function verdict(god: readonly Segment[], small: readonly Segment[], draws = 2000): Verdict[] {
+  const random = seeded(1);
+  const pool = (segments: readonly Segment[], picks: readonly number[]) => picks.flatMap((at) => segments[at]!.frames);
+  const all = god.map((_, index) => index);
+  const resamples = Array.from({ length: draws }, () => all.map(() => Math.floor(random() * all.length)));
   return (["p50", "p95"] as const).map((stat) => {
-    const ratios = god.map((segment, index) => segment[stat] / small[index]![stat]);
-    const [lo, hi] = medianInterval(ratios);
+    const q = stat === "p50" ? 0.5 : 0.95;
+    const ratioOf = (picks: readonly number[]) => quantile(pool(god, picks), q) / quantile(pool(small, picks), q);
+    const ratios = resamples.map(ratioOf).sort((a, b) => a - b);
     return {
       stat,
-      ratio: round3(median(ratios)),
-      lo: round3(lo),
-      hi: round3(hi),
-      small: round3(median(small.map((each) => each[stat]))),
-      god: round3(median(god.map((each) => each[stat]))),
+      ratio: round3(ratioOf(all)),
+      lo: round3(ratios[Math.floor(draws * 0.025)]!),
+      hi: round3(ratios[Math.floor(draws * 0.975)]!),
+      small: round3(quantile(pool(small, all), q)),
+      god: round3(quantile(pool(god, all), q)),
     };
   });
 }
@@ -305,8 +349,8 @@ if (import.meta.main) {
     const rounds = sides[0].segments.length;
     console.log(
       `god-typing: ${rounds} rounds, ${KEYS} keys a side a round, ${GAP_MS} ms apart, a reply token every ${TOKEN_MS} ms; ` +
-        `god ${sides[0].rows} rows, small ${sides[1].rows} rows; key to frame, ms (median over rounds) and the median ` +
-        `over rounds of god / small with its 95% interval`,
+        `god ${sides[0].rows} rows, small ${sides[1].rows} rows; key to frame, ms over every key, and ` +
+        `god / small with its 95% interval (a paired bootstrap over rounds)`,
     );
     for (const each of verdicts)
       console.log(
@@ -318,7 +362,7 @@ if (import.meta.main) {
       console.log(`  main-thread cpu ms/s while typing and streaming: small ${cpu(sides[1])} god ${cpu(sides[0])}`);
     }
     console.log(
-      `GOD-TYPING ${JSON.stringify({ rounds, keys: KEYS, gap_ms: GAP_MS, verdicts, sides: sides.map((side) => ({ name: side.name, rows: side.rows, segments: side.segments })) })}`,
+      `GOD-TYPING ${JSON.stringify({ rounds, keys: KEYS, gap_ms: GAP_MS, verdicts, sides: sides.map((side) => ({ name: side.name, rows: side.rows, segments: side.segments.map(({ frames: _, ...rest }) => rest) })) })}`,
     );
     if (PROFILE) {
       const top = (map: Map<string, number>, keys: number, count: number) =>
