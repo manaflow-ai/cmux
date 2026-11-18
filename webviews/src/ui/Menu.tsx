@@ -527,6 +527,9 @@ export interface MenuItemProps {
   /** The row took focus: the arrow keys focus the highlighted row. */
   onFocus?(event: FocusEvent<HTMLElement>): void;
   onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
+  /** The row's place among all of a windowed menu's rows (only some are mounted). */
+  "aria-posinset"?: number;
+  "aria-setsize"?: number;
   children: ReactNode;
 }
 
@@ -545,6 +548,8 @@ export function MenuItem({
   closeOnClick,
   expanded,
   controls,
+  "aria-posinset": posinset,
+  "aria-setsize": setsize,
   children,
 }: MenuItemProps & {
   /** False keeps the menu open after a click (a row that shows or hides rows of its own menu). */
@@ -564,6 +569,7 @@ export function MenuItem({
       {...(closeOnClick === undefined ? {} : { closeOnClick })}
       {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
       {...(controls ? { "aria-controls": controls } : {})}
+      {...(posinset === undefined ? {} : { "aria-posinset": posinset, "aria-setsize": setsize })}
       {...(closeOnClick === false ? { "data-keeps-open": "" } : {})}
       onPointerMove={(event) => {
         context?.movePointer(event);
@@ -658,6 +664,8 @@ export function MenuRadioItem({
   closeOnClick,
   label,
   title,
+  "aria-posinset": posinset,
+  "aria-setsize": setsize,
   children,
 }: {
   value: string;
@@ -675,6 +683,7 @@ export function MenuRadioItem({
       value={value}
       aria-label={label}
       title={title}
+      {...(posinset === undefined ? {} : { "aria-posinset": posinset, "aria-setsize": setsize })}
       disabled={disabled}
       closeOnClick={closeOnClick}
       onPointerMove={(event) => context?.movePointer(event)}
