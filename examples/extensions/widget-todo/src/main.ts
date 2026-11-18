@@ -50,32 +50,53 @@ function newId(): string {
   return `${Date.now().toString(36)}-${nextId}`
 }
 
-function ensure() {
-  if (items() !== null || loading) return
-  loading = true
-  cmux.storage.get<Item[]>(KEY).then(
-    (saved) => {
-      loading = false
-      // An item added while this read was out wins over the saved copy only if nothing was saved.
-      if (items() === null) setItems(parse(saved))
-    },
-    (error: unknown) => {
-      loading = false
-      if (items() === null) setItems([])
-      setProblem(error instanceof Error ? error.message : String(error))
-    }
-  )
-}
+// Edits made before the saved list arrives wait here and apply on top of it, so an item added
+// while the first read is out never replaces the saved list.
+let waiting: Array<(list: Item[]) => Item[]> = []
+// A read that failed leaves nothing known to save over: edits stay here until a read succeeds.
+let readFailed = false
 
-/** Changes the list here at once, then saves it. */
-export function change(edit: (list: Item[]) => Item[]) {
-  const next = edit(items() ?? [])
-  setItems(next)
+function save(next: Item[]) {
   const saved = next.length ? cmux.storage.set(KEY, next) : cmux.storage.delete(KEY)
   saved.then(
     () => setProblem(null),
     (error: unknown) => setProblem(error instanceof Error ? error.message : String(error))
   )
+}
+
+function ensure() {
+  if ((items() !== null && !readFailed) || loading) return
+  loading = true
+  cmux.storage.get<Item[]>(KEY).then(
+    (saved) => {
+      loading = false
+      readFailed = false
+      const edits = waiting
+      waiting = []
+      const next = edits.reduce((list, edit) => edit(list), parse(saved))
+      setItems(next)
+      if (edits.length) save(next)
+    },
+    (error: unknown) => {
+      loading = false
+      readFailed = true
+      if (items() === null) setItems([])
+      setProblem(`Couldn't read your list: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  )
+}
+
+/** Changes the list here at once, then saves it; before the saved list is read, it waits for it. */
+export function change(edit: (list: Item[]) => Item[]) {
+  if (items() === null || readFailed) {
+    waiting.push(edit)
+    setItems(edit(items() ?? []))
+    ensure()
+    return
+  }
+  const next = edit(items()!)
+  setItems(next)
+  save(next)
 }
 
 const add = (text: string) => {

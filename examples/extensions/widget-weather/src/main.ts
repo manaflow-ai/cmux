@@ -133,17 +133,22 @@ export function forecastURL(place: Place, inFahrenheit: boolean): string {
   )
 }
 
+const currentKey = () => `${placeName().toLowerCase()}|${fahrenheit() ? "f" : "c"}`
+
 let located: { name: string; place: Place } | null = null
 let inflight: Promise<void> | null = null
+let inflightKey = ""
 
 /** Reads the forecast for the current setting; `force` skips the 10 minute reuse. */
 function load(force = false): Promise<void> {
   const name = placeName()
   if (!name) return Promise.resolve()
-  const key = `${name.toLowerCase()}|${fahrenheit() ? "f" : "c"}`
+  const key = currentKey()
   const last = reading()
   if (!force && last?.key === key && Date.now() - last.at < REUSE_MS) return Promise.resolve()
-  if (inflight) return inflight
+  // A read for another place or other units is out: read again for this one when it ends.
+  if (inflight) return inflightKey === key ? inflight : inflight.then(() => load(force))
+  inflightKey = key
   const inFahrenheit = fahrenheit()
   setBusy(true)
   inflight = (async () => {
@@ -152,11 +157,11 @@ function load(force = false): Promise<void> {
       located = { name, place }
       const forecast = forecastFrom(await getJSON<OpenMeteoForecast>(forecastURL(place, inFahrenheit)))
       // The setting changed while this read was out: its answer is for the old place.
-      if (placeName() !== name) return
+      if (currentKey() !== key) return
       setReading({ key, place, forecast, at: Date.now() })
       setProblem(null)
     } catch (error) {
-      if (placeName() === name) setProblem(explain(error))
+      if (currentKey() === key) setProblem(explain(error))
     } finally {
       inflight = null
       setBusy(false)

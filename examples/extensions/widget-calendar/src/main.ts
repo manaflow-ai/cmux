@@ -49,8 +49,9 @@ export function timeText(at: number, hour12: boolean): string {
 /** "Today", "Tomorrow", else "Wednesday, November 18". */
 export function dayTitle(at: number, now: number): string {
   const delta = dayNumber(at) - dayNumber(now)
-  if (delta <= 0) return "Today"
+  if (delta === 0) return "Today"
   if (delta === 1) return "Tomorrow"
+  if (delta === -1) return "Yesterday"
   const d = wall(at)
   return `${DAYS[d.getUTCDay()]}, ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`
 }
@@ -178,7 +179,7 @@ export function renderCalendar(): View {
       Circle({ fill: accent, size: 8 }),
       VStack({ spacing: 0, alignment: "leading" }, [
         Text(() => e().title).font("subheadline").weight("semibold").lineLimit(1),
-        Text(() => (showDay && dayNumber(e().start) !== dayNumber(now()) ? `${dayTitle(e().start, now())}, ${when(e(), now(), hour12())}` : when(e(), now(), hour12())))
+        Text(() => (showDay && e().start > now() && dayNumber(e().start) !== dayNumber(now()) ? `${dayTitle(e().start, now())}, ${when(e(), now(), hour12())}` : when(e(), now(), hour12())))
           .font("caption")
           .color(secondary)
           .lineLimit(1)
