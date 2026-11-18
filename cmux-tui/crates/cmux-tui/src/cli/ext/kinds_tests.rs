@@ -28,14 +28,15 @@ const KINDS: [(&str, bool); 5] = [
 ];
 
 /// Words each view kind's template shows in its first scene and has in `src/main.ts`: the test
-/// sees them, saves the source with them changed, and sees the change.
+/// sees them, saves the source with them changed, and sees the change (the command kind draws
+/// nothing; its source is saved with its greeting changed).
 fn marker(kind: &str) -> &'static str {
     match kind {
         "sidebar" => "Review pull requests",
         "session-info" => "Branch",
         "pane" => "Hi pane",
         "newtab" => "New agent chat",
-        _ => "",
+        _ => "Hello",
     }
 }
 
