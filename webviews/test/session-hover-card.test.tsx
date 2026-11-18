@@ -5,16 +5,19 @@
 import { afterAll, beforeAll, describe, expect, jest, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
-import {
-  MIN_ID_MENTION,
-  SessionHoverStore,
-  hoverInfo,
-  withSessionIds,
-} from "../src/agent-session/acpmux/started/sessionHover";
-import { SessionHoverContent } from "../src/agent-session/acpmux/started/SessionHoverCard";
-import { hoverCardSide } from "../src/agent-session/acpmux/started/sessionHoverCardModel";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { sessionEntry } = await importWithDom(() => import("../src/agent-session/acpmux/sessionList"));
+const { MIN_ID_MENTION, SessionHoverStore, hoverInfo, withSessionIds } = await importWithDom(
+  () => import("../src/agent-session/acpmux/started/sessionHover"),
+);
+const { SessionHoverContent } = await importWithDom(
+  () => import("../src/agent-session/acpmux/started/SessionHoverCard"),
+);
+const { hoverCardSide } = await importWithDom(
+  () => import("../src/agent-session/acpmux/started/sessionHoverCardModel"),
+);
 
 const ID = "01a0ebd5-0efe-721d-9edc-cf1a6ba78d98";
 const entry = (extra: Record<string, unknown> = {}) =>

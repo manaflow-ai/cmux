@@ -11,36 +11,32 @@ import { readFileSync } from "node:fs";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
-import { transcriptColumn } from "../src/agent-session/acpmux/model";
-import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
-import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
-import { SessionInfoPanel } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import {
-  FLOAT_MARGIN,
-  pushedWidth,
-  pushedRoom,
-  sessionInfoFits,
-  sessionInfoShown,
-  sessionInfoStage,
-  paneRoom,
-} from "../src/agent-session/acpmux/session-info/sessionInfoModel";
-import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
-import { setNativeHost } from "../src/agent-session/acpmux/native";
-import { setNativeSessionInfoHost } from "../src/agent-session/acpmux/session-info/native/host";
-import {
-  sessionInfoState,
-  resetSessionInfoState,
-  setSessionInfoOpen,
-} from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
-import {
-  ARTIFACT_COVERS_PANE,
-  useArtifactCoversPane,
-} from "../src/agent-session/acpmux/conversation/artifactPanelModel";
-import { chat } from "../src/gallery/fixtures/acpmux";
 import { settleReact } from "./support/domTeardown";
-import { SESSION_INFO, SESSION_INFO_TOGGLE } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
+import { importWithDom } from "./support/importWithDom";
+
+const { setChatDisplay } = await importWithDom(() => import("../src/agent-session/acpmux/chatDisplay"));
+const { transcriptColumn } = await importWithDom(() => import("../src/agent-session/acpmux/model"));
+const { ChatHeaderTools } = await importWithDom(() => import("../src/agent-session/acpmux/header/ChatHeaderTools"));
+const { setHeaderState } = await importWithDom(() => import("../src/agent-session/acpmux/header/headerState"));
+const { SessionInfoPanel } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
+const { FLOAT_MARGIN, pushedWidth, pushedRoom, sessionInfoFits, sessionInfoShown, sessionInfoStage, paneRoom } =
+  await importWithDom(() => import("../src/agent-session/acpmux/session-info/sessionInfoModel"));
+const { useSessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/useSessionInfo"));
+const { setNativeHost } = await importWithDom(() => import("../src/agent-session/acpmux/native"));
+const { setNativeSessionInfoHost } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/native/host"),
+);
+const { sessionInfoState, resetSessionInfoState, setSessionInfoOpen } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
+);
+const { openPicker } = await importWithDom(() => import("../src/agent-session/acpmux/pickerOpeners"));
+const { ARTIFACT_COVERS_PANE, useArtifactCoversPane } = await importWithDom(
+  () => import("../src/agent-session/acpmux/conversation/artifactPanelModel"),
+);
+const { chat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { SESSION_INFO, SESSION_INFO_TOGGLE } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoSelectors"),
+);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

@@ -11,24 +11,19 @@ import path from "node:path";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import {
-  DEFAULT_SECTIONS,
-  resetSessionInfoState,
-  setSessionInfoMore,
-} from "../src/agent-session/acpmux/session-info/sessionInfoState";
-import { DEFAULT_ORDER } from "../src/agent-session/acpmux/session-info/sectionOrder";
-import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
-import {
-  byUsage,
-  sameUsageStats,
-  usageCallCost,
-  usageCost,
-  usageShare,
-  usageStatsOf,
-} from "../src/agent-session/acpmux/usageStats";
-import { SessionPager, withUsage } from "../src/agent-session/acpmux/sessionPages";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { SessionInfo } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/SessionInfo"));
+const { DEFAULT_SECTIONS, resetSessionInfoState, setSessionInfoMore } = await importWithDom(
+  () => import("../src/agent-session/acpmux/session-info/sessionInfoState"),
+);
+const { DEFAULT_ORDER } = await importWithDom(() => import("../src/agent-session/acpmux/session-info/sectionOrder"));
+const { sessionEntry } = await importWithDom(() => import("../src/agent-session/acpmux/sessionList"));
+const { byUsage, sameUsageStats, usageCallCost, usageCost, usageShare, usageStatsOf } = await importWithDom(
+  () => import("../src/agent-session/acpmux/usageStats"),
+);
+const { SessionPager, withUsage } = await importWithDom(() => import("../src/agent-session/acpmux/sessionPages"));
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
