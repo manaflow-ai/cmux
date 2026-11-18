@@ -10,13 +10,13 @@ use super::*;
 const TOKEN: &str = "sk-ant-oat01-journey-45776-token";
 const NAME: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
-/// The daemon whose default harness is a Claude-family stand-in agent.
-fn claude_family_daemon(tag: &str) -> Daemon {
+/// The daemon whose default harness is a Claude-family stand-in agent, with `env` as its profile env.
+fn claude_family_daemon(tag: &str, env: Value) -> Daemon {
     let mut daemon = Daemon::new(tag, "approve-all");
     daemon.sigterm();
     std::fs::write(
         daemon.home.join("config.json"),
-        json!({"harnesses": {"claude-fake": {"argv": ["python3", FAKE], "family": "claude"}},
+        json!({"harnesses": {"claude-fake": {"argv": ["python3", FAKE], "family": "claude", "env": env}},
                "defaultHarness": "claude-fake", "permissionPolicy": "approve-all"})
         .to_string(),
     )
@@ -27,12 +27,17 @@ fn claude_family_daemon(tag: &str) -> Daemon {
 
 /// What the agent of `session` has for [`NAME`] now (`env:` in `tests/fake_agent.py`).
 async fn agent_token(daemon: &Daemon, session: &str, turn: usize) -> String {
+    agent_env(daemon, session, NAME, turn).await
+}
+
+/// What the agent of `session` has for `name` now; empty when it has none.
+async fn agent_env(daemon: &Daemon, session: &str, name: &str, turn: usize) -> String {
     let mut rpc = daemon.rpc().await;
-    let marker = format!("{NAME}=");
+    let marker = format!("{name}=");
     let before = daemon.events(session).iter().filter(|e| chunk_starts(e, &marker)).count();
     rpc.call(
         "session/prompt",
-        json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("env: {NAME}")}]}),
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("env: {name}")}]}),
     )
     .await;
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -47,7 +52,7 @@ async fn agent_token(daemon: &Daemon, session: &str, turn: usize) -> String {
         if seen.len() > before {
             return seen[before].trim_start_matches(&marker).to_owned();
         }
-        assert!(Instant::now() < deadline, "turn {turn}: the agent did not say its {NAME}");
+        assert!(Instant::now() < deadline, "turn {turn}: the agent did not say its {name}");
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -61,7 +66,7 @@ fn chunk_starts(e: &Value, prefix: &str) -> bool {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_daemon_killed_and_restarted_starts_the_agent_again_on_its_launch_credential() {
-    let mut daemon = claude_family_daemon("cred");
+    let mut daemon = claude_family_daemon("cred", json!({}));
     let mut rpc = daemon.rpc().await;
     let created = rpc
         .call(
@@ -105,4 +110,25 @@ async fn a_daemon_killed_and_restarted_starts_the_agent_again_on_its_launch_cred
         meta.as_object_mut().unwrap().remove(chat_text);
     }
     assert!(!meta.to_string().contains(TOKEN), "the session meta holds the credential: {meta}");
+}
+
+/// Only acpmux marks an agent as launched on a credential: a profile (or preset, or request) env
+/// that sets the marker beside a login of its own would otherwise have that login read back after
+/// a restart as an owner's credential, and applied to an agent that was never given one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_profile_cannot_mark_its_own_login_as_a_launch_credential() {
+    let daemon = claude_family_daemon(
+        "cred-mark",
+        json!({"ACPMUX_LAUNCH_CREDENTIAL": NAME, NAME: "sk-ant-oat01-profile-login"}),
+    );
+    let mut rpc = daemon.rpc().await;
+    let created = rpc.call("session/new", json!({"cwd": daemon.home, "mcpServers": []})).await;
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    drop(rpc);
+    assert_eq!(agent_env(&daemon, &session, "ACPMUX_LAUNCH_CREDENTIAL", 1).await, "");
+    assert_eq!(
+        agent_token(&daemon, &session, 2).await,
+        "sk-ant-oat01-profile-login",
+        "its own login stays"
+    );
 }
