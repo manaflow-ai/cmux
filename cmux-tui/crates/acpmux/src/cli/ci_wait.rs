@@ -87,7 +87,13 @@ impl Default for Schedule {
 impl Schedule {
     /// The next interval: back to `base` after a change, else half again, up to `cap`.
     pub fn next(&self, current: Duration, changed: bool) -> Duration {
-        if changed { self.base } else { (current + current / 2).clamp(self.base, self.cap) }
+        if changed {
+            self.base
+        } else {
+            current
+                .saturating_add(current.checked_div(2).unwrap_or_default())
+                .clamp(self.base, self.cap)
+        }
     }
 }
 
@@ -122,9 +128,11 @@ pub fn pr_state(pull: &Value, runs: &[Value], status: &Value, waited: Duration) 
         let names: Vec<&str> = failing.into_iter().chain(failing_statuses).collect();
         return State::Red { note: format!("failing: {}", names.join(", ")) };
     }
-    let total = runs.len() + statuses.len();
-    let done = runs.iter().filter(|r| r["status"].as_str() == Some("completed")).count()
-        + statuses.iter().filter(|s| s["state"].as_str() != Some("pending")).count();
+    let total = runs.len().saturating_add(statuses.len());
+    let done =
+        runs.iter().filter(|r| r["status"].as_str() == Some("completed")).count().saturating_add(
+            statuses.iter().filter(|s| s["state"].as_str() != Some("pending")).count(),
+        );
     if total == 0 {
         return if waited >= NO_CHECKS_GRACE {
             State::Green { note: "no checks on the head".into() }
@@ -170,8 +178,8 @@ pub fn throttle(
         return Some(Duration::from_secs(secs.max(1)));
     }
     if num("x-ratelimit-remaining") == Some(0) {
-        let reset = num("x-ratelimit-reset").unwrap_or(now_epoch + 60);
-        return Some(Duration::from_secs(reset.saturating_sub(now_epoch) + 1));
+        let reset = num("x-ratelimit-reset").unwrap_or(now_epoch.saturating_add(60));
+        return Some(Duration::from_secs(reset.saturating_sub(now_epoch).saturating_add(1)));
     }
     // A secondary limit with neither header: GitHub asks for at least a minute.
     matches!(status, 403 | 429).then_some(Duration::from_secs(60))
@@ -199,7 +207,7 @@ impl Cache {
 
     pub fn get(&self, url: &str) -> Option<(String, Value)> {
         let entry: Value = serde_json::from_slice(&std::fs::read(self.path(url)).ok()?).ok()?;
-        Some((entry["etag"].as_str()?.to_owned(), entry["body"].clone()))
+        Some((entry.get("etag")?.as_str()?.to_owned(), entry.get("body")?.clone()))
     }
 
     /// Owner-only (an answer may be a private repository's), written whole through `home_fs`.
@@ -256,7 +264,7 @@ impl Reader {
             request = request.header("if-none-match", etag);
         }
         let response = request.send().await.with_context(|| format!("GET {path}"))?;
-        self.counts.requests += 1;
+        self.counts.requests = self.counts.requests.saturating_add(1);
         let status = response.status().as_u16();
         let headers = response.headers().clone();
         if let Some(left) =
@@ -265,7 +273,7 @@ impl Reader {
             self.remaining = Some(left);
         }
         if status == 304 {
-            self.counts.not_modified += 1;
+            self.counts.not_modified = self.counts.not_modified.saturating_add(1);
             let (_, body) = cached.ok_or_else(|| anyhow!("GET {path}: 304 with nothing cached"))?;
             return Ok(Read::Body { body, changed: false });
         }
@@ -300,26 +308,8 @@ fn is_secondary_limit(text: &str) -> bool {
     text.contains("secondary rate limit") || text.contains("abuse")
 }
 
-/// Reads every path in turn; the first throttle stops the round.
-async fn read_all(
-    reader: &mut Reader,
-    paths: &[String],
-) -> Result<Result<(Vec<Value>, bool), Duration>> {
-    let mut bodies = Vec::with_capacity(paths.len());
-    let mut changed = false;
-    for path in paths {
-        match reader.get(path).await? {
-            Read::Body { body, changed: c } => {
-                changed |= c;
-                bodies.push(body);
-            }
-            Read::Throttled(wait) => return Ok(Err(wait)),
-        }
-    }
-    Ok(Ok((bodies, changed)))
-}
-
-/// One look at the target: its state and whether anything changed since the last look.
+/// One look at the target: its state and whether anything changed since the last look, or how
+/// long GitHub asked the wait to back off.
 async fn look(
     reader: &mut Reader,
     repo: &str,
@@ -327,54 +317,47 @@ async fn look(
     id: &str,
     waited: Duration,
 ) -> Result<Result<(State, bool, Option<String>), Duration>> {
-    match kind {
-        Kind::Run => {
-            let paths = [format!("/repos/{repo}/actions/runs/{id}")];
-            Ok(read_all(reader, &paths)
-                .await?
-                .map(|(b, changed)| (run_state(&b[0]), changed, None)))
-        }
-        Kind::Pr => {
-            let (pull, mut changed) =
-                match read_all(reader, &[format!("/repos/{repo}/pulls/{id}")]).await? {
-                    Ok((mut b, c)) => (b.remove(0), c),
-                    Err(wait) => return Ok(Err(wait)),
-                };
-            let sha = pull["head"]["sha"]
-                .as_str()
-                .ok_or_else(|| anyhow!("pull {id} has no head"))?
-                .to_owned();
-            if pull["state"].as_str() == Some("closed") {
-                return Ok(Ok((pr_state(&pull, &[], &Value::Null, waited), changed, Some(sha))));
-            }
-            let mut runs = Vec::new();
-            for page in 1..=MAX_PAGES {
-                let path =
-                    format!("/repos/{repo}/commits/{sha}/check-runs?per_page=100&page={page}");
-                let body = match read_all(reader, &[path]).await? {
-                    Ok((mut b, c)) => {
-                        changed |= c;
-                        b.remove(0)
-                    }
-                    Err(wait) => return Ok(Err(wait)),
-                };
-                let total = body["total_count"].as_u64().unwrap_or(0) as usize;
-                runs.extend(body["check_runs"].as_array().cloned().unwrap_or_default());
-                if runs.len() >= total || body["check_runs"].as_array().is_none_or(Vec::is_empty) {
-                    break;
+    // One read; a throttle ends the look with GitHub's backoff.
+    macro_rules! read {
+        ($path:expr, $changed:ident) => {
+            match reader.get(&$path).await? {
+                Read::Body { body, changed } => {
+                    $changed |= changed;
+                    body
                 }
+                Read::Throttled(wait) => return Ok(Err(wait)),
             }
-            let status =
-                match read_all(reader, &[format!("/repos/{repo}/commits/{sha}/status")]).await? {
-                    Ok((mut b, c)) => {
-                        changed |= c;
-                        b.remove(0)
-                    }
-                    Err(wait) => return Ok(Err(wait)),
-                };
-            Ok(Ok((pr_state(&pull, &runs, &status, waited), changed, Some(sha))))
+        };
+    }
+    let mut changed = false;
+    if kind == Kind::Run {
+        let run = read!(format!("/repos/{repo}/actions/runs/{id}"), changed);
+        return Ok(Ok((run_state(&run), changed, None)));
+    }
+    let pull = read!(format!("/repos/{repo}/pulls/{id}"), changed);
+    let sha = pull
+        .pointer("/head/sha")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("pull {id} has no head"))?
+        .to_owned();
+    if pull.get("state").and_then(Value::as_str) == Some("closed") {
+        return Ok(Ok((pr_state(&pull, &[], &Value::Null, waited), changed, Some(sha))));
+    }
+    let mut runs = Vec::new();
+    for page in 1..=MAX_PAGES {
+        let body = read!(
+            format!("/repos/{repo}/commits/{sha}/check-runs?per_page=100&page={page}"),
+            changed
+        );
+        let total = body.get("total_count").and_then(Value::as_u64).unwrap_or(0);
+        let page_runs = body.get("check_runs").and_then(Value::as_array);
+        runs.extend(page_runs.cloned().unwrap_or_default());
+        if runs.len() as u64 >= total || page_runs.is_none_or(Vec::is_empty) {
+            break;
         }
     }
+    let status = read!(format!("/repos/{repo}/commits/{sha}/status"), changed);
+    Ok(Ok((pr_state(&pull, &runs, &status, waited), changed, Some(sha))))
 }
 
 /// The whole wait, with its schedule; `run` gives it the real one.
@@ -425,7 +408,10 @@ pub async fn wait(
                 State::Pending { done, total } => format!("{done}/{total} checks done"),
                 _ => String::new(),
             };
-            let at = sha.map(|s| format!(" at {}", &s[..s.len().min(12)])).unwrap_or_default();
+            let at = sha
+                .as_deref()
+                .map(|s| format!(" at {}", s.get(..12).unwrap_or(s)))
+                .unwrap_or_default();
             return Err(AppError::timeout(format!(
                 "{} {id}{at}: still pending after {}s ({seen}); wait again with a longer --timeout or look at the run",
                 kind_name(kind),
@@ -548,7 +534,7 @@ pub async fn run(cmd: CiCmd, json_out: bool) -> Result<()> {
         }));
     } else {
         let at =
-            sha.as_deref().map(|s| format!(" at {}", &s[..s.len().min(12)])).unwrap_or_default();
+            sha.as_deref().map(|s| format!(" at {}", s.get(..12).unwrap_or(s))).unwrap_or_default();
         println!(
             "{repo} {} {id}{at}: {verdict}: {note} ({} requests, {} answered free by ETag)",
             kind_name(args.kind),
