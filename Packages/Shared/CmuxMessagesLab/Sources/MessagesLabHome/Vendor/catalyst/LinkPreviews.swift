@@ -29,7 +29,7 @@ final class LinkPreviews: LinkPreviewFetching {
         let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(Bundle.main.bundleIdentifier ?? "MessagesLab", isDirectory: true)
             .appendingPathComponent("link-previews", isDirectory: true)
-        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        // cmux: made by the first fetch, the first write: a launch's first frame only reads the index.
         return d
     }()
     private var index: URL { dir.appendingPathComponent("index.json") }
@@ -61,6 +61,7 @@ final class LinkPreviews: LinkPreviewFetching {
         if waiting[url] != nil { waiting[url]?.append(done); return } // no force unwrap
         guard let u = URL(string: url), u.scheme == "https" || u.scheme == "http", LinkGuard.checkURL(u) != .scheme else { done(nil); return }
         waiting[url] = [done]
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let file = dir.appendingPathComponent(String(format: "%016llx.png", LinkPreviews.fnv1a(url)))
         // Every request goes through LinkGuard (LinkGuard.swift): public addresses
         // only, redirects re-checked, an ephemeral session, size caps.
