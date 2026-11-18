@@ -177,6 +177,21 @@ test("search sends the typed text, and a search with no match says No matches", 
   expect(host.querySelector(".history-empty")?.textContent).toBe(table.en!["page.emptySearch"]);
 });
 
+test("the time menu narrows the list to a recent range and back to All Time", async () => {
+  const { provider } = await mount();
+  expect(provider.last(HistoryOps.list)?.range).toBeUndefined();
+  await click(button("All Time"));
+  expect(menuLabels()).toEqual(["Last Hour", "Today", "Last 7 Days", "Last 4 Weeks", "All Time"]);
+  await click(menuItem("Last 7 Days")!);
+  expect(provider.last(HistoryOps.list)?.range).toBe("week");
+  expect(button("Last 7 Days").classList.contains("selected")).toBe(true);
+  await type("deploy");
+  expect(provider.last(HistoryOps.list)).toMatchObject({ range: "week", text: "deploy" });
+  await click(button("Last 7 Days"));
+  await click(menuItem("All Time")!);
+  expect(provider.last(HistoryOps.list)?.range).toBeUndefined();
+});
+
 test("an empty history says No history", async () => {
   await mount(["en"], new RecordingProvider([]));
   expect(rows().length).toBe(0);
