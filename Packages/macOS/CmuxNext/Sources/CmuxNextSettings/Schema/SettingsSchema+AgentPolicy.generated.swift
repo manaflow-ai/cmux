@@ -39,8 +39,8 @@ extension SettingsSchema {
         "sidebar.controlsOnHover", "sidebar.floatOnHover",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
         "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping",
-        "sidebar.steppingWraps", "sidebar.side", "sidebar.style", "sidebar.spacesPosition", "sidebar.spacesVisibility",
-        "tabs.newTabTemplate",
+        "sidebar.steppingWraps", "sidebar.side", "sidebar.look", "sidebar.style", "sidebar.spacesPosition",
+        "sidebar.spacesVisibility", "tabs.newTabTemplate",
         // Which New Tab page draws; a look switch, ends no work.
         "tabs.nativeNewTabPage", "tabs.newTabApp",
         "tabs.newTabPosition",

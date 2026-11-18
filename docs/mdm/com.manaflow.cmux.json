@@ -3401,7 +3401,7 @@
       "type" : "string"
     },
     "home.chiefDock.openBeside" : {
-      "default" : true,
+      "default" : false,
       "description" : "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
       "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"
@@ -4837,6 +4837,18 @@
       "description" : "When an agent waited for your input or finished its turn, in the card's history.",
       "title" : "Show Waits in Workspace Cards",
       "type" : "boolean"
+    },
+    "sidebar.look" : {
+      "default" : "cmux",
+      "description" : "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.",
+      "enum" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "title" : "Sidebar Look",
+      "type" : "string"
     },
     "sidebar.minimal" : {
       "default" : false,

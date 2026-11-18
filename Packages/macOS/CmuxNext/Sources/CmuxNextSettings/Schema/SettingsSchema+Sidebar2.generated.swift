@@ -238,6 +238,21 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"]
             ),
             SettingDescriptor(
+                SidebarLookPreset.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.look", "Sidebar Look"),
+                help: SettingsText.keyed("settings.sidebar.look.help", "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."),
+                kind: .choice([
+                    SettingChoice("cmux", SettingsText.keyed("settings.choice.sidebarLookCmux", "cmux")),
+                    SettingChoice("claude", SettingsText.keyed("settings.choice.sidebarLookClaude", "Claude")),
+                    SettingChoice("codex", SettingsText.keyed("settings.choice.sidebarLookCodex", "Codex")),
+                    SettingChoice("studio", SettingsText.keyed("settings.choice.sidebarLookStudio", "Studio")),
+                ]),
+                default: .string(SidebarLookPreset.fallback),
+                keywords: ["sidebar", "look", "preset", "style", "claude", "codex", "studio", "like", "app"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.stylePath,
                 section: .appearance,
                 group: group,
@@ -365,24 +380,6 @@ extension SidebarSettingsSchema {
                 ]),
                 default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
                 keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupPalettePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
-                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where group colors come from. A color you pick for a group stays."),
-                kind: .choice([
-                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
-                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
-                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
-                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
-                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
-                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
-                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
             ),
         ]
     }

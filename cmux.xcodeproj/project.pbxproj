@@ -106,6 +106,7 @@
 			);
 			explicitFolders = (
 				"markdown-viewer",
+				"sidebar-looks",
 				"theme-files",
 			);
 			path = Resources;

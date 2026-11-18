@@ -70,14 +70,15 @@ const LOOK_PREFIXES: [&str; 7] = [
     "app.uiScale",
 ];
 /// Look keys outside those prefixes: the terminal font and the sidebar's
-/// shape and edges.
-const LOOK_KEYS: [&str; 6] = [
+/// shape and edges, and the sidebar look (`sidebar_look`).
+const LOOK_KEYS: [&str; 7] = [
     "terminal.fontFamily",
     "terminal.fontSize",
     "sidebar.style",
     "sidebar.border",
     "sidebar.borderWidth",
     "sidebar.sectionLook",
+    "sidebar.look",
 ];
 
 /// Whether a theme file may set `row`: a look setting an agent may set too.

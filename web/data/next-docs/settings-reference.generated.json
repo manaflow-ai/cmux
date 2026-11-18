@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 621,
+  "count": 622,
   "sections": [
     {
       "id": "general",
@@ -4000,6 +4000,20 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.look",
+          "title": "Sidebar Look",
+          "help": "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.",
+          "kind": "choice",
+          "default": "cmux",
+          "group": "Sidebar",
+          "values": [
+            "cmux",
+            "claude",
+            "codex",
+            "studio"
+          ]
+        },
+        {
           "key": "sidebar.minimal",
           "title": "Minimal Mode",
           "help": "Sidebar and tab bar buttons show only while the pointer is over them.",
@@ -5987,7 +6001,7 @@
           "title": "Show Chief When Opening Workspaces",
           "help": "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Chief Dock"
         },
         {
