@@ -152,7 +152,8 @@ import Testing
         #expect(spilled.live < dropped.live + 2 << 20)
     }
 
-    /// 16 MB that another test allocates and holds while this one measures.
+    /// 16 MB that another test allocates and holds while this one measures: a guard against going
+    /// back to a process-wide reading (malloc's bytes in use), which counts it and fails.
     static func neighborAllocation() -> [UInt8] {
         [UInt8](repeating: 0xA5, count: 16 << 20)
     }

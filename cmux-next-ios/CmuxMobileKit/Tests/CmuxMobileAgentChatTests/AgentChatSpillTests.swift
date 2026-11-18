@@ -1,5 +1,4 @@
 import CmuxMobileModel
-import Darwin
 import Foundation
 import Testing
 @testable import CmuxMobileAgentChat
@@ -146,7 +145,8 @@ import Testing
                 Self.fill(store, count: 100, replyBytes: 16_384, from: chunk * 100)
                 if windowed, store.turns.count > AgentChatStore.windowTrigger { store.spillOlder(keeping: AgentChatStore.windowKeep) }
             }
-            // What another test (the hybrid proofs, say) holds meanwhile is not the chat's.
+            // What another test (the hybrid proofs, say) holds meanwhile is not the chat's: a guard
+            // against going back to a process-wide reading, which counts these 16 MB and fails.
             let neighbor = windowed ? [UInt8](repeating: 0xA5, count: 16 << 20) : []
             store.spill?.flush()
             let live = store.residentBytes()

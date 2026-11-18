@@ -1324,7 +1324,8 @@ public final class AgentChatStore {
     /// What this chat holds in memory, in bytes of its turns as JSON: the turns shown, the
     /// spill's turns short of a page, and what it keeps of the turns on disk (their ids, the
     /// first prompt). One store's own bytes, whatever else the process holds (tests and
-    /// measurements).
+    /// measurements). A new place the chat keeps turns in memory must be counted here, or the
+    /// memory checks stop seeing it.
     func residentBytes() -> Int {
         let encoder = JSONEncoder()
         let shown = (try? encoder.encode(turns))?.count ?? 0

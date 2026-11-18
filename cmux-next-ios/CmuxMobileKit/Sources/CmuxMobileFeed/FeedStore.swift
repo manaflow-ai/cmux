@@ -307,7 +307,8 @@ public final class FeedStore {
 
     /// What this Feed holds in memory, in bytes of its rows as JSON: the window, the spill's
     /// rows short of a page, and the ids of the events on disk. One store's own bytes, whatever
-    /// else the process holds (tests and measurements).
+    /// else the process holds (tests and measurements). A new place the Feed keeps rows in memory
+    /// must be counted here, or the memory checks stop seeing it.
     func residentBytes() -> Int {
         let encoder = JSONEncoder()
         let window = (try? encoder.encode(items))?.count ?? 0

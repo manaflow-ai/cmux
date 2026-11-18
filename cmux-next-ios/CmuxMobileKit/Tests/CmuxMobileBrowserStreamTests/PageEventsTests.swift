@@ -311,7 +311,11 @@ import Testing
         await host(sink, Self.select.replacingOccurrences(of: #""token":5"#, with: #""token":6"#))
         await host(sink, #"{"t":"rb.dialog.show","token":1,"dialog":{"kind":"alert","origin":"","message":"x","default_text":null,"is_reload":false}}"#)
         await host(sink, #"{"t":"rb.state","state":"paused"}"#)
-        await until { model.dialog?.token == 1 && model.selectMenu?.token == 6 && model.contextMenu?.token == 3 }
+        // A field the page focuses after the pause: once it shows, the pause was applied too
+        // (the host's messages reach the model in order).
+        await host(sink, #"{"t":"rb.text_input","input_type":"text","composition_rects":[],"caret":null}"#)
+        await until { model.field != nil }
+        #expect(model.field != nil)
         #expect(model.dialog?.token == 1 && model.selectMenu?.token == 6 && model.contextMenu?.token == 3)
         await host(sink, end)
         await until { model.dialog == nil && model.selectMenu == nil && model.contextMenu == nil }
