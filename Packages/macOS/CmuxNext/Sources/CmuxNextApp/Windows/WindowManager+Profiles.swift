@@ -225,17 +225,17 @@ extension WindowManager: SpaceWindowSource {
 enum WindowOwnSpace {
     /// Window `id` (normal, no Home, spaces on the home daemon) shows a space another open window shows.
     static func shares(_ id: String, in windows: WindowManager) -> Bool {
-        let value = windows.registry.value, local = windows.services.machines.local, members = windows.registry.members(of: id)
+        let value = windows.registry.value, local = windows.services.machines.local, members = value.window(id)?.ownedIDs ?? []
         guard let state = windows.states[id], value.window(id)?.isOpen == true, !value.isIncognito(id), windows.incognitoSpaces[id] == nil,
               local.supports(DaemonCapability.profiles.rawValue), local.store.personal.isLoaded, !members.isEmpty,
               !members.contains(where: { windows.services.workspace(id: $0)?.isAnyHome == true }) else { return false }
         return value.openWindows.contains { $0.id != id && windows.states[$0.id]?.profileID == state.profileID }
     }
-    /// When it shares one, window `id` gets a new space (as New Space) with its workspaces pinned there once reported.
+    /// When it shares one, window `id` gets a new space (as New Space) with its own workspaces, never its guests, pinned there once reported.
     static func give(_ id: String, in windows: WindowManager) {
         guard shares(id, in: windows), let state = windows.states[id], let connection = windows.services.machines.local.connection else { return }
-        let machines = windows.services.machines, store = machines.local.store, logger = windows.services.daemon.logger, connected = store.connectionState
-        let ids = WindowProfiles.visible(windows.registry.members(of: id), profile: state.profileID, machines: machines)
+        let machines = windows.services.machines, store = machines.local.store, logger = windows.services.daemon.logger, connected = store.connectionState, ids = WindowProfiles.visible(windows.registry.value.window(id)?.ownedIDs ?? [], profile: state.profileID, machines: machines)
+        windows.registry.holdOwnSpace(id); windows.spaceDidChange() // it lists only what moved, and falls back to its space once pinned (#45984)
         let space = ProfileID.generate(), name = RoomStrings.defaultName(store.profileIDs.count + 1), browser = store.profile(state.profileID)?.browserProfileID, color = GroupColor.automatic(after: store.profiles.compactMap(\.color))
         Task { do {
                 _ = try await connection.createProfile(name: name, id: space, color: color.rawValue, browserProfileID: browser)
@@ -243,6 +243,6 @@ enum WindowOwnSpace {
                 let waiting = Task { await store.mirrored(profile: space); for await done in ObservationStream({ reported().count == ids.count || store.connectionState != connected }) where done { break } }
                 let bound = DemandTimer(owner: "WindowOwnSpace.give"); bound.schedule(after: .seconds(10)) { waiting.cancel() }; await waiting.value; bound.cancel() // a reconnect or 10 s
                 for workspace in reported() { try await connection.pinWorkspace(session: workspace.session, key: WorkspaceKey(rawValue: workspace.key), to: space) }
-            } catch { logger.error("own space for a new window failed: \(String(describing: error), privacy: .public)") } }
+            } catch { logger.error("own space for a new window failed: \(String(describing: error), privacy: .public)"); windows.registry.spaceEntered(id); windows.spaceDidChange() } } // a view of its space again
     }
 }
