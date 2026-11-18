@@ -10,7 +10,7 @@
 // what the diff says instead, one line each as the browser copies these rows; select-all, whose end
 // lands in the block standing in for the lines below the window, copies the whole diff. The lines a
 // selection starts and ends on stay mounted, however it was made (a drag, Shift-click, Shift and the
-// arrows), so a scroll keeps both of its ends.
+// arrows), so a scroll keeps both of its ends; no other line a press once touched stays mounted.
 import {
   memo,
   useCallback,
@@ -107,30 +107,44 @@ export function DiffLines({ lines, tone }: { lines: readonly string[]; tone: (li
   }, [findViewport, measureMargin]);
 
   // The lines a selection starts and ends on stay mounted: removing one would move that end of the
-  // selection. Each selection change pins its anchor's and focus's lines, whatever made it; a pointer
-  // also pins its line at once, keeping the others until the selection says where it now is (a
-  // Shift-click's anchor is a line already pinned, which may be out of view).
+  // selection. A caret is a selection too (a Shift-click extends from it), so a click that puts one
+  // keeps its line. A press also keeps its own line until it is released, before the selection says
+  // where it now is. Each selection change, press and release sets the pins again from those (at most
+  // three lines), never adding to the last ones: a press that leaves no selection end in the lines
+  // leaves no line mounted once released.
   const [pinned, setPinned] = useState<readonly number[]>(NONE);
-  const pin = useCallback(
-    (next: readonly number[]) => setPinned((previous) => (sameLines(previous, next) ? previous : next)),
-    [],
-  );
+  const pressed = useRef(-1);
+  const repin = useCallback(() => {
+    const root = body.current;
+    const selection = root?.ownerDocument.getSelection();
+    const ends = [pressed.current];
+    if (selection && selection.rangeCount > 0)
+      ends.push(lineOf(root!, selection.anchorNode), lineOf(root!, selection.focusNode));
+    const next = ends.filter((at, index) => at >= 0 && ends.indexOf(at) === index).sort((a, b) => a - b);
+    setPinned((previous) => (sameLines(previous, next) ? previous : next));
+  }, []);
   const onPointerDown = (event: PointerEvent) => {
-    const at = lineOf(body.current, event.target as Node);
-    if (at >= 0 && !pinned.includes(at)) pin([...pinned, at]);
+    pressed.current = lineOf(body.current, event.target as Node);
+    repin();
   };
   useEffect(() => {
     const document = body.current?.ownerDocument;
     if (!document) return;
-    const onSelectionChange = () => {
-      const selection = document.getSelection();
-      if (!selection || selection.rangeCount === 0) return pin(NONE);
-      const ends = [lineOf(body.current, selection.anchorNode), lineOf(body.current, selection.focusNode)];
-      pin(ends.filter((at, index) => at >= 0 && ends.indexOf(at) === index));
+    // A press may end outside the lines (a drag out of them).
+    const onRelease = () => {
+      if (pressed.current < 0) return;
+      pressed.current = -1;
+      repin();
     };
-    document.addEventListener("selectionchange", onSelectionChange);
-    return () => document.removeEventListener("selectionchange", onSelectionChange);
-  }, [pin]);
+    document.addEventListener("selectionchange", repin);
+    document.addEventListener("pointerup", onRelease, true);
+    document.addEventListener("pointercancel", onRelease, true);
+    return () => {
+      document.removeEventListener("selectionchange", repin);
+      document.removeEventListener("pointerup", onRelease, true);
+      document.removeEventListener("pointercancel", onRelease, true);
+    };
+  }, [repin]);
 
   // The first measured line sizes every line not yet mounted: they are all one height.
   const lineHeight = useRef(0);
