@@ -28,7 +28,6 @@ import { DiffFile, Undo } from "./icons";
 import { Icon } from "../icons/Icon";
 import { ToolRows } from "./TurnRows";
 import { useTranscriptReadOnly } from "./readOnly";
-import { useTranscriptViewContext } from "./transcriptDisclosureModel";
 import "./EditedFilesCard.css";
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
@@ -47,10 +46,6 @@ export function EditedFilesCard({
   // their plain tool rows.
   const latest = sessionEdits?.at(-1)?.id;
   const own = useMemo(() => [row], [row]);
-  // With no card and the turn's work open (the Thinking and Verbose views, this look's default), the
-  // opened "Worked for" already lists these edits in place: drawing them again here doubled them.
-  const view = useTranscriptViewContext();
-  if (settings.show === "never" && view !== "normal") return null;
   if (settings.show === "never" || (settings.scope === "session" && sessionEdits && latest !== row.id))
     return <ToolRows row={row} sessionId={sessionId} />;
   const rows = settings.scope === "session" && sessionEdits ? sessionEdits : own;

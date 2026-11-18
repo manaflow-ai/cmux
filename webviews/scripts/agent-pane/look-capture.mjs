@@ -93,10 +93,8 @@ async function live(browser) {
   try {
     await page.waitForFunction(() => window.cmuxAcpmuxActions?.["chat.send"], null, { timeout: 120000 });
     await page.evaluate((prompt) => window.cmuxAcpmuxActions["chat.send"]({ text: prompt }), fixture.prompt);
-    // The live line holds while a call runs; shoot once one shows.
-    await page
-      .waitForSelector(".cv-worked--live .cv-worked__time, .cv-tool.is-live", { timeout: 30000 })
-      .catch(() => undefined);
+    await page.waitForSelector(".cv-worked--live", { timeout: 30000 }).catch(() => undefined);
+    await page.waitForTimeout(1200);
     await shot(page, "chat-live", errors);
   } finally {
     await context.close();
