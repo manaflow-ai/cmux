@@ -460,3 +460,64 @@ test("heading renames, repeats and deletes leave Milkdown's ids and a walk's anc
   for (let i = 0; i < 5; i++) command(sides, redo, `redo ${i}`);
   both(sides, rename("Setup", "Notes", 1), "rename after undo and redo");
 });
+
+/** Each heading's text and id, in order. */
+function headingIds(doc: ProseNode): Array<[string, unknown]> {
+  const out: Array<[string, unknown]> = [];
+  doc.descendants((node) => {
+    if (node.type.name === "heading") out.push([node.textContent, node.attrs.id]);
+    return !node.isTextblock;
+  });
+  return out;
+}
+
+// A deliberate divergence from Milkdown: its syncHeadingIdPlugin counts ids in a plain object, so a
+// heading whose id is an Object.prototype key ("constructor", "__proto__": its id generator
+// lowercases, so "toString" or "hasOwnProperty" is "tostring" or "hasownproperty", no key) counts
+// as a repeat from the first and gets an id like `constructor-#function Object() {…}1`. Here it
+// gets its own id, and `-#2` on for repeats. The equivalence tests above never type these words.
+test("headings whose ids are Object.prototype keys get their own ids and -#n repeats", async () => {
+  const markdown = [
+    "# Constructor",
+    "# \\_\\_proto\\_\\_",
+    "# toString",
+    "# constructor",
+    "# hasOwnProperty",
+    "# \\_\\_proto\\_\\_",
+    "# valueOf",
+    "# CONSTRUCTOR",
+  ].join("\n\n");
+  const { view } = await side(true, markdown);
+  const expected: Array<[string, string]> = [
+    ["Constructor", "constructor"],
+    ["__proto__", "__proto__"],
+    ["toString", "tostring"],
+    ["constructor", "constructor-#2"],
+    ["hasOwnProperty", "hasownproperty"],
+    ["__proto__", "__proto__-#2"],
+    ["valueOf", "valueof"],
+    ["CONSTRUCTOR", "constructor-#3"],
+  ];
+  expect(headingIds(view.state.doc)).toEqual(expected);
+  // Edits: a heading renamed onto one of them, and the first of a repeated id deleted.
+  const rename = (text: string, to: string) => {
+    const pos = heading(view.state.doc, text);
+    view.dispatch(view.state.tr.insertText(to, pos + 1, pos + 1 + text.length));
+  };
+  rename("toString", "Constructor");
+  expect(headingIds(view.state.doc)).toEqual([
+    ["Constructor", "constructor"],
+    ["__proto__", "__proto__"],
+    ["Constructor", "constructor-#2"],
+    ["constructor", "constructor-#3"],
+    ["hasOwnProperty", "hasownproperty"],
+    ["__proto__", "__proto__-#2"],
+    ["valueOf", "valueof"],
+    ["CONSTRUCTOR", "constructor-#4"],
+  ]);
+  const first = heading(view.state.doc, "__proto__");
+  view.dispatch(view.state.tr.delete(first, first + view.state.doc.nodeAt(first)!.nodeSize));
+  expect(headingIds(view.state.doc).filter(([text]) => text === "__proto__")).toEqual([["__proto__", "__proto__"]]);
+  // The GitHub anchors of the same headings, as a walk finds them.
+  expect(kit.links.headingTargets(view.state.doc)).toEqual(walkedTargets(view.state.doc));
+});

@@ -11,7 +11,8 @@
 // non-generic transaction, the bullet-to-ordered conversion, `label` and `listType`), that
 // src/composed/plugins.ts still holds both (`boundedCommonmark` filters them out by identity), and
 // that `headingIdGenerator` is still the ctx key for ids. markdown-commonmark-sync.test.ts runs
-// Milkdown's plugins beside these over the same edits.
+// Milkdown's plugins beside these over the same edits (`milkdownIds` departs from it on purpose for
+// ids that are Object.prototype keys; see there).
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import { Plugin, PluginKey, type Transaction } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
@@ -34,17 +35,16 @@ const headingIdKey = new PluginKey("cmuxMarkdownHeadingId");
 
 /**
  * Milkdown's ids for headings with these ids from their text, in order (its `updateId`): the first
- * of an id keeps it, the rest get `-#2` and on. Its own code, on a plain object as its is.
+ * of an id keeps it, the rest get `-#2` and on. A deliberate divergence: Milkdown counts on a plain
+ * object, so a heading whose id is an Object.prototype key ("constructor", "__proto__") counts as
+ * a repeat from the first and gets `constructor-#function Object() {…}1`; a Map gives it its own.
  */
 function milkdownIds(bases: readonly string[]): string[] {
-  const seen: Record<string, number> = {};
+  const seen = new Map<string, number>();
   return bases.map((base) => {
-    let id = base;
-    if (seen[id]) {
-      seen[id] += 1;
-      id += `-#${seen[id]}`;
-    } else seen[id] = 1;
-    return id;
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return count === 1 ? base : `${base}-#${count}`;
   });
 }
 
