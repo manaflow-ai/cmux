@@ -20,6 +20,8 @@
 set -uo pipefail
 
 # One function, called on the last line: bash has read all of it before a base=SHA checkout changes this file.
+. "$(git rev-parse --show-toplevel)/scripts/measure/arm-derived-data.sh"  # before an arm is checked out: a base may predate it
+
 main() {
   cd "$(dirname "$0")/../.." || exit 3
   local out="$PWD/.build/nightly-fresh-launch"
@@ -62,8 +64,8 @@ main() {
 }
 
 # Builds the checkout at its current commit into OUT/NAME.dmg (a tagged Release app, the same tag for base and head
-# so both have one bundle id; a fleet measurement step's DerivedData is shared by the checkout's builds, so the second
-# build recompiles only what the two commits change).
+# so both have one bundle id; each arm has its own DerivedData (arm-derived-data.sh), so a stale module of the other arm
+# cannot fail the second build).
 build_dmg() {
   local out="$1" name="$2" config="$3" app configuration=(--release)
   [[ "$config" == bench ]] && configuration=(--config bench)
@@ -94,7 +96,7 @@ build_dmg() {
     echo "NFL acpmux $name $bin"
   fi
   local started=$SECONDS
-  env ${acpmux[@]+"${acpmux[@]}"} CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag nflab --no-global-cli-links "${configuration[@]}" >>"$out/build-$name.log" 2>&1
+  env ${acpmux[@]+"${acpmux[@]}"} CMUX_DERIVED_DATA="$(measure_arm_derived_data "$name")" CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag nflab --no-global-cli-links "${configuration[@]}" >>"$out/build-$name.log" 2>&1
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$name.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "NFL build $name failed: no app path" >&2

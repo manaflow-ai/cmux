@@ -19,6 +19,7 @@
 #     [--arg=--arms=OFF,ON,OFF,ON] [--arg=--base-ref=<sha>] [--arg=--engine=chromium]
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+. scripts/measure/arm-derived-data.sh  # before the base is checked out: a base may predate it
 # --arms=OFF,ON,OFF,ON (the default) runs the bench once per arm, in that order, on
 # this mini: OFF launches the base build (or this one) with the setting off, ON this checkout's with it on.
 tag="hoverpre"
@@ -48,7 +49,8 @@ set -- ${bench_args[@]+"${bench_args[@]}"}
 # needs Ghostty's headers and ghostty-next for the bundled cmux-tui.
 build() {
   git submodule update --init --depth 1 ghostty ghostty-next >/dev/null
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$1" ${reload_config[@]+"${reload_config[@]}"} >"$out/reload-$1.log" 2>&1 \
+  CMUX_DERIVED_DATA="$(measure_arm_derived_data "$([[ "$1" == hoverbase ]] && echo base || echo head)")" \
+    CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$1" ${reload_config[@]+"${reload_config[@]}"} >"$out/reload-$1.log" 2>&1 \
     || { tail -n 40 "$out/reload-$1.log" >&2; grep -E "error:|BUILD FAILED" "$out/reload-$1.log" | head -n 60 >&2 || true; return 1; }
   local app
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload-$1.log" | tail -n 1)"
