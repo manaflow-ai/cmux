@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxVisibleRows
 
 /// The sidebar's Team section (lane D): the team's Cloud workspaces and chats under one of four
 /// filters, each row with its follow (eye) toggle and a menu with Reassign To, Copy Link and
@@ -39,8 +40,10 @@ final class CloudTeamSectionView: NSView {
     private(set) var shown: Shown
     private(set) var filters: [CloudTeamFilterButton] = []
     private(set) var rows: [CloudTeamSessionRowView] = []
+    /// The rows' work, for the visible-rows contract (`CloudTeamSectionRows`).
+    let listWork = ListWorkMeter()
     private let placeholder = NSTextField(wrappingLabelWithString: "")
-    private let scroll = OverlayScrollView()
+    let scroll = OverlayScrollView()
     private let list = CloudTeamRowList()
 
     init(store: CloudTeamSessionStore, colors: CloudTeamColors, actions: CloudTeamSessionRowView.Actions) {
@@ -100,8 +103,10 @@ final class CloudTeamSectionView: NSView {
             list.addSubview(row)
             rows.append(row)
         }
+        listWork.walked(next.sessions.count)
         for (row, session) in zip(rows, next.sessions) {
             row.configure(session, members: next.members, colors: colors)
+            listWork.configured()
         }
         needsLayout = true
     }
@@ -150,8 +155,13 @@ final class CloudTeamSectionView: NSView {
         list.frame = NSRect(x: 0, y: 0, width: width, height: Self.rowHeight * CGFloat(rows.count))
         for (index, row) in rows.enumerated() {
             row.frame = NSRect(x: 0, y: Self.rowHeight * CGFloat(index), width: width, height: Self.rowHeight)
+            listWork.laidOut()
         }
     }
+}
+
+extension CloudTeamSectionView: VisibleRowsList {
+    var rowViewsAlive: Int { rows.count }
 }
 
 /// The rows' document view: top-down, as the section is.

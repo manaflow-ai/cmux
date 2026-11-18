@@ -1949,6 +1949,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextPalette",
                 "CmuxNextSettings",
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
@@ -1963,6 +1964,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
+                .product(name: "CmuxVisibleRowsTesting", package: "CmuxVisibleRows"),
             ],
             swiftSettings: uiSwiftSettings
         ),

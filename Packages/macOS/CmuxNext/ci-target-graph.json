@@ -915,7 +915,9 @@
         "CmuxNextPalette",
         "CmuxNextSettings"
       ],
-      "packages": []
+      "packages": [
+        "CmuxVisibleRows"
+      ]
     },
     "CmuxNextCloudUITests": {
       "kind": "test",
@@ -929,7 +931,9 @@
         "CmuxNextSettings",
         "CmuxNextTestSupport"
       ],
-      "packages": [],
+      "packages": [
+        "CmuxVisibleRows"
+      ],
       "reads": []
     },
     "CmuxNextCodeRouter": {
