@@ -593,6 +593,13 @@ interface CmuxPageRead {
 /** A link-hint label `page.hints` drew: type it to `page.follow` it. `href` is null for a button, field or other non-link. */
 interface CmuxPageHint { label: string; text: string; href: string | null }
 
+/** Whether cmux may read the person's calendar: the system's answer, or `unavailable` where there is no system calendar (not macOS). */
+type CmuxCalendarAccess = "granted" | "denied" | "restricted" | "notDetermined" | "unavailable"
+/** One event of the person's calendar (`system_calendar.events`). Times are epoch ms; `calendar` is the calendar's title, `color` its color as `#rrggbb` when it has one. */
+interface CmuxCalendarEvent { id: string; title: string; start: number; end: number; allDay: boolean; calendar: string; location?: string; url?: string; color?: string }
+/** `system_calendar.events`' answer: the access status, and the events (empty unless `access` is `granted`). */
+interface CmuxCalendarEvents { access: CmuxCalendarAccess; events: CmuxCalendarEvent[] }
+
 interface CmuxGlobal {
   agent: {
     /** `agent.list` (read, scope `agent:read`) */
@@ -1960,6 +1967,13 @@ interface CmuxGlobal {
     /** `page.follow` (mutation, scope `page:write`, needs a gesture): clicks the element of a shown hint, or with `new_split` opens its link in a new browser split (the built-in `F`), then clears the hints. `followed` is false when the label is not shown (any more), or `new_split` names a hint with no link. */
     follow: CmuxOp<{ tab?: string; label: string; new_split?: boolean }, { tab: string; followed: boolean; href: string | null }>
   }
+  /** The person's system calendar, read by the cmux app on the Mac (EventKit). Not the Cloud's Google `calendar.*` ops. */
+  system_calendar: {
+    /** `system_calendar.events` (read, scope `system_calendar:read`): events from now (ones in progress too) through `days` (1-31, default 7), sorted by start, at most `limit` (1-50, default 20), from every calendar. Never prompts: without full access it answers the status and no events. */
+    events: CmuxOp<{ days?: number; limit?: number }, CmuxCalendarEvents>
+    /** `system_calendar.request_access` (mutation, scope `system_calendar:read`, needs a gesture): shows the system calendar prompt when the person has not answered it yet, and answers the access status. */
+    request_access: CmuxOp<{}, { access: CmuxCalendarAccess }>
+  }
   palette: CmuxPalette
   act: typeof act
   log(...parts: unknown[]): void
@@ -1976,6 +1990,8 @@ interface CmuxSignalMap {
   "github.changes": { params: { /** branch: the pull requests whose head is `branch` in `repo`. mine (default): the ones the person opened. mentions: the ones that mention them. review-requested: the ones that ask for their review. search: `query`, a GitHub search (is:pr is added). */ show?: "branch" | "mine" | "mentions" | "review-requested" | "search"; /** owner/name: the repository for show: branch; for the others it narrows the list to that repository. */ repo?: string; /** The head branch for show: branch. */ branch?: string; /** The GitHub search for show: search, for example `repo:manaflow-ai/cmux label:bug`. */ query?: string; /** open (default) or open-and-merged (closed unmerged ones are left out). */ include?: "open" | "open-and-merged"; /** At most this many pull requests (default 10). Each costs four conditional reads. */ limit?: number; /** The GitHub login the public fallback reads as the person, when no GitHub sign-in answers (needs net:api.github.com). */ login?: string }; value: Array<{ id: number; number: number; title: string; url: string; /** owner/name */ repo: string; author: string; draft: boolean; state: "open" | "merged" | "closed"; /** The head branch. */ headRef: string; headSha: string; /** Lines added. */ additions: number; /** Lines removed. */ deletions: number; /** The head commit's check runs and commit statuses, the latest of each. */ checks: { /** failing when any check failed, else pending when any runs, else passing; none with no checks. */ state: "failing" | "pending" | "passing" | "none"; failing: number; pending: number; passing: number }; /** Each reviewer's latest review: changes-requested wins, then approved; review-required while a review is requested and none came. */ review: "approved" | "changes-requested" | "review-required" | "commented" | "none"; updatedAt: string }> }
   /** `github.pulls`: The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. The Cloud pushes github.changed from the GitHub App's webhooks, so a check or review flips within seconds; until that push is live (signed out, no GitHub connection, an app without integration:github:read) the runtime polls. Scope: any of `integration:github:read`, `net:api.github.com`; pushed by `github.changed` from outside this machine: while that push is live it re-reads every 900 s, and until it is, it polls every 300 s (never faster than 60 s). */
   "github.pulls": { params: { /** Which of the person's pull requests: the ones they opened (author), the ones asking for their review (review-requested), the ones assigned to them (assignee). Default author and review-requested. */ roles?: Array<"author" | "review-requested" | "assignee">; /** open (default) or open-and-merged (closed unmerged ones are left out). */ include?: "open" | "open-and-merged"; /** Only pull requests created or updated in this many hours. */ updatedWithinHours?: number; /** At most this many per role (default 30). */ limit?: number; /** The GitHub login the public fallback searches for when no GitHub account is connected (needs net:api.github.com). */ login?: string }; value: Array<{ id: number; number: number; title: string; url: string; /** owner/name */ repo: string; draft: boolean; state: "open" | "merged" | "closed"; /** Why it is in the list: review-requested means it waits for the person's review. */ roles: Array<"author" | "review-requested" | "assignee">; author: string; updatedAt: string }> }
+  /** `system_calendar.events`: The next events in the calendars on this Mac (system_calendar.events): the access status, and the events from now through params.days once access is granted. The Mac app pushes system_calendar.changed when EventKit says a calendar changed, so the runtime never polls it; the daemon shares one read among every watcher for 30 s. Scope: any of `system_calendar:read`; pushed by `system_calendar.changed`. */
+  "system_calendar.events": { params: { days?: number; limit?: number }; value: { access: "granted" | "denied" | "restricted" | "notDetermined" | "unavailable"; events: Array<{ id: string; title: string; /** Unix ms */ start: number; /** Unix ms */ end: number; allDay: boolean; /** The calendar's title */ calendar: string; /** The calendar's color, #rrggbb */ color?: string; location?: string; url?: string }> } }
   /** `workspace.list`: The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it. Scope: any of `workspace:read`; pushed by `workspace.changed`. */
   "workspace.list": { params: { order?: "session" | "personal" }; value: Array<Cmux.WorkspaceSnapshot> }
 }
@@ -2048,18 +2064,33 @@ declare function effect(fn: () => void): () => void
 declare function onCleanup(fn: () => void): void
 declare function untrack<T>(fn: () => T): T
 type Bindable<T> = T | (() => T)
+/** A gradient fill: 2 to 8 stops, each a color token or #RRGGBB[AA], spaced evenly; angle in degrees, the CSS way (0 up, 180 down, the default). */
+type CmuxGradient = { linear: { colors: string[]; angle?: number } } | { radial: { colors: string[] } }
+/** A color token, #RRGGBB[AA], or a gradient. */
+type CmuxFill = string | CmuxGradient
 interface CmuxView {
   font(v: Bindable<string | number>): this; weight(v: Bindable<string>): this; bold(): this; italic(): this; monospaced(): this
+  /** The system font's design at the same type-scale size (heavy and rounded is the Lock Screen's time). */
+  fontDesign(v: Bindable<"default" | "rounded" | "serif" | "monospaced">): this
   color(v: Bindable<string | null>): this; secondary(): this; lineLimit(v: Bindable<number>): this; truncation(v: Bindable<"head" | "middle" | "tail">): this
   strikethrough(v?: Bindable<boolean>): this; marquee(delaySeconds?: number): this; fade(width: Bindable<number>): this
   transition(v: "opacity" | "slide" | "scale" | "move"): this; contentTransition(v: "numericText" | "opacity"): this; animation(v?: "smooth" | "snappy" | "none"): this
   padding(v?: Bindable<number | Record<string, number>>): this; paddingHorizontal(v: Bindable<number>): this; paddingVertical(v: Bindable<number>): this
   frame(v: Bindable<Record<string, number | string>>): this; layoutPriority(v: Bindable<number>): this; fixedSize(axis?: "both" | "horizontal" | "vertical"): this
-  background(v: Bindable<string | null>): this; hoverBackground(v: Bindable<string | null>): this; cornerRadius(v: Bindable<number>): this
+  background(v: Bindable<CmuxFill | null>): this; hoverBackground(v: Bindable<string | null>): this; cornerRadius(v: Bindable<number>): this
   borderColor(v: Bindable<string | null>): this; borderWidth(v: Bindable<number>): this; opacity(v: Bindable<number>): this
-  fill(v: Bindable<string | null>): this; stroke(v: Bindable<string | null>): this; strokeWidth(v: Bindable<number>): this; size(v: Bindable<number>): this
-  rotation(degrees: Bindable<number>): this; cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
+  fill(v: Bindable<CmuxFill | null>): this; stroke(v: Bindable<string | null>): this; strokeWidth(v: Bindable<number>): this; size(v: Bindable<number>): this
+  rotation(degrees: Bindable<number>): this
+  /** SwiftUI's name for `rotation`: clockwise degrees about the node's center; animates only under `.animation(...)`. */
+  rotationEffect(degrees: Bindable<number>): this
+  /** Moves the drawing by `{x, y}` points, not the layout; a rotation turns the moved drawing about the node's center (a clock hand). */
+  offset(v: Bindable<{ x?: number; y?: number }>): this
+  /** In a ZStack: the node's center at `{x, y}` points, or with `unit: "fraction"` 0...1 of the stack (SwiftUI's `.position`); a placed child does not size the stack. */
+  position(v: Bindable<{ x?: number; y?: number; unit?: "points" | "fraction" }>): this
+  cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
   fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
+  /** How an Icon's layers take color, as SF Symbols draw them: monochrome (the default), hierarchical, palette (1 to 3 colors, in layer order) or multicolor (the symbol's own colors, the tint where it has none). */
+  symbolRendering(mode: "monochrome" | "hierarchical" | "palette" | "multicolor", colors?: readonly string[]): this
 }
 type CmuxChildren = Array<CmuxView | (() => unknown) | null | undefined | false>
 interface CmuxListSpec<T> { items: () => readonly T[] | null | undefined; key: (item: T, index: number) => string | number; onMove?: (id: string, index: number, extra: { side?: string; block?: boolean }) => unknown; onDragChange?: (state: unknown) => unknown; spacing?: number }
@@ -2068,7 +2099,12 @@ declare function HStack(propsOrChildren?: Record<string, unknown> | CmuxChildren
 declare function ZStack(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView
 declare function LazyVStack(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView
 declare function Group(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView
-declare function Text(text: Bindable<string | number | null | undefined>): CmuxView
+type CmuxDateTextStyle = "time" | "timer" | "relative" | "date" | "offset"
+/** A Text the host formats and ticks itself, like SwiftUI's `Text(date, style:)` (no render or scene batch per tick).
+ * `date` is Unix ms; `time` "9:41 AM", `date` "November 16, 2026", `timer` "4:05", `relative` "2 hr, 23 min",
+ * `offset` "+2 hours". The page's locale and time zone; `timeZone` (IANA) overrides the zone. */
+interface CmuxDateText { date: Bindable<number>; style?: Bindable<CmuxDateTextStyle>; timeZone?: Bindable<string> }
+declare function Text(text: Bindable<string | number | null | undefined> | CmuxDateText): CmuxView
 declare function Icon(name: Bindable<string>): CmuxView
 declare function Image(source: Bindable<string> | { systemName: Bindable<string> }): CmuxView
 declare function Button(label: Bindable<string> | CmuxView, action?: () => unknown): CmuxView
@@ -2079,6 +2115,8 @@ declare function Circle(props?: Record<string, unknown>): CmuxView
 declare function Capsule(props?: Record<string, unknown>): CmuxView
 declare function Rectangle(props?: Record<string, unknown>): CmuxView
 declare function RoundedRectangle(props?: Record<string, unknown>): CmuxView
+/** A stroke along its width: `strokeWidth` thick (1 by default) in `stroke` (the separator ink by default). */
+declare function Line(props?: Record<string, unknown>): CmuxView
 declare function ProgressView(value?: Bindable<number | null>): CmuxView
 declare function TextField(value: Bindable<string>, options?: { placeholder?: string; autofocus?: boolean; onSubmit?: (t: string) => unknown; onEdit?: (t: string) => unknown; onCancel?: () => unknown }): CmuxView
 declare function Row(props: { title: Bindable<string>; subtitle?: Bindable<string | null>; symbol?: Bindable<string | null>; badge?: Bindable<string | number | null>; unread?: Bindable<boolean>; selected?: Bindable<boolean>; tint?: Bindable<string | null>; accessory?: Bindable<string | null> }): CmuxView
@@ -2092,3 +2130,7 @@ declare function Badge(text: Bindable<string | number>, tone?: Bindable<string>)
 declare function EmptyState(props: { title: Bindable<string>; message?: Bindable<string>; symbol?: Bindable<string> }): CmuxView
 declare function ForEach<T>(spec: CmuxListSpec<T>, template: (item: CmuxSignal<T>, key: string) => CmuxView): CmuxView
 declare function Reorderable<T>(spec: CmuxListSpec<T>, template: (item: CmuxSignal<T>, key: string) => CmuxView): CmuxView
+/** A linear gradient for .background(...) or a shape's .fill(...): 2 to 8 stops along angle degrees (0 up, 90 right, 180 down, the default). Throws on a bad stop or angle. */
+declare function linearGradient(colors: readonly string[], angle?: number): CmuxGradient
+/** A radial gradient: an ellipse from the center out to the box's edges, 2 to 8 stops. Throws on a bad stop. */
+declare function radialGradient(colors: readonly string[]): CmuxGradient

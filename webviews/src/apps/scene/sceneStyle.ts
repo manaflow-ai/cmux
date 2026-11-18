@@ -44,6 +44,28 @@ export function scenePosition(props: SceneProps): { x: string; y: string } | und
     value === undefined ? "50%" : fraction ? `${value * 100}%` : `${value}px`;
   return { x: place(x), y: place(y) };
 }
+
+/** A gradient fill (`background`, a shape's `fill`) as a CSS image: `{linear: {colors, angle?}}` or
+ * `{radial: {colors}}`, 2 to 8 stops that are each a token or `#RRGGBB[AA]`, spaced evenly. `angle` is
+ * in degrees the CSS way (0 up, 90 right, 180 down, the default). Anything else is undefined, so a
+ * bad value draws no gradient rather than arbitrary CSS. */
+export function sceneGradient(value: unknown): string | undefined {
+  const record = sceneRecord(value);
+  const keys = Object.keys(record);
+  const kind = keys[0];
+  if (keys.length !== 1 || (kind !== "linear" && kind !== "radial")) return undefined;
+  const spec = sceneRecord(record[kind]);
+  const allowed = kind === "linear" ? ["colors", "angle"] : ["colors"];
+  if (Object.keys(spec).some((key) => !allowed.includes(key))) return undefined;
+  const stops: unknown = spec.colors;
+  if (!Array.isArray(stops) || stops.length < 2 || stops.length > 8) return undefined;
+  const colors = stops.map(sceneColor);
+  if (colors.some((color) => color === undefined)) return undefined;
+  if (kind === "radial") return `radial-gradient(closest-side, ${colors.join(", ")})`;
+  const angle = spec.angle === undefined ? 180 : sceneNumber(spec.angle);
+  if (angle === undefined) return undefined;
+  return `linear-gradient(${((angle % 360) + 360) % 360}deg, ${colors.join(", ")})`;
+}
 const FONTS: Record<string, string> = {
   largeTitle: "var(--text-title)",
   title: "var(--text-title)",
@@ -102,7 +124,8 @@ export function sceneStyle(props: SceneProps): SceneStyle {
     dx || dy ? `translate(${dx}px, ${dy}px)` : "",
   ].filter(Boolean);
   if (transforms.length) style.transform = transforms.join(" ");
-  style.backgroundColor = sceneColor(props.background);
+  style.backgroundImage = sceneGradient(props.background);
+  style.backgroundColor = style.backgroundImage ? undefined : sceneColor(props.background);
   style.color = sceneColor(props.color);
   style.borderRadius = sceneNumber(props.cornerRadius);
   if (sceneColor(props.borderColor)) {
