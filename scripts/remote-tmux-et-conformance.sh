@@ -272,7 +272,7 @@ et_run() {
     # `--` before the destination, as cmux's own et argv does: a destination beginning with `-`
     # has to be a host, never an option.
     python3 scripts/pty-run.py --timeout "$timeout_s" -- \
-      "$ET_CLIENT" -p "$PORT" --terminal-path "$ET_TERMINAL" -c "$command" -- "$HOST" 2>&1 \
+      "$ET_CLIENT" --port "$PORT" --terminal-path "$ET_TERMINAL" --command "$command" -- "$HOST" 2>&1 \
       | tee "$TTY_SINK"
   fi
 }
@@ -390,10 +390,10 @@ else
   # The last one is the sharp, cheap assertion, so that is what is checked here.
   tmux -f /dev/null new-session -d -s "${SESSION}p" 2>/dev/null
   PCMD="TMUX_TMPDIR=$TMUX_TMPDIR; export TMUX_TMPDIR; exec tmux -CC attach-session -t ${SESSION}p"
-  withpty="$(python3 scripts/pty-run.py --timeout 20 -- "$ET_CLIENT" -p "$PORT" \
-               --terminal-path "$ET_TERMINAL" -c "$PCMD" "$HOST" 2>&1)" || true
-  withN="$(python3 scripts/pty-run.py --timeout 20 -- "$ET_CLIENT" -N -p "$PORT" \
-               --terminal-path "$ET_TERMINAL" -c "$PCMD" "$HOST" 2>&1)" || true
+  withpty="$(python3 scripts/pty-run.py --timeout 20 -- "$ET_CLIENT" --port "$PORT" \
+               --terminal-path "$ET_TERMINAL" --command "$PCMD" "$HOST" 2>&1)" || true
+  withN="$(python3 scripts/pty-run.py --timeout 20 -- "$ET_CLIENT" --no-terminal --port "$PORT" \
+               --terminal-path "$ET_TERMINAL" --command "$PCMD" "$HOST" 2>&1)" || true
   wp_bytes=$(printf '%s' "$withpty" | wc -c | tr -d ' ')
   wn_bytes=$(printf '%s' "$withN" | wc -c | tr -d ' ')
   if printf '%s' "$withpty" | grep -q '%begin'; then
@@ -413,8 +413,8 @@ else
   fi
   # Absent a pty the stream is padded with redraws. Reported rather than asserted: the exact
   # multiple depends on the shell and the window size, and only its magnitude matters.
-  nopty="$("$TIMEOUT_BIN" 20 "$ET_CLIENT" -p "$PORT" --terminal-path "$ET_TERMINAL" \
-             -c "$PCMD" "$HOST" </dev/null 2>&1)" || true
+  nopty="$("$TIMEOUT_BIN" 20 "$ET_CLIENT" --port "$PORT" --terminal-path "$ET_TERMINAL" \
+             --command "$PCMD" "$HOST" </dev/null 2>&1)" || true
   np_bytes=$(printf '%s' "$nopty" | wc -c | tr -d ' ')
   note "same session: ${wp_bytes} bytes under a pty vs ${np_bytes} without one"
   tmux kill-session -t "${SESSION}p" 2>/dev/null
@@ -563,9 +563,9 @@ if [ -n "$TRANSPORT_BROKER" ]; then
   rej="$("$TIMEOUT_BIN" 15 "$TRANSPORT_BROKER" $TRANSPORT_BROKER_ARGS --definitely-not-a-flag \
            "$TRANSPORT_HOST" -c true 2>&1; true)"
 else
-  # -p must be present, or this fails on connection before argv is ever judged and the
+  # --port must be present, or this fails on connection before argv is ever judged and the
   # connection error gets misread as the rejection wording.
-  rej="$("$TIMEOUT_BIN" 15 "$ET_CLIENT" -p "$PORT" --definitely-not-a-flag "$HOST" 2>&1; true)"
+  rej="$("$TIMEOUT_BIN" 15 "$ET_CLIENT" --port "$PORT" --definitely-not-a-flag "$HOST" 2>&1; true)"
 fi
 if printf '%s' "$rej" | grep -qiE "unrecognized option|unknown option|flag provided but not defined|invalid option"; then
   pass "a rejected argv says so in wording cmux classifies as unrecoverable"
