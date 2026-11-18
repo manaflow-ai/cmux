@@ -571,7 +571,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.links.optionClick` | string | `"download"` | `linkPlacement`, `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Option-Click. Chromium tabs always download. |
 | `browser.links.middleClick` | string | `"backgroundTab"` | `linkPlacement`, `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Middle-Click. Chromium tabs use the Command-Click setting. |
 | `browser.vimKeys` | boolean | `true` |  | Vim Keys in Pages. Outside text fields: f clicks a link, j and k scroll, gg and Shift-G jump to the ends. |
+| `browser.pageShortcuts` | string | `"ask"` | `ask`, `page`, `cmux` | Shortcuts in Web Pages. For shortcuts that a page and cmux both use, such as Cmd-K. App and window shortcuts always go to cmux. |
 | `browser.enabled` | boolean | `true` |  | Enable cmux Browser. Off: every link opens in your default browser. |
+| `browser.pageShortcutSites` | dictionary | `{}` |  | Shortcuts in Web Pages by Site. Sites with their own choice: a site, such as linear.app, and page or cmux. Other sites follow Shortcuts in Web Pages. |
 | `browser.openLinksInCmuxBrowser` | boolean | `true` |  | Open Links in cmux Browser. Off: links open in your default browser. Shift-Cmd-click opens the other one. |
 | `browser.openSignInPagesInCmux` | boolean | `true` |  | Open Sign-In Pages in cmux Browser. Sign-in pages open in cmux even when other links open in your default browser. |
 | `browser.openPullRequestsInGitHubPage` | boolean | `false` |  | Open Pull Requests in cmux GitHub Page. Pull request links in agent chats open cmux's GitHub page. Off: github.com in a tab. |
@@ -598,7 +600,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `home.chiefDock.edge` | string | `"left"` | `left`, `right`, `top`, `bottom` | Dock Edge. The window edge the Chief docks to. |
 | `home.chiefPanel.style` | string | `"composeBar"` | `composeBar`, `pill`, `card`, `panel`, `bubble`, `seeThrough`, `seeThroughBar` | Floating Chief Style. How the Chief looks floating over a workspace. Drag any style by its grip. |
 | `home.chiefPanel.seesScreen` | boolean | `true` |  | Chief Sees Your Screen When It Opens. The floating Chief takes one look at your screen when it opens. The eye turns it off. |
-| `home.chiefDock.openBeside` | boolean | `true` |  | Show Chief When Opening Workspaces. Links in the Chief open their workspace with the Chief over it. Esc hides it. |
+| `home.chiefDock.openBeside` | boolean | `false` |  | Show Chief When Opening Workspaces. Links in the Chief open their workspace with the Chief over it. Esc hides it. |
 | `home.chiefEngine` | string | `"auto"` | `auto`, `local`, `hosted` | Engine. Auto uses this Mac's Chief while it runs, else the Hosted Chief. |
 | `chief.reactionsCanWake` | boolean | `true` |  | Reactions Can Wake the Chief. A reaction on a Chief message can start a turn, such as ? on a question. |
 | `chief.reactionClassifier.harness` | string | `""` |  | Reaction Classifier Harness. The agent that reads reactions, such as claude or codex. Empty uses the Chief's. |

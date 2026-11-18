@@ -1123,7 +1123,8 @@
               "browser.links.shiftClick",
               "browser.links.optionClick",
               "browser.links.middleClick",
-              "browser.vimKeys"
+              "browser.vimKeys",
+              "browser.pageShortcuts"
             ],
             "title" : {
               "key" : "settings.group.links",
@@ -1134,6 +1135,7 @@
             "key" : "settings.group.openingLinks",
             "rows" : [
               "browser.enabled",
+              "browser.pageShortcutSites",
               "browser.openLinksInCmuxBrowser",
               "browser.openSignInPagesInCmux",
               "browser.openPullRequestsInGitHubPage",
@@ -88518,6 +88520,167 @@
     },
     {
       "accepts" : [
+        "ask",
+        "page",
+        "cmux"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.pageShortcutsAsk",
+            "text" : "Ask"
+          },
+          "value" : "ask"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.pageShortcutsPage",
+            "text" : "Web Page First"
+          },
+          "value" : "page"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.pageShortcutsCmux",
+            "text" : "cmux First"
+          },
+          "value" : "cmux"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "ask",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.links",
+        "text" : "Links"
+      },
+      "help" : {
+        "key" : "settings.browser.pageShortcuts.help",
+        "text" : "For shortcuts that a page and cmux both use, such as Cmd-K. App and window shortcuts always go to cmux."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.pageShortcuts",
+      "keywords" : [
+        "keyboard",
+        "shortcut",
+        "shortcuts",
+        "conflict",
+        "cmd-k",
+        "focus mode",
+        "page",
+        "website"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "pageShortcuts"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:browser.pageShortcuts"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.pageShortcuts",
+        "text" : "Shortcuts in Web Pages"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -88645,6 +88808,152 @@
       "title" : {
         "key" : "settings.browser.enabled",
         "text" : "Enable cmux Browser"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.browser.pageShortcutSites.help",
+        "text" : "Sites with their own choice: a site, such as linear.app, and page or cmux. Other sites follow Shortcuts in Web Pages."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.pageShortcutSites",
+      "keywords" : [
+        "keyboard",
+        "shortcut",
+        "shortcuts",
+        "site",
+        "website",
+        "cmd-k"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "pageShortcutSites"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:browser.pageShortcutSites"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.pageShortcutSites",
+        "text" : "Shortcuts in Web Pages by Site"
       },
       "validation" : "portable"
     },
@@ -92518,7 +92827,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.chiefDock",

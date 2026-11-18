@@ -2399,6 +2399,28 @@
       "title" : "Open Terminal Links in cmux Browser",
       "type" : "boolean"
     },
+    "browser.pageShortcuts" : {
+      "default" : "ask",
+      "description" : "For shortcuts that a page and cmux both use, such as Cmd-K. App and window shortcuts always go to cmux.",
+      "enum" : [
+        "ask",
+        "page",
+        "cmux"
+      ],
+      "title" : "Shortcuts in Web Pages",
+      "type" : "string"
+    },
+    "browser.pageShortcutSites" : {
+      "default" : {
+
+      },
+      "description" : "Sites with their own choice: a site, such as linear.app, and page or cmux. Other sites follow Shortcuts in Web Pages.",
+      "properties" : {
+
+      },
+      "title" : "Shortcuts in Web Pages by Site",
+      "type" : "object"
+    },
     "browser.passwords.allowExport" : {
       "default" : false,
       "description" : "The Passwords page can export every password to a plain-text CSV, after Touch ID.",
@@ -3401,7 +3423,7 @@
       "type" : "string"
     },
     "home.chiefDock.openBeside" : {
-      "default" : true,
+      "default" : false,
       "description" : "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
       "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"
