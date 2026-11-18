@@ -8,6 +8,8 @@ import sys
 import unittest
 from unittest import mock
 
+import yaml
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/ios_ui_nightly.py"
 NIGHTLY = ROOT / ".github/workflows/ios-ui-tests-nightly.yml"
@@ -116,10 +118,12 @@ class WiringTests(unittest.TestCase):
         self.assertLess(int(bound.group(1)), int(cap.group(1)) * 60)
 
     def test_report_jobs_serialize_to_avoid_duplicate_issues(self):
-        report = NIGHTLY.read_text().split("  report:", 1)[1]
-        self.assertIn("concurrency:", report)
-        self.assertIn("group: ios-ui-nightly-report", report)
-        self.assertIn("cancel-in-progress: false", report)
+        # Parsed, so a commented-out block cannot satisfy it.
+        report = yaml.safe_load(NIGHTLY.read_text())["jobs"]["report"]
+        self.assertEqual(report.get("concurrency"), {
+            "group": "ios-ui-nightly-report",
+            "cancel-in-progress": False,
+        })
 
 
 class CommandReportTests(unittest.TestCase):
