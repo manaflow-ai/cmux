@@ -1,7 +1,8 @@
 import { type AcpmuxRow } from "./model";
 import { type ReferenceScope } from "./conversation/bareReferences";
 import { isEditRow } from "./turnChanges/sessionRows";
-import { ACTIVITY_LINE, THINKING, WORKING } from "./conversation/turns";
+import { ACTIVITY_LINE, LIVE_THINKING, THINKING, WORKING } from "./conversation/turns";
+import { PULSE_FIELDS } from "./conversation/liveLinePulse";
 import { workEnds } from "./conversation/waterfallSpans";
 
 export const NO_ROWS: readonly AcpmuxRow[] = [];
@@ -36,14 +37,21 @@ export function sameReferenceScope(previous: ReferenceScope | undefined, next: R
   );
 }
 
-/// Whether two rows hold the same value in every own field (one level deep).
-function sameFields(previous: AcpmuxRow, next: AcpmuxRow): boolean {
+/// Whether two rows hold the same value in every own field (one level deep), past `heard`'s.
+function sameFields(previous: AcpmuxRow, next: AcpmuxRow, heard?: ReadonlySet<string>): boolean {
   if (previous === next) return true;
   const before = previous as unknown as Record<string, unknown>;
   const after = next as unknown as Record<string, unknown>;
   const keys = Object.keys(after);
-  return keys.length === Object.keys(before).length && keys.every((key) => Object.is(before[key], after[key]));
+  return (
+    keys.length === Object.keys(before).length &&
+    keys.every((key) => heard?.has(key) || Object.is(before[key], after[key]))
+  );
 }
+
+/// The live line's fields that move with every event: the transcript notes them in its pulse, which
+/// the line hears without its frame drawing (conversation/liveLinePulse.ts).
+const PULSE_HEARD: ReadonlySet<string> = new Set(PULSE_FIELDS);
 
 /// Whether a row draws the same: renderers use id and version as their draw identity, so a clone of
 /// an unchanged row (snapshot rebuilding clones them when a prompt is sent) draws the same. The
@@ -53,7 +61,11 @@ function sameRowDraw(before: AcpmuxRow, after: AcpmuxRow): boolean {
   // with a version that does not cover all they say (the call in flight, who a send goes to, its
   // time, the clock offset): those are in their fields, so they redraw whenever a field changes.
   if (after.kind === THINKING || after.kind === WORKING || after.kind === ACTIVITY_LINE)
-    return sameFields(before, after);
+    return sameFields(
+      before,
+      after,
+      after.id === LIVE_THINKING && before.id === LIVE_THINKING ? PULSE_HEARD : undefined,
+    );
   return (
     before.id === after.id &&
     // Recreated chats can reuse local ids and versions. A different message must reach its

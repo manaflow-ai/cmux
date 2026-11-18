@@ -491,23 +491,25 @@ public final class ComputerUseHelperDaemon {
         return path.hasSuffix("/") ? path : path + "/"
     }
 
-    nonisolated static func defaultStateDirectory(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app") -> URL {
-        cuaRoot(home: FileManager.default.homeDirectoryForCurrentUser)
-            .appending(path: "runtime/\(scope(bundleID))/state", directoryHint: .isDirectory)
+    /// NEXT's own runtime folder for the bundle (its `agent-token` and `state`), under `cmux-next`
+    /// (cmuxterm-hq goals/next-store-out-of-classic.md). Builds before kept it in classic's
+    /// `cmux/cmux-cua`; the launch moves it here once (`ClassicFolderItemsMove.moveComputerUseRuntime`).
+    nonisolated static func defaultStateDirectory(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+                                                  applicationSupport: URL = NextSupport.applicationSupportDirectory()) -> URL {
+        NextSupport(applicationSupport: applicationSupport).computerUseRuntime(bundleID: bundleID)
+            .appending(path: "state", directoryHint: .isDirectory)
     }
 
-    /// The cmux-cua folder every build shares with classic cmux; each build's
-    /// own items in it are named by its scope.
+    /// NEXT's own cmux-cua folder, under `cmux-next` (cmuxterm-hq goals/next-store-out-of-classic.md);
+    /// each build's items in it are named by its scope. Builds before staged their helper copies in classic's
+    /// `cmux/cmux-cua`; the launch moves them here once (`ClassicFolderItemsMove.moveComputerUseCopies`).
     nonisolated static func cuaRoot(home: URL) -> URL {
-        home.appending(path: "Library/Application Support/cmux/cmux-cua", directoryHint: .isDirectory)
+        NextSupport(applicationSupport: home.appending(path: "Library/Application Support", directoryHint: .isDirectory))
+            .folder.appending(path: "cmux-cua", directoryHint: .isDirectory)
     }
 
     /// A stable 16-hex scope for a bundle id (FNV-1a).
-    nonisolated static func scope(_ bundleID: String) -> String {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in bundleID.utf8 { hash = (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3 }
-        return String(format: "%016llx", hash)
-    }
+    nonisolated static func scope(_ bundleID: String) -> String { NextSupport.computerUseScope(bundleID) }
 
     nonisolated static func makeToken() -> String {
         var bytes = [UInt8](repeating: 0, count: 32)

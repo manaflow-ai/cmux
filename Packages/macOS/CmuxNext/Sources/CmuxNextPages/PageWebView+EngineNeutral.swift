@@ -35,6 +35,22 @@ extension PageWebView {
         return image
     }
 
+    /// A picture of the page as it draws now with its clear areas kept clear, at the view's size in points; nil when
+    /// there is none. In Chromium it is a fast-mode PNG of the whole viewport (no clip: a clip with a scale lays the page
+    /// out again), which costs the main thread more than ``snapshot()``'s JPEG: it is for a cover of a page the pane shows
+    /// through (a New Tab page), taken at a quiet moment (a parked New Tab spare), once per size and content.
+    public func clearAreaSnapshot() async -> NSImage? {
+        guard let page = chromiumSession?.page else { return try? await webView.takeSnapshot(configuration: nil) }
+        guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.clearAreaSnapshotParams),
+              let data = await Self.screenshotData(json), let image = NSImage(data: data) else { return nil }
+        // The viewport: the page window lays its web contents one point under its top edge (``chromiumFrameBand``).
+        image.size = NSSize(width: bounds.width, height: max(0, bounds.height - Self.chromiumFrameBand))
+        return image
+    }
+
+    /// `Page.captureScreenshot` for ``clearAreaSnapshot()``.
+    nonisolated static var clearAreaSnapshotParams: [String: any Sendable] { ["format": "png", "optimizeForSpeed": true] }
+
     /// A small picture of the page as it last drew, at most `maxPixelWidth` pixels wide, its clear
     /// areas kept clear; nil when there is none. For a hover card: it does not wait for the next
     /// screen update (a parked page makes none), and Chromium scales it down before it encodes it.

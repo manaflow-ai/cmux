@@ -26,13 +26,19 @@ struct AgentCardRasterKey: Equatable {
     /// The chat's diffs as drawn (`ChatDiffCache.version`): an edit's snippet and the
     /// edited-files card draw once their diff lands, and the picture is drawn again then.
     var diffs = 0
+    /// The person's text size: `ImageRenderer` draws with a default environment, so the
+    /// picture is drawn at this one, as the page is (the card's own environment's).
+    var textSize: DynamicTypeSize = .large
+    /// The chat's Text and Width (its text size step and column), which its page draws in.
+    var display = ChatDisplaySettings()
 
-    /// Drawn the same way (scheme, size, insets, resolution), whatever the
+    /// Drawn the same way (scheme, size, insets, resolution, text), whatever the
     /// turns: an older picture of the same layout stands in until the new
     /// one is drawn, as a terminal's last frame does.
     func sameLayout(_ other: AgentCardRasterKey) -> Bool {
         colorScheme == other.colorScheme && page == other.page && visibleHeight == other.visibleHeight
             && topInset == other.topInset && bottomInset == other.bottomInset && scale == other.scale
+            && textSize == other.textSize && display == other.display
     }
 
     /// Whether a card for this key may show `picture`: one drawn for this
@@ -61,11 +67,13 @@ extension AgentCardRasterKey {
     @MainActor
     /// Reads (and so observes) what the card waits for: decoded thumbnails and the chat's diffs.
     static func current(_ feed: AgentCardFeed, turns: [AgentTurn]? = nil, colorScheme: ColorScheme, page: CGSize,
-                        visibleHeight: CGFloat, topInset: CGFloat, bottomInset: CGFloat, scale: CGFloat) -> AgentCardRasterKey {
+                        visibleHeight: CGFloat, topInset: CGFloat, bottomInset: CGFloat, scale: CGFloat,
+                        textSize: DynamicTypeSize = .large) -> AgentCardRasterKey {
         let turns = turns ?? feed.turns
         return AgentCardRasterKey(turns: turns, colorScheme: colorScheme, page: page, visibleHeight: visibleHeight,
                                   topInset: topInset, bottomInset: bottomInset, scale: scale,
-                                  pictures: AgentChatPreview.picturesReady(turns), diffs: feed.store.diffs.version)
+                                  pictures: AgentChatPreview.picturesReady(turns), diffs: feed.store.diffs.version,
+                                  textSize: textSize, display: ChatDisplayPreferences.shared.settings(for: feed.store.summary))
     }
 }
 
@@ -251,6 +259,7 @@ final class AgentCardRasterizer: NSObject {
             .frame(width: key.page.width, height: key.visibleHeight, alignment: .top)
             .clipped()
             .environment(\.colorScheme, key.colorScheme)
+            .environment(\.dynamicTypeSize, key.textSize)
         let renderer = ImageRenderer(content: content)
         renderer.scale = key.scale
         renderer.isOpaque = true
@@ -270,6 +279,7 @@ struct AgentTabCard: View {
     let bottomInset: CGFloat
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.dynamicTypeSize) private var textSize
 
     private struct PictureRequest: Equatable {
         var key: AgentCardRasterKey
@@ -282,7 +292,8 @@ struct AgentTabCard: View {
     var body: some View {
         let key = AgentCardRasterKey.current(feed, colorScheme: colorScheme, page: page,
                                              visibleHeight: min(page.height, page.width * Self.cardAspect),
-                                             topInset: topInset, bottomInset: bottomInset, scale: displayScale * cardScale)
+                                             topInset: topInset, bottomInset: bottomInset, scale: displayScale * cardScale,
+                                             textSize: textSize)
         Group {
             // The picture, also while a newer one waits for the grid to rest:
             // building a card never lays out a page of transcript then.
