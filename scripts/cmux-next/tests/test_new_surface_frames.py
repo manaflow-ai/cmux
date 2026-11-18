@@ -356,6 +356,9 @@ class FakeApp:
         self.refused = set()
         # `others`: the workspaces that another actor opens in the first pause of a call that goes on.
         self.others = 0
+        # `records`: the spare flags of the opening records that each frame_strip makes (None: one, of a spare, for
+        # each opening). The app's records and its openings are not one count: a Cmd-N of a reserved workspace makes none.
+        self.records = None
 
     def pause(self, _seconds):
         """The tool's pause. No clock: the app's call that goes on ends in the pause number `ends_in`."""
@@ -408,9 +411,9 @@ class FakeApp:
                 return {"error": "no window"}  # the app's refusal before a key goes in
             keys = params.get("repeat", 1)
             opened = keys if self.opens is None else self.opens
-            for _ in range(opened):
+            for flag in [True] * opened if self.records is None else self.records:
                 self.recorded += 1
-                self.openings.append({"spare": True, "ms": 1000.0 + self.recorded})
+                self.openings.append({"spare": flag, "ms": 1000.0 + self.recorded})
             if self.limit:
                 self.openings = self.openings[-self.limit:]
             self.newest += [params["key"]] * opened
@@ -772,6 +775,216 @@ class ScreenTests(unittest.TestCase):
         refusal, ended, moved = self.fresh_session_by_ps(os.path.join(self.folder, "real", bundle), runs_from=None,
                                                          tag="Screen Test Tag", bundle=bundle)
         self.assertEqual((refusal, ended, moved), (None, [os.path.realpath(os.path.join(self.folder, "real", bundle))], True))
+
+
+HALF = (0.01, 0.01)  # the window outside the pane with one new row of two: unlike before, unlike the last picture
+PART = (0.3, 0.05)  # the page, not yet as it stays
+
+
+class FirstFrameSpanTests(unittest.TestCase):
+    """A first frame is a number only when each frame of the display from the key to it has a row."""
+
+    def test_a_first_frame_with_a_row_for_each_frame_before_it_has_its_span_and_is_valid(self):
+        got = nsf.one_key(take([(OLD, ROW_OLD)] * 2 + [(NEW, ROW_NEW)] * 238), "n", asked_hz=120)
+        self.assertEqual((got["content_first"]["frame"], got["invalid"]), (3, []))
+        self.assertEqual(got.get("first_frame_span"), {"frames": 3, "rows": 3, "no_row": 0, "no_row_frames": [],
+                                                       "longest_gap_ms": 9.0, "early_ms_at_most": 0.0})
+
+    def test_a_frame_with_no_row_directly_before_the_first_content_makes_the_row_invalid_and_says_how_early_it_can_be(self):
+        # Frame 2 has no row. The page is in frame 3's row: it can have come in frame 2, one frame time earlier.
+        got = nsf.one_key(take([(OLD, ROW_OLD), None] + [(NEW, ROW_NEW)] * 238), "n", asked_hz=120)
+        self.assertEqual((got["content_first"]["frame"], got["content_first"]["ms"]), (3, 25))
+        self.assertEqual(got.get("first_frame_span"), {"frames": 3, "rows": 2, "no_row": 1, "no_row_frames": [2],
+                                                       "longest_gap_ms": 17.0, "early_ms_at_most": 8.3})
+        self.assertEqual(got["invalid"], ["no-row: 1 of the 3 frames from the key to content_first have no row (frames 2; the longest "
+                                          "step between rows 17 ms): content_first can be at most 8.3 ms early"])
+
+    def test_a_frame_with_no_row_before_a_row_that_shows_the_old_picture_is_invalid_too_and_cannot_hide_the_page(self):
+        # Frame 1 has no row; frame 2's row still shows the picture before the key, so the page was not there in frame 1.
+        got = nsf.one_key(take([None, (OLD, ROW_OLD)] + [(NEW, ROW_NEW)] * 238), "n", asked_hz=120)
+        span = got.get("first_frame_span") or {}
+        self.assertEqual((span.get("no_row"), span.get("no_row_frames"), span.get("early_ms_at_most")), (1, [1], 0.0))
+        self.assertEqual([reason.split(":")[0] for reason in got["invalid"]], ["no-row"])
+
+    def test_the_still_part_of_a_recording_is_not_judged_by_the_step_of_its_rows(self):
+        # A row for each of the first 8 frames (the page comes in frame 3 and is whole in frame 4); in the still part
+        # after them the recorder gives a row for each third frame of the display.
+        pictures = [(OLD, ROW_OLD)] * 2 + [(PART, ROW_NEW)] + [(NEW, ROW_NEW)] * 5 + [None, None, (NEW, ROW_NEW)] * 78
+        got = nsf.one_key(take(pictures), "n", asked_hz=120)
+        self.assertEqual(got["invalid"], [])
+        # The frame's number is the display's: the rows' own step over the whole recording is 3 frame times.
+        self.assertEqual((got["refresh_ms"], got["content_first"]["frame"], got["content_final"]["frame"]), (round(STEP, 3), 3, 4))
+        self.assertAlmostEqual(got["refresh_measured_ms"], 3 * STEP, delta=0.6)
+        self.assertEqual((got["frames_not_delivered"], got["frames_after_key"], got["take_ms"]), (156, 86, 2017))
+
+    def test_rows_that_come_slower_than_the_display_in_the_part_that_moves_are_invalid(self):
+        # A row for each SECOND frame of the display while the page comes (frames 2 to 10), then a row for each frame.
+        pictures = [None, (OLD, ROW_OLD), None, (OLD, ROW_OLD), None, (PART, ROW_NEW), None, (PART, ROW_NEW), None] + [(NEW, ROW_NEW)] * 231
+        got = nsf.one_key(take(pictures), "n", asked_hz=120)
+        self.assertEqual([reason.split(":")[0] for reason in got["invalid"]], ["no-row", "refresh"])
+        self.assertEqual((got["refresh_ms"], got["content_first"]["frame"], got["content_final"]["frame"]), (round(STEP, 3), 6, 10))
+        self.assertAlmostEqual(got.get("refresh_moving_ms") or 0, 2 * STEP, delta=0.6)
+        self.assertEqual(got["first_frame_span"]["no_row_frames"], [1, 3, 5])
+
+    def test_a_row_keeps_the_time_of_each_of_its_rows(self):
+        got = nsf.one_key(take([(NEW, ROW_NEW)] * 3 + [None] + [(NEW, ROW_NEW)] * 236), "n", asked_hz=120)
+        self.assertEqual(((got.get("rows_ms") or [])[:4], len(got.get("rows_ms") or [])), ([8, 17, 25, 42], 239))
+
+    def test_a_case_says_the_frames_with_no_row_of_each_of_its_rows_also_of_the_invalid_ones(self):
+        good = nsf.one_key(take([(OLD, ROW_OLD)] * 2 + [(NEW, ROW_NEW)] * 238), "n", asked_hz=120)
+        holed = nsf.one_key(take([(OLD, ROW_OLD), None] + [(NEW, ROW_NEW)] * 238), "n", asked_hz=120)
+        case = nsf.summarize([good, holed])
+        self.assertEqual((case["valid"], case["invalid"]), (1, ["no-row"]))
+        self.assertEqual(case.get("first_frame_no_row"), {"rows": 2, "with_a_frame_with_no_row": 1, "no_row": {"p50": 0.5, "max": 1},
+                                                          "longest_gap_ms": {"p50": 13.0, "max": 17.0},
+                                                          "early_ms_at_most": {"p50": 4.15, "max": 8.3}})
+        self.assertIn("frames with no row from the key to content_first, over EACH of 2 rows (also the INVALID ones): in 1 rows, "
+                      "p50 0.5 max 1, the longest step between rows max 17 ms, content_first at most 8.3 ms early", nsf.cell(case))
+
+
+class SecondFirstTests(unittest.TestCase):
+    """The second key's own first frame, from that key's own opening mark."""
+    MARKS = [{"name": "cmdN.start", "ms": 0.0}, {"name": "cmdN.start", "ms": 104.0}]
+    # The first key's page and row are on the screen from frame 4 of the recording; the second key was due at
+    # 100 ms, its mark began 4 ms after that, and its row is in the third frame after its due time.
+    PICTURES = [(OLD, ROW_OLD)] * 3 + [(NEW, HALF)] * 11 + [(NEW, ROW_NEW)] * 240
+
+    def test_the_second_keys_first_frame_is_the_first_row_after_its_mark_with_the_tabs_region_unlike_the_row_before(self):
+        got = nsf.one_key(take(self.PICTURES, spans=self.MARKS), "n", gap_ms=100, asked_hz=120)
+        self.assertEqual(got["invalid"], [])
+        self.assertEqual(got.get("second_first"), {
+            "region": "outside", "mark_ms": 4.0, "frame": 3, "ms": 25, "file": "frame-017.png", "after_mark_ms": 21.0,
+            "content": "final", "moving_at_the_mark": False,
+            "span": {"frames": 3, "rows": 3, "no_row": 0, "no_row_frames": [], "longest_gap_ms": 9.0, "early_ms_at_most": 0.0}})
+        self.assertEqual(got["pictures"].get("second_first"), "frame-017.png")
+        self.assertEqual(nsf.summarize([got]).get("second_first"), {"frame": {"p50": 3, "max": 3}, "ms": {"p50": 25, "max": 25}})
+
+    def test_a_frame_with_no_row_before_the_second_keys_first_frame_makes_the_row_invalid(self):
+        pictures = list(self.PICTURES)
+        pictures[13] = None  # the second frame after the second key's due time has no row
+        got = nsf.one_key(take(pictures, spans=self.MARKS), "n", gap_ms=100, asked_hz=120)
+        second = got.get("second_first") or {}
+        self.assertEqual((second.get("frame"), second.get("span")), (3, {"frames": 3, "rows": 2, "no_row": 1, "no_row_frames": [2],
+                                                                         "longest_gap_ms": 17.0, "early_ms_at_most": 8.3}))
+        self.assertEqual(got["invalid"], ["no-row: 1 of the 3 frames from the second key's mark to second_first have no row (frames 2; "
+                                          "the longest step between rows 17 ms): second_first can be at most 8.3 ms early"])
+
+    def test_a_row_says_why_it_has_no_second_first(self):
+        one = nsf.one_key(take([(NEW, ROW_NEW)] * 240), "n", asked_hz=120)
+        self.assertEqual((one.get("second_first", 0), one.get("second_first_source")), (None, "one key"))
+        no_mark = nsf.one_key(take(self.PICTURES), "n", gap_ms=100, asked_hz=120)
+        self.assertEqual((no_mark.get("second_first", 0), no_mark.get("second_first_source")),
+                         (None, "not known: the spans have no second `cmdN.start` mark"))
+        tabs = [{"name": "newTab.open", "ms": 0.0}, {"name": "newTab.open", "ms": 104.0}]
+        no_strip = nsf.one_key(take([(NEW, STILL)] * 252, spans=tabs), "t", gap_ms=100, asked_hz=120)
+        self.assertEqual((no_strip.get("second_first", 0), no_strip.get("second_first_source")),
+                         (None, "not known: the rows carry no strip numbers"))
+        still = nsf.one_key(take([(NEW, ROW_NEW)] * 252, spans=self.MARKS), "n", gap_ms=100, asked_hz=120)
+        self.assertEqual((still.get("second_first", 0), still.get("second_first_source")),
+                         (None, "not known: no row after the second key's `cmdN.start` mark has the outside region unlike the row before it"))
+
+    def test_a_region_that_still_moves_at_the_second_keys_mark_is_said(self):
+        # The first key's tab grows in the strip for 20 frames: the strip is unlike the row before it in each row at
+        # the second key's mark (103 ms) too, so the first row after the mark is only the earliest one that can be its.
+        tabs = [{"name": "newTab.open", "ms": 0.0}, {"name": "newTab.open", "ms": 103.0}]
+        pictures = [dict(content=NEW, outside=STILL, strip=(0.01 * min(index, 20), 0.01 * max(0, 20 - index))) for index in range(1, 253)]
+        got = nsf.one_key(take(pictures, spans=tabs), "t", gap_ms=100, asked_hz=120)
+        second = got.get("second_first") or {}
+        self.assertEqual((second.get("region"), second.get("frame"), second.get("ms"), second.get("after_mark_ms"), second.get("moving_at_the_mark")),
+                         ("strip", 1, 8, 5.0, True))
+
+
+class RecordsByKindTests(unittest.TestCase):
+    """The app's opening records are a fact by kind; the proof of the input is its marks and its count of tabs or workspaces."""
+    N1, N2 = [{"name": "cmdN.start", "ms": 0.0}], [{"name": "cmdN.start", "ms": 0.0}, {"name": "cmdN.start", "ms": 103.0}]
+    T1, T2 = [{"name": "newTab.open", "ms": 0.0}], [{"name": "newTab.open", "ms": 0.0}, {"name": "newTab.open", "ms": 104.0}]
+
+    def test_the_four_kinds_of_rows_of_a_take_are_each_a_proved_input(self):
+        # (key, keys sent, the new records' spare flags, the marks): a Cmd-N that took the workspace reserved at idle makes
+        # no record; a second Cmd-N with no reservation makes one; a Cmd-T of a spare one; a Cmd-T of a cold page two.
+        for key, keys, spare, marks in (("n", 1, [], self.N1), ("n", 2, [True], self.N2), ("n", 2, [], self.N2),
+                                        ("t", 1, [True], self.T1), ("t", 2, [True, False, False], self.T2)):
+            with self.subTest(key=key, keys=keys, spare=spare):
+                self.assertEqual(nsf.input_proof(key, keys, len(spare), keys, marks)[0], [])
+
+    def test_the_records_of_a_row_are_a_fact_by_kind(self):
+        fact = getattr(nsf, "records_fact", lambda *_: "the reader has no fact about the records")
+        self.assertEqual(fact("n", 1, []), {"count": 0, "spare": [], "possible": [0, 2], "keys_with_no_record": 1})
+        self.assertEqual(fact("n", 2, [True]), {"count": 1, "spare": [True], "possible": [0, 4], "keys_with_no_record": 1})
+        self.assertEqual(fact("t", 1, [True]), {"count": 1, "spare": [True], "possible": [1, 2], "more_than_the_keys": 0})
+        self.assertEqual(fact("t", 2, [True, False, False]), {"count": 3, "spare": [True, False, False], "possible": [2, 4], "more_than_the_keys": 1})
+
+    def test_a_count_of_records_that_the_keys_cannot_make_is_a_fault(self):
+        self.assertEqual(nsf.input_proof("t", 2, 1, 2, self.T2)[0], ["input: 2 keys sent, the app recorded 1 openings (2 to 4 are possible for Cmd-T)"])
+        self.assertEqual(nsf.input_proof("t", 1, 3, 1, self.T1)[0], ["input: 1 keys sent, the app recorded 3 openings (1 to 2 are possible for Cmd-T)"])
+        self.assertEqual(nsf.input_proof("n", 1, 3, 1, self.N1)[0], ["input: 1 keys sent, the app recorded 3 openings (0 to 2 are possible for Cmd-N)"])
+
+    def test_the_marks_and_the_count_stay_the_proof(self):
+        self.assertEqual(nsf.input_proof("n", 2, 0, 1, self.N2)[0], ["input: 2 keys sent, 1 more workspaces after them"])
+        self.assertEqual(nsf.input_proof("t", 2, 2, 2, self.T1)[0], ["input: 2 keys sent, 1 `newTab.open` marks"])
+
+
+class ScreenRowTests(unittest.TestCase):
+    """The mode's rows and printed lines with the frames that have no row, the second key's frame and the records."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="new-surface-screen-test-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.folder, ignore_errors=True))
+
+    def run_mode(self, app, launch_fault=None, **changed):
+        def make(socket_path, count, live, url, deadline, out):
+            app.workspaces += count
+            return {"asked_more": count, "live_shells": live, "maker_exit": 0, "maker_said_made": count, "seed_s": 0.0}
+        screen = new_surface_screen.Screen(options(self.folder, **changed), app.rpc, app.tools(), sleep=app.pause, make_session=make)
+        screen.launch_fault = launch_fault
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            report = screen.run()
+        return report, said.getvalue()
+
+    def test_a_cmd_n_that_makes_no_record_is_a_valid_row_and_the_row_has_the_fact(self):
+        app = FakeApp(self.folder, [(NEW, ROW_NEW)] * 252)
+        app.records = []  # each Cmd-N took a workspace that the app reserved at idle
+        report, said = self.run_mode(app, keys="n", gaps="0,100", runs=1)
+        self.assertEqual([row["invalid"] for row in report["rows"]], [[], []])
+        self.assertEqual([row.get("opening_records") for row in report["rows"]],
+                         [{"count": 0, "spare": [], "possible": [0, 2], "keys_with_no_record": 1},
+                          {"count": 0, "spare": [], "possible": [0, 4], "keys_with_no_record": 2}])
+        self.assertEqual([" records=[]" in line for line in said.splitlines() if "-ROW cmd-n-" in line], [True, True])
+
+    def test_a_cmd_t_of_a_cold_page_makes_two_records_and_is_a_valid_row(self):
+        app = FakeApp(self.folder, [(NEW, STILL)] * 252)
+        app.records = [True, False, False]
+        report, said = self.run_mode(app, keys="t", gaps="100", runs=1)
+        self.assertEqual((report["rows"][0]["invalid"], (report["rows"][0].get("opening_records") or {}).get("more_than_the_keys")), ([], 1))
+        self.assertIn(" records=[true, false, false]", said)
+
+    def test_a_rows_line_says_the_frames_with_no_row_and_how_early_its_first_frame_can_be(self):
+        report, said = self.run_mode(FakeApp(self.folder, [(OLD, ROW_OLD), None] + [(NEW, ROW_NEW)] * 238), keys="n", runs=1)
+        line = next(line for line in said.splitlines() if "-ROW cmd-n-idle-0" in line)
+        self.assertIn("INVALID no-row: 1 of the 3 frames from the key to content_first have no row", line)
+        self.assertIn(" no_row_to_content_first=1/3 longest_gap_ms=17 early_ms_at_most=8.3", line)
+        self.assertIn("over EACH of 1 rows (also the INVALID ones): in 1 rows, p50 1 max 1", said)
+        self.assertEqual(report["cases"]["cmd-n/idle"]["valid"], 0)
+        valid, said = self.run_mode(FakeApp(self.folder, [(OLD, ROW_OLD)] * 2 + [(NEW, ROW_NEW)] * 238), keys="n", runs=1)
+        self.assertIn(": valid ", said)
+        self.assertIn(" no_row_to_content_first=0/3 longest_gap_ms=9 early_ms_at_most=0", said)
+
+    def test_a_row_of_two_keys_says_the_second_keys_own_first_frame_and_keeps_its_picture(self):
+        app = FakeApp(self.folder, [(OLD, ROW_OLD)] * 3 + [(NEW, HALF)] * 11 + [(NEW, ROW_NEW)] * 240)
+        report, said = self.run_mode(app, keys="n", gaps="100", runs=1)
+        row = report["rows"][0]
+        self.assertEqual((row["invalid"], (row.get("second_first") or {}).get("frame")), ([], 3))
+        self.assertIn(" second_first=[3, 25.0] after_mark_ms=25 second_no_row=0/3 second_early_ms_at_most=0 moving_at_the_mark=False", said)
+        self.assertEqual(row["kept_pictures"].get("second_first"), "cmd-n-gap100-0-second_first-frame-017.png")
+        still, said = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 252), keys="n", gaps="100", runs=1)
+        self.assertIn(" second_first=none", said)
+
+    def test_a_launch_that_is_not_a_clean_one_makes_each_row_invalid(self):
+        fault = "launch: run.json says `recovery` true: the launch follows a crash"
+        report, said = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 240), launch_fault=fault, keys="n,t", runs=1)
+        self.assertEqual([row["invalid"] for row in report["rows"]], [[fault], [fault]])
+        self.assertEqual([case["invalid"] for case in report["cases"].values()], [["launch"], ["launch"]])
 
 
 if __name__ == "__main__":
