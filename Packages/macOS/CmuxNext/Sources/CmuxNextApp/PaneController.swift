@@ -63,7 +63,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         didSet {
             guard presentsPage != oldValue else { return }
             view.hidesStrip = snapshotHidesStrip || presentsPage
-            if presentsPage { workspace?.presentedPane = layoutPaneID; syncStripFromStore() } else if workspace?.presentedPane == layoutPaneID { workspace?.presentedPane = nil } // the store's zoom, from the page's first turn
+            if presentsPage { workspace?.presentedPane = layoutPaneID; syncStripFromStore() } else if workspace?.presentedPane == layoutPaneID { workspace?.presentedPane = nil }
         }
     }
     private var snapshotHidesStrip = false // the last snapshot's own choice, kept under `presentsPage`
