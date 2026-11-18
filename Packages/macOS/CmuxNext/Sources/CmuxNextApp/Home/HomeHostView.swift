@@ -355,7 +355,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         // with history never flashes it (at once when the page is cached).
         transcript.holdsFirstRun = true
         let binding = transcript.binding
-        let reveal = services.launchReveal
+        let reveal = services.launchReveal, spareWait = services.newTabSpares.shownChats // the launch's New Tab spare waits for this page
         // task-owner: lives as long as this view; ends when the first page is in
         firstPage = Task { [weak self] in
             await binding.firstDrawable() // the first page, or an owner-named empty conversation: nothing to read for
@@ -364,7 +364,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             guard let self, !Task.isCancelled else { return }
             transcript.holdsFirstRun = false
             // A launch holds a Home still being made until here (WorkspaceContentController).
-            reveal.markReady(.home); DebugTimings.markLaunch("home.first_page")
+            reveal.markReady(.home); DebugTimings.markLaunch("home.first_page"); spareWait.homePageDrew()
         }
         wantsLayer = true
         clipsToBounds = true
