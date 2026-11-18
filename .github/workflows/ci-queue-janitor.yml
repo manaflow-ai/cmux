@@ -71,9 +71,11 @@ env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
 
 # One sweep at a time; a second sweep waits rather than racing the first
-# one's cancellations, and never cancels it.
+# one's cancellations, and never cancels it. A dispatched dry run cancels
+# nothing, so it gets a group of its own: in the shared one, the next cron or
+# requested sweep replaced it while it waited (run 44277127205, 2026-11-18).
 concurrency:
-  group: ci-queue-janitor
+  group: ci-queue-janitor${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && format('-dry-run-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
