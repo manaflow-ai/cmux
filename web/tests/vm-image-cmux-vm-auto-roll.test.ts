@@ -524,7 +524,7 @@ describe("auto-roll scripts", () => {
     withDir(async (dir) => {
       const src = path.join(dir, "src");
       const platform = path.join(dir, "platform");
-      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
+      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/fallback-image.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
         mkdirSync(path.dirname(path.join(src, file)), { recursive: true });
         copyFileSync(path.join(repoRoot, file), path.join(src, file));
       }
@@ -543,6 +543,8 @@ describe("auto-roll scripts", () => {
       await git(platform, "remote", "add", "origin", path.join(dir, "platform.git"));
       await git(platform, "push", "-q", "origin", "main");
       const lock = readFileSync(path.join(src, "images/cmux-vm/inputs.lock.json"), "utf8");
+      // The same cmux-tui as the lock: the never-older check (auto-roll.ts behind) passes without that commit's history.
+      const pinned = (JSON.parse(lock) as { programs: { name: string; version: string }[] }).programs.find((program) => program.name === "cmux-tui")?.version ?? "";
       const temp = path.join(dir, "runner-temp");
       const fakeBin = path.join(dir, "bin");
       mkdirSync(temp);
@@ -554,7 +556,7 @@ describe("auto-roll scripts", () => {
       await runChildOk("chmod", ["+x", path.join(fakeBin, "bun")]);
       const out = await runChildOk(
         "bash",
-        ["images/cmux-vm/image-roll-push.sh", "roll", "--candidate", path.join(temp, "candidate.json"), "--revision", "ci-4242-2", "--run", "4242", "--attempt", "2", "--pin", "a".repeat(40), "--message-file", path.join(temp, "message.txt"), "--platform-checkout", platform, "--dry-run"],
+        ["images/cmux-vm/image-roll-push.sh", "roll", "--candidate", path.join(temp, "candidate.json"), "--revision", "ci-4242-2", "--run", "4242", "--attempt", "2", "--pin", pinned, "--message-file", path.join(temp, "message.txt"), "--platform-checkout", platform, "--dry-run"],
         { cwd: src, env: { ...gitEnv, PATH: `${fakeBin}:${process.env.PATH}`, PLATFORM_TOKEN: "unused", RUNNER_TEMP: temp, GITHUB_OUTPUT: path.join(temp, "output") } },
       );
       expect(out.stdout.trim().split("\n").at(-1)).toMatch(/^dry-run [0-9a-f]{40}/);
