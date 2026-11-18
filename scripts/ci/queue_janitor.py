@@ -3773,7 +3773,9 @@ def find_jobless(
             if jobs:
                 continue
             ahead = runs_ahead(run, [*github.branch_runs(run), *runs])
-            others = [other for other in ahead if other.get("head_sha") != run.get("head_sha")]
+            # A same-head run ahead may be what holds the group: then no superseded run is the holder.
+            same_head = [other for other in ahead if other.get("head_sha") == run.get("head_sha")]
+            others = [] if same_head else [other for other in ahead if other.get("head_sha") != run.get("head_sha")]
             holder_jobs = {other["id"]: (jobs_by_run[other["id"]] if other["id"] in jobs_by_run
                                          else github.jobs(other["id"])) for other in others[:1]}
         except RateLimited as error:
@@ -3792,8 +3794,9 @@ def find_jobless(
                 notes.append(f"run {run['id']} ({run.get('name')}, {run.get('status')} {age} with no jobs): "
                              f"holder {holder.run['id']} is force-cancelled")
             elif holder is None:
+                blocker = (same_head or ahead)[0]
                 notes.append(f"run {run['id']} ({run.get('name')}, {run.get('status')} {age} with no jobs): waits "
-                             f"behind run {ahead[0]['id']} ({ahead[0].get('status')}), left alone")
+                             f"behind run {blocker['id']} ({blocker.get('status')}), left alone")
             continue
         jobless.append(Orphan(run, f"{run.get('status')} {age} with no jobs and no run of its workflow ahead of it "
                                    f"on {run.get('head_branch')}", None, created, 0))
@@ -3886,12 +3889,18 @@ def jobless_reruns(decisions: Sequence[JoblessDecision], results: Mapping[int, s
     for decision in decisions:
         run = decision.orphan.run
         result = results.get(run["id"]) or ""
+        # A cancel whose POST failed (CANCEL_SENT) may have taken anyway: the entry is kept, marked unconfirmed, and
+        # plan_lost_reruns() re-runs it once the run reads cancelled (new_lost_reruns() does the same).
+        unconfirmed = result.startswith(CANCEL_SENT)
         if decision.action != "cancel" or not decision.rerun or not (
-                result == "cancelled" or result.startswith("force-cancelled")):
+                result == "cancelled" or result.startswith("force-cancelled") or unconfirmed):
             continue
-        entries.append({"run_id": run["id"], "attempt": int(run.get("run_attempt") or 1),
-                        "head_sha": str(run.get("head_sha") or ""), "branch": str(run.get("head_branch") or ""),
-                        "cancelled_at": _iso(now), "open_head": True, "jobless": True})
+        entry = {"run_id": run["id"], "attempt": int(run.get("run_attempt") or 1),
+                 "head_sha": str(run.get("head_sha") or ""), "branch": str(run.get("head_branch") or ""),
+                 "cancelled_at": _iso(now), "open_head": True, "jobless": True}
+        if unconfirmed:
+            entry["cancel_unconfirmed"] = True
+        entries.append(entry)
     return entries
 
 
