@@ -7076,6 +7076,8 @@ class WsCheckGitHub:
 
     def __init__(self):
         self.statuses, self.runs, self.jobs, self.logs, self.routes = {}, {}, {}, {}, []
+        # fast-checks.yml's runs a workflow listing names (WsCheckMovedRun: a cancelled run's replacement).
+        self.listed: list[dict] = []
         self.base_commits = [self.TIP, self.OLDER, self.MERGE_BASE]
         # Paths each diff changes: the PR's (main...HEAD) and the base's from the merge-base to OLDER (a fix).
         self.pr_files, self.fix_files, self.fix_status = ["tools/guards.py"], ["tools/test_lane_place.py"], "ahead"
@@ -7122,6 +7124,9 @@ class WsCheckGitHub:
                 return [{"jobs": copy.deepcopy(self.jobs[run_id])}]
         if route == f"repos/{self.REPO}/commits?sha=main&per_page={excuse.WS_CHECK_COMMITS}":
             return [{"sha": sha} for sha in self.base_commits]
+        if route.startswith(f"repos/{self.HOST}/actions/workflows/fast-checks.yml/runs?"):
+            assert paginate, route
+            return [{"workflow_runs": copy.deepcopy(self.listed)}]
         if route == f"repos/{self.REPO}/compare/main...{HEAD}":
             return {"merge_base_commit": {"sha": self.MERGE_BASE}, "files": [{"filename": f} for f in self.pr_files]}
         if route.startswith(f"repos/{self.REPO}/compare/main...{HEAD}"):
@@ -7545,6 +7550,119 @@ class WsCheckPerTest(unittest.TestCase):
         # a cmux head asked about no red is no failure (NoFailureExitsZero), never the ws-check path
         self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh),
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
+
+
+class WsCheckMovedRun(unittest.TestCase):
+    """2026-11-18: ws-check run 44334431026 (manaflow-ai/cmuxterm-hq) sat queued with no runner on its label, so its
+    dispatcher (the lane-gh broker's ci_reroute, or cmux-ci test's reroute, hq scripts/lib/testbox_test.py finish_move)
+    dispatched the same snapshot again on another label, the build fleet's, and cancelled it. The `ws-check` status
+    still linked the cancelled run, read as "cancelled: no result to read", so no red judged there could ever be
+    excused as a base red. The replacement carries the cancelled run's run-name (`Fast checks SNAPSHOT job ID`), and
+    its verdict is read instead; a cancelled run with no replacement still has no result."""
+    DEPLOY = WsCheckPerTest.DEPLOY
+    TITLE = f"Fast checks {'5' * 40} job {'6' * 32}"
+    CREATED, CANCELLED = "2026-11-18T15:00:00Z", "2026-11-18T15:04:00Z"
+
+    @staticmethod
+    def red(*tests):
+        printed = []
+        for test in tests:
+            printed += ["=" * 70, f"ERROR: {test} (__main__.FastForward.{test})", "-" * 70,
+                        "Traceback (most recent call last):", "subprocess.CalledProcessError: exit status 128."]
+        return {WsCheckPerTest.DEPLOY: printed + ["-" * 70, "Ran 77 tests in 41.360s", "",
+                                                  f"FAILED (errors={len(tests)})"]}
+
+    def setUp(self):
+        self.gh = WsCheckGitHub()
+        self.gh.verdict(HEAD, 1, self.red("test_a"))
+        self.gh.verdict(self.gh.TIP, 2, self.red("test_a"))
+
+    def record(self, run, title=None, **fields):
+        return {"id": run, "display_title": self.TITLE if title is None else title, "head_sha": "f" * 40,
+                "event": "workflow_dispatch", "path": ".github/workflows/fast-checks.yml", "workflow_id": 77, **fields}
+
+    def move(self, sha, old, new, red, *, status="completed", created="2026-11-18T15:03:30Z", title=None):
+        """SHA's ws-check status links run OLD, cancelled once its snapshot was dispatched again as run NEW on another
+        label; NEW holds the verdict, RED ({step: printed lines})."""
+        self.gh.verdict(sha, new, red)
+        self.gh.statuses[sha][0]["target_url"] = f"https://github.com/{self.gh.HOST}/actions/runs/{old}"
+        self.gh.runs[old] = self.record(old, status="completed", conclusion="cancelled", created_at=self.CREATED,
+                                        updated_at=self.CANCELLED)
+        self.gh.jobs[old] = [{"id": old * 10, "run_id": old, "name": "checks", "status": "completed",
+                              "conclusion": "cancelled", "run_attempt": 1}]
+        done = status == "completed"
+        self.gh.runs[new] = self.record(new, title, status=status, conclusion=("failure" if red else "success")
+                                        if done else None, created_at=created, updated_at="2026-11-18T15:30:00Z")
+        if not done:
+            for job in self.gh.jobs[new]:
+                job.update(status=status, conclusion=None)
+        self.gh.listed = [run for run in self.gh.listed if run["id"] not in (old, new)] + [
+            copy.deepcopy(self.gh.runs[old]), copy.deepcopy(self.gh.runs[new])]
+
+    def judge(self):
+        return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh)
+
+    def test_a_head_red_in_its_moved_run_is_judged_there(self):
+        self.move(HEAD, 11, 13, self.red("test_a"))
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", audit[0])
+        # The replacement is looked for only among fast-checks runs made while the cancelled run stood.
+        listing = [route for route in self.gh.routes if "/actions/workflows/" in route]
+        self.assertEqual(listing, [f"repos/{self.gh.HOST}/actions/workflows/fast-checks.yml/runs?"
+                                   "event=workflow_dispatch&created=2026-11-18T15:00:00Z..2026-11-18T15:19:00Z"
+                                   "&per_page=100"])
+        # Its own red is still its own: a test main does not fail is refused, read from the replacement.
+        self.move(HEAD, 11, 13, self.red("test_a", "test_b"))
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_b"):
+            self.judge()
+
+    def test_a_base_verdict_in_a_moved_run_is_compared(self):
+        self.move(self.gh.TIP, 21, 23, self.red("test_a"))
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check' test '{self.DEPLOY} :: test_a (__main__.FastForward.test_a)': red on main "
+                      f"{self.gh.TIP[:12]} too (https://github.com/{self.gh.HOST}/actions/runs/23, moved from run 21)",
+                      audit)
+
+    def test_a_cancelled_run_with_no_replacement_has_no_result(self):
+        self.move(HEAD, 11, 13, self.red("test_a"))
+        self.gh.listed = [run for run in self.gh.listed if run["id"] == 11]
+        with self.assertRaisesRegex(excuse.Refused, r"'ws-check' has no result on .*run 11 is completed/cancelled.*"
+                                                    r"no run took its run-name"):
+            self.judge()
+
+    def test_a_replacement_still_running_has_no_result_yet(self):
+        self.move(HEAD, 11, 13, self.red("test_a"), status="in_progress")
+        with self.assertRaisesRegex(excuse.Refused, r"'ws-check' has no result on .*run 11 moved to run 13.*"
+                                                    r"in_progress"):
+            self.judge()
+
+    def test_a_replacement_cancelled_again_is_followed_to_the_next(self):
+        # Moved twice: the first replacement was stuck too and cancelled for a third run, which holds the verdict.
+        self.move(HEAD, 11, 13, self.red("test_a"))
+        self.gh.listed.insert(1, self.record(12, status="completed", conclusion="cancelled",
+                                             created_at="2026-11-18T15:01:00Z", updated_at="2026-11-18T15:03:40Z"))
+        self.assertIn("every failure", self.judge()[0])
+
+    def test_two_replacements_with_verdicts_are_refused(self):
+        self.move(HEAD, 11, 13, self.red("test_a"))
+        self.gh.listed.append(self.record(14, status="completed", conclusion="success",
+                                          created_at="2026-11-18T15:03:50Z", updated_at="2026-11-18T15:20:00Z"))
+        with self.assertRaisesRegex(excuse.Refused, r"run 11 .*2 runs .*13, 14"):
+            self.judge()
+
+    def test_only_a_later_run_of_its_own_run_name_is_its_replacement(self):
+        for kwargs in ({"title": f"Fast checks {'5' * 40} job {'7' * 32}"}, {"created": "2026-11-18T14:59:00Z"}):
+            with self.subTest(**kwargs):
+                self.move(HEAD, 11, 13, self.red("test_a"), **kwargs)
+                with self.assertRaisesRegex(excuse.Refused, r"has no result on .*no run took its run-name"):
+                    self.judge()
+        # A cancelled run with no cmux-ci run-name (fleet-reconciler's, one run for many heads) is never followed.
+        self.move(HEAD, 11, 13, self.red("test_a"), title="fleet-reconciler ws-check")
+        self.gh.runs[11]["display_title"] = "fleet-reconciler ws-check"
+        self.gh.routes.clear()
+        with self.assertRaisesRegex(excuse.Refused, r"has no result on .*cancelled: no result to read"):
+            self.judge()
+        self.assertFalse([route for route in self.gh.routes if "/actions/workflows/" in route])
 
 
 class WsCheckFailureText(unittest.TestCase):
