@@ -48,6 +48,9 @@ pub(crate) fn is_usage_limit_error(message: &str) -> bool {
         || m.contains("insufficient credits")
         || m.contains("quota")
         || has_status(&m, "429")
+        // HTTP 429's own words with no code printed, and Gemini's status for it.
+        || m.contains("too many requests")
+        || m.contains("resource_exhausted")
         || m.contains("weekly limit")
         || m.contains("session limit")
 }
@@ -348,6 +351,30 @@ mod tests {
         assert!(!is_limit_error("session 7f401ab"));
         assert!(is_limit_error("HTTP 401 Unauthorized"));
         assert!(is_limit_error("API Error: 429 Too Many Requests"));
+    }
+
+    /// Every harness acpmux drives says its rate limit in its own words; each one holds the chat
+    /// until the reset (`hub/rate_hold.rs`) instead of retrying per prompt as capacity or a
+    /// dropped connection would.
+    #[test]
+    fn every_harness_rate_limit_holds_the_chat() {
+        for m in [
+            // Claude Code.
+            "API Error: Request rejected (429) · This request would exceed your account's rate limit",
+            // Codex.
+            "stream error: exceeded retry limit, last status: 429 Too Many Requests",
+            "exceeded retry limit, last status: 429",
+            // OpenCode.
+            "Rate limit exceeded. Please try again later.",
+            // Gemini CLI.
+            "[API Error: {\"error\":{\"code\":429,\"message\":\"Resource has been exhausted (e.g. check quota).\",\"status\":\"RESOURCE_EXHAUSTED\"}}]",
+            "RESOURCE_EXHAUSTED",
+            // Any harness that prints the status's words alone.
+            "Too Many Requests",
+        ] {
+            assert_eq!(resume_cause(m, m), Some("rate_limit"), "{m}");
+            assert!(!is_capacity_error(m) || is_usage_limit_error(m), "{m}");
+        }
     }
 
     #[test]
