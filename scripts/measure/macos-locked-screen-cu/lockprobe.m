@@ -289,12 +289,15 @@ int main(int argc, const char **argv) {
                                         "move-window PID X Y|vdisplay SECS [assert]\n"); return 2; }
         NSString *cmd = @(argv[1]);
         if ([cmd isEqualToString:@"state"]) { out(sessionState()); return 0; }
-        if ([cmd isEqualToString:@"lock"]) {
+        if ([cmd isEqualToString:@"lock"] || [cmd isEqualToString:@"switch-out"]) {
+            // lock: the screen lock. switch-out: fast user switching to the login window, which takes
+            // this session off the console, the state a second (background) login session is in.
+            const char *sym = [cmd isEqualToString:@"lock"] ? "SACLockScreenImmediate" : "SACSwitchToLoginWindow";
             void *h = dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/Current/login", RTLD_LAZY);
-            void (*fn)(void) = h ? dlsym(h, "SACLockScreenImmediate") : NULL;
-            if (!fn) { out(@{@"cmd": @"lock", @"error": @"SACLockScreenImmediate missing"}); return 1; }
-            fn(); usleep(3000000);
-            out(@{@"cmd": @"lock", @"session": sessionState()}); return 0;
+            int (*fn)(void) = h ? dlsym(h, sym) : NULL;
+            if (!fn) { out(@{@"cmd": cmd, @"error": [NSString stringWithFormat:@"%s missing", sym]}); return 1; }
+            int rc = fn(); usleep(3000000);
+            out(@{@"cmd": cmd, @"rc": @(rc), @"session": sessionState()}); return 0;
         }
         if ([cmd isEqualToString:@"wid"] && argc > 2) {  // the app's first normal window id, bare
             for (NSDictionary *w in windowsOf(atoi(argv[2]))) if ([w[@"layer"] intValue] == 0) { printf("%s\n", [w[@"id"] description].UTF8String); return 0; }

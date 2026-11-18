@@ -5,7 +5,9 @@
 #   A-unlocked           the baseline;
 #   A2-unlocked-virtual  TextEdit's window moved onto a CGVirtualDisplay this run holds;
 #   B-locked             right after SACLockScreenImmediate;
-#   C-locked-late        after LATE more seconds locked (the display may sleep by then).
+#   C-locked-late        after LATE more seconds locked (the display may sleep by then);
+#   D-off-console        after SACSwitchToLoginWindow (fast user switching): the session is off the
+#                        console, like a second login session in the background.
 # Each round captures the window four ways (CGWindowListCreateImage, SLSHWCaptureWindowList,
 # ScreenCaptureKit window, `screencapture -l`), the displays through ScreenCaptureKit, sends text
 # three ways (CGEventPostToPid, AX selected-text write, CGEventPost at the HID tap) and reads the
@@ -103,6 +105,12 @@ round B-locked
 note C-locked-late "waiting $LATE s locked"
 sleep "$LATE"
 round C-locked-late
+
+# Fast user switching to the login window: this session leaves the console, as a second login
+# session in the background would be.
+"$P" switch-out | tagged switch-out
+sleep 5
+round D-off-console
 
 kill "$VPID" 2>/dev/null
 exec 3>&-
