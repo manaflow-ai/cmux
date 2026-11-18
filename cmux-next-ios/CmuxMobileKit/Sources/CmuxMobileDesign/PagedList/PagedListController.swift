@@ -77,6 +77,9 @@ public final class PagedListProbe {
     /// list's own deliberate moves: following the newest row, riding the bottom edge). 0 when
     /// nothing shifted; the stress bench fails on anything over half a point.
     public var frameShift: ((CGFloat) -> Void)?
+    /// A frame that shifted more than half a point, with what the list was doing (the lab keeps the
+    /// worst one, so a failing stress case names its cause).
+    public var shiftDetail: ((_ shift: CGFloat, _ detail: String) -> Void)?
     /// The list slid to its newest end on its spring (a row arrived, or the indicator's jump), in
     /// this many display frames: more than one is an animation, not a jump.
     public var slid: ((_ frames: Int) -> Void)?
@@ -279,6 +282,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         var gap: Int?
         var windowY: CGFloat
         var width: CGFloat
+        var offsetY: CGFloat
     }
     private var shiftSample: ShiftSample?
     /// Offset moves since the last sample that the scroll explains.
@@ -451,7 +455,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         updating = false
         loaded = true
         // The state this update leaves is what the next frame draws: measure it once, here.
-        sampleShift()
+        sampleShift(from: "update")
         if arrivals > 0 {
             if followsNewest {
                 if animates {
@@ -666,7 +670,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         defer {
             lastBoundsWidth = width
             lastBottomEdge = edgeNow
-            sampleShift()
+            sampleShift(from: "layout")
         }
         if direction == .up {
             let insets = collectionView.adjustedContentInset
@@ -711,12 +715,13 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// The frame-shift measure (``PagedListProbe/frameShift``): the row being read at the end of the
     /// last pass, where it is now, less what the scroll explains. Skipped across a rotation, and
     /// when that row left or moved (a removal or move is not a shift of what is read).
-    private func sampleShift() {
+    private func sampleShift(from source: String) {
         guard !updating, let report = probe?.frameShift, loaded, collectionView.window != nil else { return }
         let width = collectionView.bounds.width
         let current = firstReadable()
+        let offsetY = collectionView.contentOffset.y
         defer {
-            shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, windowY: $0.windowY, width: width) }
+            shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, windowY: $0.windowY, width: width, offsetY: offsetY) }
             explained = 0
             pendingAdjustment = 0
         }
@@ -725,7 +730,15 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         if let next = last.next, let gap = last.gap {
             guard let nextPath = dataSource.indexPath(for: next), nextPath.item - indexPath.item == gap else { return }
         }
-        report((now - last.windowY) + explained)
+        let shift = (now - last.windowY) + explained
+        report(shift)
+        if abs(shift) > 0.5, let detail = probe?.shiftDetail {
+            let insets = collectionView.adjustedContentInset
+            detail(shift, "from=\(source) moved=\(now - last.windowY) explained=\(explained) offset=\(offsetY - last.offsetY) "
+                + "pending=\(pendingAdjustment) follows=\(followsNewest) tracking=\(collectionView.isTracking) "
+                + "decelerating=\(collectionView.isDecelerating) spring=\(spring.isRunning) arriving=\(arriving) "
+                + "insetTop=\(insets.top) insetBottom=\(insets.bottom) gap=\(bottomGap) rows=\(order.count)")
+        }
     }
 
     private func firstReadable() -> (id: CellID, next: CellID?, gap: Int?, windowY: CGFloat)? {

@@ -120,6 +120,7 @@ public struct PagedListLabRoot: View {
             probe.pageLanded = { [hud] shift, rows in hud.landed(shift: shift, rows: rows) }
             probe.scrolling = { [hud] moving in hud.scrolling(moving) }
             probe.frameShift = { [hud] shift in hud.sampled(shift) }
+            probe.shiftDetail = { [hud] shift, detail in hud.shifted(shift, detail) }
             probe.slid = { [hud] frames in hud.slid(frames) }
             await model.loadFirst()
         }
@@ -378,6 +379,8 @@ final class PagedLabHUD {
     /// The largest move of the row being read, in any frame, that the scroll itself doesn't explain
     /// (the probe's per-frame layout shift; while scrolling too).
     var frameShift: CGFloat = 0
+    /// What the list was doing in the worst shifted frame (the controller's probe detail).
+    var worstShift = ""
     /// Layout passes the measure sampled, and those whose shift passed half a point.
     var samples = 0
     var shiftedFrames = 0
@@ -417,6 +420,10 @@ final class PagedLabHUD {
         if abs(shift) > frameShift { frameShift = abs(shift) }
     }
 
+    func shifted(_ shift: CGFloat, _ detail: String) {
+        if abs(shift) >= frameShift { worstShift = detail }
+    }
+
     func slid(_ frames: Int) {
         slides += 1
         slideFrames = frames
@@ -439,7 +446,7 @@ final class PagedLabHUD {
 
     func json(edge: String, newer: String = "end", changes: Int = 0, flushes: Int = 0) -> String {
         let ratio = seconds > 0 ? hitchMs / seconds : 0
-        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames)}"#
+        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"worstShift":"\#(worstShift)"}"#
     }
 }
 
