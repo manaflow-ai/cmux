@@ -1,0 +1,17 @@
+/* Gel's chat: filled tonal containers, large soft corners, no hairlines. Every color is a tone of the
+   seed's palettes (DESIGN.md), as light-dark() pairs: the host sets color-scheme on the root from the
+   theme, so each appearance picks its own tone with no class or media query.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. */
+:root {
+  --cv-text: light-dark(#171c1e, #dee3e5);
+  --cv-text-muted: light-dark(#3f484b, #bfc8cb);
+  --cv-text-dim: light-dark(#5c6567, #8e979a);
+  --cv-link: light-dark(#006879, #84d2e6);
+  --agent-link: light-dark(#006879, #84d2e6);
+  --cv-card-fill: light-dark(#e9eff1, #1b2122);
+  --cv-card-ring: transparent;
+  --cv-user-bubble-tint: light-dark(#cee7ee, #334a50);
+  --cv-user-bubble-edge: transparent;
+  --cv-user-bubble-radius: 20px;
+}
