@@ -38,7 +38,8 @@ pub(crate) enum CommitWriter {
     Notification,
     /// A resource patch with its ledger row.
     ResourcePatch,
-    /// A frontend's projection document.
+    /// A frontend's projection revision with its journal row
+    /// (`commit_resource_projection`).
     FrontendProjection,
     /// A registry intent in its own transaction on its request thread: a
     /// terminal's records, a workspace registry revision (`registry_intent`).
@@ -51,10 +52,15 @@ pub(crate) enum CommitWriter {
     Feed,
     /// The journal maintenance worker: ledgers, checkpoints, seals.
     JournalMaintenance,
+    /// A frontend's document saved by `put-frontend-projection`, with its
+    /// ledger row.
+    FrontendDocument,
+    /// The archives of closed terminals: their last screen and program.
+    TerminalArchive,
 }
 
 /// The rows of [`CommitWriter`]: a writer's row is at [`CommitWriter::row`].
-pub(crate) const COMMIT_WRITERS: [CommitWriter; 14] = [
+pub(crate) const COMMIT_WRITERS: [CommitWriter; 16] = [
     CommitWriter::Other,
     CommitWriter::JournalWriter,
     CommitWriter::AgentReport,
@@ -69,6 +75,8 @@ pub(crate) const COMMIT_WRITERS: [CommitWriter; 14] = [
     CommitWriter::StateMutation,
     CommitWriter::Feed,
     CommitWriter::JournalMaintenance,
+    CommitWriter::FrontendDocument,
+    CommitWriter::TerminalArchive,
 ];
 
 // A commit's counts are at `writer.row()` in an array of the table's length.
@@ -107,6 +115,8 @@ impl CommitWriter {
             Self::StateMutation => "state_mutation",
             Self::Feed => "feed",
             Self::JournalMaintenance => "journal_maintenance",
+            Self::FrontendDocument => "frontend_document",
+            Self::TerminalArchive => "terminal_archive",
         }
     }
 
@@ -129,6 +139,8 @@ impl CommitWriter {
             Self::StateMutation => 11,
             Self::Feed => 12,
             Self::JournalMaintenance => 13,
+            Self::FrontendDocument => 14,
+            Self::TerminalArchive => 15,
         }
     }
 

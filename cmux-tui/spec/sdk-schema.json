@@ -7286,7 +7286,7 @@
    },
    "additional_properties": false,
    "constraints": [
-    "writer names who made the commits: other (no site named the commit), journal_writer (the journal writer thread), agent_report, agent_roster_save, agent_hook_retry, effect_receipt, notification, resource_patch, frontend_projection, registry_intent, terminal_relaunch, state_mutation, feed or journal_maintenance. A later daemon can add a name.",
+    "writer names who made the commits: other (no site named the commit), journal_writer (the journal writer thread), agent_report, agent_roster_save, agent_hook_retry, effect_receipt, notification, resource_patch, frontend_projection, registry_intent, terminal_relaunch, state_mutation, feed, journal_maintenance, frontend_document or terminal_archive. A later daemon can add a name.",
     "commits counts the registry commits that wrote a WAL frame under this name, and wal_frames the frames that those commits appended; one frame is a 24-byte header and one page."
    ]
   },

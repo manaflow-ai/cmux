@@ -1441,7 +1441,7 @@ impl WorkspaceRegistry {
             "schema_version": schema_version,
             "projection": projection,
         }))?;
-        let db = self.connection.get();
+        let db = self.connection.get_as(crate::diagnostics::CommitWriter::FrontendDocument);
         let tx = db.unchecked_transaction()?;
         // The ledger keeps a digest of the request and its result without the body: a replay is
         // proven to carry the same body (the digest matches), so the body is not stored twice more
