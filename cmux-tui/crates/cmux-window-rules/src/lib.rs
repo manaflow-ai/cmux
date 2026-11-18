@@ -30,7 +30,8 @@
 //!   page fit, Picture in Picture's page, where a file or diff opens, the
 //!   appearance verbs).
 //! - [`launch`]: whether the launch snapshot drawn before the daemon answered
-//!   is that daemon's, or stale (the launch then goes on as a bare one).
+//!   is that daemon's, or stale (the launch then goes on as a bare one), and
+//!   where the launch lands: the last workspace and tab, or Home.
 
 pub mod appearance;
 pub mod browser;

@@ -139,7 +139,7 @@ test("a failed ChatGPT sign-in says why in plain words", async () => {
   const rendered = await render(mockModels.chatgptError);
   const status = card(rendered).querySelector<HTMLElement>('[data-chatgpt="error"]')!;
   expect(status.textContent).toContain("didn't allow use of its plan");
-  expect(status.textContent).not.toContain("no_plan_scope");
+  expect(status.textContent).not.toContain("no_chatgpt_account");
 });
 
 test("Mac logins that Cloud threads cannot use say This Mac only, with Set Up for Cloud", async () => {
