@@ -15,12 +15,20 @@ cmux.json, an empty Ghostty config and a scratch file for the Debug Settings val
        04 terminal, knob 1, with the background picture
        05 page (a Chromium tab opened in the focused pane), knob below 1, with the background picture
        06 page, knob below 1, no background picture
+       07 terminal, knob below 1, with the Debug Settings knob `Material` (floatingPane.material) on: the same
+          state as 02 with a system material behind the card's ground (taken after 02)
+       08 terminal, knob 1, with the background picture and a terminal color of the user's
+          (`appearance.surfaces.terminal.color`): a terminal ground that is not the page color (taken after 04)
   4. puts the pane back, closes its workspace, quits the app and ends the tag's daemon.
 
 report.json has each reply (the float request's, each knob set, each snapshot), the screen's `floating` list from
 the daemon, and `debug.pane_chrome` (the window's scale and each shown pane's frame, to find the card in a picture).
 
 Usage: floating-pane-look.py --tag TAG --app PATH/TO/TAGGED.app --out DIR [--opacity 0.5]
+           [--material hudWindow] [--terminal-color '#F2C14E']
+--material is a value of the `Material` knob (hudWindow, popover, sidebar, ...); --terminal-color is a color with
+dark text on it, as the driver's empty Ghostty config gives a light theme. The app's answer to each set is in
+report.json: a value that the app refuses shows there, and its picture shows the state with no change.
 Exit: 0 when report.json and at least 1 picture are written (also when a later step failed: the report says which);
 3 when no picture was written.
 
@@ -48,6 +56,8 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--app", default="")
 parser.add_argument("--out", default="")
 parser.add_argument("--opacity", type=float, default=0.5)
+parser.add_argument("--material", default="hudWindow")
+parser.add_argument("--terminal-color", default="#F2C14E")
 parser.add_argument("--daemon-only", metavar="CMUX_TUI", help="only the daemon's calls, on a daemon of this binary")
 opts = parser.parse_args()
 if not opts.daemon_only and not (opts.app and opts.out):
@@ -57,11 +67,15 @@ SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
 KNOB = "floatingPane.backgroundOpacity"
+MATERIAL_KNOB = "floatingPane.material"
+TERMINAL_COLOR = "appearance.surfaces.terminal.color"
+PICTURES = 8
 FRAME = {"x": 0.3, "y": 0.15, "w": 0.5, "h": 0.6}
 TILED_TEXT = "clear; for i in $(seq 1 45); do echo \"TILED-$i " + "#" * 150 + "\"; done\r"
 FLOAT_TEXT = "clear; for i in 1 2 3; do echo \"FLOATING PANE TEXT $i\"; done\r"
 PAGE = "<!doctype html><title>floating pane look</title><h1>FLOATING PAGE PANE</h1><p>A page in a floating pane.</p>\n"
-REPORT = {"tag": TAG, "host": os.uname().nodename, "opacity": opts.opacity, "frame": FRAME, "steps": [], "pictures": []}
+REPORT = {"tag": TAG, "host": os.uname().nodename, "opacity": opts.opacity, "material": opts.material,
+          "terminal_color": opts.terminal_color, "frame": FRAME, "steps": [], "pictures": []}
 STATE = {"scratch": None, "app": None, "workspace_open": False, "pane": None, "stopping": False}
 
 
@@ -220,12 +234,18 @@ def knob(value):
     step(f"knob {value}", rpc("debug.tunables", {"action": "set", "key": KNOB, "value": value}))
 
 
-def picture(name, kind, value, background):
+def material(value):
+    """Sets the `Material` knob (None = its default, none) and keeps the row that the app answers."""
+    step(f"material {value}", rpc("debug.tunables", {"action": "set", "key": MATERIAL_KNOB, "value": value}))
+
+
+def picture(name, kind, value, background, **more):
+    """Takes the picture `name`; `more` says what else is on in it (a material, a terminal color)."""
     time.sleep(2.5)  # test script: the config reload, the layout and the paint end before the picture
     path = os.path.join(OUT, name + ".png")
     reply = step(f"picture {name}", rpc("debug.window_snapshot", {"path": path}, timeout=60))
-    REPORT["pictures"].append({"name": name, "kind": kind, "knob": value, "background_picture": background,
-                               "written": os.path.exists(path), "snapshot": reply})
+    REPORT["pictures"].append(dict({"name": name, "kind": kind, "knob": value, "background_picture": background,
+                                    "written": os.path.exists(path), "snapshot": reply}, **more))
 
 
 def cleanup():
@@ -233,7 +253,8 @@ def cleanup():
     if app:
         if STATE["pane"] is not None:
             daemon({"cmd": "float-pane", "pane": STATE["pane"], "mode": "off"}, timeout=10)
-        rpc("debug.tunables", {"action": "set", "key": KNOB, "value": None}, timeout=10)
+        for key in (KNOB, MATERIAL_KNOB):
+            rpc("debug.tunables", {"action": "set", "key": key, "value": None}, timeout=10)
         if STATE["workspace_open"]:
             # The look's workspace must not come back at the tag's next start.
             rpc("action.run", {"action": "closeWorkspace", "args": {"confirm": True}, "focus": True, "origin": "script"},
@@ -275,7 +296,7 @@ def stop(code, reason=None):
         REPORT["pictures_written"] = made
         os.makedirs(OUT, exist_ok=True)
         open(os.path.join(OUT, "report.json"), "w").write(json.dumps(REPORT, indent=1, default=str))
-        print(f"FLOATING-PANE-LOOK pictures={made} of 6 stopped={REPORT.get('stopped')}", flush=True)
+        print(f"FLOATING-PANE-LOOK pictures={made} of {PICTURES} stopped={REPORT.get('stopped')}", flush=True)
     sys.exit(0 if made else 3)
 
 
@@ -318,12 +339,18 @@ def main():
     picture("01-terminal-knob-1", "terminal", 1, False)
     knob(opts.opacity)
     picture("02-terminal-knob-below-1", "terminal", opts.opacity, False)
+    material(opts.material)
+    picture("07-terminal-material-knob-below-1", "terminal", opts.opacity, False, material=opts.material)
+    material(None)
     art = os.path.join(scratch(), "background.png")
     write_png(art)
     step("background picture on", rpc("settings.set", {"path": "appearance.background", "value": "file:" + art}))
     picture("03-terminal-picture-knob-below-1", "terminal", opts.opacity, True)
     knob(None)
     picture("04-terminal-picture-knob-1", "terminal", 1, True)
+    step("terminal color on", rpc("settings.set", {"path": TERMINAL_COLOR, "value": opts.terminal_color}))
+    picture("08-terminal-color-picture-knob-1", "terminal", 1, True, terminal_color=opts.terminal_color)
+    step("terminal color off", rpc("settings.unset", {"path": TERMINAL_COLOR}))
     knob(opts.opacity)
     action("openBrowser.chromium", {"url": "file://" + os.path.join(scratch(), "page.html")})
     time.sleep(4)  # test script: the page loads and paints

@@ -3,13 +3,15 @@
 # scripts/cmux-next/floating-pane-look.py against it. The driver makes a pane float (it sends the daemon's
 # `float-pane`, which no action and no key of the app sends), sets the Debug Settings knob `Background opacity`
 # (floatingPane.backgroundOpacity) to 1 and to a value below 1, and takes the app's own picture of its window for
-# each state: a terminal pane and a page pane, with a background picture and without. The pictures are a record
-# for a person to look at; nothing here judges a picture.
+# each state: a terminal pane and a page pane, with a background picture and without; a terminal pane with the
+# knob `Material` (floatingPane.material) on; and a terminal pane with a terminal color of the user's over the
+# background picture. The pictures are a record for a person to look at; nothing here judges a picture.
 # Runs alone on the worker because it launches an app and shows a window:
 #   cmux-ci run --class exclusive --label measure --script scripts/measure/floating-pane-look.sh --ref <sha> \
-#     --artifact floating-pane-look.tar [--arg=--opacity=0.5]
+#     --artifact floating-pane-look.tar [--arg=--opacity=0.5] [--arg=--material=hudWindow] \
+#     ['--arg=--terminal-color=#F2C14E']
 # Every argument goes to the driver. The artifact: report.json (each reply, the screen's floating list, the shown
-# panes' frames), 01 to 06 .png and the app's log.
+# panes' frames), 01 to 08 .png and the app's log.
 # Exit: the driver's. 0 when report.json and at least 1 picture are written (the report says which step failed);
 # 3 when no picture was written; 1 when the build printed no app.
 set -euo pipefail

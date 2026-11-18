@@ -5,7 +5,10 @@
 # default socket, makes a workspace and a split, sends `float-pane` on and off and reads the screen's `floating`
 # list, with the same functions as the look's display step (floating-pane-look.sh): a fault in the driver's
 # daemon calls shows here, before a step that builds the whole app and holds a display.
-#   cmux-ci run --class light --script scripts/measure/floating-pane-look-daemon.sh --ref <sha> --timeout 1800
+# The fleet runs each entry of scripts/measure in the measure class, so this step too needs a worker with the
+# `measure` label (a Mac with a console session), though it shows no window; a `light` step of it is refused:
+#   cmux-ci run --class exclusive --label measure --script scripts/measure/floating-pane-look-daemon.sh \
+#     --ref <sha> --timeout 1800
 # Output: one FLOATING-PANE-LOOK line for each reply, then `daemon-only PASS` or `daemon-only FAIL`.
 # Exit: the driver's (0 = each call answered as the look needs it, 1 = one did not); cargo's when the build failed.
 set -euo pipefail
