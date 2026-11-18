@@ -243,6 +243,7 @@ import {
 } from "./conversation/promptCoach";
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
+import { keyFrame } from "./schedule/keyFrame";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -2038,9 +2039,12 @@ function drawShown(): void {
 /// waiting. A hidden page used to draw the shown chat's stream every 50 ms that nobody could see.
 /// Whichever of the frame and the 50 ms fallback comes first cancels the other: the fallback left
 /// waiting woke the page 50 ms after every drawn frame to do nothing (CMUX-571 idle wakeups).
+/// The first frame after a key draws the key alone: the stream's work waits one frame, once
+/// (schedule/keyFrame.ts), so the composer's echo never waits behind the transcript's commit.
 export const nextFrame = (run: () => void): (() => void) => {
   let done = false;
   let stopPending: (() => void) | undefined;
+  let yielded = false;
   const frame = () => {
     if (done) return;
     if (!pageShown()) return waitForShow(frame);
@@ -2052,8 +2056,13 @@ export const nextFrame = (run: () => void): (() => void) => {
       if (fallback !== undefined) clearTimeout(fallback);
       stopPending = undefined;
     };
-    const once = () => {
+    const once = (frameTime?: number) => {
       if (ran || done) return;
+      if (!yielded && typeof frameTime === "number" && keyFrame(frameTime)) {
+        yielded = true;
+        drawn = requestAnimationFrame(once);
+        return;
+      }
       ran = true;
       stop();
       if (!pageShown()) return waitForShow(frame);

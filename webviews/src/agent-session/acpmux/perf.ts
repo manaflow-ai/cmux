@@ -146,7 +146,16 @@ export class FrameRing {
 /// wait for the key to reach the page: the app, its web view and the page's main thread), `work` when the
 /// key's edit and its render were done (a task queued from its `input` event, after the microtasks
 /// ProseMirror and React run it in), `frame` the next frame's start and `paint` after that frame.
-export type TypingSample = { frame: number; paint: number; listener?: number; work?: number };
+export type TypingSample = {
+  frame: number;
+  paint: number;
+  listener?: number;
+  work?: number;
+  /** Key to the start of the frame that draws it (the rAF's frame time): the wait for the display's tick. */
+  tick?: number;
+  /** That frame's start to the key's own rAF callback: the frame callbacks that ran ahead of it. */
+  ahead?: number;
+};
 type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapshotPaint" | "firstToken";
 /**
  * The page's connect path on the wall clock (`Date.now()`), the first time of each since the page
@@ -169,6 +178,8 @@ export function typingSummary(samples: TypingSample[]) {
     to_paint: summary(samples.map((sample) => sample.paint)),
     to_listener: summary(samples.flatMap((sample) => (sample.listener === undefined ? [] : [sample.listener]))),
     to_work: summary(samples.flatMap((sample) => (sample.work === undefined ? [] : [sample.work]))),
+    to_tick: summary(samples.flatMap((sample) => (sample.tick === undefined ? [] : [sample.tick]))),
+    tick_to_callback: summary(samples.flatMap((sample) => (sample.ahead === undefined ? [] : [sample.ahead]))),
   };
 }
 
@@ -223,8 +234,10 @@ export class AcpmuxPerf {
         done.port2.postMessage(0);
       };
       page.addEventListener("input", input, { capture: true, once: true });
-      requestAnimationFrame(() => {
+      requestAnimationFrame((tick) => {
         const frame = performance.now();
+        sample.tick = tick - start;
+        sample.ahead = frame - tick;
         page.removeEventListener("input", input, { capture: true });
         const channel = new MessageChannel();
         channel.port1.onmessage = () => {
