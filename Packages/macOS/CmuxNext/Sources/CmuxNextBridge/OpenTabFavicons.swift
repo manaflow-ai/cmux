@@ -20,7 +20,7 @@ import Observation
 /// cell kept for it): a read of the store's tab index, its workspace list or the whole window registry there is woken
 /// by a tab added in any workspace, once per workspace.
 ///
-/// The work after one workspace's change does not grow with the session (a large session has 826 workspaces): the
+/// The work after one workspace's change does not grow with the session, in a large session as in a small one: the
 /// changed workspace's favicons arrive as one change (`ObservedItems.Change`), and the table is updated for that
 /// workspace's sites only, from the places that hold each site (``SortedPositions``: the first holder gives the
 /// favicon). Only a change of the workspace list reads the items of every workspace and builds the table again.
