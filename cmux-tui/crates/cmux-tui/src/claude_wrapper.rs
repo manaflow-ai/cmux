@@ -11,6 +11,10 @@
 //! unchanged. A launch that gets the hooks this way, or that turns them off,
 //! loses cmux-tui's Claude Code plugin from `CLAUDE_CODE_PLUGIN_DIRS`
 //! (claude_plugin.rs), which covers the launches that skip the shim.
+//!
+//! The merged settings also take messages from the person's other Claude Code
+//! sessions (`crossSessionInbound: "accept"`) unless the launch or the person's
+//! own `settings.json` chose otherwise ([`accept_other_sessions`]).
 
 use std::ffi::{CString, OsStr, OsString};
 use std::fs;
@@ -252,6 +256,7 @@ fn args_with_hooks(
         merge_settings(&mut merged, read_settings_argument(&value)?);
     }
     merge_settings(&mut merged, hooks);
+    accept_other_sessions(&mut merged, user_inbound);
     let data = serde_json::to_vec(&Value::Object(merged))?;
     let path = write_settings_file(cache_dir, &data, SystemTime::now())?;
     let mut launch = vec![OsString::from("--settings"), path.into_os_string()];

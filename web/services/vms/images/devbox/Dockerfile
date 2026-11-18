@@ -295,8 +295,10 @@ RUN npm install -g --foreground-scripts \
 # Keep Claude Code session transcripts effectively forever (chatmux parity)
 # and pre-accept the --dangerously-skip-permissions confirmation: the VM is
 # the isolation boundary, so the seeded launch must reach the prompt.
+# crossSessionInbound: messages from the person's other Claude Code sessions
+# are delivered, not held (Leo, 2026-11-18: "they shouldnt hold em").
 RUN mkdir -p /etc/claude-code \
-  && echo '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }' > /etc/claude-code/managed-settings.json \
+  && echo '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true, "crossSessionInbound": "accept" }' > /etc/claude-code/managed-settings.json \
   && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'
 
 # codex managed defaults: folder trust for the HOMEs (see codex-managed.toml).

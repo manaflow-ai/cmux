@@ -378,7 +378,7 @@ try {
   // paths use the same helper for any later fresh config home.
   await step(
     "claude-managed-settings",
-    `mkdir -p /etc/claude-code && echo '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }' > /etc/claude-code/managed-settings.json && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'`,
+    `mkdir -p /etc/claude-code && echo '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true, "crossSessionInbound": "accept" }' > /etc/claude-code/managed-settings.json && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'`,
   );
   // codex managed defaults: folder trust for /root and the work HOME
   // (codex-managed.toml); cloned repos are trusted per launch by the codex()
