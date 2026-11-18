@@ -1026,6 +1026,28 @@ class TruncatedSnapshot(unittest.TestCase):
         self.assertEqual((dead, started), (set(), set()))
         self.assertTrue(any("truncated" in note for note in notes))
 
+    def test_a_truncated_snapshots_recent_starts_still_beat_a_probe_stall(self) -> None:
+        # 2026-11-18 13:31Z (run 44313558822): the snapshot listed part of 3,186 in-flight runs, so it decided
+        # nothing, and the probe alone kept 4, 8, 16 and 32 vCPU dead while each had started jobs since 13:20Z.
+        four, eight = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"
+        stalled = health({four: "stalled", eight: "stalled", "blacksmith-2vcpu-ubuntu-2404": "started"})
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["generated_at"] = runner_pools.iso(NOW - dt.timedelta(minutes=1))
+        snapshot["label_started"] = {four: runner_pools.iso(NOW - dt.timedelta(minutes=3)),
+                                     eight: runner_pools.iso(NOW - runner_pools.RECENT_START - dt.timedelta(minutes=5))}
+        snapshot.update(truncated=True, listed=2500, total=3186)
+        dead, started, _ = runner_pools.label_evidence(stalled, snapshot, now=NOW)
+        self.assertIn(four, started)
+        self.assertNotIn(four, dead)
+        self.assertIn(eight, dead)
+        pools = runner_pools.load_pools()
+        self.assertIn(four, runner_pools.evidence_covers(stalled, snapshot, pools, now=NOW))
+        current = {"_dead": {four: runner_pools.iso(NOW - dt.timedelta(minutes=10))}}
+        value, _ = runner_pools.reconcile(current, pools, dead_now=dead, served_now=started, now=NOW,
+                                          covered=runner_pools.evidence_covers(stalled, snapshot, pools, now=NOW))
+        self.assertNotIn(four, value["_dead"])
+        self.assertEqual(value["linux"], four)
+
 
 class CapBound(unittest.TestCase):
     """Blacksmith caps the org on vCPUs at once. A size that keeps starting jobs is serving however long a probe
