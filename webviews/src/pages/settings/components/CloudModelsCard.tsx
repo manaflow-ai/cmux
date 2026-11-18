@@ -15,7 +15,7 @@ import { useId, useState } from "react";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { Button } from "../../../ui/Button";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
-import { useSettingsState } from "../context";
+import { useSettingsState, useStore } from "../context";
 import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
 import type { ModelConnection, ModelProvider, ModelsRun, ModelsState } from "../ops";
@@ -69,16 +69,29 @@ function readiness(serving: ModelConnection[]): CloudReadiness {
 
 export function CloudModelsCard({ focus }: { focus: string | null }) {
   const models = useSettingsState().models;
+  const store = useStore();
   const { busy, error, run } = useModelsRun();
   const [sheet, setSheet] = useState<{ start: SheetStart; replacing: string | null } | null>(null);
   if (!models) return null;
-  // Replace: the sheet adds the new token or key, then the one it replaces goes, so the row keeps one.
-  const replacing = sheet?.replacing ?? null;
+  // Replace: the sheet adds the new token or key of the replaced one's kind, the new one takes the old one's
+  // place in the order (the first that works serves Cloud), then the old one goes. The sheet closes on the
+  // add; a refused reorder or remove shows under the card. Another kind added from the sheet replaces nothing.
+  const replaced = sheet?.replacing
+    ? (models.personal.connections.find((c) => c.id === sheet.replacing) ?? null)
+    : null;
   const sheetRun: Run = async (gesture: ModelsRun) => {
+    const before = new Set(models.personal.connections.map((c) => c.id));
     const ok = await run(gesture);
-    if (ok && replacing && (gesture.action === "addClaudeToken" || gesture.action === "addKey")) {
-      return run({ action: "remove", id: replacing });
+    if (!ok || !replaced || !replaces(replaced, gesture)) return ok;
+    const now = store.getSnapshot().models?.personal.connections ?? [];
+    const added = now.find((c) => !before.has(c.id));
+    if (added) {
+      const ids = now
+        .filter((c) => c.id !== added.id)
+        .flatMap((c) => (c.id === replaced.id ? [added.id, c.id] : [c.id]));
+      await run({ action: "order", ids });
     }
+    await run({ action: "remove", id: replaced.id });
     return ok;
   };
   const available = models.personal.available;
@@ -277,7 +290,9 @@ function CloudModelRow({
                   void run({ action: "remove", id: connection.id });
                 }}
               >
-                {t("settingsWindow.remove")}
+                {connection.kind === "chatgpt-plan"
+                  ? t("settingsWindow.harnesses.accounts.signOut")
+                  : t("settingsWindow.remove")}
               </Button>
               <Button type="button" className="button" onClick={() => setConfirming(false)}>
                 {t("settingsWindow.cancel")}
@@ -293,6 +308,14 @@ function CloudModelRow({
       )}
     </div>
   );
+}
+
+/** Whether `gesture` adds what replaces `connection`: a Claude Code token for a token, a key of the same
+ * provider for a key. */
+function replaces(connection: ModelConnection, gesture: ModelsRun): boolean {
+  if (gesture.action === "addClaudeToken") return connection.kind === "claude-token";
+  if (gesture.action === "addKey") return connection.kind === "api-key" && connection.provider === gesture.provider;
+  return false;
 }
 
 /** A row's connection, changed in place: a ChatGPT plan signs in again or signs out; a Claude Code token
@@ -329,7 +352,7 @@ function ManageMenu({
         <Icon name="ellipsis" />
       </MenuButton>
       <MenuPopup align="end">
-        {plan && (
+        {plan && connection.signedIn && (
           <MenuItem data-value="signInAgain" onSelect={() => void run({ action: "connectChatGPT", id: connection.id })}>
             {t("settingsWindow.models.signInAgain")}
           </MenuItem>
