@@ -410,11 +410,23 @@ impl OutputStore {
     /// The person cleared this terminal's history: drop the stored output
     /// and write the snapshot at once.
     pub(crate) fn history_cleared(&self, terminal_id: &TerminalPublicId) {
-        let Some(log) =
-            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
-        else {
-            return;
+        let live =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned();
+        // A re-adopted terminal that printed nothing in this daemon has no
+        // log yet, but may have an earlier daemon's snapshot: its log starts
+        // at the saved end, so the cleared snapshot replaces that file and
+        // the stream keeps its offset.
+        let resumed = || {
+            let generation = self
+                .resume
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(terminal_id)?
+                .0
+                .clone();
+            Some(self.log(terminal_id, &Arc::from(generation)))
         };
+        let Some(log) = live.or_else(resumed) else { return };
         {
             // Waits only for a write of this terminal's file that is in
             // progress. A pass that captured the screen before the clear and
@@ -462,6 +474,13 @@ impl OutputStore {
             self.prune_pending.store(true, Ordering::Release);
             self.writer.mark_dirty(self.snapshot_interval);
         }
+    }
+
+    /// Drop a terminal's live and departed tail (tests: a restarted daemon).
+    #[cfg(test)]
+    pub(crate) fn forget_tail_for_test(&self, terminal_id: &TerminalPublicId) {
+        self.logs.lock().unwrap().remove(terminal_id);
+        self.retired.lock().unwrap().retain(|log| log.terminal_id != *terminal_id);
     }
 
     /// A capture or write of this log's snapshot did not happen: try again
@@ -585,6 +604,30 @@ mod tests {
         store.append(&terminal, &respawned, b"again");
         assert_eq!(store.stream_end(&terminal), Some((respawned, 5)));
         assert_eq!(store.logs.lock().unwrap().len(), 1);
+    }
+
+    /// A clear of a re-adopted terminal that printed nothing yet still
+    /// rewrites the snapshot an earlier daemon left, at the saved offset.
+    #[test]
+    fn a_clear_before_any_output_replaces_the_earlier_snapshot() {
+        let directory = std::env::temp_dir().join(format!(
+            "cmux-output-store-clear-adopted-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let store = OutputStore::with_policy(
+            Some(&directory),
+            PersistencePolicy::resolve(Some("snapshot")),
+        );
+        let terminal = terminal();
+        store
+            .resume
+            .lock()
+            .unwrap()
+            .insert(terminal.clone(), ("generation-one".to_string(), 1_234));
+        store.history_cleared(&terminal);
+        assert_eq!(store.stream_end(&terminal), Some((Arc::from("generation-one"), 1_234)));
+        assert!(store.writer.pass_due(), "the clear asked for no pass");
+        assert_eq!(store.take_dirty().len(), 1);
     }
 
     /// A departed log that becomes live again (a respawn) asks for a pass on

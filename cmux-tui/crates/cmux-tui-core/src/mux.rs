@@ -5908,7 +5908,10 @@ impl Mux {
         if let Some(snapshot) = &snapshot
             && (stream_end.is_none() || requested < snapshot.covered_through)
         {
-            if stream_end.is_none() && requested >= snapshot.covered_through {
+            // At the coverage end: nothing after it. Past it (a cursor from
+            // before a restart that did not record its end): the snapshot
+            // answers from 0, below the cursor, so the client resets.
+            if stream_end.is_none() && requested == snapshot.covered_through {
                 return Ok(terminal_output_read_result(String::new(), requested, requested, true));
             }
             let text = render_terminal_output_plain(
@@ -33014,6 +33017,17 @@ mod tests {
         assert_eq!(resumed["start_offset"], total.to_string());
         assert_eq!(resumed["next_offset"], total.to_string());
         assert_eq!(resumed["complete"], true);
+
+        // With only the snapshot left (a restarted daemon has no stream), a
+        // cursor past its coverage gets the snapshot from 0: a reset.
+        mux.output_store.forget_tail_for_test(&terminal);
+        assert!(mux.output_store.stream_end(&terminal).is_none());
+        let past = mux.terminal_output_read(&terminal, Some(total + 50), 1 << 20).unwrap();
+        assert!(past["text"].as_str().unwrap().contains("red marker"), "{past}");
+        assert_eq!(past["start_offset"], "0");
+        assert_eq!(past["next_offset"], total.to_string());
+        let at_end = mux.terminal_output_read(&terminal, Some(total), 1 << 20).unwrap();
+        assert_eq!((at_end["text"].as_str(), at_end["complete"].as_bool()), (Some(""), Some(true)));
 
         mux.shutdown();
         drop(mux);

@@ -335,7 +335,8 @@ output now:
   terminal's parser lock for one digest of the visible text and, when it
   changed, one bounded replay. A daemon that re-adopts a live terminal host
   continues the terminal's stream offsets from its snapshot (or, for a
-  terminal without one, from the output records an older daemon journaled).
+  terminal without one, from the output records an older daemon journaled);
+  a terminal whose snapshot the cap evicted starts again at offset 0.
   Clearing a terminal's history drops its stored output and rewrites its
   snapshot at once.
 - A terminal that leaves the daemon (an exit under the close policy, a
