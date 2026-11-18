@@ -1548,7 +1548,7 @@
     "agent-pane.started-sessions#harnesses": 0,
     "agent-pane.started-sessions#states": 0,
     "agent-pane.started-sessions#two": 0,
-    "agent-pane.streaming-follow-motion#eased-follow": 2.11246,
+    "agent-pane.streaming-follow-motion#eased-follow": 1.75256,
     "agent-pane.streaming-follow-motion#smooth-follow": 1.16787,
     "agent-pane.streaming-follow-motion#steady-reveal": 2.01439,
     "agent-pane.streaming-follow-motion#stream-scrolled-up": 0.14998,
