@@ -35,7 +35,10 @@ pub(super) fn handle(
                 .map(|b| usize::try_from(b).unwrap_or(usize::MAX)),
         )
         // A watch's `match`: a stubbed reply chunk says whether its whole text held it.
-        .matching(pattern);
+        .matching(pattern)
+        // The phone's pages: a tool call past it goes with its output cut, marked with the
+        // record's size and seq, and is read whole on the person's tap (`hub/tool_output_cut.rs`).
+        .cutting_tool_output(tool_output_max(params));
     // After a hard stop the log runs ahead of the saved session until the chat's log loads: a
     // client reading the records it missed (its own cursor, a lag's resync) asks past the saved
     // `lastSeq`, and was refused as `cursor_future`, so its hole stayed.
@@ -81,6 +84,14 @@ pub(super) fn handle(
         // The session the page is of: a copy never joins another journal of the same id.
         "createdAt": created,
     }))
+}
+
+/// `toolOutputMaxBytes`: the most bytes a tool call record goes whole with (none: every one).
+pub(super) fn tool_output_max(params: &Value) -> Option<usize> {
+    params
+        .get("toolOutputMaxBytes")
+        .and_then(Value::as_u64)
+        .map(|b| usize::try_from(b).unwrap_or(usize::MAX))
 }
 
 /// The newest seq a page holds (0: none).

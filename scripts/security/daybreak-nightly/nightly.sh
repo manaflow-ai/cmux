@@ -26,6 +26,10 @@ OUT_ROOT="${CMUX_DAYBREAK_OUT_DIR:-$HOME/fun/cmux-worktrees/security-audit/night
 WT_ROOT="${CMUX_DAYBREAK_WORKTREE_DIR:-$HOME/fun/cmux-worktrees}"
 MODEL="${CMUX_DAYBREAK_MODEL:-gpt-daybreak-blue-latest}"
 ACCOUNT="${CMUX_DAYBREAK_ACCOUNT:-lawrence@manaflow.ai}"
+# Only the cmux-lawrence subrouter holds the Daybreak account. The machine's default sr
+# server can be another pool (sr2 answers 503 "requested account not found"), so pin it.
+# The tailnet IP, because MagicDNS does not always resolve under launchd.
+ROUTE="${CMUX_DAYBREAK_ROUTE:-http://100.89.225.106:31415/v1}"
 MAX_PARALLEL="${CMUX_DAYBREAK_PARALLEL:-4}"
 # A worker can hang on the model stream with no error; stop it after this many seconds.
 LANE_TIMEOUT="${CMUX_DAYBREAK_LANE_TIMEOUT:-5400}"
@@ -59,7 +63,7 @@ run_lane() { # repo lane wt range pathspecs...
   rm -f "$out"
   prompt="$(sed -e "s|{{REPO}}|$repo|g" -e "s|{{LANE}}|$lane|g" -e "s|{{RANGE}}|$range|g" \
     -e "s|{{PATHS}}|$*|g" -e "s|{{OUT}}|$out|g" "$PROMPT_FILE")"
-  ( cd "$wt" && exec env SUBROUTER_CODEX_ACCOUNT_ID="$ACCOUNT" sr codex exec --json -m "$MODEL" \
+  ( cd "$wt" && exec env SUBROUTER_CODEX_BASE_URL="$ROUTE" SUBROUTER_CODEX_ACCOUNT_ID="$ACCOUNT" sr codex exec --json -m "$MODEL" \
       -s read-only --skip-git-repo-check -o "$out" "$prompt" \
       > "$OUT_DIR/$repo-$lane.jsonl" 2> "$OUT_DIR/$repo-$lane.err" ) &
   local worker=$!
@@ -67,8 +71,21 @@ run_lane() { # repo lane wt range pathspecs...
   ( sleep "$LANE_TIMEOUT"; pkill -TERM -P "$worker" 2>/dev/null; kill -TERM "$worker" 2>/dev/null ) &
   local watchdog=$!
   wait "$worker"; local rc=$?
-  kill "$watchdog" 2>/dev/null; wait "$watchdog" 2>/dev/null
-  if [[ $rc -ne 0 ]]; then log "$repo/$lane: worker exited $rc (143 = lane timeout)"; fi
+  local timed_out=1
+  # The watchdog is still sleeping only if the worker ended on its own.
+  # Stop its sleep first: once the subshell dies the sleep is no longer its child.
+  if kill -0 "$watchdog" 2>/dev/null; then
+    timed_out=0; pkill -TERM -P "$watchdog" 2>/dev/null; kill "$watchdog" 2>/dev/null
+  fi
+  wait "$watchdog" 2>/dev/null
+  if [[ $timed_out -eq 1 ]]; then
+    log "$repo/$lane: lane timeout after ${LANE_TIMEOUT}s (worker exit $rc)"
+  elif [[ $rc -ne 0 ]]; then
+    local reason
+    reason="$(grep -E '"type":"(turn.failed|error)"' "$OUT_DIR/$repo-$lane.jsonl" 2>/dev/null | tail -1 \
+      | sed -nE 's/.*"message":"([^"]{0,240}).*/\1/p')"
+    log "$repo/$lane: worker exited $rc: ${reason:-no model error recorded, see $repo-$lane.err}"
+  fi
   [[ -s "$out" ]] && grep -q '^COUNTS ' "$out"
 }
 

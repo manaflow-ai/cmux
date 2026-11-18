@@ -442,7 +442,7 @@
 .bm-button {
   height: 28px;
   padding: 0 12px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   border: 1px solid var(--page-separator);
   background: transparent;
   color: var(--page-text);

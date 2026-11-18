@@ -333,6 +333,11 @@ impl Hub {
                     self.end_background_subagents(&session);
                     // And its loops, also when a forced Stop dropped its own clear (`loop_goal.rs`).
                     self.end_loop_goal(&session);
+                    // And a turn it ran on its own: its line ends here, as a hosted agent's does on
+                    // the host's exit (`tap.rs`), so a direct agent's never spins on in the pane
+                    // (`background_turn.rs`). One the host's exit ended already is no second record.
+                    session.harness_turn.store(false, Ordering::SeqCst);
+                    self.end_background_turn(&session, "exit");
                     // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
                     let hibernating = session.hibernated_at.load(Ordering::SeqCst) != 0
                         && session.status() != SessionStatus::Closed;
@@ -419,6 +424,18 @@ impl Hub {
                     self.review_index.note_pr(&session.id, &url, at);
                     self.ledger.note_pull_request(&session.id, &url);
                 }
+                for target in super::pull_requests::absorb_closed(session, update) {
+                    let url = match target {
+                        super::pull_requests::Target::Url(url) => Some(url),
+                        super::pull_requests::Target::Number(n) => {
+                            self.review_index.pr_by_number(n)
+                        }
+                    };
+                    if let Some(url) = url {
+                        super::pull_requests::record_closed(&mut m, &url);
+                        self.review_index.note_closed(&url);
+                    }
+                }
                 super::touched::absorb(session, update, &mut m, replayed);
                 super::lineage::note_tool_call(session, update);
             }
@@ -427,7 +444,7 @@ impl Hub {
             super::native_messaging::HOLD_UPDATE if !replayed => {
                 self.note_peer_message_hold(session, update);
             }
-            "available_commands_update" => m.available_commands = Some(update.clone()),
+            "available_commands_update" => m.available_commands = Some(update.clone().into()),
             "plan"
                 if m.family.as_deref().is_some_and(crate::goal::GoalProvider::is_claude_family) =>
             {
@@ -1315,7 +1332,7 @@ impl Hub {
                     (narrows, proved || signed)
                 })
             };
-            self.web_answer_check(session, control, narrows, proved)?;
+            self.web_answer_check(session, control, narrows, proved, answerer.device)?;
         }
         let cfg = self.config.read().await;
         let (pending, answered_by, annotations) = {

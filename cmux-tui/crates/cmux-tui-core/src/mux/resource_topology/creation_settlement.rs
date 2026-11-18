@@ -55,7 +55,7 @@ impl Mux {
             fields.get("correlation_key").and_then(Value::as_str).unwrap_or(&mutation.id);
         self.reconcile_interrupted_resource_creation(correlation_key)?;
         crate::debug_spans::mark("creation.reconciled");
-        let effect_fields = semantic_creation_fields(fields);
+        let effect_fields = creation_effect_fields(fields);
         let preparation = {
             let mut registry = self.workspace_registry.lock().unwrap();
             crate::debug_spans::mark("creation.registry_locked");

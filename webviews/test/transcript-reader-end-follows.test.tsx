@@ -8,6 +8,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -56,7 +57,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;

@@ -17,7 +17,7 @@ import { WorkflowAgentRow, WorkflowTasks } from "../src/agent-session/acpmux/ses
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { finishedTrayItems, trayItems, withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
-import { SUBAGENT_DONE, WORKFLOW_CARD } from "../src/agent-session/acpmux/subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_STARTED, WORKFLOW_CARD } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { WorkflowCard } from "../src/agent-session/acpmux/summary/WorkflowCard";
 import { WorkflowSideTab } from "../src/agent-session/acpmux/summary/WorkflowSideTab";
 import { turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
@@ -437,11 +437,14 @@ test("with Labs, a workflow a group started is a card in the group's place and l
     { id: "a", version: 1, at: NOW - 10_000, kind: "assistant", text: "done" },
   ];
   const labs = withSubagentLines(rows, new Map(), true);
-  expect(labs.map((row) => row.kind)).toEqual(["user", WORKFLOW_CARD, SUBAGENT_DONE, "assistant"]);
-  expect(labs[1]!.subagents?.map((node) => node.id)).toEqual([nodes[0]!.id]);
+  // The group keeps its compact start line (#42247), naming only the plain subagent: the workflow
+  // is its own card.
+  expect(labs.map((row) => row.kind)).toEqual(["user", SUBAGENT_STARTED, WORKFLOW_CARD, SUBAGENT_DONE, "assistant"]);
+  expect(labs[1]!.subagents?.map((node) => node.id)).toEqual([plain.id]);
+  expect(labs[2]!.subagents?.map((node) => node.id)).toEqual([nodes[0]!.id]);
   // A pause alone (the state kept, only the flag) draws the card again: its row's version moves.
   const cache = new Map();
-  const first = withSubagentLines(rows, cache, true)[1]!;
+  const first = withSubagentLines(rows, cache, true)[2]!;
   const paused = rows.map((row) =>
     row.kind === SUBAGENTS
       ? {
@@ -450,11 +453,12 @@ test("with Labs, a workflow a group started is a card in the group's place and l
         }
       : row,
   );
-  expect(withSubagentLines(paused, cache, true)[1]!.version).not.toBe(first.version);
-  expect(labs[2]!.subagents?.[0]!.id).toBe(plain.id);
+  expect(withSubagentLines(paused, cache, true)[2]!.version).not.toBe(first.version);
+  expect(labs[3]!.subagents?.[0]!.id).toBe(plain.id);
   // Without Labs, the workflow is a done line like any subagent.
   expect(withSubagentLines(rows, new Map()).map((row) => row.kind)).toEqual([
     "user",
+    SUBAGENT_STARTED,
     SUBAGENT_DONE,
     SUBAGENT_DONE,
     "assistant",

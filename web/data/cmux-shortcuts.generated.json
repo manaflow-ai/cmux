@@ -2779,6 +2779,42 @@
           "aliases": []
         },
         {
+          "id": "space.new",
+          "title": {
+            "en": "New Space",
+            "ar": "مساحة جديدة",
+            "bs": "Novi prostor",
+            "da": "Nyt område",
+            "de": "Neuer Space",
+            "es": "Nuevo espacio",
+            "fr": "Nouvel espace",
+            "it": "Nuovo spazio",
+            "ja": "新規スペース",
+            "km": "លំហថ្មី",
+            "ko": "새 스페이스",
+            "no": "Nytt område",
+            "pl": "Nowy obszar",
+            "pt-BR": "Novo Espaço",
+            "ru": "Новая область",
+            "th": "พื้นที่ใหม่",
+            "tr": "Yeni Alan",
+            "uk": "Новий простір",
+            "vi": "Không gian mới",
+            "zh-CN": "新建空间",
+            "zh-TW": "新增空間"
+          },
+          "shortcut": {
+            "key": "n",
+            "modifiers": [
+              "ctrl",
+              "opt",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "space.next",
           "title": {
             "en": "Next Space",
@@ -4497,6 +4533,41 @@
           },
           "shortcut": {
             "key": "l",
+            "modifiers": [
+              "shift",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "macScreen.open",
+          "title": {
+            "en": "Screen Sharing",
+            "ar": "مشاركة الشاشة",
+            "bs": "Dijeljenje ekrana",
+            "da": "Skærmdeling",
+            "de": "Bildschirmfreigabe",
+            "es": "Compartir pantalla",
+            "fr": "Partage d’écran",
+            "it": "Condivisione schermo",
+            "ja": "画面共有",
+            "km": "ការចែករំលែកអេក្រង់",
+            "ko": "화면 공유",
+            "no": "Skjermdeling",
+            "pl": "Udostępnianie ekranu",
+            "pt-BR": "Compartilhamento de Tela",
+            "ru": "Общий экран",
+            "th": "การแชร์หน้าจอ",
+            "tr": "Ekran Paylaşma",
+            "uk": "Спільний екран",
+            "vi": "Chia sẻ màn hình",
+            "zh-CN": "屏幕共享",
+            "zh-TW": "螢幕共享"
+          },
+          "shortcut": {
+            "key": "s",
             "modifiers": [
               "shift",
               "cmd"
@@ -8137,6 +8208,42 @@
           },
           "shortcut": {
             "key": " ",
+            "modifiers": [
+              "ctrl",
+              "opt",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "palette.captureScreenshotToChat",
+          "title": {
+            "en": "Capture Screenshot to Chat",
+            "ar": "التقاط لقطة شاشة إلى الدردشة",
+            "bs": "Snimi snimak ekrana u chat",
+            "da": "Tag skærmbillede til chat",
+            "de": "Bildschirmfoto in Chat aufnehmen",
+            "es": "Capturar pantalla al chat",
+            "fr": "Capturer l’écran dans le chat",
+            "it": "Cattura schermata nella chat",
+            "ja": "スクリーンショットを撮ってチャットへ",
+            "km": "ថតរូបអេក្រង់ទៅការជជែក",
+            "ko": "스크린샷을 찍어 채팅에 넣기",
+            "no": "Ta skjermbilde til chat",
+            "pl": "Zrób zrzut ekranu do czatu",
+            "pt-BR": "Capturar tela para o chat",
+            "ru": "Снимок экрана в чат",
+            "th": "จับภาพหน้าจอไปยังแชท",
+            "tr": "Ekran Görüntüsünü Sohbete Al",
+            "uk": "Знімок екрана в чат",
+            "vi": "Chụp màn hình vào cuộc trò chuyện",
+            "zh-CN": "截屏到聊天",
+            "zh-TW": "截圖到聊天"
+          },
+          "shortcut": {
+            "key": "s",
             "modifiers": [
               "ctrl",
               "opt",

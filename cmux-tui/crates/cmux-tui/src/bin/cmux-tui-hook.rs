@@ -818,7 +818,8 @@ mod tests {
         server.write_all(b"{\"type\":\"response\"}\n").unwrap();
         drop(server);
         let deadline = Instant::now() + Duration::from_secs(2);
-        match read_before(Box::new(client), deadline) {
+        let mut reader: BufReader<Box<dyn transport::Stream>> = BufReader::new(Box::new(client));
+        match read_before(&mut reader, deadline) {
             Ok(response) => assert_eq!(response, b"{\"type\":\"response\"}\n"),
             Err(AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error)) => {
                 panic!("the written receipt was not read: {error:#}")

@@ -27,9 +27,9 @@ export const MOTION_SPRING = "linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0
 export const MOTION_SPRING_STEP: MotionStep = "large";
 
 /**
- * A sent prompt's one motion (ms, `--cmux-motion-send`): a prompt the reader sends: its room opens, the bubble comes in from the right and the thread rises, in one motion that settles (Leo 2026-11-07: "it's all just one unified motion"), on the standard step's 180 ms like the settle (Leo 2026-11-09: "the animations end to end need to just resolve faster"); scaled with the move step by ui.animationSpeed.
+ * A sent prompt's one motion (ms, `--cmux-motion-send`): a prompt the reader sends lands at once: its room, its bubble and the thread are in their places in the frame the composer empties, with no flight, rise, ride, tuck or fade (Leo 2026-11-11: "that slow settle animation is just so bad. Like, just do it."); 0 at every ui.animationSpeed.
  */
-export const MOTION_SEND_MS = 180;
+export const MOTION_SEND_MS = 0;
 
 /** The sent prompt's curve (`--cmux-ease-send`): a fast start that settles. */
 export const MOTION_EASE_SEND = "cubic-bezier(0.16, 1, 0.3, 1)";

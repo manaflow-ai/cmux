@@ -1,4 +1,5 @@
 #if os(iOS)
+import enum CmuxMobileModel.UserFacingError
 import CmuxAgentBrands
 import CmuxMobileDesign
 import CmuxMobileMarkdown
@@ -140,6 +141,7 @@ struct SessionInfoScreen: View {
                 .confirmationDialog("Revoke Allow for This Chat?", isPresented: $confirmsRevoke, titleVisibility: .visible) {
                     Button("Revoke", role: .destructive) { revoke() }
                         .accessibilityIdentifier("chat.info.revokeConfirm")
+                    Button("Cancel", role: .cancel) {}
                 } message: {
                     Text("\(store.summary.agentName) asks again before each change in this chat.")
                 }
@@ -227,7 +229,7 @@ struct SessionInfoScreen: View {
     }
 
     static func message(_ error: any Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        UserFacingError.message(error)
     }
 }
 

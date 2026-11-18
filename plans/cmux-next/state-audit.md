@@ -19,7 +19,7 @@ Status: **fixed** in this PR (commit pair red→green unless noted), **routed** 
 | C2 | v1 plain-text CLI lines had no overall deadline | hang (CLI) | S | **fixed** |
 | K1 | Sign-out revoke could reach the server before an in-flight tunnel enrollment; later link starts re-enrolled while signed out | security, desync | S | **fixed** (hub phases + generation) |
 | K2 | `CloudMachineLink.stop()` during `start()` still started the hub and spawned `remote connect` | leak | S | **fixed** |
-| M1 | `MobileIrxHost.stop()` during provisioning was undone by `start()` resuming: orphaned phone listener for the old account | leak, security | M | **fixed** (lifetime token) |
+| M1 | `MobileIrxHost.stop()` during provisioning was undone by `start()` resuming: orphaned phone listener for the old account | leak, security | M | **fixed** (lifetime token); host removed 2026-11-13 |
 | M2 | Endpoint task revived `.listening` and the accept loop after teardown | desync | S | **fixed** |
 | B1 | CEF DevTools calls (hover preview, snapshot, occlusion, script) awaited forever when no result came | hang | S | **fixed** (5 s deadline, no red commit: needs CEF) |
 | B2 | Second `CEFRuntime.shutdown()` replaced the first waiter | hang on quit | S | **fixed** |
@@ -39,7 +39,7 @@ Status: **fixed** in this PR (commit pair red→green unless noted), **routed** 
 | K3 | `CloudService.refresh()` calls are unordered; an older `/api/vm` list removes a just-created machine or re-adds a deleted one | desync | M | open |
 | K4 | Live→not-live machine never disconnected (`CloudService.reconcile`) | leak, churn | S | open |
 | K5 | `CloudAPIClient.send`: `tokens()` (may refresh over network) and `teamID()` run outside `withDeadline` | hang | S | open |
-| M3 | `MobileIrxHost.teardown` drops `DaemonCompatBackend` without closing its `DaemonConnection`: one leaked daemon client per restart | leak | S | open (backend protocol has no `close`) |
+| M3 | `MobileIrxHost.teardown` drops `DaemonCompatBackend` without closing its `DaemonConnection`: one leaked daemon client per restart | leak | S | gone: the host was removed 2026-11-13 |
 | M4 | `MobileCompatTerminalStream.initialReplay()` has no deadline; phone control handling is serial, so one missing replay stalls the phone session | hang | S | open |
 | U1 | Updater `channelSwitchPhase` set by unordered `Task { @MainActor }` hops; a late phase lands after completion (no UI reads it yet) | stuck spinner | S | open |
 | S1 | `settings.set` then `settings.get` can return the old value: three copies (file, `SettingsController.snapshot`, `ControlSnapshot.settings`) | desync (CLI) | S | open |

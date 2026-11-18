@@ -16,8 +16,9 @@ case "$verb" in
     swiftc -O -o "$EVAL_BIN/screen-eval-window-id" "$here/../window-id.swift"
     ;;
   host-start)
+    # Window rows only (caps: window-only), so the scene's window is up.
     window=$("$EVAL_BIN/screen-eval-window-id" screen-eval-scene) ||
-      { echo "rd-window: no scene window (this target measures the window rows only)" >&2; exit 1; }
+      { echo "rd-window: no scene window" >&2; exit 1; }
     head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$EVAL_STATE/token"
     chmod 600 "$EVAL_STATE/token"
     : >"$EVAL_STATE/host.log"
@@ -35,6 +36,7 @@ case "$verb" in
     exit 1
     ;;
   host-stop) bash "$here/rd.sh" host-stop ;;
+  caps) echo window-only ;;
   latency-view | latency-report) exit 0 ;;
   window-view)
     # The host's CPU time across the view: ps cputime before and after, over the wall time between.

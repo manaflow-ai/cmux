@@ -105,11 +105,12 @@ extension UpdaterService {
     }
 
     /// Why the update flow failed, as Sparkle reported it (a failed check, download or install
-    /// preflight), else the read-only probe's failure on a build without Sparkle; nil otherwise.
+    /// preflight) in plain words (``UpdateFailureText``), else the read-only probe's failure on a
+    /// build without Sparkle; nil otherwise.
     public var failureReason: String? {
         if let controller, disabledReason == nil {
             guard case .error(let failure) = controller.model.effectiveState else { return nil }
-            return failure.error.localizedDescription
+            return UpdateFailureText.plain(failure.error)
         }
         return lastProbeError
     }

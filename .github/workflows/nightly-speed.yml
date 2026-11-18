@@ -1,0 +1,87 @@
+name: nightly speed budget
+
+# The nightly speed budget of cmux NEXT (scripts/ci/nightly_speed.py). Leo, 2026-11-12: "we need to start freaking
+# enforcing, like, the speed, you know?" Budget: merge to feed p95 under 30 min (8 builds on 2026-11-12: p50 104,
+# p95 151). On each push to nightly-next it records every nightly published since the last record (stage walls, and
+# each job's queue and "Set up runner" hook minutes by runner host), checks the newest against the budget and every
+# stage's trailing median, and writes the one cmuxterm-hq issue "cmux NEXT nightly speed budget", whose hidden JSON
+# is the history. The quality report reads that history for its nightly_speed metric.
+#
+# GitHub reads per run: one list of nightly.yml runs on nightly-next, two jobs lists per newly published build, and
+# nothing more when nothing is new. Nothing depends on this workflow and it never gates a nightly. A push to
+# nightly-next runs nightly-next's own copy of the file, so no default-branch dispatcher is needed.
+on:
+  push:
+    branches:
+      - nightly-next
+
+permissions: {}
+
+# One at a time; a newer push replaces a pending run (the next run catches up on every build it missed), and a
+# started run is never cancelled, so the issue is never half written.
+concurrency:
+  group: nightly-speed
+  cancel-in-progress: false
+
+jobs:
+  speed:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      # History for the landing times and the commit ranges: feat-cmux-next's first-parent line, no blobs. 9 days
+      # covers the 40 kept records with room.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/nightly_speed.py
+            tests/test_nightly_speed.py
+            tests/git_fixture_env.py
+            tests/fixtures/nightly-speed
+          sparse-checkout-cone-mode: false
+
+      - name: Fetch feat-cmux-next's recent history
+        continue-on-error: true
+        timeout-minutes: 3
+        run: git fetch -q --no-tags --filter=blob:none --shallow-since="9 days ago" origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
+
+      - name: Test the speed check
+        run: python3 -I tests/test_nightly_speed.py
+
+      # Issues read and write on cmuxterm-hq only: the history is read from the issue and the issue is written.
+      # No App or a failed mint leaves the token empty; record then starts from no history and issue is skipped.
+      - name: Mint the cmuxterm-hq issues write token
+        id: hq-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: cmuxterm-hq
+          permission-issues: write
+
+      - name: Record the nightlies published since the last record
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HQ_GH_TOKEN: ${{ steps.hq-token.outputs.token }}
+        run: python3 -I scripts/ci/nightly_speed.py record --out "$RUNNER_TEMP/speed-state.json" --repo "$GITHUB_REPOSITORY"
+
+      - name: Check the newest against the budget
+        run: |
+          python3 -I scripts/ci/nightly_speed.py check --state "$RUNNER_TEMP/speed-state.json" \
+            --json "$RUNNER_TEMP/speed-check.json" --md "$RUNNER_TEMP/speed-check.md"
+          # This repository is public: the summary gets the verdict and the budget line; hosts and diffs go to the issue.
+          head -n 3 "$RUNNER_TEMP/speed-check.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update the speed issue in cmuxterm-hq
+        if: steps.hq-token.outputs.token != ''
+        env:
+          HQ_GH_TOKEN: ${{ steps.hq-token.outputs.token }}
+        run: python3 -I scripts/ci/nightly_speed.py issue --state "$RUNNER_TEMP/speed-state.json"

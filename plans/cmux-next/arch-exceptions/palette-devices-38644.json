@@ -1,1 +1,11 @@
-{"date": "2026-11-12", "row": "app_lines", "allow": 11, "why": "#38644: palette handlers for Move Browser Profile to Position, Set and Remove Browser Profile Proxy (BrowserProfileHandlers, BrowserProfileService+Records) and Manage Billing (UpgradeToPro). They need BrowserProfileService, AppActionContext.browserProfile and AppControl.openBillingPage, which are App-only types, so no lower package can hold them; Allow Desktop Notifications binds in CmuxNextNotifications and the notification control methods moved there too, which pays for the rest.", "author": "stall-reconciler (claude opus)", "owner": "stall-reconciler", "receipt": "Review (codex, router-review): SHIP at 8e9574276379d4faeaa11c5c6bbc2ce228d32e90", "expiry": "2026-12-12"}
+{
+  "date": "2026-11-12",
+  "row": "app_lines",
+  "allow": 11,
+  "why": "#38644: palette handlers for Move Browser Profile to Position, Set and Remove Browser Profile Proxy (BrowserProfileHandlers, BrowserProfileService+Records) and Manage Billing (UpgradeToPro). They need BrowserProfileService, AppActionContext.browserProfile and AppControl.openBillingPage, which are App-only types, so no lower package can hold them; Allow Desktop Notifications binds in CmuxNextNotifications and the notification control methods moved there too, which pays for the rest.",
+  "author": "stall-reconciler (claude opus)",
+  "owner": "stall-reconciler",
+  "receipt": "Review (codex, router-review): SHIP at 8e9574276379d4faeaa11c5c6bbc2ce228d32e90",
+  "expiry": "2026-12-12",
+  "applied_sha": "a85ec3631770a91c48265f27288b53ceaaec5b2d"
+}

@@ -132,7 +132,7 @@
 .cr-button {
   border: 1px solid var(--page-separator);
   background: transparent;
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
   box-sizing: border-box;
   height: var(--cmux-control-height);
   padding: 0 12px;

@@ -99,6 +99,9 @@ CONDITIONAL = {
     "apps-v1": "only with cmux-app-host beside the binary (cmux-tui-core apps.rs advertised())",
     "fs-v1": "only on a cmux Cloud host: a root-owned image stamp and the model plane identity (cmux-tui link/cloud_fs.rs)",
     "agent-session-start-owner-cloud-v1": "only on a cmux Cloud VM with no team evidence (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
+    "agent-session-start-credentials-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-owner-cloud-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start)",
+    "agent-session-start-codex-credentials-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-credentials-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); the app updates a machine without it before a Codex start carries a credential (cmux#45774)",
+    "agent-session-prewarm-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-owner-cloud-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); the app warms a Cloud send's agent only where it is served (cmux#45953)",
 }
 
 # Capabilities of other servers that the app gates on with the same helpers.
@@ -106,7 +109,6 @@ PEERS = {
     "serve.owner-pid": "the computer-use helper's manifest (CuaHelperManifestReader)",
     "serve.motion": "the computer-use helper's manifest (CuaHelperManifestReader)",
     "optchat-chief-brain": "the cloud pairing server (CloudPairingSource)",
-    "daemon_lane.v1": "the iOS client's mobile host info (MobileCompatHostInfo)",
 }
 
 GATE, REFUSAL, LISTED = "gate", "refusal", "listed"
@@ -399,7 +401,8 @@ def rust_initializer(text: str, name: str) -> tuple[int, int] | None:
 def acpmux_capabilities(repo: Path) -> dict[str, str]:
     """The capabilities the same-tree acpmux advertises, each with its file and line (none without the file):
     the `id`s of its `CAPABILITIES` initializer alone, comments masked, so an id in a comment, a doc or
-    another constant never counts."""
+    another constant never counts. An id given as a `&str` constant (`SESSION_MESSAGES`,
+    `crate::hub::row_log::CAPABILITY`) counts as the string it holds."""
     path = repo / ACPMUX_LIST
     if not path.is_file():
         return {}
@@ -407,9 +410,31 @@ def acpmux_capabilities(repo: Path) -> dict[str, str]:
     span = rust_initializer(text, "CAPABILITIES")
     if span is None:
         sys.exit(f"check-app-capability-references: found no `CAPABILITIES` initializer in {ACPMUX_LIST}")
-    pattern = re.compile(r'\bid:\s*"([a-z][a-z0-9.-]*)"')
-    return {m.group(1): f"{ACPMUX_LIST}:{text.count(chr(10), 0, m.start()) + 1}"
-            for m in pattern.finditer(text, span[0], span[1])}
+    pattern = re.compile(r'\bid:\s*(?:"([a-z][a-z0-9.-]*)"|((?:crate::)?(?:[a-z_][a-z0-9_]*::)*[A-Z][A-Z0-9_]*)\b)')
+    found: dict[str, str] = {}
+    for m in pattern.finditer(text, span[0], span[1]):
+        capability = m.group(1) or acpmux_constant(repo, text, m.group(2))
+        if capability:
+            found[capability] = f"{ACPMUX_LIST}:{text.count(chr(10), 0, m.start()) + 1}"
+    return found
+
+
+def acpmux_constant(repo: Path, list_text: str, path: str) -> str | None:
+    """The string a `&str` constant named in acpmux's list holds: `NAME` in the list's own file, or
+    `crate::module::NAME` in that module's file (`src/module.rs` or `src/module/mod.rs`); None when
+    it is not a string constant there, so an id the check cannot read never counts."""
+    *modules, name = path.removeprefix("crate::").split("::")
+    if modules:
+        base = repo / ACPMUX_LIST.rsplit("/", 1)[0] / Path(*modules)
+        source = next((f for f in (base.with_suffix(".rs"), base / "mod.rs") if f.is_file()), None)
+        if source is None:
+            return None
+        text = rust_without_comments(source.read_text(encoding="utf-8", errors="replace"))
+    else:
+        text = list_text
+    const = re.search(r'\b(?:const|static)\s+' + re.escape(name)
+                      + r'\s*:\s*&(?:\'static\s+)?str\s*=\s*"([a-z][a-z0-9.-]*)"', text)
+    return const.group(1) if const else None
 
 
 def main() -> int:

@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::cli::select;
+use std::sync::Arc;
 
 /// The sessions a `send --tag` goes to: every one carrying `tag` that is not closed, except the
 /// sender's own session, newest first as the daemon lists them. Each is `(target, name)`: a
@@ -36,6 +37,25 @@ pub(crate) fn tag_targets(
         .collect()
 }
 
+/// [`tag_targets`] of `client`'s daemon's list: `via` the v2 list every live row, fetched as
+/// the list writes it (a tag is never judged on a summary), else the v1 list.
+pub(crate) async fn targets_via(
+    client: &Arc<Client>,
+    via: crate::cli::list_read::Via,
+    tag: &str,
+    own: Option<&str>,
+) -> Result<Vec<(String, String)>> {
+    let source = via.open(client).await?;
+    let sessions = match source {
+        Some(mut source) => source.rows(acpmux_client::wire::ListView::Live, &|_| true).await?,
+        None => {
+            let listed = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
+            listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default()
+        }
+    };
+    Ok(tag_targets(&sessions, tag, own))
+}
+
 /// Queue `text` for each session `tag` names. Each send is a `--no-wait` one with its own
 /// prompt id; one failure is reported on its line and the rest still go. Exit 1 when any failed,
 /// 4 (no such session) when nothing carries the tag.
@@ -48,10 +68,9 @@ pub(super) async fn send_to_tag(
     json_out: bool,
 ) -> Result<()> {
     let client = connect(true).await?;
-    let listed = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
-    let sessions = listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
     let own = std::env::var("ACPMUX_SESSION_ID").ok();
-    let targets = tag_targets(&sessions, tag, own.as_deref());
+    let via = crate::cli::list_read::Via::daemon();
+    let targets = targets_via(&client, via, tag, own.as_deref()).await?;
     if targets.is_empty() {
         return Err(errors::AppError::no_session(&format!("--tag {tag}")).into());
     }

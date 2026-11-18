@@ -3,6 +3,7 @@
 // change re-reads after its owner confirms, and every stash change anywhere (`stash-changed`)
 // re-reads. Only a delete hides its members at once, while the app's Undo toast is up.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { memberKey, normalized, parseOneTab, visibleGroups } from "./model";
 import {
@@ -327,7 +328,7 @@ export class StashStore {
   }
 
   private fail(error: unknown): void {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = userMessage(error);
     this.noticeIsRead = false;
     this.set({ notice: { kind: "error", message } });
   }

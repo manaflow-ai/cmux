@@ -32,7 +32,9 @@ Persistent sessions run bounded journal maintenance in the background. After
 4,096 new records it creates a checkpoint, then seals at most eight 1,024-record
 segments per 30-second tick. Segment preparation is outside the SQLite writer
 transaction. New registries enable incremental auto-vacuum, and older
-registries migrate to it once when they next open. No retention policy deletes
+registries migrate to it once when they next open. Maintenance keeps up to
+64 MiB of free pages in the registry for new rows and returns what is free
+over that to the file system, 1 MiB per tick. No retention policy deletes
 sealed history automatically.
 
 Colors accept `#rrggbb`, `#rgb`, an xterm-256 number, or a numeric string.

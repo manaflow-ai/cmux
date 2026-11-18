@@ -15,6 +15,9 @@ public struct RustPanicSource: Sendable, Equatable {
     public var crashSource: String
     /// The text before the location in the event message, such as `cmux-tui owner panic`.
     public var label: String
+    /// Whether the panic message goes in the event. The Chief's may quote chat text (a
+    /// string slice panic shows the string), so its events carry only the location and backtrace.
+    public var sendsMessage = true
 
     /// A source with every label given.
     /// - Parameters:
@@ -36,6 +39,21 @@ public struct RustPanicSource: Sendable, Equatable {
     /// The acpmux daemon (`$ACPMUX_HOME/panics.jsonl`).
     public static let acpmux = RustPanicSource(process: "acpmux", fingerprintPrefix: "acpmux-panic",
                                                crashSource: "acpmux_panic_log", label: "acpmux daemon panic")
+
+    /// The Chief host (`optchat-chief`, `<mux home>/optchat/panics.jsonl`).
+    public static let chief: RustPanicSource = {
+        var source = RustPanicSource(process: "optchat-chief", fingerprintPrefix: "chief-panic",
+                                     crashSource: "chief_panic_log", label: "Chief host panic")
+        source.sendsMessage = false
+        return source
+    }()
+
+    /// The Chief host's panic log under its mux home.
+    /// - Parameter muxHome: The Chief's mux home (`HomeBrainHost.muxHome(tag:)`).
+    /// - Returns: `<muxHome>/optchat/panics.jsonl`.
+    public static func chiefLog(muxHome: URL) -> URL {
+        muxHome.appending(path: "optchat/panics.jsonl", directoryHint: .notDirectory)
+    }
 
     /// The acpmux daemon's panic log under its home (`ACPMUX_HOME`).
     /// - Parameter acpmuxHome: The daemon's `ACPMUX_HOME`.

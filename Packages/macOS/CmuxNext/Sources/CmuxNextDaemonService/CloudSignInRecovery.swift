@@ -64,6 +64,11 @@ public struct CloudSignInRecovery {
             registry.refuse(reason)
             return
         }
+        if invocation.target == nil, registry.descriptor(for: id)?.paletteTarget != nil,
+           let collect = registry.argumentCollector {
+            collect(id, invocation)
+            return
+        }
         registry.perform(id, invocation: invocation)
     }
 }

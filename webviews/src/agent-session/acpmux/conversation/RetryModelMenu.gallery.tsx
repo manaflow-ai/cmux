@@ -38,13 +38,13 @@ const open: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
 };
 
-// The chat's last turn (turns.ts marks it retryable and its retryTarget, with the prompt it sends again).
+// Failed replies retain the inline recovery model menu.
 const lastTurn = {
   id: "summary-2",
   version: 1,
   at: Date.UTC(2026, 9, 20, 21, 41),
   kind: "turnSummary" as const,
-  status: "completed",
+  status: "failed",
   text: "Added retry to the uploader.",
   retryable: true,
   retryTarget: true as const,

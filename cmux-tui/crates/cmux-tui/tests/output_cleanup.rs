@@ -940,6 +940,10 @@ fn a_restore_preview_reads_across_a_pruned_tail() {
     let session = "oc-tail";
     let prepared = prepare_with_tail(&dir.0, session, 40);
     stage(&dir.0, session, "stage").stop();
+    // A start states the session again in parts after it says ready, so the start above can
+    // leave a record after the fixture's output. The output that the swap must find at the
+    // journal's end is seeded after that start.
+    seed_output(&prepared.registry, 40, "tail-after-stage");
     let snapshot = dir.0.join("swapped-copy.sqlite3");
     let owner = Owner::start(
         &dir.0,

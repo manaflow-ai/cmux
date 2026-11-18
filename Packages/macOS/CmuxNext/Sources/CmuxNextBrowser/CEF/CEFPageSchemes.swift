@@ -35,8 +35,10 @@ public struct CEFPageSchemes {
     /// Answers a page file for a Chromium tab that is not a page host (a browser tab whose address
     /// is `cmux-page://cmux.settings/`) while the live web loop sends every page file to cmux
     /// (``CEFRuntime/setLivePages(_:)``): the app's live answer, else a 404.
+    /// The last argument selects live resources; false keeps shared chunks beside the bundled
+    /// document the shim serves, even when a newer web update is active.
     /// Kept by the process's one ``CEFRuntime``, beside its live pages switch.
-    public static var liveFallback: (@MainActor (URL, String?) async -> CEFPageResponse)? {
+    public static var liveFallback: (@MainActor (URL, String?, Bool) async -> CEFPageResponse)? {
         get { CEFRuntime.shared.liveFallback }
         set { CEFRuntime.shared.liveFallback = newValue }
     }

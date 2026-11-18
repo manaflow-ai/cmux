@@ -143,7 +143,8 @@ import Testing
         let shown = try #require(feed.keptSession(for: route))
         // In the same turn: no spinner, no empty conversation.
         #expect(shown.lastMessage?.id == "m3")
-        #expect(shown.unavailableTitle == MacHomeFeed.keptTitle)
+        // No bar while its channel opens (Leo, 2026-11-16: a reconnect says nothing).
+        #expect(shown.barItem == nil)
         #expect(feed.keptSession(for: route) === shown)
 
         let live = try await feed.session(for: route)
@@ -152,5 +153,15 @@ import Testing
         #expect(live.identity.chiefID == "agent_codex")
         // Nothing kept for another account's key.
         #expect(transcripts.cached("mac:mac-1") == nil)
+    }
+
+    @Test func nothingKeptGivesNoSessionUnlessAnEmptyOneIsAsked() {
+        // New Message keeps its blank page (nil); a failed open asks for an empty session instead.
+        let feed = MacHomeFeed(rowsCache: nil, transcripts: nil, accountID: { nil })
+        let route = MacConversationRoute(conversationID: "c-none", chief: nil, title: "Nothing kept")
+        #expect(feed.keptSession(for: route) == nil)
+        let empty = feed.keptSession(for: route, orEmpty: true)
+        #expect(empty != nil)
+        #expect(empty?.lastMessage == nil)
     }
 }

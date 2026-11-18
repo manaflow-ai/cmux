@@ -416,7 +416,7 @@ fn a_reconnect_during_a_snapshot_write_still_asks_for_a_snapshot() {
     let log = store.logs.lock().unwrap().get(&id).cloned().unwrap();
     // The pass captured the old screen at offset 10; the reconnect replaces
     // the terminal before the pass records its snapshot.
-    store.stream_gap(&id);
+    store.stream_gap(&id, &generation);
     snapshot_written(
         &directory,
         &log,

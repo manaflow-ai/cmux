@@ -60,12 +60,12 @@ pub(super) fn reply(
     let mut detail = hub.session_detail(s);
     let log_loaded = hub.session_log_loaded(s);
     if !log_loaded {
-        detail["queue"] = view.queue.clone();
-        detail["queued"] = json!(view.queued);
-        detail["queueFrom"] = json!("settled");
+        detail.set("queue", view.queue.clone());
+        detail.set("queued", json!(view.queued));
+        detail.set("queueFrom", json!("settled"));
     }
     let mut settled = view.reply_fields();
-    settled["logLoaded"] = json!(log_loaded);
+    settled.set("logLoaded", json!(log_loaded));
     let mut page = crate::hub::EventPage { events: view.records, has_more: view.has_more };
     page.events.extend(delta.events);
     let opener = turn_opener::turn_opener(hub, &s.id, &page);

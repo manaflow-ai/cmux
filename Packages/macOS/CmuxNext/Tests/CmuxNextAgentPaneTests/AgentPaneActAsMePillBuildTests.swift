@@ -23,7 +23,7 @@ struct AgentPaneActAsMePillBuildTests {
 
     /// `count` pages over the app's one grant, as the agent tabs make them (``AgentPaneShared``).
     private static func pages(_ count: Int, grant: AgentPaneActAsMe, page file: URL) throws -> [AgentPaneView] {
-        let shared = AgentPaneShared(actAsMe: grant, microphone: nil)
+        let shared = AgentPaneShared(actAsMe: grant)
         return try (0..<count).map { _ in
             try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), shared: shared), "fixture: no page")
         }

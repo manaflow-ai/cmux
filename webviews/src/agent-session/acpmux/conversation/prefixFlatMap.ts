@@ -147,6 +147,45 @@ export class PrefixFlatCache<R, T> {
   }
 }
 
+/// `fold` of the items a PrefixFlatCache of `each` makes, given back while the items are the same: an
+/// update whose changed rows add or drop no item (a streamed token in a reply that yields none, the
+/// most common update) gives the last result back without a pass over the chat's items. A list that
+/// dedupes or merges what every row found (Session Info's links, outputs, produced links) reads each
+/// row once and folds again only when what the rows found changed.
+export class PrefixFold<R, T, V> {
+  private readonly cache: PrefixFlatCache<R, T>;
+  private readonly results = new WeakMap<readonly T[], { value: V }>();
+  /// The items of the last few folds, newest first, held weakly as PrefixFlatCache holds its rows.
+  private refs: WeakRef<readonly T[]>[] = [];
+  constructor(
+    each: (row: R, index: number, rows: readonly R[]) => readonly T[],
+    private readonly fold: (items: readonly T[]) => V,
+    private readonly size = 4,
+  ) {
+    this.cache = new PrefixFlatCache(each, size);
+  }
+
+  read(rows: readonly R[]): V {
+    const { items } = this.cache.read(rows);
+    const known = this.results.get(items);
+    if (known) return known.value;
+    const live: WeakRef<readonly T[]>[] = [];
+    let same: { value: V } | undefined;
+    for (const ref of this.refs) {
+      const before = ref.deref();
+      const result = before && this.results.get(before);
+      if (!result) continue;
+      live.push(ref);
+      // The pass's own items say how many they kept of the last pass's (noteKeptPrefix): no walk.
+      if (!same && before.length === items.length && keptPrefix(before, items) === items.length) same = result;
+    }
+    const result = same ?? { value: this.fold(items) };
+    this.results.set(items, result);
+    this.refs = [new WeakRef(items), ...live].slice(0, this.size);
+    return result.value;
+  }
+}
+
 /// The rows `keep` says yes to, in order, read again only past the kept prefix (PrefixFlatCache).
 export class PrefixFilter<R> {
   private readonly cache: PrefixFlatCache<R, R>;

@@ -15,6 +15,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { MAIN_DOCK } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -205,30 +206,33 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
   type Box = { name: string; top: number; bottom: number; left: number; right: number };
   /// The drawn boxes of the bottom stack's parts, the transcript and the chat column.
   const layout = (page: Page) =>
-    page.evaluate(() => {
-      const box = (name: string, selector: string) => {
-        const node = document.querySelector(selector);
-        if (!node) return undefined;
-        const rect = node.getBoundingClientRect();
-        return { name, top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
-      };
-      return {
-        main: box("main", ".acpmux-main")!,
-        transcript: box("transcript", ".acpmux-main .acpmux-scroll")!,
-        stack: box("stack", ".acpmux-main > .acpmux-dock")!,
-        parts: [
-          box("ask", ".acpmux-asks-stack"),
-          box("queue", ".acpmux-composer-queue"),
-          box("fold", ".acpmux-queue-foldbar"),
-          box("strip", ".acpmux-composer-strip"),
-          box("card", ".acpmux-composer-box"),
-        ].filter((part) => part !== undefined),
-        queueScrolls: (() => {
-          const queue = document.querySelector<HTMLElement>(".acpmux-composer-queue");
-          return queue ? queue.scrollHeight > queue.clientHeight + 1 : false;
-        })(),
-      };
-    });
+    page.evaluate(
+      ({ MAIN_DOCK }) => {
+        const box = (name: string, selector: string) => {
+          const node = document.querySelector(selector);
+          if (!node) return undefined;
+          const rect = node.getBoundingClientRect();
+          return { name, top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
+        };
+        return {
+          main: box("main", ".acpmux-main")!,
+          transcript: box("transcript", ".acpmux-main .acpmux-scroll")!,
+          stack: box("stack", MAIN_DOCK)!,
+          parts: [
+            box("ask", ".acpmux-asks-stack"),
+            box("queue", ".acpmux-composer-queue"),
+            box("fold", ".acpmux-queue-foldbar"),
+            box("strip", ".acpmux-composer-strip"),
+            box("card", ".acpmux-composer-box"),
+          ].filter((part) => part !== undefined),
+          queueScrolls: (() => {
+            const queue = document.querySelector<HTMLElement>(".acpmux-composer-queue");
+            return queue ? queue.scrollHeight > queue.clientHeight + 1 : false;
+          })(),
+        };
+      },
+      { MAIN_DOCK },
+    );
 
   /// Every part drawn, inside the chat column, in the stack over the transcript's foot, and over no other part.
   function expectStacked({ main, stack, parts }: { main: Box; stack: Box; parts: Box[] }) {
@@ -325,7 +329,9 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
             .map((control) => control.getAttribute("aria-label") || control.textContent?.trim() || control.className);
           return {
             footInside: foot.bottom <= main.bottom + 0.5,
-            boxAboveFoot: box.bottom <= foot.top + 0.5,
+            footPlacement: document.querySelector('.acpmux-composer[data-composer-look="codex"]')
+              ? foot.top >= box.top - 0.5 && foot.bottom <= box.bottom + 0.5
+              : box.bottom <= foot.top + 0.5,
             boxHeight: Math.round(box.height),
             controls: controls.length,
             unreachable,
@@ -334,9 +340,9 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
         await page.close();
         expect({
           footInside: drawn.footInside,
-          boxAboveFoot: drawn.boxAboveFoot,
+          footPlacement: drawn.footPlacement,
           unreachable: drawn.unreachable,
-        }).toEqual({ footInside: true, boxAboveFoot: true, unreachable: [] });
+        }).toEqual({ footInside: true, footPlacement: true, unreachable: [] });
         // The quiet row has the mode, the model and the ring; the card has + and the mic at least.
         expect(drawn.controls).toBeGreaterThanOrEqual(4);
         // The card keeps at least its one line.

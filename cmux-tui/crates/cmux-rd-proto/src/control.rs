@@ -128,6 +128,18 @@ pub enum Control {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    /// Host to viewer, with the `cursor` cap: one cursor shape, sent once before the first
+    /// `CursorPos` that names it (`crate::cursor`). `rgba` is base64 of `width * height`
+    /// premultiplied RGBA8 pixels, rows top first; the hotspot and size are stream pixels
+    /// (the shape is as large as the remote screen shows it in the stream).
+    CursorShape {
+        shape: u32,
+        width: u32,
+        height: u32,
+        hot_x: u32,
+        hot_y: u32,
+        rgba: String,
+    },
     Stats {
         kbps: u32,
         frames: u64,

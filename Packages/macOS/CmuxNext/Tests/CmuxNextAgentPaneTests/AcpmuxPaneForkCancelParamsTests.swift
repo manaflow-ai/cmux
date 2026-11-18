@@ -26,8 +26,15 @@ struct AcpmuxPaneForkCancelParamsTests {
         #expect(!AcpmuxPaneMethods.breaksParamsRule(fork, modeFields: nil))
     }
 
+    /// Move to Terminal (header/terminalMoveRow.ts) stops the chat's harness only while it is idle:
+    /// `_acpmux/kill {sessionId, purge: false, ifIdle: true}` (acpmux hub/stop_if_idle.rs).
+    @Test func anIdleOnlyStopPassesTheParamsRule() {
+        let stop = Self.kill(["sessionId": "chat-1", "purge": false, "ifIdle": true])
+        #expect(!AcpmuxPaneMethods.breaksParamsRule(stop, modeFields: nil))
+    }
+
     @Test func anotherKeyOnKillIsStillRefused() {
-        let other = Self.kill(["sessionId": "fork-1", "purge": true, "ifIdle": true])
+        let other = Self.kill(["sessionId": "fork-1", "purge": true, "expectRevision": 3])
         #expect(AcpmuxPaneMethods.breaksParamsRule(other, modeFields: nil))
     }
 }

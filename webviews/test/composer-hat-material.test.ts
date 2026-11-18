@@ -122,6 +122,96 @@ await requireBrowserLane("composer-hat-material.test.ts", async () => {
       await page.close();
     });
 
+  const materialModes: { name: string; attributes: Record<string, string> }[] = [
+    { name: "opaque", attributes: {} },
+    { name: "wallpaper", attributes: { "data-cmux-see-through": "", "data-glass": "plain" } },
+    { name: "Lens", attributes: { "data-cmux-see-through": "", "data-glass": "lens" } },
+    { name: "Spectrum", attributes: { "data-cmux-see-through": "", "data-glass": "spectrum" } },
+    { name: "reduced", attributes: { "data-cmux-see-through": "", "data-reduce-transparency": "" } },
+    {
+      name: "reduced Lens",
+      attributes: { "data-cmux-see-through": "", "data-glass": "lens", "data-reduce-transparency": "" },
+    },
+  ];
+  for (const colorScheme of ["light", "dark"] as const)
+    for (const mode of materialModes)
+      test(`${colorScheme}, ${mode.name}: stacked cards share the composer's material`, async () => {
+        const page = await open(colorScheme, mode.attributes);
+        const materials = await page.evaluate(() =>
+          ["bare", "hat", "goal", "question", "pinned"].map((id) => {
+            const style = getComputedStyle(document.getElementById(id)!);
+            return { fill: style.backgroundColor, image: style.backgroundImage, frost: style.backdropFilter };
+          }),
+        );
+        expect(materials[0]!.fill !== "rgba(0, 0, 0, 0)" || materials[0]!.image !== "none").toBe(true);
+        for (const material of materials.slice(1)) expect(material).toEqual(materials[0]!);
+        await page.close();
+      });
+
+  for (const colorScheme of ["light", "dark"] as const)
+    test(`${colorScheme}: standalone stack cards share the composer's edge light`, async () => {
+      const page = await open(colorScheme, {
+        "data-cmux-see-through": "",
+        "data-glass": "plain",
+        "data-theme": colorScheme,
+      });
+      const bare = await style(page, "bare");
+      for (const id of ["goal", "question", "pinned"]) {
+        const card = await style(page, id);
+        for (const geometry of [SPECULAR_BAND, RETURN_BAND, SHEEN]) {
+          expect(layerAlpha(card.shadow, geometry), `${id} ${geometry}`).toBeCloseTo(
+            layerAlpha(bare.shadow, geometry),
+            3,
+          );
+        }
+      }
+      await page.close();
+    });
+
+  test("settled question wrappers release the opacity effects that isolate their glass", async () => {
+    const page = await open("dark", { "data-cmux-see-through": "", "data-glass": "plain" });
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll(".acpmux-dock *")].every((node) =>
+        node.getAnimations().every((animation) => animation.playState !== "running"),
+      ),
+    );
+    const retained = await page.evaluate(() => {
+      const roots: string[] = [];
+      for (const id of ["pinned", "question"]) {
+        for (let node = document.getElementById(id)!.parentElement; node; node = node.parentElement) {
+          for (const animation of node.getAnimations()) {
+            const effect = animation.effect;
+            if (
+              effect instanceof KeyframeEffect &&
+              effect.getComputedTiming().progress !== null &&
+              effect.getKeyframes().some((frame) => frame.opacity !== undefined)
+            ) {
+              roots.push(`${id}: ${node.className}`);
+            }
+          }
+        }
+      }
+      return roots;
+    });
+    expect(retained).toEqual([]);
+    await page.close();
+  });
+
+  test("system Reduce Transparency clears frost on every stacked card over Lens", async () => {
+    const page = await open("dark", { "data-cmux-see-through": "", "data-glass": "lens" });
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setEmulatedMedia", {
+      features: [{ name: "prefers-reduced-transparency", value: "reduce" }],
+    });
+    const frosts = await page.evaluate(() =>
+      ["bare", "hat", "goal", "question", "pinned"].map(
+        (id) => getComputedStyle(document.getElementById(id)!).backdropFilter,
+      ),
+    );
+    expect(frosts.every((frost) => frost === "none")).toBe(true);
+    await page.close();
+  });
+
   const kept: { name: string; attributes: Record<string, string> }[] = [
     { name: "Reduce Transparency", attributes: { "data-cmux-see-through": "", "data-reduce-transparency": "" } },
     { name: "Lens over art", attributes: { "data-cmux-see-through": "", "data-glass": "lens" } },
