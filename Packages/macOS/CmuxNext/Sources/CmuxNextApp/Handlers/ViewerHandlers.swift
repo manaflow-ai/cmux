@@ -77,6 +77,8 @@ enum ViewerHandlers {
             try showPicker(diffPicker(AgentBesidePlacement.besideChat(invocation, in: pane), pane, viewers), context, invocation)
         })
         registry.bindEffect("openMarkdownFile", effect: { invocation in
+            // A pane no window shows (an agent's workspace off screen): a tab there, as Open File (AgentHandlers).
+            if let path = invocation["path"]?.stringValue, let parked = context.parkedPane(invocation) { return viewers.openFile(URL(fileURLWithPath: path), parkedIn: parked, userChose: false, asText: false).map { ActionEffect.refused($0) } ?? .done }
             guard let pane = context.paneController(invocation) else { return .done }
             do {
                 let open = WindowRules().openMarkdown(path: invocation["path"]?.stringValue, local: pane.daemon.isLocal, // `files::open_markdown`

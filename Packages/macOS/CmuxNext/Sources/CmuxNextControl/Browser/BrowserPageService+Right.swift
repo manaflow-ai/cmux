@@ -142,7 +142,8 @@ extension BrowserPageService {
 
     /// Opens a workspace agent's own tab through `openBrowser` with its `caller` and no target, so `action.run`
     /// places it by the one rule (``ControlCallerPlacement``): in its helper column, else in a new column right
-    /// of it; behind the terminal in the own pane of a terminal no agent runs in. Returns its id.
+    /// of it. For a terminal no agent runs in the run is aimed at its own tab, unselected, and the app sends it
+    /// where that terminal's `browser open` goes (the pane on its right, else a new pane beside it). Returns its id.
     private static func openTab(beside caller: ControlCallerPlacement, url: String?, call: ControlCall,
                                 router: ControlRouter) async throws -> String {
         var params: [String: JSONValue] = ["caller": caller.location.caller.json]

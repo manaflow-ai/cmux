@@ -253,12 +253,11 @@ enum TabLifecycle {
                   invoked.tabs.contains(where: { $0.id == invocation.target?.id && [$0.terminalID?.rawValue, $0.terminalResourceID?.rawValue].contains(caller) }) {
             // A CLI or MCP browser at its own terminal's tab goes where a Cmd-click's would (LinkOpenPlacement, Lawrence 2026-11-15): the pane on its right, else a new pane beside it (AgentBesidePlacement).
             let target = ctx.services.linkOpener.target(from: from, kind: .browser), id = from.layoutPaneID
-            // Never a pane of another agent (`besideAgentHomes`, ControlCallerPlacement): then a new pane beside the caller.
-            let taken = if case .pane(let right) = target { invocation.besideAgentHomes.contains(right.rawValue) } else { false }
+            // Never a column that holds another agent's pane (`besideAgentHomes`, ControlCallerPlacement): then a new pane beside the caller.
+            let taken = !invocation.besideAgentHomes.isEmpty && LinkOpener.rightColumn(beside: from).panes.contains { invocation.besideAgentHomes.contains($0) }
             if case .pane(let right) = target, right != id, !taken, let shown = from.workspace?.panes[right] { pane = shown.pane } else { pane = invoked }
-            if case .splitRight = target { invocation.newColumnBeside = true } else if case .newColumn = target { invocation.newColumnBeside = true }
-            invocation.besideCaller = invocation.newColumnBeside || taken
-            invocation.newColumnBeside = invocation.besideCaller
+            if taken { invocation.newColumnBeside = true } else if case .splitRight = target { invocation.newColumnBeside = true } else if case .newColumn = target { invocation.newColumnBeside = true }
+            invocation.besideCaller = invocation.newColumnBeside
         } else {
             pane = invoked
         }
