@@ -35,7 +35,7 @@ pub fn chief_codex(paths: &Paths) -> Option<PathBuf> {
     {
         return Some(path);
     }
-    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let exe_dir = crate::self_exe::path().ok()?.parent()?.to_path_buf();
     chief_codex_in(paths, &exe_dir)
 }
 

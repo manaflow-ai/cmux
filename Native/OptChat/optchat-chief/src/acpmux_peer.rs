@@ -57,7 +57,7 @@ pub fn expected() -> Option<PathBuf> {
     let configured = match crate::cli::env("ACPMUX_BIN") {
         Some(bin) => PathBuf::from(bin),
         // The bundled layout: acpmux beside this executable, symlinks resolved first.
-        None => std::fs::canonicalize(std::env::current_exe().ok()?)
+        None => std::fs::canonicalize(crate::self_exe::path().ok()?)
             .ok()?
             .parent()?
             .join("acpmux"),

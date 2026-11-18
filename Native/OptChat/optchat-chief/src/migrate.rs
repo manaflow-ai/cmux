@@ -969,7 +969,7 @@ pub(crate) fn remote_mover(host: &str, wanted: &str) -> Result<String, String> {
             uname.trim()
         ));
     }
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = crate::self_exe::path().map_err(|e| e.to_string())?;
     let install = format!(
         "mkdir -p .cmux/bin && cat > {t}.part && chmod 755 {t}.part && mv {t}.part {t}",
         t = REMOTE_MOVER
@@ -1541,7 +1541,7 @@ pub fn wait_turn_end(home: &Path, limit: Duration) -> Result<(), String> {
 /// `state/move.json`, the output to `state/move.log`.
 fn detach(home: &Path, args: &[String]) -> i32 {
     use std::os::unix::process::CommandExt;
-    let exe = match std::env::current_exe() {
+    let exe = match crate::self_exe::path() {
         Ok(e) => e,
         Err(e) => {
             eprintln!("optchat-chief move: {e}");
@@ -1669,7 +1669,7 @@ fn watch_template(
 /// process; a second one exits at once on the watcher lock).
 pub fn spawn_watcher(home: &Path) {
     use std::os::unix::process::CommandExt;
-    let Ok(exe) = std::env::current_exe() else {
+    let Ok(exe) = crate::self_exe::path() else {
         return;
     };
     let Ok(log) = std::fs::OpenOptions::new()

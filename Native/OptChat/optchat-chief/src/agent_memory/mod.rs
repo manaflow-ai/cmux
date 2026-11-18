@@ -289,7 +289,7 @@ pub fn json_local(index: &Index, tool: &str, arguments: &Value) -> Result<String
 /// pre-approved for Codex (a session with approval_policy=never refuses
 /// an MCP tool that would ask).
 fn config(harness: Option<&str>) -> Result<String, String> {
-    let exe = std::env::current_exe()
+    let exe = crate::self_exe::path()
         .map(|p| p.display().to_string())
         .map_err(|e| e.to_string())?;
     match harness {
