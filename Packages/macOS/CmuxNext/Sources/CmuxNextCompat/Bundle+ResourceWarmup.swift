@@ -8,6 +8,9 @@ struct OpenedResourceBundles {
     /// The active language pack's bundles, by the folder name of the module bundle each one stands
     /// in for (`CmuxNext_CmuxNextSettings.bundle`). Empty until a pack is active.
     var languagePack: [String: Bundle] = [:]
+    /// The active pack's web page string tables (`<bundle>/Contents/Resources/.../locales/<lang>.js`),
+    /// by that path, to the file in the pack. Empty until a pack is active.
+    var languagePackWebFiles: [String: URL] = [:]
 }
 
 extension Bundle {
@@ -60,11 +63,37 @@ extension Bundle {
     public static func activateLanguagePack(root: URL) {
         guard let names = try? FileManager.checked.contentsOfDirectory(atPath: root.path) else { return }
         var bundles: [String: Bundle] = [:]
+        var webFiles: [String: URL] = [:]
         for name in names where name.hasSuffix(".bundle") {
-            guard let pack = Bundle(url: root.appending(path: name, directoryHint: .isDirectory)) else { continue }
+            let url = root.appending(path: name, directoryHint: .isDirectory)
+            guard let pack = Bundle(url: url) else { continue }
             _ = pack.localizedString(forKey: "cmux.warmup", value: nil, table: nil)
             bundles[name] = pack
+            // The pages' and the agent pane's per-language string tables (one folder walk per bundle).
+            let walk = FileManager.checked.enumerator(at: url, includingPropertiesForKeys: nil)
+            while let file = walk?.nextObject() as? URL {
+                guard file.pathExtension == "js", file.deletingLastPathComponent().lastPathComponent == "locales",
+                      let path = webLocalePath(file) else { continue }
+                webFiles[path] = file
+            }
         }
-        warmedResourceBundles.withLock { $0.languagePack = bundles }
+        warmedResourceBundles.withLock { $0.languagePack = bundles; $0.languagePackWebFiles = webFiles }
+    }
+
+    /// The active language pack's copy of a web page string table the app does not ship
+    /// (`CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/settings/locales/de.js`), else nil.
+    /// A page's loader asks for its language's file; the scheme handlers serve this one in its place.
+    /// No disk access: the pack's files are listed once, when it is made active.
+    public nonisolated static func languagePackFile(for file: URL) -> URL? {
+        guard file.deletingLastPathComponent().lastPathComponent == "locales", let path = webLocalePath(file) else { return nil }
+        return warmedResourceBundles.withLock { $0.languagePackWebFiles[path] }
+    }
+
+    /// `file`'s path from its resource bundle's folder on (`CmuxNext_X.bundle/Contents/...`), or nil
+    /// when it is in no `.bundle`.
+    private nonisolated static func webLocalePath(_ file: URL) -> String? {
+        let parts = file.standardizedFileURL.pathComponents
+        guard let index = parts.lastIndex(where: { $0.hasSuffix(".bundle") }) else { return nil }
+        return parts[index...].joined(separator: "/")
     }
 }

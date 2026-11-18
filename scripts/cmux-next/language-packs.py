@@ -7,7 +7,9 @@ Usage (stdlib only; run with `python3 -I`):
 
 Languages are APP/Contents/Info.plist CFBundleLocalizations minus "en" (and minus --keep). Only the
 CmuxNext package's SwiftPM resource bundles (APP/Contents/Resources/CmuxNext_*.bundle) are split;
-every other bundle, framework, Sparkle, Chromium, uBlock and web page stays in the app.
+every other bundle, framework, Sparkle, Chromium and uBlock stays in the app. Inside those bundles
+it takes each L.lproj and each web page string table split per language (.../locales/L.js, the
+Settings page and the agent pane; English and loader.js stay).
 
 split moves each B/Contents/Resources/L.lproj into OUT/stage/L/B/Contents/Resources/L.lproj (with a
 copy of B/Contents/Info.plist), packs each language deterministically (sorted tar entries, mtime 0,
@@ -40,6 +42,10 @@ import sys
 import tarfile
 
 BUNDLE_GLOB = "CmuxNext_*.bundle"
+# Web page string tables split one file per language (webviews/scripts/pages/split-strings.mjs):
+# BUNDLE/Contents/Resources/<...>/locales/<lang>.js. The page's loader asks for its language's file
+# and the app serves it from the active pack (Bundle.languagePackFile); English and loader.js stay.
+WEB_LOCALES_DIR = "locales"
 PIN_NAME = "language-packs.json"
 ZSTD_LEVEL = 19
 LANG_RE = re.compile(r"[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*")
@@ -112,6 +118,13 @@ def selection(app: Path, keep: list[str]):
                 chosen[lang].append((bundle, lproj, lproj_files(lproj)))
             else:
                 left.add(lang)
+        for locales in sorted(p for p in resources.rglob(WEB_LOCALES_DIR) if p.is_dir() and not p.is_symlink()):
+            for lang in chosen:
+                web = locales / f"{lang}.js"
+                if web.is_symlink():
+                    die(f"{web} is a symlink; language packs carry none")
+                if web.is_file():
+                    chosen[lang].append((bundle, web, [web]))
     return chosen, sorted(left)
 
 
@@ -139,12 +152,16 @@ def tar_bytes(entries: list[tuple[str, Path | None]]) -> bytes:
 
 def pack_entries(items) -> list[tuple[str, Path | None]]:
     """One language's tar entries, named relative to Contents/Resources of the app:
-    each bundle's directories down to its .lproj, its Info.plist, and the .lproj's contents."""
+    each bundle's directories down to each moved .lproj or web locale file, its Info.plist, and the
+    moved files."""
     entries: dict[str, Path | None] = {}
-    for bundle, lproj, files in items:
+    for bundle, top, files in items:
         base = bundle.parent
-        for directory in (bundle, bundle / "Contents", bundle / "Contents" / "Resources", lproj,
-                          *(p for p in lproj.rglob("*") if p.is_dir() and not p.is_symlink())):
+        directories = [d for d in [top, *top.parents] if d == bundle or bundle in d.parents]
+        directories = [d for d in directories if d.is_dir()]
+        if top.is_dir():
+            directories += [p for p in top.rglob("*") if p.is_dir() and not p.is_symlink()]
+        for directory in directories:
             entries[directory.relative_to(base).as_posix()] = None
         entries[f"{bundle.name}/Contents/Info.plist"] = bundle / "Contents" / "Info.plist"
         for path in files:
@@ -216,19 +233,19 @@ def split(args) -> None:
     total_bytes = total_files = 0
     for lang, items in chosen.items():
         if not items:
-            print(f"==> {lang}: no {lang}.lproj in any {BUNDLE_GLOB}; no pack")
+            print(f"==> {lang}: no {lang}.lproj or {WEB_LOCALES_DIR}/{lang}.js in any {BUNDLE_GLOB}; no pack")
             continue
         # Packed from the app (the same entries measure reads), then moved out of it.
         data = zstd_compress(tar_bytes(pack_entries(items)))
         stage_lang = stage / lang
         moved = 0
-        for bundle, lproj, files in items:
+        for bundle, top, files in items:
             moved += sum(f.stat().st_size for f in files)
             total_files += len(files)
-            dest = stage_lang / bundle.name / "Contents" / "Resources" / lproj.name
+            dest = stage_lang / top.relative_to(bundle.parent)
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(bundle / "Contents" / "Info.plist", stage_lang / bundle.name / "Contents" / "Info.plist")
-            shutil.move(str(lproj), str(dest))
+            shutil.move(str(top), str(dest))
         asset = out / f"{lang}.tar.zst"
         asset.write_bytes(data)
         sha = hashlib.sha256(data).hexdigest()
