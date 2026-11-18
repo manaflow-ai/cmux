@@ -4655,6 +4655,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
         const results = await runChaos({
           cmux, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
+          // The machine holds no login with a launch credential: the chaos chats start on it, as the journey's own did.
+          credentials: launchCredential ? { env: { CLAUDE_CODE_OAUTH_TOKEN: login } } : undefined,
           env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
           log: (line) => console.log(scrub(line, J.secrets)),
         }).catch((e: Error) => [{ fault: "chaos leg", outcome: "fail" as const, felt_ms: null, recover_ms: null, carrier: "", turn: "", detail: e.message }]);
