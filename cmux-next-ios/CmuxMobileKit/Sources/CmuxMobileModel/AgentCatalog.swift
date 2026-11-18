@@ -38,14 +38,30 @@ public struct AgentModelChoice: Identifiable, Hashable, Sendable {
     public var efforts: [String]
     /// The level a chat on it starts at, when the Mac said.
     public var defaultEffort: String?
+    /// The release's short name ("Opus 5.5"), as the Mac's picker shows it; nil: ``name``.
+    public var shortName: String?
+    /// The other ids that run it (Claude Code's `opus` for Opus 5.5).
+    public var aliases: [String]
+    /// Among the agent's current models (`topModels`); false: an older release.
+    public var isCurrent: Bool
 
-    public init(id: String, name: String, unavailableReason: String? = nil, efforts: [String] = [], defaultEffort: String? = nil) {
+    public init(id: String, name: String, unavailableReason: String? = nil, efforts: [String] = [], defaultEffort: String? = nil,
+                shortName: String? = nil, aliases: [String] = [], isCurrent: Bool = true) {
         self.id = id
         self.name = name
         self.unavailableReason = unavailableReason
         self.efforts = efforts
         self.defaultEffort = defaultEffort
+        self.shortName = shortName
+        self.aliases = aliases
+        self.isCurrent = isCurrent
     }
+
+    /// What a picker shows: the short name with its version ("Opus 5.5").
+    public var displayName: String { shortName ?? name }
+
+    /// Whether `id` runs this model: its own id or one of its aliases.
+    public func answers(to id: String) -> Bool { self.id == id || aliases.contains(id) }
 }
 
 /// One choice of an agent's setting: an effort level, a mode, or one value of an option.
@@ -136,6 +152,12 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable {
         self.configOptions = configOptions
     }
 
+    /// The model `id` names here: a release by its id or an alias (`opus` → Opus 5.5).
+    public func model(_ id: String?) -> AgentModelChoice? {
+        guard let id else { return nil }
+        return models.first { $0.id == id } ?? models.first { $0.answers(to: id) }
+    }
+
     /// The modes a phone may start a chat in, the start mode first, by the names its chats use.
     public var modes: [AgentSettingChoice] {
         askingModes.map { id in
@@ -146,8 +168,7 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable {
     /// The effort levels `model` (nil: the agent's default model) takes: the model's own list,
     /// else its effort option's; named as its chats name them.
     public func efforts(model: String?) -> [AgentSettingChoice] {
-        let id = model ?? offeredDefaultModel
-        let listed = models.first { $0.id == id }?.efforts ?? []
+        let listed = self.model(model ?? offeredDefaultModel)?.efforts ?? []
         guard !listed.isEmpty else { return effortOption?.choices ?? [] }
         return listed.map { level in
             effortOption?.choices.first { $0.id == level } ?? AgentSettingChoice(id: level, name: AgentSettingChoice.name(for: level))
@@ -156,8 +177,7 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable {
 
     /// The level a chat on `model` starts at: the model's default, else the agent's start effort.
     public func defaultEffort(model: String?) -> String? {
-        let id = model ?? offeredDefaultModel
-        let level = models.first { $0.id == id }?.defaultEffort ?? startEffort
+        let level = self.model(model ?? offeredDefaultModel)?.defaultEffort ?? startEffort
         let offered = efforts(model: model)
         return offered.contains { $0.id == level } ? level : nil
     }
@@ -169,7 +189,8 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable {
     public var offeredDefaultModel: String? {
         guard let defaultModel else { return nil }
         guard !models.isEmpty else { return defaultModel }
-        return models.contains { $0.id == defaultModel } ? defaultModel : nil
+        // An alias (`opus`) names its release (Opus 5.5).
+        return models.first { $0.answers(to: defaultModel) }?.id
     }
 }
 

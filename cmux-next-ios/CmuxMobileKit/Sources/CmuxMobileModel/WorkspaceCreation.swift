@@ -613,8 +613,9 @@ public final class WorkspaceCreator {
         self.defaults = defaults
         recents = RecentDirectories(defaults: defaults)
         preferredMacID = defaults.string(forKey: Self.preferredMacKey)
-        // Where New Task opens, as last chosen (a terminal until a chat is chosen).
-        if let raw = defaults.string(forKey: Self.taskLaunchKey), let launch = TaskLaunch(rawValue: raw) { taskDraft.launch = launch }
+        // New Task starts as it was last left: its agents, Mac, folder and Chat or Terminal (a
+        // terminal until a chat is chosen); each agent's settings are kept per agent.
+        restoreTaskSetup()
     }
 
     /// The active team's Macs this backend can create on, in team order.
@@ -1015,9 +1016,15 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
                                                                                   AgentSettingChoice(id: "on", name: "On")])
         return AgentCatalog(harnesses: [
             AgentHarnessChoice(id: "claude", name: "Claude Code", family: "claude", isDefault: true,
-                               models: [AgentModelChoice(id: "opus", name: "Opus", efforts: claudeEfforts, defaultEffort: "high"),
-                                        AgentModelChoice(id: "sonnet", name: "Sonnet", efforts: claudeEfforts, defaultEffort: "high"),
-                                        AgentModelChoice(id: "haiku", name: "Haiku")],
+                               models: [AgentModelChoice(id: "claude-opus-5-5", name: "Claude Opus 5.5", efforts: claudeEfforts, defaultEffort: "high",
+                                                         shortName: "Opus 5.5", aliases: ["opus"]),
+                                        AgentModelChoice(id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", efforts: claudeEfforts,
+                                                         defaultEffort: "high", shortName: "Sonnet 5.5", aliases: ["sonnet"]),
+                                        AgentModelChoice(id: "claude-haiku-5-5", name: "Claude Haiku 5.5", shortName: "Haiku 5.5", aliases: ["haiku"]),
+                                        AgentModelChoice(id: "claude-opus-5", name: "Claude Opus 5", efforts: claudeEfforts, defaultEffort: "high",
+                                                         shortName: "Opus 5", isCurrent: false),
+                                        AgentModelChoice(id: "claude-opus-4-8", name: "Claude Opus 4.8", efforts: ["low", "medium", "high"],
+                                                         defaultEffort: "high", shortName: "Opus 4.8", isCurrent: false)],
                                defaultModel: "opus", askingModes: ["default", "plan"], reportedModes: modes, configOptions: [fast]),
             AgentHarnessChoice(id: "claude-cr", name: "Claude Code Router", family: "claude",
                                models: [AgentModelChoice(id: "gpt-5.5", name: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium"),

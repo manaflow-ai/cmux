@@ -415,3 +415,34 @@ import Testing
         #expect(await sent.calls.map { $0.1["configId"]?.stringValue } == ["effort", "fast-mode"])
     }
 }
+
+/// New Task's model picker lists each release by its version ("Opus 5.5", "Opus 5"), as the
+/// Mac's catalog names them; current ones apart from older ones; an alias names its release.
+@Suite struct ModelVersionsTests {
+    func json(_ text: String) throws -> JSONValue { try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)) }
+
+    let harnesses = """
+    {"defaultHarness": "claude", "harnesses": {"claude": {"family": "claude", "start": {"model": "opus"},
+      "remote": {"startable": true, "modes": ["default", "plan"]}}}}
+    """
+    let models = """
+    {"harnesses": [{"harness": "claude", "topModels": ["claude-opus-5-5", "claude-sonnet-5-5"], "models": [
+      {"id": "default", "name": "Default (Claude Code's choice)"},
+      {"id": "claude-opus-5-5", "name": "Claude Opus 5.5", "shortName": "Opus 5.5", "aliases": ["opus"], "curated": true},
+      {"id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5", "shortName": "Sonnet 5.5", "aliases": ["sonnet"], "curated": true},
+      {"id": "claude-opus-5", "name": "Claude Opus 5", "shortName": "Opus 5", "curated": true}]}]}
+    """
+
+    @Test func releasesAreNamedByVersionAndSplitCurrentFromOlder() throws {
+        let claude = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("claude"))
+        #expect(claude.models.first { $0.id == "claude-opus-5-5" }?.displayName == "Opus 5.5")
+        #expect(claude.models.first { $0.id == "claude-opus-5" }?.isCurrent == false)
+        #expect(claude.models.first { $0.id == "claude-sonnet-5-5" }?.isCurrent == true)
+    }
+
+    @Test func anAliasNamesItsRelease() throws {
+        let claude = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("claude"))
+        #expect(claude.model("opus")?.id == "claude-opus-5-5")
+        #expect(claude.offeredDefaultModel == "claude-opus-5-5")
+    }
+}

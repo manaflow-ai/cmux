@@ -385,9 +385,9 @@ extension WorkspaceCreator {
         // an app kill, a kept copy could not tell which agents already have the task, and one
         // Start would run it twice (review 2026-11-14). A refusal saves it again at once.
         taskDrafts.delete([draft.id])
-        rememberTaskLaunch(draft.launch)
         rememberAgentSettings(picks)
-        taskDraft = TaskDraft(picks: draft.picks, macID: draft.macID, directory: draft.directory, launch: draft.launch)
+        taskDraft = TaskDraft(picks: draft.picks, macID: mac.id, directory: folder, launch: draft.launch)
+        rememberTaskSetup()
         taskRefusal = nil
         restoredTask = nil
         return made
@@ -490,8 +490,8 @@ extension WorkspaceCreator {
     /// The composer's next task starts empty, with the same agents and place.
     public func leaveTaskComposer(keep: Bool) {
         if keep { saveTaskDraft() } else { taskDrafts.delete([taskDraft.id]) }
-        rememberTaskLaunch(taskDraft.launch)
         taskDraft = TaskDraft(picks: taskDraft.picks, macID: taskDraft.macID, directory: taskDraft.directory, launch: taskDraft.launch)
+        rememberTaskSetup()
         taskRefusal = nil
         restoredTask = nil
     }
@@ -515,6 +515,34 @@ extension WorkspaceCreator {
     }
 
     static let taskLaunchKey = "cmuxMobile.newTask.launch"
+    static let taskSetupKey = "cmuxMobile.newTask.setup"
+
+    /// The composer's setup as it is now: its agents, Mac, folder and Chat or Terminal (each
+    /// agent's model, effort, mode and options are kept per agent, `rememberAgentSettings`).
+    struct TaskSetup: Codable {
+        var picks: [TaskAgentPick]
+        var macID: String?
+        var directory: String?
+    }
+
+    /// Keeps the composer's setup for the next task, also after the app quits: the next task
+    /// starts with the same agents, Mac, folder and Chat or Terminal.
+    func rememberTaskSetup() {
+        rememberTaskLaunch(taskDraft.launch)
+        let setup = TaskSetup(picks: taskDraft.picks.map { TaskAgentPick(harness: $0.harness, name: $0.name, family: $0.family) },
+                              macID: taskDraft.macID, directory: taskDraft.directory)
+        defaults.set(try? JSONEncoder().encode(setup), forKey: Self.taskSetupKey)
+    }
+
+    /// The last setup (`rememberTaskSetup`), into an empty composer at launch.
+    func restoreTaskSetup() {
+        if let raw = defaults.string(forKey: Self.taskLaunchKey), let launch = TaskLaunch(rawValue: raw) { taskDraft.launch = launch }
+        guard let data = defaults.data(forKey: Self.taskSetupKey),
+              let setup = try? JSONDecoder().decode(TaskSetup.self, from: data) else { return }
+        taskDraft.picks = setup.picks
+        taskDraft.macID = setup.macID
+        taskDraft.directory = setup.directory
+    }
 
     /// Keeps where New Task opens for the next launch of the app.
     func rememberTaskLaunch(_ launch: TaskLaunch) {
@@ -548,8 +576,12 @@ extension WorkspaceCreator {
         var pick = pick
         let last = lastAgentSettings(harness.id)
         if pick.model == nil {
-            let remembered = last?.model.flatMap { id in harness.models.contains { $0.id == id && $0.unavailableReason == nil } ? id : nil }
-            pick.model = remembered ?? catalog.resolve(AgentChatStart(harness: harness.id))?.model ?? harness.offeredDefaultModel
+            let remembered = last?.model.flatMap { id in harness.model(id).flatMap { $0.unavailableReason == nil ? $0.id : nil } }
+            let start = catalog.resolve(AgentChatStart(harness: harness.id))?.model
+            // A release by its id: an alias the Mac picked last (`opus`) names its release.
+            pick.model = remembered ?? harness.model(start)?.id ?? start ?? harness.offeredDefaultModel
+        } else if let release = harness.model(pick.model)?.id {
+            pick.model = release
         }
         let efforts = harness.efforts(model: pick.model)
         if pick.effort.map({ id in !efforts.contains { $0.id == id } }) ?? true {

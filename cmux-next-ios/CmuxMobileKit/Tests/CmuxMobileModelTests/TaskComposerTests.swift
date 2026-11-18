@@ -731,3 +731,42 @@ import Testing
         #expect(pick.effort == "medium")
     }
 }
+
+/// New Task keeps everything from its last use, also after the app quits: its agents, Mac,
+/// folder and Chat or Terminal (and each agent's model, effort, mode and options, per agent).
+@MainActor @Suite struct TaskSetupKeptTests {
+    @Test func theNextLaunchStartsWhereTheLastTaskLeftOff() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "cmuxMobile.tests.setup.\(UUID().uuidString)"))
+        let backend = ScriptedBackend()
+        backend.creatable = ["mac-studio"]
+        backend.options = WorkspaceCreationOptions(directories: true, agents: [""], browser: true)
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let creator = WorkspaceCreator(store: store, backend: backend, defaults: defaults)
+        let pick = TaskAgentPick(harness: "claude", model: "opus", name: "Claude Code", family: "claude", effort: "max", mode: "plan")
+        let folder = try #require(creator.taskFolders(on: "mac-studio").first)
+        creator.startTask(TaskDraft(prompt: "Go", picks: [pick], macID: "mac-studio", directory: folder, launch: .chat))
+        await creator.settle()
+
+        // The app quits and comes back: a new creator on the same defaults.
+        let again = WorkspaceCreator(store: store, backend: backend, defaults: defaults)
+        #expect(again.taskDraft.prompt.isEmpty)
+        #expect(again.taskDraft.picks.map(\.harness) == ["claude"])
+        #expect(again.taskDraft.macID == "mac-studio" && again.taskDraft.directory == folder)
+        #expect(again.taskDraft.launch == .chat)
+        let kept = again.lastAgentSettings("claude")
+        #expect(kept?.model == "opus" && kept?.effort == "max" && kept?.mode == "plan")
+    }
+
+    @Test func leavingWithoutStartingKeepsTheSetupToo() throws {
+        let defaults = try #require(UserDefaults(suiteName: "cmuxMobile.tests.setup.\(UUID().uuidString)"))
+        let backend = ScriptedBackend()
+        backend.creatable = ["mac-studio"]
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let creator = WorkspaceCreator(store: store, backend: backend, defaults: defaults)
+        creator.taskDraft.picks = [TaskAgentPick(harness: "codex", name: "Codex", family: "codex")]
+        creator.taskDraft.launch = .chat
+        creator.leaveTaskComposer(keep: false)
+        let again = WorkspaceCreator(store: store, backend: backend, defaults: defaults)
+        #expect(again.taskDraft.picks.map(\.harness) == ["codex"] && again.taskDraft.launch == .chat)
+    }
+}

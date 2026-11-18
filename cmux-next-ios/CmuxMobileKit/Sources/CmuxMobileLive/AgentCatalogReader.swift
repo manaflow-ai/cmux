@@ -19,12 +19,18 @@ extension AgentCatalog {
         var modelLists: [String: [AgentModelChoice]] = [:]
         for row in models?["harnesses"]?.arrayValue ?? [] {
             guard let id = row["harness"]?.stringValue else { continue }
+            // The agent's current models (`topModels`); the rest are older releases. With no
+            // list every model is current.
+            let top = row["topModels"]?.arrayValue?.compactMap(\.stringValue)
             modelLists[id] = (row["models"]?.arrayValue ?? []).compactMap { model in
                 guard let modelID = model["id"]?.stringValue, !modelID.isEmpty else { return nil }
                 let name = model["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? modelID
                 return AgentModelChoice(id: modelID, name: name, unavailableReason: model["unavailable"]?.stringValue,
                                         efforts: (model["efforts"]?.arrayValue ?? []).compactMap(\.stringValue),
-                                        defaultEffort: model["defaultEffort"]?.stringValue)
+                                        defaultEffort: model["defaultEffort"]?.stringValue,
+                                        shortName: model["shortName"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 },
+                                        aliases: (model["aliases"]?.arrayValue ?? []).compactMap(\.stringValue),
+                                        isCurrent: top.map { $0.contains(modelID) } ?? true)
             }
         }
         var choices: [AgentHarnessChoice] = []

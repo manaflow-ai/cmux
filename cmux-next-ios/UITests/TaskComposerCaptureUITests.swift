@@ -226,9 +226,12 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "agents-list-two", args: Self.list) { app in
                 C.steps([{ Self.composeTwoAgents(app) }, { Self.openAgents(app) }])
             },
+            // Each release by its version, current ones first, older ones under Older.
             Scene(group: g, id: "composer-model-menu", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { Self.revealTap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") }])
+                         { Self.revealTap(C.any(app, "taskComposer.model.claude"), "Claude Code's model") },
+                         { Self.check(app.buttons["Opus 5.5"].firstMatch.exists && app.buttons["Opus 4.8"].firstMatch.exists,
+                                      "the model versions are not listed") }])
             },
             Scene(group: g, id: "agent-row-model-menu", args: Self.list) { app in
                 C.steps([{ Self.composeTwoAgents(app) }, { Self.revealTap(C.any(app, "taskComposer.settings"), "Each agent's settings") },

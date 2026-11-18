@@ -446,7 +446,7 @@ struct TaskComposerScreen: View {
         guard !harness.models.isEmpty else { return nil }
         let picked = draft.picks.first { $0.harness == harness.id } ?? TaskAgentPick(harness: harness.id)
         let id = creator.settled(picked, harness: harness, catalog: catalog).model
-        return id.map { id in harness.models.first { $0.id == id }?.name ?? id }
+        return id.map { id in harness.model(id)?.displayName ?? id }
     }
 
     /// One agent: its Model, Effort, Mode and other options, each a pill. Several: one pill whose
@@ -492,13 +492,13 @@ struct TaskComposerScreen: View {
         let count = max(1, draft.picks.count)
         let enabled = blocker == nil && loadingPhotos == 0 && loadingFiles == 0 && sent == nil
         let tinted = enabled
+        // The send arrow (where it opens is the subtitle's, chosen in Task Options).
         return Button(action: start) {
-            Text("Start")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(tinted ? theme.colors.onAccent.color : enabled ? theme.colors.label.color : theme.colors.label3.color)
-                .padding(.horizontal, 16)
-                .frame(height: 38)
-                .glassEffect(tinted ? .regular.tint(theme.colors.accent.color).interactive() : .regular.interactive(), in: .capsule)
+            Image(systemName: "arrow.up")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(tinted ? theme.colors.onAccent.color : theme.colors.label3.color)
+                .frame(width: 38, height: 38)
+                .glassEffect(tinted ? .regular.tint(theme.colors.accent.color).interactive() : .regular, in: .circle)
                 .overlay(alignment: .topTrailing) {
                     if count > 1 {
                         Text("\(count)")
@@ -787,7 +787,7 @@ struct TaskComposerSettingsMenus: View {
     static func summary(creator: WorkspaceCreator, harness: AgentHarnessChoice, catalog: AgentCatalog) -> String {
         let menus = TaskComposerSettingsMenus(creator: creator, harness: harness, catalog: catalog)
         let pick = menus.pick
-        return [pick.model.flatMap { id in harness.models.first { $0.id == id }?.name },
+        return [pick.model.flatMap { id in harness.model(id)?.displayName },
                 pick.effort.flatMap { id in harness.efforts(model: pick.model).first { $0.id == id }?.name },
                 pick.mode.flatMap { id in harness.modes.first { $0.id == id }?.name }]
             .compactMap { $0 }.joined(separator: " · ")
@@ -796,9 +796,17 @@ struct TaskComposerSettingsMenus: View {
     var body: some View {
         let pick = pick
         if !harness.models.isEmpty {
-            picker("Model", id: "model", current: pick.model,
-                   choices: harness.models.filter { $0.id != "default" }.map { AgentSettingChoice(id: $0.id, name: $0.name, detail: $0.unavailableReason) },
-                   disabled: Set(harness.models.filter { $0.unavailableReason != nil }.map(\.id))) { value in
+            // Each release by its version ("Opus 5.5", "Opus 5"), the agent's current ones first
+            // and the older ones in their own section, as the Mac's picker lists them. Aliases
+            // (`opus`) are not rows: they name a release that is.
+            let releases = harness.models.filter { model in
+                model.id != "default" && !harness.models.contains { $0.id != model.id && $0.aliases.contains(model.id) }
+            }
+            let choice = { (m: AgentModelChoice) in AgentSettingChoice(id: m.id, name: m.displayName, detail: m.unavailableReason) }
+            picker("Model", id: "model", current: harness.model(pick.model)?.id ?? pick.model,
+                   choices: releases.filter(\.isCurrent).map(choice),
+                   older: releases.filter { !$0.isCurrent }.map(choice),
+                   disabled: Set(releases.filter { $0.unavailableReason != nil }.map(\.id))) { value in
                 update { $0.model = value; $0.effort = nil }
             }
         }
@@ -824,9 +832,11 @@ struct TaskComposerSettingsMenus: View {
     /// A submenu row naming the setting and its pick; inside, the choices with a checkmark.
     /// `namesSetting`: the pill says the setting too ("Fast mode: On"), since its value alone
     /// ("On") says nothing.
+    /// `older`: choices listed after the rest, under "Older" (older model releases).
     private func picker(_ title: String, id: String, current: String?, choices: [AgentSettingChoice],
-                        disabled: Set<String> = [], namesSetting: Bool = false, set: @escaping (String) -> Void) -> some View {
-        let currentName = current.flatMap { value in choices.first { $0.id == value }?.name } ?? "Default"
+                        older: [AgentSettingChoice] = [], disabled: Set<String> = [], namesSetting: Bool = false,
+                        set: @escaping (String) -> Void) -> some View {
+        let currentName = current.flatMap { value in (choices + older).first { $0.id == value }?.name } ?? "Default"
         return Menu {
             Picker(title, selection: Binding(get: { current ?? "" }, set: { if !$0.isEmpty { set($0) } })) {
                 if current == nil { Text("Default").tag("") }
@@ -842,6 +852,17 @@ struct TaskComposerSettingsMenus: View {
                         .tag(choice.id)
                     } else {
                         Text(choice.name).tag(choice.id)
+                    }
+                }
+                if !older.isEmpty {
+                    Section("Older") {
+                        ForEach(older) { choice in
+                            if disabled.contains(choice.id) {
+                                Text("\(choice.name) — \(choice.detail ?? "Unavailable")").tag(choice.id).selectionDisabled()
+                            } else {
+                                Text(choice.name).tag(choice.id)
+                            }
+                        }
                     }
                 }
             }

@@ -169,7 +169,7 @@ struct TaskComposerOptionsSheet: View {
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(theme.colors.label2.color)
                 Text(value)
-                    .font(path ? .system(.caption, design: .monospaced, weight: .semibold) : .subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(theme.colors.label.color)
                     .lineLimit(1)
                     .truncationMode(path ? .middle : .tail)
