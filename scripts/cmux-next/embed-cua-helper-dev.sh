@@ -16,6 +16,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # cmux Remote (docs/cmux-remote.md) is embedded by the same phase, first: the
 # helper's own early exits below must not skip it.
 "$SCRIPT_DIR/embed-cmux-remote-dev.sh"
+# cmux Files (dev) (docs/cmux-files-host.md), DEV only, also before the helper's early exits.
+"$SCRIPT_DIR/embed-files-host-dev.sh"
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 name="cmux Computer Use (dev).app"
 dest="$app/Contents/Library/$name"

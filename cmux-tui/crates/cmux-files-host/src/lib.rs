@@ -136,6 +136,16 @@ pub fn stage(
     Ok(staged.executable(EXECUTABLE))
 }
 
+/// Replaces this process with `program` (its path, then its arguments), keeping every descriptor
+/// without close-on-exec, as `exec` does. Returns only the error when it cannot.
+pub fn exec_in_place(program: &[OsString]) -> std::io::Error {
+    use std::os::unix::process::CommandExt;
+    let Some((first, rest)) = program.split_first() else {
+        return std::io::Error::new(std::io::ErrorKind::InvalidInput, "no program");
+    };
+    std::process::Command::new(first).args(rest).exec()
+}
+
 /// The descriptors above 2 that this process holds without close-on-exec: what its parent gave
 /// it to pass on (a readiness pipe, an install key, a person key).
 pub fn inherited_descriptors() -> Vec<i32> {

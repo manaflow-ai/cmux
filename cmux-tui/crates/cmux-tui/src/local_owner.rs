@@ -839,8 +839,13 @@ const OWNER_LAUNCHER_ENV: &str = "CMUX_TUI_OWNER_LAUNCHER";
 
 /// The owner's command before its own arguments: `program`, or `launcher run -- program` when
 /// the app named an absolute launcher.
-fn owner_command(program: &std::path::Path, _launcher: Option<&std::ffi::OsStr>) -> Command {
-    Command::new(program)
+fn owner_command(program: &std::path::Path, launcher: Option<&std::ffi::OsStr>) -> Command {
+    let launcher = launcher.filter(|launcher| std::path::Path::new(launcher).is_absolute());
+    let mut command = Command::new(launcher.unwrap_or(program.as_os_str()));
+    if launcher.is_some() {
+        command.arg("run").arg("--").arg(program);
+    }
+    command
 }
 
 impl SpawnedOwner {

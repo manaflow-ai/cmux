@@ -81,7 +81,7 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
 if [[ ( "$mode" == api-compat* || "$mode" == panic || "$mode" == acpmux-hot ) && -n "$filter" ]]; then
   echo "error: $mode takes no TEST_FILTER" >&2
   exit 2
@@ -980,6 +980,24 @@ if [[ "$mode" == vm-cli ]]; then
   step "vm-cli test" cargo test --locked --workspace ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
   step "vm-cli release build" cargo build --locked --release -p cmux-vm
   step "vm-cli artifact" copy_vm_cli
+  finish
+fi
+# files-host: clippy and tests of cmux-tui/crates/cmux-files-host on macOS, then its release
+# binary wrapped as the unsigned "cmux Files (dev).app" at
+# .build/artifacts/cmux-files-host-dev-unsigned.zip (fetch it with --artifact) for
+# scripts/cmux-next/sign-files-host-dev.sh (docs/cmux-files-host.md).
+copy_files_host() {
+  bash "$root/scripts/cmux-next/build-files-host-dev.sh" "$CARGO_TARGET_DIR/release/cmux-files-host" \
+    "$root/.build/artifacts/cmux-files-host-dev-unsigned.zip"
+}
+if [[ "$mode" == files-host ]]; then
+  CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$root/cmux-tui/target}"
+  export CARGO_TARGET_DIR
+  warm_target_guard
+  step "files-host clippy" cargo clippy --locked -p cmux-files-host --all-targets -- -D warnings
+  step "files-host test" cargo test --locked -p cmux-files-host ${no_fail_fast[@]+"${no_fail_fast[@]}"}
+  step "files-host release build" cargo build --locked --release -p cmux-files-host
+  step "files-host artifact" copy_files_host
   finish
 fi
 # The files --write may write: the shape snapshot, and the wire ledger where the crate has one.

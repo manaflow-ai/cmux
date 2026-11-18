@@ -29,7 +29,13 @@ public nonisolated struct FilesHost: Sendable, Equatable {
         environment: [String: String],
         isExecutable: (String) -> Bool = { FileManager.checked.isExecutableFile(atPath: $0) }
     ) {
-        return nil
+        guard environment[Self.switchKey] != "0",
+              let bundleIdentifier,
+              Self.developmentBundlePrefixes.contains(where: { bundleIdentifier == $0 || bundleIdentifier.hasPrefix($0 + ".") })
+        else { return nil }
+        let executable = bundleURL.appendingPathComponent(Self.embeddedExecutable)
+        guard isExecutable(executable.path) else { return nil }
+        self.executable = executable
     }
 
     /// This app's helper, or nil.
@@ -39,11 +45,11 @@ public nonisolated struct FilesHost: Sendable, Equatable {
 
     /// What `server ensure` gets so the owner it spawns runs under the helper.
     public var ownerEnvironment: [String: String] {
-        [:]
+        [Self.launcherEnvironmentKey: executable.path]
     }
 
     /// `program`'s argv, run under the helper.
     public func arguments(running program: String) -> [String] {
-        [program]
+        [executable.path, "run", "--", program]
     }
 }

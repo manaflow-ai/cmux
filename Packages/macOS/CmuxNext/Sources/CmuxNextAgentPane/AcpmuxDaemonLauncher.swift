@@ -47,7 +47,9 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// docs/cmux-files-host.md) the daemon runs under that helper, so its agents' Files and
     /// Folders checks are the helper's, shared by every DEV build.
     static func arguments(for environment: AcpmuxEnvironment, filesHost: FilesHost? = nil) -> [String] {
-        ["-c", script, "acpmux-launch", environment.executable.path, "daemon", "run", "--ready-fd", "3"]
+        ["-c", script, "acpmux-launch"]
+            + (filesHost?.arguments(running: environment.executable.path) ?? [environment.executable.path])
+            + ["daemon", "run", "--ready-fd", "3"]
             + (environment.passesPersonKeyAtSpawn ? ["--person-key-fd", String(personKeyDescriptor)] : [])
             + environment.daemonArguments
     }
@@ -189,7 +191,7 @@ nonisolated enum AcpmuxDaemonLauncher {
         // posix_spawn follows exec(2)'s argv contract. Foundation.Process accepts
         // arguments without argv[0], but the shell requires its executable name
         // in argv[0] before `-c` and the script.
-        let spawnArguments = ["/bin/sh"] + arguments(for: environment)
+        let spawnArguments = ["/bin/sh"] + arguments(for: environment, filesHost: FilesHost.current())
         let spawnStatus = try Self.withCStringArray(spawnArguments) { argv in
             try Self.withCStringArray(variables.map { "\($0.key)=\($0.value)" }) { envp in
                 "/bin/sh".withCString { executable in
