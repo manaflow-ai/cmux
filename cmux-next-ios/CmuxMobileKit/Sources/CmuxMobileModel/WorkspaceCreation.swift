@@ -675,8 +675,13 @@ public final class WorkspaceCreator {
         let options = options(on: macID)
         let terminal = NewWorkspaceTap(start: .terminal, directory: nil)
         guard let harness = options.agents.contains("") ? "" : options.agents.first else { return terminal }
-        let open = Set(seenDirectories(on: macID, limit: RecentDirectories.limit + recents.load(macID: macID).count))
-        guard let folder = recentDirectories(on: macID).first(where: { open.contains($0) && Self.isProjectFolder($0) }) else {
+        // The folders used from this phone first, then the Mac's by activity; only one open on the
+        // Mac now counts, so a closed recent folder never hides an open one.
+        let used = recents.load(macID: macID)
+        let seen = seenDirectories(on: macID, limit: RecentDirectories.limit + used.count)
+        let open = Set(seen)
+        guard options.directories,
+              let folder = (used + seen).first(where: { open.contains($0) && Self.isProjectFolder($0) }) else {
             return terminal
         }
         return NewWorkspaceTap(start: .agent(harness), directory: folder)

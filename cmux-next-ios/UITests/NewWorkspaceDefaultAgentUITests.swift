@@ -52,8 +52,8 @@ final class NewWorkspaceDefaultAgentUITests: XCTestCase {
         }
     }
 
-    /// The Mac refuses the chat (here: its folder is no longer open there): the refusal shows
-    /// in its words and the placeholder row goes, so the list is back as it was.
+    /// The Mac refuses the chat (here: its folder is no longer open there): the phone says it
+    /// couldn't create the workspace and the placeholder row goes, so the list is back as it was.
     @MainActor
     func testRefusedChatSaysWhyAndLeavesNoRow() {
         for look in Self.looks { refused(look) }
@@ -63,7 +63,7 @@ final class NewWorkspaceDefaultAgentUITests: XCTestCase {
     private func refused(_ look: String) {
         let app = launch(["-cmux-mobile-refuse-next-create"], look: look)
         tapNewWorkspace(app)
-        let why = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Agent chats start in a folder")).firstMatch
+        let why = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Couldn't create a workspace on")).firstMatch
         XCTAssertTrue(why.waitForExistence(timeout: 20), "the refusal is shown\n\(app.debugDescription)")
         attach(app, "5-refused-toast-\(look)")
         let placeholder = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'workspace.row.new-'")).firstMatch
