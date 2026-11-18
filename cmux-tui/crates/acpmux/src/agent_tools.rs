@@ -15,7 +15,8 @@
 //!   person's own that an agent writes as the customize app) and
 //!   `cmux:acpmux` (the acpmux CLI guide, for driving sessions from a shell) and
 //!   `cmux:cmux-chat` (plans, sub-sessions, links and the recap; `agent_guidance.rs`, which
-//!   also adds the person's own skills as a `cmux-user` plugin). The skill text is compiled in from `skills/` and
+//!   also adds the person's own skills as a `cmux-user` plugin) and `cmux:cmux-quota-care`
+//!   (bounded CI waits with `acpmux ci wait`, rate-limit backoff and cleanup). The skill text is compiled in from `skills/` and
 //!   written once per content hash under `<ACPMUX_HOME>/agent-tools/`.
 //!   Only the skill descriptions reach the prompt (progressive disclosure).
 //!   `cmux-cua` is model-invocable: its description claims tasks in a
@@ -252,6 +253,8 @@ const SKILL_FILES: &[(&str, &str)] = &[
     ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
     // When and how to ask for one root command (`request_elevation`, `hub/elevation.rs`).
     ("cmux-sudo/SKILL.md", include_str!("../skills/cmux-sudo/SKILL.md")),
+    // Spending less GitHub quota, disk and CPU: `acpmux ci wait`, rate-limit backoff, cleanup.
+    ("cmux-quota-care/SKILL.md", include_str!("../skills/cmux-quota-care/SKILL.md")),
 ];
 
 /// The skills that are only about one MCP server's tools, and that server. A session without

@@ -23,7 +23,9 @@ impl AgentTools {
     /// The session plugin's skills these servers have the tools for, in [`SKILL_FILES`] order,
     /// each with its folder in the plugin. Empty without a plugin folder.
     pub fn skill_index(&self) -> Vec<UserSkill> {
-        let Some(plugin) = &self.plugin_dir else { return Vec::new() };
+        let Some(plugin) = &self.plugin_dir else {
+            return Vec::new();
+        };
         SKILL_FILES
             .iter()
             .filter_map(|(path, text)| {
@@ -97,7 +99,8 @@ mod tests {
                 "cmux-live",
                 "cmux-rich-output",
                 "acpmux",
-                "cmux-sudo"
+                "cmux-sudo",
+                "cmux-quota-care"
             ]
         );
         for skill in full.skill_index() {
@@ -108,7 +111,14 @@ mod tests {
         let bare = AgentTools { servers: vec![server("cmux")], ..full.clone() };
         assert_eq!(
             names(&bare),
-            ["cmux-browser", "cmux-customization", "cmux-live", "cmux-rich-output", "acpmux"],
+            [
+                "cmux-browser",
+                "cmux-customization",
+                "cmux-live",
+                "cmux-rich-output",
+                "acpmux",
+                "cmux-quota-care"
+            ],
             "no computer use or secrets server, no cmux-cua or cmux-sudo"
         );
         assert!(AgentTools { plugin_dir: None, ..full }.skill_index().is_empty());

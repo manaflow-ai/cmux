@@ -450,6 +450,10 @@ pub enum Command {
     /// archives.
     #[command(subcommand, alias = "wt")]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// GitHub CI: wait for a pull request's checks or a workflow run with reads that cost no
+    /// API quota while nothing changes, instead of a sleep loop around gh.
+    #[command(subcommand)]
+    Ci(crate::cli::ci_wait::CiCmd),
     /// The cmux app's sidebar groups: ls, move a session's workspace into one,
     /// tidy (one group per name in a space; a dry run unless --apply).
     #[command(subcommand)]
@@ -1702,7 +1706,9 @@ mod help_contract_tests {
             let mut rest = line;
             while let Some(open) = rest.find('`') {
                 let after_open = &rest[open + 1..];
-                let Some(close) = after_open.find('`') else { break };
+                let Some(close) = after_open.find('`') else {
+                    break;
+                };
                 let snippet = &after_open[..close];
                 if snippet.trim_start() == binary
                     || snippet.trim_start().starts_with(&format!("{binary} "))
