@@ -66,6 +66,10 @@ fn append_to(path: &std::path::Path, line: &Value) -> anyhow::Result<()> {
 /// `daemon/log_cap.rs` does `daemon.log`: the home keeps at most two logs' worth (it grew by
 /// 2 MB in 10 days on a lane, and nothing cut it).
 fn append_capped(path: &std::path::Path, line: &Value, cap: u64) -> anyhow::Result<()> {
+    // One writer at a time: two that both found it past the cap would each move it aside, the
+    // second over the first's copy.
+    static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = WRITING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(dir) = path.parent() {
         crate::config::private_state_dir(dir)?;
     }
