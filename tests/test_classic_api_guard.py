@@ -64,7 +64,7 @@ class ClassicApiGuardTests(unittest.TestCase):
         self.assertEqual(code, 0, lines)
 
     def test_relays_only_dry_run_on_push_so_are_not_guarded(self) -> None:
-        for path in ("workers/iroh-v2/src/index.ts", "cmux-tui/relays/cloudflare-do/src/lib.rs"):
+        for path in ("workers/iroh-v2/src/index.ts",):
             code, _ = guard.check(CFG, "main", "", [path])
             self.assertEqual(code, 0, path)
 

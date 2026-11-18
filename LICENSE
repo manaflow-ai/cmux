@@ -17,7 +17,6 @@ production use, including self-hosting:
   workers/presence/
   workers/device-hub/
   services/iroh-relay-minter/
-  cmux-tui/relays/cloudflare-do/
   backend/
 
 The macOS app, iOS app, CLI, cmux-tui, and all other directories remain under

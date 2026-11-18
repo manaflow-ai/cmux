@@ -328,7 +328,7 @@ Offline computers keep their last snapshot, greyed, with "last seen".
   `GPL-3.0-or-later`. So a GPL-3.0 desktop engine in the client creates no new
   conflict.
 - The server directories are BUSL-1.1 (`web/`, `backend/`, `workers/*`,
-  `services/iroh-relay-minter`, `cmux-tui/relays/cloudflare-do`). Rule: relays
+  `services/iroh-relay-minter`). Rule: relays
   and backends never link or bundle `cmux-rd-*`, `cmux-encode` or other GPL
   client code. They forward ciphertext only. This keeps the license split clean.
 - **Do not copy RustDesk source.** RustDesk is AGPL-3.0 (its `LICENCE` file on
@@ -391,7 +391,9 @@ Reuse:
   relay frames, datagram service plan.
 - irx: admission with offline grant verification, single dialer, keepalive,
   journal, soak analyzer.
-- `cmux-relay`, `relays/cloudflare-do`: content-blind fallback.
+- `cmux-relay` and the hosted Durable Object relay: content-blind fallback. The hosted relay's
+  server code and deploy live in the cmux-platform repo; the wire contract (`cmux-remote-protocol`)
+  and the self-host relay (`cmux-relay`) stay here.
 - `cmux-rd-*`, `cmux-encode`, `cmux-remote-browser*`, the remote view pane.
 - #21322 machine catalog and inventory watch; `MachineRegistry`; presence.
 - acpmux peers, host-qualified receipts, transfer v1, `hub/paging.rs`, replay

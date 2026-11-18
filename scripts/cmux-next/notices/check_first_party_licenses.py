@@ -51,7 +51,6 @@ BUSL_DIRS = (
     "workers/presence/",
     "workers/device-hub/",
     "services/iroh-relay-minter/",
-    "cmux-tui/relays/cloudflare-do/",
     "backend/",
 )
 

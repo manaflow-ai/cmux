@@ -75,16 +75,6 @@
       ]
     },
     {
-      "id": "cloudflare-relay",
-      "branch": "main",
-      "trigger": ".github/workflows/cloudflare-relay.yml: a push to main only dry-runs",
-      "target": "Cloudflare Durable Object relay (cmux-tui/relays/cloudflare-do); no auto-deploy, listed, not guarded",
-      "guarded": false,
-      "paths": [
-        "cmux-tui/relays/cloudflare-do/**"
-      ]
-    },
-    {
       "id": "fleet-artifact-cdn",
       "branch": "main",
       "trigger": ".github/workflows/fleet-artifact-cdn.yml: deploys only by workflow_dispatch on main",
