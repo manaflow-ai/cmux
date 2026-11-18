@@ -381,8 +381,8 @@ pub fn sweep_dead(parent: &Path, prefix: &str) {
 pub fn alive(pid: u32) -> bool {
     let Ok(pid) = i32::try_from(pid) else { return false };
     // SAFETY: signal 0 only checks that the process exists and may be signalled.
-    unsafe { libc::kill(pid, 0) == 0 }
-    || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    let signalled = unsafe { libc::kill(pid, 0) } == 0;
+    signalled || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 /// No sweep where the check is not written: every folder counts as live.

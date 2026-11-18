@@ -346,7 +346,7 @@ fn repeated_transcript_construction_has_bounded_peak_memory() {
                 let session = home.join("sessions").join(&id);
                 private_dir(&session.join("events"));
                 let meta = json!({"schema": "acpmux.session.v1", "id": id, "name": format!("fixture-{i}"),
-                    "harness": "noload", "cwd": dir, "status": status,
+                    "harness": "noload", "cwd": &*dir, "status": status,
                     "agentSessionId": "saved-agent", "createdAt": 1, "updatedAt": 1,
                     "lastSeq": if i == 0 {513} else {1}, "eventCount": if i == 0 {513} else {1}});
                 serde_json::from_value::<acpmux::store::SessionMeta>(meta.clone()).unwrap();
