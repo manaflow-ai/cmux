@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 @testable import CmuxNextDaemon
 import CmuxNextSidebar
+import CmuxNextTabs
 import Foundation
 import Testing
 

@@ -290,7 +290,21 @@ async fn mock_mcp(
 /// Asks for `server`, the person approves with scope `chat`; returns the agent's reply and the
 /// card's `mcp_connect_result` record.
 async fn approve_and_connect(server: &str) -> (Value, Value) {
+    let (_hub, got, record) = approve_with_scope(server, "chat", None).await;
+    (got, record)
+}
+
+/// [`approve_and_connect`] with the person's `scope`, the hub's store of connections in `store`.
+async fn approve_with_scope(
+    server: &str,
+    scope: &str,
+    store: Option<&std::path::Path>,
+) -> (Arc<Hub>, Value, Value) {
     let (hub, mut person) = setup(PermissionPolicy::Ask).await;
+    hub.config.write().await.mcp_store = Some(store.map_or_else(
+        || std::path::PathBuf::from("/nonexistent/mcp"),
+        std::path::Path::to_path_buf,
+    ));
     let id = session_in(&mut person).await;
     let mut agent = unproven(&hub, Origin::Local).await;
     let asked =
@@ -300,12 +314,39 @@ async fn approve_and_connect(server: &str) -> (Value, Value) {
     person
         .request(
             ANSWER,
-            json!({"sessionId": id, "requestId": request_id, "approve": true, "scope": "chat"}),
+            json!({"sessionId": id, "requestId": request_id, "approve": true, "scope": scope}),
         )
         .await
         .unwrap();
     let result = person.wait_for(method::MUX_EVENT, |p| p["kind"] == "mcp_connect_result").await;
-    (reply(&mut agent, asked).await.unwrap(), result["msg"].clone())
+    let got = reply(&mut agent, asked).await.unwrap();
+    (hub, got, result["msg"].clone())
+}
+
+#[tokio::test]
+async fn mcp_connect_a_server_approved_for_all_agents_is_kept_where_every_chief_reads() {
+    let (url, _seen) = mock_mcp(
+        json!([]),
+        Some(r#"Bearer resource_metadata="https://auth.example/.well-known/oauth-protected-resource/mcp""#),
+    )
+    .await;
+    let tmp = tempfile::tempdir().unwrap();
+    let (_hub, got, _record) = approve_with_scope(&url, "agents", Some(tmp.path())).await;
+    assert_eq!(got["connect"], "signInNeeded", "{got}");
+    let name = got["kept"].as_str().expect("kept in the store").to_owned();
+    let saved: Value = serde_json::from_slice(
+        &std::fs::read(cmux_mcp_connect::shared::server_path(tmp.path(), &name)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(saved["transport"]["url"], url.as_str(), "{saved}");
+    assert_eq!(saved["state"], "needs sign-in");
+    assert_eq!(saved["scope"], "agents");
+    // No secret was asked, so none is written; and "this chat" keeps nothing.
+    assert!(!cmux_mcp_connect::shared::secrets_path(tmp.path(), &name).exists());
+    let other = tempfile::tempdir().unwrap();
+    let (_hub, got, _) = approve_with_scope(&url, "chat", Some(other.path())).await;
+    assert!(got.get("kept").is_none(), "{got}");
+    assert!(!other.path().join("servers").exists());
 }
 
 #[tokio::test]

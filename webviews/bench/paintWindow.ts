@@ -2,7 +2,9 @@
 // What a page draws while nothing happens (cmuxterm-hq goals/chats-flat-at-any-length.md): over one window, from a CDP
 // trace of the renderer, the frames it drew (compositor DrawFrame), the main-thread frames among them
 // (BeginMainThreadFrame), its main-thread paints and their area, and its layout, style and paint time; and, from the
-// page, the animations that run and what each animates. An animation of transform or opacity only runs on the
+// page, the animations that run and what each animates. A trace is the whole browser's and pages of one site share one
+// renderer (--process-per-site), so frames, paints, layout and style count only the page's own (its frame's layer
+// tree); main-thread task time is the renderer's, every page in it. An animation of transform or opacity only runs on the
 // compositor: frames, but no main-thread frame and no paint. One of background-position, color, width, a mask or a
 // filter repaints its layer on the main thread every frame, and when that layer is the transcript's, the whole
 // transcript.
@@ -18,7 +20,7 @@ const CATEGORIES = [
   "blink.animations",
 ];
 
-type TraceEvent = {
+export type TraceEvent = {
   name: string;
   ph: string;
   pid: number;
@@ -27,7 +29,12 @@ type TraceEvent = {
   dur?: number;
   id?: string;
   id2?: { local?: string };
-  args?: { name?: string; data?: Record<string, unknown> };
+  args?: {
+    name?: string;
+    data?: Record<string, unknown>;
+    beginData?: Record<string, unknown>;
+    layerTreeId?: number;
+  };
 };
 
 export type RunningAnimation = {
@@ -53,7 +60,7 @@ export type PaintWindow = {
   paintMsPerS: number;
   layoutMsPerS: number;
   styleMsPerS: number;
-  /** Every main-thread task (toplevel RunTask), ms a second. */
+  /** Every main-thread task (toplevel RunTask) of the page's renderer, every page in it, ms a second. */
   taskMsPerS: number;
   /** The largest paint's area (CSS px²) and the painted area a second. */
   maxPaintArea: number;
@@ -207,6 +214,21 @@ export async function paintWindow(
   const startedPerS = probed.started
     .map(([key, count]) => [key, count / seconds] as [string, number])
     .sort((a, b) => b[1] - a[1]);
+  const frameId = ((await cdp.send("Page.getFrameTree")) as { frameTree: { frame: { id: string } } }).frameTree.frame
+    .id;
+  return {
+    ...readPaintTrace(events, seconds, frameId),
+    animations,
+    frameSources,
+    startedPerS,
+  };
+}
+
+export type PaintCounts = Omit<PaintWindow, "animations" | "frameSources" | "startedPerS">;
+
+/// A window's trace read for one page: `frameId` (its main frame's id, Page.getFrameTree) scopes frames, paints,
+/// layout and style to that page's layer tree and frame; with none, every renderer's are counted.
+export function readPaintTrace(events: TraceEvent[], seconds: number, frameId?: string): PaintCounts {
   const threads = new Map<string, string>();
   const renderers = new Set<number>();
   for (const event of events) {
@@ -216,6 +238,15 @@ export async function paintWindow(
   }
   const main = (event: TraceEvent) =>
     renderers.has(event.pid) && threads.get(`${event.pid}:${event.tid}`) === "CrRendererMain";
+  // The page's layer trees (SetLayerTreeId names each tree's frame), for the frame events, which carry only a tree id.
+  const trees = new Set<number>();
+  if (frameId)
+    for (const event of events)
+      if (event.name === "SetLayerTreeId" && event.args?.data?.frame === frameId)
+        trees.add(event.args.data.layerTreeId as number);
+  const inTree = (event: TraceEvent) => !frameId || trees.has(event.args?.layerTreeId as number);
+  const inFrame = (event: TraceEvent) =>
+    !frameId || (event.args?.data?.frame ?? event.args?.beginData?.frame) === frameId;
   let frames = 0;
   let mainFrames = 0;
   let paints = 0;
@@ -235,7 +266,7 @@ export async function paintWindow(
   for (const event of events) {
     if (!renderers.has(event.pid)) continue;
     const ms = (event.dur ?? 0) / 1000;
-    if (event.name === "DrawFrame") frames += 1;
+    if (event.name === "DrawFrame" && inTree(event)) frames += 1;
     if (event.name === "Animation" && event.args?.data) {
       const data = event.args.data as { compositeFailed?: number; unsupportedProperties?: string[] };
       if (data.compositeFailed)
@@ -244,7 +275,9 @@ export async function paintWindow(
         );
     }
     if (!main(event)) continue;
-    if (event.name === "BeginMainThreadFrame") mainFrames += 1;
+    if (event.name === "BeginMainThreadFrame") mainFrames += inTree(event) ? 1 : 0;
+    else if (event.name === "RunTask" && event.ph === "X") taskMs += ms;
+    else if (!inFrame(event)) continue;
     else if (event.name === "Paint" && event.ph === "X") {
       paints += 1;
       paintMs += ms;
@@ -259,7 +292,6 @@ export async function paintWindow(
       }
     } else if (event.name === "Layout" && event.ph === "X") layoutMs += ms;
     else if (event.name === "UpdateLayoutTree" && event.ph === "X") styleMs += ms;
-    else if (event.name === "RunTask" && event.ph === "X") taskMs += ms;
   }
   return {
     seconds,
@@ -273,9 +305,6 @@ export async function paintWindow(
     maxPaintArea,
     paintAreaPerS: paintArea / seconds,
     notComposited: [...notComposited],
-    animations,
-    frameSources,
-    startedPerS,
   };
 }
 
