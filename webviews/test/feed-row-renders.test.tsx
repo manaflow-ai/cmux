@@ -233,3 +233,23 @@ test("a long feed (virtual list): mounted rows stay the window's, and a selectio
   expect(counts[1_000]!.rows).toBeGreaterThan(5);
   expect(counts[10_000]!.rows).toBe(counts[1_000]!.rows);
 });
+
+test("Needs you rows: a later clock and a selection draw no row; the ages move in their own leaves", async () => {
+  const feed = await mount("#/needs-you?style=rows&limit=50");
+  const rows = () => [...host.querySelectorAll<HTMLElement>(".feed-needs-row")];
+  const ages = () => rows().map((row) => row.querySelector(".feed-needs-meta")?.textContent);
+  expect(rows().length).toBeGreaterThan(1);
+  const before = ages();
+  // A minute later, a new snapshot (a selection elsewhere publishes the store's clock): no request changed.
+  feed.tick(60_000);
+  rowRenders.reset();
+  await feed.run(() => feed.store.select(feed.rows()[0]?.id.replace(/^feed-row-/, "") ?? "none"));
+  expect(rowRenders.count("NeedsYouRow")).toBe(0);
+  // The ages redraw through context alone, which support/rowRenders.ts does not count (a context-only
+  // render makes no new props or hook state), so they are checked by their text.
+  expect(ages()).not.toEqual(before);
+  // A selection with the same clock: no row and no age.
+  rowRenders.reset();
+  await feed.run(() => feed.store.select("none"));
+  expect(rowRenders.count("NeedsYouRow")).toBe(0);
+});
