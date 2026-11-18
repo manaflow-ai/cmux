@@ -73,15 +73,17 @@ describe("history sources", () => {
       { bundleId: "com.cmux.app", environment: "Production" },
       { bundleId: "com.cmux.app", environment: "Sandbox" },
       { bundleId: "dev.cmux.app.beta", environment: "Production" },
+      { bundleId: "dev.cmux.app.internal", environment: "Production" },
     ]);
   });
 
-  test("other deployments also backfill the beta's Sandbox, and the override wins", () => {
-    expect(appleNotificationHistorySources({ VERCEL_ENV: "preview" })).toHaveLength(4);
+  test("other deployments also backfill the beta's and INTERNAL's Sandbox, and the override wins", () => {
+    expect(appleNotificationHistorySources({ VERCEL_ENV: "preview" })).toHaveLength(6);
     expect(appleNotificationHistorySources({ VERCEL_ENV: "production", APPLE_IAP_SANDBOX_ENTITLEMENTS: "none" }))
       .toEqual([
         { bundleId: "com.cmux.app", environment: "Production" },
         { bundleId: "dev.cmux.app.beta", environment: "Production" },
+        { bundleId: "dev.cmux.app.internal", environment: "Production" },
       ]);
   });
 });

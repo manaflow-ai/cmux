@@ -2,8 +2,11 @@
 //
 // `next_pro` and `next_max` are plans of the cmux NEXT Cloud service, not of
 // the classic app. They are stored and sent as themselves (never aliased to
-// `pro` / `max`) in the same two metadata keys the classic plans use:
-// `cmuxVmPlan` for an operator grant and `cmuxPlan` for a subscription.
+// `pro` / `max`). An operator grant lives in its own key, `cmuxNextVmPlan`,
+// beside the classic grant in `cmuxVmPlan`, so one account can hold both.
+// Grants made before that key existed hold the NEXT id in `cmuxVmPlan`; they
+// still read as the NEXT grant and move to `cmuxNextVmPlan` on the next admin
+// write. A subscription is mirrored in `cmuxNextPlan` (and `cmuxPlan`).
 //
 // The classic app must read them as "no classic plan": every classic plan
 // lookup skips a NEXT id and falls through to the next source, so a person
@@ -24,6 +27,13 @@ export type NextPlanId = (typeof NEXT_PLAN_IDS)[number];
  * subscription holds it, so a person paying for both keeps both.
  */
 export const NEXT_PLAN_METADATA_KEY = "cmuxNextPlan";
+
+/**
+ * The metadata key holding the operator's cmux NEXT grant (`next_pro` or
+ * `next_max`). Any other value in it is ignored: it is never a restriction
+ * and never a classic plan.
+ */
+export const NEXT_GRANT_METADATA_KEY = "cmuxNextVmPlan";
 
 /** The normalized NEXT plan id, or null for any other value. */
 export function nextPlanId(value: unknown): NextPlanId | null {
@@ -46,15 +56,25 @@ export function higherNextPlanId(
 }
 
 /**
+ * The operator's cmux NEXT grant: `cmuxNextVmPlan`, else a legacy NEXT id in
+ * `cmuxVmPlan`. Null when the account holds no NEXT grant.
+ */
+export function nextGrantPlanIdFromMetadata(raw: unknown): NextPlanId | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const metadata = raw as Record<string, unknown>;
+  return nextPlanId(metadata[NEXT_GRANT_METADATA_KEY]) ?? nextPlanId(metadata.cmuxVmPlan);
+}
+
+/**
  * The NEXT plan in force from Stack metadata: an operator grant
- * (`cmuxVmPlan`) or a subscription (`cmuxNextPlan`, else `cmuxPlan`). The
+ * (`cmuxNextVmPlan`, else a legacy NEXT id in `cmuxVmPlan`) or a subscription (`cmuxNextPlan`, else `cmuxPlan`). The
  * higher one wins, so a lower grant never hides a higher purchase.
  */
 export function nextPlanIdFromMetadata(raw: unknown): NextPlanId | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const metadata = raw as Record<string, unknown>;
   const subscribed = nextPlanId(metadata[NEXT_PLAN_METADATA_KEY]) ?? nextPlanId(metadata.cmuxPlan);
-  return higherNextPlanId(nextPlanId(metadata.cmuxVmPlan), subscribed);
+  return higherNextPlanId(nextGrantPlanIdFromMetadata(metadata), subscribed);
 }
 
 /** Env var holding the Stripe Price id each NEXT plan is sold at. */
