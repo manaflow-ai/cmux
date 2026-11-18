@@ -65,6 +65,10 @@ class SwapBinaryTests(unittest.TestCase):
         (res / "CmuxNext_CmuxNextApp.bundle/old.txt").write_text("old")
         (res / "CmuxNext_Kept.bundle").mkdir()
         (res / "cmux-symbols.bin").write_text("old symbols")
+        (app / "Contents/Frameworks/Sentry.framework").mkdir(parents=True)
+        (app / "Contents/Frameworks/Sentry.framework/Sentry").write_text("nightly sentry")
+        (res / "CmuxNext_CmuxNextApp.bundle/agent-pane").mkdir()
+        (res / "CmuxNext_CmuxNextApp.bundle/agent-pane/index.html").write_text("built web")
         (res / "web").mkdir()
         (res / "web/index.html").write_text("web")
         with open(app / "Contents/Info.plist", "wb") as f:
@@ -81,19 +85,38 @@ class SwapBinaryTests(unittest.TestCase):
         (c / "Resources/CmuxNext_CmuxNextApp.bundle/new.txt").write_text("new")
         (c / "Resources/CmuxNext_Added.bundle").mkdir()
         (c / "Resources/cmux-symbols.bin").write_text("new symbols")
+        (c / "Frameworks/Iroh.framework").mkdir(parents=True)
+        (c / "Frameworks/Iroh.framework/Iroh").write_text("iroh")
+        (c / "Frameworks/Sentry.framework").mkdir()
+        (c / "Frameworks/Sentry.framework/Sentry").write_text("built sentry")
         return out
 
     def test_check_paths_names_what_a_swap_cannot_carry(self):
         paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/CmuxNextApp.swift",
                  "Packages/macOS/CmuxNext/app-ffi-pin.json", "Packages/Shared/CmuxTheme/Sources/CmuxTheme/AppTheme.swift",
                  "App/main.swift", "docs/cmux-next/live-code.md", "scripts/measure/launch-ready.sh", "tests/test_x.py",
-                 "Packages/iOS/Foo/Bar.swift", "cmux-next-ios/App.swift", "README.md",
+                 "Packages/iOS/CmuxMobileRPC/Sources/X.swift", "cmux-next-ios/App.swift", "README.md",
                  # not carried
                  "Resources/Info.plist", "cmux.next-dev.entitlements", "cmux.xcodeproj/project.pbxproj",
                  "cmux-tui/src/main.rs", "webviews/src/app.tsx", "ghostty-next", "scripts/cmux-next/bundle-acpmux.sh",
-                 "scripts/cmux-next/embed-cef.sh", "scripts/strip-release-bundle.sh", "Native/OptChat/x.rs"]
+                 "scripts/cmux-next/embed-cef.sh", "scripts/strip-release-bundle.sh", "Native/OptChat/x.rs",
+                 "Packages/macOS/CmuxNext/Sources/CmuxNextServerHelper/Server.swift",
+                 "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Mutex.swift", "Packages/macOS/CmuxNext/CEFShim/shim.cc",
+                 "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h",
+                 "Packages/macOS/CmuxComputerUseHelper/Sources/main.swift", "Packages/macOS/CmuxRemote/Package.swift"]
         r = self.run_tool("check-paths", stdin="\n".join(paths) + "\n")
         self.assertEqual(r.stdout.split(), paths[10:])
+
+    def test_wrapper_links_with_the_app_targets_release_flags(self):
+        if not (ROOT / "cmux.xcodeproj/project.pbxproj").exists() or not (ROOT / "App/main.swift").exists():
+            self.skipTest("a sparse checkout without the project")
+        r = self.run_tool("wrapper", ROOT, self.tmp / "wrapper")
+        manifest = (self.tmp / "wrapper/Package.swift").read_text()
+        # -no_exported_symbols comes only from Release's LD_EXPORT_SYMBOLS = NO: the Release block, not Debug's.
+        for flag in ('"-objc_stubs_small"', '"@executable_path/../Frameworks"', '"-no_exported_symbols"', '"Carbon"'):
+            self.assertIn(flag, manifest)
+        self.assertIn('.macOS("14.0")', manifest)
+        self.assertIn("link flags", r.stderr)
 
     def test_check_refuses_a_diff_that_touches_the_project(self):
         repo = self.tmp / "repo"
@@ -108,29 +131,43 @@ class SwapBinaryTests(unittest.TestCase):
         git("commit", "-qam", "swift"); swift = git("rev-parse", "HEAD")
         (repo / "cmux.xcodeproj").mkdir(); (repo / "cmux.xcodeproj/project.pbxproj").write_text("x")
         git("add", "-A"); git("commit", "-qm", "project"); project = git("rev-parse", "HEAD")
+        # A file moved from what a swap cannot carry into a package: both paths count (no rename detection).
+        (repo / "Resources").mkdir(); (repo / "Resources/Info.plist").write_text("plist " * 40)
+        git("add", "-A"); git("commit", "-qm", "plist"); plist = git("rev-parse", "HEAD")
+        (repo / "Packages").mkdir(); git("mv", "Resources/Info.plist", "Packages/Info.plist")
+        git("commit", "-qm", "move"); moved = git("rev-parse", "HEAD")
+        r = self.run_tool("check", plist, moved, "--repo", repo, check=False)
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("not carried: Resources/Info.plist", r.stderr)
         self.run_tool("check", base, swift, "--repo", repo)
         r = self.run_tool("check", base, project, "--repo", repo, check=False)
         self.assertEqual(r.returncode, 3)
         self.assertIn("not carried: cmux.xcodeproj/project.pbxproj", r.stderr)
 
-    def test_place_replaces_the_executable_and_bundles_only(self):
+    def test_place_replaces_the_executable_and_merges_bundles(self):
         app = self.nightly()
         copy = self.tmp / "copy/cmux NIGHTLY.app"
         shutil.copytree(app, copy)
         r = self.run_tool("place", copy, self.overlay())
         self.assertEqual((copy / "Contents/MacOS/cmux").read_text(), "head exe")
         bundle = copy / "Contents/Resources/CmuxNext_CmuxNextApp.bundle"
-        self.assertEqual(sorted(p.name for p in bundle.iterdir()), ["new.txt"])  # replaced whole, not merged
+        # Merged: the build's files over the nightly's, so the web output only the nightly's bundle has stays.
+        self.assertEqual(sorted(p.name for p in bundle.iterdir()), ["agent-pane", "new.txt", "old.txt"])
+        self.assertEqual((bundle / "agent-pane/index.html").read_text(), "built web")
+        # A framework the nightly lacks is added; one it ships stays the nightly's.
+        self.assertEqual((copy / "Contents/Frameworks/Iroh.framework/Iroh").read_text(), "iroh")
+        self.assertEqual((copy / "Contents/Frameworks/Sentry.framework/Sentry").read_text(), "nightly sentry")
         self.assertTrue((copy / "Contents/Resources/CmuxNext_Kept.bundle").is_dir())
         self.assertTrue((copy / "Contents/Resources/CmuxNext_Added.bundle").is_dir())
         self.assertEqual((copy / "Contents/Resources/web/index.html").read_text(), "web")
         self.assertIn("replaced=MacOS/cmux,Resources/CmuxNext_CmuxNextApp.bundle,Resources/cmux-symbols.bin", r.stdout)
-        self.assertIn("added=Resources/CmuxNext_Added.bundle", r.stdout)
+        self.assertIn("added=Resources/CmuxNext_Added.bundle,Frameworks/Iroh.framework", r.stdout)
         self.assertEqual((app / "Contents/MacOS/cmux").read_text(), "nightly exe")  # the original untouched
         diff = self.run_tool("diff", app, copy).stdout.splitlines()
         self.assertIn("changed Contents/MacOS/cmux", diff)
         self.assertIn("added Contents/Resources/CmuxNext_CmuxNextApp.bundle/new.txt", diff)
-        self.assertIn("removed Contents/Resources/CmuxNext_CmuxNextApp.bundle/old.txt", diff)
+        self.assertIn("added Contents/Frameworks/Iroh.framework/Iroh", diff)
+        self.assertNotIn("removed Contents/Resources/CmuxNext_CmuxNextApp.bundle/agent-pane/index.html", diff)
         self.assertFalse(any("web/" in line or "Info.plist" in line for line in diff))
 
     def test_place_refuses_an_installed_app_and_a_missing_overlay(self):

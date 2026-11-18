@@ -72,6 +72,8 @@ swap_nightly() {
         || { tail -30 "$out/swapbuild-$side.log"; echo "LR swap refused: side=$side sha=$sha the Release build failed (swapbuild-$side.log)"; return 3; }
       build_s="$(sed -n 's/.*"build_s": \([0-9]*\).*/\1/p' "$out/swapbuild-$side/build.json")"
       placed="$("$tool" place "$copy" "$out/swapbuild-$side")" || { echo "LR swap refused: side=$side place failed"; return 3; }
+      # The overlay is in the copy now; report.tgz keeps the build's log and build.json, not its binaries.
+      rm -rf "$out/swapbuild-$side/app" "$out/swapbuild-$side/cmux.unstripped"
     fi
     "$tool" seal "$copy" "$found" >"$out/swap-$side.seal" || { echo "LR swap refused: side=$side the sealed copy does not verify"; return 3; }
     echo "LR swap side=$side sha=$sha nightly_version=$version build_s=$build_s replaced=$(echo "$placed" | sed -n 's/.* replaced=\([^ ]*\).*/\1/p')"

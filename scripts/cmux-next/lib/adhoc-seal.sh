@@ -21,6 +21,12 @@ import plistlib, sys
 data = sys.stdin.buffer.read()
 kept = {k: v for k, v in (plistlib.loads(data) if data.strip() else {}).items() if k.startswith("com.apple.security.")}
 sys.stdout.buffer.write(plistlib.dumps(kept))' >"$entitlements"
+  # A framework a swap added (swap-binary.sh place) comes unsigned; the outer seal needs its nested code signed.
+  local fw
+  for fw in "$app/Contents/Frameworks"/*.framework; do
+    [[ -d "$fw" ]] || continue
+    codesign --verify "$fw" >/dev/null 2>&1 || codesign --force --sign - --timestamp=none "$fw" >&2
+  done
   codesign --force --sign - --timestamp=none --entitlements "$entitlements" "$app" 2>&1 | grep -v 'replacing existing signature' >&2 || true
   codesign --verify --strict "$app"
 }

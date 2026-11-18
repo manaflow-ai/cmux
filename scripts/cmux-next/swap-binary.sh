@@ -45,15 +45,20 @@ plist_read() { "${SWAP_BINARY_PLUTIL:-/usr/bin/plutil}" -extract "$2" raw -o - "
 copy_tree() { if command -v ditto >/dev/null; then ditto "$1" "$2"; else cp -R "$1" "$2"; fi; }
 
 # check_paths: the changed paths on stdin; prints the ones a swap cannot carry. Carried: the Swift packages the app
-# links and the app's main.swift. Not in the app at all (ignored): the repository's tooling, docs, tests, the iPhone
-# app, the server code. Anything else (the project, Resources/ with Info.plist and the entitlements, the helpers and
-# their sources, web bundles, Ghostty) is not carried. Plain bash so a Linux test runs it.
+# links (the app links two Packages/iOS ones too) and the app's main.swift, except the package sources other bundle
+# phases compile into their own helpers (the server helper, the CEF shim, the Computer Use and remote helpers). Not in
+# the app at all (ignored): the repository's tooling, docs, tests, the iPhone app, the server code. Anything else (the
+# project, Resources/ with Info.plist and the entitlements, the helpers and their sources, web bundles, Ghostty) is not
+# carried. Plain bash so a Linux test runs it.
 check_paths() {
   local path
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
     case "$path" in
-      Packages/iOS/*) ;;  # the iPhone app's packages
+      # Compiled into helpers by their own phases (bundle-server-helper.sh, build-cef-shim.sh, the helper builds).
+      Packages/macOS/CmuxNext/Sources/CmuxNextServerHelper*|Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Mutex.swift) echo "$path" ;;
+      Packages/macOS/CmuxNext/CEFShim/*|Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/*) echo "$path" ;;
+      Packages/macOS/CmuxComputerUseHelper/*|Packages/macOS/CmuxRemote/*) echo "$path" ;;
       Packages/*) ;;      # carried: the packages the executable links, their resources, the FFI pin
       App/*) ;;           # carried: main.swift
       .agents/*|.claude/*|.codex/*|.cmux/*|.github/*|.greptile/*|docs/*|plans/*|skills/*|design/*|tests/*|tests_v2/*) ;;
@@ -80,7 +85,7 @@ cmd_check() {
   fetch_commit "$repo" "$from" || SB_EXIT=3 die "cannot fetch $from (the nightly's commit)"
   fetch_commit "$repo" "$ref" || SB_EXIT=3 die "cannot fetch $ref"
   local bad
-  bad="$(git -C "$repo" diff --name-only "$from" "$ref" | check_paths)"
+  bad="$(git -C "$repo" diff --no-renames --name-only "$from" "$ref" | check_paths)"
   if [[ -n "$bad" ]]; then
     echo "swap-binary: not carried: $(echo "$bad" | head -20 | tr '\n' ' ')$( (( $(echo "$bad" | wc -l) > 20 )) && echo "(and $(( $(echo "$bad" | wc -l) - 20 )) more)")" >&2
     exit 3
@@ -118,7 +123,9 @@ import json, os, re, sys
 src, out = sys.argv[1:]
 pbx = open(os.path.join(src, "cmux.xcodeproj/project.pbxproj")).read()
 # The app target's Release configuration: the XCBuildConfiguration whose PRODUCT_NAME is cmux.
-blocks = re.findall(r"isa = XCBuildConfiguration;\s*buildSettings = \{(.*?)\n\t\t\t\};\s*name = Release;", pbx, re.S)
+# One match per configuration: each chunk ends where the next configuration starts, so a match never spans two.
+blocks = [m.group(1) for chunk in pbx.split("isa = XCBuildConfiguration;")[1:]
+          for m in [re.match(r"\s*buildSettings = \{(.*?)\n\t\t\t\};\s*name = Release;", chunk, re.S)] if m]
 conf = next((b for b in blocks if re.search(r"\n\s*PRODUCT_NAME = cmux;", b)), None)
 if conf is None:
     sys.exit("swap-binary: no Release configuration with PRODUCT_NAME = cmux in cmux.xcodeproj")
@@ -188,6 +195,8 @@ cmd_build() {
   exec 9>>"$root/lock"
   if ! python3 -I "$here/host_build_lock.py" acquire "$root/lock" --fd 9 >&2; then
     root="$(mktemp -d "${TMPDIR:-/tmp}/swap-binary.XXXXXX")"; cold=1
+    # shellcheck disable=SC2064 # this root, now
+    trap "rm -rf '$root'" EXIT
     echo "SB-WARN the host's build root is busy: building cold in $root" >&2
   fi
   src="$root/src"
@@ -235,6 +244,8 @@ print(next((n for n in ("cmux-next-exe", "CmuxNextAppExecutable-Package", "CmuxN
     (cd "$root/app-exe" && source "$src/scripts/ci/swiftpm-binary-module-guard.sh" \
       && xcode_binary_module_guard "$root/app-exe" "$root/dd" -scheme "$scheme") >&2 || true
   fi
+  # Bundles of a target an earlier commit had would stay in the kept products and be copied as this commit's.
+  rm -rf "$root/dd/Build/Products/Release"/*.bundle
   xcb || status=$?
   if [[ $status != 0 && -x "$src/scripts/cmux-next/stale-pcm-retry-needed.sh" ]] && "$src/scripts/cmux-next/stale-pcm-retry-needed.sh" "$log"; then
     echo "SB-WARN stale precompiled modules in $root/dd: cleared, building again" >&2
@@ -252,6 +263,17 @@ print(next((n for n in ("cmux-next-exe", "CmuxNextAppExecutable-Package", "CmuxN
   cp "$products/cmux-next-exe" "$out/app/Contents/MacOS/cmux"
   local b
   for b in "$products"/*.bundle; do [[ -d "$b" ]] && ditto "$b" "$out/app/Contents/Resources/$(basename "$b")"; done
+  # A framework the executable loads by @rpath (the app target's Release link merges mergeable ones such as Iroh into
+  # the executable; this link may not): from the products, so place can add what the nightly does not ship.
+  local lib fw
+  while IFS= read -r lib; do
+    fw="${lib#@rpath/}"; fw="${fw%%/*}"
+    [[ "$fw" == *.framework ]] || continue
+    b="$(find "$products" -maxdepth 2 -name "$fw" -type d | head -1)"
+    [[ -n "$b" ]] || continue
+    mkdir -p "$out/app/Contents/Frameworks"; ditto "$b" "$out/app/Contents/Frameworks/$fw"
+    echo "SB-WARN the executable loads $fw dynamically; the overlay carries it" >&2
+  done < <(otool -L "$products/cmux-next-exe" | awk 'NR > 1 && $1 ~ /^@rpath\// { print $1 }')
   # As the nightly ships it: the symbol map, the executable stripped, the strings tables binary (REF's own script).
   if [[ -f "$src/scripts/strip-release-bundle.sh" ]]; then
     bash "$src/scripts/strip-release-bundle.sh" "$out/app" >"$out/strip.log" 2>&1 || { tail -20 "$out/strip.log" >&2; die "strip-release-bundle.sh failed"; }
@@ -263,7 +285,6 @@ p, ref, secs, xcode, defines, cold, compiles = sys.argv[1:]
 json.dump({"ref": ref, "build_s": int(secs), "xcode": xcode.strip(), "swift_defines": defines, "cold_root": cold == "1",
            "swift_compiles": int(compiles or 0), "configuration": "Release", "archs": "arm64"}, open(p, "w"), indent=2)
 PY
-  [[ -z "$cold" ]] || rm -rf "$root"
   echo "SB-BUILD ref=$ref build_s=$build_s swift_compiles=$(grep -c '^SwiftCompile normal' "$log" || true) out=$out"
 }
 
@@ -281,13 +302,37 @@ cmd_place() {
   # A file replaced, never rewritten in place: the copy is a clone whose blocks the original shares.
   rm -f "$app/Contents/MacOS/$exe"; cp "$build/app/Contents/MacOS/cmux" "$app/Contents/MacOS/$exe"
   replaced+=("MacOS/$exe")
+  # A resource bundle is merged, the build's files over the nightly's: the bundles' generated web output (agent pane,
+  # pages; gitignored, built by build-web-bundles.sh before the nightly's compile) is only in the nightly's, and check
+  # refuses a commit that changes webviews/.
   for item in "$build/app/Contents/Resources"/*; do
     [[ -e "$item" ]] || continue
     name="$(basename "$item")"
-    if [[ -e "$app/Contents/Resources/$name" ]]; then replaced+=("Resources/$name"); else added+=("Resources/$name"); fi
-    rm -rf "$app/Contents/Resources/$name"; copy_tree "$item" "$app/Contents/Resources/$name"
+    if [[ -d "$item" && -d "$app/Contents/Resources/$name" ]]; then
+      replaced+=("Resources/$name"); cp -R "$item/." "$app/Contents/Resources/$name/"
+    else
+      if [[ -e "$app/Contents/Resources/$name" ]]; then replaced+=("Resources/$name"); else added+=("Resources/$name"); fi
+      rm -rf "$app/Contents/Resources/$name"; copy_tree "$item" "$app/Contents/Resources/$name"
+    fi
+  done
+  # A framework the build's executable loads that the nightly does not ship (the nightly's Release link merges some
+  # into the executable; build collects the ones it did not): added, signed ad hoc by the seal. The nightly's own stay.
+  for item in "$build/app/Contents/Frameworks"/*; do
+    [[ -e "$item" ]] || continue
+    name="$(basename "$item")"
+    [[ -e "$app/Contents/Frameworks/$name" ]] && continue
+    mkdir -p "$app/Contents/Frameworks"; copy_tree "$item" "$app/Contents/Frameworks/$name"; added+=("Frameworks/$name")
   done
   [[ -z "$tmp" ]] || rm -rf "$tmp"
+  # Every @rpath library the executable loads must be in the copy, or dyld stops it at launch.
+  if command -v otool >/dev/null; then
+    local lib missing=()
+    while IFS= read -r lib; do
+      lib="${lib#@rpath/}"
+      [[ -e "$app/Contents/Frameworks/$lib" ]] || missing+=("$lib")
+    done < <(otool -L "$app/Contents/MacOS/$exe" | awk 'NR > 1 && $1 ~ /^@rpath\// { print $1 }')
+    [[ ${#missing[@]} == 0 ]] || die "the executable loads what $app does not ship: ${missing[*]}"
+  fi
   local IFS=,
   echo "SB-PLACE app=$app replaced=${replaced[*]} added=${added[*]:-}"
 }
@@ -352,5 +397,6 @@ case "$cmd" in
   diff) cmd_diff "$@" ;;
   make) cmd_make "$@" ;;
   check-paths) check_paths ;;  # for tests: the paths on stdin a swap cannot carry
+  wrapper) wrapper "$@" ;;     # for tests: the wrapper package of a checkout (wrapper SRC DIR)
   *) usage 1 ;;
 esac
