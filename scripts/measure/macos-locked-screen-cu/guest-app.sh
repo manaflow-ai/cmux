@@ -1,15 +1,15 @@
 #!/bin/bash
-# The app=SHA proof inside a throwaway guest (macos-locked-screen-cu.sh copies it to ~/lsc with the
-# tagged DEV app in ~/lsc/app, lockprobe, tcc-grant.sh and scripts/cmux-next's cua-helper-v2-live.py
+# The app=SHA and app=nightly proof inside a throwaway guest (macos-locked-screen-cu.sh copies it to ~/lsc
+# with the tagged DEV app or the NIGHTLY in ~/lsc/app, lockprobe, tcc-grant.sh and scripts/cmux-next's cua-helper-v2-live.py
 # with its probe files and tag_teardown.py in ~/lsc/cmux-next).
 #   guest-app.sh grant         over SSH: picks the python, then grants (tcc-grant.sh) Screen
 #                              Recording, Accessibility and event posting to the helper's executable
-#                              in "cmux Computer Use (dev).app" (by path, and by its bundle id),
+#                              in "cmux Computer Use (dev).app", else in "cmux Computer Use.app" (by path, and by its bundle id),
 #                              the app's own executable, /bin/bash and that python
 #   guest-app.sh run PASS      as a LaunchAgent in the console user's session: one
 #                              cua-helper-v2-live.py run, PASS locked (--while-locked --lock-with
 #                              lockprobe: expect it to work on the locked screen) or refused
-#                              (--lock-with lockprobe only: expect mac_locked)
+#                              (--lock-with lockprobe only: expect mac_locked, or the legacy screen_locked)
 # The python: /opt/homebrew/bin/python3 when the image has one that runs, else the image's
 # /usr/bin/python3 (Command Line Tools; only when xcode-select names them, so the shim never asks to
 # install them). python.txt in the output says which. Output in ~/lsc/out/PASS; ~/lsc/status-PASS
@@ -18,7 +18,10 @@ set -u
 D=/Users/lume/lsc
 TAG=$(cat "$D/tag" 2>/dev/null || echo lscproof)
 APP=$(ls -d "$D"/app/*.app 2>/dev/null | head -1)
+# The helper v2 of a DEV build, else the legacy helper a NIGHTLY carries (which the app stages
+# outside its bundle before it starts it: the bundle-id row covers that copy, by its signature).
 HELPER="$APP/Contents/Library/cmux Computer Use (dev).app"
+[[ -d "$HELPER" ]] || HELPER="$APP/Contents/Library/cmux Computer Use.app"
 plist_get() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist" 2>/dev/null; }
 
 pick_python() {

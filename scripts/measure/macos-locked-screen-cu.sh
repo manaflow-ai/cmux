@@ -32,6 +32,18 @@
 #     --script scripts/measure/macos-locked-screen-cu.sh --ref SHA \
 #     --artifact artifacts/macos-locked-screen-cu.tgz --arg=app=APPSHA --timeout 7200
 #
+# app=nightly runs the same two passes on the current cmux NEXT NIGHTLY instead of a build: its
+# appcast's newest DMG (as scripts/ci/cua_signed_host_check.py takes it, with that script's
+# checks: com.cmuxterm.app.nightly.cmux-next and its embedded com.cmuxterm.cua, both team
+# 7WLXT3NR37). NIGHTLY carries no helper v2, so the app runs the legacy helper ("cmux Computer
+# Use.app"), which refuses with screen_locked; the live script accepts that or mac_locked. The
+# setting goes in through the run's isolated cmux.json (CMUX_NEXT_CONFIG_FILE), as in app=SHA, and
+# is read back with settings.get on the app's control socket. build/nightly.txt and summary.txt
+# name the NIGHTLY's version, build and CMUXCommit. No build, so no cef-r2 label:
+#   cmux-ci run --class exclusive --measurement --label measure --label macos-26 \
+#     --script scripts/measure/macos-locked-screen-cu.sh --ref SHA \
+#     --artifact artifacts/macos-locked-screen-cu.tgz --arg=app=nightly --timeout 5400
+#
 # Output: LSC lines, and artifacts/macos-locked-screen-cu.tgz with guest/results.jsonl, the PNGs
 # and summary.txt (app=SHA: guest-locked/ and guest-refused/, each with cua-helper-v2-live.json,
 # screenshot.png, live.log and the app's log, and summary.txt with every check). Exit 0 when the
@@ -49,7 +61,8 @@ for arg in "$@"; do
 done
 [[ "$late" =~ ^[0-9]{1,4}$ && "$late" -le 2400 && "$guest_mem" =~ ^[0-9]{1,2}$ && "$guest_cpu" =~ ^[0-9]{1,2}$ ]] ||
   { echo "macos-locked-screen-cu.sh: late= s (at most 2400), guest_mem= GB, guest_cpu= count" >&2; exit 2; }
-[[ -z "$app_sha" || "$app_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "macos-locked-screen-cu.sh: app= takes a 40-hex commit" >&2; exit 2; }
+[[ -z "$app_sha" || "$app_sha" == nightly || "$app_sha" =~ ^[0-9a-f]{40}$ ]] ||
+  { echo "macos-locked-screen-cu.sh: app= takes a 40-hex commit or nightly" >&2; exit 2; }
 started_at=$(date +%s)
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
@@ -88,6 +101,9 @@ EOF
     python3 -I - "$out" "${passes[@]}" >"$out/summary.txt" 2>&1 <<'EOF'
 import json, os, sys
 out = sys.argv[1]
+for note in ("nightly.txt", "helper.txt"):
+    if os.path.exists(os.path.join(out, "build", note)):
+        print("LSC-APP " + open(os.path.join(out, "build", note)).read().strip())
 for name in sys.argv[2:]:
     path = os.path.join(out, "guest-" + name, "cua-helper-v2-live.json")
     try:
@@ -95,6 +111,8 @@ for name in sys.argv[2:]:
     except (OSError, ValueError):
         print("LSC-VERDICT %s: NO RESULT (%s missing)" % (name, path))
         continue
+    print("%s | app %s %s (build %s, CMUXCommit %s), helper %s" % (name, report.get("bundle_id"), report.get("short_version"),
+          report.get("version"), report.get("commit"), report.get("driver_runs")))
     for c in report.get("checks", []):
         print("%s | %s | %s | %s" % (name, "ok" if c.get("ok") else "FAIL", c.get("check"), str(c.get("detail", ""))[:160].replace("\n", " ")))
     status = open(os.path.join(out, "guest-" + name, "status")).read().strip() if os.path.exists(os.path.join(out, "guest-" + name, "status")) else "?"
@@ -137,7 +155,60 @@ cleanup() {
 trap cleanup EXIT
 
 app="" app_tag=lscproof
-if [[ -n "$app_sha" ]]; then
+if [[ "$app_sha" == nightly ]]; then
+  app_tag=nightly # names the run only: a NIGHTLY is not a tagged build
+  note "STAGE app nightly"
+  build_tmp="$(mktemp -d)"
+  # The NEXT NIGHTLY as cua_signed_host_check.py takes it: the appcast's newest enclosure, its
+  # length, the DMG's one app, then the app's and its embedded helper's identity and team signature.
+  python3 -I - "$root/scripts/ci" "$build_tmp" "$out/build/nightly.json" >"$out/build/nightly.log" 2>&1 <<'EOF'
+import json, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import cua_signed_host_check as c  # noqa: E402
+
+root, record = Path(sys.argv[2]), sys.argv[3]
+feed = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+try:
+    url, length, version = c.feed_url(feed)
+    dmg = root / "next.dmg"
+    c.download(url, length, dmg)
+    mount = root / "mount"
+    mount.mkdir()
+    c.run(["/usr/bin/hdiutil", "attach", str(dmg), "-nobrowse", "-readonly", "-mountpoint", str(mount)], timeout=300)
+    try:
+        apps = sorted(mount.glob("*.app"))
+        if len(apps) != 1:
+            raise c.Failure(f"{dmg}: expected one app, found {apps}")
+        app = root / "app" / apps[0].name
+        app.parent.mkdir()
+        c.run(["/usr/bin/ditto", str(apps[0]), str(app)], timeout=300)
+    finally:
+        c.run(["/usr/bin/hdiutil", "detach", str(mount)], timeout=120, check=False)
+    dmg.unlink()
+    c.verify_signature(app, "com.cmuxterm.app.nightly.cmux-next")
+    helper = c.nested_helper(app)
+    c.verify_signature(helper, c.HELPER_ID)
+    info = c.plist(app)
+    json.dump({"feed": feed, "url": url, "sparkle_version": version, "bundle_id": info.get("CFBundleIdentifier"),
+               "short_version": info.get("CFBundleShortVersionString"), "build": info.get("CFBundleVersion"),
+               "commit": info.get("CMUXCommit"), "helper": str(helper.relative_to(app)), "app": str(app)}, open(record, "w"), indent=1)
+    print(f"nightly: {app}")
+except c.Failure as error:
+    print(f"nightly: {error}", file=sys.stderr)
+    sys.exit(1)
+EOF
+  app=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("app") or "")' "$out/build/nightly.json" 2>/dev/null)
+  [[ -n "$app" && -d "$app" ]] || { cat "$out/build/nightly.log"; finish "could not download and verify the NEXT NIGHTLY (build/nightly.log)"; exit 4; }
+  # CMUXCommit is the short SHA the nightly stamps; the full one when this checkout has it.
+  short=$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("commit") or "")' "$out/build/nightly.json")
+  full=""
+  [[ "$short" =~ ^[0-9a-f]{7,40}$ ]] && full=$(git rev-parse --verify --quiet "$short^{commit}" 2>/dev/null)
+  printf 'nightly %s, CMUXCommit %s%s\n' "$(python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); print(d["short_version"], "build", d["build"], "(appcast", d["sparkle_version"] + ")")' "$out/build/nightly.json")" \
+    "${short:-none}" "${full:+ ($full)}" >"$out/build/nightly.txt"
+  { codesign -dvv "$app" 2>&1; } >"$out/build/signing.txt"
+  note "$(cat "$out/build/nightly.txt"): $app"
+elif [[ -n "$app_sha" ]]; then
   note "STAGE app $app_sha"
   # prepare_build, require_submodule_refs and cef_read_file_ok, as tab-switch.sh build=SHA uses them.
   # shellcheck source=scripts/measure/tab-switch.sh

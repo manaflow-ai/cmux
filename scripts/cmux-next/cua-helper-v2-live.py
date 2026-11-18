@@ -22,9 +22,20 @@ session.locked), and the session must read locked. Only in a throwaway guest
 With `--while-locked`, step 5 must then work on the locked screen: get_window_state returns a
 screenshot with content (screenshot.png in --out), the test window records the click, and the
 session still reads locked afterward (`PROGRAM state`). Without `--while-locked`, the opposite:
-get_window_state answers `mac_locked`, the test window records no click, and the session still
-reads locked. With `--lock-with` the agent goes on past `mac_locked` answers (it takes the window id
-from the test window's own state file), so every call of step 5 is made and each answer recorded.
+get_window_state answers `mac_locked` (the legacy helper: `screen_locked`), the test window records
+no click, and the session still reads locked. With `--lock-with` the agent goes on past those
+refusals (it takes the window id from the test window's own state file), so every call of step 5
+is made and each answer recorded. With `--while-locked` the app must also read the setting back
+(`settings.get computerUse.whileLocked` on its control socket is true).
+
+A build without the helper v2 (NIGHTLY: `--app` the unpacked, Developer ID signed NIGHTLY) runs
+the legacy helper for driver "upstream" (ComputerUseHelperDaemon.effectiveDriver). Then check 1 is
+that the build embeds "cmux Computer Use.app" (com.cmuxterm.cua, team 7WLXT3NR37); 2 that the
+app's staged copy runs `cmux-cua serve`, its socket under the Darwin user temp dir; 4 that a peer
+without the agent token gets a refusal that never says attached; there is no check 3; and in 5
+the agent's cmux-cua server is the legacy helper's `cmux-cua mcp`. A build that is not a tagged
+DEV build gets its control socket at an explicit path (CMUX_NEXT_SOCKET_PATH) and is waited for
+with `system.ping` (debug.* exists only in DEV builds); `--tag` then only names the run.
 
 Checks, each recorded in cua-helper-v2-live.json in --out:
 1. The build embeds "cmux Computer Use (dev).app" (com.cmuxterm.cua.dev).
@@ -57,7 +68,7 @@ from tag_teardown import TagTeardown, pty_count  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--job")
-parser.add_argument("--app", help="an unpacked tagged DEV .app to use instead of downloading --job")
+parser.add_argument("--app", help="an unpacked .app (a tagged DEV build, or a NIGHTLY) to use instead of downloading --job")
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or "/tmp/cua-helper-v2-live")
 parser.add_argument("--while-locked", action="store_true", help="cmux.json also gets computerUse.whileLocked = true")
@@ -121,16 +132,38 @@ with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
 BINARY = os.path.join(APP, "Contents/MacOS", INFO["CFBundleExecutable"])
 ACPMUX = os.path.join(APP, "Contents/Resources/bin/acpmux")
 HELPER = os.path.join(APP, "Contents/Library/cmux Computer Use (dev).app")
-report.update(app=APP, bundle_id=INFO.get("CFBundleIdentifier"), version=INFO.get("CFBundleVersion"))
-say("app", APP, INFO.get("CFBundleIdentifier"))
-helper_id = None
-if os.path.isdir(HELPER):
-    with open(os.path.join(HELPER, "Contents/Info.plist"), "rb") as f:
-        helper_id = plistlib.load(f).get("CFBundleIdentifier")
-    signing = subprocess.run(["codesign", "-dv", HELPER], capture_output=True, text=True)
-    report["helper_signature"] = [l for l in signing.stderr.splitlines() if l.startswith(("Identifier", "TeamIdentifier", "CDHash", "Authority"))]
-check("1 the build embeds the helper v2 (com.cmuxterm.cua.dev)", helper_id == "com.cmuxterm.cua.dev",
-      f"{HELPER} -> {helper_id}")
+LEGACY_HELPER = os.path.join(APP, "Contents/Library/cmux Computer Use.app")
+BUNDLE_ID = INFO.get("CFBundleIdentifier") or ""
+# A tagged DEV build: its debug socket and debug.* commands. Any other build (NIGHTLY) gets an explicit socket path.
+DEBUG_BUILD = BUNDLE_ID.startswith("com.cmuxterm.app.debug.")
+report.update(app=APP, bundle_id=BUNDLE_ID, version=INFO.get("CFBundleVersion"),
+              short_version=INFO.get("CFBundleShortVersionString"), commit=INFO.get("CMUXCommit"))
+say("app", APP, BUNDLE_ID, INFO.get("CFBundleShortVersionString"), INFO.get("CMUXCommit"))
+
+
+def bundle_identity(path):
+    """(bundle id, the codesign -dv lines that name it) of a nested helper, or (None, [])."""
+    if not os.path.isdir(path):
+        return None, []
+    with open(os.path.join(path, "Contents/Info.plist"), "rb") as f:
+        identifier = plistlib.load(f).get("CFBundleIdentifier")
+    signing = subprocess.run(["codesign", "-dv", path], capture_output=True, text=True)
+    return identifier, [l for l in signing.stderr.splitlines() if l.startswith(("Identifier", "TeamIdentifier", "CDHash", "Authority"))]
+
+
+helper_id, report["helper_signature"] = bundle_identity(HELPER)
+# A build without the helper v2 (NIGHTLY) runs the legacy helper for driver "upstream"
+# (ComputerUseHelperDaemon.effectiveDriver): agent -> `cmux-cua mcp` -> legacy helper.
+LEGACY = helper_id is None and os.path.isdir(LEGACY_HELPER)
+report["driver_runs"] = "legacy" if LEGACY else "upstream"
+if LEGACY:
+    legacy_id, report["helper_signature"] = bundle_identity(LEGACY_HELPER)
+    check("1 the build has no helper v2 and embeds the legacy helper (com.cmuxterm.cua), team 7WLXT3NR37",
+          legacy_id == "com.cmuxterm.cua" and "TeamIdentifier=7WLXT3NR37" in report["helper_signature"],
+          f"{LEGACY_HELPER} -> {legacy_id} {report['helper_signature']}")
+else:
+    check("1 the build embeds the helper v2 (com.cmuxterm.cua.dev)", helper_id == "com.cmuxterm.cua.dev",
+          f"{HELPER} -> {helper_id}")
 if not os.path.exists(ACPMUX):
     check("the build bundles acpmux", False, ACPMUX)
 if failures:
@@ -140,7 +173,8 @@ if failures:
 
 # 2. Isolated config, acpmux home and the test window.
 TAG = opts.tag
-SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
+SOCKET = f"/tmp/cmux-debug-{TAG}.sock" if DEBUG_BUILD else \
+    os.path.join(tempfile.mkdtemp(prefix="cuav2-app-", dir="/tmp"), "app.sock")  # CMUX_NEXT_SOCKET_PATH below
 HOME_ACP = os.path.join(OUT, "acpmux-home")
 ACP_SOCKET = os.path.join(tempfile.mkdtemp(prefix="cuav2-", dir="/tmp"), "acp.sock")  # a mkdtemp dir: a guessable /tmp name could be planted by another account
 WORK = os.path.join(OUT, "work")
@@ -165,7 +199,7 @@ with open(os.path.join(HOME_ACP, "config.json"), "w") as f:
         "defaultHarness": "cuaprobe", "pool": {"enabled": False}}, f, indent=1)
 # NEXT's own folder and the one in classic's that a build from before it used (a new build adopts that at launch).
 for TAG_STATE in (os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{TAG}"),
-                  os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")):
+                  os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")) if DEBUG_BUILD else ():
     if os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
         os.rename(TAG_STATE, TAG_STATE + ".old-" + str(int(time.time())))
 if os.path.exists(SOCKET):
@@ -219,6 +253,18 @@ def bundle_processes():
     return found
 
 
+def legacy_helper_process():
+    """The legacy helper the app started: a `cmux-cua serve` (its staged copy runs outside the app bundle)."""
+    out = subprocess.run(["ps", "-Aww", "-o", "pid=,ppid=,command="], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        parts = line.strip().split(None, 2)
+        if len(parts) == 3 and "/Contents/MacOS/cmux-cua serve " in parts[2] + " ":
+            words = parts[2].split()
+            sock = words[words.index("--socket") + 1] if "--socket" in words[:-1] else None
+            return {"pid": int(parts[0]), "ppid": int(parts[1]), "command": parts[2][:300], "socket": sock}
+    return None
+
+
 def environment_of(pid):
     out = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
     return dict(w.split("=", 1) for w in out.split() if "=" in w and w.split("=", 1)[0].isupper())
@@ -248,9 +294,16 @@ def lockprobe(command):
     return {"error": f"exit {done.returncode}, no JSON: {done.stdout[-200:]} {done.stderr[-200:]}"}
 
 
+LOCK_REFUSALS = ("mac_locked", "screen_locked")  # the helper v2's ScreenLockedRefusal; the legacy helper's code
+
+
 def is_mac_locked(reply):
-    """Whether a tool's reply is the helper's ScreenLockedRefusal (its code and message start "mac_locked")."""
-    return reply is not None and "mac_locked" in json.dumps(reply)
+    """Whether a tool's reply is a locked-screen refusal: an error (JSON-RPC error or isError) naming
+    mac_locked (helper v2) or screen_locked (legacy helper)."""
+    if not isinstance(reply, dict):
+        return False
+    errored = "error" in reply or bool((reply.get("result") or {}).get("isError"))
+    return errored and any(code in json.dumps(reply) for code in LOCK_REFUSALS)
 
 
 def image_stats(path):
@@ -315,6 +368,10 @@ env = dict(os.environ)
 env.update({"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
             "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1000,700",
             "ACPMUX_HOME": HOME_ACP, "ACPMUX_SOCKET": ACP_SOCKET})
+if not DEBUG_BUILD:
+    env["CMUX_NEXT_SOCKET_PATH"] = SOCKET  # the one variable that picks the control socket (LaunchIdentity)
+# debug.* exists only in DEV and bench builds; system.ping answers in every build.
+READY_METHOD = "debug.focus" if DEBUG_BUILD else "system.ping"
 TEARDOWN = TagTeardown(APP, acpmux_home=HOME_ACP, acpmux_socket=ACP_SOCKET, log=say)
 TEARDOWN.install()
 PTYS_BEFORE = pty_count()
@@ -334,8 +391,8 @@ try:
                            stdout=open(os.path.join(OUT, "app.log"), "a"), stderr=subprocess.STDOUT)
     report["app_pid"] = app.pid
     say("started app pid", app.pid, "log since", since)
-    if not wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), 120, 0.5):
-        raise SystemExit("the tagged app did not come up")
+    if not wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc(READY_METHOD) or {"error": 1}), 120, 0.5):
+        raise SystemExit("the app did not come up")
 
     # The acpmux daemon the app started (its executable is the bundled acpmux) and its v2 endpoint folder.
     def daemon():
@@ -345,69 +402,112 @@ try:
         return None
     found = wait(daemon, 60, 0.5)
     check("the app started its bundled acpmux daemon", bool(found), json.dumps(found))
-    v2_dir = environment_of(found["pid"]).get("CMUX_NEXT_CUA_V2_DIR") if found else None
-    report["daemon"] = found
-    report["v2_dir"] = v2_dir
-    endpoint = os.path.join(v2_dir, "endpoint.json") if v2_dir else None
-    has_endpoint = wait(lambda: endpoint and os.path.exists(endpoint), 30, 0.5)
-    mode = oct(os.stat(endpoint).st_mode & 0o777) if has_endpoint else None
-    check("helper v2 endpoint.json exists, 0600 (its secret is not read here)", has_endpoint and mode == "0o600",
-          f"{endpoint} mode {mode}")
+    if not LEGACY:
+        v2_dir = environment_of(found["pid"]).get("CMUX_NEXT_CUA_V2_DIR") if found else None
+        report["daemon"] = found
+        report["v2_dir"] = v2_dir
+        endpoint = os.path.join(v2_dir, "endpoint.json") if v2_dir else None
+        has_endpoint = wait(lambda: endpoint and os.path.exists(endpoint), 30, 0.5)
+        mode = oct(os.stat(endpoint).st_mode & 0o777) if has_endpoint else None
+        check("helper v2 endpoint.json exists, 0600 (its secret is not read here)", has_endpoint and mode == "0o600",
+              f"{endpoint} mode {mode}")
 
-    # 2-3. The ready line and the register_acpmux ack, from the app's unified log.
-    predicate = 'subsystem == "com.cmuxterm.app.next" AND category == "computer-use-v2"'
+        # 2-3. The ready line and the register_acpmux ack, from the app's unified log.
+        predicate = 'subsystem == "com.cmuxterm.app.next" AND category == "computer-use-v2"'
 
-    def acked():
-        rows = [r for r in unified_log(since, predicate) if r["pid"] == app.pid]
-        return rows if any('"of":"register_acpmux"' in r["message"] and '"ok":true' in r["message"] for r in rows) else None
-    rows = wait(acked, 60, 3) or [r for r in unified_log(since, predicate) if r["pid"] == app.pid]
-    report["app_log"] = rows
-    ready = next((r for r in rows if "helper v2 ready" in r["message"]), None)
-    sock = ready["message"].split("socket=", 1)[1].strip() if ready and "socket=" in ready["message"] else None
-    report["helper_socket"] = sock
-    check("2 helper ready line logged", bool(ready), ready["message"] if ready else json.dumps(rows)[:600])
-    helper = next((p for p in bundle_processes() if "cmux-cua-helper" in p["command"]), None)
-    remote = None
-    if helper is None and os.path.isdir(os.path.join(APP, "Contents/Library/cmux Remote (dev).app")):
-        # cmux Remote (docs/cmux-remote.md): the worker is the host's child, the host the daemon's.
-        listing = subprocess.run(["ps", "-Aww", "-o", "pid=,ppid=,command="], capture_output=True, text=True).stdout.splitlines()
-        procs = [r.strip().split(None, 2) for r in listing if "MacOS/cmux-remote " in r]
-        hosts = [p for p in procs if len(p) == 3 and " host " in f" {p[2]} "]
-        workers = [p for p in procs if len(p) == 3 and "worker computer-use" in p[2]]
-        host = hosts[0] if hosts else None
-        worker = next((w for w in workers if host and w[1] == host[0]), None)
-        daemon = next((p for p in bundle_processes() if p["pid"] == int(host[1])), None) if host else None
-        remote = {"host": host, "worker": worker, "host_parent": daemon,
-                  "host_outside_app": bool(host) and not host[2].startswith(APP)}
-        report["cmux_remote"] = remote
-    report["helper_process"] = helper
-    if remote is not None:
-        check("Computer Use runs as cmux Remote's worker (worker <- host <- the app's cmux-tui daemon; host outside the app)",
-              bool(remote["worker"]) and bool(remote["host_parent"]) and "cmux-tui" in remote["host_parent"]["command"]
-              and remote["host_outside_app"], json.dumps(remote)[:600])
+        def acked():
+            rows = [r for r in unified_log(since, predicate) if r["pid"] == app.pid]
+            return rows if any('"of":"register_acpmux"' in r["message"] and '"ok":true' in r["message"] for r in rows) else None
+        rows = wait(acked, 60, 3) or [r for r in unified_log(since, predicate) if r["pid"] == app.pid]
+        report["app_log"] = rows
+        ready = next((r for r in rows if "helper v2 ready" in r["message"]), None)
+        sock = ready["message"].split("socket=", 1)[1].strip() if ready and "socket=" in ready["message"] else None
+        report["helper_socket"] = sock
+        check("2 helper ready line logged", bool(ready), ready["message"] if ready else json.dumps(rows)[:600])
+        helper = next((p for p in bundle_processes() if "cmux-cua-helper" in p["command"]), None)
+        remote = None
+        if helper is None and os.path.isdir(os.path.join(APP, "Contents/Library/cmux Remote (dev).app")):
+            # cmux Remote (docs/cmux-remote.md): the worker is the host's child, the host the daemon's.
+            listing = subprocess.run(["ps", "-Aww", "-o", "pid=,ppid=,command="], capture_output=True, text=True).stdout.splitlines()
+            procs = [r.strip().split(None, 2) for r in listing if "MacOS/cmux-remote " in r]
+            hosts = [p for p in procs if len(p) == 3 and " host " in f" {p[2]} "]
+            workers = [p for p in procs if len(p) == 3 and "worker computer-use" in p[2]]
+            host = hosts[0] if hosts else None
+            worker = next((w for w in workers if host and w[1] == host[0]), None)
+            daemon = next((p for p in bundle_processes() if p["pid"] == int(host[1])), None) if host else None
+            remote = {"host": host, "worker": worker, "host_parent": daemon,
+                      "host_outside_app": bool(host) and not host[2].startswith(APP)}
+            report["cmux_remote"] = remote
+        report["helper_process"] = helper
+        if remote is not None:
+            check("Computer Use runs as cmux Remote's worker (worker <- host <- the app's cmux-tui daemon; host outside the app)",
+                  bool(remote["worker"]) and bool(remote["host_parent"]) and "cmux-tui" in remote["host_parent"]["command"]
+                  and remote["host_outside_app"], json.dumps(remote)[:600])
+        else:
+            check("helper v2 runs as a child of the app", bool(helper) and helper["ppid"] == app.pid, json.dumps(helper))
+        if sock:
+            real = os.path.realpath(sock)
+            st = os.stat(sock)
+            dir_st = os.stat(os.path.dirname(sock))
+            check("2 helper socket is under the Darwin user temp dir", real.startswith(USER_TMP + "/"), f"{real} under {USER_TMP}")
+            check("2 helper socket is a socket of this user in a 0700 directory",
+                  stat.S_ISSOCK(st.st_mode) and st.st_uid == os.getuid() and dir_st.st_uid == os.getuid()
+                  and dir_st.st_mode & 0o777 == 0o700, f"socket uid {st.st_uid}, dir mode {oct(dir_st.st_mode & 0o777)}")
+        ack = next((r for r in rows if '"of":"register_acpmux"' in r["message"]), None)
+        check("3 register_acpmux ack ok:true logged", bool(ack) and '"ok":true' in ack["message"],
+              ack["message"] if ack else "no ack line")
+
+        # 4. A raw same-user connect is refused before the helper reads a byte.
+        if sock:
+            try:
+                raw = subprocess.run(["/usr/bin/nc", "-U", sock], input=b"", capture_output=True, timeout=15)
+                raw_out = raw.stdout.decode(errors="replace").strip()
+            except subprocess.TimeoutExpired as error:
+                raw_out = f"timeout: {(error.stdout or b'').decode(errors='replace')}"
+            report["nc"] = raw_out
+            check("4 raw nc -U connect is refused", '"error":"refused"' in raw_out and '"ok":false' in raw_out, raw_out[:300])
     else:
-        check("helper v2 runs as a child of the app", bool(helper) and helper["ppid"] == app.pid, json.dumps(helper))
-    if sock:
-        real = os.path.realpath(sock)
-        st = os.stat(sock)
-        dir_st = os.stat(os.path.dirname(sock))
-        check("2 helper socket is under the Darwin user temp dir", real.startswith(USER_TMP + "/"), f"{real} under {USER_TMP}")
-        check("2 helper socket is a socket of this user in a 0700 directory",
-              stat.S_ISSOCK(st.st_mode) and st.st_uid == os.getuid() and dir_st.st_uid == os.getuid()
-              and dir_st.st_mode & 0o777 == 0o700, f"socket uid {st.st_uid}, dir mode {oct(dir_st.st_mode & 0o777)}")
-    ack = next((r for r in rows if '"of":"register_acpmux"' in r["message"]), None)
-    check("3 register_acpmux ack ok:true logged", bool(ack) and '"ok":true' in ack["message"],
-          ack["message"] if ack else "no ack line")
+        # 2-4 for the legacy helper: the app copies it out of its bundle and starts the copy through
+        # LaunchServices (ComputerUseHelperStaging), serving `cmux-cua serve --socket <path>`.
+        report["daemon"] = found
+        helper = wait(legacy_helper_process, 60, 0.5)
+        report["helper_process"] = helper
+        check("2 the legacy helper runs (cmux-cua serve, the app's staged copy)", bool(helper), json.dumps(helper)[:400])
+        sock = helper.get("socket") if helper else None
+        report["helper_socket"] = sock
+        if sock:
+            real = os.path.realpath(sock)
+            check("2 legacy helper socket is under the Darwin user temp dir", real.startswith(USER_TMP + "/"),
+                  f"{real} under {USER_TMP}")
+            # 4. A peer with no agent token: the legacy helper answers the attach request with a refusal
+            # that never says attached (cua_signed_host_check.py, the same request).
+            try:
+                conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                conn.settimeout(10)
+                conn.connect(sock)
+                conn.sendall(b'{"request":{"args":{},"method":"machine_consent_host"}}\n')
+                raw_out = conn.makefile("rb").readline().decode("utf-8", "replace").strip()
+                conn.close()
+            except OSError as error:
+                raw_out = f"error: {error}"
+            report["nc"] = raw_out
+            try:
+                line = json.loads(raw_out)
+            except ValueError:
+                line = None
+            attached = isinstance(line, dict) and isinstance(line.get("result"), dict) and line["result"].get("attached") is True
+            check("4 a peer without the agent token is refused by the legacy helper",
+                  isinstance(line, dict) and line.get("ok") is False and not attached, raw_out[:300])
+        report["app_log"] = [r for r in unified_log(since, 'subsystem == "com.cmuxterm.app.next" AND category == "computer-use"')
+                             if r["pid"] == app.pid][-40:]
 
-    # 4. A raw same-user connect is refused before the helper reads a byte.
-    if sock:
-        try:
-            raw = subprocess.run(["/usr/bin/nc", "-U", sock], input=b"", capture_output=True, timeout=15)
-            raw_out = raw.stdout.decode(errors="replace").strip()
-        except subprocess.TimeoutExpired as error:
-            raw_out = f"timeout: {(error.stdout or b'').decode(errors='replace')}"
-        report["nc"] = raw_out
-        check("4 raw nc -U connect is refused", '"error":"refused"' in raw_out and '"ok":false' in raw_out, raw_out[:300])
+    # The setting as the app reads it (settings.get on its control socket; cmux.json is how it takes it here).
+    setting = rpc("settings.get", {"path": "computerUse.whileLocked"})
+    report["while_locked_setting"] = setting
+    say("settings.get computerUse.whileLocked:", json.dumps(setting)[:300])
+    if opts.while_locked:
+        check("the app reads computerUse.whileLocked = true", isinstance(setting, dict) and setting.get("value") is True,
+              json.dumps(setting)[:300])
 
     # 5L. Lock the screen first (--lock-with): the session must read locked before the agent starts.
     if opts.lock_with:
@@ -417,7 +517,7 @@ try:
               (locked_before.get("session") or {}).get("locked") is True, json.dumps(locked_before)[:300])
 
     # 5. One agent session: the scripted agent drives cmux-cua through acpmux cua-mcp.
-    session =subprocess.run([ACPMUX, "exec", "-m", "cuaprobe", "--cwd", WORK, "--policy", "approve-all", "--timeout", "150",
+    session = subprocess.run([ACPMUX, "exec", "-m", "cuaprobe", "--cwd", WORK, "--policy", "approve-all", "--timeout", "150",
                               "take one screenshot of the probe window and click its checkbox once"],
                              env=dict(os.environ, ACPMUX_HOME=HOME_ACP, ACPMUX_SOCKET=ACP_SOCKET),
                              capture_output=True, text=True, timeout=200)
@@ -431,8 +531,14 @@ try:
                                                     "error", "tools_list_error", "bridge_exit")}
     report["agent"]["steps"] = result.get("steps")
     check("5 agent session ran (acpmux exec exit 0)", session.returncode == 0, f"exit {session.returncode}")
-    check("5 the session's cmux-cua server is `acpmux cua-mcp`", result.get("bridge_is_acpmux_cua_mcp") is True,
-          json.dumps(result.get("cua_server"))[:300])
+    if LEGACY:
+        server = result.get("cua_server") or {}
+        check("5 the session's cmux-cua server is the legacy helper's `cmux-cua mcp`",
+              os.path.basename(server.get("command", "")) == "cmux-cua" and (server.get("args") or [None])[0] == "mcp",
+              json.dumps(server)[:300])
+    else:
+        check("5 the session's cmux-cua server is `acpmux cua-mcp`", result.get("bridge_is_acpmux_cua_mcp") is True,
+              json.dumps(result.get("cua_server"))[:300])
     check("5 tools/list through the bridge", bool(result.get("tools")), json.dumps(result.get("tools"))[:400])
     perms = result.get("permissions") or {}
     steps = {s.get("tool"): s for s in result.get("steps") or []}
@@ -440,9 +546,9 @@ try:
     report["agent"]["refused_mac_locked"] = refused_locked
     refusal_pass = bool(opts.lock_with) and not opts.while_locked
     if refusal_pass:
-        # check_permissions may answer or be refused mac_locked (the gate refuses every call on a locked
+        # check_permissions may answer or be refused (mac_locked, legacy screen_locked) (the gate refuses every call on a locked
         # screen with the setting off): either is recorded, neither fails.
-        say("check_permissions on the locked screen:", "mac_locked" if "check_permissions" in refused_locked
+        say("check_permissions on the locked screen:", "refused (locked)" if "check_permissions" in refused_locked
             else json.dumps(perms)[:300])
     else:
         check("5 check_permissions {prompt:false} answered", perms.get("accessibility") is not None,
@@ -450,7 +556,7 @@ try:
     missing_grants[:] = result.get("missing_grants") or []
     if refusal_pass:
         shot_step = steps.get("get_window_state") or {}
-        check("5L whileLocked off: get_window_state on the locked screen answers mac_locked",
+        check("5L whileLocked off: get_window_state on the locked screen answers mac_locked (legacy: screen_locked)",
               is_mac_locked(shot_step.get("reply")), json.dumps(shot_step.get("reply"))[:400])
         clicked = json.load(open(TARGET)).get("clicks", 0) if os.path.exists(TARGET) else None
         check("5L whileLocked off: nothing was clicked (the test window recorded no click)", clicked == 0,
@@ -519,6 +625,10 @@ finally:
     left = bundle_processes()
     report["left_after_teardown"] = left
     check("no process of this tag's app copy is left", not left, json.dumps(left)[:300])
+    if LEGACY:
+        # The staged legacy helper runs outside the bundle and watches the app's pid; recorded, not stopped here.
+        wait(lambda: legacy_helper_process() is None, 15, 0.5)
+        report["legacy_helper_after_quit"] = legacy_helper_process()
     report["ptys"] = {"before": PTYS_BEFORE, "after": pty_count()}
     report["failures"] = failures
     report["missing_grants"] = missing_grants

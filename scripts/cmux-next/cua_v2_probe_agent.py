@@ -14,8 +14,8 @@ starts the `cmux-cua` server from that list exactly as an agent does (for the he
 It writes everything to $CUA_PROBE_OUT/agent-result.json (the screenshot to screenshot.png) and
 answers the prompt with a one-line summary. The test window's state file is $CUA_PROBE_TARGET.
 
-With CUA_PROBE_LOCKED=1 (cua-helper-v2-live.py --lock-with: the screen is locked) a `mac_locked`
-answer stops nothing: a refused check_permissions counts as no missing grant, a refused list_windows
+With CUA_PROBE_LOCKED=1 (cua-helper-v2-live.py --lock-with: the screen is locked) a locked-screen
+refusal (`mac_locked` from the helper v2, `screen_locked` from the legacy helper) stops nothing: a refused check_permissions counts as no missing grant, a refused list_windows
 takes the window id from the state file, and a refused get_window_state still goes on to the one
 click (at the checkbox's pixel), so each call's answer on the locked screen is recorded.
 """
@@ -115,8 +115,9 @@ def failed(call):
 
 
 def refused_locked(call):
-    """The helper's ScreenLockedRefusal (its code and message start with mac_locked)."""
-    return "mac_locked" in json.dumps(call.get("reply") or {})
+    """A locked-screen refusal: a failed call naming mac_locked (helper v2) or screen_locked (legacy helper)."""
+    text = json.dumps(call.get("reply") or {})
+    return failed(call) and ("mac_locked" in text or "screen_locked" in text)
 
 
 def find(node, predicate):
