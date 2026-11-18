@@ -37,7 +37,10 @@ nonisolated extension AcpmuxPaneMethods {
         // hub/paging.rs prompt_index, #34273). Refused, the rail never learns a long chat's turns.
         // `subagent`: one subagent's own records, for its pane when the chat's page no longer holds
         // it (subagents/subagentOwnLog.ts; acpmux hub/paging.rs EventFilter::of_subagent).
-        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds", "promptIndex", "subagent"], []),
+        // `wholeTurns`: an older page begins at its oldest turn start, one read a page (direct.ts
+        // olderPage; acpmux hub/paging.rs EventPage::starting_at_turn, events-whole-turns-v1).
+        // Refused, the pane never pages older turns in once the daemon names it.
+        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds", "promptIndex", "subagent", "wholeTurns"], []),
         "_acpmux/attachment": (["sessionId", "id"], []),
         // The pane names the listed chat (its id or `HOST/id`) and takes acpmux's default bounds:
         // no `host`, `limit` or `maxBytes`.

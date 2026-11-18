@@ -29,6 +29,9 @@ pub const TRIGGER_CHAT: &str = "trigger-chat-v1";
 pub const SETTLED_ATTACH: &str = "settled-attach-v1";
 /// `_acpmux/attach {hold:true}` keeps a chat attached while reading no log records.
 pub const HOLD_ATTACH: &str = "attach-hold-v1";
+/// `_acpmux/events {beforeSeq, wholeTurns: true}` begins an older page at its oldest turn start
+/// (`hub/paging.rs` `EventPage::starting_at_turn`): one read is one page of whole turns.
+pub const WHOLE_TURN_PAGES: &str = "events-whole-turns-v1";
 
 /// `_acpmux/info` with `sessionIds` answers the list's rows by key, and `_acpmux/status` says
 /// `closedListed` (`server/requests/info.rs` `rows`).
@@ -143,6 +146,7 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
     Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability { id: HOLD_ATTACH, wire: &[method::MUX_ATTACH] },
+    Capability { id: WHOLE_TURN_PAGES, wire: &[method::MUX_EVENTS] },
     Capability {
         id: TRIGGER_CHAT,
         wire: &[

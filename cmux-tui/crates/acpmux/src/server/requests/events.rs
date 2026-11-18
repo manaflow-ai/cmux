@@ -67,10 +67,15 @@ pub(super) fn handle(
             "cursor_future: afterSeq {after} is beyond the last event {last}"
         )));
     }
-    // beforeSeq pages backwards: the newest `limit` records before it.
-    let page = hub
+    // beforeSeq pages backwards: the newest `limit` records before it. `wholeTurns`: the page
+    // begins at its oldest turn start (`EventPage::starting_at_turn`), so an older page is one
+    // read of whole turns and its first seq is the next cursor.
+    let mut page = hub
         .events_page(&s.id, after, before, limit, max_bytes, before.is_some(), &filter)
         .map_err(|e| RpcError::internal(e.to_string()))?;
+    if before.is_some() && params.get("wholeTurns").and_then(Value::as_bool) == Some(true) {
+        page.starting_at_turn();
+    }
     // Read before the page: a peer's copy of the chat covers this far (`hub/peer_snapshot.rs`). A
     // page that stops short of the log (older records, or one more page to read) holds only to its
     // own last record.

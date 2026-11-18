@@ -4,6 +4,7 @@
 //! after the attach (its `fetchTurnOpener`, which an older acpmux still leaves it).
 
 use super::*;
+use crate::hub::starts_turn;
 
 /// The user messages read back before the page: steers into the turn are user messages too, and
 /// the opener is the newest that is not one. The pane's own read asks the same.
@@ -37,13 +38,6 @@ pub(super) fn turn_opener(
         .ok()?;
     let opener = prompts.events.into_iter().rev().find(starts_turn)?;
     Some(into_event_value(session_id, opener))
-}
-
-/// A prompt that starts a turn: acpmux's own `user_message`, not a steer into a running turn.
-fn starts_turn(rec: &crate::store::EventRecord) -> bool {
-    rec.dir == "mux"
-        && rec.kind == "user_message"
-        && rec.msg.get("steer") != Some(&Value::Bool(true))
 }
 
 #[cfg(test)]

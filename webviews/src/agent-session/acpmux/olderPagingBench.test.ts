@@ -35,10 +35,16 @@ const READ_MS = 40;
 
 type Snapshot = { sessionId?: string; rows: { id: string; kind: string; text?: string }[]; canLoadOlder: boolean };
 
-async function openSlowChat(options: { pageBytes?: number } = {}) {
+async function openSlowChat(options: { pageBytes?: number; capabilities?: string[] } = {}) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  const counts = { reads: 0 };
+  // Older pages (bounded by `maxBytes`; not the tail other chats read ahead, at
+  // `Number.MAX_SAFE_INTEGER`, nor a one-record probe): how many, how many asked for whole turns,
+  // and the records their replies held above their oldest turn start with more before them, which
+  // the client carries to its next ask (direct.ts `olderCarry`).
+  const counts = { reads: 0, olderReads: 0, wholeTurnReads: 0, carried: 0 };
+  const opens = (event: { dir?: string; kind?: string; msg?: any }) =>
+    event.dir === "mux" && event.kind === "user_message" && event.msg?.steer !== true;
   class SlowHost extends MockAcpmuxSocket {
     constructor() {
       super(() => Promise.resolve());
@@ -54,11 +60,23 @@ async function openSlowChat(options: { pageBytes?: number } = {}) {
             params = { ...params, maxBytes: options.pageBytes };
           // fixed-wait: the simulated daemon round trip this bench measures against.
           await new Promise((resolve) => setTimeout(resolve, RTT_MS));
+          if (Number(params.beforeSeq) < Number.MAX_SAFE_INTEGER && params.maxBytes !== undefined) {
+            counts.olderReads += 1;
+            if (params.wholeTurns === true) counts.wholeTurnReads += 1;
+            const reply = (await answer(method, params)) as { events: any[]; hasMore: boolean };
+            const start = reply.hasMore ? reply.events.findIndex(opens) : -1;
+            if (start > 0) counts.carried += start;
+            return reply;
+          }
         }
         return answer(method, params);
       };
     }
   }
+  // The capability ids the mock daemon's `initialize` names (none: an older daemon).
+  const globals = globalThis as { cmuxAcpmuxMockCapabilities?: string[] };
+  if (options.capabilities) globals.cmuxAcpmuxMockCapabilities = options.capabilities;
+  else delete globals.cmuxAcpmuxMockCapabilities;
   let snapshot: Snapshot | undefined;
   let socket: SlowHost | undefined;
   const client = await AcpmuxDirectClient.connect(
@@ -74,7 +92,7 @@ async function openSlowChat(options: { pageBytes?: number } = {}) {
   );
   const session = socket!.seedLoadSession(TURNS);
   await client.select(session);
-  counts.reads = 0;
+  Object.assign(counts, { reads: 0, olderReads: 0, wholeTurnReads: 0, carried: 0 });
   const events = (socket as unknown as { events: { sessionId: string; seq: number; kind: string; msg?: any }[] })
     .events;
   /// The seq of turn `turn`'s prompt in the daemon's log.
@@ -91,8 +109,10 @@ async function openSlowChat(options: { pageBytes?: number } = {}) {
 const prompts = (snapshot: Snapshot | undefined) =>
   (snapshot?.rows ?? []).filter((row) => row.kind === "user").map((row) => row.text ?? "");
 
-test("scrolling up a long chat to its first message: the reader's wait at the top", async () => {
-  const { client, counts, snapshot } = await openSlowChat();
+/// The reader scrolls from the open to the chat's first message; every turn lands once, in order.
+/// Prints one BENCH line under `label` and returns the daemon's counts.
+async function scrollToFirst(label: string, options: { capabilities?: string[] } = {}) {
+  const { client, counts, snapshot } = await openSlowChat(options);
   try {
     let waited = 0;
     let worst = 0;
@@ -116,11 +136,31 @@ test("scrolling up a long chat to its first message: the reader's wait at the to
     all.forEach((text, turn) => expect(text).toStartWith(`Turn ${turn}:`));
     const medianTurns = [...turnsPerAsk].sort((a, b) => a - b)[Math.floor(turnsPerAsk.length / 2)];
     console.log(
-      `BENCH scroll-to-first turns=${TURNS} rtt=${RTT_MS}ms asks=${asks} reads=${counts.reads} waited=${Math.round(waited)}ms worstWait=${Math.round(worst)}ms medianTurnsPerAsk=${medianTurns}`,
+      `BENCH ${label} turns=${TURNS} rtt=${RTT_MS}ms asks=${asks} reads=${counts.reads} olderReads=${counts.olderReads} wholeTurnReads=${counts.wholeTurnReads} carriedRecords=${counts.carried} waited=${Math.round(waited)}ms worstWait=${Math.round(worst)}ms medianTurnsPerAsk=${medianTurns}`,
     );
+    return { asks, ...counts };
   } finally {
     client.close();
+    delete (globalThis as { cmuxAcpmuxMockCapabilities?: string[] }).cmuxAcpmuxMockCapabilities;
   }
+}
+
+test("scrolling up a long chat to its first message: the reader's wait at the top", async () => {
+  // An older daemon: no whole-turn pages, so the client keeps each turn whole by carrying the
+  // records above a page's oldest turn start to its next ask.
+  const counts = await scrollToFirst("scroll-to-first");
+  expect(counts.wholeTurnReads).toBe(0);
+}, 120_000);
+
+test("a daemon that pages whole turns: each older page is one read that lands whole, nothing carried", async () => {
+  const { WHOLE_TURN_PAGES_CAPABILITY } = await import("./direct");
+  const counts = await scrollToFirst("scroll-to-first.whole-turns", { capabilities: [WHOLE_TURN_PAGES_CAPABILITY] });
+  // Every older read asked for whole turns, and no reply held records for a later ask to land.
+  expect(counts.olderReads).toBeGreaterThan(0);
+  expect(counts.wholeTurnReads).toBe(counts.olderReads);
+  expect(counts.carried).toBe(0);
+  // One read per ask, plus at most the pages read ahead past the last one.
+  expect(counts.olderReads).toBeLessThanOrEqual(counts.asks + 4);
 }, 120_000);
 
 test("jumping to a place far back in a long chat: one direct read, not a page walk", async () => {

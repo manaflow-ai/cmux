@@ -3324,6 +3324,13 @@
             "string",
             "null"
           ]
+        },
+        "wholeTurns": {
+          "description": "With `beforeSeq`: the page begins at its oldest turn start when older records remain, so\none read is one page of whole turns and its first seq is the next cursor\n(`EventPage::starting_at_turn`, capability `events-whole-turns-v1`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
