@@ -74,6 +74,7 @@ on:
       - "plans/cmux-next/action-surfaces.json"
       - "plans/cmux-next/daemon-capabilities.json"
       - "schemas/ghostty-shell-features/vectors.json"
+      - "schemas/settings/source/mcp-servers.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "scripts/ci/init-submodule.sh"
       - "scripts/cmux-next/cargo-locks.py"
