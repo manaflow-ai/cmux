@@ -5,18 +5,41 @@
 import type { KeyboardEvent } from "react";
 import { Button } from "../../ui/Button";
 import { cx } from "../../ui/cx";
-import { canChange, isPending, plain, type FeedProps } from "./context";
+import { plain } from "./context";
+import type { FeedStore } from "./store";
+import type { Strings } from "../shared/i18n";
 import { FeedIcon } from "./icons";
 import { useButtonMenu } from "./menus";
-import { Answers, approveScopes, choiceIssues, closedStatus, draftChoice, isOneTap, SCOPE_LABEL } from "./model";
-import type { ViewItem } from "./types";
+import {
+  Answers,
+  approveScopes,
+  choiceIssues,
+  closedStatus,
+  isOneTap,
+  SCOPE_LABEL,
+  type ChoiceSelection,
+} from "./model";
+import type { FeedApproveScope, ViewItem } from "./types";
 
 /** How much room the controls get: under a request in a list, or the Inbox detail (every field). */
 export type FeedDensity = "inline" | "detail";
 
-type Props = FeedProps & { item: ViewItem; density?: FeedDensity };
+/** One request's controls get its own part of the snapshot (context.ts `answerState`), not all of it. */
+type Props = {
+  item: ViewItem;
+  store: FeedStore;
+  strings: Strings;
+  density?: FeedDensity;
+  /** Pending, or its owner unreachable: nothing may be sent. */
+  disabled: boolean;
+  /** Its drafts: the approve scope, the choices by question, the reply. */
+  scope?: FeedApproveScope;
+  choices?: Record<string, ChoiceSelection>;
+  reply?: string;
+};
 
-export function AnswerControls({ item, store, snap, strings, density = "inline" }: Props) {
+export function AnswerControls({ density = "inline", ...rest }: Props) {
+  const { item, store, strings } = rest;
   const closed = closedStatus(item, strings);
   if (closed)
     return (
@@ -26,8 +49,7 @@ export function AnswerControls({ item, store, snap, strings, density = "inline" 
       </span>
     );
   if (item.kind === "notice") return null;
-  const disabled = isPending(snap, item) || !canChange(snap, item);
-  const props = { item, store, snap, strings, density, disabled };
+  const props = { ...rest, density };
   switch (item.kind) {
     case "approve":
       return <ApproveControls {...props} />;
@@ -75,7 +97,6 @@ export function AnswerControls({ item, store, snap, strings, density = "inline" 
 
 interface ControlProps extends Props {
   density: FeedDensity;
-  disabled: boolean;
 }
 
 /** Decline (secondary) and the primary action. */
@@ -115,9 +136,9 @@ function Buttons({
 }
 
 /** `approve`: scope (when the poster offers more than one), Deny, Allow. */
-function ApproveControls({ item, store, snap, strings, disabled }: ControlProps) {
+function ApproveControls({ item, store, strings, disabled, scope: draft }: ControlProps) {
   const scopes = approveScopes(item);
-  const scope = snap.drafts.scopes[item.id] ?? scopes[0]!;
+  const scope = draft ?? scopes[0]!;
   const [menu, openMenu] = useButtonMenu();
   return (
     <div className="feed-answer-row">
@@ -151,6 +172,8 @@ function ApproveControls({ item, store, snap, strings, disabled }: ControlProps)
     </div>
   );
 }
+
+const NO_CHOICE: ChoiceSelection = { selected: [] };
 
 /** A plain text field with the theme's faint fill. */
 function Field({
@@ -190,14 +213,14 @@ function Field({
 
 /** `choice`: option chips per question, "Other" where allowed, and Send once every question has an
  * answer. A single single-select question answers on the tap. */
-function ChoiceControls({ item, store, snap, strings, disabled }: ControlProps) {
+function ChoiceControls({ item, store, strings, disabled, choices }: ControlProps) {
   const questions = item.prompt?.questions ?? [];
   const oneTap = isOneTap(questions);
-  const issues = choiceIssues(snap.drafts.choices[item.id] ?? {}, questions);
+  const issues = choiceIssues(choices ?? {}, questions);
   return (
     <div className="feed-choice">
       {questions.map((question) => {
-        const selection = draftChoice(snap.drafts, item.id, question.id);
+        const selection = choices?.[question.id] ?? NO_CHOICE;
         return (
           <div key={question.id} className="feed-choice-question">
             <span className="feed-choice-text">{question.question}</span>
@@ -252,8 +275,7 @@ function ChoiceControls({ item, store, snap, strings, disabled }: ControlProps) 
 }
 
 /** `question`: suggestion chips that fill the reply, the reply, Send. */
-function QuestionControls({ item, store, snap, strings, disabled }: ControlProps) {
-  const reply = snap.drafts.replies[item.id] ?? "";
+function QuestionControls({ item, store, strings, disabled, reply = "" }: ControlProps) {
   const suggestions = item.prompt?.suggestions ?? [];
   return (
     <div className="feed-question">
@@ -290,12 +312,12 @@ function QuestionControls({ item, store, snap, strings, disabled }: ControlProps
 }
 
 /** `review`: an optional comment (detail), Request Changes, Approve. */
-function ReviewControls({ item, store, snap, strings, density, disabled }: ControlProps) {
+function ReviewControls({ item, store, strings, density, disabled, reply }: ControlProps) {
   return (
     <div className="feed-question">
       {density === "detail" ? (
         <Field
-          value={snap.drafts.replies[item.id] ?? ""}
+          value={reply ?? ""}
           placeholder={strings.t("answer.reply")}
           disabled={disabled}
           onChange={(text) => store.setReply(item.id, text)}
