@@ -54,6 +54,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `stable-next-smoke.sh` | Fresh-home launch smoke of the NEXT Stable build on a console worker. | - | 2026-10-30 | active |
 | `daemon-registry-start.sh` | Start time of the cmux-tui daemon on a large registry. | - | 2026-11-13 | active |
 | `daemon-registry-start.py` | Python driver for daemon-registry-start.sh. | - | 2026-11-13 | active |
+| `daemon-stop-swap.sh` | The cmux-tui daemon's stop under load at two commits: stops with a thread that did not end, stop and next start times. | PL-daemon | 2026-11-18 | active |
 
 ## Input and latency
 

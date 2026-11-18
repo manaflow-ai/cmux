@@ -15,6 +15,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { envelope } from "../src/agent-session/acpmux/incomingFixture";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -180,6 +181,51 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
     emit("mux", "turn_result", { status: "completed" });
     status = "idle";
     changed();
+  }
+
+  /// A turn another agent's message opens, as a coordinator's chat gets them one after another
+  /// (Leo, 2026-11-18: "not sure if we've fixed this doubled up looking ass text fixed yet"): the
+  /// message's line, a think, then a reply of a few lines, under the last turn's finished reply.
+  async function messageTurn(id: string) {
+    status = "running";
+    const msg = `msg_${id.replace(/\W+/g, "")}`;
+    emit("mux", "user_message", {
+      text: envelope({ id: msg, thread: msg, sender: "cli", name: `lane-${id}`, body: `Report ${id}: queue clear.` }),
+      promptId: `p-${id}`,
+    });
+    emit("mux", "turn_started", {});
+    changed();
+    await pause(40);
+    for (let index = 0; index < 3; index++) {
+      emit("in", "agent_thought_chunk", thought(`Reading the report ${index}. `));
+      await pause(20);
+    }
+    emit("in", "agent_message_chunk", chunk(`Reply to ${id}. `));
+    await words(40);
+    emit("mux", "turn_result", { status: "completed" });
+    status = "idle";
+    changed();
+  }
+
+  /// A stretch of a coordinator's chat as acpmux wrote it (scrubbed): turns that other agents'
+  /// messages, a queue's start and background finishes open, one after another, replayed live at
+  /// a stream's pace.
+  const coordinator = (
+    await Bun.file(
+      path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/fixtures/sr2-coord-197051.ndjson"),
+    ).text()
+  )
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { dir: string; kind: string; msg: Record<string, unknown> });
+  async function replayCoordinator() {
+    for (const event of coordinator) {
+      if (event.kind === "turn_started") status = "running";
+      emit(event.dir, event.kind, event.msg);
+      if (event.kind === "turn_result") status = "idle";
+      if (event.dir === "mux") changed();
+      await pause(event.dir === "mux" ? 50 : 8);
+    }
   }
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
@@ -492,6 +538,36 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
           overlapFrames: 0,
           examples: [],
           heldClips: 0,
+        });
+      });
+
+  // Another agent's message under a finished reply, then the reply to it streaming: the new turn's
+  // rows must land below the reply above, never over it (Leo's coordinator chat, 2026-11-18: the
+  // new reply drew over the last lines of the one before, then settled stacked).
+  const messageCases: { name: string; busy: number; every: number }[] = [
+    { name: "no lag", busy: 0, every: 0 },
+    { name: "lagging", busy: 45, every: 60 },
+  ];
+  for (const [name] of engines)
+    for (const scenario of messageCases)
+      test(`${name}: agent messages one after another, ${scenario.name}: each turn lands under the reply above`, async () => {
+        const page = await open(name);
+        if (scenario.busy > 0) await lag(page, scenario.busy, scenario.every);
+        await sample(page);
+        const id = `${name}-msg-${scenario.name.replace(/\W+/g, "-")}`;
+        for (let index = 0; index < 3; index++) await messageTurn(`${id}-${index}`);
+        await replayCoordinator();
+        // fixed-wait: the last reply's lines drain and its rows come to rest.
+        await page.waitForTimeout(800);
+        const report = await stop(page);
+        console.log(
+          `OVERLAP_REPORT ${JSON.stringify({ engine: name, scenario: `messages ${scenario.name}`, ...report })}`,
+        );
+        await page.close();
+        expect(report.frames).toBeGreaterThan(20);
+        expect({ overlapFrames: report.overlapFrames, examples: report.examples }).toEqual({
+          overlapFrames: 0,
+          examples: [],
         });
       });
 });
