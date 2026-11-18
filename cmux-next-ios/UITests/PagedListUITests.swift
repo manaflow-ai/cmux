@@ -161,6 +161,29 @@ final class PagedListUITests: XCTestCase {
         XCTAssertLessThanOrEqual(back.frameShift, 0.5, "a row moved \(back.frameShift) pt in a frame the scroll does not explain")
     }
 
+    /// Rows a windowed list reads back from disk on the way back to its newest end are not new
+    /// rows: with no live source, the pill never counts any (`.up`, where the newer edge is at the
+    /// bottom and the reader parks on it after a fling).
+    @MainActor func testWindowedRowsBackFromDiskAreNotNew() {
+        continueAfterFailure = true
+        let lab = PagedLabDriver.launch("up:fast", extra: ["-cmux-mobile-paged-lab-window", "150"], test: self)
+        XCTAssertTrue(lab.row(0).waitForExistence(timeout: 15))
+        for _ in 0..<24 { lab.scroll(towardOlder: true, direction: "up", speed: .fast) }
+        lab.settle(lab.list.cells.firstMatch)
+        lab.waitFor("rows spilled to disk", timeout: 5) { lab.reading.onDisk > 0 }
+        let pill = lab.app.buttons["pagedList.newest"]
+        var counted: [String] = []
+        for _ in 0..<12 where lab.reading.newer != "end" {
+            lab.scroll(towardOlder: false, direction: "up", speed: .fast)
+            if pill.exists, pill.label.hasSuffix(" new") { counted.append(pill.label) }
+        }
+        lab.settle(lab.list.cells.firstMatch)
+        if pill.exists, pill.label.hasSuffix(" new") { counted.append(pill.label) }
+        lab.attach("up-window-back")
+        lab.record("up-window-back", lab.reading.json)
+        XCTAssertTrue(counted.isEmpty, "rows read back from disk counted as new: \(counted)")
+    }
+
     // MARK: States
 
     @MainActor func testFirstPageFailureThenTryAgain() {

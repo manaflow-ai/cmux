@@ -221,6 +221,45 @@ struct PagedListModelGuardTests {
         #expect(model.valuesInMemory <= 200)
     }
 
+    /// The list asks for the next rows on every scroll step near the edge: asking twice before the
+    /// first answer lands must not move the window twice, past the row being read.
+    @Test func askingTwiceMovesTheWindowOnce() async {
+        let script = Script()
+        script.pages["first"] = PagedListPage(items: Self.rows(0...399), nextCursor: nil)
+        let model = PagedListModel<Row>(direction: .down, memory: .window(120)) { try await script.page($0) }
+        await model.loadFirst()
+        model.reading(100)
+        await drain(model)
+        #expect(model.items.contains { $0.id == 100 })
+        await model.loadMore()
+        await model.loadMore()
+        await drain(model)
+        #expect(model.items.contains { $0.id == 100 }, "the window moved past the row being read")
+        #expect(model.items.contains { $0.id == 180 }, "the window did not move toward the older rows")
+        // Asked again with the rows back: the reader is already a quarter window from the newer side.
+        let shown = model.items.map(\.id)
+        await model.loadMore()
+        await drain(model)
+        #expect(model.items.map(\.id) == shown, "asking again moved the window")
+    }
+
+    /// An edit that lands while the row's disk read runs is newer than what the read returns.
+    @Test func anEditDuringADiskReadWins() async {
+        let script = Script()
+        script.pages["first"] = PagedListPage(items: Self.rows(0...399), nextCursor: nil)
+        let model = PagedListModel<Row>(direction: .down, memory: .window(120)) { try await script.page($0) }
+        await model.loadFirst()
+        // No awaits from here: the read of rows 120...159 stays in flight.
+        model.reading(100)
+        model.update(Row(id: 150, text: "edited while read"))
+        // Row 150 leaves the window (its edit goes to disk), then comes back while the read still runs.
+        model.showNewest()
+        model.reading(100)
+        await drain(model)
+        await drain(model)
+        #expect(model.items.first { $0.id == 150 }?.text == "edited while read", "the disk's older value replaced the edit")
+    }
+
     @Test func anEditToARowOnDiskComesBackEdited() async {
         let script = Script()
         script.pages["first"] = PagedListPage(items: Self.rows(0...399), nextCursor: nil)
