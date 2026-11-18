@@ -31,7 +31,7 @@ pub mod patch;
 pub mod remote;
 pub mod tier;
 
-pub use github::{GitHub, Meter, Token};
+pub use github::{GitHub, GitWriter, Meter, Token};
 #[cfg(unix)]
 pub use remote::{Projected, Remote};
 pub use tier::{Choice, Folder, Run, Task, Tier, choose};

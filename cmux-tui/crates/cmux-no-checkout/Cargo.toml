@@ -17,6 +17,7 @@ mock = ["dep:cmux-scope"]
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 base64.workspace = true
 cmux-process.workspace = true
 cmux-scope = { workspace = true, optional = true }
@@ -32,3 +33,4 @@ zeroize.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 # The `mock` stand-in for this crate's own tests.
 cmux-no-checkout = { path = ".", features = ["mock"] }
+async-trait.workspace = true

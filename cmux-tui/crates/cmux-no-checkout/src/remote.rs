@@ -9,7 +9,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, bail};
 use tokio::sync::Semaphore;
 
-use crate::github::{Entry, GitHub, Head, TreeChange};
+use crate::github::{Entry, GitHub, GitWriter, Head, TreeChange};
 
 /// Blob reads in flight at once for a projection.
 const FETCHES_AT_ONCE: usize = 8;
@@ -299,20 +299,31 @@ impl Remote {
     /// per changed file, a tree on the base tree, a commit, the ref. Answers the commit's sha.
     /// The commit becomes the base: later edits commit on top of it, to the same branch.
     pub async fn commit(&mut self, branch: &str, message: &str) -> anyhow::Result<String> {
+        let gh = self.gh.clone();
+        self.commit_with(&gh, branch, message).await
+    }
+
+    /// [`Self::commit`] through `writer` (the REST client, or one that stands in for it).
+    pub async fn commit_with(
+        &mut self,
+        writer: &dyn GitWriter,
+        branch: &str,
+        message: &str,
+    ) -> anyhow::Result<String> {
         if self.edits.is_empty() {
             bail!("nothing to commit: this chat changed no file");
         }
         let mut changes = Vec::with_capacity(self.edits.len());
         for (path, edit) in &self.edits {
             let blob = match edit {
-                Edit::Put(bytes, mode) => Some((self.gh.create_blob(bytes).await?, mode.clone())),
+                Edit::Put(bytes, mode) => Some((writer.create_blob(bytes).await?, mode.clone())),
                 Edit::Delete => None,
             };
             changes.push(TreeChange { path: path.clone(), blob });
         }
-        let tree = self.gh.create_tree(&self.head.tree, &changes).await?;
-        let commit = self.gh.create_commit(message, &tree, &self.head.commit).await?;
-        self.gh.set_branch(branch, &commit).await?;
+        let tree = writer.create_tree(&self.head.tree, &changes).await?;
+        let commit = writer.create_commit(message, &tree, &self.head.commit).await?;
+        writer.set_branch(branch, &commit).await?;
         for (path, edit) in std::mem::take(&mut self.edits) {
             match edit {
                 Edit::Put(bytes, _) => self.read.insert(path, Arc::new(bytes)),

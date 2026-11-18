@@ -374,6 +374,66 @@ impl GitHub {
     }
 }
 
+/// The git data writes a commit needs, and the pull request after it: the one seam where a writer
+/// other than this REST client stands in (on a lane VM with no token, a broker that makes these
+/// calls for it). [`GitHub`] is the REST one.
+#[async_trait::async_trait]
+pub trait GitWriter: Send + Sync {
+    /// Stores `bytes` as a blob; answers its sha.
+    async fn create_blob(&self, bytes: &[u8]) -> anyhow::Result<String>;
+    /// A tree that is `base` with `changes`; answers its sha.
+    async fn create_tree(&self, base: &str, changes: &[TreeChange]) -> anyhow::Result<String>;
+    /// A commit of `tree` on `parent`; answers its sha.
+    async fn create_commit(
+        &self,
+        message: &str,
+        tree: &str,
+        parent: &str,
+    ) -> anyhow::Result<String>;
+    /// `branch` at `commit`: created, or fast-forwarded (never forced).
+    async fn set_branch(&self, branch: &str, commit: &str) -> anyhow::Result<()>;
+    /// A pull request of `head` into `base`.
+    async fn open_pull(
+        &self,
+        title: &str,
+        body: &str,
+        head: &str,
+        base: &str,
+        draft: bool,
+    ) -> anyhow::Result<Pull>;
+}
+
+#[async_trait::async_trait]
+impl GitWriter for GitHub {
+    async fn create_blob(&self, bytes: &[u8]) -> anyhow::Result<String> {
+        Self::create_blob(self, bytes).await
+    }
+    async fn create_tree(&self, base: &str, changes: &[TreeChange]) -> anyhow::Result<String> {
+        Self::create_tree(self, base, changes).await
+    }
+    async fn create_commit(
+        &self,
+        message: &str,
+        tree: &str,
+        parent: &str,
+    ) -> anyhow::Result<String> {
+        Self::create_commit(self, message, tree, parent).await
+    }
+    async fn set_branch(&self, branch: &str, commit: &str) -> anyhow::Result<()> {
+        Self::set_branch(self, branch, commit).await
+    }
+    async fn open_pull(
+        &self,
+        title: &str,
+        body: &str,
+        head: &str,
+        base: &str,
+        draft: bool,
+    ) -> anyhow::Result<Pull> {
+        Self::open_pull(self, title, body, head, base, draft).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

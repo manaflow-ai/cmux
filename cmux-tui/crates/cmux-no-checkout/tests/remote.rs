@@ -3,8 +3,9 @@
 //! use, only the run's paths on disk (gone after), a patch applied to the touched files alone,
 //! and the edits committed as a branch through the git data API, then a pull request.
 
+use cmux_no_checkout::github::{Pull, TreeChange};
 use cmux_no_checkout::mock::Mock;
-use cmux_no_checkout::{GitHub, Remote, patch};
+use cmux_no_checkout::{GitHub, GitWriter, Remote, patch};
 
 const CORE: &[u8] = b"def add(a, b):\n    return a + b\n";
 const TEST: &[u8] = b"from pkg.core import add\n\ndef test_add():\n    assert add(1, 2) == 3\n";
@@ -118,5 +119,60 @@ async fn nothing_to_commit_and_paths_outside_the_repository_are_refused() {
     assert!(remote.read("missing.txt").await.is_err());
     assert!(remote.delete("missing.txt").await.is_err());
     assert!(mock.branch("lane/x").is_none());
+    mock.close().await;
+}
+
+/// A writer that is not the REST client (a broker, on a lane VM) makes every write of a commit.
+struct Recording {
+    inner: GitHub,
+    calls: std::sync::Mutex<Vec<&'static str>>,
+}
+
+#[async_trait::async_trait]
+impl GitWriter for Recording {
+    async fn create_blob(&self, bytes: &[u8]) -> anyhow::Result<String> {
+        self.calls.lock().unwrap().push("blob");
+        self.inner.create_blob(bytes).await
+    }
+    async fn create_tree(&self, base: &str, changes: &[TreeChange]) -> anyhow::Result<String> {
+        self.calls.lock().unwrap().push("tree");
+        self.inner.create_tree(base, changes).await
+    }
+    async fn create_commit(
+        &self,
+        message: &str,
+        tree: &str,
+        parent: &str,
+    ) -> anyhow::Result<String> {
+        self.calls.lock().unwrap().push("commit");
+        self.inner.create_commit(message, tree, parent).await
+    }
+    async fn set_branch(&self, branch: &str, commit: &str) -> anyhow::Result<()> {
+        self.calls.lock().unwrap().push("ref");
+        self.inner.set_branch(branch, commit).await
+    }
+    async fn open_pull(
+        &self,
+        title: &str,
+        body: &str,
+        head: &str,
+        base: &str,
+        draft: bool,
+    ) -> anyhow::Result<Pull> {
+        self.calls.lock().unwrap().push("pull");
+        self.inner.open_pull(title, body, head, base, draft).await
+    }
+}
+
+#[tokio::test]
+async fn another_writer_makes_the_commit_through_the_one_seam() {
+    let mock = repo().await;
+    let mut remote = open(&mock).await;
+    remote.write("README.md", b"# via the seam\n".to_vec()).await.unwrap();
+    let writer = Recording { inner: remote.github().clone(), calls: Default::default() };
+    remote.commit_with(&writer, "lane/seam", "via the seam").await.unwrap();
+    writer.open_pull("t", "", "lane/seam", "main", true).await.unwrap();
+    assert_eq!(*writer.calls.lock().unwrap(), ["blob", "tree", "commit", "ref", "pull"]);
+    assert_eq!(mock.branch("lane/seam").unwrap()["README.md"].0, b"# via the seam\n");
     mock.close().await;
 }
