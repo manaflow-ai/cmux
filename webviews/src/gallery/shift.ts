@@ -26,7 +26,10 @@
 //   - a box's first move after a resize (`firstMoveFree`): the new width lays it out once; a second
 //     move is the bounce a sidebar toggle must not have;
 //   - moves under half a CSS px (layout rounding), and boxes outside the viewport.
-// The pure scoring is here (unit tested); `startBoxTracker` samples the live page.
+// The pure scoring is here (unit tested); `startBoxTracker` samples the live page. The tracker also
+// judges the same frames for the follow (followJudge.ts): a move other than the one translation the
+// transcript rows share.
+import { judgeFollowFrames, type FollowJudgement } from "./followJudge";
 
 export type Box = { x: number; y: number; width: number; height: number };
 
@@ -43,11 +46,16 @@ export type BoxSample = {
   /** A keyframe animation on it or an ancestor is running or about to start: its moves are that
    *  animation's, not a shift, and it has not rested. */
   animating?: boolean;
+  /** A transcript row (`data-row-id`): the follow judge (followJudge.ts) wants every one in view to
+   *  move by the same translation. */
+  row?: boolean;
+  /** The composer or its bar: the follow judge wants it never to move. */
+  composer?: boolean;
 };
 export type BoxFrame = Map<number, BoxSample>;
 
 export type BoxMove = { label: string; frame: number; dx: number; dy: number };
-export type BoxShift = { score: number; moves: BoxMove[] };
+export type BoxShift = { score: number; moves: BoxMove[]; follow?: FollowJudgement };
 
 /** The transcript row that is opening or closing at the very bottom, so the text above it rises or
  *  falls (App.tsx `beginBottomStackFold`, `data-bottom-stack-fold`, set for every bottom stack), and
@@ -296,6 +304,8 @@ export function sampleBoxes(doc: Document, target: StepTargets, extra: Element[]
       after,
       before,
       animating: moving.size > 0 && inMotion(element, moving),
+      row: element.hasAttribute("data-row-id"),
+      composer: element.matches(".acpmux-composer-box, .acpmux-composer-bar"),
     });
   }
   return frame;
@@ -345,7 +355,8 @@ export function startBoxTracker(
     stop() {
       view.cancelAnimationFrame(handle);
       frames.push(sampleBoxes(doc, options.target ?? null, options.extra?.() ?? []));
-      return scoreBoxFrames(frames, { width: view.innerWidth, height: view.innerHeight }, options);
+      const shift = scoreBoxFrames(frames, { width: view.innerWidth, height: view.innerHeight }, options);
+      return { ...shift, follow: judgeFollowFrames(frames, options) };
     },
   };
 }
