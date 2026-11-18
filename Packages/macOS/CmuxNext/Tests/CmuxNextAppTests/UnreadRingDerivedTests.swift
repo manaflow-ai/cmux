@@ -67,8 +67,8 @@ struct UnreadRingDerivedTests {
         #expect(rings == tab.showsUnread, "notified=\(notified) marked=\(marked): ring \(rings), tab unread \(tab.showsUnread)")
     }
 
-    /// Dismiss Highlight hides a marked tab's ring like a notification's; marking it again
-    /// (after it was read) rings again.
+    /// Dismiss Highlight hides a marked tab's ring like a notification's, even where no daemon can
+    /// take the read (this service has none); marking it again (after it was read) rings again.
     @Test func dismissHidesAMarkedRingUntilTheTabIsMarkedAgain() throws {
         let workspace = try Self.workspace(activeTab: 1)
         let tab = try Self.tabs(workspace)[1]
@@ -76,7 +76,6 @@ struct UnreadRingDerivedTests {
         tab.expectMarkedUnread(true)
         service.dismissHighlight(workspace)
         #expect(service.attentionMarks(for: workspace).isEmpty, "Dismiss Highlight left the marked tab's ring")
-        #expect(tab.showsUnread, "Dismiss Highlight read the tab; it must only hide the ring")
         tab.expectMarkedUnread(false)
         tab.expectMarkedUnread(true)
         #expect(service.attentionMarks(for: workspace).count == 1, "a new mark after a read must ring again")

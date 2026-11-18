@@ -9,6 +9,7 @@ import { ciTrustLayer, parseCiTrust } from "./auth/ci-trust.ts";
 import { serviceKeysLayer } from "./auth/service-keys.ts";
 import { checkSchema, makeSchemaGate } from "./db/schema-check.ts";
 import { hyperdriveSqlLayer, withRequestConnection } from "./db/sql.ts";
+import { parseDbFault, withDbFault } from "./db/fault.ts";
 import { sqlStoresLayer } from "./db/stores.ts";
 import type { TenantLimitsObject } from "./limits/durable-object.ts";
 import { durableObjectLimitsLayer } from "./limits/service.ts";
@@ -74,10 +75,15 @@ export interface Env {
   readonly CMUX_VM_SERVICE_KEY_SCOPE_GRANTS?: string;
   /** GitHub Actions jobs trusted by their OIDC token, a JSON array of trust rows (no secret). See src/auth/ci-trust.ts. */
   readonly CMUX_VM_CI_TRUST?: string;
+  /** Staging only: the database fault switch, off unless set (src/db/fault.ts). Every other environment ignores it. */
+  readonly CMUX_VM_DB_FAULT?: string;
 }
 
 const liveServices = (env: Env) => {
-  const sql = hyperdriveSqlLayer(env.HYPERDRIVE.connectionString);
+  const sql = withDbFault(
+    hyperdriveSqlLayer(env.HYPERDRIVE.connectionString),
+    parseDbFault(env.CMUX_VM_DB_FAULT, parseEnvironment(env.ENVIRONMENT)),
+  );
   const policy = tenantPolicyLayer({
     httpsProxyOrigins: parseHttpsProxyOrigins(env.VM_HTTPS_PROXY_ORIGINS),
     environment: parseEnvironment(env.ENVIRONMENT),
