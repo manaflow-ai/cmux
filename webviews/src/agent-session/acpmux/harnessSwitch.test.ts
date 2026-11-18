@@ -394,8 +394,9 @@ test("a start left for another agent before it opened gets its mode and options 
     mode: "agent-full-access",
     options: { effort: "high" },
   });
-  // Each comes back with this pick's gesture, not the first pick's.
-  expect(tickets).toEqual(["mode:agent-full-access", "session/set_config_option"]);
+  // Each comes back with the ticket the person's own pick took: the way back spends no gesture of its
+  // own on them (the host grants one ticket per gesture, and the start may need it).
+  expect(tickets).toEqual([]);
   // In another folder, or after a cancel, the harness starts with its own defaults again.
   void harnessSwitch.switchTo("claude", "/work", { deferred: true });
   void harnessSwitch.switchTo("codex", "/elsewhere", { deferred: true });
@@ -403,4 +404,36 @@ test("a start left for another agent before it opened gets its mode and options 
   harnessSwitch.cancel();
   void harnessSwitch.switchTo("codex", "/work", { deferred: true });
   expect(harnessSwitch.view().intent?.config).toEqual({ options: {} });
+});
+
+test("a mode brought back from a left start goes out with the ticket the person's own pick took", async () => {
+  const calls: string[] = [];
+  let open = false;
+  let created = 0;
+  const port: SwitchPort = {
+    ...trustRefusingPort(),
+    shown: () =>
+      open ? { sessionId: "codex-2", harness: "codex", model: "gpt-6.1-sol", modeId: "agent", empty: true } : undefined,
+    // The first Codex start and the Claude start never answer: the person moved on before they opened.
+    create: (harness) =>
+      harness === "codex" && ++created === 2 ? Promise.resolve("codex-2") : new Promise<string | undefined>(() => {}),
+    open: async (sessionId) => {
+      open = true;
+      return sessionId;
+    },
+    send: async (text) => void calls.push(`send ${text}`),
+    setMode: async (mode, ticket) => void calls.push(`mode ${mode} ${ticket}`),
+  };
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(port);
+  let gestures = 0;
+  harnessSwitch.setHandlers({ gesture: async () => `gesture-${++gestures}` });
+  void harnessSwitch.switchTo("codex", "/work");
+  harnessSwitch.pickMode("agent-full-access");
+  void harnessSwitch.switchTo("claude", "/work");
+  const back = harnessSwitch.switchTo("codex", "/work");
+  const sent = harnessSwitch.send("add retry");
+  expect(await back).toBe("codex-2");
+  await sent;
+  expect(calls).toEqual(["mode agent-full-access gesture-1", "send add retry"]);
 });

@@ -294,8 +294,11 @@ export class HarnessSwitch {
   /// The mode and option picks of a start this page left for another agent before it opened (a New
   /// Tab's Codex picked into Full access, then Claude Code picked): going back to that agent in that
   /// folder starts with them again, never with the harness's own defaults (cmux#46434). Kept until a
-  /// start opens or the switch is cancelled.
-  private kept = new Map<string, { mode?: string; options: Record<string, string> }>();
+  /// start opens or the switch is cancelled, with the gesture tickets those picks took.
+  private kept = new Map<
+    string,
+    { mode?: string; options: Record<string, string>; tickets: Map<string, Promise<string | undefined>> }
+  >();
   private hintTarget?: string;
   private cancelHint?: () => void;
   private lastHint?: { harness: string; at: number };
@@ -441,6 +444,7 @@ export class HarnessSwitch {
       this.kept.set(keptKey(previous.harness, previous.cwd), {
         ...(previous.config.mode ? { mode: previous.config.mode } : {}),
         options: previous.config.options,
+        tickets: previous.tickets,
       });
     if (previous) this.retire(previous, false);
     this.modelPick = undefined;
@@ -448,13 +452,20 @@ export class HarnessSwitch {
     this.settling = undefined;
     this.intent = intent;
     // Back to an agent this page left before its start opened: its own mode and option picks come
-    // back, each with a gesture ticket from this pick (the first pick's may be past its lifetime).
-    // Options passed with this pick go after them, so they win.
+    // back with the tickets the person's own picks took, as a pick on the same agent keeps them. This
+    // pick's gesture is not spent on them: the host grants one ticket per gesture, and the start
+    // itself may need it (its folder check). A ticket lives 60 s, and a later pick of the same kind
+    // on another agent takes its slot; such a pick goes out with none, as any expired held pick does.
+    // Options passed with this pick go after them, with tickets of their own, so they win.
     const back = previous && previous.harness !== harness ? this.kept.get(keptKey(harness, cwd)) : undefined;
     if (back) {
       this.kept.delete(keptKey(harness, cwd));
-      if (back.mode) this.holdMode(intent, back.mode);
-      for (const [configId, value] of Object.entries(back.options)) this.holdConfig(intent, configId, value);
+      intent.config = {
+        ...intent.config,
+        ...(back.mode ? { mode: back.mode } : {}),
+        options: { ...back.options, ...intent.config.options },
+      };
+      for (const [key, ticket] of back.tickets) intent.tickets.set(key, ticket);
     }
     // Each held option takes its gesture ticket now, in the pick's own handler.
     for (const [configId, value] of held) this.holdConfig(intent, configId, value);
@@ -589,13 +600,10 @@ export class HarnessSwitch {
   /// A held pick takes a gesture ticket at once (pane-native transport); a live pick needs none.
   pickMode(mode: string): boolean {
     if (!this.intent) return false;
-    this.holdMode(this.intent, mode);
+    this.intent.config = { ...this.intent.config, mode };
+    this.intent.tickets.set("mode", this.takeTicket({ method: "session/set_mode", params: { modeId: mode } }));
     this.changed();
     return true;
-  }
-  private holdMode(intent: Intent, mode: string): void {
-    intent.config = { ...intent.config, mode };
-    intent.tickets.set("mode", this.takeTicket({ method: "session/set_mode", params: { modeId: mode } }));
   }
   pickConfig(configId: string, value: string, live?: { sessionId: string; current?: string }): boolean {
     if (!this.intent) {
