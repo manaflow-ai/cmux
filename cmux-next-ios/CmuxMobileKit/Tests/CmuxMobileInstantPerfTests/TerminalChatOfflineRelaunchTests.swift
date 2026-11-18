@@ -66,8 +66,11 @@ struct TerminalChatOfflineRelaunchTests {
         store.workspaces = [Workspace(id: "w", macID: "mac", title: "relay", directory: "/tmp/p",
                                       tabs: [terminal("s1", agent: "claude-code", session: "h-1")],
                                       lastActivityAt: Date())]
-        return WorkspaceTabsSource(store: store, workspaceID: "w", sessions: sessions,
-                                   creator: WorkspaceCreator(store: store, backend: backend))
+        let source = WorkspaceTabsSource(store: store, workspaceID: "w", sessions: sessions,
+                                         creator: WorkspaceCreator(store: store, backend: backend))
+        // The kept chat face exists only with Settings → Terminal → Terminal and Chat Toggle on (off by default, #45446).
+        source.terminalChatToggleOn = { true }
+        return source
     }
 
     /// Turn `n` of chat `chat`: a prompt, its start, an answer, its result.
