@@ -14,15 +14,14 @@ import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserL
 import { warmViteServer } from "./support/warmDevServer";
 import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
-const OPEN_CHIP = "button.cv-agent-tag.cv-subagent-started__lead";
-const SUBAGENT_OF = ".cv-subagent-of";
-const SUBAGENT_OF_CLOSE = "button.cv-subagent-of__close";
-const ROUNDS = 3;
-/// Pane renders over the rounds below on the base this was measured on (b4933ba8547, before the
-/// hook): 13 in Chromium and in WebKit, run after run. More means the move redraws the pane.
-const PANE_RENDERS_MAX = 13;
-
 await requireBrowserLane("app-subagent-hook-renders.test.ts", async () => {
+  const OPEN_CHIP = "button.cv-agent-tag.cv-subagent-started__lead";
+  const SUBAGENT_OF = ".cv-subagent-of";
+  const SUBAGENT_OF_CLOSE = "button.cv-subagent-of__close";
+  const ROUNDS = 3;
+  /// Pane renders over the rounds below on the base this was measured on (b4933ba8547, before the
+  /// hook): 13 in Chromium and in WebKit, run after run. More means the move redraws the pane.
+  const PANE_RENDERS_MAX = 13;
   setDefaultTimeout(280_000);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
