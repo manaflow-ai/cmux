@@ -101,10 +101,11 @@ public final class GitHubConnections {
                     open(authorization.url)
                 } else {
                     if connectKeys[bound] == nil { connectKeys[bound] = UUID().uuidString }
-                    // An API from before the completion link refuses its params (nothing ran): the console finishes it.
+                    // An API from before the completion link refuses its params: the console finishes it. The retry has its
+                    // own key, derived so its own retry is the same ask (the same key with other params is a conflict).
                     let value: JSONValue
                     do { value = try await call(bound, "integration.connect", connectParams(returning: true), connectKeys[bound]) } catch GitHubFailure.refused where completionLink != nil {
-                        value = try await call(bound, "integration.connect", connectParams(returning: false), connectKeys[bound])
+                        value = try await call(bound, "integration.connect", connectParams(returning: false), connectKeys[bound].map { $0 + ":plain" })
                     }
                     guard scope() == bound, generation == ticket else { return }
                     guard let raw = value["authorize_url"]?.stringValue, let url = Self.installationURL(raw),

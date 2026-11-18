@@ -68,7 +68,8 @@ import Testing
         #expect(asked == [["provider": "github", "return_to": "cmux-dev-x://integration/complete"]])
     }
 
-    /// An API from before the completion link refuses `return_to`: the connect asks again without it, under its key.
+    /// An API from before the completion link refuses `return_to`: the connect asks again without it, under a derived key
+    /// (the API keeps the first key; the same key with other params is an `idempotency.conflict`).
     @Test func anAPIThatRefusesTheCompletionLinkStillConnects() async {
         var asked: [(JSONValue, String?)] = []
         var opened: [URL] = []
@@ -84,7 +85,7 @@ import Testing
         await model.perform("githubRefresh")
         await model.perform("githubConnect")
         #expect(asked.map(\.0) == [["provider": "github", "return_to": "cmux-dev-x://integration/complete"], ["provider": "github"]])
-        #expect(asked[0].1 != nil && asked[0].1 == asked[1].1)
+        #expect(asked[0].1 != nil && asked[1].1 == asked[0].1.map { $0 + ":plain" })
         #expect(opened.count == 1)
         #expect(!model.error)
     }
