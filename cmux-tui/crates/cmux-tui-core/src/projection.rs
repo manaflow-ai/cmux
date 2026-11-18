@@ -295,7 +295,7 @@ fn control(first: &str) -> Result<Value, Refusal> {
                     format!("the upper layer changed since Bring Back read it; now {current}"),
                 ));
             }
-            let at = at.clone().unwrap_or_default();
+            let at = at.unwrap_or_default();
             state::update(&state, &at, |record| {
                 record.brought_back = Some(BroughtBack { ms: now, mark: mark.clone() });
             })
@@ -308,7 +308,7 @@ fn control(first: &str) -> Result<Value, Refusal> {
             let Some(release) = Release::parse(why) else {
                 return Err(("projection.params_invalid", "why is archived or deleted".into()));
             };
-            let at = at.clone().unwrap_or_default();
+            let at = at.unwrap_or_default();
             state::update(&state, &at, |record| {
                 record.released = Some(Released { ms: now, why: release });
             })

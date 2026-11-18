@@ -324,7 +324,7 @@ fn idle_caches_are_trimmed_to_the_budget_oldest_first() {
     let limits = Limits { cache_budget: 10_000, ..Limits::default() };
     let report = pass(&machine.places(), &list, &Idle, SystemTime::now(), &limits);
     assert!(!old.exists(), "the oldest idle blob stayed over the budget");
-    assert!(cache.join("901").exists() && cache.join(crate::overlay::CACHE_ID_FILE).exists());
+    assert!(cache.join("901").exists() && cache.join(CACHE_ID_FILE).exists());
     assert_eq!(report.reclaimed[0].why, Why::CacheOverBudget);
     assert_eq!(state::mark(&state).unwrap(), mark, "trimming the cache touched the upper layer");
 }
