@@ -810,8 +810,11 @@ class LinuxOrphanTests(unittest.TestCase):
         plan = orphan_plan(find(runs + [served], jobs), max_cancels=3)
         self.assertEqual([d.action for d in plan], ["cancel", "cancel", "cancel", "skip"])
 
-    def test_the_old_queued_listing_asks_for_runs_created_before_the_orphan_age(self):
+    def test_the_old_queued_listing_reads_the_oldest_pages(self):
+        """Review of 87691bf0 (F1): the list is newest first and `created=<T` only cuts its top, so the first pages of
+        500 old queued runs are the youngest of them; the oldest is on the last page."""
         asked = []
+        old = [make_run(status="queued", age=130 + n) for n in range(500)]  # newest first, as GitHub lists them
 
         class Fake(janitor.GitHub):
             def __init__(self):
@@ -819,14 +822,28 @@ class LinuxOrphanTests(unittest.TestCase):
 
             def request(self, method, path, body=None):
                 asked.append(path)
-                return {"workflow_runs": []}
+                if "created=" not in path:
+                    return {"workflow_runs": []}
+                page = int(re.search(r"[?&]page=(\d+)", path).group(1))
+                return {"total_count": len(old), "workflow_runs": old[(page - 1) * 100: page * 100]}
 
-        Fake().in_flight_runs(created_before=NOW - dt.timedelta(minutes=120))
-        self.assertTrue(any("created=%3C2026-09-22T15%3A00%3A00Z" in path and "status=queued" in path
-                            for path in asked), asked)
+        found = Fake().in_flight_runs(created_before=NOW - dt.timedelta(minutes=120))
+        self.assertIn(old[-1]["id"], {run["id"] for run in found})
+        self.assertTrue(all("status=queued" in path for path in asked if "created=%3C2026-09-22T15%3A00%3A00Z" in path))
+        self.assertEqual(sorted(int(re.search(r"[?&]page=(\d+)", p).group(1)) for p in asked if "created=" in p), [1, 3, 4, 5])
         asked.clear()
         Fake().in_flight_runs()
         self.assertFalse(any("created=" in path for path in asked))
+
+    def test_protected_linux_runs_are_counted_not_read(self):
+        """Review of 87691bf0 (F2): a dry run shows the protected Linux runs, though their jobs are never read."""
+        nightly = make_run(status="queued", age=600, event="schedule", branch="main",
+                           path=".github/workflows/nightly-linux.yml", name="nightly")
+        plain = make_run(status="queued", age=600, path=".github/workflows/pr-checks.yml")
+        paths = self.LINUX_ONLY | {nightly["path"]}
+        self.assertEqual([r["id"] for r in janitor.linux_protected_runs([nightly, plain], paths,
+                                                                        min_age=dt.timedelta(minutes=120), now=NOW)],
+                         [nightly["id"]])
 
 
 class OrphanDetectionTests(unittest.TestCase):

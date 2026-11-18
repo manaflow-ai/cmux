@@ -131,15 +131,19 @@ MAX_ORPHAN_CANCELS_LIMIT = 10
 # Linux-only workflows (linux_only_workflow_paths) hold no macOS pool, so the backlog pass never reads their jobs. Their
 # lost assignments still clog the Linux labels: 2026-11-18, ubuntu-24.04 held 2,399 queued jobs, the oldest 20 h,
 # while newer jobs there started, and no sweep saw them. The Linux orphan pass reads the jobs of the oldest such runs
-# past the orphan age, LINUX_JOB_READS a sweep (one call each), and cancels their lost assignments under its own cap,
-# with find_orphans' evidence and orphan_protected_reason's protections unchanged.
+# past the orphan age, LINUX_JOB_READS runs a sweep (one job listing each, up to MAX_JOB_PAGES calls), and cancels
+# their lost assignments under its own cap, with find_orphans' evidence and orphan_protected_reason's protections
+# unchanged. A protected run's jobs are never read; the summary counts those runs.
 DEFAULT_LINUX_JOB_READS = 30
 LINUX_JOB_READS_LIMIT = 60
 DEFAULT_MAX_LINUX_ORPHAN_CANCELS = 20
 MAX_LINUX_ORPHAN_CANCELS_LIMIT = 40
 # The run list is newest first and stops at MAX_RUN_PAGES, so at a backlog of thousands the oldest runs, the likely
-# orphans, were never listed. One more queued listing, created before the orphan age, reaches them.
+# orphans, were never listed. One more queued listing, created before the orphan age, reads its LAST pages
+# (old_queued_runs). Queued runs only: an in_progress run whose remaining jobs are lost is reached through the newest
+# in_progress pages alone, which held every such run on 2026-11-18.
 OLD_RUN_PAGES = 3
+RUN_LIST_RESULT_CAP = 1000  # GitHub answers a filtered run list up to this many results
 # How long to let a cancel settle before checking whether it took.
 ORPHAN_RECHECK_SECONDS = 20
 # An orphan is never cancelled from a release pipeline or the merge queue: a
@@ -290,6 +294,16 @@ def linux_orphan_reads(
                 and created is not None and now - created >= min_age and orphan_protected_reason(run) is None):
             picked.append((created, run["id"], run))
     return [run for _, _, run in sorted(picked, key=lambda item: (item[0], item[1]))[:budget]]
+
+
+def linux_protected_runs(runs: Sequence[Mapping[str, Any]], linux_only_paths: frozenset[str],
+                         *, min_age: dt.timedelta, now: dt.datetime) -> list[Mapping[str, Any]]:
+    """The in-flight Linux-only runs past MIN_AGE that orphan_protected_reason keeps: their jobs are never read, so a
+    dry run lists them here instead of among the skipped orphans."""
+    return [run for run in runs
+            if run.get("path") in linux_only_paths and run.get("status") in IN_FLIGHT_RUN_STATUSES
+            and (created := parse_time(run.get("created_at"))) is not None and now - created >= min_age
+            and orphan_protected_reason(run) is not None]
 
 
 def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt.datetime) -> bool:
@@ -1498,13 +1512,13 @@ class GitHub:
             self.rate_limits[found[0]] = found[1]
 
     def in_flight_runs(self, created_before: dt.datetime | None = None) -> list[dict[str, Any]]:
-        """In-flight runs, newest first per status, MAX_RUN_PAGES each; with CREATED_BEFORE, also the queued runs
-        created before it (OLD_RUN_PAGES), which a backlog of thousands pushes past the newest pages."""
+        """In-flight runs, newest first per status, MAX_RUN_PAGES each; with CREATED_BEFORE, also the OLDEST queued
+        runs created before it (old_queued_runs), which a backlog of thousands pushes past the newest pages."""
         runs: dict[int, dict[str, Any]] = {}
         listings = [({"status": status}, MAX_RUN_PAGES) for status in IN_FLIGHT_RUN_STATUSES]
         if created_before is not None:
-            listings.append(({"status": "queued", "created": "<" + created_before.strftime("%Y-%m-%dT%H:%M:%SZ")},
-                             OLD_RUN_PAGES))
+            for run in self.old_queued_runs(created_before):
+                runs[run["id"]] = run
         for filters, pages in listings:
             for page in range(1, pages + 1):
                 query = urllib.parse.urlencode({**filters, "per_page": 100, "page": page})
@@ -1515,6 +1529,19 @@ class GitHub:
                 if len(batch) < 100:
                     break
         return list(runs.values())
+
+    def old_queued_runs(self, created_before: dt.datetime) -> list[dict[str, Any]]:
+        """The oldest queued runs created before CREATED_BEFORE: the list is newest first and `created=<T` only cuts
+        its top, so page 1 gives total_count and the last OLD_RUN_PAGES pages are read (GitHub answers a filtered
+        list up to RUN_LIST_RESULT_CAP results, so past that the oldest reachable pages)."""
+        base = {"status": "queued", "created": "<" + created_before.strftime("%Y-%m-%dT%H:%M:%SZ"), "per_page": 100}
+        first = self.request("GET", f"/repos/{self.repo}/actions/runs?{urllib.parse.urlencode({**base, 'page': 1})}")
+        found = list(first.get("workflow_runs") or [])
+        last = min(-(-int(first.get("total_count") or 0) // 100), RUN_LIST_RESULT_CAP // 100)
+        for page in range(last, max(1, last - OLD_RUN_PAGES), -1):
+            payload = self.request("GET", f"/repos/{self.repo}/actions/runs?{urllib.parse.urlencode({**base, 'page': page})}")
+            found.extend(payload.get("workflow_runs") or [])
+        return found
 
     def artifact_names(self, run_id: int, *, stop: str) -> list[str]:
         """The run's artifact names, page by page until one starts with `stop`."""
@@ -1724,6 +1751,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings, {len(branches)} PR branches, " \
                f"{len(orphans)} orphans, {len(linux_jobs)} Linux job listings, " \
                f"{len(linux_orphans)} Linux orphans, {github.calls} API calls._\n"
+    protected = linux_protected_runs(runs, linux_only, min_age=orphan_age, now=now)
+    if protected:
+        summary += f"\n_{len(protected)} Linux-only runs past the orphan age are protected, never read or cancelled: " \
+                   + ", ".join(f"[{run['id']}]({run.get('html_url')}) ({orphan_protected_reason(run)})"
+                               for run in protected[:20]) + "._\n"
     summary += f"\n_{render_rate_limits(github.rate_limits)}_\n"
     print(summary)
     if args.summary:
