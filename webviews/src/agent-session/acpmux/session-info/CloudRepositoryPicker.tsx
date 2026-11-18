@@ -1,4 +1,4 @@
-import { memo, useEffect, useId, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { focusRoute } from "../../../ui/focusRoute";
 import { Popover, type UiAnchor } from "../../../ui/Popover";
@@ -92,12 +92,14 @@ function errorCode(error: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
-/// A row's height: the 28 px option and the 4 px gap under it (sessionInfo.css).
+/// A row's height before it is measured: the 28 px option and the 4 px gap under it
+/// (sessionInfo.css). A long name wraps to a second line, as it did when every row was drawn, and
+/// the list measures each drawn row (VirtualList `measureRows`).
 const ROW_HEIGHT = 32;
 const rowHeight = () => ROW_HEIGHT;
 
 /// One repository: its name and a quiet source (or "Attaching") label. Memoized on plain values
-/// and the list's stable row style, so a scroll, a focus move or a keystroke in the search field
+/// and the list's stable row style and measure ref, so a scroll, a focus move or a keystroke in the search field
 /// does not draw the rows already in view again.
 const CloudRepositoryOption = memo(function CloudRepositoryOption({
   fullName,
@@ -106,9 +108,11 @@ const CloudRepositoryOption = memo(function CloudRepositoryOption({
   index,
   setSize,
   style,
+  measure,
   onAttach,
   onFocusIndex,
   onTabFrom,
+  onWidth,
 }: {
   fullName: string;
   detail: string;
@@ -116,14 +120,24 @@ const CloudRepositoryOption = memo(function CloudRepositoryOption({
   index: number;
   setSize: number;
   style: CSSProperties;
+  measure?: (element: Element | null) => void;
   onAttach: (fullName: string) => void;
   onFocusIndex: (index: number | undefined) => void;
   /// Tab or Shift+Tab from this row to the next one, which may not be drawn yet.
   onTabFrom: (index: number, setSize: number, back: boolean) => boolean;
+  /// The row's natural width (its name and label unclipped), measured when it mounts or its text changes.
+  onWidth: (width: number) => void;
 }) {
+  const option = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const button = option.current;
+    if (button) onWidth(naturalWidth(button));
+  }, [fullName, detail, onWidth]);
   return (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a row of the windowed list.
     <div
+      ref={measure}
+      data-index={index}
       role="listitem"
       className="acpmux-cloud-repository-row"
       style={style}
@@ -131,6 +145,7 @@ const CloudRepositoryOption = memo(function CloudRepositoryOption({
       aria-setsize={setSize}
     >
       <button
+        ref={option}
         type="button"
         className="acpmux-cloud-repository-option"
         data-action="repository-option"
@@ -149,6 +164,30 @@ const CloudRepositoryOption = memo(function CloudRepositoryOption({
     </div>
   );
 });
+
+/// An option's width with its name on one line: its name's and label's text as wide as their fonts
+/// draw it, the gap between them and the option's padding (the width the option asked for when every
+/// row was drawn). The text is measured, not the laid-out spans: a long name is wrapped there.
+let textMeasure: CanvasRenderingContext2D | null | undefined;
+function textWidth(element: Element | null): number {
+  if (!element?.textContent) return 0;
+  textMeasure ??= document.createElement("canvas").getContext("2d");
+  if (!textMeasure) return element.scrollWidth;
+  textMeasure.font = getComputedStyle(element).font;
+  return textMeasure.measureText(element.textContent).width;
+}
+
+function naturalWidth(button: HTMLElement): number {
+  const style = getComputedStyle(button);
+  const name = button.firstElementChild;
+  const label = button.lastElementChild;
+  return Math.ceil(
+    textWidth(name) +
+      (label && label !== name && label.textContent ? textWidth(label) + (parseFloat(style.columnGap) || 0) : 0) +
+      (parseFloat(style.paddingLeft) || 0) +
+      (parseFloat(style.paddingRight) || 0),
+  );
+}
 
 export function CloudRepositoryPicker({
   session,
@@ -174,6 +213,16 @@ export function CloudRepositoryPicker({
   /// The row holding focus stays mounted when it scrolls out of view (VirtualList's active row).
   const [focusedIndex, setFocusedIndex] = useState<number>();
   const listId = useId();
+  /// The list's width: the widest row drawn since the popover opened (the popover's CSS clamps it
+  /// between its least and greatest width). Only the drawn rows are measured, never every name, and
+  /// it only grows while the popover stays open, so a scroll never makes the popover narrower.
+  const [rowWidth, setRowWidth] = useState(0);
+  const [widthOpen, setWidthOpen] = useState(open);
+  if (widthOpen !== open) {
+    setWidthOpen(open);
+    setRowWidth(0);
+  }
+  const onRowWidth = (width: number) => setRowWidth((widest) => Math.max(widest, width));
   /// Tab walks every repository as it did when all were drawn: the next row is made the list's
   /// active row (drawn and scrolled to) before it takes focus, so a held Tab does not run past the
   /// drawn rows. From the first or last row the browser moves focus out of the list.
@@ -272,7 +321,10 @@ export function CloudRepositoryPicker({
       className="acpmux-cloud-repository-popover"
       initialFocus={search}
     >
-      <div className="acpmux-cloud-repository-picker">
+      <div
+        className="acpmux-cloud-repository-picker"
+        style={rowWidth > 0 ? ({ "--acpmux-cloud-repository-width": `${rowWidth}px` } as CSSProperties) : undefined}
+      >
         <input
           ref={search}
           className="acpmux-cloud-repository-search"
@@ -300,8 +352,9 @@ export function CloudRepositoryPicker({
             fade
             count={repos.length}
             estimateSize={rowHeight}
+            measureRows
             activeIndex={focusedIndex}
-            renderRow={(index, style) => {
+            renderRow={(index, style, measure) => {
               const repo = repos[index]!;
               return (
                 <CloudRepositoryOption
@@ -312,9 +365,11 @@ export function CloudRepositoryPicker({
                   index={index}
                   setSize={repos.length}
                   style={style}
+                  measure={measure}
                   onAttach={attach}
                   onFocusIndex={setFocusedIndex}
                   onTabFrom={tabFrom}
+                  onWidth={onRowWidth}
                 />
               );
             }}

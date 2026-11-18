@@ -1685,6 +1685,7 @@ button.acpmux-session-info-scope__parent:focus-visible {
 .acpmux-cloud-repository-picker {
   display: grid;
   gap: 8px;
+  min-width: min(var(--acpmux-cloud-repository-width, 0px), 344px, calc(100vw - 48px));
 }
 .acpmux-cloud-repository-search {
   width: 100%;
@@ -1698,9 +1699,10 @@ button.acpmux-session-info-scope__parent:focus-visible {
 }
 /* A windowed list (ui/VirtualList): only the rows in view are drawn, each ROW_HEIGHT (32 px) tall,
    the option and a 4 px gap under it. Its rows are placed absolutely and give the popover no width,
-   so the list takes the popover's widest content width, as a long repository name did. */
+   so the picker asks for the widest drawn row's width (--acpmux-cloud-repository-width), held within
+   the popover's greatest content width (its max-width less its padding); the popover's min-width
+   holds the least, as both held the rows' own width when every row was drawn. */
 .acpmux-cloud-repository-list {
-  width: min(344px, calc(100vw - 48px));
   max-height: 260px;
   padding: 0;
   margin: 0;

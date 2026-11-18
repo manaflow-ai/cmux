@@ -21,15 +21,7 @@ await requireBrowserLane("visible-lists-cloud-repository-picker.browser.test.ts"
   let server: Server;
 
   beforeAll(async () => {
-    // `bun test` sets NODE_ENV=test, and the harness's production build then compiles JSX for
-    // React's development runtime (jsxDEV), which the production React it bundles does not have.
-    const nodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = "production";
-    try {
-      server = await startVisibleLists();
-    } finally {
-      process.env.NODE_ENV = nodeEnv;
-    }
+    server = await startVisibleLists();
   });
   afterAll(async () => {
     await server?.stop();
