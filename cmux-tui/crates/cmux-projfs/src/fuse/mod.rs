@@ -137,19 +137,103 @@ impl Mounted {
         true
     }
 
-    /// Unmounts and waits for the session to end.
-    pub fn unmount(mut self) -> io::Result<()> {
+    /// Unmounts and waits at most [`UNMOUNT_WAIT`] for the session to end. See
+    /// [`Mounted::unmount_within`].
+    pub fn unmount(self) -> io::Result<Unmount> {
+        self.unmount_within(UNMOUNT_WAIT)
+    }
+
+    /// Detaches the mount (a lazy unmount: it leaves the namespace at once), then waits at most
+    /// `bound` for the session to end. The kernel ends it only when no file on the projection
+    /// is open any more (a process may also have its working directory there), so this never
+    /// waits for that: past the bound it answers [`Unmount::Busy`], and the session ends by
+    /// itself, on its own thread, when the last such file closes.
+    pub fn unmount_within(mut self, bound: Duration) -> io::Result<Unmount> {
         self.core.set_invalidate(None);
         match self.session.take() {
-            Some(session) => session.umount_and_join(),
-            None => Ok(()),
+            Some(session) => detach(session, bound),
+            None => Ok(Unmount::Ended),
         }
+    }
+}
+
+/// How long [`Mounted::unmount`] (and dropping a [`Mounted`]) waits for the session to end
+/// after the mount is detached.
+pub const UNMOUNT_WAIT: Duration = Duration::from_secs(3);
+
+/// What [`Mounted::unmount`] found.
+#[derive(Debug)]
+pub enum Unmount {
+    /// The mount is gone and its session has ended.
+    Ended,
+    /// The mount is detached (no new path reaches it) but files on it are still open, so the
+    /// session goes on serving them; it ends by itself when the last one closes.
+    Busy(Ending),
+}
+
+impl Unmount {
+    /// Whether the session had not ended within the wait.
+    pub fn is_busy(&self) -> bool {
+        matches!(self, Unmount::Busy(_))
+    }
+}
+
+/// A detached session that has not ended yet.
+#[derive(Clone, Debug)]
+pub struct Ending {
+    done: Arc<Done>,
+}
+
+#[derive(Debug, Default)]
+struct Done {
+    result: Mutex<Option<Result<(), String>>>,
+    changed: Condvar,
+}
+
+impl Ending {
+    /// Waits at most `timeout` for the session to end: its result, or `None` while it goes on.
+    pub fn wait(&self, timeout: Duration) -> Option<Result<(), String>> {
+        let deadline = Instant::now() + timeout;
+        let mut result = self.done.result.lock().unwrap_or_else(PoisonError::into_inner);
+        while result.is_none() {
+            let now = Instant::now();
+            if now >= deadline {
+                return None;
+            }
+            result = self
+                .done
+                .changed
+                .wait_timeout(result, deadline - now)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        result.clone()
+    }
+}
+
+/// Unmounts and joins `session` on a thread of its own, and waits for it at most `bound`.
+fn detach(session: BackgroundSession, bound: Duration) -> io::Result<Unmount> {
+    let done = Arc::new(Done::default());
+    let thread_done = done.clone();
+    std::thread::Builder::new().name("projfs-unmount".into()).spawn(move || {
+        let result = session.umount_and_join().map_err(|e| e.to_string());
+        *thread_done.result.lock().unwrap_or_else(PoisonError::into_inner) = Some(result);
+        thread_done.changed.notify_all();
+    })?;
+    let ending = Ending { done };
+    match ending.wait(bound) {
+        Some(Ok(())) => Ok(Unmount::Ended),
+        Some(Err(e)) => Err(io::Error::other(e)),
+        None => Ok(Unmount::Busy(ending)),
     }
 }
 
 impl Drop for Mounted {
     fn drop(&mut self) {
-        // Dropping the sender ends the invalidation thread; dropping the session unmounts.
+        // Dropping the sender ends the invalidation thread.
         self.core.set_invalidate(None);
+        if let Some(session) = self.session.take() {
+            let _ = detach(session, UNMOUNT_WAIT);
+        }
     }
 }
