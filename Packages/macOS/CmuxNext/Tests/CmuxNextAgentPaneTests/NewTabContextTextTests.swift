@@ -67,7 +67,12 @@ struct NewTabContextTextTests {
             #expect(newTab["inputToken"] as? String == Self.token(key))
             let bar = try #require(newTab["omnibar"] as? [String: Any])
             #expect((bar["tabs"] as? [Any])?.count == key + 1, "the page's own open tabs")
-            #expect(bar["actions"] == nil, "the shared lists are not in the tree")
+            // How large each part is in this scene (a bar of 50 actions, no icons): what the tree carries for each
+            // page, and what goes as the one text.
+            let own = try JSONSerialization.data(withJSONObject: newTab.filter { $0.key != "shared" }).count
+            let sizes = "the page's own part \(own) bytes, the shared text \((newTab["shared"] as? String)?.utf8.count ?? 0) bytes"
+            print("NewTabContextTextTests: key \(key): \(sizes)")
+            #expect(bar["actions"] == nil, "the shared lists are not in the tree (\(sizes))")
             let part = try #require(newTab["shared"] as? String, "the shared part is one text")
             #expect(!part.contains("input-token-"), "no page's token is in the text that the pages share")
             let parsed = try #require(try JSONSerialization.jsonObject(with: Data(part.utf8)) as? [String: Any])
@@ -88,6 +93,33 @@ struct NewTabContextTextTests {
         #expect(handshake["inputToken"] as? String == Self.token(0))
         #expect(handshake["shared"] == nil, "the page has the shared text of its early ask")
         #expect((handshake["omnibar"] as? [String: Any])?["actions"] == nil, "and no list of it comes in the tree")
+    }
+
+    /// The shared part changed after the page's early ask: the page's document has the older text, so its
+    /// handshake carries the new one.
+    @Test func aChangeOfTheSharedPartBetweenTheTwoSendsReachesThePage() async throws {
+        let model = Self.model(key: 0, text: AgentPaneNewTabText())
+        let early = try await Self.newTab(of: model.respond(to: .newTabContext))
+        let first = try #require(early["shared"] as? String)
+        var changed = Self.context(key: 0)
+        changed.omnibar.commands = ["ls", "swift build"]
+        model.adoptNewTab(changed)
+        let handshake = try await Self.newTab(of: model.respond(to: .ready))
+        let second = try #require(handshake["shared"] as? String, "the page's document has the older text")
+        #expect(second != first)
+        #expect(second.contains("swift build"))
+    }
+
+    /// A page that has no shared part (its state is lost) asks for its context again: an ask always gets the
+    /// shared text, also when the host sent the same text to that page before.
+    @Test func anAskForTheContextAlwaysGetsTheSharedText() async throws {
+        let text = AgentPaneNewTabText()
+        let model = Self.model(key: 0, text: text)
+        _ = await model.respond(to: .newTabContext)
+        _ = await model.respond(to: .ready)
+        let again = try await Self.newTab(of: model.respond(to: .newTabContext))
+        #expect(again["shared"] is String)
+        #expect(text.encodes == 1, "the same text: no second make")
     }
 
     /// A page that did not ask early gets the shared text with its handshake.
