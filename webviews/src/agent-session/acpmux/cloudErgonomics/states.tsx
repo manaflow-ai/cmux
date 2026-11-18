@@ -17,6 +17,7 @@ import { summary } from "../../../gallery/fixtures/acpmux";
 import type { CloudSignIn } from "../cloudAgentLogin";
 import cloudStartGallery from "../CloudStartView.gallery";
 import { CloudStartView } from "../CloudStartView";
+import { createCloudPlanSubscribe } from "../cloudPlanSubscribe";
 import { cloudStartEnded, type CloudStartProgress } from "../cloudStartProgress";
 import type { FailureKind, FailureRoute } from "../failureCopy";
 import repoRecoveryGallery from "../conversation/RepoRecoveryCard.gallery";
@@ -57,8 +58,16 @@ function cloudStartHandlers(record: Recorder) {
     onRetry: inPlace(record, "retry the start"),
     // cloudSignInRetry: the browser sign-in, then the same start goes again by itself.
     onSignIn: inPlace(record, "sign in, then the start goes again"),
-    // access.addCredits: the app's paid-plan path (palette.pro.upgrade).
-    onUpgrade: () => record({ kind: "out-of-app", what: "upgrade the plan" }),
+    // cloudPlanStore: Subscribe or Upgrade to <plan> opens the plan's checkout (`cloud.plan.subscribe`), then the
+    // same start goes again by itself once the plan is on.
+    planStore: createCloudPlanSubscribe({
+      call: async () => {
+        record({ kind: "out-of-app", what: "subscribe to the plan" });
+        return { opened: true };
+      },
+      watchKey: () => () => undefined,
+      isKey: () => false,
+    }),
     onRunHere: inPlace(record, "run the prompt on this Mac"),
     onDismiss: () => record({ kind: "dismiss", what: "not now" }),
     // The plan card's Switch to <team>: the team picker's switch, then the same start goes again.
@@ -146,6 +155,20 @@ const HOST_ANSWERS: readonly HostAnswer[] = [
       ],
       canSwitch: true,
     },
+  },
+  // The platform's size check: the folder needs a larger machine than the plan includes (Upgrade to Max, This Mac,
+  // Retry), or than any plan does (This Mac, Retry).
+  {
+    id: "cloud_size_locked",
+    code: "cloud_size_locked",
+    retryable: true,
+    details: { needed: "xl", allowed: "lg", upgrade_plan: "max", folder_bytes: 60_000_000_000 },
+  },
+  {
+    id: "cloud_size_locked.largest",
+    code: "cloud_size_locked",
+    retryable: true,
+    details: { needed: "xl", allowed: "lg", upgrade_plan: null, folder_bytes: 60_000_000_000 },
   },
   // CloudStartChat: a create the team's spending cap or the member's budget refused (cmux-platform SpendCap.ts),
   // in the backend's words; the pane words it itself (cloudStartProgress `spendRefusal`) with Run on This Mac.

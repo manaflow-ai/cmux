@@ -9,6 +9,7 @@ one comment with what it looks like.
 
     hot-verify-ci.py verdict PLAN_OUTPUT            the engine's `plan` output -> GITHUB_OUTPUT lines
     hot-verify-ci.py hq-ref VERSION_JSON            the controller's /v1/version -> the HQ main commit, or nothing
+    hot-verify-ci.py queue-bound STATUS_JSON        the controller's /v1/status -> seconds a look waits for a Mac
     hot-verify-ci.py pack --pr N --head SHA --nonce NONCE [--video]
                                                     the fleet step's inputs as z-chunks, one per line
     hot-verify-ci.py unpack OUT_TAR DIR             the step's out.tar into DIR (data only: no links, no ..)
@@ -458,12 +459,30 @@ def post(body: str, pr: int, head: str, repo: str = REPO) -> str:
 # ---------------------------------------------------------------- main
 
 
+QUEUE_FLOOR, QUEUE_CAP = 1800, 10800
+
+
+def queue_bound(text: str, step_class: str = "light") -> int:
+    """How long a look waits for a Mac: the controller's reported p90 queue wait for the class (/v1/status
+    `step_queue_wait_p90_seconds`), rounded up, between 30 min and 3 h; 30 min when it reports none."""
+    try:
+        data = json.loads(text)
+        value = float(data["step_queue_wait_p90_seconds"][step_class])
+    except (ValueError, TypeError, KeyError, OverflowError):
+        return QUEUE_FLOOR
+    if not value >= QUEUE_FLOOR:  # NaN, -inf and short waits
+        return QUEUE_FLOOR
+    return int(max(QUEUE_FLOOR, min(QUEUE_CAP, -(-value // 1))))  # clamped before int(): inf stays out of it
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     sub = ap.add_subparsers(dest="command", required=True)
     p = sub.add_parser("verdict")
     p.add_argument("plan", type=Path)
+    p = sub.add_parser("queue-bound")
+    p.add_argument("status", type=Path)
     p = sub.add_parser("hq-ref")
     p.add_argument("version", type=Path)
     p = sub.add_parser("pack")
@@ -494,6 +513,8 @@ def main(argv: list[str] | None = None) -> int:
         if a.command == "verdict":
             text = a.plan.read_text(errors="replace") if a.plan.is_file() else ""
             print(output_lines(verdict(text)), end="")
+        elif a.command == "queue-bound":
+            print(queue_bound(a.status.read_text(errors="replace") if a.status.is_file() else ""))
         elif a.command == "hq-ref":
             print(hq_ref(a.version.read_text(errors="replace") if a.version.is_file() else ""))
         elif a.command == "pack":

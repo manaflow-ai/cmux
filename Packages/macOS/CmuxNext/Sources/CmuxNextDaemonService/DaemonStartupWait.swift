@@ -76,7 +76,7 @@ public final class DaemonStartupWait {
         registry.unavailableRecoveries.append { [self] _, reason in
             guard Self.waits(for: reason), !replaying else { return nil }
             return ActionRecovery { [self] id, invocation in
-                guard !hold(reason, { [weak self] in self?.replay(id, invocation) }), let registry else { return }
+                guard !hold(reason, { [weak self] in self?.replay(id, invocation) }), let registry = self.registry else { return }
                 registry.refuse(registry.unavailableReason(for: id) ?? reason)
             }
         }

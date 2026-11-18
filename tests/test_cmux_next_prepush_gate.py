@@ -3392,4 +3392,8 @@ class AdvisoryGuardrailsDiagnosticsTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    # `--shard I/N`: the checks job runs this file as four pool commands (tests/unittest_shard.py).
+    _shard_spec = importlib.util.spec_from_file_location("unittest_shard", Path(__file__).resolve().parent / "unittest_shard.py")
+    unittest_shard = importlib.util.module_from_spec(_shard_spec)
+    _shard_spec.loader.exec_module(unittest_shard)
+    unittest_shard.main()
