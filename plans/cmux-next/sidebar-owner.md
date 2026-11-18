@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-18 (lane/visible-only-macos-section-fold, ask-785331b491): Sidebar-Look: Leo, 2026-11-08: "there's the sidebar
+  where when things maybe open or shift a bit, there's like still a bit of a flicker on that, like individual top group".
+  A top section of the sidebar document (Pinned, a custom section) opens and closes as a group does: its block row clips
+  to its springing frame, a close's items stay in place and go under the closing slot (removed when the spring ends), an
+  open's items show as the slot opens over them, and the rows below move on the same spring. Before, a close took the
+  items away in its first frame (the header over an empty slot for the whole spring) and an open drew them at once over
+  the rows below. The fold no longer reloads the list (`SidebarListView.foldBlock`, `SidebarRegionFoldMove`).
+  Regression: `SidebarSectionFoldTests`.
+
 - 2026-11-18 (a590, grid base red): Sidebar-Look: an unread dot beside a status mark sits one column in again, as before
   #44449. d8917c9 (#44449) made the trailing pitch the control plus a tenth of it (17.6 or 20.53 pt), and
   `SidebarColumns` rounded the pitches back from the trailing edge up with no tolerance, so one pitch could count as two

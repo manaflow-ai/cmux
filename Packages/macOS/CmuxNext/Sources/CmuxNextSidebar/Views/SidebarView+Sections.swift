@@ -146,9 +146,11 @@ extension SidebarViewComponents {
             }
             aboveRegion.update(content(loose.filter { !$0.items.isEmpty }), width: width)
             if list.blocks != blocks {
+                let old = list.blocks
                 list.blocks = blocks
-                // The document changed under the list (an item added, a section an agent filled): calm, not under the pointer.
-                if reloadsList { list.showModelChange(animates: true) }
+                // A section's fold moves its block and the rows below it (`foldBlock`). Any other change of the document
+                // under the list (an item added, a section an agent filled): calm, not under the pointer.
+                if reloadsList, !list.foldBlock(from: old) { list.showModelChange(animates: true) }
             }
         } else {
             aboveRegion.update(content(shownAbove), width: width)
