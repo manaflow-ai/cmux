@@ -1,0 +1,442 @@
+name: iOS App Store NEXT review upload (rc)
+
+# One-off App Store upload of cmux-next-ios (feat-cmux-next) to the "cmux" record
+# (com.cmux.app), run from an rc/ branch because the release environment admits
+# rc/** and #43514 (the main-branch version of this workflow) is not merged yet.
+# Same jobs as #43514's ios-app-store.yml, trimmed to archive + sign + upload;
+# the App Store version, review notes and submission are done with the asc CLI.
+# Push-triggered: each push to this branch uploads one build of APP_SHA.
+
+on:
+  push:
+    branches: [rc/cnx-ios-appstore-review]
+
+concurrency:
+  group: ios-app-store-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Proof of concept for capability-based runner selection. This job needs a
+  # macOS host with iOS runtimes and a working simctl; which vendor supplies
+  # that is .github/runners.json's problem, not this workflow's. On
+  # manaflow-ai the resolved label is blacksmith-6vcpu-macos-26, exactly what
+  # vars.MACOS_RUNNER_IOS holds today. See docs/ci-runner-capability-map.md.
+  runners:
+    uses: ./.github/workflows/resolve-runners.yml
+
+  archive:
+    name: Archive cmux-next-ios (unsigned, no secrets)
+    if: github.event_name == 'push'
+    needs: runners
+    # Holds no secret: the capability map's machine, or the macOS pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(needs.runners.outputs.map).macos_26_ios || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 120
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      version: ${{ steps.resolve.outputs.version }}
+      build_number: ${{ steps.resolve.outputs.build_number }}
+      ipad: ${{ steps.archive.outputs.ipad }}
+    env:
+      INPUT_REF: ${{ github.event.inputs.ref }}
+      INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
+      INPUT_MARKETING_VERSION: ${{ github.event.inputs.marketing_version }}
+      ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
+    steps:
+      - name: Checkout the app source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: bcf4680644b8f2ba538064a244914bfc4fa3e3fd
+          persist-credentials: false
+          # testflight-build.sh archives the commit with `git archive`, and
+          # check-tabskit-sync.sh compares packages with their upstream branches.
+          fetch-depth: 0
+
+      # One commit for the whole run: the build, the signature and the review
+      # package all come from it, whatever `ref` moves to meanwhile.
+      - name: Resolve the commit, version and build number
+        id: resolve
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve ${INPUT_REF:-feat-cmux-next} to a commit"; exit 1; }
+          # The release job signs this commit with production keys: only
+          # commits already on feat-cmux-next (reviewed and merged) qualify.
+          git fetch --no-tags origin feat-cmux-next:refs/remotes/origin/feat-cmux-next
+          git merge-base --is-ancestor "$SHA" origin/feat-cmux-next || {
+            echo "::error::${INPUT_REF:-feat-cmux-next} ($SHA) is not on feat-cmux-next; only merged NEXT commits ship to the App Store"
+            exit 1
+          }
+          missing=()
+          grep -qx '  AppStore: release' cmux-next-ios/project.yml || missing+=("the AppStore configuration in cmux-next-ios/project.yml")
+          grep -q -- '--config TestFlight|TestFlightStaging|AppStore' cmux-next-ios/scripts/testflight-build.sh || missing+=("cmux-next-ios/scripts/testflight-build.sh --config AppStore")
+          [ -f cmux-next-ios/scripts/asc_ensure_signing.py ] || missing+=("cmux-next-ios/scripts/asc_ensure_signing.py")
+          # The review package (App Review notes and store listing for NEXT).
+          [ -f cmux-next-ios/scripts/asc_review_package.py ] || missing+=("cmux-next-ios/scripts/asc_review_package.py (the review package)")
+          [ -d cmux-next-ios/AppStoreReview/metadata ] || missing+=("cmux-next-ios/AppStoreReview/metadata (the store listing)")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            for m in "${missing[@]}"; do echo "::error::$SHA has no $m"; done
+            exit 1
+          fi
+          VERSION="${INPUT_MARKETING_VERSION:-}"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(awk '$0 == "    AppStore:" { inside = 1; next } inside { match($0, /^ */); if (RLENGTH <= 4 && length($0) > RLENGTH) exit } inside && /^      MARKETING_VERSION:/ { print $2; exit }' cmux-next-ios/project.yml)"
+          fi
+          [ -n "$VERSION" ] || VERSION="$(awk '/^    MARKETING_VERSION:/{print $2; exit}' cmux-next-ios/project.yml)"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "::error::marketing version '$VERSION' is not X.Y.Z"; exit 1; }
+          BUILD_NUMBER="${INPUT_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M%S)}"
+          [[ "$BUILD_NUMBER" =~ ^[0-9]+$ ]] || { echo "::error::build number '$BUILD_NUMBER' must be digits"; exit 1; }
+          {
+            echo "sha=$SHA"
+            echo "version=$VERSION"
+            echo "build_number=$BUILD_NUMBER"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### cmux-next-ios App Store build"
+            echo
+            echo "- ref: \`${INPUT_REF:-feat-cmux-next}\` = \`$SHA\`"
+            echo "- version: \`$VERSION\` (\`$BUILD_NUMBER\`)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fetch shared-package upstream branches
+        run: git fetch --no-tags origin feat-cmux-next-tabs-kit:refs/remotes/origin/feat-cmux-next-tabs-kit feat-imsg-parity-gui:refs/remotes/origin/feat-imsg-parity-gui
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Tools (xcodegen, Rust)
+        run: |
+          set -euo pipefail
+          export PATH="/opt/homebrew/bin:$HOME/.cargo/bin:$PATH"
+          command -v xcodegen >/dev/null || brew install xcodegen
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          fi
+          { echo "/opt/homebrew/bin"; echo "$HOME/.cargo/bin"; } >> "$GITHUB_PATH"
+
+      - name: Archive
+        id: archive
+        env:
+          SHA: ${{ steps.resolve.outputs.sha }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+          BUILD_NUMBER: ${{ steps.resolve.outputs.build_number }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/cmux-mobile-builds"
+          export CMUX_MOBILE_BUILDS_ROOT="$root"
+          ARGS=(--config AppStore --bundle-id com.cmux.app --ref "$SHA" --unsigned --no-asc
+                --marketing-version "$VERSION" --build-number "$BUILD_NUMBER")
+          if [ -n "${ASC_APP_ID:-}" ]; then
+            ARGS+=(--app-id "$ASC_APP_ID")
+          fi
+          cmux-next-ios/scripts/testflight-build.sh "${ARGS[@]}"
+          out="$(find "$root" -maxdepth 1 -type d -name "*-${SHA:0:10}-testflight" -print0 | xargs -0 ls -td | head -1)"
+          app="$out/CmuxMobileApp.xcarchive/Products/Applications/CmuxMobileApp.app"
+          # App Review needs iPad screenshots only for an app that runs on iPad.
+          if plutil -extract UIDeviceFamily json -o - "$app/Info.plist" | grep -q 2; then
+            echo "ipad=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ipad=false" >> "$GITHUB_OUTPUT"
+          fi
+          mkdir -p "$RUNNER_TEMP/handoff"
+          ditto -c -k --keepParent "$out/CmuxMobileApp.xcarchive" "$RUNNER_TEMP/handoff/CmuxMobileApp.xcarchive.zip"
+          cp "$out/MANIFEST.md" "$RUNNER_TEMP/handoff/"
+          cat "$out/MANIFEST.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # What App Store Connect rejects only after an upload (ITMS-90626,
+      # 90683, ...), before the signer gets the archive.
+      - name: App Store review rules (built app)
+        env:
+          SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/cmux-mobile-builds"
+          out="$(find "$root" -maxdepth 1 -type d -name "*-${SHA:0:10}-testflight" -print0 | xargs -0 ls -td | head -1)"
+          python3 -I scripts/cmux-next/check-app-store-rules.py --source .
+          python3 -I scripts/cmux-next/check-app-store-rules.py --app "$out/CmuxMobileApp.xcarchive/Products/Applications/CmuxMobileApp.app"
+
+      - name: Hand the archive to the signer
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-ios-appstore-archive-${{ github.run_id }}
+          path: ${{ runner.temp }}/handoff/
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Clear the build
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/handoff" "$RUNNER_TEMP/cmux-mobile-builds"
+
+  upload-and-validate:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, rc/**, tags v*). The run is
+    # dispatched from main; the app source is the archive job's commit.
+    environment: release
+    name: Upload and validate production App Store build
+    if: github.event_name == 'push'
+    needs: [runners, archive]
+    # It holds the App Store Connect key, so the capability map's answer is used only
+    # when it is the Blacksmith label: the map reads CMUX_CI_RUNNER_OVERRIDES, which may
+    # name any machine (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26"]'), fromJSON(needs.runners.outputs.map).macos_26_ios) && fromJSON(needs.runners.outputs.map).macos_26_ios || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 90
+    env:
+      SHA: ${{ needs.archive.outputs.sha }}
+      VERSION: ${{ needs.archive.outputs.version }}
+      FINAL_BUILD_NUMBER: ${{ needs.archive.outputs.build_number }}
+      IPAD: ${{ needs.archive.outputs.ipad }}
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+      ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
+      ASC_TIMEOUT_SECONDS: "120"
+      # The App Store Connect record's name (testflight-build.sh checks the
+      # record is exactly this name and com.cmux.app before it uploads).
+      IOS_APPSTORE_APP_NAME: ${{ vars.IOS_APPSTORE_APP_NAME }}
+      INPUT_COPY_METADATA_FROM: ${{ github.event.inputs.copy_metadata_from }}
+      INPUT_SUBMIT_FOR_REVIEW: ${{ github.event.inputs.submit_for_review }}
+      INPUT_REFRESH_STORE_LISTING: ${{ github.event.inputs.refresh_store_listing }}
+      INPUT_RETARGET_INITIAL_DRAFT: ${{ github.event.inputs.retarget_initial_draft }}
+      # MANUAL holds an approved version until someone releases it in App Store
+      # Connect; AFTER_APPROVAL makes one dispatch (submit + release) the whole release.
+      IOS_APPSTORE_RELEASE_TYPE: ${{ github.event.inputs.release_when_approved == 'true' && 'AFTER_APPROVAL' || 'MANUAL' }}
+      # The App Store profiles asc_ensure_signing.py keeps for CI's certificate.
+      CMUX_MOBILE_PROFILE_NAME: cmux App Store CI
+      CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_NAME: cmux App Store CI Notification Content
+      CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_NAME: cmux App Store CI Notification Service
+    steps:
+      - name: Check the commit
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::the archive job resolved no commit" >&2; exit 1; }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "::error::no version from the archive job" >&2; exit 1; }
+          [[ "$FINAL_BUILD_NUMBER" =~ ^[0-9]+$ ]] || { echo "::error::no build number from the archive job" >&2; exit 1; }
+
+      - name: Checkout the app source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.archive.outputs.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      # This workflow's own helpers (the certificate check) come from the
+      # workflow's commit, not from the app commit above.
+      - name: Checkout the workflow's helpers
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .workflow-src
+          persist-credentials: false
+          sparse-checkout: ios/scripts
+          sparse-checkout-cone-mode: true
+
+      - name: Record app source
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = "$SHA" ] || { echo "::error::checked out $(git rev-parse HEAD), not $SHA" >&2; exit 1; }
+          git fetch --no-tags origin feat-cmux-next-tabs-kit:refs/remotes/origin/feat-cmux-next-tabs-kit feat-imsg-parity-gui:refs/remotes/origin/feat-imsg-parity-gui
+          echo "$SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install asc CLI
+        run: |
+          set -euo pipefail
+          BREW_BIN="$(command -v brew || true)"
+          if [ -z "$BREW_BIN" ] && [ -x /opt/homebrew/bin/brew ]; then
+            BREW_BIN=/opt/homebrew/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ] && [ -x /usr/local/bin/brew ]; then
+            BREW_BIN=/usr/local/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ]; then
+            echo "Homebrew is required to install asc CLI" >&2
+            exit 1
+          fi
+          "$BREW_BIN" list asc >/dev/null 2>&1 || "$BREW_BIN" install asc
+          dirname "$BREW_BIN" >> "$GITHUB_PATH"
+
+      - name: Verify asc CLI
+        run: |
+          set -euo pipefail
+          command -v asc
+          asc --version
+
+      - name: Materialize App Store Connect API key
+        run: |
+          set -euo pipefail
+          if [ -z "${ASC_API_KEY_ID:-}" ] || [ -z "${ASC_API_ISSUER_ID:-}" ] || [ -z "${ASC_API_KEY_P8_BASE64:-}" ]; then
+            echo "Missing upload credential secrets" >&2
+            exit 1
+          fi
+          if [ -z "${ASC_APP_ID:-}" ]; then
+            echo "Missing configured app id repository variable" >&2
+            exit 1
+          fi
+          KEY_DIR="$RUNNER_TEMP/appstoreconnect/private_keys"
+          KEY_PATH="$KEY_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
+          mkdir -p "$KEY_DIR"
+          chmod 700 "$KEY_DIR"
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          {
+            echo "ASC_API_KEY_PATH=$KEY_PATH"
+            echo "ASC_KEY_ID=$ASC_API_KEY_ID"
+            echo "ASC_ISSUER_ID=$ASC_API_ISSUER_ID"
+            echo "ASC_PRIVATE_KEY_PATH=$KEY_PATH"
+          } >> "$GITHUB_ENV"
+
+      - name: Import iOS distribution signing cert
+        env:
+          IOS_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          IOS_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${IOS_DISTRIBUTION_CERTIFICATE_BASE64:-}" ]; then
+            echo "Missing IOS_DISTRIBUTION_CERTIFICATE_BASE64 secret" >&2
+            exit 1
+          fi
+          if [ -z "${IOS_DISTRIBUTION_CERTIFICATE_PASSWORD:-}" ]; then
+            echo "Missing IOS_DISTRIBUTION_CERTIFICATE_PASSWORD secret" >&2
+            exit 1
+          fi
+
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          KEYCHAIN_NAME="ios-app-store.keychain"
+          CERT_PATH="$RUNNER_TEMP/ios-distribution.p12"
+          printf '%s' "$IOS_DISTRIBUTION_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
+          security delete-keychain "$KEYCHAIN_NAME" >/dev/null 2>&1 || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          # Signing ends long before the job timeout, so the idle lock is the
+          # job timeout. The keychain is deleted right after the signing step.
+          security set-keychain-settings -lut 5400 "$KEYCHAIN_NAME"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security import "$CERT_PATH" -k "$KEYCHAIN_NAME" -P "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$CERT_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN_NAME"
+          # The SHA-1 of the Apple Distribution identity for team 7WLXT3NR37:
+          # the profiles must list it, and testflight-build.sh signs with it.
+          IDENTITY_SHA1="$(
+            security find-identity -v -p codesigning "$KEYCHAIN_NAME" |
+              sed -n 's/^ *[0-9][0-9]*) \([0-9A-F]\{40\}\) "Apple Distribution: .* (7WLXT3NR37)"$/\1/p' |
+              head -n 1
+          )"
+          if [ -z "$IDENTITY_SHA1" ]; then
+            echo "No Apple Distribution identity for team 7WLXT3NR37 was found in the imported certificate" >&2
+            exit 1
+          fi
+          echo "CMUX_MOBILE_SIGN_IDENTITY=$IDENTITY_SHA1" >> "$GITHUB_ENV"
+
+      # The release environment's certificate must be the team's active Apple
+      # Distribution certificate in App Store Connect; checked before anything
+      # signs. Only the public certificate leaves the keychain, and only the
+      # serial number and the team are printed.
+      - name: Verify the release certificate in App Store Connect
+        run: |
+          set -euo pipefail
+          CERT_PEM="$RUNNER_TEMP/release-certificate.pem"
+          security find-certificate -a -Z -p ios-app-store.keychain |
+            awk -v want="$CMUX_MOBILE_SIGN_IDENTITY" '
+              /^SHA-1 hash: / { keep = ($3 == want) }
+              keep && /-----BEGIN CERTIFICATE-----/ { inside = 1 }
+              keep && inside { print }
+              /-----END CERTIFICATE-----/ { inside = 0 }
+            ' > "$CERT_PEM"
+          if ! grep -q 'BEGIN CERTIFICATE' "$CERT_PEM"; then
+            echo "::error::the imported keychain has no certificate for the distribution identity"
+            exit 1
+          fi
+          python3 -I .workflow-src/ios/scripts/asc_verify_distribution_certificate.py \
+            --certificate-pem "$CERT_PEM" --team 7WLXT3NR37
+          rm -f "$CERT_PEM"
+
+      # Bundle ids (com.cmux.app and its two notification extensions),
+      # capabilities (push, Sign in with Apple) and the App Store profiles that
+      # list CI's certificate: created when missing, reused when right.
+      - name: Ensure bundle ids, capabilities and App Store profiles
+        run: |
+          set -euo pipefail
+          PROFILE_DIR="$RUNNER_TEMP/appstoreconnect/profiles"
+          python3 -I cmux-next-ios/scripts/asc_ensure_signing.py \
+            --bundle-id com.cmux.app \
+            --app-profile "$CMUX_MOBILE_PROFILE_NAME" \
+            --content-profile "$CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_NAME" \
+            --service-profile "$CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_NAME" \
+            --certificate-sha1 "$CMUX_MOBILE_SIGN_IDENTITY" \
+            --out-dir "$PROFILE_DIR"
+          {
+            echo "CMUX_MOBILE_PROFILE_PATH=$PROFILE_DIR/app.mobileprovision"
+            echo "CMUX_MOBILE_CONTENT_EXTENSION_PROFILE_PATH=$PROFILE_DIR/content.mobileprovision"
+            echo "CMUX_MOBILE_SERVICE_EXTENSION_PROFILE_PATH=$PROFILE_DIR/service.mobileprovision"
+          } >> "$GITHUB_ENV"
+
+      - name: Download the archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-ios-appstore-archive-${{ github.run_id }}
+          path: ${{ runner.temp }}/handoff
+
+      - name: Sign, validate and upload the production build
+        id: upload
+        env:
+          CMUX_MOBILE_CI_ASC: "1"
+        run: |
+          set -euo pipefail
+          APP_NAME="${IOS_APPSTORE_APP_NAME:-}"
+          if [ -z "$APP_NAME" ]; then
+            APP_NAME="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' cmux-next-ios/AppStoreReview/metadata/app-info/en-US.json)"
+          fi
+          mkdir -p "$RUNNER_TEMP/archive"
+          ditto -x -k "$RUNNER_TEMP/handoff/CmuxMobileApp.xcarchive.zip" "$RUNNER_TEMP/archive"
+          CMUX_MOBILE_BUILDS_ROOT="$RUNNER_TEMP/cmux-mobile-builds" cmux-next-ios/scripts/testflight-build.sh \
+            --config AppStore --ref "$SHA" \
+            --app-id "$ASC_APP_ID" --bundle-id com.cmux.app --app-name "$APP_NAME" \
+            --from-archive "$RUNNER_TEMP/archive/CmuxMobileApp.xcarchive" --upload
+          out="$(find "$RUNNER_TEMP/cmux-mobile-builds" -maxdepth 1 -type d -name "*-testflight" | head -1)"
+          cat "$out/MANIFEST.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "final_build_number=$FINAL_BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+
+      # The upload made the last signature. Later steps (review package,
+      # validation, submission) run without the distribution identity.
+      - name: Delete iOS signing keychain after the archive
+        if: always()
+        run: security delete-keychain ios-app-store.keychain >/dev/null 2>&1 || true
+
+      - name: Keep the manifest and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-ios-appstore-${{ github.run_id }}
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/cmux-mobile-builds/*-testflight/MANIFEST.md
+            ${{ runner.temp }}/cmux-mobile-builds/*-testflight/ExportOptions.plist
+            ${{ runner.temp }}/cmux-mobile-builds/*-testflight/logs/
+          if-no-files-found: ignore
+
+      # The review package (App Review notes and store listing for NEXT) is the
+      # app commit's own: cmux-next-ios/scripts/asc_review_package.py and
+      # cmux-next-ios/AppStoreReview. The listing text went up with `asc metadata
+      # apply` above; sync-listing then sets and reads back each Support URL.
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### iOS App Store production"
+            echo
+            echo "- app: \`cmux-next-ios\` at \`${SHA}\` (bundle id \`com.cmux.app\`)"
+            echo "- signing: manual (CI-imported iOS distribution cert + App Store profiles from asc_ensure_signing.py)"
+            echo "- version: \`${VERSION}\`, build number (CFBundleVersion): \`${FINAL_BUILD_NUMBER}\`"
+            echo "- submit for review: \`${INPUT_SUBMIT_FOR_REVIEW}\`"
+            echo "- release type: \`${IOS_APPSTORE_RELEASE_TYPE}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup signing material
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/appstoreconnect" "$RUNNER_TEMP/release-certificate.pem" "$RUNNER_TEMP/archive" "$RUNNER_TEMP/handoff" "$RUNNER_TEMP/cmux-mobile-builds"
+          security delete-keychain ios-app-store.keychain >/dev/null 2>&1 || true
