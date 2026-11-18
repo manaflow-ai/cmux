@@ -118,7 +118,7 @@ import {
   withHandshakeNewTab,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
-import { heldPick, withDraftFolder } from "./newtab/draftFolder";
+import { heldPick, withCloudStartFolder, withDraftFolder } from "./newtab/draftFolder";
 import {
   cloudModePickFor as cloudModeFor,
   cloudSendAgent,
@@ -590,6 +590,13 @@ import {
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
 import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
+import {
+  lastNewChatPlace,
+  pickedRunLocation,
+  pickedStartMachine,
+  placeOfRunMode,
+  rememberNewChatPlace,
+} from "./lastNewChatPlace";
 import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
@@ -1841,7 +1848,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }),
   );
   const [cloudReservation] = useState(() => new CloudComposeReservation(callNative, browserSwitchClock));
-  const cloudComposeEligible = useRef(false);
+  /// Whether this compose reserves a machine ahead, and then the empty local chat its reserve names as the one
+  /// its Send would replace (`emptyLocalChat`); `replaces` undefined: a compose with no chat.
+  const cloudComposeEligible = useRef<false | { replaces: string | undefined }>(false);
   // The page going away (its tab closed) with an unsent prompt gives the warm agent back now.
   useEffect(() => {
     const gone = () => {
@@ -4846,6 +4855,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Cloud as where this new chat runs: wherever Sandboxed is, and in an empty local chat too.
   const cloudOfferable = sandboxOfferable || emptyLocalChat;
   const cloudOffered = sandbox.checked && cloudOfferable;
+  /// The chat a Cloud reserve made here names as the one its Send replaces: the empty local chat, else none.
+  const cloudReserveReplaces = emptyLocalChat ? (snapshot.sessionId ?? undefined) : undefined;
   /// The tab's Sandboxed result (sandboxRun.ts SandboxTab): its run (running, receipt, or an answer
   /// that may hide a live Run) or a refusal before any Run.
   const sandboxView = sandbox.view();
@@ -4903,22 +4914,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// This new chat's Cloud environment (the Environment chip, CLOUD_ENVIRONMENTS_ENABLED): Auto until
   /// picked, and Auto again once its Cloud send goes, a chat starts here or another new chat shows.
   const cloudEnvironment = useChatCloudEnvironment(`${snapshot.sessionId ?? ""}:${newTabGeneration}`);
+  /// Run mode set for this new chat: by the person (`sandboxModeRows.onMode`) or an automation.
+  const applyRunMode = (mode: RunMode) => {
+    if (mode === "cloud") cloudHint.used();
+    // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
+    // picker target must not survive that choice and wake the old machine on the next edit.
+    cloudDraftMachineID.current = null;
+    cloudTypingPrewarm.reset();
+    runModePicked.current = true;
+    sandbox.setMode(mode);
+    const eligible = mode === "cloud" && cloudOffered ? { replaces: cloudReserveReplaces } : false;
+    cloudComposeEligible.current = eligible;
+    if (eligible) {
+      newChatPrewarm.abandon();
+      cloudReservation.selected(eligible.replaces);
+    } else cloudReservation.abandon();
+  };
   const sandboxModeRows = {
     mode: sandbox.mode,
     environment: cloudEnvironment.pick,
+    /// The person's pick: the next new chat, in this pane or a new workspace's, starts there too (cmux#46019).
     onMode: (mode: RunMode) => {
-      if (mode === "cloud") cloudHint.used();
-      // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
-      // picker target must not survive that choice and wake the old machine on the next edit.
-      cloudDraftMachineID.current = null;
-      cloudTypingPrewarm.reset();
-      runModePicked.current = true;
-      sandbox.setMode(mode);
-      cloudComposeEligible.current = mode === "cloud" && sandboxOffered;
-      if (cloudComposeEligible.current) {
-        newChatPrewarm.abandon();
-        cloudReservation.selected();
-      } else cloudReservation.abandon();
+      const place = placeOfRunMode(mode);
+      if (place) rememberNewChatPlace(place);
+      applyRunMode(mode);
     },
   };
   /// The composer's Run as rows: picking Cloud there is the person's pick of the chat's folder too,
@@ -4970,8 +4989,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudPicked = sandbox.mode === "cloud" && (!snapshot.sessionId || emptyLocalChat);
   // The permission mode picked for that Cloud start (cloudModePick.ts).
   const cloudModePick = useCloudModePick();
-  // A warm machine is reserved only before a chat opened here: the host reserves none for a tab with one.
-  cloudComposeEligible.current = cloudPicked && sandboxOfferable;
+  // A warm machine is reserved wherever Cloud is offered: before a chat opened here, or in an empty local chat,
+  // whose reserve names the chat its Send replaces (the host reserves for a tab with a chat only for that one).
+  cloudComposeEligible.current = cloudPicked && cloudOfferable ? { replaces: cloudReserveReplaces } : false;
   const cloudPickedNotOffered = cloudPicked && !cloudOffered;
   const [startCloud] = useState(() =>
     grantedCloudStart(reservedCloudCall(callNative, cloudReservation), cloudFolderGrant),
@@ -5009,6 +5029,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat view shows the start (CloudStartView: the sent prompt, its steps, a failure and Retry) in place
   /// of the new chat: one with no session, or an empty local chat the start replaces (`emptyLocalChat`).
   const cloudStartShown = cloudStart !== undefined && (!snapshot.sessionId || emptyLocalChat);
+  /// The folder the shown start copies (none for a folderless one): the composer's folder chip names it (cmux#46023).
+  const cloudStartFolderShown = cloudStartShown ? cloudStart?.cwd : undefined;
   const cloudStarting = cloudStart?.state === "starting";
   /// Nothing that starts a chat goes from this tab while a Cloud start is out, stalled or not: if it
   /// still opens its chat, the host closes this tab, with a chat started here in it.
@@ -7571,10 +7593,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (startingQueued.length || heldRows.length)
       withCommands.queue = [...shownQueue, ...startingQueued.map(startingQueueEntry), ...heldRows];
     else if (shownQueue !== snapshot.queue) withCommands.queue = [...shownQueue];
-    return withDraftFolder(withCommands, projectDraft);
+    // While a Cloud start shows in place of the chat, the chip names the folder that start copies (cmux#46023),
+    // unless the person picked a folder here since: the next send copies that pick, so the chip names it.
+    return projectDraft
+      ? withDraftFolder(withCommands, projectDraft)
+      : withCloudStartFolder(withCommands, cloudStartFolderShown);
   }, [
     snapshot,
     projectDraft,
+    cloudStartFolderShown,
     continueAvailable,
     forkable,
     forkSeq,
@@ -7617,15 +7644,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Never in a tab on another machine (SSH, Cloud): its chat stays on that machine, and the host
   /// refuses `cloud.startChat` from it. A fresh connection has its origin before any summary.
   const onOtherMachine = remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer";
+  /// The person's last pick of where a new chat starts (lastNewChatPlace.ts), read again for each new
+  /// chat here: a pick on another workspace's page since counts.
+  const lastPlace = useMemo(
+    () => lastNewChatPlace(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- read again per new chat, not per render
+    [snapshot.sessionId, newTabGeneration],
+  );
   const folderRunDefault = useMemo(
     () =>
       sandboxOffered && !onOtherMachine
         ? newChatRunLocation(
             newChatsIn,
             folderRunLocation(composerSnapshot.summary?.cwd ?? newTab?.cwd, snapshot.sessions, snapshot.peerKinds),
+            pickedRunLocation(lastPlace),
           )
         : undefined,
     [
+      lastPlace,
       sandboxOffered,
       onOtherMachine,
       newChatsIn,
@@ -7635,6 +7671,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.peerKinds,
     ],
   );
+  /// The New Tab page's machine by the person's last pick (cmux#46019), while acpmux lists it.
+  /// Settings' Start New Chats In set to Cloud is read on its own: the folder default waits for the host's check.
+  /// Never on a page of another machine: its new chat stays on that machine.
+  const newTabStartMachine = onOtherMachine
+    ? undefined
+    : pickedStartMachine(
+        lastPlace,
+        newChatsIn === "cloud" ? "cloud" : folderRunDefault,
+        snapshot.peers,
+        snapshot.peerConnected,
+      );
   /// The chat the folder default last saw (its session, or the New Tab adoption it came with).
   const defaultedChat = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -7778,6 +7825,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }
       // Another computer's folder is that computer's to check.
       if (peer) {
+        rememberNewChatPlace({ kind: "machine", peer });
         void callNative("chat.new", { cwd, peer }).catch(() => undefined);
         return Promise.resolve();
       }
@@ -7877,7 +7925,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // An empty local chat offers Cloud and This Mac, never Sandboxed (`emptyLocalChat`).
       const offered = sandboxOffered || (cloudOffered && mode !== "sandboxed");
       if (!offered && !sandboxPickedNotOffered && !cloudPickedNotOffered) return false;
-      sandboxModeRows.onMode(mode);
+      // An automation's mode is this chat's only, never the person's pick for the next new chat.
+      applyRunMode(mode);
       return true;
     },
     cloudStart: () => cloudStart ?? null,
@@ -11527,7 +11576,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       newChatDraft.typed = text;
       const sent = postNewChatDraft();
       if (cloudComposeEligible.current) {
-        cloudReservation.typed(text);
+        cloudReservation.typed(text, cloudComposeEligible.current.replaces);
         return sent;
       }
       const { harness } = freshPick.current;
@@ -11547,7 +11596,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       );
       if (machineID && handshaken && !reconnectingRef.current) cloudTypingPrewarm.typed(text, { machineID });
       if (cloudComposeEligible.current) {
-        cloudReservation.typed(text);
+        cloudReservation.typed(text, cloudComposeEligible.current.replaces);
         return;
       }
       newChatPrewarm.typed(
@@ -13082,6 +13131,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // Switching away from an explicitly selected Cloud machine must not leave a stale
               // draft target that a later keystroke could wake.
               cloudDraftMachineID.current = null;
+              rememberNewChatPlace(computer === "local" ? { kind: "local" } : { kind: "machine", peer: computer });
               void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined);
             }}
             // A chat on a Cloud machine whose first send has not run: another Cloud machine picked moves it
@@ -13587,6 +13637,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   onImportFile={importFile}
                   importError={importError}
                   importSandboxed={sandbox.mode === "sandboxed"}
+                  // The machine the person last picked for a new chat (cmux#46019), while acpmux lists it.
+                  {...(newTabStartMachine ? { startMachine: newTabStartMachine } : {})}
                   onCommands={(harness, cwd) => {
                     void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
                       () => undefined,

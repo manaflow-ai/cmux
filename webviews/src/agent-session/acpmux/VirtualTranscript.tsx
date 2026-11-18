@@ -1083,6 +1083,7 @@ const SCROLL_LEAD_STEPS = 2;
 
 /// Once a fling stops, keep its lead only briefly. A stale direction keeps rows mounted far ahead
 /// of the reader and makes every later render pay for a scroll that already ended.
+// motion-allow: a scroll idle timeout, not a motion
 const SCROLL_LEAD_IDLE_MS = 120;
 
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
