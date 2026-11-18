@@ -78,16 +78,11 @@ HOSTED_LOOP_JOBS = {
     "publish-nightly-next-github": "uploads only, with the release App key that publish-release-notes already takes to "
                                    "an ephemeral hosted VM; on the signer it held the whole Mac",
 }
-# A secret-free preflight on GitHub-hosted Ubuntu, ahead of decide. job -> why. It judges whether the labels the run
-# would wait on (vars.CI_NIGHTLY_MINI, or the nightly-only label) have an online runner, so it must not wait on one of
-# them itself: 2026-11-10 CI_NIGHTLY_MINI named cmux-lawrence-2-light, whose runners went offline at 00:45Z, and every
-# job, decide first, sat queued for 3+ h while the dedicated nightly Macs were idle. It holds no secret and reads only
-# vars.CI_RUNNER_STATE (scripts/ci/nightly_runner_preflight.py, tests/test_nightly_runner_preflight.py). Its cost: a
-# hosted queue delays decide by that queue's wait.
-HOSTED_PREFLIGHT_JOBS = {
-    "runner-preflight": "fails the run in minutes when its routing label has no online runner; on that label it "
-                        "would itself wait for hours",
-}
+# The secret-free runner preflight ahead of decide left GitHub-hosted Ubuntu on 2026-11-18: the org-wide hosted
+# queue held it 1h25m+ (run 44207617943), and every nightly with it, while the nightly Macs were idle. It now runs on
+# the dedicated nightly-only pool (never vars.CI_NIGHTLY_MINI, the label it exists to judge;
+# tests/test_nightly_runner_preflight.py). No nightly job waits on GitHub-hosted Ubuntu before publish.
+HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes GitHub-hosted through this
 # short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
 # not hold the exclusive signing Mac. job -> why.
