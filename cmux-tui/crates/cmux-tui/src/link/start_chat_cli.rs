@@ -1198,7 +1198,8 @@ fn push(
     if let Some(projected) = project_first(socket, local, remote, chat) {
         return projected;
     }
-    super::seed_cli::push(socket, local, remote, Some(subpath))
+    let _ = subpath;
+    super::seed_cli::push_copy_only(socket, local, remote)
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
@@ -1242,7 +1243,8 @@ fn push_seed_only(
     if let Some(projected) = project_first(socket, local, remote, chat) {
         return projected;
     }
-    super::seed_cli::push_seed_only(socket, local, remote, Some(subpath))
+    let _ = subpath;
+    super::seed_cli::push_copy_only(socket, local, remote)
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
@@ -1554,19 +1556,14 @@ fn join(base: &str, name: &str) -> String {
     if base.ends_with('/') { format!("{base}{name}") } else { format!("{base}/{name}") }
 }
 
-/// A copied folder's name on a machine: its own name and a short hash
-/// (32-bit FNV-1a, low 24 bits) of where it is on this Mac, so two folders
-/// with one name never share a copy. The same name Move to Cloud gives
-/// (`CloudMoveFolder.remoteName`).
+/// A copied folder's name on a machine: its own name, as on this Mac. Two folders with one
+/// name never share a copy, as each copy has its own place (Move to Cloud, which has none,
+/// keeps its hashed name: `CloudMoveFolder.remoteName`).
 pub(super) fn remote_name(root: &str) -> String {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in root.bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
+    // The folder's own name: each copy already has a place of its own (`fresh_place`), so the
+    // chat sees `cmuxterm-hq`, as on the Mac, not a name with a hash after it.
     let name = root.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-    let name = if name.is_empty() { "folder" } else { name };
-    format!("{name}-{:06x}", hash & 0x00ff_ffff)
+    if name.is_empty() { "folder".to_owned() } else { name.to_owned() }
 }
 
 /// `--flag value` pairs; a flag may repeat (`--work-root`).
