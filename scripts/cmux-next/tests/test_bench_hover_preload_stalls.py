@@ -109,6 +109,21 @@ class StallFrames(unittest.TestCase):
         app_call = next(call for call in recorder.calls if call[call.index("-o") + 1] == self.app_bin)
         self.assertEqual(app_call[app_call.index("-arch") + 1], "arm64", "a universal binary needs its slice")
 
+    def test_a_frame_of_the_app_framework_is_named_from_its_binary(self):
+        # Release: the app's code is CmuxNextApp.framework behind the stub Contents/MacOS/cmux (CMUX-629).
+        fw_uuid = uuid.uuid4()
+        fw = os.path.join(self.bundle, "Contents/Frameworks/CmuxNextApp.framework")
+        os.makedirs(os.path.join(fw, "Versions/A"))
+        with open(os.path.join(fw, "Versions/A/CmuxNextApp"), "wb") as handle:
+            handle.write(thin(ARM64, fw_uuid))
+        os.symlink("A", os.path.join(fw, "Versions/Current"))
+        os.symlink("Versions/Current/CmuxNextApp", os.path.join(fw, "CmuxNextApp"))
+        records = [{"kind": "stall", "duration_ms": 20.0, "cpu_ms": 19.0, "frames": ["a"],
+                    "frame_details": [frame("CmuxNextApp", fw_uuid, 0x100)]}]
+        report, _ = self.run_stalls(records)
+        [name] = report["sweep_stalls"]["stalls"][0]["frames"]
+        self.assertTrue(name.startswith("fn_100 (in Contents/Frameworks/CmuxNextApp.framework/"), name)
+
     def test_a_frame_whose_uuid_no_bundle_file_has_stays_unnamed(self):
         records = [{"kind": "stall", "duration_ms": 20.0, "cpu_ms": 19.0, "frames": ["cmux +0x100"],
                     "frame_details": [frame("cmux", uuid.uuid4(), 0x100)]}]
