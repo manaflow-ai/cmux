@@ -480,12 +480,12 @@ fn host_policy_a_person_split_shrinks_the_mac_pane_at_once() {
 
 /// A second column right of the rig's pane, made by the daemon (not an
 /// agent): the panes of the two columns.
-fn two_columns(rig: &Rig) -> (crate::PaneId, crate::PaneId) {
+fn two_columns(rig: &Rig) -> (PaneId, PaneId) {
     two_columns_of(rig, &rig.surface)
 }
 
 /// As [`two_columns`], in the workspace of `surface`.
-fn two_columns_of(rig: &Rig, surface: &crate::Surface) -> (crate::PaneId, crate::PaneId) {
+fn two_columns_of(rig: &Rig, surface: &crate::Surface) -> (PaneId, PaneId) {
     let first = rig.mux.with_state(|state| state.pane_of(surface.id).unwrap());
     let right = rig.mux.new_pane_right(first, 0.5, Some((38, 22))).unwrap();
     let right = rig.mux.with_state(|state| state.pane_of(right.id).unwrap());
@@ -503,7 +503,7 @@ fn column_widths(rig: &Rig) -> Vec<f32> {
 fn batch(
     rig: &Rig,
     actor: &crate::Actor,
-    columns: (crate::PaneId, crate::PaneId),
+    columns: (PaneId, PaneId),
     widths: (f32, f32),
 ) -> Result<(), crate::mux::LayoutSizesError> {
     rig.mux.set_layout_sizes_in_transaction_checked_as(
@@ -518,7 +518,7 @@ fn batch(
 }
 
 /// The rig with two columns, this Mac's view and a phone that sets the grid.
-fn two_column_rig(name: &str) -> (Rig, (crate::PaneId, crate::PaneId), View, View) {
+fn two_column_rig(name: &str) -> (Rig, (PaneId, PaneId), View, View) {
     let rig = rig(name);
     let columns = two_columns(&rig);
     let mac = rig.mac((120, 40));
