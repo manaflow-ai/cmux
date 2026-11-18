@@ -37,18 +37,6 @@
       "count": 2,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
     },
-    "agent-pane.background-tasks-runs#drill": {
-      "count": 7,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.background-tasks-runs#long-run": {
-      "count": 7,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.background-tasks-runs#run-open": {
-      "count": 7,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
     "agent-pane.chat-motion-pass#mid-turn-send": {
       "count": 17,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
