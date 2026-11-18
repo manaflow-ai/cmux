@@ -39,8 +39,17 @@ import {
   type ProMetadataJson,
   type StripeBillingStatus,
 } from "../billing/pro";
+import { NEXT_MAX_PLAN_ID, NEXT_PRO_PLAN_ID, isNextPlanId } from "../billing/nextPlans";
 
-export const ADMIN_GRANTABLE_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, FOUNDERS_PLAN_ID] as const;
+// `next_pro` / `next_max` grant a cmux NEXT Cloud plan (see
+// services/billing/nextPlans.ts); the classic app reads them as no plan.
+export const ADMIN_GRANTABLE_PLAN_IDS = [
+  PRO_PLAN_ID,
+  MAX_PLAN_ID,
+  FOUNDERS_PLAN_ID,
+  NEXT_PRO_PLAN_ID,
+  NEXT_MAX_PLAN_ID,
+] as const;
 export type AdminGrantablePlanId = (typeof ADMIN_GRANTABLE_PLAN_IDS)[number];
 
 export const ADMIN_USER_SEARCH_LIMIT = 25;
@@ -153,6 +162,29 @@ export class AdminGrantConflictError extends Error {
     super("Another account mutation is in progress");
     this.name = "AdminGrantConflictError";
   }
+}
+
+/**
+ * A manual grant would replace a classic plan grant with a cmux NEXT one, or
+ * the reverse. Both live in the one `cmuxVmPlan` key, so the operator must
+ * remove the existing grant first instead of silently losing it.
+ */
+export class AdminGrantPlanFamilyConflictError extends Error {
+  constructor(readonly userId: string, readonly currentPlan: string, readonly requestedPlan: string) {
+    super("The account holds a manual grant of the other plan family");
+    this.name = "AdminGrantPlanFamilyConflictError";
+  }
+}
+
+const CLASSIC_GRANT_PLAN_IDS: readonly string[] = [PRO_PLAN_ID, MAX_PLAN_ID, FOUNDERS_PLAN_ID];
+
+/** Whether writing `requested` over `current` crosses between classic and NEXT grants. */
+export function crossesPlanFamily(current: string | null, requested: string | null): boolean {
+  if (current === null || requested === null) return false;
+  const currentNext = isNextPlanId(current);
+  const requestedNext = isNextPlanId(requested);
+  if (currentNext === requestedNext) return false;
+  return currentNext ? CLASSIC_GRANT_PLAN_IDS.includes(requested) : CLASSIC_GRANT_PLAN_IDS.includes(current);
 }
 
 export function isAdminGrantablePlanId(value: unknown): value is AdminGrantablePlanId {
@@ -303,6 +335,10 @@ export async function setManualPlanGrant(
         if (!Number.isNaN(auditAt) && auditAt > input.unlessAuditNewerThan.getTime()) {
           return user;
         }
+      }
+      const currentGrant = manualVmPlanOverride(user.clientReadOnlyMetadata);
+      if (crossesPlanFamily(currentGrant, input.plan)) {
+        throw new AdminGrantPlanFamilyConflictError(input.targetUserId, currentGrant!, input.plan!);
       }
       await lease.refresh();
       const client = metadataRecord(user.clientReadOnlyMetadata);
@@ -853,6 +889,37 @@ export async function revokePendingEmailGrant(input: {
  * same user's next sign-in, or anyone after the TTL, picks up again. The
  * metadata write is idempotent, so a retry after a crash is safe.
  */
+/**
+ * Writes the newest claimed pending grant. False when the account holds a
+ * grant of the other plan family: the pending grant stays open for an
+ * operator to resolve instead of replacing it. Any other failure releases
+ * the claims and is rethrown.
+ */
+async function applyNewestPendingGrant(
+  grant: (input: SetManualPlanGrantInput) => Promise<unknown>,
+  userId: string,
+  plan: AdminGrantablePlanId,
+  newest: { readonly id: string; readonly grantedByUserId: string; readonly grantedByEmail: string | null; readonly createdAt: Date },
+  releaseClaims: () => Promise<void>,
+): Promise<boolean> {
+  try {
+    await grant({
+      targetUserId: userId,
+      plan,
+      admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
+      // A direct admin decision made after this grant was created wins.
+      unlessAuditNewerThan: newest.createdAt,
+      supersedePending: false,
+      pendingGrantId: newest.id,
+    });
+    return true;
+  } catch (error) {
+    await releaseClaims();
+    if (error instanceof AdminGrantPlanFamilyConflictError) return false;
+    throw error;
+  }
+}
+
 export async function applyPendingEmailGrants(
   user: { readonly id: string; readonly primaryEmail?: string | null },
   options: {
@@ -922,22 +989,7 @@ export async function applyPendingEmailGrants(
 
   const newest = [...claimed].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]!;
   const plan = isAdminGrantablePlanId(newest.plan) ? newest.plan : null;
-  if (plan !== null) {
-    try {
-      await grant({
-        targetUserId: user.id,
-        plan,
-        admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
-        // A direct admin decision made after this grant was created wins.
-        unlessAuditNewerThan: newest.createdAt,
-        supersedePending: false,
-        pendingGrantId: newest.id,
-      });
-    } catch (error) {
-      await releaseClaims();
-      throw error;
-    }
-  }
+  if (plan !== null && !(await applyNewestPendingGrant(grant, user.id, plan, newest, releaseClaims))) return 0;
 
   // Finalize only rows this sign-in still owns: a claim stolen after the TTL
   // belongs to that later sign-in, which finalizes (or compensates) itself.

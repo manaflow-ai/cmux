@@ -157,6 +157,23 @@ describe("Pro roster", () => {
     ]);
   });
 
+  test("scans list cmux NEXT grants with their plan id", async () => {
+    const app = fakeApp({
+      users: [
+        { id: "u1", primaryEmail: "a@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "next_pro" }, serverMetadata: {} },
+        { id: "u2", primaryEmail: "b@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "next_max" }, serverMetadata: {} },
+        { id: "u3", primaryEmail: "c@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxPlan: "next_pro" }, serverMetadata: {} },
+      ],
+      teams: [
+        { id: "t1", displayName: "Acme", clientReadOnlyMetadata: { cmuxVmPlan: "next_max" }, serverMetadata: {} },
+      ],
+    });
+    const users = await scanManualUserGrants(null, { app });
+    expect(users.rows.map((row) => [row.userId, row.plan])).toEqual([["u1", "next_pro"], ["u2", "next_max"]]);
+    const teams = await scanManualTeamGrants(null, { app });
+    expect(teams.rows.map((row) => [row.teamId, row.plan])).toEqual([["t1", "next_max"]]);
+  });
+
   test("scans teams for paid manual overrides", async () => {
     const app = fakeApp({ teams: [
       { id: "t1", displayName: "Acme", clientReadOnlyMetadata: { cmuxVmPlan: "team" }, serverMetadata: {} },

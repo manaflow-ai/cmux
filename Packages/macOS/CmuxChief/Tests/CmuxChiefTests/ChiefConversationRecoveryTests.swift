@@ -199,20 +199,36 @@ import Testing
     // MARK: Localized text
 
     @Test func transcriptTextIsLocalized() throws {
-        // SwiftPM uses both a flat resource directory and an app-style
-        // Contents/Resources wrapper across its package and Xcode runners.
-        // Read the catalog file directly so the test checks the resource that
-        // ships instead of relying on Bundle(path:) accepting an .lproj URL.
-        let roots = [ChiefText.bundle.resourceURL, ChiefText.bundle.bundleURL].compactMap { $0 }
-        let candidates = roots.flatMap { root in
-            [root.appendingPathComponent("ja.lproj/Localizable.strings"),
-             root.appendingPathComponent("Contents/Resources/ja.lproj/Localizable.strings")]
-        }
-        let stringsURL = try #require(candidates.first { FileManager.default.isReadableFile(atPath: $0.path) })
-        let strings = try #require(NSDictionary(contentsOf: stringsURL) as? [String: String])
-        let failed = try #require(strings["chief.turn.failed"])
+        let failed = try #require(try Self.shippedJapanese("chief.turn.failed"))
         #expect(failed != "chief.turn.failed")
         #expect(failed.contains("%@") && !failed.contains("could not finish"))
         #expect(ChiefText.turnFailed("boom").contains("boom"))
+    }
+
+    /// The Japanese text the package's resource bundle ships for `key`.
+    ///
+    /// An Xcode build compiles the String Catalog into `ja.lproj/Localizable.strings`,
+    /// in a flat resource directory or an app-style Contents/Resources wrapper.
+    /// Command-line `swift test` (the swift-package-tests lane) copies
+    /// `Localizable.xcstrings` into the bundle uncompiled and emits no `.lproj`,
+    /// so there the copied catalog is read instead. Either way the file read is
+    /// the one in the bundle, not Bundle(path:) accepting an .lproj URL.
+    private static func shippedJapanese(_ key: String) throws -> String? {
+        let roots = [ChiefText.bundle.resourceURL, ChiefText.bundle.bundleURL].compactMap { $0 }
+        let readable = { (relative: String) -> URL? in
+            roots.flatMap { [$0.appendingPathComponent(relative),
+                             $0.appendingPathComponent("Contents/Resources/" + relative)] }
+                .first { FileManager.default.isReadableFile(atPath: $0.path) }
+        }
+        if let stringsURL = readable("ja.lproj/Localizable.strings") {
+            let strings = try #require(NSDictionary(contentsOf: stringsURL) as? [String: String])
+            return strings[key]
+        }
+        let catalogURL = try #require(readable("Localizable.xcstrings"),
+                                      "the bundle has neither ja.lproj/Localizable.strings nor Localizable.xcstrings")
+        let catalog = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: catalogURL)) as? [String: Any])
+        let entry = (catalog["strings"] as? [String: Any])?[key] as? [String: Any]
+        let japanese = (entry?["localizations"] as? [String: Any])?["ja"] as? [String: Any]
+        return (japanese?["stringUnit"] as? [String: Any])?["value"] as? String
     }
 }
