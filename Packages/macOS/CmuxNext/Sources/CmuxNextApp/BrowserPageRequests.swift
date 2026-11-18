@@ -222,6 +222,17 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.verificationAutofill.pageWaiting(page)
         case .designMode(let message):
             services.designMode.receive(message, from: page)
+        case .devTools(let command):
+            // The DevTools divider's rows: the palette's Developer Tools actions on this tab. The
+            // divider stands in for its page as a right-click on the page does (`implied`).
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: key))
+            invocation.keyContext = services.registry.context.union([.browserFocused, .webViewFocused])
+            services.registry.perform(ActionID(rawValue: command.actionID), invocation: invocation)
+        case .goToHistoryEntry(let offset):
+            // A Back or Forward menu row: the palette's Go Back or Forward to… on this tab.
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), arguments: ["entry": .string(String(offset))])
+            invocation.keyContext = services.registry.context.union(.browserFocused)
+            services.registry.perform("browser.goToHistoryEntry", invocation: invocation)
         case .protectedMediaUnavailable(let media):
             reopenInWebKit(page, for: media, tab: openerTab, pane: pane)
         case .unhandledEscape, .resizePopup:

@@ -100,8 +100,8 @@ enum BrowserToolbarHandlers {
         }
         let list = services.cache.pageRequests.downloads
         buttons.refresh()
-        if finished { return BrowserDownloadsPopup.shared.showFinished(list, buttons: buttons, showFolder: showFolder) }
-        BrowserDownloadsPopup.shared.toggle(list, buttons: buttons, showFolder: showFolder)
+        if finished { return BrowserDownloadsPopup.shared.showFinished(list, registry: services.registry, buttons: buttons, showFolder: showFolder) }
+        BrowserDownloadsPopup.shared.toggle(list, registry: services.registry, buttons: buttons, showFolder: showFolder)
         return true
     }
 

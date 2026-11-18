@@ -16,6 +16,7 @@ enum RemoteHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         // A joined machine's menu rows (machines joined through the hub): Check, Rotate Credential, Revoke….
         MachineSectionHostView.bindJoinedActions(into: registry, context: context)
+        bindQuality(into: registry, context: context)
         let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
         // The palette collects a machine, or offers Add Machine when none is

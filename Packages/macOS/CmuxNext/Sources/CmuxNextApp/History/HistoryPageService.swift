@@ -177,6 +177,11 @@ extension TabContentCache {
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)
             }
+            // The toolbar's Quality menu runs the palette's Set Screen Sharing Quality… on this tab.
+            page.onPickQuality = { [weak services] preset in
+                services?.registry.perform("remote.setQuality", invocation: ActionInvocation(
+                    target: ActionTargetRef(kind: .tab, id: key), arguments: ["quality": .string(preset.rawValue)], origin: .user))
+            }
             return page
         }
         if VaultPageAddress.matches(url) {

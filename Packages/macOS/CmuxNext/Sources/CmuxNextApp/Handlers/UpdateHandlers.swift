@@ -36,6 +36,13 @@ enum UpdateHandlers {
                 registry.track(result: result(updater.installAnswer(after: baseline)))
             })
         }
+        // The update cards' Hide and right-click choices (UPDATE-CARD-CLOSE): the card's menu runs this
+        // action, and the palette offers it only while such a card shows (a disabled row is not listed).
+        registry.bindEffect("updates.snooze", isEnabled: { updater.showsUpdateCloseMenu }, effect: { invocation in
+            guard let option = invocation["option"]?.stringValue.flatMap(UpdateCardCloseOption.init(rawValue:)) else { return .done }
+            updater.closeUpdateCard(option)
+            return .done
+        })
         // The ring return's rollback check reads the same stores as updates.rollback.
         updater.pulledWatch.stateDirectories = stateDirectories
         // Drop back (destructive: every entrypoint confirms; the CLI passes --confirm).

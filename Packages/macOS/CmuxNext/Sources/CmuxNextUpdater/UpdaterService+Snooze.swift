@@ -19,6 +19,15 @@ extension UpdaterService {
     /// The Hide button's action id.
     public static var updateHideAction: String { UpdateCardCloseOption.hideVersion.rawValue }
 
+    /// Whether a card that offers ``updateCloseMenu`` shows now: the staged update's card (not
+    /// while it installs), or a found update's notice. The palette's Snooze Update Card… (`updates.snooze`)
+    /// is offered only then, as the menu is.
+    public var showsUpdateCloseMenu: Bool {
+        if let ready = readyCard { return !ready.isInstalling }
+        guard let shown = cardPresentation else { return false }
+        return shown.dismissible && shown.actions.contains(.update)
+    }
+
     /// The update version a card shows now: the staged one, else the found one.
     var shownUpdateVersion: String? {
         switch flow.phase {

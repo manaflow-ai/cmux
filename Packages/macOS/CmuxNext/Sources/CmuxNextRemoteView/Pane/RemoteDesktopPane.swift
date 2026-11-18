@@ -15,6 +15,10 @@ public struct RemoteDesktopPaneHandlers {
     /// A quality preset picked in the toolbar menu (`remoteDesktop.quality`
     /// for this session; the App sends it to the host).
     public var selectQuality: (RemoteQualityPreset) -> Void = { _ in }
+    /// A row of the toolbar's Quality menu: the App runs it as the palette's Set Screen Sharing
+    /// Quality… (`remote.setQuality`, which calls ``RemoteDesktopPane/selectQuality(_:)``). Nil: the
+    /// pane applies the row itself.
+    public var pickQuality: ((RemoteQualityPreset) -> Void)?
     /// A display picked (phase 2: the host's display list).
     public var selectDisplay: (Int) -> Void = { _ in }
     /// The mode the toolbar asked for (the toggle, or Take over / Hand back), after the pane
@@ -246,9 +250,7 @@ public final class RemoteDesktopPane {
         view.toolbar.onSelectMode = { [weak self] mode in self?.selectMode(mode) }
         view.toolbar.onSelectQuality = { [weak self] preset in
             guard let self else { return }
-            settings.quality = preset
-            view.render(state: state, settings: settings)
-            handlers.selectQuality(preset)
+            selectQuality(preset)
         }
         view.toolbar.onSelectDisplay = { [weak self] in self?.handlers.selectDisplay($0) }
         view.toolbar.onStop = { [weak self] in self?.stopPressed() }
@@ -264,6 +266,17 @@ public final class RemoteDesktopPane {
         view.card.onClose = { [weak self] in self?.handlers.close() }
         view.banner.onControlAnyway = { [weak self] in self?.apply(.controlAnyway) }
     }
+
+    /// A quality preset for this session (the Quality menu's row, `remote.setQuality`): the toolbar
+    /// shows it, then the owner is told.
+    public func selectQuality(_ preset: RemoteQualityPreset) {
+        settings.quality = preset
+        view.render(state: state, settings: settings)
+        handlers.selectQuality(preset)
+    }
+
+    /// Why Set Screen Sharing Quality… cannot run: no remote desktop session is shown.
+    public static var noSessionReason: String { RemoteViewStrings.unavailableTitle }
 
     /// The toolbar's mode choice: applied, then told to the owner (a press of the mode already
     /// in force does nothing).

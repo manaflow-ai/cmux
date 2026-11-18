@@ -61,4 +61,9 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     /// The hosts New Remote Group offers (its `destination`): connected machines, online Tailscale
     /// peers, then `~/.ssh/config` aliases, each once, by SSH destination.
     public static let remoteHosts = "remoteHosts"
+    /// The focused tab's back/forward entries (Go Back or Forward to…'s `entry`), by their offset from the
+    /// current page, earlier pages nearest first, then later ones.
+    public static let browserBackForwardEntries = "browserBackForwardEntries"
+    /// The browser's downloads (the `browser.download.*` rows' `download`), by id, newest first.
+    public static let browserDownloads = "browserDownloads"
 }
