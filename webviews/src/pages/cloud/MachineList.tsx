@@ -22,7 +22,7 @@ import {
   type MachineLayout,
   type MachineRow,
 } from "./model";
-import { archiving, deleteDate, shownNotice, type DeleteDate } from "./retention";
+import { archiving, deleteDate, noticeKey, shownNotice, type DeleteDate } from "./retention";
 import { machineCapNote } from "./spendCap";
 import { format, L } from "./strings";
 
@@ -88,7 +88,7 @@ export function MachineList({
           layout={layout}
           selected={row.id === selection}
           strings={strings}
-          dismissed={dismissed}
+          noticeDismissed={noticeDismissed(row, dismissed)}
           onSelect={onSelect}
           onOpen={onOpen}
           onPause={onPause}
@@ -104,7 +104,14 @@ export function MachineList({
 type MachineItemProps = Omit<MachineListProps, "rows" | "selection" | "dismissed"> & {
   row: MachineRow;
   selected: boolean;
-  dismissed: ReadonlySet<string>;
+  /** This browser dismissed the machine's current notice: a boolean per row, so dismissing one
+   * notice draws that row alone, not every row given the new set. */
+  noticeDismissed: boolean;
+};
+
+const noticeDismissed = (row: MachineRow, dismissed: ReadonlySet<string>) => {
+  const notice = row.machine?.notice;
+  return !!notice && dismissed.has(noticeKey(row.id, notice.at));
 };
 
 /** Rows rebuilt from an unchanged machine (the mirror rebuilds every row on each event) count as
@@ -130,7 +137,7 @@ const MachineItem = memo(function MachineItem({
   layout,
   selected,
   strings,
-  dismissed,
+  noticeDismissed,
   onSelect,
   onOpen,
   onPause,
@@ -145,7 +152,7 @@ const MachineItem = memo(function MachineItem({
   // Kept shows at once on a toggle (a quick intent); the platform's record follows.
   const machine = row.machine && row.keep !== undefined ? { ...row.machine, keep: row.keep } : row.machine;
   const leaving = !row.pending && archiving(machine);
-  const notice = row.pending || row.classic ? undefined : shownNotice(machine, dismissed);
+  const notice = row.pending || row.classic || noticeDismissed ? undefined : shownNotice(machine, NO_DISMISSED);
   const kept = !!machine?.keep;
   // Keep and Archive and delete live in the machine's detail header: the row stays one line of
   // status and date, with Keep only on the one-time notice.
