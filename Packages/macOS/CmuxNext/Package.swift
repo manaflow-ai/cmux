@@ -855,6 +855,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextDesignTokens",
                 "CmuxNextIcons",
+                .product(name: "CmuxChiefList", package: "CmuxChiefList"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
@@ -945,6 +946,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextHomeEngine",
                 "CmuxNextRemote",
+                .product(name: "CmuxChiefList", package: "CmuxChiefList"),
             ],
             resources: [
                 .process("Resources"),
@@ -2804,6 +2806,8 @@ let package = Package(
         // Vendored from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA (scripts/cmux_agent_cursor_vendor.py).
         .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxHomeCore"),
+        // The one Chief list rule, shared with the iPhone's Home.
+        .package(path: "../../Shared/CmuxChiefList"),
         .package(path: "../../Shared/CmuxFeedPushCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
         // Agent questions: one harness-neutral model (plans/cmux-next/agent-questions.md).

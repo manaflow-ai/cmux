@@ -57,6 +57,8 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxVNCWebRTC"),
         // The one spinner, on the period every cmux spinner turns at (shared with the web pages and the Mac).
         .package(path: "../../Packages/Shared/CmuxSpinner"),
+        // The one Chief list rule, shared with the Mac's Home.
+        .package(path: "../../Packages/Shared/CmuxChiefList"),
         // The Mac chrome's colors from a terminal theme (ThemeTokens.derive): the phone derives the
         // same palette from the theme its Mac sends, or from its cached copy offline (ask-87d30da8e5).
         .package(path: "../../Packages/Shared/CmuxTheme"),
@@ -133,6 +135,7 @@ let package = Package(
         // CmuxMobileBrowserStream: the info page's Computer card streams a Cloud machine's screen.
         .target(name: "CmuxMobileChief", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
+            .product(name: "CmuxChiefList", package: "CmuxChiefList"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileAgentChat", "CmuxMobileMarkdown", "CmuxMobileArtifacts", "CmuxMobileNotifications",
             "CmuxMobileBrowserStream",
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
@@ -254,6 +257,7 @@ let package = Package(
         .testTarget(name: "CmuxMobileOnboardingTests", dependencies: ["CmuxMobileOnboarding", "CmuxMobileDesign"]),
         .testTarget(name: "CmuxMobileChiefTests", dependencies: [
             "CmuxMobileChief", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat",
+            .product(name: "CmuxChiefList", package: "CmuxChiefList"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
