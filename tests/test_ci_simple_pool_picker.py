@@ -896,5 +896,59 @@ class BlacksmithSwitchTests(unittest.TestCase):
         self.assertTrue(state.blacksmith_on)
 
 
+class GuiPoolTests(unittest.TestCase):
+    """A full or unit suite (gui_required) never waits on an owned pool with no GUI runner.
+
+    Run 44150654568 (main, 2026-11-17): with vars.CI_BLACKSMITH_MACOS off, #45231's owned wait picked
+    glaeda-light-xcode-26.6 for a full suite. Light has no gui label, so gui_runner was empty and
+    tests-build-and-lag took glaeda-root-light-xcode-26.6 on cmux21, where XCTest timed out enabling
+    automation mode and the display UI regressions failed.
+    """
+
+    LIGHT_POOL = "glaeda-light-xcode-26.6"
+    STD_POOL = "glaeda-std-xcode-26.6"
+
+    def owned(self):
+        # Light starts the run sooner by expected wait; only std has a GUI runner.
+        return (pool(self.STD_POOL, 8, running=8, free=0, queued=20),
+                dataclasses.replace(pool(self.LIGHT_POOL, 4, running=3, free=1), gui=False))
+
+    def test_a_gui_suite_waits_on_the_gui_pool_while_blacksmith_is_off(self):
+        state = picker.State(jobs=15, owned=self.owned(), owned_enabled=True, wait_on_owned=True,
+                             gui_required=True, blacksmith_on=False)
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, self.STD_POOL)
+        self.assertTrue(choice.owned)
+
+    def test_a_run_without_gui_work_may_still_take_light(self):
+        state = picker.State(jobs=3, owned=self.owned(), owned_enabled=True, wait_on_owned=True,
+                             gui_required=False, blacksmith_on=False)
+        self.assertEqual(picker.pick(state).label, self.LIGHT_POOL)
+
+    def test_a_gui_suite_never_takes_a_free_light_pool(self):
+        light = dataclasses.replace(pool(self.LIGHT_POOL, 4, free=4), gui=False)
+        state = picker.State(jobs=2, owned=(light,), blacksmith=(pool(picker.BLACKSMITH[1], 10),),
+                             owned_enabled=True, gui_required=True)
+        self.assertNotEqual(picker.pick(state).label, self.LIGHT_POOL)
+
+    def test_state_from_reads_gui_runners_and_configured_gui_labels(self):
+        runners = [light_runner(0, busy=False), std_runner(0, busy=True)]
+        env = dict(OWNED_ENV, RUN_FULL_SUITE="true", CI_BLACKSMITH_MACOS="")
+        state = observed(runners, {}, env=env)
+        self.assertEqual({item.label: item.gui for item in state.owned},
+                         {self.STD_POOL: True, self.LIGHT_POOL: False})
+        slots = json.loads(OWNED_ENV["CI_OWNED_POOL_SLOTS"])
+        slots["glaeda-gui-light-xcode-26.6"] = 4
+        state = observed(runners, {}, env=dict(env, CI_OWNED_POOL_SLOTS=json.dumps(slots)))
+        self.assertTrue({item.label: item.gui for item in state.owned}[self.LIGHT_POOL])
+
+    def test_run_44150654568_full_suite_skips_light(self):
+        # Std busy with a long queue, three of four light runners idle: the switch-off wait took light.
+        runners = [std_runner(index, busy=True) for index in range(8)] + [light_runner(index, busy=index == 0) for index in range(4)]
+        env = dict(OWNED_ENV, RUN_FULL_SUITE="true", CI_BLACKSMITH_MACOS="")
+        choice = picker.pick(observed(runners, {STD: {"queued": 60, "running": 8}}, jobs=15, env=env))
+        self.assertEqual(choice.label, self.STD_POOL)
+
+
 if __name__ == "__main__":
     unittest.main()
