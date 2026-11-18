@@ -146,8 +146,9 @@ import Testing
     /// A move of a pane's last tab that this client did not make (another client of the daemon): the tab shows in one
     /// tab bar only, the new one.
     ///
-    /// No code of this client marks that move (`TabMoves.depart` does not run): the old tab bar has only the store to
-    /// follow. The daemon reports the move in two parts. First its events: `tree-changed`, the screen's
+    /// The move's own code of this client does not run (`TabMoves.depart`): the old tab bar has only the store to
+    /// follow, and the pane's state marks a tab that the store holds in another pane as moved away
+    /// (`TabStripModel.take(_:movedAway:)`). The daemon reports the move in two parts. First its events: `tree-changed`, the screen's
     /// `layout-changed` and the tab's `tab-changed`, which takes the tab out of the old pane's record while the store
     /// still lists the pane. Then the tree that the client reads again, which takes the pane out. The test applies the
     /// two parts and lets the main actor run the jobs that follow them (the panes' and the tab bars' own

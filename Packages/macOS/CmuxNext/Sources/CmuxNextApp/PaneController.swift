@@ -353,7 +353,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if stripModel.zoomsSelected != snapshot.zoomed { stripModel.zoomsSelected = snapshot.zoomed; view.needsLayout = true } // the indicator (PaneContentView+ZoomIndicator)
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items {
-            stripModel.tabs = snapshot.items
+            stripModel.take(snapshot.items) { id in daemon.store.tab(id: id.rawValue).flatMap(daemon.store.pane(holding:)).map { $0.id != pane.id } ?? false }
             noteNeighbors()  // a reorder, close or new tab moves the neighbors
         }
         if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }

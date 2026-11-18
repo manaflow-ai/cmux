@@ -57,11 +57,21 @@ public final class TabStripModel {
     /// position and group (no opener is known).
     @ObservationIgnored public var closeSuccessor: ((_ closed: TabID, _ old: [TabID], _ surviving: [TabID], _ shown: Set<TabID>,
                                                      _ groups: [TabID: String]) -> TabID?)?
-    /// Tabs leaving this strip by a move to another pane, not a close (`TabMoves.depart` in the App):
+    /// Tabs leaving this strip by a move to another pane, not a close (`TabMoves.depart` in the App, and
+    /// ``take(_:movedAway:)`` for a move this client did not make):
     /// each leaves at once with no close, and the tabs left close up on the strip's move (Leo
     /// 2026-11-07: "you have a thing that you already dragged, and yet you're playing the closed tab
     /// animation. You should play no animation there").
     @ObservationIgnored public var departures: Set<TabID> = []
+
+    /// Takes the App's new `tabs`. A tab that leaves the list while `movedAway` says that another pane holds it
+    /// left by a move, not a close (a move that another client of the daemon made marks nothing here before the
+    /// store reports it): it joins ``departures``, so its strip drops it at once and keeps it for no leaving pane.
+    public func take(_ items: [TabItem], movedAway: (TabID) -> Bool) {
+        let kept = Set(items.map(\.id))
+        for tab in tabs where !kept.contains(tab.id) && movedAway(tab.id) { departures.insert(tab.id) }
+        tabs = items
+    }
 
     public init(
         stripID: UUID = UUID(),
