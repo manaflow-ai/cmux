@@ -38,7 +38,7 @@ struct CloudStartChat {
                   services.machines.daemon(forTab: tab).isLocal else {
                 return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
             }
-            let titles = services.cloudStartTitles; titles.begin(tab, task: start.task, untitled: AgentPaneModel.tabTitle); defer { titles.end(tab) } // the page reads as its chat from the Send
+            let titles = services.cloudStartTitles, workspace = services.workspaceID(ofTab: tab.id); titles.begin(tab, task: start.task, untitled: AgentPaneModel.tabTitle); defer { titles.end(tab); titles.endWorkspace(workspace) } // the page reads as its chat from the Send
             return await CloudStartChat(services: services, asker: .card(view, start: start.key)).reply(start, tab: tab) { [weak view] step in
                 if let view { start.progress(step, to: view) }
             }
@@ -250,6 +250,7 @@ struct CloudStartChat {
         if opened.key != tabKey { services.cloud.agentCredentials.move(chat: tabKey, to: opened.key, machine: machine.machineID) }; if let shown = services.agentTabs.existingView(origin.tab.id), let window = shown.window, let view = services.agentTabs.view(for: opened.key, machine: machine.machineID) { _ = await view.paintParked(in: window, size: shown.frame.size, within: .seconds(8)) } // the machine's page draws out of sight first: no blink (AgentPaneView+PaintParked)
         if let copy { services.cloud.movedChats.copied(copy) }; services.cloudStartTitles.hand(from: origin.tab, to: tab) // the chat keeps the start's title
         await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
+        if let slot = origin.workspace, let window = services.windows.controllers.first(where: { $0.state.workspaceID == slot })?.state.id { services.windows.place(newWorkspace: anchor.id, in: window, at: .above(slot)) } // the row this Mac's tab started in: the chat stays where it was (cmux#45947)
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
         services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace, account: origin.account, machineID: machine.machineID)
