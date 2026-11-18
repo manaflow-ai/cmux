@@ -1106,6 +1106,9 @@ jobs:
   #             Otherwise it dispatches deploy-production again, at most ROLLBACK_DEPLOYS deploys in all, then
   #             records rollback_failed and comments on the cloud-image-roll issue. It never lands another
   #             rollback commit, so a rollback cannot loop.
+  # When cmux-vm-production has CMUX_VM_DEPLOY_ENABLED != 1, the image roll is
+  # committed to cmux-platform/main and its settle job owns rollback. This job
+  # still starts so the environment switch is observable, then does no work.
   image-roll-settle:
     needs: [deploy-production, smoke-production]
     if: >-
@@ -1123,16 +1126,30 @@ jobs:
       contents: write
       issues: write
     steps:
+      - id: deploy-mode
+        working-directory: .
+        env:
+          ENABLED: ${{ vars.CMUX_VM_DEPLOY_ENABLED }}
+        run: |
+          if [ "$ENABLED" = 1 ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Image roll settle skipped: cmux-platform owns deploy and settle while CMUX_VM_DEPLOY_ENABLED is not 1."
+          fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.deploy-mode.outputs.enabled == 'true'
         with:
           persist-credentials: false
           ref: feat-cmux-next
           fetch-depth: 50
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.deploy-mode.outputs.enabled == 'true'
         with:
           bun-version: "1.4.4"
       - name: Read the roll
         id: roll
+        if: steps.deploy-mode.outputs.enabled == 'true'
         env:
           EVENT: ${{ github.event_name }}
           MESSAGE: ${{ github.event.head_commit.message }}
@@ -1168,7 +1185,7 @@ jobs:
           echo "Image ${kind} ${run} (${image}): ${outcome}. $(jq -r .reason "$RUNNER_TEMP/settle.json")." | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Mint the push token
         id: push-token
-        if: steps.roll.outputs.outcome == 'rollback'
+        if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
@@ -1178,7 +1195,7 @@ jobs:
           permission-contents: write
       - name: Roll the image back
         id: rollback
-        if: steps.roll.outputs.outcome == 'rollback'
+        if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'rollback'
         env:
           TOKEN: ${{ steps.push-token.outputs.token }}
           IMAGE: ${{ steps.roll.outputs.image }}
@@ -1202,7 +1219,7 @@ jobs:
       # settle that deploy the same way, with the next attempt number.
       - name: Deploy the rollback again
         id: retry
-        if: steps.roll.outputs.outcome == 'retry'
+        if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.outcome == 'retry'
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ steps.roll.outputs.image }}
@@ -1214,7 +1231,7 @@ jobs:
             -f image_rollback="$IMAGE" -f image_roll_run="$ROLL" -f image_rollback_attempt="$NEXT"
           echo "::warning title=Image rollback::${IMAGE}'s rollback is not verified yet; production deploy ${NEXT} dispatched"
       - name: Record the production smoke and any rollback
-        if: always() && steps.roll.outputs.run != ''
+        if: always() && steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.run != ''
         env:
           TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ github.token }}
