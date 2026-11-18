@@ -12,7 +12,7 @@
 // `cloud.startChat {cwd}`; the machine clones it.
 //
 // One small store per page (useSyncExternalStore, as cloudMachines.ts), driven by the menu's own
-// events: opening the menu reads the status, Install on GitHub opens GitHub and then reads the status
+// events: opening the menu reads the status, Connect to GitHub opens GitHub and then reads the status
 // again each time the page becomes the key one (pageKey.ts), until it says ready. No timers, no polls.
 import { useSyncExternalStore } from "react";
 import { githubRepository } from "./githubRepository";
@@ -33,8 +33,9 @@ export type GitHubStatus = {
 };
 export type GitHubRepo = { fullName: string; private: boolean; defaultBranch: string | null };
 
-/// What the folder menu draws. `status` undefined: not read yet (nothing shows); `unavailable`: one row
-/// whose click connects (the host signs in or opens the install page), its failure on that row.
+/// What the folder menu draws. `status` undefined: not read yet (nothing shows); `not_connected` or
+/// `unavailable`: one Connect to GitHub row whose click connects (the host opens the install page, or
+/// sign-in), its failure on that row.
 export type GitHubPickerState = {
   status?: GitHubStatus;
   /// The repositories read for `query` (undefined: none read yet).
@@ -44,9 +45,9 @@ export type GitHubPickerState = {
   loading: boolean;
   /// `github.repos.list` failed with anything but `github.not_connected`: one line with Retry.
   error?: string;
-  /// Install on GitHub opened GitHub: the card waits until the status says ready.
+  /// Connect to GitHub opened GitHub: the row waits until the status says ready.
   waiting: boolean;
-  /// `github.connect` was refused: the host's words, under the card's button (or on the unavailable row).
+  /// `github.connect` was refused: the host's words, the Connect to GitHub row's second line.
   connectError?: string;
 };
 
@@ -55,7 +56,7 @@ export type GitHubPicker = {
   state: GitHubPickerState;
   /// The menu opened: read the status (and the repositories, once it is ready).
   onOpen(): void;
-  /// Install on GitHub, or Choose more repositories…: the host opens GitHub.
+  /// Connect to GitHub, or Choose more repositories…: the host opens GitHub.
   onConnect(): void;
   /// Read the repositories again for `query` (Enter on a search the loaded page has no match for).
   onSearch(query: string | null): void;
@@ -178,7 +179,7 @@ export function createGitHubPicker(
         const ready = status.state === "ready";
         // The wait goes on only while the browser's work is not done: still not installed, or still
         // signed out (back before the sign-in ended). Any other answer, a signed-in person's
-        // not_connected included, ends it: the row and the install card are theirs to click again.
+        // not_connected included, ends it: the row is theirs to click again.
         const stays =
           state.waiting &&
           statusKey(status) === waitingFrom &&
