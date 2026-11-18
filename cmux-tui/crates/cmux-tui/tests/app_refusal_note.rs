@@ -4,6 +4,9 @@
 //! with "The change may still apply" read as a timeout. A refusal from the
 //! action's work (which may have applied part of the change) and a
 //! `timeout` keep the note and its key.
+// Unix sockets only (UnixListener); Windows has no such listener.
+#![cfg(unix)]
+
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
