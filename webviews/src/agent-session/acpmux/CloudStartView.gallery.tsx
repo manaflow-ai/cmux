@@ -9,6 +9,7 @@ import type { Play } from "../../gallery/play";
 import { cloudStartLook } from "./cloudStart.experiment";
 import { CloudStartView } from "./CloudStartView";
 import type { CloudStartProgress } from "./cloudStartProgress";
+import { createGitHubPicker } from "./githubRepos";
 
 const begun: CloudStartProgress = {
   key: "gallery",
@@ -18,6 +19,19 @@ const begun: CloudStartProgress = {
 };
 const known = { machine: "paint-dev", size: "4 CPU · 16 GB", secrets: 3, network: "limited" } as const;
 const timing = { startedAt: 10_000, finishedAt: 12_400 } as const;
+
+// Connect GitHub's fixture connection: the host opens GitHub, and the page never becomes the key one again here.
+const galleryGitHub = createGitHubPicker(
+  async () => ({ opened: true }),
+  () => () => undefined,
+  () => false,
+);
+
+// The checklist folds behind its summary; open it to show the clone row's line.
+const openChecklist: Play = async (ctx) => {
+  await ctx.click({ selector: ".acpmux-cloud-start__summary" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-start__checklist"));
+};
 
 const showStart: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-start__summary"));
@@ -261,6 +275,20 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         onRunHere: () => undefined,
       },
     },
+    "needs-github": {
+      note: "Connecting GitHub would let the start go on (seed.needs_github): Connect GitHub opens the install, Retry runs the same start.",
+      props: {
+        start: {
+          ...begun,
+          state: "failed",
+          code: "seed.needs_github",
+          retryable: true,
+          message: "Connect GitHub so the machine can clone manaflow-ai/cmux.",
+        },
+        onRetry: () => undefined,
+        githubStore: galleryGitHub,
+      },
+    },
     "chat-starting-here": {
       note: "A chat is already starting in this tab (unavailable_now): Open a new Cloud chat carries the same prompt and folder there.",
       props: {
@@ -306,6 +334,19 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
           clone: { state: "running", ...timing },
         },
       },
+    },
+    "checklist-left-on-mac": {
+      note: "A very large folder sent only a first pass: the copy row says how many files stayed on this Mac, so the copy does not read as complete.",
+      props: {
+        start: {
+          ...begun,
+          machine: known.machine,
+          machineFinishedAt: 12_400,
+          clone: { state: "done", phase: "complete", leftOnMac: 1204, ...timing },
+        },
+        showSteps: true,
+      },
+      play: openChecklist,
     },
     "checklist-setup-cached": {
       note: "The environment snapshot is ready, so setup completes from cache.",

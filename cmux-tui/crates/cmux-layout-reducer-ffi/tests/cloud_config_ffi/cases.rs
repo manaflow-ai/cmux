@@ -61,6 +61,27 @@ fn the_configuration_is_made_from_the_runtime_selection() {
 }
 
 #[test]
+fn the_install_token_lease_answers_here() {
+    let (code, renew) = call(
+        c"cloud_auth_install_token_lease",
+        &json!({"nowMs": 400_000, "held": {"mintedMs": 0, "expiresMs": 540_000}, "mint": null}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(renew["useHeld"], true);
+    assert_eq!(renew["startMint"], true);
+    assert_eq!(renew["state"]["state"], "renewing");
+    let (_, stalled) = call(
+        c"cloud_auth_install_token_lease",
+        &json!({"nowMs": 20_000, "held": null, "mint": {"startedMs": 0, "step": "POST /v1/auth/token"}}),
+    );
+    assert_eq!(stalled["cancelMint"], true);
+    assert_eq!(stalled["refusal"]["code"], "credential.minting");
+    assert_eq!(stalled["state"]["state"], "mint_stalled");
+    let (code, _) = call(c"cloud_auth_install_token_lease", &json!({"held": 1}));
+    assert_eq!(code, ERR_INVALID);
+}
+
+#[test]
 fn launch_sign_in_and_identity_rules_answer_here() {
     let (_, launch) = call(
         c"cloud_auth_launch_sign_in",

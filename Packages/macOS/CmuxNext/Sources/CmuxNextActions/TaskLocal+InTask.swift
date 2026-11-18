@@ -29,9 +29,12 @@ extension TaskLocal {
         return withoutActuallyEscaping(body) { body in
             // An Objective-C exception that unwound this task's frame to an older system catch would
             // leave the runtime's executor record dead, and a later isolation check segfaults on it
-            // far from here (#44060): the guard ends the process at the throw instead.
+            // far from here (#44060): the guard puts back the slots read here and logs the throw.
+            let outer = SwiftExecutorFrames.Slots.current()
             let run = ImmediateRun {
-                SwiftExecutorFrames.guardingUnwind("TaskLocal.withValueInTask") { self.withValue(value, operation: body) }
+                SwiftExecutorFrames.guardingUnwind("TaskLocal.withValueInTask", restoring: outer) {
+                    self.withValue(value, operation: body)
+                }
             }
             if #available(macOS 26, *) {
                 // task-owner: runs to its end before `finish` returns; `body` never suspends
