@@ -213,8 +213,6 @@ final class RemoteTmuxControlConnection {
     private var stderrTask: Task<Void, Never>?
     private var parser = RemoteTmuxControlStreamParser()
     private var ingestTask: Task<Void, Never>?
-    /// Turns the stdout reader's pauses into catch-up requests; see ``requestCatchUpAfterFallingBehind()``.
-    private var readerPauseTask: Task<Void, Never>?
     /// Bumped on every spawn. Readable across the type's extensions so a completion that
     /// outlived its process — a liveness probe answered after a respawn, say — can tell that its
     /// answer describes a stream that no longer exists. Writable only here.
@@ -797,11 +795,22 @@ final class RemoteTmuxControlConnection {
             }
         )
 
+        // A pause means the parser fell a read bound behind: catch up instead of drawing the
+        // backlog. The signal comes from the reader's queue, so it does not wait behind that
+        // backlog in the stream. The spawn that succeeds below takes this generation.
+        let pauseGeneration = processGeneration &+ 1
+        let onStdoutReaderPause = self.onStdoutReaderPause
         let stdoutPipeReader = RemoteTmuxProcessOutputReader(
             label: "com.cmux.remote-tmux.stdout.\(UUID().uuidString)",
             maxPendingChunks: Self.maxPendingStdoutChunks,
             maxPendingBytes: Self.maxPendingStdoutBytes,
-            onPause: onStdoutReaderPause
+            onPause: { [weak self] in
+                onStdoutReaderPause?()
+                Task { @MainActor [weak self] in
+                    guard let self, self.processGeneration == pauseGeneration else { return }
+                    self.requestCatchUpAfterFallingBehind()
+                }
+            }
         )
         let reader = outPipe.fileHandleForReading
         stdoutPipeReader.attach(to: reader)
@@ -844,12 +853,6 @@ final class RemoteTmuxControlConnection {
                     self?.appendStderr(text)
                 }
                 stderrPipeReader.release(chunk)
-            }
-        }
-        readerPauseTask = Task { [weak self] in
-            for await _ in stdoutPipeReader.pauses {
-                guard let self, self.processGeneration == generation else { break }
-                self.requestCatchUpAfterFallingBehind()
             }
         }
         ingestTask = Task { [weak self] in
@@ -1098,8 +1101,6 @@ final class RemoteTmuxControlConnection {
         processGeneration &+= 1
         ingestTask?.cancel()
         ingestTask = nil
-        readerPauseTask?.cancel()
-        readerPauseTask = nil
         stderrTask?.cancel()
         stderrTask = nil
         process?.terminationHandler = nil

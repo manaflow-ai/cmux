@@ -81,7 +81,7 @@ extension RemoteTmuxPaneSeedTransportTests {
         }
         #expect(seeds[7]?.kind == .fullHistory)
         #expect(seeds[8]?.kind == .fullHistory)
-        #expect(!fixture.connection.isCatchingUpAfterFallingBehind)
+        #expect(!fixture.connection.catchUp.isRunning)
 
         // Falling behind again later starts a new catch-up.
         fixture.connection.catchUpAfterFallingBehind()
@@ -146,7 +146,7 @@ extension RemoteTmuxPaneSeedTransportTests {
         let queuedCommands = fixture.connection.pendingCommandKindsForTesting.count
         fixture.connection.requestCatchUpAfterFallingBehind()
         #expect(fixture.connection.pendingCommandKindsForTesting.count == queuedCommands)
-        #expect(fixture.connection.catchUpRequested)
+        #expect(fixture.connection.catchUp.isRequested)
 
         finishPendingCommands(
             on: fixture.connection,
@@ -155,8 +155,8 @@ extension RemoteTmuxPaneSeedTransportTests {
             startingAt: 400
         )
         #expect(repaints == 2, "the pause during the first catch-up was dropped")
-        #expect(!fixture.connection.catchUpRequested)
-        #expect(!fixture.connection.isCatchingUpAfterFallingBehind)
+        #expect(!fixture.connection.catchUp.isRequested)
+        #expect(!fixture.connection.catchUp.isRunning)
     }
 
     /// The last catch-up seed can also leave without finishing: its pane disappears and tmux
@@ -181,7 +181,7 @@ extension RemoteTmuxPaneSeedTransportTests {
 
         fixture.connection.failPaneSeedCommand(capture, errorLines: ["can't find pane: %7"])
 
-        #expect(!fixture.connection.catchUpRequested, "the pause during the catch-up was dropped")
+        #expect(!fixture.connection.catchUp.isRequested, "the pause during the catch-up was dropped")
         let next = try #require(fixture.connection.pendingPaneSeeds[7]?.first)
         #expect(next.id != firstSeed)
         #expect(next.dropsPreCaptureOutput)
@@ -238,7 +238,7 @@ extension RemoteTmuxPaneSeedTransportTests {
         #expect(seed.restartsLiveStream)
         #expect(seed.discardedOutput.isEmpty)
         #expect(Self.occurrences(of: "current screen", in: seed.snapshot) == 1)
-        #expect(!fixture.connection.isCatchingUpAfterFallingBehind)
+        #expect(!fixture.connection.catchUp.isRunning)
         #expect(fixture.connection.pendingReconnectPaneIDs.isEmpty)
     }
 
@@ -283,7 +283,7 @@ extension RemoteTmuxPaneSeedTransportTests {
         #expect(seeds.count == 2)
         #expect(seeds.last?.restartsLiveStream == true)
         #expect(seeds.last.map { Self.occurrences(of: "current screen", in: $0.snapshot) } == 1)
-        #expect(!fixture.connection.isCatchingUpAfterFallingBehind)
+        #expect(!fixture.connection.catchUp.isRunning)
     }
 
     /// A visible-only repaint captures the screen, not the lines a backlog pushed into history.
@@ -331,7 +331,7 @@ extension RemoteTmuxPaneSeedTransportTests {
         )
         #expect(seeds.map(\.kind) == [.visibleRepaint, .fullHistory])
         #expect(seeds.last?.restartsLiveStream == true)
-        #expect(!fixture.connection.isCatchingUpAfterFallingBehind)
+        #expect(!fixture.connection.catchUp.isRunning)
     }
 
     /// A budget recovery drops the output a pane's seed retained, and the live escape filters

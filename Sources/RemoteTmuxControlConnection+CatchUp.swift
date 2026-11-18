@@ -19,12 +19,6 @@ extension RemoteTmuxControlConnection {
         if catchUp.shouldStart { catchUpAfterFallingBehind() }
     }
 
-    /// Whether a catch-up after falling behind was asked for and has not started.
-    var catchUpRequested: Bool { catchUp.isRequested }
-
-    /// Whether a catch-up started by ``catchUpAfterFallingBehind()`` is still waiting on tmux.
-    var isCatchingUpAfterFallingBehind: Bool { catchUp.isRunning }
-
     /// Repaints every pane from tmux once the stream has fallen a full read bound behind.
     ///
     /// Output that arrives faster than it can be parsed and drawn is stale by the time it

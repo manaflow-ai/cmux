@@ -11,10 +11,12 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func readerStopsReadingWhileTheConsumerHoldsAFullBuffer() async throws {
         let pipe = Pipe()
         let bound = 1000
+        let (pauseStream, pauseContinuation) = AsyncStream<Void>.makeStream()
         let reader = RemoteTmuxProcessOutputReader(
             label: "remote-tmux-process-output-reader-held-test",
             maxPendingChunks: 64,
-            maxPendingBytes: bound
+            maxPendingBytes: bound,
+            onPause: { pauseContinuation.yield() }
         )
         let held = HeldOutputChunks()
         reader.attach(to: pipe.fileHandleForReading)
@@ -39,7 +41,7 @@ import Testing
         // The reader announces the pause. The consumer task may still be taking the chunks
         // published before it, so their total is polled against a deadline; the consumer holds
         // every chunk, so the reader cannot resume while this waits.
-        var pauses = reader.pauses.makeAsyncIterator()
+        var pauses = pauseStream.makeAsyncIterator()
         #expect(await pauses.next() != nil)
         let deadline = ContinuousClock.now + .seconds(30)
         while held.byteCount < bound, ContinuousClock.now < deadline {
@@ -85,13 +87,15 @@ import Testing
             try? pipe.fileHandleForWriting.close()
             try? pipe.fileHandleForReading.close()
         }
+        let (pauseStream, pauseContinuation) = AsyncStream<Void>.makeStream()
         var reader: RemoteTmuxProcessOutputReader? = RemoteTmuxProcessOutputReader(
             label: "remote-tmux-process-output-reader-released-test",
             maxPendingChunks: 64,
-            maxPendingBytes: 100
+            maxPendingBytes: 100,
+            onPause: { pauseContinuation.yield() }
         )
         let stream = try #require(reader?.stream)
-        var pauses = try #require(reader?.pauses.makeAsyncIterator())
+        var pauses = pauseStream.makeAsyncIterator()
         reader?.attach(to: pipe.fileHandleForReading)
         try pipe.fileHandleForWriting.write(contentsOf: Data(repeating: 1, count: 1_000))
         #expect(await pauses.next() != nil)

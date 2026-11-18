@@ -33,15 +33,9 @@ public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     /// The process exited; reads continue until the pipe is empty, then the stream ends.
     private var draining = false
     private var closed = false
-    /// One element each time reading stops at a bound, meaning the consumer has fallen a
-    /// bound behind the producer. It is a stream of its own so the signal does not queue behind
-    /// the backlog in ``stream``: a main-actor consumer of this stream runs at the ingest loop's
-    /// next turn, before the next queued chunk is parsed.
-    public let pauses: AsyncStream<Void>
-    private let pauseContinuation: AsyncStream<Void>.Continuation
-    /// Called on the reader's queue each time reading stops at a bound, for an observer that
-    /// cannot wait for ``pauses``: a pause happens when the consumer is busy, and a main-actor
-    /// consumer of ``pauses`` only runs once it is not.
+    /// Called on the reader's queue each time reading stops at a bound, meaning the consumer has
+    /// fallen a bound behind the producer. It runs on the reader's queue, not behind the backlog in
+    /// ``stream``, so it arrives while the consumer is still busy with that backlog.
     private let onPause: (@Sendable () -> Void)?
 
     /// Creates a reader that holds at most `maxPendingChunks` unreleased chunks or
@@ -60,7 +54,6 @@ public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
         self.stream = stream
         self.continuation = continuation
-        (pauses, pauseContinuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         self.queue = DispatchQueue(label: label, qos: .userInitiated)
         self.maxPendingChunks = max(1, maxPendingChunks)
         self.maxPendingBytes = max(1, maxPendingBytes)
@@ -75,7 +68,6 @@ public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         source?.cancel()
         if sourceSuspended { source?.resume() }
         continuation.finish()
-        pauseContinuation.finish()
     }
 
     /// Starts reading `handle` on the reader's queue. The descriptor is made nonblocking.
@@ -217,7 +209,6 @@ public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
     private func pause() {
         guard !paused else { return }
         paused = true
-        pauseContinuation.yield()
         onPause?()
         setSourceSuspended(true)
     }
@@ -243,6 +234,5 @@ public final class RemoteTmuxProcessOutputReader: @unchecked Sendable {
         source = nil
         handle = nil
         continuation.finish()
-        pauseContinuation.finish()
     }
 }
