@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextDesign
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
 import CmuxNextTestSupport
@@ -14,15 +15,18 @@ import Testing
 /// `PaneCloseTabGoesWithItsPaneTests`). A refusal puts the tab and the pane back. What the screen must never show
 /// then: the pane at its place, with an empty tab bar (only the new-tab button).
 ///
-/// Each test here is a guard of the refused path, and none has a red run. By a read of the code each passes without
-/// the hold too: a tab bar without it drops the tab in the key's turn, and after the refusal it makes the tab's cell
-/// again, in its usual sync or in its one sync when it shows. They fail when a refusal leaves the pane on the screen
-/// without its tab: a hold that still keeps the tab bar from its model, or a tab bar that comes back and does not
-/// sync.
+/// Each test here is a guard of the refused path, and none has a red run. By a read of the code the first two pass
+/// without the hold too: a tab bar without it drops the tab in the key's turn, and after the refusal it makes the
+/// tab's cell again, in its usual sync or in its one sync when it shows. They fail when a refusal leaves the pane on
+/// the screen without its tab: a hold that still keeps the tab bar from its model, or a tab bar that comes back and
+/// does not sync. The third also wants the cell that the tab bar kept, before the pane hides and after it comes back,
+/// so by a read it fails without the hold.
 ///
 /// The clock and the store are those of `PaneCloseTabGoesWithItsPaneTests` (a manual 120 Hz clock, an offline store).
-/// The test makes the one call of the tab bar's own job (`TabStripView.syncFromModel()`) itself, and it runs the work
-/// that follows a frame's commit where the test says so (`Fixture.committed`).
+/// The first two tests make the one call of the tab bar's own job (`TabStripView.syncFromModel()`) themselves, after
+/// each frame tick. The third makes no such call: the tab bar hears of its model as it does in the app, and the test
+/// reads each frame directly after its tick. Each test runs the work that follows a frame's commit where it says so
+/// (`Fixture.committed`).
 @Suite(.closesItsWindows)
 @MainActor struct PaneCloseRefusedTabTests {
     typealias Fixture = ClosedPaneContentStaysUntilLandingTests.Fixture
@@ -145,5 +149,147 @@ import Testing
         #expect(!shown.isEmpty, "no frame of \(Self.frames) showed the pane again after the refusal")
         #expect(shown.last == Self.frames, "the pane that came back went again: it showed in the frames \(shown) of \(Self.frames)")
         #expect(bare.isEmpty, "the pane that came back shows without its tab in its tab bar in the frames \(bare)")
+    }
+
+    /// The main actor runs what is queued, as it does in the app before the next frame tick: the tab bar's own job
+    /// (`TabStripView.startObserving()`) and each pane's. A fixed number of yields, no wait for time to pass.
+    private static func runQueuedJobs() async {
+        for _ in 0..<50 { await Task.yield() }
+    }
+
+    /// Whether the window shows `host`: in the window, not hidden, with a size.
+    private static func shows(_ host: PaneHostView?) -> Bool {
+        guard let host else { return false }
+        return host.superview != nil && !host.isHiddenOrHasHiddenAncestor && host.frame.width >= 1 && host.frame.height >= 1
+    }
+
+    /// The refusal after the frame that hid the pane, with no sync call of the test. The queued jobs run before each
+    /// frame tick, and the test reads what a frame shows directly after its tick, before the work that follows its
+    /// commit. It reads the end of the refusal's own turn too (frame 0).
+    ///
+    /// With the view that the pane had (`tornDown` false) the tab's cell is the one that the tab bar kept: a tab bar
+    /// that drops the kept cell and makes it again is a fault here.
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func aCloseRefusedAfterThePaneHidShowsItsTabWithNoSyncCallOfTheTest(tornDown: Bool) async throws {
+        let app = try await Fixture()
+        defer { app.close() }
+        // As in `closeLastTab`: the close changes a pane's size, so it shows at a frame tick.
+        app.content.layoutModel.newColumnWidthModeOverride = .fitScreen
+        app.content.applyCurrent()
+        app.settle()
+        await Self.runQueuedJobs()
+
+        let closed = try app.pane(2)
+        let oldStrip = closed.view.stripView
+        let tabs = closed.stripModel.orderedTabs.map(\.id)
+        try #require(tabs.count == 1, "SETUP: the pane has \(tabs.count) tabs, not 1")
+        let tab = tabs[0]
+        let kept = try #require(oldStrip.cells[tab], "SETUP: the tab bar does not show the pane's tab before the close")
+        try #require(oldStrip.isShownInWindow, "SETUP: the pane's tab bar does not count as shown in its window")
+        let oldHost = try #require(app.root.context.hosts[closed.layoutPaneID], "SETUP: the pane has no host in the layout")
+        try #require(Self.shows(oldHost), "SETUP: the pane does not show before the close")
+
+        let prepared = try #require(closed.prepareClose(tabs), "SETUP: the close has no daemon tab")
+        try #require(closed.stripModel.tabs.isEmpty, "SETUP: the key's turn left the tab in the tab bar's model")
+        try #require(Self.shows(oldHost), "SETUP: the key's own turn hid the pane, so no frame shows the pane after the key")
+
+        // Each frame tick until the one that hides the pane: while the pane shows, its tab bar shows the tab's cell.
+        var hidden: Int?
+        for frame in 1...Self.frames {
+            await Self.runQueuedJobs()
+            if Self.shows(oldHost) {
+                #expect(oldStrip.cells[tab] === kept, "before frame \(frame): the pane that leaves shows without its tab's cell")
+            }
+            _ = app.root.advanceFrame(Self.dt)
+            if !Self.shows(oldHost) {
+                hidden = frame
+                break
+            }
+            #expect(oldStrip.cells[tab] === kept, "frame \(frame): the pane that leaves shows without its tab's cell")
+        }
+        _ = try #require(hidden, "SETUP: no frame of \(Self.frames) hid the closing pane")
+        if tornDown {
+            // The work after the commit of the frame that hid the pane, and the work that it queued.
+            app.committed.run()
+            app.committed.run()
+            try #require(oldHost.superview == nil, "SETUP: the work after the frame's commit left the closed pane's view in the window")
+        }
+
+        // The daemon refused.
+        await prepared.finish(true, false)
+        let pane = try app.pane(2)
+        try #require((pane === closed) == !tornDown, "SETUP: the pane that came back has \(tornDown ? "the controller that was taken down" : "a new controller")")
+        try #require(pane.stripModel.tabs.map(\.id) == [tab], "SETUP: the refusal did not put the tab back in the tab bar's model")
+        let strip = pane.view.stripView
+
+        // The end of the refusal's turn (frame 0), then each frame tick: a frame that shows the pane shows its tab.
+        var shown: [Int] = [], bare: [Int] = [], madeAgain: [Int] = []
+        for frame in 0...Self.frames {
+            if frame > 0 {
+                await Self.runQueuedJobs()
+                _ = app.root.advanceFrame(Self.dt)
+            }
+            if Self.shows(app.root.context.hosts[pane.layoutPaneID]) {
+                shown.append(frame)
+                if strip.cells[tab] == nil || !strip.isShownInWindow || strip.isHiddenOrHasHiddenAncestor {
+                    bare.append(frame)
+                } else if !tornDown, strip.cells[tab] !== kept {
+                    madeAgain.append(frame)
+                }
+            }
+            // The work after a frame's commit. At frame 0 with the pane's old view it is the work of the frame that hid
+            // the pane, which comes after the refusal: it must not take the pane.
+            if frame > 0 || !tornDown { app.committed.run() }
+        }
+        #expect(!shown.isEmpty, "no frame of \(Self.frames) showed the pane again after the refusal")
+        #expect(shown.last == Self.frames, "the pane that came back went again: it showed in the frames \(shown) of \(Self.frames)")
+        #expect(bare.isEmpty, "the pane that came back shows without its tab in its tab bar in the frames \(bare)")
+        #expect(madeAgain.isEmpty, "the tab bar dropped the cell that it kept and made it again: the frames \(madeAgain)")
+    }
+}
+
+/// A view that holds a tab bar as a pane's host does, for what the tab bar asks of it (`PaneLeaving`).
+private final class LeavingPaneHostStub: NSView, PaneLeaving {
+    var isLeaving = false
+}
+
+/// The rule of `TabStripSyncHold` alone: a tab bar that kept the tabs of a pane that leaves owes one sync when it
+/// shows again (`TabStripSyncHold.takeOwedSync()`), also when no call and no job told it that its model changed.
+///
+/// The test is not async and makes no sync call after the hold, so the tab bar's own job (its model's observation)
+/// does not run: the one sync at the show is the hold's. It has no red run. By a read of the code it fails when
+/// `takeOwedSync()` does not count the kept tabs. By a read of the refusal's routes in the app, each of them tells
+/// the tab bar by another call too, so this test holds the type's rule and not a state that the app reaches.
+@MainActor @Suite(.closesItsWindows, .serialized) struct TabStripLeavingPaneSyncTests {
+    @Test func aStripThatKeptALeavingPanesTabSyncsOnceWhenItShowsAgain() throws {
+        let old = StripTabID("old"), new = StripTabID("new")
+        let model = TabStripModel(tabs: [TabItem(id: old, title: "Old")], selectedID: old)
+        let strip = TabStripView(model: model)
+        let host = LeavingPaneHostStub(frame: NSRect(x: 0, y: 0, width: 700, height: 40))
+        strip.frame = NSRect(x: 0, y: 0, width: 700, height: TabStripView.preferredHeight)
+        host.addSubview(strip)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
+        window.contentView = host
+        strip.layoutSubtreeIfNeeded()
+        try #require(strip.cells[old] != nil, "SETUP: the tab bar does not show its tab")
+        try #require(strip.isShownInWindow, "SETUP: the tab bar does not count as shown in its window")
+
+        // The key's turn of a close of the pane's last tab: the pane leaves, and the model has no tab.
+        host.isLeaving = true
+        model.tabs = []
+        strip.syncFromModel()
+        try #require(strip.cells[old] != nil, "SETUP: the tab bar of a pane that leaves dropped its last tab before the pane hid")
+
+        // The frame that hides the pane. Then the pane gets another tab, and no call tells the tab bar. Then it shows.
+        host.isLeaving = false
+        host.isHidden = true
+        try #require(!strip.isShownInWindow, "SETUP: the tab bar of a hidden pane counts as shown")
+        model.tabs = [TabItem(id: new, title: "New")]
+        model.selectedID = new
+        host.isHidden = false
+        #expect(strip.isShownInWindow, "the tab bar of the pane that shows again does not count as shown")
+        #expect(Set(strip.cells.keys) == [new],
+                "the tab bar that shows again did not sync: it shows \(strip.cells.keys.map(\.rawValue).sorted())")
     }
 }
