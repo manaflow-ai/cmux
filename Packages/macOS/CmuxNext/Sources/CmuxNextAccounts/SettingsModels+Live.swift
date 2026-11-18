@@ -53,12 +53,14 @@ extension SettingsModels {
     /// Continue with ChatGPT: acpmux starts the attempt and its callback listener, the person's browser
     /// opens OpenAI's sign-in page in the background, and acpmux's answer is awaited off the main thread
     /// (`chatgpt.wait`, a long poll the loop calls again while pending). `id`: an existing
-    /// chatgpt-plan connection to sign in again.
+    /// chatgpt-plan connection to sign in again. The browser's finished page opens ``chatgptReturnLink``
+    /// to bring cmux back.
     func connectChatGPT(id: String?) async throws -> JSONValue {
         let environment = try requireDaemonEnvironment()
         if let attempt = chatgptAttempt { await endAttempt(attempt, environment) }
         var params: [String: any Sendable] = [:]
         if let id, !id.isEmpty { params["id"] = id }
+        if let back = chatgptReturnLink { params["return_to"] = back.absoluteString }
         let reply = try JSONValue.parse(try await daemon(environment, .chatgptBegin, params))
         // Only OpenAI's own sign-in page: the daemon's answer never opens anything else.
         guard let attempt = reply["attempt"]?.stringValue, !attempt.isEmpty,

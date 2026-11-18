@@ -724,11 +724,18 @@ pub(super) async fn handle(
                     return Err(RpcError::invalid_params(format!("{id} is not a ChatGPT sign-in")));
                 }
             }
+            // Where the browser's finished page sends the person back: the app's own settings link.
+            let back = match text("return_to") {
+                Some(link) => Some(chatgpt::ReturnLink::parse(link).ok_or_else(|| {
+                    RpcError::invalid_params("return_to must be a cmux settings link")
+                })?),
+                None => None,
+            };
             let places = chatgpt::Places { routes: dir, home };
             let announcer = hub.clone();
             let begun = hub
                 .chatgpt
-                .begin(places, reauth, move |status| {
+                .begin(places, reauth, back, move |status| {
                     if matches!(status, chatgpt::Status::Done(_)) {
                         announce_later(&announcer);
                     }

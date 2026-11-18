@@ -11,6 +11,7 @@ use serde_json::Value;
 use sha2::Digest as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
+use super::page::{self, Outcome, ReturnLink};
 use super::store::{self, Host, Record};
 use super::{DYNAMIC_CLIENT_ID, Failure, PLAN_SCOPE, Places, RESOURCE, SCOPES, jwt};
 use crate::routes::{self, RouteFile, RouteKind};
@@ -98,6 +99,8 @@ pub(crate) struct Pending {
     pub verifier: String,
     pub redirect_uri: String,
     pub reauth: Option<String>,
+    /// Where the finished page sends the person back to the app (`page.rs`).
+    pub back: Option<ReturnLink>,
     id_token_hint: Option<String>,
     login_hint: Option<String>,
 }
@@ -107,6 +110,7 @@ impl Pending {
         host: Host,
         port: u16,
         reauth: Option<String>,
+        back: Option<ReturnLink>,
         prior: Option<&Record>,
     ) -> Result<Self, Failure> {
         Ok(Self {
@@ -116,6 +120,7 @@ impl Pending {
             verifier: random_token(32)?,
             redirect_uri: format!("http://127.0.0.1:{port}/auth/callback"),
             reauth,
+            back,
             id_token_hint: prior.map(|r| r.id_token.clone()).filter(|t| !t.is_empty()),
             login_hint: prior.and_then(|r| r.email.clone()),
         })
@@ -325,24 +330,24 @@ impl Client {
             let Ok(Some(target)) =
                 tokio::time::timeout(REQUEST_WAIT, read_target(&mut stream)).await
             else {
-                let _ = respond(&mut stream, "400 Bad Request", "Bad request.").await;
+                let _ = respond_text(&mut stream, "400 Bad Request", "Bad request.").await;
                 continue;
             };
             let Ok(url) = reqwest::Url::parse(&format!("http://127.0.0.1{target}")) else {
-                let _ = respond(&mut stream, "400 Bad Request", "Bad request.").await;
+                let _ = respond_text(&mut stream, "400 Bad Request", "Bad request.").await;
                 continue;
             };
             if url.path() != "/auth/callback" {
-                let _ = respond(&mut stream, "404 Not Found", "Not found.").await;
+                let _ = respond_text(&mut stream, "404 Not Found", "Not found.").await;
                 continue;
             }
             let query: HashMap<String, String> = url.query_pairs().into_owned().collect();
             let result = self.complete(pending, &query, places).await;
-            let page = match &result {
-                Ok(_) => "Signed in to cmux with ChatGPT. You can close this tab.".to_owned(),
-                Err(f) => format!("ChatGPT sign-in did not finish ({}). Return to cmux.", f.code),
+            let outcome = match &result {
+                Ok(_) => Outcome::SignedIn,
+                Err(f) => Outcome::failed(&f.code),
             };
-            let _ = respond(&mut stream, "200 OK", &page).await;
+            let _ = respond_page(&mut stream, &page::render(outcome, pending.back.as_ref())).await;
             return result;
         }
     }
@@ -589,16 +594,32 @@ async fn read_target(stream: &mut tokio::net::TcpStream) -> Option<String> {
     }
 }
 
-async fn respond(
+/// The finished sign-in's page, under its own `Content-Security-Policy`.
+async fn respond_page(stream: &mut tokio::net::TcpStream, html: &str) -> std::io::Result<()> {
+    let headers = format!(
+        "Content-Type: text/html; charset=utf-8\r\nContent-Security-Policy: {}\r\n\
+         Referrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n",
+        page::content_security_policy()
+    );
+    respond(stream, "200 OK", &headers, html).await
+}
+
+async fn respond_text(
     stream: &mut tokio::net::TcpStream,
     status: &str,
     text: &str,
 ) -> std::io::Result<()> {
-    let body = format!(
-        "<!doctype html><meta charset=\"utf-8\"><title>cmux</title><p style=\"font-family:system-ui;margin:3em\">{text}</p>"
-    );
+    respond(stream, status, "Content-Type: text/plain; charset=utf-8\r\n", text).await
+}
+
+async fn respond(
+    stream: &mut tokio::net::TcpStream,
+    status: &str,
+    headers: &str,
+    body: &str,
+) -> std::io::Result<()> {
     let head = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+        "HTTP/1.1 {status}\r\n{headers}Cache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
         body.len()
     );
     stream.write_all(head.as_bytes()).await?;

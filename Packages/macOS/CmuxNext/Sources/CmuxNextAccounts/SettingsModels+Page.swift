@@ -39,14 +39,16 @@ extension SettingsModels: PageProvider {
     }
 
     /// The app's Settings > Models: acpmux at `environment`, the person's browser for the ChatGPT sign-in,
-    /// the Claude account sign-in of `harnesses`, `models.spreadUsage` through `settings`' one writer, and the
-    /// active team (none for the personal team) with its keys and policy.
+    /// the Claude account sign-in of `harnesses`, `models.spreadUsage` through `settings`' one writer, the
+    /// active team (none for the personal team) with its keys and policy, and `returnLink`, the
+    /// `<scheme>://settings` link the browser's finished ChatGPT sign-in page opens to bring cmux back.
     public static func live(environment: @escaping @MainActor () -> AcpmuxEnvironment?, harnesses: SettingsHarnesses,
                             settings: SettingsController, activeTeam: @escaping @MainActor () -> ActiveTeam?,
-                            agentKeys: TeamAgentKeys, policy: TeamModelsPolicy) -> SettingsModels {
+                            agentKeys: TeamAgentKeys, policy: TeamModelsPolicy, returnLink: URL?) -> SettingsModels {
         SettingsModels(
             environment: environment, keys: KeychainModelKeyStore(),
             openURL: { NSWorkspace.shared.openInBackground($0) },
+            returnLink: returnLink,
             harnesses: harnesses,
             team: {
                 guard !agentKeys.isPersonal, let team = activeTeam()?.team else { return nil }

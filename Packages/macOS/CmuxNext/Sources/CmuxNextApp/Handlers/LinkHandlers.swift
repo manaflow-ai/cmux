@@ -22,6 +22,16 @@ enum LinkHandlers {
                 _ = try StashHandlers.show(services, focus: !background)
                 return
             }
+            // `<scheme>://settings` (the way back from the browser's Sign in with ChatGPT page) and its
+            // page links (`/models`, `/cloud/chatgpt`, ...) show Settings: the bare link on the page it
+            // was left on. Never a settings action (`settingsAction`): a link from another app only shows.
+            if let url = URL(string: trimmed) {
+                let route = DeepLink.settingsRoute(for: url, linkScheme: services.linkScheme)
+                if route != nil || DeepLink.opensSettings(url, linkScheme: services.linkScheme) {
+                    try services.settingsWindow.show(section: nil, focus: !background, route: route)
+                    return
+                }
+            }
             if let url = URL(string: trimmed), let reference = DeepLink.agentReference(url, linkScheme: services.linkScheme) { // a footer's `cmux://agent?id=aid-…`
                 return try DeepLinkNavigator(services: services).openAgentLink(nil, bare: reference, background ? .bringForward : .raise, asking: true)
             }

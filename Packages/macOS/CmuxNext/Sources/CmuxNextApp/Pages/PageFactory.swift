@@ -198,7 +198,8 @@ struct PageFactory {
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
         let models = SettingsModels.live(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, harnesses: harnesses, settings: settings,
                                               activeTeam: { [weak services] in services?.accounts.activeTeam }, agentKeys: services.accounts.agentKeys,
-                                              policy: services.accounts.modelsPolicy)
+                                              policy: services.accounts.modelsPolicy,
+                                              returnLink: URL(string: "\(services.linkScheme)://settings"))
         models.onConnections = { [weak services] in services?.cloud.setup.connectionsChanged() } // a chat waiting on Set up Cloud checks again
         provider.models = models
         let cloud = services.cloud

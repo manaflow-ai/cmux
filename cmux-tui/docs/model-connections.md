@@ -52,10 +52,16 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
   ids keep their default order after the listed ones. Stored in `<acpmux home>/routes/bindings.json`
   as `connection_order`, `spread`.
 - `_acpmux/connections/spread.set` `{ "on": bool }` -> state.
-- `_acpmux/connections/chatgpt.begin` `{ "id": "optional existing chatgpt-plan id (reauth)" }`
+- `_acpmux/connections/chatgpt.begin` `{ "id": "optional existing chatgpt-plan id (reauth)",
+  "return_to": "optional <app scheme>://settings" }`
   -> `{ "attempt": "opaque", "url": "https://auth.openai.com/api/accounts/authorize?..." }`.
   The daemon starts a `127.0.0.1:<ephemeral>/auth/callback` listener before answering. The app opens
-  `url` in the person's browser (NSWorkspace), never the daemon.
+  `url` in the person's browser (NSWorkspace), never the daemon. The callback answers a cmux-styled
+  page (`chatgpt/page.rs`: signed in, cancelled, or the failure's reason and code; inline style and
+  script allowed only by hash in its CSP). `return_to` is the app's own link back (a `cmux` or
+  `cmux-<build>` scheme, host `settings`, an optional lowercase path, nothing else; any other value
+  is refused): the page's Open cmux button opens it, and a signed-in or cancelled page opens it once
+  on load so cmux comes forward. Browsers refuse to let the page close its own tab.
 - `_acpmux/connections/chatgpt.wait` `{ "attempt": "..." }` -> `{ "status": "pending|done|failed|cancelled",
   "connection": Connection|null, "error": "access_denied|no_plan_scope|...|null" }` (long-poll up to
   25 s; the app re-calls while pending). Completion also fires `_acpmux/connections.changed`.

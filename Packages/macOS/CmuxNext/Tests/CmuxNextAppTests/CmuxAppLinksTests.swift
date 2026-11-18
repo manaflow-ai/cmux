@@ -37,6 +37,18 @@ struct CmuxAppLinksTests {
         #expect(DeepLink.settingsRoute(for: URL(string: "https://settings/models/add")!, linkScheme: scheme) == nil)
     }
 
+    @Test func theBareSettingsLinkShowsSettingsAsItWasLeft() {
+        // The browser's Sign in with ChatGPT page opens it to bring cmux back (acpmux `return_to`).
+        for text in ["cmux://settings", "\(scheme)://settings", "\(scheme)://settings/", "CMUX://Settings"] {
+            #expect(DeepLink.opensSettings(URL(string: text)!, linkScheme: scheme), "\(text)")
+            #expect(DeepLink.settingsRoute(for: URL(string: text)!, linkScheme: scheme) == nil, "\(text)")
+        }
+        for text in ["https://settings", "cmux-other://settings", "cmux://settings/models", "cmux://settings?x=1",
+                     "cmux://settings#x", "cmux://tab/tab_0123456789abcdef0123456789abcdef"] {
+            #expect(!DeepLink.opensSettings(URL(string: text)!, linkScheme: scheme), "\(text)")
+        }
+    }
+
     @Test func theWelcomesStartAgentLinkTurnsTheSystemWideKeyOnAndNeverOff() throws {
         // Chief's first-launch welcome lists Start Agent from Any App with this link while its key is off.
         for text in ["cmux://settings/start-agent-from-any-app", "\(scheme)://settings/start-agent-from-any-app"] {

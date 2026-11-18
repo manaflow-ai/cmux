@@ -16,6 +16,7 @@
 
 mod jwt;
 mod oauth;
+mod page;
 pub(crate) mod store;
 #[cfg(test)]
 mod tests;
@@ -28,6 +29,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
 pub use oauth::Endpoints;
+pub use page::ReturnLink;
 
 /// The client id of a first registration; never stored.
 pub const DYNAMIC_CLIENT_ID: &str = "dynamic_agent_client";
@@ -152,12 +154,14 @@ impl Service {
         map.entry(id.to_owned()).or_default().clone()
     }
 
-    /// Starts a sign-in (`reauth`: the route id of an account to sign in again). The callback
-    /// listener is bound before this returns. `on_finish` runs once the attempt ends.
+    /// Starts a sign-in (`reauth`: the route id of an account to sign in again; `back`: where
+    /// the browser's finished page sends the person back to the app). The callback listener is
+    /// bound before this returns. `on_finish` runs once the attempt ends.
     pub async fn begin(
         self: &Arc<Self>,
         places: Places,
         reauth: Option<String>,
+        back: Option<ReturnLink>,
         on_finish: impl FnOnce(&Status) + Send + 'static,
     ) -> Result<Begun, Failure> {
         let home = places.home.clone();
@@ -176,7 +180,7 @@ impl Service {
         let listener =
             tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.map_err(io("listener"))?;
         let port = listener.local_addr().map_err(io("listener"))?.port();
-        let pending = oauth::Pending::new(host, port, reauth, prior.as_ref())?;
+        let pending = oauth::Pending::new(host, port, reauth, back, prior.as_ref())?;
         let url = self.oauth.authorize_url(&pending)?;
         let attempt = oauth::random_token(18)?;
         self.prune();

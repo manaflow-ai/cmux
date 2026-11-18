@@ -72,6 +72,7 @@ import Testing
     """.utf8)
 
     private func make(daemon: Daemon, keys: Keys = Keys(), opened: Opened = Opened(), harnesses: SettingsHarnesses? = nil,
+                      returnLink: URL? = nil,
                       spread: (read: @MainActor () -> Bool, write: @MainActor (Bool) async throws -> Void)? = nil) -> SettingsModels {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-models-\(UUID().uuidString)")
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
@@ -111,6 +112,7 @@ import Testing
             },
             keys: keys,
             openURL: { opened.urls.append($0) },
+            returnLink: returnLink,
             harnesses: harnesses,
             spreadSetting: spread?.read,
             writeSpreadSetting: spread?.write)
@@ -222,6 +224,24 @@ import Testing
         #expect(models.state["chatgpt"] == ["attempt": .null, "error": .null])
         // Done reads the connections again: the new plan shows.
         #expect(models.state["personal"]?["connections"]?.arrayValue?.contains { $0["kind"] == "chatgpt-plan" } == true)
+    }
+
+    @Test func chatGPTSignInHandsAcpmuxTheLinkBackToThisApp() async throws {
+        // The browser's finished page opens it, so cmux comes forward on the Settings tab it was left on.
+        let daemon = Daemon()
+        daemon.waits.withLock { $0 = ["done"] }
+        let models = make(daemon: daemon, returnLink: URL(string: "cmux-dev-mytag://settings"))
+        _ = try await models.run(["action": "connectChatGPT", "id": "chatgpt"], context: click)
+        await models.chatgptTask?.value
+        let begin = try #require(daemon.calls.withLock { $0 }.first { $0.method == "_acpmux/connections/chatgpt.begin" })
+        #expect(begin.params == ["id": "chatgpt", "return_to": "cmux-dev-mytag://settings"])
+        // Without one, nothing is sent: acpmux's page then has no button.
+        let bare = Daemon()
+        bare.waits.withLock { $0 = ["done"] }
+        let plain = make(daemon: bare)
+        _ = try await plain.run(["action": "connectChatGPT"], context: click)
+        await plain.chatgptTask?.value
+        #expect(bare.calls.withLock { $0 }.first { $0.method == "_acpmux/connections/chatgpt.begin" }?.params == [:])
     }
 
     @Test func chatGPTSignInShowsItsFailure() async throws {

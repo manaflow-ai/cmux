@@ -44,6 +44,7 @@ public final class SettingsModels {
     @ObservationIgnored private let call: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)?
     @ObservationIgnored private let keys: any ModelKeyStoring
     @ObservationIgnored private let openURL: @MainActor (URL) -> Void
+    @ObservationIgnored private let returnLink: URL?
     @ObservationIgnored private let harnesses: SettingsHarnesses?
     @ObservationIgnored private let team: @MainActor () -> (id: String, name: String)?
     @ObservationIgnored private let agentKeys: TeamAgentKeys?
@@ -61,12 +62,15 @@ public final class SettingsModels {
     /// - Parameters:
     ///   - call: a test's stand-in for the daemon; nil calls it (``AcpmuxEnvironment/harness(_:params:)``).
     ///   - openURL: opens the ChatGPT sign-in page in the person's browser, in the background.
+    ///   - returnLink: this build's `<scheme>://settings`, which the browser's finished sign-in page
+    ///     opens to bring cmux back; nil leaves the page without one.
     ///   - team: the active team's id and name; nil signed out or for the personal team.
     ///   - spreadSetting, writeSpreadSetting: `models.spreadUsage`, read and written through the settings writer.
     public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
                 call: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)? = nil,
                 keys: any ModelKeyStoring,
                 openURL: @escaping @MainActor (URL) -> Void,
+                returnLink: URL? = nil,
                 harnesses: SettingsHarnesses? = nil,
                 team: @escaping @MainActor () -> (id: String, name: String)? = { nil },
                 agentKeys: TeamAgentKeys? = nil,
@@ -77,6 +81,7 @@ public final class SettingsModels {
         self.call = call
         self.keys = keys
         self.openURL = openURL
+        self.returnLink = returnLink
         self.harnesses = harnesses
         self.team = team
         self.agentKeys = agentKeys
@@ -299,6 +304,8 @@ public final class SettingsModels {
     }
 
     func openSignIn(_ url: URL) { openURL(url) }
+    /// `chatgpt.begin`'s `return_to`: where the browser's finished page sends the person back.
+    var chatgptReturnLink: URL? { returnLink }
 
     func replaceChatGPTTask(_ task: Task<Void, Never>?) {
         chatgptTask?.cancel()

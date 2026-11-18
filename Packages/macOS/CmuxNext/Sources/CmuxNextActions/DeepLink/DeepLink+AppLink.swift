@@ -150,6 +150,16 @@ extension DeepLink {
         return settingsRoutes[url.path.lowercased()]
     }
 
+    /// Whether `url` is the bare settings link, `<scheme>://settings` (or `cmux://settings`): the
+    /// Settings tab comes forward on the page it was left on. The browser's Sign in with ChatGPT page
+    /// opens it to hand the person back to cmux (acpmux `chatgpt.begin`'s `return_to`). A query or
+    /// fragment makes it no settings link.
+    public static func opensSettings(_ url: URL, linkScheme: String) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
+              url.host?.lowercased() == "settings", url.query == nil, url.fragment == nil else { return false }
+        return url.path.isEmpty || url.path == "/"
+    }
+
     /// The Settings page place a settings link opens: `cmux://settings/models` is Settings > Models
     /// (`#/settings/models`), `cmux://settings/models/add` its Add a Connection
     /// (`#/settings/models?focus=models.add`). `cmux://settings/cloud` is Settings > Cloud, and

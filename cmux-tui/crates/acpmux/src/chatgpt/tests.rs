@@ -173,7 +173,18 @@ fn query(url: &str) -> HashMap<String, String> {
 /// Begins a sign-in, then calls its callback with `extra` (and the right state unless `extra`
 /// names one), and waits for the attempt.
 async fn sign_in(s: &Setup, extra: &[(&str, &str)]) -> (Status, HashMap<String, String>) {
-    let begun = s.service.begin(s.places.clone(), None, |_| {}).await.expect("begin");
+    let (status, params, _) = sign_in_back(s, None, extra).await;
+    (status, params)
+}
+
+/// `sign_in` with a return link, answering the finished page too.
+async fn sign_in_back(
+    s: &Setup,
+    back: Option<&str>,
+    extra: &[(&str, &str)],
+) -> (Status, HashMap<String, String>, reqwest::Response) {
+    let back = back.map(|b| super::ReturnLink::parse(b).expect("return link"));
+    let begun = s.service.begin(s.places.clone(), None, back, |_| {}).await.expect("begin");
     let params = query(&begun.url);
     s.fake.state.lock().unwrap().nonce = params["nonce"].clone();
     let mut pairs: Vec<(&str, &str)> = extra.to_vec();
@@ -184,7 +195,44 @@ async fn sign_in(s: &Setup, extra: &[(&str, &str)]) -> (Status, HashMap<String, 
     let page = reqwest::get(&callback).await.expect("callback");
     assert_eq!(page.status(), 200);
     let status = s.service.wait(&begun.attempt, Duration::from_secs(10)).await.expect("wait");
-    (status, params)
+    (status, params, page)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_signed_in_page_is_cmux_s_and_sends_the_person_back_to_the_app() {
+    let s = setup(FULL_SCOPE).await;
+    let (status, _, page) =
+        sign_in_back(&s, Some("cmux-dev-tag://settings"), &[("code", "c1"), ("client_id", ISSUED)])
+            .await;
+    assert_eq!(status, Status::Done("chatgpt".into()));
+    let csp = page.headers()["content-security-policy"].to_str().unwrap().to_owned();
+    assert!(csp.starts_with("default-src 'none'"), "{csp}");
+    assert_eq!(page.headers()["referrer-policy"], "no-referrer");
+    assert_eq!(page.headers()["cache-control"], "no-store");
+    let body = page.text().await.unwrap();
+    assert!(body.contains("Signed in with ChatGPT"), "{body}");
+    assert!(body.contains("href=\"cmux-dev-tag://settings\" data-auto=\"1\""), "{body}");
+    assert!(!body.contains("code=c1"), "the code never shows on the page");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_cancel_and_a_failure_each_get_their_own_page() {
+    let s = setup(FULL_SCOPE).await;
+    let back = Some("cmux://settings");
+    let (status, _, page) = sign_in_back(&s, back, &[("error", "access_denied")]).await;
+    assert_eq!(status, Status::Failed("access_denied".into()));
+    let body = page.text().await.unwrap();
+    assert!(body.contains("Sign-in cancelled"), "{body}");
+    assert!(body.contains("data-auto"), "a cancel goes back to cmux");
+
+    let s = setup("openid profile email offline_access").await;
+    let (status, _, page) = sign_in_back(&s, back, &[("code", "c1"), ("client_id", ISSUED)]).await;
+    assert_eq!(status, Status::Failed("no_plan_scope".into()));
+    let body = page.text().await.unwrap();
+    assert!(body.contains("ChatGPT plan not shared"), "{body}");
+    assert!(body.contains("Error: no_plan_scope"));
+    assert!(body.contains("href=\"cmux://settings\""));
+    assert!(!body.contains("data-auto"), "a failure stays to be read");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -362,7 +410,7 @@ async fn remove_revokes_the_refresh_token_and_keeps_the_registration() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_cancelled_sign_in_closes_its_listener() {
     let s = setup(FULL_SCOPE).await;
-    let begun = s.service.begin(s.places.clone(), None, |_| {}).await.unwrap();
+    let begun = s.service.begin(s.places.clone(), None, None, |_| {}).await.unwrap();
     assert_eq!(s.service.cancel(&begun.attempt).await.unwrap(), Status::Cancelled);
     let status = s.service.wait(&begun.attempt, Duration::from_millis(50)).await.unwrap();
     assert_eq!(status, Status::Cancelled);
