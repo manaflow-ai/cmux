@@ -3,6 +3,7 @@
  * ledger (every VM and snapshot id the moment it exists, so cleanup deletes
  * exactly what this run made), and logged guest steps.
  */
+import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { Freestyle } from "freestyle";
@@ -116,7 +117,7 @@ export async function deleteLiveVms(): Promise<string[]> {
 /** Network idleness after which Freestyle pauses a harness VM (at most 300 s). */
 export const HARNESS_IDLE_TIMEOUT_SECONDS = 300;
 
-export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string; allowUnprefixed?: boolean }): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
+export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string; allowUnprefixed?: boolean; metadata?: Record<string, string> }): Promise<{ vm: Vm; vmId: string; createMs: number; t0: number }> {
   assertResourceName(options.name, options.allowUnprefixed);
   const t0 = Date.now();
   const { vm, vmId } = await fs.vms.create({
@@ -128,6 +129,7 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
     // leave a VM running: Freestyle pauses it after this much network idleness
     // (Lawrence, 2026-10-07). Product machines are created by CloudDO with -1.
     idleTimeoutSeconds: HARNESS_IDLE_TIMEOUT_SECONDS,
+    ...(options.metadata ? { metadata: options.metadata } : {}),
   });
   const createMs = Date.now() - t0;
   ledger.record(vmId, "vm", options.name);
@@ -142,37 +144,47 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
  */
 export const CREATE_SERVER_ERROR_RETRY_DELAYS_MS: readonly number[] = [10_000, 30_000, 60_000];
 
-export type CreateRetryDeps = { sleep?: (ms: number) => Promise<void>; log?: (line: string) => void; delaysMs?: readonly number[] };
+export type CreateRetryDeps = { sleep?: (ms: number) => Promise<void>; log?: (line: string) => void; delaysMs?: readonly number[]; attemptPrefix?: string };
 
 const serverErrorStatus = (error: unknown): number | undefined => {
   const status = (error as { status?: unknown } | null)?.status;
   return typeof status === "number" && status >= 500 && status <= 599 ? status : undefined;
 };
 
+/** The metadata key that names one create attempt, so a VM a failed create made anyway is found by exact match. */
+export const CREATE_ATTEMPT_KEY = "cmux-image-create-attempt";
+
 /**
- * A server error says nothing about whether the create ran, so before the retry this deletes, and records in the
- * ledger, any VM booted from the same snapshot under the same name that this process does not already hold.
- * Names carry the run id, so no other run's VM matches. A failed lookup is logged; the VM's idle timeout pauses it.
+ * A server error says nothing about whether the create ran, and a 502 or 504 can answer while the provider still
+ * boots the VM. So the attempt's own VM, found only by its CREATE_ATTEMPT_KEY value (unique to this process and
+ * attempt, so never another run's builder of the same layer slug), is recorded in the ledger and deleted: after the
+ * wait before a retry, and before the last error goes to the caller. A failed lookup is logged; the VM's idle
+ * timeout pauses it and the ledger row (when it was found) lets cleanup.ts delete it.
  */
-async function deleteUnclaimedCreates(fs: Freestyle, ledger: Ledger, options: { name: string; snapshotId: string }, log: (line: string) => void): Promise<void> {
+async function deleteAttemptVms(fs: Freestyle, ledger: Ledger, name: string, attemptId: string, log: (line: string) => void): Promise<void> {
   try {
-    const { vms } = await fs.vms.list({ snapshotId: options.snapshotId, limit: 100 });
+    const { vms } = await fs.vms.list({ metadata: `${CREATE_ATTEMPT_KEY}:${attemptId}`, limit: 100 });
     for (const vm of vms) {
-      if (vm.displayName !== options.name || liveVms.has(vm.id)) continue;
-      ledger.record(vm.id, "vm", options.name);
-      await fs.vms.delete(vm.id);
-      ledger.record(vm.id, "vm", options.name, "deleted");
-      log(`PROVIDER ERROR: deleted ${vm.id}, a VM the failed create of ${options.name} made anyway`);
+      if (vm.metadata?.[CREATE_ATTEMPT_KEY] !== attemptId || liveVms.has(vm.id)) continue;
+      ledger.record(vm.id, "vm", name);
+      try {
+        await fs.vms.delete(vm.id);
+      } catch (error) {
+        if ((error as { status?: unknown } | null)?.status !== 404) throw error;
+      }
+      ledger.record(vm.id, "vm", name, "deleted");
+      log(`PROVIDER ERROR: deleted ${vm.id}, a VM the failed create of ${name} made anyway`);
     }
   } catch (error) {
-    log(`PROVIDER ERROR: could not check for a VM the failed create of ${options.name} made: ${String(error).slice(0, 200)}`);
+    log(`PROVIDER ERROR: could not check for a VM the failed create of ${name} made: ${String(error).slice(0, 200)}`);
   }
 }
 
 /**
- * createVm for an image builder: a server error is retried (CREATE_SERVER_ERROR_RETRY_DELAYS_MS) after deleting any
- * VM the failed create made; any other error goes to the caller at once. The smoke keeps plain createVm: it replaces
- * an unfinished clone itself (smoke.ts measureCloneRetrying) and must not fold a retry into its create latency.
+ * createVm for an image builder: a server error is retried (CREATE_SERVER_ERROR_RETRY_DELAYS_MS), each attempt
+ * tagged with its own CREATE_ATTEMPT_KEY so a VM a failed attempt made is deleted (deleteAttemptVms); any other
+ * error goes to the caller at once. The smoke keeps plain createVm: it replaces an unfinished clone itself
+ * (smoke.ts measureCloneRetrying) and must not fold a retry into its create latency.
  */
 export async function createVmRetrying(
   fs: Freestyle,
@@ -183,15 +195,21 @@ export async function createVmRetrying(
   const delays = deps.delaysMs ?? CREATE_SERVER_ERROR_RETRY_DELAYS_MS;
   const log = deps.log ?? ((line: string) => console.log(line));
   const wait = deps.sleep ?? sleep;
+  const run = deps.attemptPrefix ?? randomUUID();
   for (let attempt = 0; ; attempt++) {
+    const attemptId = `${run}-${attempt}`;
     try {
-      return await createVm(fs, ledger, options);
+      return await createVm(fs, ledger, { ...options, metadata: { [CREATE_ATTEMPT_KEY]: attemptId } });
     } catch (error) {
       const status = serverErrorStatus(error);
-      if (status === undefined || attempt >= delays.length) throw error;
+      if (status === undefined) throw error;
+      if (attempt >= delays.length) {
+        await deleteAttemptVms(fs, ledger, options.name, attemptId, log);
+        throw error;
+      }
       log(`PROVIDER ERROR: create ${options.name} from ${options.snapshotId} answered ${status} (${String(error).slice(0, 200)}); retry ${attempt + 1}/${delays.length} in ${(delays[attempt] / 1000).toFixed(0)}s`);
-      await deleteUnclaimedCreates(fs, ledger, options, log);
       await wait(delays[attempt]);
+      await deleteAttemptVms(fs, ledger, options.name, attemptId, log);
     }
   }
 }
