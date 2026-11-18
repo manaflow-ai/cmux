@@ -227,6 +227,28 @@ class AffectedTests(unittest.TestCase):
                              check=True, capture_output=True, text=True).stdout.split()
         self.assertEqual(out, ["100000", "100000"])
 
+    def test_a_script_selects_the_tests_that_import_it_by_module_name(self):
+        # Tests reach scripts/ci modules through sys.path and `import gh_expressions`, naming no
+        # path; before the import edge a gh_expressions.py change selected 3 tests of 55.
+        import focused_tests
+        picked = {p["path"] for p in focused_tests.plan(ROOT, ["scripts/ci/gh_expressions.py"])["python"]}
+        direct = "tests/test_ci_fork_runner_routing.py"  # `import gh_expressions`
+        self.assertNotIn("gh_expressions.py", (ROOT / direct).read_text())
+        self.assertIn(direct, picked)
+        # Transitively: test_cmux_next_route imports cmux_next_route, which imports gh_expressions.
+        self.assertIn("gh_expressions", focused_tests.python_imports((ROOT / "scripts/ci/cmux_next_route.py").read_text()))
+        self.assertIn("tests/test_cmux_next_route.py", picked)
+        # A tests/ helper module the same way: `import blacksmith_linux_sizes`.
+        helper = {p["path"] for p in focused_tests.plan(ROOT, ["tests/blacksmith_linux_sizes.py"])["python"]}
+        importer = "tests/test_ci_tui_routes_avoid_nightly_label.py"
+        self.assertNotIn("blacksmith_linux_sizes.py", (ROOT / importer).read_text())
+        self.assertIn(importer, helper)
+
+    def test_python_imports_reads_every_import_form(self):
+        import focused_tests
+        text = "import a.b, c as d\nfrom e import (f,\n    g)\nfrom h.i import j\n    import k\n"
+        self.assertTrue({"a", "b", "c", "e", "f", "h", "i", "j", "k"} <= focused_tests.python_imports(text))
+
     def test_a_changed_scripts_tests_test_is_listed_for_its_workflow(self):
         # scripts/tests holds tests the lane registry does not list: listed, never dropped silently.
         test = "scripts/tests/test_pr_scoped_webviews_checks.py"
