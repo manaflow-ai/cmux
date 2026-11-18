@@ -416,6 +416,8 @@ test("a seq gap reads the records after the pane's newest, not the whole log", a
   expect(frames(chat.drawn, chat.from, chat.shown).rebuilt).toEqual([]);
 });
 
+// Before the stall check this read the same page forever (the test hung past 120 s); now the read
+// fails, and a retry waits LAG_RETRY_MS, longer than this test's flush.
 test("a seq gap whose page says more but holds nothing past the cursor reads once, not again and again", async () => {
   const chat = await openChat();
   const asked = chat.daemon().asked.length;
@@ -527,6 +529,45 @@ test("a gap read that fails keeps the hole to read: the machine's next answer fi
     .filter((message) => message.method === "_acpmux/events");
   expect(reads.map((message) => message.params?.afterSeq)).toContain(16);
   expect(JSON.stringify(chat.drawn.at(-1)!.rows)).toContain("missed 24.");
+});
+
+test("a gap read whose page says more but holds only the record at its cursor keeps the hole to read", async () => {
+  const chat = await openChat();
+  chat.daemon().down = true;
+  chat.daemon().announce();
+  await flush();
+  await chat.reconnect();
+  for (let seq = 17; seq <= 24; seq += 1) chat.daemon().log.push(reply(seq, `missed ${seq}. `));
+  // Back for the attach (19..24); the read of 17..18 answers only seq 16, the pane's newest, and more.
+  const drawnFrom = chat.drawn.length;
+  chat.daemon().pagesBehind = true;
+  chat.daemon().down = false;
+  chat.daemon().announce();
+  await until(
+    () => chat.daemon().asked.some((message) => message.method === "_acpmux/events" && message.params?.afterSeq === 16),
+    "the gap read",
+  );
+  await flush();
+  const holes = () =>
+    [...(chat.client as unknown as { gapReads: Map<number, { seq: number }> }).gapReads.values()].map((gap) => gap.seq);
+  // The stalled page filled nothing: the hole after 16 is still known, and no frame showed 24 without 17.
+  expect(holes()).toContain(16);
+  for (const snapshot of chat.drawn.slice(drawnFrom)) {
+    const text = JSON.stringify(snapshot.rows);
+    if (text.includes("missed 24.")) expect(text).toContain("missed 17.");
+  }
+  // A good page later fills 17..18.
+  chat.daemon().pagesBehind = false;
+  chat.daemon().down = true;
+  chat.daemon().announce();
+  await flush();
+  chat.daemon().down = false;
+  chat.daemon().announce();
+  await until(() => JSON.stringify(chat.drawn.at(-1)?.rows).includes("missed 17."), "the hole read");
+  const rows = JSON.stringify(chat.drawn.at(-1)!.rows);
+  expect(rows).toContain("missed 18.");
+  expect(rows).toContain("missed 24.");
+  expect(holes()).not.toContain(16);
 });
 
 test("an attach retry that fails keeps the frame until the copy is drawn: no empty frame", async () => {

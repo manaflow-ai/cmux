@@ -9,13 +9,15 @@ import { directClientStub } from "./support/directClientStub";
 
 const record = (seq: number) => ({ sessionId: "s", seq, at: seq, dir: "in", kind: "agent_message_chunk", msg: {} });
 
-test("the turn repair read ends on a page that says more but holds nothing past its cursor", async () => {
+test("the turn repair read fails on a page that says more but holds nothing past its cursor, and says why", async () => {
   const asked: number[] = [];
+  const logged: string[] = [];
   const client = directClientStub<{
     readTurnRecords(sessionId: string, generation: number, afterSeq: number, endSeq: number): Promise<unknown[]>;
   }>({
     selectedSessionId: "s",
     selectionGeneration: 1,
+    wire: { lifecycle: (event: string) => logged.push(event) },
     // Every page answers the record at the cursor again and says there are more.
     typed: async (_method: string, params: { afterSeq: number }) => {
       asked.push(params.afterSeq);
@@ -23,9 +25,10 @@ test("the turn repair read ends on a page that says more but holds nothing past 
       return { events: [record(params.afterSeq)], hasMore: true };
     },
   });
-  const stored = await client.readTurnRecords("s", 1, 10, 20);
+  // A failure, so repairTurns retries it on its bounded delays; it never resolves as a complete read.
+  await expect(client.readTurnRecords("s", 1, 10, 20)).rejects.toThrow("said more but held nothing past it");
   expect(asked).toEqual([10]);
-  expect(stored).toHaveLength(1);
+  expect(logged).toEqual(["turn repair read stalled"]);
 });
 
 test("the turn repair read still pages on while each page moves its cursor", async () => {
