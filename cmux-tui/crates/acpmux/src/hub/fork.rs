@@ -620,6 +620,9 @@ impl Hub {
             cwd,
             // A fork sees what its parent saw, but never its own folder twice.
             additional_directories: fork_dirs,
+            // A fork is the person's new chat: its parent's stop condition (a Chief's goal) stays
+            // with the parent.
+            stop_condition: None,
             // A fork is a new chat. Its parent transcript is authorized through parent_id; it
             // must not inherit the parent's historical native session ids as its own.
             previous_agent_session_ids: Vec::new(),
