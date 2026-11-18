@@ -154,3 +154,57 @@ import Testing
         #expect(model.state == .reading(.init(row: 500, delta: 0)))
     }
 }
+
+/// #43189, simulator step 86896cb9e08d3fe4de04a693 (trail `PPPPPPNP`): a
+/// fling between a history window's reset and its replay's report. The
+/// reset follows the old document's bottom; the fling settles there, on the
+/// old replay's rows. The report then found the reader's rows in the new
+/// 4,000-row window, but `restoreReading` kept the fling's anchor: a row past
+/// the window's end, so the page rested on the Mac's screen and the next
+/// fling up asked for the newest rows (a fall back to the tail).
+@Suite struct TerminalScrollRestoreAfterGestureTests {
+    let cell: CGFloat = 16
+
+    func bottom(_ layout: TerminalDocumentLayout) -> CGFloat {
+        TerminalDocumentLayout.bottomOffset(contentHeight: layout.contentHeight(cellHeight: cell), viewportHeight: 874, topInset: 62, bottomInset: 140)
+    }
+
+    @Test func aGestureSettledBeforeTheReportStillGetsTheReadersRows() {
+        var model = TerminalScrollModel()
+        // The newest 10,000 rows and the screen; the reset follows its bottom.
+        let tail = TerminalDocumentLayout(originRow: 0, endRow: 10_050)
+        model.reset()
+        model.began()
+        model.settled(offsetY: 9_800 * cell, bottomOffsetY: bottom(tail), layout: tail, rowHeight: cell)
+        #expect(model.state == .reading(.init(row: 9_800, delta: 0)))
+        // The window's replay is in: the reader's rows are at 1,530 of 4,050.
+        let window = TerminalDocumentLayout(originRow: 0, endRow: 4_050)
+        let reader = TerminalScrollModel.Anchor(row: 1_530, delta: 3)
+        #expect(model.restoreReading(reader) == nil)
+        #expect(model.state == .reading(reader))
+        let y = model.target(layout: window, rowHeight: cell, topInset: 62, bottomOffsetY: bottom(window))
+        #expect(y == window.contentY(ofRow: 1_530, cellHeight: cell) + 3)
+    }
+
+    /// Simulator step 4a7b618b0ab0733665f972e6 (`T13`): the report came while
+    /// a fling held the page and the restore was dropped. The model hands the
+    /// reader's rows to the controller, which moves the page under the
+    /// gesture; the state stays the gesture's until it settles.
+    @Test func aGestureHoldingThePageGetsTheReadersRowsToPlace() {
+        var model = TerminalScrollModel()
+        model.reset()
+        model.began()
+        let reader = TerminalScrollModel.Anchor(row: 1_530, delta: 3)
+        #expect(model.restoreReading(reader) == reader)
+        #expect(model.isInteracting)
+    }
+
+    /// Unchanged: no gesture since the reset, the state places the reader.
+    @Test func noGestureSinceTheResetReads() {
+        var model = TerminalScrollModel()
+        model.reset()
+        let reader = TerminalScrollModel.Anchor(row: 1_530, delta: 0)
+        #expect(model.restoreReading(reader) == nil)
+        #expect(model.state == .reading(reader))
+    }
+}

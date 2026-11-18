@@ -1521,20 +1521,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         olderRowsAsked = false
         readingMarkAwaitsReport = false
         fingerRestore = nil
+        #if DEBUG
         let markOffsetY = readingMarkOffsetY
+        #endif
         readingMarkOffsetY = nil
         let held = scrollView.isTracking || scrollView.isDecelerating
-        // A finger (or its fling) took the page after the mark: its rows are
-        // still put back, moved as far as the finger moved them since
-        // (`markOffsetY`). Before, they were dropped and the page stayed on
-        // the old rows' offset: past a history window that moved 1,500 rows,
-        // other rows, and the Mac's screen after a switch from the newest
-        // rows (simulator step 4a7b618b0ab0733665f972e6: 13 restores
-        // dropped on the way to line 1). Only for the reader's own mark: a
-        // place waiting for older rows is dropped by the drag
+        // A gesture since the reset moved a page whose rows are the old
+        // replay's: the scroll model decides where the reader goes
+        // (`TerminalScrollModel.restoreReading`). Only the reader's own mark:
+        // a place waiting for older rows is dropped by the drag
         // (`dropPendingRestore`).
-        let underFinger = held && ownMark && markOffsetY != nil
-        guard var restore = pending, !model.isTUI, !held || underFinger else {
+        guard var restore = pending, !model.isTUI, !held || ownMark else {
             #if DEBUG
             if pending != nil, !model.isTUI { TerminalHistoryWindowProbe.shared.note("T") }
             #endif
@@ -1565,38 +1562,58 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return
         }
         let placed = restore.mark
-        sizingLog.notice("reading mark restored row \(placed.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)\(underFinger ? " under a finger" : "", privacy: .public)")
-        if underFinger, let markOffsetY {
-            // Placed once the document has the replay's rows (`applyFingerRestore`).
-            fingerRestore = (anchor, scrollView.contentOffset.y - markOffsetY)
+        #if DEBUG
+        // The scroll state at the report and the rows the page moved since
+        // the mark (a gesture, or the reset's follow to the bottom).
+        let stateLetter: String
+        switch scroll.state {
+        case .following: stateLetter = "f"
+        case .reading: stateLetter = "r"
+        case .interacting: stateLetter = held ? "h" : "i"
+        }
+        let movedRows = markOffsetY.map { cell.height > 0 ? Int(((scrollView.contentOffset.y - $0) / cell.height).rounded()) : 0 }
+        TerminalHistoryWindowProbe.shared.lastPlace = "\(stateLetter)\(movedRows.map { $0 >= 0 ? "+\($0)" : "\($0)" } ?? "?")@\(anchor.row)/\(total)"
+        #endif
+        sizingLog.notice("reading mark restored row \(placed.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public) (scroll \(String(describing: self.scroll.state), privacy: .public))")
+        if let underGesture = scroll.restoreReading(anchor) {
+            // A finger or its fling holds the page: placed once the document
+            // has the replay's rows (`applyFingerRestore`).
+            fingerRestore = underGesture
             #if DEBUG
             TerminalHistoryWindowProbe.shared.note("F")
             #endif
             return
         }
-        scroll.restoreReading(anchor)
+        guard scroll.state == .reading(anchor) else {
+            // The scroll model kept another state: the page stays on the old
+            // rows' offset in the new rows.
+            #if DEBUG
+            TerminalHistoryWindowProbe.shared.note("K")
+            #endif
+            return
+        }
         restoredMark = (placed, anchor)
         #if DEBUG
         TerminalHistoryWindowProbe.shared.note("P")
         #endif
     }
 
-    /// A reader's rows found while a finger held the page
-    /// (`restoreReadingMark`): the anchor, and how far the finger moved the
-    /// page since the mark (points).
-    private var fingerRestore: (anchor: TerminalScrollModel.Anchor, movedY: CGFloat)?
-    /// The page's offset when the reading mark was taken.
+    /// A reader's rows found while a finger or its fling held the page
+    /// (`restoreReadingMark`).
+    private var fingerRestore: TerminalScrollModel.Anchor?
+    /// The page's offset when the reading mark was taken (DEBUG probe only:
+    /// after the reset the page follows the old document's bottom, so this
+    /// is not the finger's move).
     private var readingMarkOffsetY: CGFloat?
 
     /// After the document took the replay's rows: a reader restored under a
-    /// finger gets the page moved to their rows, the finger's move since the
-    /// mark kept, as `historyPruned` moves it under a finger. A fling is
+    /// finger or a fling gets the page moved to their rows. A fling is
     /// stopped there and the page rests on those rows.
     private func applyFingerRestore() {
         guard let restore = fingerRestore else { return }
         fingerRestore = nil
         guard let document, cell.height > 0, !model.isTUI else { return }
-        let target = document.contentY(ofRow: restore.anchor.row, cellHeight: cell.height) + restore.anchor.delta + restore.movedY
+        let target = document.contentY(ofRow: restore.row, cellHeight: cell.height) + restore.delta
         let y = min(max(-scrollView.contentInset.top, target), maxOffsetY)
         let decelerating = scrollView.isDecelerating || fling != nil
         if decelerating {
@@ -2652,6 +2669,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 let asked = model.session.loadNewerHistory(toTheScreen: need == .newest)
                 #if DEBUG
                 if asked { TerminalHistoryWindowProbe.shared.note(need == .newest ? "N" : "R") }
+                if asked, need == .newest {
+                    let probe = TerminalHistoryWindowProbe.shared
+                    probe.lastNewest = "\(top)-\(bottom)/gap\(gap.row)/doc\(originRow)-\(document?.endRow ?? -1)/after:\(probe.lastPlace)"
+                }
                 #endif
                 _ = asked
             }

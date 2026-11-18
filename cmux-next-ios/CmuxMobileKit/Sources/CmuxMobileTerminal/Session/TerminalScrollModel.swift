@@ -115,9 +115,13 @@ public struct TerminalScrollModel: Equatable, Sendable {
 
     /// A mirror reset's replay is in: the reader goes back to their rows
     /// (TerminalReadingMark), unless a finger took the page meanwhile.
-    public mutating func restoreReading(_ anchor: Anchor) {
-        guard state == .following else { return }
+    /// Returns the anchor the controller puts the page on itself while a
+    /// gesture holds the page; nil when the state places it (or keeps it).
+    @discardableResult
+    public mutating func restoreReading(_ anchor: Anchor) -> Anchor? {
+        guard state == .following else { return nil }
         state = .reading(anchor)
+        return nil
     }
 
     /// Find revealed a match: the page reads from `row` plus `delta` points (its top

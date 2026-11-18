@@ -20,6 +20,13 @@ public final class TerminalHistoryWindowProbe {
     /// The first word of the first row with text on the page when it last
     /// came to rest (a demo row's number).
     var topWord = "-"
+    /// The last restore: the scroll state at the report (`f` following, `r`
+    /// reading, `h` a held gesture, `i` interacting), the rows the page moved
+    /// since the mark, then `@anchor/total`.
+    var lastPlace = "-"
+    /// When the newest rows were last asked for: the rows on the page, the
+    /// gap's row, the document's rows, and the restore before it.
+    var lastNewest = "-"
 
     func note(_ event: Character) {
         counts[event, default: 0] += 1
@@ -27,10 +34,11 @@ public final class TerminalHistoryWindowProbe {
         if trail.count > trailLength { trail.removeFirst(trail.count - trailLength) }
     }
 
-    /// `top=000123 probe=P3,F0,S0,T0,D0,N0,R0 trail=PPS`: no spaces inside a field.
+    /// `top=000123 probe=P3,F0,K0,S0,T0,D0,N0,R0 trail=PPS place=f+0@1530/4051 newest=-`: no spaces inside a field.
+    /// `K`: the restore found the reader's rows but the scroll model kept another state.
     public var caption: String {
-        let fields = "PFSTDNR".map { "\($0)\(counts[$0] ?? 0)" }.joined(separator: ",")
-        return "top=\(topWord) probe=\(fields) trail=\(trail.isEmpty ? "-" : trail)"
+        let fields = "PFKSTDNR".map { "\($0)\(counts[$0] ?? 0)" }.joined(separator: ",")
+        return "top=\(topWord) probe=\(fields) trail=\(trail.isEmpty ? "-" : trail) place=\(lastPlace) newest=\(lastNewest)"
     }
 }
 #endif
