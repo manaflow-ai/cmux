@@ -323,18 +323,50 @@ public nonisolated struct CloudMoveCLI: Sendable {
     public func startChatWarmSpare(platform: URL, account: String, access: String, install: String, end: SpareWarmEnd? = nil,
                                    claimed: String? = nil, ready: String? = nil, generation: String? = nil,
                                    scope: [String: String]? = nil, currentScope: [String: String]? = nil) async -> SpareWarm? {
-        struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
         var request = Self.spareWarmRequest(platform: platform, account: account, end: end, claimed: claimed, ready: ready)
         request["generation"] = generation
         if let scope { request["scope"] = scope }
         if let currentScope { request["currentScope"] = currentScope }
+        return Self.spareCopy(await spareWarmReply(request, access: access, install: install), account: account)
+    }
+
+    /// A warm's spare as Rust answered it: the machine it names and its team, and the login copy onto it when one is asked
+    /// (``SpareWarm``). Not the owner's (`vm_kind` `team`): never made ready ahead (``CloudSpareReadiness``).
+    public struct WarmedSpare: Sendable, Equatable {
+        public var machineID: String
+        public var team: String?
+        public var copy: SpareWarm?
+    }
+
+    /// ``startChatWarmSpare(platform:account:access:install:end:claimed:ready:generation:scope:currentScope:)``'s warm,
+    /// with the spare it named whether or not a copy is asked; nil with no spare, a teammate's, or a refusal.
+    public func startChatWarmedSpare(platform: URL, account: String, access: String, install: String) async -> WarmedSpare? {
+        let request = Self.spareWarmRequest(platform: platform, account: account, end: nil, claimed: nil)
+        return Self.warmedSpare(await spareWarmReply(request, access: access, install: install), account: account)
+    }
+
+    /// The spare a warm's `reply` names (``WarmedSpare``).
+    static func warmedSpare(_ reply: [String: Any]?, account: String) -> WarmedSpare? {
+        guard let reply, reply["ok"] as? Bool == true, let machine = reply["machine"] as? String, !machine.isEmpty,
+              ((reply["vm_kind"] as? String) ?? "owner") == "owner" else { return nil }
+        return WarmedSpare(machineID: machine, team: reply["team"] as? String, copy: spareCopy(reply, account: account))
+    }
+
+    /// The login copy a warm's `reply` asks for, for `account` only.
+    static func spareCopy(_ reply: [String: Any]?, account: String) -> SpareWarm? {
+        guard let copy = reply?["copy"] as? [String: Any], let machineID = copy["machine"] as? String,
+              copy["account"] as? String == account, let team = copy["team"] as? String else { return nil }
+        return SpareWarm(machineID: machineID, account: account, team: team, generation: copy["generation"] as? String)
+    }
+
+    /// One `warm-spare` call's answer object; nil when it did not run or answer one.
+    private func spareWarmReply(_ request: [String: Any], access: String, install: String) async -> [String: Any]? {
+        struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
         guard let payload = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
               let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
                                         stdin: Data((access + "\n" + install + "\n").utf8)),
-              let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
-              let copy = reply["copy"] as? [String: Any], let machineID = copy["machine"] as? String,
-              copy["account"] as? String == account, let team = copy["team"] as? String else { return nil }
-        return SpareWarm(machineID: machineID, account: account, team: team, generation: copy["generation"] as? String)
+              let object = read.object else { return nil }
+        return try? JSONSerialization.jsonObject(with: object) as? [String: Any]
     }
 
     /// The `warm-spare` request: a warm, the end of its copy (`end`), or the copy a reserve's or claim's machine asks for (`claimed`).
