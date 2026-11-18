@@ -237,6 +237,11 @@ final class PaneHostView: NSView, RestingPlacement {
         // Another screen (or none) places it now: its clip and overlay are computed afresh.
         stripClipInput = nil
         overlaySyncKey = nil
+        // No card of the screen that it left is under it now, and none paints its ground: a card of this screen
+        // puts its mark on the clip again in its next pass.
+        clipView.hasSolidGroundUnder = false
+        clipView.onContentGroundChange = nil
+        clipView.ownsContentGround = false
     }
 
     /// What the host's strip clip was last computed from (`ScreenContentView.clipToStrip`).

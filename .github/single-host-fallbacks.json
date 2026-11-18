@@ -146,6 +146,10 @@
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
+    "CI_RD_HOST_GATEWAY": {
+      "fallback": "the route-defined owned-pool or Blacksmith fallback",
+      "after_minutes": 5
+    },
     "CI_SEED_TRUSTED_POOL": {
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
