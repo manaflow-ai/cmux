@@ -1635,7 +1635,8 @@
         "CmuxNextWakeups"
       ],
       "packages": [
-        "CmuxScreenKit"
+        "CmuxScreenKit",
+        "CmuxVisibleRows"
       ]
     },
     "CmuxNextMacScreenTests": {

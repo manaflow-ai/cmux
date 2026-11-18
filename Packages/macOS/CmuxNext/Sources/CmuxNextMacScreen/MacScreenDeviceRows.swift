@@ -1,19 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextDevices
-
-/// How much work Your Devices does, for count tests: a one-device change makes one row, a scroll step
-/// makes only the rows it reveals, and rows alive stay near one viewport whatever the list's length.
-struct MacScreenDeviceRowCounts: Equatable {
-    /// Row views alive now.
-    var alive = 0
-    /// Row views made (a row new near the viewport, or one whose values changed).
-    var made = 0
-    /// Row frames set (a row placed, moved or resized).
-    var framed = 0
-    /// Realize passes (a list update, a layout, a scroll).
-    var realizes = 0
-}
+import CmuxVisibleRows
 
 /// The page's scroll view, telling its owner of every scroll (the clip view's bounds moved).
 @MainActor
@@ -84,9 +72,11 @@ final class MacScreenDeviceRows: NSView {
     private var cells: [String: Cell] = [:]
     /// `offsets[i]`: the top of row `i`; the last entry is the list's height.
     private var offsets: [CGFloat] = [0]
-    private var measured: [String: CGFloat] = [:]
+    /// Each row's measured height, with the value it was measured for (a changed row is measured again).
+    private var measured: [String: (row: MacScreenDeviceRow, height: CGFloat)] = [:]
     private var kindHeights: [String: CGFloat] = [:]
-    private(set) var counts = MacScreenDeviceRowCounts()
+    /// The rows' work (`VisibleRowsContract`): a row made, a row framed, the mounted rows an update compares.
+    let listWork = ListWorkMeter()
     /// The list's height changed: the page frames its document again.
     var onHeightChange: (() -> Void)?
 
@@ -106,17 +96,13 @@ final class MacScreenDeviceRows: NSView {
 
     override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: offsets.last ?? 0) }
 
-    /// Shows `rows`: rows whose values and hairline did not change keep their views.
+    /// Shows `rows`: rows whose values and hairline did not change keep their views. Only the mounted rows are
+    /// compared; the id index and the row tops are the cheap passes over values (no views).
     func update(_ rows: [MacScreenDeviceRow], separators: Bool) {
-        let old = index
-        let oldRows = self.rows
         self.rows = rows
         self.separators = separators
         index = Dictionary(rows.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
-        for row in rows {
-            if let at = old[row.id], oldRows[at] == row { continue }
-            measured[row.id] = nil
-        }
+        listWork.walked(cells.count)
         for (id, cell) in cells where index[id].map({ rows[$0] != cell.row }) ?? true { unmount(id) }
         rebuildOffsets()
         needsLayout = true
@@ -136,7 +122,7 @@ final class MacScreenDeviceRows: NSView {
     // MARK: Windowing
 
     private func height(of row: MacScreenDeviceRow) -> CGFloat {
-        measured[row.id] ?? kindHeights[row.kind] ?? Self.estimatedHeight
+        measured[row.id].flatMap { $0.row == row ? $0.height : nil } ?? kindHeights[row.kind] ?? Self.estimatedHeight
     }
 
     private func hasSeparator(_ at: Int) -> Bool { separators && at < rows.count - 1 }
@@ -180,10 +166,8 @@ final class MacScreenDeviceRows: NSView {
 
     /// Makes the rows near the viewport that have no view, frames the ones that moved, and drops the rest.
     func realize() {
-        counts.realizes += 1
         guard !rows.isEmpty else {
             for id in Array(cells.keys) { unmount(id) }
-            counts.alive = 0
             return
         }
         var range = 0..<0
@@ -195,10 +179,10 @@ final class MacScreenDeviceRows: NSView {
             for at in range where cells[rows[at].id] == nil {
                 let row = rows[at]
                 let view = make(row)
-                counts.made += 1
+                listWork.configured()
                 let height = ceil(view.fittingSize.height)
                 if abs(height - self.height(of: row)) > 0.5 { remeasured = true }
-                measured[row.id] = height
+                measured[row.id] = (row, height)
                 if kindHeights[row.kind] == nil { kindHeights[row.kind] = height }
                 mount(row, view: view)
             }
@@ -244,7 +228,7 @@ final class MacScreenDeviceRows: NSView {
             cells[row.id] = cell
             let frame = NSRect(x: 0, y: offsets[at], width: width, height: rowHeight + (lined ? 1 : 0))
             if cell.container.frame != frame || cell.view.frame.width != width {
-                counts.framed += 1
+                listWork.laidOut()
                 cell.container.frame = frame
                 cell.view.frame = NSRect(x: 0, y: 0, width: width, height: rowHeight)
                 cell.separator?.frame = NSRect(x: 50, y: rowHeight, width: max(0, width - 50), height: 1)
@@ -252,6 +236,11 @@ final class MacScreenDeviceRows: NSView {
             order.append(cell.container)
         }
         if !subviews.elementsEqual(order, by: ===) { subviews = order }
-        counts.alive = cells.count
     }
+}
+
+/// Your Devices under the visible-rows contract (`VisibleRowsContract`).
+extension MacScreenDeviceRows: VisibleRowsList {
+    /// Row views mounted now (rows outside the viewport and its overscan have none).
+    var rowViewsAlive: Int { cells.count }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxVisibleRows
 @testable import CmuxNextMacScreen
 import CmuxNextTestSupport
 import Foundation
@@ -113,16 +114,17 @@ struct MacScreenDeviceRowsCountTests {
         defer { window.close() }
         let list = try #require(home.deviceRows)
         let sections = home.sectionsMade
-        var before = list.counts
+        _ = list.listWork.take()
         home.build(MacScreenHomeSnapshot(devices: .list(Self.devices(count, renamed: 5)), sharingLook: .list))
         settle(home)
+        let change = list.listWork.take()
         #expect(home.sectionsMade == sections)
-        #expect(list.counts.made - before.made == 1)
-        before = list.counts
+        #expect(change.rowsConfigured == 1)
         window.setContentSize(NSSize(width: 600, height: Self.viewport.height))
         settle(home)
-        print("mac-screen-rows n=\(count) alive=\(list.counts.alive) widthChangeFramed=\(list.counts.framed - before.framed) widthChangeMade=\(list.counts.made - before.made)")
-        #expect(list.counts.made == before.made)
-        #expect(list.counts.framed - before.framed == list.counts.alive)
+        let resize = list.listWork.take()
+        print("mac-screen-rows n=\(count) alive=\(list.rowViewsAlive) change=\(change) resize=\(resize)")
+        #expect(resize.rowsConfigured == 0)
+        #expect(resize.rowsLaidOut == list.rowViewsAlive)
     }
 }
