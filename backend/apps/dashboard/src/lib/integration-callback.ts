@@ -12,16 +12,22 @@ export const integrationTeamHint = (state: string | undefined): string | undefin
 
 /** The state JWT's payload, decoded without verification (routing hints only). */
 const unverifiedStateClaims = (state: string | undefined): Record<string, unknown> | undefined => {
-  if (!state || state.length > 4096) return undefined
+  if (typeof state !== "string" || !state || state.length > 4096) return undefined
   const parts = state.split(".")
   if (parts.length !== 3) return undefined
+  return jsonPart(parts[1]!)
+}
+
+const base64UrlBytes = (part: string) => {
+  const encoded = part.replace(/-/g, "+").replace(/_/g, "/")
+  return Uint8Array.from(atob(encoded + "=".repeat((4 - (encoded.length % 4)) % 4)), (c) => c.charCodeAt(0))
+}
+
+/** One base64url JWT part as a JSON object; undefined for anything else. */
+const jsonPart = (part: string): Record<string, unknown> | undefined => {
   try {
-    const encoded = parts[1]!.replace(/-/g, "+").replace(/_/g, "/")
-    const padded = encoded + "=".repeat((4 - (encoded.length % 4)) % 4)
-    const payload: unknown = JSON.parse(
-      new TextDecoder().decode(Uint8Array.from(atob(padded), (c) => c.charCodeAt(0))),
-    )
-    return payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as Record<string, unknown>) : undefined
+    const value: unknown = JSON.parse(new TextDecoder().decode(base64UrlBytes(part)))
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
   } catch {
     return undefined
   }
@@ -58,6 +64,52 @@ export const integrationCompletionApi = (at: { readonly api: string; readonly ho
   const staging = api === STAGING_API_URL || at.host?.toLowerCase() === STAGING_CONSOLE_HOST
   return staging && integrationEnvironmentHint(state) === "development" ? { url: DEVELOPMENT_API_URL, environment: "development" } : { url: api }
 }
+
+/** The development API's state issuer and the audience every integration state carries (api src/integrations/state.ts). */
+export const DEVELOPMENT_STATE_ISSUER = "https://cmux-api/development"
+const STATE_AUDIENCE = "cmux-integration-state"
+
+/**
+ * Whether `state` is an unexpired integration state signed (ES256) by one of the keys in `jwks` for `issuer`.
+ * The staging console asks this with the development API's published keys before it sends a session there:
+ * the issuer alone is a claim anyone can write into a link, the signature is not. The API still verifies the
+ * state, its user and its team when it completes.
+ */
+export const integrationStateSignedBy = async (state: string | undefined, jwks: unknown, issuer: string, now: number = Date.now()): Promise<boolean> => {
+  if (typeof state !== "string" || state.length > 4096) return false
+  const parts = state.split(".")
+  if (parts.length !== 3) return false
+  const claims = jsonPart(parts[1]!)
+  if (jsonPart(parts[0]!)?.alg !== "ES256" || !claims) return false
+  if (claims.iss !== issuer || claims.aud !== STATE_AUDIENCE) return false
+  if (typeof claims.exp !== "number" || claims.exp * 1000 <= now) return false
+  const keys = (jwks as { keys?: unknown } | null | undefined)?.keys
+  if (!Array.isArray(keys)) return false
+  try {
+    const signature = base64UrlBytes(parts[2]!)
+    const signed = new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
+    for (const jwk of keys.slice(0, 8)) {
+      const { kty, crv, x, y } = (jwk ?? {}) as Record<string, unknown>
+      if (kty !== "EC" || crv !== "P-256" || typeof x !== "string" || typeof y !== "string") continue
+      const key = await crypto.subtle.importKey("jwk", { kty, crv, x, y }, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"])
+      if (await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, signature, signed)) return true
+    }
+  } catch {
+    return false
+  }
+  return false
+}
+
+/**
+ * The answer for a development completion the development API refused to authenticate. A 401 from the console's
+ * own API means the session ended; from the development API it means that API did not accept this sign-in, and
+ * the console's session is still good, so the page must not show "sign in". `signedOut` is the console's own
+ * answer when the session could not be refreshed.
+ */
+export const developmentRefusal = (status: number, signedOut: boolean): { readonly code: string; readonly message: string } | undefined =>
+  status === 401 && !signedOut
+    ? { code: "auth.development_refused", message: "The development Cloud did not accept this sign-in. Start the connection again from a development build signed in to this account." }
+    : undefined
 
 /** The `ret` claim of an integration state's JWT, unverified (the API verifies the state when the app completes it). */
 const stateReturnHint = (state: string | undefined): string | undefined => {

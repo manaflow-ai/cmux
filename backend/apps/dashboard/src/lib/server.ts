@@ -1,6 +1,6 @@
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start"
 import { deleteCookie, getCookie, getRequestHeader, setCookie } from "@tanstack/react-start/server"
-import { integrationCompletionApi } from "./integration-callback"
+import { DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationCompletionApi, integrationStateSignedBy } from "./integration-callback"
 import { teamHeaders } from "./team-scope"
 
 /**
@@ -156,17 +156,40 @@ export const mutate = createServerFn({ method: "POST" })
 
 /**
  * integration.complete for the callback page. The API comes from the state, never the page: a development
- * state on the staging console finishes on the development API (integration-callback.ts integrationCompletionApi);
- * every other state on this console's own API, which verifies it.
+ * state on the staging console finishes on the development API (integration-callback.ts integrationCompletionApi),
+ * and only when the development API's published key signed it; every other state on this console's own API,
+ * which verifies it.
  */
 export const completeIntegration = createServerFn({ method: "POST" })
   .validator((d: { params: { state: string; code?: string; installation_id?: string; setup_action?: string }; idempotency_key: string; team?: string }) => d)
   .handler(async ({ data }) => {
     requireSameOrigin()
     const api = integrationCompletionApi({ api: apiUrl(), host: getRequestHeader("x-forwarded-host") ?? getRequestHeader("host") }, data.params.state)
-    const r = await callImpl<OpResponse>("POST", "/v1/ops", { op: "integration.complete", params: data.params, idempotency_key: data.idempotency_key, origin: "user" }, data.team, api.url)
-    return { ...r, environment: api.environment ?? null }
+    const frame = { op: "integration.complete", params: data.params, idempotency_key: data.idempotency_key, origin: "user" }
+    if (api.environment !== "development") return { ...(await callImpl<OpResponse>("POST", "/v1/ops", frame, data.team, api.url)), environment: null }
+    const refused = (error: { code: string; message: string }): ApiResult<OpResponse> & { environment: "development" } => ({
+      status: 400,
+      body: { ok: false, op: frame.op, error: { ...error, retryable: false }, transaction: "", idempotency_key: data.idempotency_key, replayed: false, stream: "", sequence: 0 },
+      environment: "development"
+    })
+    // The session leaves this console's own API only for a state the development API signed: its issuer alone is a claim anyone can put in a link.
+    if (!(await integrationStateSignedBy(data.params.state, await developmentJwks(), DEVELOPMENT_STATE_ISSUER))) {
+      return refused({ code: "integration.state_invalid", message: "This link expired or was not issued by the development Cloud. Start the connection again." })
+    }
+    const r = await callImpl<OpResponse>("POST", "/v1/ops", frame, data.team, api.url)
+    const refusal = developmentRefusal(r.status, (r.body as { error?: unknown }).error === "signed out")
+    return refusal ? refused(refusal) : { ...r, environment: "development" as const }
   })
+
+/** The development API's published signing keys (/.well-known/jwks.json, no session sent); undefined when it does not answer. */
+const developmentJwks = async (): Promise<unknown> => {
+  try {
+    const res = await fetch(`${DEVELOPMENT_API_URL}/.well-known/jwks.json`)
+    return res.ok ? await res.json() : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * team_vm.retired.export (cx-lyvg): sends the op with the session, then answers the absolute

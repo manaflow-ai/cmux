@@ -5,7 +5,7 @@ import { importPKCS8 } from "jose"
 import { describe, expect, it } from "vitest"
 import { GITHUB_TOKEN_PERMISSIONS } from "@cmux/protocol"
 import { GITHUB_PUSH_EVENTS } from "../src/integrations/github-push.ts"
-import { CALLBACK_ORIGIN, createPage, DEVELOPMENT_API_ORIGIN, manifest, secretsFromConversion } from "../scripts/dev-github-app.ts"
+import { CALLBACK_ORIGIN, createPage, DEVELOPMENT_API_ORIGIN, isLocalHost, LOCAL_PORT, manifest, secretsFromConversion } from "../scripts/dev-github-app.ts"
 
 /** JSONC to JSON: drops comments outside strings (wrangler.jsonc has no trailing commas). */
 const stripComments = (text: string): string => {
@@ -56,6 +56,11 @@ describe("the cmux-cloud-dev App manifest", () => {
     expect(page).toContain('action="https://github.com/organizations/manaflow-ai/settings/apps/new?state=abc"')
     expect(page).not.toContain('"name":')
     expect(page).toContain("&quot;name&quot;:&quot;cmux-cloud-dev&quot;")
+  })
+
+  it("answers only requests addressed to its own local address", () => {
+    expect(isLocalHost(`127.0.0.1:${LOCAL_PORT}`)).toBe(true)
+    for (const host of [undefined, "", "127.0.0.1", `localhost:${LOCAL_PORT}`, `rebind.example:${LOCAL_PORT}`, "127.0.0.1:80"]) expect(isLocalHost(host)).toBe(false)
   })
 })
 

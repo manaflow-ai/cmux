@@ -87,6 +87,9 @@ export const secretsFromConversion = (body: Record<string, unknown>): Record<str
 
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 
+/** Whether a request's Host header names this script's own address, the only one the page and GitHub's redirect use. */
+export const isLocalHost = (host: string | undefined): boolean => host === `127.0.0.1:${LOCAL_PORT}`
+
 /** The one-button page: a form that posts the manifest to the org's new-App page. */
 export const createPage = (state: string) => `<!doctype html><meta charset="utf-8"><title>Create ${APP_NAME}</title>
 <form method="post" action="https://github.com/organizations/${ORG}/settings/apps/new?state=${encodeURIComponent(state)}">
@@ -101,6 +104,12 @@ const create = () => {
   }
   const state = Array.from(randomBytes(16), (b) => b.toString(16).padStart(2, "0")).join("")
   const server = createServer(async (req, res) => {
+    // Only this address: a page on another name that resolves here (DNS rebinding) must not read the state or post a code.
+    if (!isLocalHost(req.headers.host)) {
+      res.writeHead(421)
+      res.end()
+      return
+    }
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${LOCAL_PORT}`)
     if (url.pathname === "/") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" })

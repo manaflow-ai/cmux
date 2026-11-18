@@ -16,9 +16,11 @@ browser elsewhere cannot reach). So `env.development` sets
 The callback page reads the state's issuer (`https://cmux-api/<environment>`, unverified, a
 routing hint only). On the staging console a `development` state finishes on
 `https://cmux-api-development.debussy.workers.dev`, which verifies the signature, user and team
-as always; every other state finishes on the console's own API. Development and staging share
-one sign-in project, so the staging console's session is valid on the development API. The
-production console never forwards. Tests pin the URLs to `wrangler.jsonc`
+as always; every other state finishes on the console's own API. Before it sends the session
+on, the console checks the state's signature against the development API's published keys
+(`/.well-known/jwks.json`), so a hand-made link naming the development issuer goes nowhere.
+Development and staging share one sign-in project, so the staging console's session is valid
+on the development API. The production console never forwards. Tests pin the URLs to `wrangler.jsonc`
 (`backend/apps/dashboard/test-server/integration-callback-route.test.ts`).
 
 A connect the cmux app started never reaches that step: the callback page sends the browser
