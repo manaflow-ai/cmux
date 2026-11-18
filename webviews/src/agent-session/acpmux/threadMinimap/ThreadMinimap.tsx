@@ -161,6 +161,7 @@ export function ThreadMinimap({
   width,
   columnWidth = width,
   placed,
+  firstPlace,
   change,
   topInset = 0,
 }: {
@@ -200,6 +201,9 @@ export function ThreadMinimap({
   /// The transcript calls what the rail puts here once each commit's placement pass has set its
   /// offset (VirtualTranscript), so the band reads where the transcript put the reader.
   placed?: React.MutableRefObject<(() => void) | undefined>;
+  /// Where the rail puts a chat's first list placement for the transcript to run in the same commit,
+  /// right after its placement pass (`placedFor`). Without one the rail places its list itself.
+  firstPlace?: React.MutableRefObject<(() => void) | undefined>;
   /// Where `rows` first differs from the last snapshot, as the transcript found it, so the rail
   /// reads only the rows from there (model.ts minimapTurns).
   change?: RowsChange;
@@ -330,6 +334,13 @@ export function ThreadMinimap({
   /// The list's offset as the rail last set it or its scroll event reported it, so a commit reads no
   /// layout to place the list (reading `scrollTop` right after a commit lays out the whole transcript).
   const listOffset = useRef(0);
+  /// The chat whose list this rail last placed. A chat's first placement (an open, a switch) is
+  /// handed to the transcript (`firstPlace`), which runs it in the same commit right after its own
+  /// placement pass, so the list's offset is written after the transcript's: the page is laid out
+  /// once for both, where the rail's write before it laid out the whole page first and the
+  /// transcript's write laid it out again (CMUX-571: 11 to 24 ms of the open's first commit). The
+  /// frame still paints both offsets, so nothing moves after it.
+  const placedFor = useRef<string | undefined | null>(null);
   /// A wheel over the rail means the person is browsing its history. Keep their offset until a tick
   /// click takes them back to the transcript; transcript scrolling must not snap the rail beneath them.
   /// Held for the session it was taken in: the transcript is reused across chats, and another chat's
@@ -1039,6 +1050,9 @@ export function ThreadMinimap({
   );
   useLayoutEffect(() => {
     const node = list.current;
+    const opening = placedFor.current !== sessionId;
+    placedFor.current = sessionId;
+    if (firstPlace) firstPlace.current = undefined;
     // A hidden rail (too little room, too few prompts) unmounts its list, and the next one mounts at
     // its top: the cached offset goes with it, so the new list is placed from 0 like any other.
     if (!node) {
@@ -1060,14 +1074,25 @@ export function ThreadMinimap({
     // The commit that added older turns placed the list itself, around the band.
     if (scrubbing || holding.current || (railBrowsing.current && railBrowsing.current.sessionId === sessionId)) return;
     railBrowsing.current = undefined;
-    const current = listOffset.current;
-    const next = railScrollTop({ first: onScreen.first, last: onScreen.last }, turns.length, height, current, rowPitch);
-    if (Math.abs(next - current) < 0.5) return;
-    node.scrollTop = next;
-    // railScrollTop keeps it inside the list's room, so the list takes it as it is.
-    listOffset.current = next;
-    setListTop(next);
-    followPointer(node);
+    const place = () => {
+      const current = listOffset.current;
+      const next = railScrollTop(
+        { first: onScreen.first, last: onScreen.last },
+        turns.length,
+        height,
+        current,
+        rowPitch,
+      );
+      if (Math.abs(next - current) < 0.5) return;
+      node.scrollTop = next;
+      // railScrollTop keeps it inside the list's room, so the list takes it as it is.
+      listOffset.current = next;
+      setListTop(next);
+      followPointer(node);
+    };
+    // A chat's first placement runs after the transcript's pass of this commit (`placedFor`).
+    if (opening && firstPlace) firstPlace.current = place;
+    else place();
   }, [
     shown,
     onScreen.first,
@@ -1079,6 +1104,7 @@ export function ThreadMinimap({
     followPointer,
     sessionId,
     rowPitch,
+    firstPlace,
   ]);
 
   // A key moved focus to a row that was not drawn: it is now, so it takes focus (and the browser

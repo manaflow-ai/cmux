@@ -78,8 +78,11 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   },
   set(this: object, value: number) {
     offsets.set(this, value);
+    writes.push({ rail: (this as HTMLElement).classList.contains("acpmux-minimap__list"), value });
   },
 });
+/// Every offset written, in order: whether to the rail's list, and the value.
+const writes: { rail: boolean; value: number }[] = [];
 // A browser scrolls the rail's list to a row that takes focus; the list's scroll event then moves the
 // drawn rows along. jsdom scrolls nothing, so focus does it here.
 dom.window.document.addEventListener(
@@ -572,3 +575,56 @@ test("a scrolled rail hidden for lack of room comes back at its place, its rows 
     await act(async () => root.unmount());
   }
 }, 120_000);
+
+// CMUX-571: an open placed the rail's list twice. Before the open drew its first commit at the chat's
+// end, the rail drew its first ticks at the list's top and moved the list in a second commit; with the
+// open drawn at the end, the rail's own layout effect wrote its offset before the transcript's pass,
+// so the page was laid out for the rail and again for the transcript. A chat's first list placement
+// now runs right after the transcript's pass, in the commit that draws the open.
+test("an open draws the rail at its end in its first commit, placed after the transcript's offset", async () => {
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  // Every tick mounted before the frame paints, kept or taken back.
+  const mounted = new Set<number>();
+  const observer = new dom.window.MutationObserver((records) => {
+    for (const record of records)
+      for (const node of record.addedNodes) {
+        if (!(node instanceof dom.window.HTMLElement)) continue;
+        for (const tick of [node, ...node.querySelectorAll<HTMLElement>("[data-tick]")])
+          if (tick.dataset.tick !== undefined) mounted.add(Number(tick.dataset.tick));
+      }
+  });
+  observer.observe(document.getElementById("root")!, { childList: true, subtree: true });
+  try {
+    writes.length = 0;
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          sessionId="rail-order"
+          rows={turnView(turns, new Set())}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    for (const record of observer.takeRecords())
+      for (const node of record.addedNodes)
+        if (node instanceof dom.window.HTMLElement)
+          for (const tick of [node, ...node.querySelectorAll<HTMLElement>("[data-tick]")])
+            if (tick.dataset.tick !== undefined) mounted.add(Number(tick.dataset.tick));
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const railAt = writes.findIndex((write) => write.rail && write.value > 0);
+    const transcriptAt = writes.findIndex((write) => !write.rail && write.value > 0);
+    // The rail reaches its end with the chat's, and only its end's ticks were ever built.
+    expect(list.scrollTop).toBeGreaterThan(1000);
+    expect(mounted.has(TURNS - 1)).toBe(true);
+    expect([...mounted].filter((tick) => tick < TURNS - MAX_TICKS)).toEqual([]);
+    // The transcript's offset is written first, and the rail's list once.
+    expect(transcriptAt).toBeGreaterThanOrEqual(0);
+    expect(railAt).toBeGreaterThan(transcriptAt);
+    expect(writes.filter((write) => write.rail && write.value > 0).length).toBe(1);
+  } finally {
+    observer.disconnect();
+    await act(async () => root.unmount());
+  }
+});

@@ -2740,6 +2740,8 @@ function TranscriptView({
   const rowsChange = useRef<RowsChange | undefined>(undefined);
   /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
   const minimapPlaced = useRef<(() => void) | undefined>(undefined);
+  /// The rail's first list placement for a chat, run right after the placement pass (ThreadMinimap `firstPlace`).
+  const minimapFirstPlace = useRef<(() => void) | undefined>(undefined);
   const [olderRows] = useState(() => new OlderRowFade(() => ref.current));
   /// The mounted rows' frame elements, kept while what each is drawn from holds (`RowFrameCache`).
   const [rowFrameCache] = useState(() => new RowFrameCache());
@@ -4409,8 +4411,22 @@ function TranscriptView({
   const followHeld =
     jumpTarget.current !== undefined ||
     (scroller !== null && userScrollIntent(scroller).isHeld() && !followRequest.current?.());
-  const projectedTop =
-    sessionSwitched || placedBefore === layout || draggedHeight !== undefined
+  // A chat that opens at its latest row (no reader place to reopen at) is drawn there in the commit
+  // whose layout first overflows the view: the placement pass scrolls it to that end before paint
+  // (`didOpenAtLatest`), and drawing that commit at offset 0 built the transcript's top rows (the view,
+  // its lead and the warm rows) only for that pass to unmount them before the frame (CMUX-571).
+  const opensAtEnd =
+    draggedHeight === undefined &&
+    (sessionSwitched || (followingRef.current && !openedAtLatest)) &&
+    layout.totalHeight > height &&
+    !(
+      openAt !== undefined &&
+      (sessionSwitched || !sentBeforeOpen.current) &&
+      rows.some((row) => row.id === openAt.rowId)
+    );
+  const projectedTop = opensAtEnd
+    ? Math.max(0, layout.totalHeight - height)
+    : sessionSwitched || placedBefore === layout || draggedHeight !== undefined
       ? undefined
       : followingRef.current
         ? openedAtLatest && !followHeld
@@ -5240,8 +5256,14 @@ function TranscriptView({
         const top = at < 0 ? latest : Math.min(latest, layout.geometry.topAt(at) + openAt!.offset);
         const before = node.scrollTop;
         clearScrollOrigin(node);
-        if (at < 0) node.scrollTop = top;
-        else writeAnchorScrollTop(node, top);
+        // At the latest row, written as a following view settles there (rounded up, its fraction
+        // kept): the floored offset rested a pixel short until a later pass settled it, and a first
+        // commit already drawn at the end (`opensAtEnd`) has no later pass. Always written, as a
+        // fresh scroller's end is not known yet and the rail reads the offset from this write.
+        if (at < 0) {
+          node.scrollTop = Math.ceil(top - 0.01);
+          retainScrollOrigin(node, top);
+        } else writeAnchorScrollTop(node, top);
         // A send made a tail that fit overflow (Leo, 2026-11-04: "from partially empty"): the
         // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
         // from behind the composer, instead of the whole chat moving up a row in one frame.
@@ -5387,6 +5409,15 @@ function TranscriptView({
     minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, followResume]);
+  // The rail's first list placement for a chat, after this commit's placement pass (declared after
+  // it, so it runs after it whether or not that pass ran): one page layout for both offsets, before
+  // the frame paints (ThreadMinimap `placedFor`).
+  useLayoutEffect(() => {
+    const place = minimapFirstPlace.current;
+    if (!place) return;
+    minimapFirstPlace.current = undefined;
+    place();
+  });
   // The turn that just ended folds from the rows drawn then to the rows placed now (turnEndFold.ts).
   useLayoutEffect(() => {
     const capture = turnEndCapture.current;
@@ -7198,6 +7229,7 @@ function TranscriptView({
               width={paneWidth}
               columnWidth={width}
               placed={minimapPlaced}
+              firstPlace={minimapFirstPlace}
               change={rowsChange.current}
               topInset={topInset}
             />
