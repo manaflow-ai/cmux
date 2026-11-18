@@ -10,6 +10,7 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { type StringKey, type Translate, translate } from "./i18n";
+import { wholeNewTab } from "./newtab/sharedPart";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
 import { isStartableProject } from "./newtab/startedProject";
@@ -132,8 +133,9 @@ export function pickedNewTabApp(host: NewTabHost | undefined, goneAt: number | u
 }
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
+/// A context that comes as the page's own part is joined with its shared part first (newtab/sharedPart.ts).
 export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewTabHost | undefined {
-  const value = handshake.newTab;
+  const value = wholeNewTab(handshake.newTab);
   if (value !== true && (typeof value !== "object" || value === null)) return undefined;
   const object = (typeof value === "object" ? value : {}) as Record<string, unknown>;
   // The app's copy of the last picks: this page's own storage did not outlive the launch.

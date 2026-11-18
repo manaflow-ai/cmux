@@ -27,6 +27,10 @@ mod agent_roster_poison;
 mod agent_roster_restore;
 mod agent_screen_exit;
 mod agent_start_mark;
+#[cfg(unix)]
+mod agent_turn_end_commits;
+#[cfg(unix)]
+mod agent_turn_end_crash_order;
 pub(crate) mod at_rest_writers;
 mod cell_pixel_fanout;
 mod cell_pixels;
