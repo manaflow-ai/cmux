@@ -299,6 +299,31 @@ import Testing
         #expect(!pane.stripModel.departures.contains(tab), "the closed tab is marked as moved away")
     }
 
+    /// The close of a mirror in its tab bar is a close, not a move. A mirror is another pane's browser tab that this pane's
+    /// tab bar lists too (`TabMirrors`): the close takes it out of this tab bar only, and the other pane holds the tab
+    /// before and after. So the mark must not read "another pane holds it" as "moved away" for an item that was never
+    /// a tab of this pane's record. The pane has no window here: the test holds the mark, not the motion.
+    @Test(.timeLimit(.minutes(1)))
+    func aMirrorClosedInItsTabBarIsNoDeparture() async throws {
+        let app = try MirrorIncognitoTests.Fixture()
+        let own = try #require(app.normalOther.tabs.first, "SETUP: the pane has no tab of its own")
+        let page = try #require(app.normalPage.tabs.first, "SETUP: the other pane has no tab")
+        let mirrored = await app.services.mirror(tab: page.id, into: app.normalOther.id, select: false)
+        try #require(mirrored, "SETUP: the mirror request was refused")
+        let pane = try app.controller(of: app.normalOther)
+        defer { pane.teardown() }
+        let mirror = StripTabID(page.id)
+        pane.apply(pane.snapshot())
+        try #require(pane.stripModel.orderedTabs.map(\.id) == [StripTabID(own.id), mirror], "SETUP: the tab bar's model does not have the pane's own tab, then the mirror")
+        try #require(pane.isMirror(mirror) && pane.stripModel.departures.isEmpty, "SETUP: the item is no mirror, or a mark is there before the close")
+        // The close of the mirror, as its close button runs it. No daemon tab closes, so no command comes back.
+        let command = pane.prepareClose([mirror]) != nil
+        try #require(!command, "SETUP: the close of a mirror made a daemon command")
+        try #require(!pane.stripModel.tabs.contains { $0.id == mirror }, "SETUP: the close left the mirror in the tab bar's model")
+        try #require(app.normalPage.tabs.contains { $0.id == page.id }, "SETUP: the close took the tab out of its own pane")
+        #expect(!pane.stripModel.departures.contains(mirror), "the closed mirror is marked as moved away, so its tab bar drops it with no close motion")
+    }
+
     /// Gives the fixture's pane 2 a second tab, surface 4, in front of its own: the daemon's `tab-added`, then the jobs
     /// that follow it and the tab bar's one call. Returns the new tab's and the pane's own tab's ids in the tab bar.
     private static func addFrontTab(to app: Fixture) async throws -> (front: StripTabID, own: StripTabID) {
