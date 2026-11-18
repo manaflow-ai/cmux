@@ -1,5 +1,6 @@
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start"
 import { deleteCookie, getCookie, getRequestHeader, setCookie } from "@tanstack/react-start/server"
+import { integrationCompletionApi } from "./integration-callback"
 import { teamHeaders } from "./team-scope"
 
 /**
@@ -124,9 +125,9 @@ export type ApiResult<T> = { readonly status: number; readonly body: T }
 const postImpl = <T,>(path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => callImpl<T>("POST", path, payload, team)
 
 /** One API call with the cookie's access token (GET sends no body); refreshes once on a missing token or a 401. */
-const callImpl = async <T,>(method: "GET" | "POST" | "PUT", path: string, payload: unknown, team?: string): Promise<ApiResult<T>> => {
+const callImpl = async <T,>(method: "GET" | "POST" | "PUT", path: string, payload: unknown, team?: string, base: string = apiUrl()): Promise<ApiResult<T>> => {
   const send = async (token: string) => {
-    const res = await fetch(`${apiUrl()}${path}`, {
+    const res = await fetch(`${base}${path}`, {
       method,
       headers: { ...(method !== "GET" ? { "content-type": "application/json" } : {}), authorization: `Bearer ${token}`, ...teamHeaders(team) },
       ...(method !== "GET" ? { body: JSON.stringify(payload) } : {})
@@ -151,6 +152,20 @@ export const mutate = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     requireSameOrigin()
     return post<OpResponse>("/v1/ops", { op: data.op, params: data.params, idempotency_key: data.idempotency_key, origin: "user" }, data.team)
+  })
+
+/**
+ * integration.complete for the callback page. The API comes from the state, never the page: a development
+ * state on the staging console finishes on the development API (integration-callback.ts integrationCompletionApi);
+ * every other state on this console's own API, which verifies it.
+ */
+export const completeIntegration = createServerFn({ method: "POST" })
+  .validator((d: { params: { state: string; code?: string; installation_id?: string; setup_action?: string }; idempotency_key: string; team?: string }) => d)
+  .handler(async ({ data }) => {
+    requireSameOrigin()
+    const api = integrationCompletionApi({ api: apiUrl(), host: getRequestHeader("x-forwarded-host") ?? getRequestHeader("host") }, data.params.state)
+    const r = await callImpl<OpResponse>("POST", "/v1/ops", { op: "integration.complete", params: data.params, idempotency_key: data.idempotency_key, origin: "user" }, data.team, api.url)
+    return { ...r, environment: api.environment ?? null }
   })
 
 /**

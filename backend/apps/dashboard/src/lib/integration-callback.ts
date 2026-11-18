@@ -6,21 +6,57 @@
  * and team again when it handles integration.complete.
  */
 export const integrationTeamHint = (state: string | undefined): string | undefined => {
+  const team = unverifiedStateClaims(state)?.team
+  return typeof team === "string" && /^team_[0-9a-f]{20}$/.test(team) ? team : undefined
+}
+
+/** The state JWT's payload, decoded without verification (routing hints only). */
+const unverifiedStateClaims = (state: string | undefined): Record<string, unknown> | undefined => {
   if (!state || state.length > 4096) return undefined
   const parts = state.split(".")
   if (parts.length !== 3) return undefined
   try {
     const encoded = parts[1]!.replace(/-/g, "+").replace(/_/g, "/")
     const padded = encoded + "=".repeat((4 - (encoded.length % 4)) % 4)
-    const payload = JSON.parse(
+    const payload: unknown = JSON.parse(
       new TextDecoder().decode(Uint8Array.from(atob(padded), (c) => c.charCodeAt(0))),
-    ) as { team?: unknown }
-    return typeof payload.team === "string" && /^team_[0-9a-f]{20}$/.test(payload.team)
-      ? payload.team
-      : undefined
+    )
+    return payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as Record<string, unknown>) : undefined
   } catch {
     return undefined
   }
+}
+
+/**
+ * The API environment that signed an integration state, from its issuer `https://cmux-api/<environment>`
+ * (api src/integrations/state.ts). Untrusted, like the team hint: it only picks which API to ask, and that
+ * API verifies the signature and issuer again.
+ */
+export const integrationEnvironmentHint = (state: string | undefined): string | undefined => {
+  const iss = unverifiedStateClaims(state)?.iss
+  const env = typeof iss === "string" ? /^https:\/\/cmux-api\/([a-z0-9-]{1,40})$/.exec(iss)?.[1] : undefined
+  return env
+}
+
+/**
+ * The development API Worker has no hosted console of its own. Its Connect redirects (wrangler.jsonc
+ * env.development INTEGRATIONS_CALLBACK_ORIGIN) come back to the staging console, which signs in through
+ * the same sign-in project, and this console sends that completion on to the development API.
+ * Only the staging console does this: on any other console a development state goes to the console's own
+ * API, which refuses it. test-server/integration-callback-route.test.ts pins both URLs to wrangler.jsonc.
+ */
+export const STAGING_API_URL = "https://cloud-api-staging.cmux.dev"
+export const STAGING_CONSOLE_HOST = "console-staging.cmux.dev"
+export const DEVELOPMENT_API_URL = "https://cmux-api-development.debussy.workers.dev"
+
+/**
+ * Which API finishes this completion: the console's own, or (staging console, development state) the development API.
+ * The staging console is recognised by its API or by its own host, so a console API URL in another form still forwards.
+ */
+export const integrationCompletionApi = (at: { readonly api: string; readonly host?: string }, state: string | undefined): { readonly url: string; readonly environment?: "development" } => {
+  const api = at.api.replace(/\/$/, "")
+  const staging = api === STAGING_API_URL || at.host?.toLowerCase() === STAGING_CONSOLE_HOST
+  return staging && integrationEnvironmentHint(state) === "development" ? { url: DEVELOPMENT_API_URL, environment: "development" } : { url: api }
 }
 
 export const integrationCompletionRequest = (state: string, extra: { code?: string; installation_id?: string; setup_action?: string } = {}) => ({
