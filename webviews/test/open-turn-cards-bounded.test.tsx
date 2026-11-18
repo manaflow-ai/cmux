@@ -96,6 +96,13 @@ function coordinatorRecords(sessionId: string, count: number): EventRecord[] {
   push("mux", "turn_started", {});
   const live: { id: string; call: string; ends: number }[] = [];
   for (let step = 1; out.length < count; step += 1) {
+    // Another agent's message, steered into the running turn: what was still going then draws after it.
+    if (step % 9 === 0)
+      push("mux", "user_message", {
+        text: `from lane-${step % 13}\nLanded the fix for step ${step}; CI is green.`,
+        steer: true,
+        fromAgent: `lane-${step % 13}`,
+      });
     const reply =
       step % 5 === 0
         ? `## Status at step ${step}\n\nThe lanes are moving. Two need a review and one waits on CI.\n\n- one\n- two\n- three`
@@ -145,7 +152,9 @@ function coordinatorRecords(sessionId: string, count: number): EventRecord[] {
           ],
         },
       );
-      live.push({ id, call, ends: step + 15 });
+      // Every third runs in the background for the rest of the turn, as a coordinator's reviewers and
+      // waits do: the turn's running Agent calls grow with it.
+      live.push({ id, call, ends: step % 18 === 0 ? Infinity : step + 15 });
     }
     for (const agent of live.splice(0)) {
       if (step < agent.ends) {
@@ -259,6 +268,15 @@ async function mounted(rows: AcpmuxRow[]) {
       agentCards: doc.querySelectorAll(".cv-agentcall").length,
       elements: host.getElementsByTagName("*").length,
       biggestRow: Math.max(0, ...shown.map(cards)),
+      // The mounted rows that hold the most, to read what grew.
+      heavy: [...doc.querySelectorAll<HTMLElement>(".acpmux-row")]
+        .map((node) => ({
+          id: node.dataset.rowId,
+          elements: node.getElementsByTagName("*").length,
+          cards: node.querySelectorAll(".cv-agentcall").length,
+        }))
+        .sort((a, b) => b.elements - a.elements)
+        .slice(0, 4),
     };
   } finally {
     await act(async () => root.unmount());
@@ -274,6 +292,90 @@ test("a coordinator's open turn mounts as many elements at 20k records as at 2k"
   expect(at20k.mountedRows).toBeLessThanOrEqual(at2k.mountedRows * 1.2 + 4);
   expect(at20k.elements).toBeLessThanOrEqual(at2k.elements * 1.2 + 40);
 }, 600_000);
+
+// The running turn's run that keeps many Agent cards in sight draws as rows of a few cards each, which the
+// transcript windows; the rows draw exactly what the one row drew, in the same order, and Find still finds a call
+// in a later one.
+test("a long run cut into parts draws as the one row did", async () => {
+  const { runParts, RUN_PART_STRETCHES } = await import("../src/agent-session/acpmux/conversation/runParts");
+  const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
+  const { findRowIndex, rowHolds } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  type Item = NonNullable<AcpmuxRow["items"]>[number];
+  const at = 1_700_000_000_000;
+  const items: Item[] = [];
+  for (let n = 0; n < 40; n += 1) {
+    items.push({
+      kind: "tool",
+      text: "",
+      tool: {
+        id: `agent-${n}`,
+        title: "Agent",
+        kind: "think",
+        status: n % 3 ? "in_progress" : "completed",
+        inputSummary: JSON.stringify({
+          description: `Review step ${n}`,
+          prompt: `Review the diff of step ${n}.`,
+          subagent_type: "general-purpose",
+        }),
+        ...(n % 3 ? {} : { output: `Reviewed: no findings.\nagentId: sub-${n}` }),
+      },
+    } as Item);
+    for (const k of [0, 1])
+      items.push({
+        kind: "tool",
+        text: "",
+        tool: {
+          id: `c-${n}-${k}`,
+          title: `glaeda-gh status pr ${n}`,
+          kind: "execute",
+          status: "completed",
+          command: `glaeda-gh status pr ${n}`,
+          output: "checks SUCCESS",
+        },
+      } as Item);
+  }
+  const row: AcpmuxRow = { id: "run-1", version: 7, at, kind: "activity", items, foldRun: true, settled: true };
+  const parts = runParts(row);
+  expect(parts.length).toBeGreaterThan(2);
+  expect(parts[0]!.id).toBe(row.id);
+  expect(new Set(parts.map((part) => part.id)).size).toBe(parts.length);
+  expect(parts.flatMap((part) => part.items!)).toEqual(items);
+  for (const part of parts) expect(part.items!.length).toBeLessThanOrEqual(RUN_PART_STRETCHES * 3);
+  // The same row cut again is the same parts (no new objects to lay out and draw again).
+  expect(runParts(row)).toBe(parts);
+  const host = dom.window.document.getElementById("root")!;
+  const drawn = async (rows: AcpmuxRow[]) => {
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(
+          <div>
+            {rows.map((one) => (
+              <div key={one.id} className="part">
+                <ToolRows row={one} />
+              </div>
+            ))}
+          </div>,
+        ),
+      );
+      const tags = [...host.querySelectorAll(".part *")].map((node) => `${node.tagName}.${node.className}`);
+      return { tags, text: host.textContent, cards: host.querySelectorAll(".cv-agentcall").length };
+    } finally {
+      await act(async () => root.unmount());
+    }
+  };
+  const whole = await drawn([row]);
+  const cut = await drawn(parts);
+  expect(whole.cards).toBe(40);
+  expect(cut.cards).toBe(whole.cards);
+  expect(cut.text).toBe(whole.text);
+  expect(cut.tags).toEqual(whole.tags);
+  // Find goes to the part that holds the call.
+  const shown = [{ id: "u", version: 1, at, kind: "user", text: "go" } as AcpmuxRow, ...parts];
+  expect(findRowIndex(shown, row.id, rowHolds({ toolId: "agent-37" }))).toBe(
+    shown.findIndex((one) => one.items?.some((item) => item.tool?.id === "agent-37")),
+  );
+});
 
 // The summary card's Subagents section listed every subagent the chat ever ran (chat-100k-flat CASES=coordinator: 280
 // card elements at 2k records, 2,386 at 20k). It shows the first few, attention first, and "Show N more" for the rest,
