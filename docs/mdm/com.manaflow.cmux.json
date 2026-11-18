@@ -5643,6 +5643,18 @@
       "title" : "+ Button Visibility",
       "type" : "string"
     },
+    "tabs.stripVisibility" : {
+      "default" : "auto",
+      "description" : "Show Tab Bar in the command palette brings one pane's tab bar back.",
+      "enum" : [
+        "auto",
+        "always",
+        "whenMultiple",
+        "never"
+      ],
+      "title" : "Tab Bar Visibility",
+      "type" : "string"
+    },
     "tabs.swapCmdTAndCmdN" : {
       "default" : false,
       "description" : "Cmd-T opens a workspace and Cmd-N opens a tab.",

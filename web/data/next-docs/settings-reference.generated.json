@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 621,
+  "count": 622,
   "sections": [
     {
       "id": "general",
@@ -1403,6 +1403,20 @@
           "values": [
             "hover",
             "always"
+          ]
+        },
+        {
+          "key": "tabs.stripVisibility",
+          "title": "Tab Bar Visibility",
+          "help": "Show Tab Bar in the command palette brings one pane's tab bar back.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Tabs",
+          "values": [
+            "auto",
+            "always",
+            "whenMultiple",
+            "never"
           ]
         },
         {

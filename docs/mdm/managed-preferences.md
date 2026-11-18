@@ -47,6 +47,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `tabs.verticalTabs` | boolean | `false` |  | Use Vertical Tabs for All Workspaces. Tabs in a list beside the panes. A tab bar's menu changes one workspace. |
 | `tabs.verticalTabsExpandOnHover` | boolean | `true` |  | Expand Collapsed Vertical Tabs on Hover. Show titles while the pointer is over the collapsed list. |
 | `tabs.hideLoneChatTab` | boolean | `false` |  | Hide the Tab of a Chat Alone in Its Pane |
+| `tabs.stripVisibility` | string | `"auto"` | `auto`, `always`, `whenMultiple`, `never` | Tab Bar Visibility. Show Tab Bar in the command palette brings one pane's tab bar back. |
 | `tabs.swapCmdTAndCmdN` | boolean | `false` |  | Swap Cmd-T and Cmd-N. Cmd-T opens a workspace and Cmd-N opens a tab. |
 | `app.warnBeforeClosingTab` | boolean | `true` |  | Warn Before Closing a Running Program |
 | `app.warnBeforeClosingAgentSession` | boolean | `true` |  | Warn Before Closing a Working Agent |
