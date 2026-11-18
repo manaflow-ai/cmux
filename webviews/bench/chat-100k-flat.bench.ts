@@ -1364,7 +1364,9 @@ try {
         }
         for (const task of tasks) {
           try {
-            if (fs.readFileSync(`/proc/${pid}/task/${task}/comm`, "utf8").trim() !== "CrRendererMain") continue;
+            // The renderer's main thread is the process's first (its tid is the pid): Chrome names it CrRendererMain
+            // only where a thread name does not rename the process, so its comm is the executable's on Linux.
+            if (task !== String(pid)) continue;
             const fields = fs.readFileSync(`/proc/${pid}/task/${task}/stat`, "utf8");
             const rest = fields.slice(fields.lastIndexOf(")") + 2).split(" ");
             ticks += Number(rest[11]) + Number(rest[12]);
