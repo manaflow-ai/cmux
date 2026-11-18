@@ -274,6 +274,7 @@ def table(rows, baseline="L0", ratio=1.2):
     for row in rows:
         s = row["switches"]
         line = {"scenario": row["name"], "load": row["load"], "n": len(s),
+                "excluded": len(row.get("excluded") or []),
                 "first_content_p50": percentile([x.get("to_content_ms") for x in s], 50),
                 "first_content_p95": percentile([x.get("to_content_ms") for x in s], 95),
                 "first_frame_p50": percentile([x.get("first_change_ms") for x in s], 50),
@@ -306,14 +307,14 @@ def table_markdown(lines):
     """The summary table as Markdown."""
     def ms(v):
         return "-" if v is None else f"{v:.0f}"
-    head = ("| scenario | load | n | first content p50 / p95 ms | settled p50 / p95 ms | vs L0 | never settled "
-            "| changed after first (max) | oddities |\n|---|---|---|---|---|---|---|---|---|\n")
+    head = ("| scenario | load | n | foreign-window excluded | first content p50 / p95 ms | settled p50 / p95 ms | vs L0 | never settled "
+            "| changed after first (max) | oddities |\n|---|---|---|---|---|---|---|---|---|---|\n")
     body = []
     for x in lines:
         odd = ", ".join(f"{k} {v}" for k, v in sorted(x["oddities"].items())) or "0"
         if x.get("notes") and not x["n"]:
             odd = "not measured: " + x["notes"][:80].replace("|", "/")
-        body.append(f"| {x['scenario']} | {x['load']} | {x['n']} | {ms(x['first_content_p50'])} / "
+        body.append(f"| {x['scenario']} | {x['load']} | {x['n']} | {x.get('excluded', 0)} | {ms(x['first_content_p50'])} / "
                     f"{ms(x['first_content_p95'])} | {ms(x['settled_p50'])} / {ms(x['settled_p95'])} | "
                     f"{x['settled_vs_baseline'] if x['settled_vs_baseline'] is not None else '-'} | {x['never_settled']} | "
                     f"{x['changed_after_first_max']} | {odd} |")

@@ -32,6 +32,18 @@ public nonisolated enum BrowserChromeMetric: String, CaseIterable, Sendable {
         }
     }
 
+    /// The density token a custom density sets this with (``DensityTokenCatalog``): the tab close button's; the row and
+    /// gap use ``token``. Built-ins leave these unset, so they keep Helium's shares.
+    public var densityKey: String? {
+        switch self {
+        case .closeSize: "tabCloseSize"
+        case .closeInk: "tabCloseGlyphSize"
+        case .closeCorner: "tabCloseCornerRadius"
+        case .closeTrailing: "tabTrailingInset"
+        default: nil
+        }
+    }
+
     /// The Debug Settings label (developer text, as every tunable's).
     var label: String {
         switch self {
