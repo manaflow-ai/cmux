@@ -1,0 +1,17 @@
+/* Grove's chat: a lichen-washed prompt with a soft organic corner, cards like pressed paper, and
+   moss links. Each value is light-dark(day, night): the chat's root takes the theme's color-scheme,
+   so one :root rule follows the appearance. Only cmux.agentPane.style/1 tokens
+   (schemas/agent-pane/style-tokens.json), on :root: paint, so nothing in the transcript moves when
+   this applies, reloads or switches appearance. Contrast numbers: DESIGN.md. */
+:root {
+  --cv-text: light-dark(#2b3326, #dfd9c6);
+  --cv-text-muted: light-dark(#4b5442, #adb39f);
+  --cv-text-dim: light-dark(#5c6352, #959b87);
+  --cv-link: light-dark(#3f6a33, #b5cf8f);
+  --agent-link: light-dark(#3f6a33, #b5cf8f);
+  --cv-card-fill: light-dark(rgb(235 230 214 / 0.9), rgb(29 38 30 / 0.92));
+  --cv-card-ring: light-dark(rgb(196 190 164 / 0.75), rgb(62 78 60 / 0.7));
+  --cv-user-bubble-tint: light-dark(rgb(223 230 204 / 0.85), rgb(42 56 40 / 0.8));
+  --cv-user-bubble-edge: light-dark(rgb(186 198 160 / 0.6), rgb(78 98 70 / 0.55));
+  --cv-user-bubble-radius: 18px;
+}

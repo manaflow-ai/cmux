@@ -20,6 +20,12 @@
       "pending": "An outside-only look: there is no built-in twin."
     },
     {
+      "id": "grove",
+      "addon": "grove",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
       "id": "claude",
       "surface": "composer",
       "addon": null,
