@@ -443,8 +443,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     func releaseContentView(_ view: NSView, for pane: LayoutPaneID) {
-        (panes.removeValue(forKey: pane) ?? retiredPanes.removeValue(forKey: pane))?.teardown()
-        services.paneMounts.changed()
+        MotionTrace.begin("layout.release.teardown"); (panes.removeValue(forKey: pane) ?? retiredPanes.removeValue(forKey: pane))?.teardown(); MotionTrace.end("layout.release.teardown")
+        MotionTrace.begin("layout.release.mounts"); services.paneMounts.changed(); MotionTrace.end("layout.release.mounts") // probe parts (`debug.motion`)
     }
 
     /// A close took `pane` out of the layout; its host goes after the frame that shows the close. It leaves `panes` (what the

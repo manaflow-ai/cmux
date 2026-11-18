@@ -142,25 +142,25 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     func teardown() {
-        observation?.cancel()
+        MotionTrace.begin("layout.release.observe"); observation?.cancel() // probe parts to the function's end (`debug.motion`)
         hoverLoad.cancel()
         tabItems.cancelAll()
         services.presentation.cancel(self)
-        launchFrames.withdrawAhead(in: view.contentHost)
+        launchFrames.withdrawAhead(in: view.contentHost); MotionTrace.end("layout.release.observe")
         // No-op for a tab that moved to another pane: its new pane owns it.
-        services.cache.removePresenter(self)
-        if guestTerminal != nil { view.detachContent(parks: false); dropGuestTerminal() }
-        if !isSuspended { isSuspended = true; stoppedDrawing(currentTabKey) } // it draws no more
-        services.cache.hibernation?.paneDidGo(ObjectIdentifier(self))
+        MotionTrace.begin("layout.release.presenter"); services.cache.removePresenter(self); MotionTrace.end("layout.release.presenter")
+        MotionTrace.begin("layout.release.drawing"); if guestTerminal != nil { view.detachContent(parks: false); dropGuestTerminal() }
+        if !isSuspended { isSuspended = true; stoppedDrawing(currentTabKey) }; MotionTrace.end("layout.release.drawing") // it draws no more
+        MotionTrace.begin("layout.release.hibernation"); services.cache.hibernation?.paneDidGo(ObjectIdentifier(self)); MotionTrace.end("layout.release.hibernation")
         // Page tabs of panes the live tree no longer lists close now
         // rather than at the store's next observation; a workspace switch or
         // a layout move keeps the pane listed, so its tabs stay.
-        services.closeGoneLocalTabs(in: daemon.store)
+        MotionTrace.begin("layout.release.localtabs"); services.closeGoneLocalTabs(in: daemon.store); MotionTrace.end("layout.release.localtabs")
         currentTabKey = nil
         DebugTabSwitch.forget(self)
-        view.dropParked()
+        MotionTrace.begin("layout.release.detach"); view.dropParked()
         view.detachContent()
-        view.browserChrome.drop()
+        view.browserChrome.drop(); MotionTrace.end("layout.release.detach")
         services.surfaceInvariant.noteChange()
     }
 

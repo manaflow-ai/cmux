@@ -31,7 +31,7 @@ def definitions(path, names):
 
 BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_applicable", "activate", "commit_frames",
                                                     "late_frames", "motion_arms", "commit_notes", "commit_placements",
-                                                    "layout_spans"})
+                                                    "layout_spans", "placed_at", "part_times", "probe_notes"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -150,6 +150,25 @@ class LayoutSpans(unittest.TestCase):
     def test_a_build_without_the_spans_gives_none(self):
         for spans in (None, [], {}, [None, 3], [{"name": "layout", "ms": 250.0}], [{"name": "layout.place"}]):
             self.assertEqual(self.layout_spans(spans), {})
+
+
+class PartTimesAndProbeNotes(unittest.TestCase):
+    def setUp(self):
+        self.part_times, self.probe_notes = loaded()["part_times"], loaded()["probe_notes"]
+        self.placed = [{"text": "layout.commit: close moves 2 panes", "t_ms": 100.0, "after_tick_ms": 1.0}]
+
+    def test_a_part_says_when_its_longest_span_started_after_the_placement(self):
+        parts = {"layout.release": {"count": 1, "sum_ms": 12.0, "max_ms": 12.0, "max_at_ms": 191.26},
+                 "layout.hide": {"count": 1, "sum_ms": 1.0, "max_ms": 1.0, "max_at_ms": None}}
+        self.assertEqual(self.part_times(parts, self.placed), {"layout.release": 91.3, "layout.hide": None})
+        self.assertEqual(self.part_times(parts, []), {"layout.release": None, "layout.hide": None})
+
+    def test_a_hide_or_release_note_has_its_time_after_the_placement(self):
+        notes = [{"t_ms": 100.0, "text": "layout.commit: close moves 2 panes"}, {"t_ms": 190.5, "text": "layout.hide: 1 hosts"},
+                 {"text": "layout.release: no time"}, {"t_ms": 3.0, "text": "tabs: rest"}, None]
+        self.assertEqual(self.probe_notes(notes, self.placed), ["layout.hide: 1 hosts at +90.5 ms", "layout.release: no time"])
+        self.assertEqual(self.probe_notes(notes, None), ["layout.hide: 1 hosts", "layout.release: no time"])
+        self.assertEqual(self.probe_notes(None, self.placed), [])
 
 
 class ZoomSampleFrames(unittest.TestCase):

@@ -507,6 +507,38 @@ def layout_spans(spans):
     return parts
 
 
+def placed_at(placements):
+    """When the record's first `layout.commit` note came (ms from the record's start): the placement in the tick that
+    shows the act. None with no such note."""
+    for place in placements if isinstance(placements, list) else []:
+        if isinstance(place, dict) and isinstance(place.get("t_ms"), (int, float)):
+            return place["t_ms"]
+    return None
+
+
+def part_times(parts, placements):
+    """For each part of `layout_spans`: when its longest span started, in ms after the placement (`placed_at`). None
+    for a part with no time, and for each part of a record with no placement."""
+    start = placed_at(placements)
+    return {name: round(facts["max_at_ms"] - start, 1)
+            if start is not None and isinstance(facts.get("max_at_ms"), (int, float)) else None
+            for name, facts in parts.items()}
+
+
+def probe_notes(notes, placements):
+    """The app's notes of a hide or a release while recording (each note whose text starts with `layout.hide` or
+    `layout.release`), each with ` at +N ms`: its time after the placement (`placed_at`). A note with no time, or a
+    record with no placement, gives the text alone."""
+    start, found = placed_at(placements), []
+    for note in notes if isinstance(notes, list) else []:
+        if not (isinstance(note, dict) and isinstance(note.get("text"), str)
+                and note["text"].startswith(("layout.hide", "layout.release"))):
+            continue
+        timed = start is not None and isinstance(note.get("t_ms"), (int, float))
+        found.append(note["text"] + (f" at +{round(note['t_ms'] - start, 1)} ms" if timed else ""))
+    return found
+
+
 def late_frames(frames, action_s=None):
     """Where the long intervals of a `debug.frames` reply are (stopped with `raw`). The probe's `missed` counts each
     interval above 1.5 refreshes one time, however long it is. `missed_refreshes` is the refreshes that those
@@ -644,6 +676,8 @@ def measure(label, name):
         "commit_notes": commit_notes(motion.get("notes")) if isinstance(motion, dict) else [],
         "commit_placements": commit_placements(motion.get("samples"), motion.get("notes")) if isinstance(motion, dict) else [],
         "layout_spans": layout_spans(motion.get("spans")) if isinstance(motion, dict) else {},
+        "probe_notes": probe_notes(motion.get("notes"), commit_placements(motion.get("samples"), motion.get("notes")))
+        if isinstance(motion, dict) else [],
         "background_cpu": background_cpu,
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
         "commit_p50_ms": (commit or {}).get("p50_ms"), "commit_p95_ms": (commit or {}).get("p95_ms"),
@@ -727,9 +761,12 @@ def measure(label, name):
                       for miss in late["missed_frames"][:8])
     if result["commit_placements"] or result["layout_spans"]:
         placed = ", ".join(f"{place['after_tick_ms']} ms" for place in result["commit_placements"][:4])
+        times = part_times(result["layout_spans"], result["commit_placements"])
         parts = ", ".join(f"{part} {facts['count']}x sum {facts['sum_ms']} max {facts['max_ms']} ms"
+                          + (f" at +{times[part]}" if times.get(part) is not None else "")
                           for part, facts in sorted(result["layout_spans"].items()))
-        extra += f"  commit note after its tick's start [{placed}]  parts [{parts}]"
+        extra += (f"  commit note after its tick's start [{placed}]  parts [{parts}]"
+                  f"  probe notes {result['probe_notes']}")
     print(f"  {label:<22} moved {moving:>3} commit {committed:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"long intervals = {late['missed_refreshes']} refreshes [{where}] (refresh {result['refresh_ms']})  "

@@ -240,8 +240,9 @@ final class LayoutViewContext {
     }
 
     private func tearDown(_ host: PaneHostView) {
-        host.removeFromSuperview()
-        host.chrome.removeFromSuperview()
+        // A probe's time of each part while `debug.motion` records: the views that leave, then the content's release.
+        MotionTrace.begin("layout.release.views"); host.removeFromSuperview()
+        host.chrome.removeFromSuperview(); MotionTrace.end("layout.release.views")
         provider?.releaseContentView(host.content, for: host.pane)
     }
 
@@ -292,11 +293,18 @@ final class LayoutViewContext {
             entry.screen == screen && (until == nil || (entry.until == until && !entry.shown))
         }
         guard retired.values.contains(where: goes) else { return }
+        // A probe's time of this loop while `debug.motion` records (one teardown for each pane that the change took
+        // out), then of the turn after it to its commit's end: the views that left go out of the layer tree there.
+        MotionTrace.begin("layout.release")
         for (pane, entry) in retired where goes(entry) {
             retired[pane] = nil
             tearDown(entry.host)
             runClosingWork(of: pane)
         }
+        MotionTrace.end("layout.release")
+        guard MotionTrace.isEnabled else { return }
+        MotionTrace.begin("layout.release.turn")
+        afterCommit { MotionTrace.end("layout.release.turn") }
     }
 
     /// The layout change that took them out shows in this turn: the hosts `screen` kept shown for it
@@ -308,13 +316,22 @@ final class LayoutViewContext {
         MotionTrace.begin("layout.hide")
         defer { MotionTrace.end("layout.hide") }
         var hid = false
+        // For the probe's note: the hosts, those whose ring a move hid before (the hide comes at a move's end), and
+        // those with an animation on the host's layer at the hide.
+        var count = 0, ringless = 0, animated = 0
         for (pane, entry) in retired where entry.screen == screen && entry.shown {
+            if MotionTrace.isEnabled {
+                count += 1
+                if entry.host.chrome.isHidden { ringless += 1 }
+                if entry.host.layer?.animationKeys()?.isEmpty == false { animated += 1 }
+            }
             entry.host.isLeaving = false
-            entry.host.isHidden = true
-            entry.host.chrome.isHidden = true
+            MotionTrace.begin("layout.hide.host"); entry.host.isHidden = true; MotionTrace.end("layout.hide.host")
+            MotionTrace.begin("layout.hide.ring"); entry.host.chrome.isHidden = true; MotionTrace.end("layout.hide.ring")
             retired[pane]?.shown = false
             hid = true
         }
+        if count > 0 { MotionTrace.note("layout.hide: \(count) hosts, \(ringless) with the ring hidden before, \(animated) with a layer animation") }
         return hid
     }
 
@@ -354,7 +371,9 @@ final class LayoutViewContext {
     /// `now`: the pane comes back and the work runs before it shows again; else after this frame's commit.
     private func runClosingWork(of pane: PaneID, now: Bool = false) {
         guard let work = closingWork.removeValue(forKey: pane) else { return }
-        if now { for item in work.values { item() } } else { afterCommit { for item in work.values { item() } } }
+        if now { for item in work.values { item() } } else {
+            afterCommit { MotionTrace.begin("layout.release.closing"); for item in work.values { item() }; MotionTrace.end("layout.release.closing") }
+        }
     }
 
     /// Whether `chrome` is the ring of a retired host: the overlay sync leaves it for the teardown.
