@@ -49,7 +49,7 @@ def _wait_flag(driver, want: bool, seconds: float = 8) -> bool:
     return False
 
 
-def set_flag(driver, out: Path, on: bool, original: str | None = None) -> dict:
+def set_flag(driver, config: Path, on: bool, original: str | None = None) -> dict:
     """Turns the flag `on` (or back, writing `original`, the config text before); says how and whether the app read it."""
     from golden import rpc  # the raw call: the expected user-only refusal is not a driver error
 
@@ -57,7 +57,7 @@ def set_flag(driver, out: Path, on: bool, original: str | None = None) -> dict:
     if "error" not in reply and _wait_flag(driver, on):
         return {"how": "settings.set", "on": on, "read_back": True}
     refused = reply.get("error")
-    config = (out / "cmux-next.json").resolve()
+    config = config.resolve()
     _, file = _flag_value(driver)
     if not file or Path(file).resolve() != config:
         return {"how": "none", "on": on, "read_back": False, "settings_set": refused,
@@ -95,14 +95,16 @@ def _pane(driver) -> tuple[dict, dict]:
     return ready, ({"pane": ready["pane"]} if "error" not in ready and ready.get("pane") else {})
 
 
-def drive(driver, out: Path) -> None:
-    config = out / "cmux-next.json"
+def drive(driver, out: Path, config: Path | None = None) -> None:
+    """`config`: the scratch config this run launched the app with (golden.sh's `out/cmux-next.json` by default;
+    scripts/cmux-next/ui-surface-stream-live.py passes its BenchApp's)."""
+    config = config or out / "cmux-next.json"
     try:
         original = config.read_text()
     except OSError:
         original = None
     before = _flag_value(driver)[0]
-    flag = set_flag(driver, out, True)
+    flag = set_flag(driver, config, True)
     rounds: list[dict] = []
     ready: dict = {}
     try:
@@ -117,7 +119,7 @@ def drive(driver, out: Path) -> None:
                 rounds.append(result)
                 time.sleep(0.5)
     finally:
-        restored = set_flag(driver, out, before is True, original if flag.get("how") == "scratch config" else None)
+        restored = set_flag(driver, config, before is True, original if flag.get("how") == "scratch config" else None)
     driver.save("ui_surface_stream", {"flag": flag, "flag_restored": restored, "flag_before": before,
                                       "ready": ready, "stream": STREAM, "rounds": rounds})
 
