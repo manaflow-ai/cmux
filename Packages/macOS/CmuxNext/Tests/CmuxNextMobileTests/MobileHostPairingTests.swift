@@ -61,6 +61,52 @@ import Testing
         #expect(prompts.request(id: "new") == nil)
     }
 
+    /// HOLD on #45895 (2026-11-18): another build's dev iPhone apps wait quietly, unanswered until a
+    /// restart. They never take one of the ``MobileHostPairPrompts/limit`` places, so however many
+    /// there are, the next real phone still asks (prompt and announcement: `.ask`).
+    @Test func quietRequestsNeverCrowdOutARealPhone() {
+        var prompts = MobileHostPairPrompts()
+        let start = Date(timeIntervalSince1970: 1_000)
+        for index in 1...(MobileHostPairPrompts.quietLimit + 2) {
+            #expect(prompts.receive(Self.phone("dev\(index)"), at: start, quietly: true) == .waitsQuietly)
+        }
+        // The quiet places hold the newest; the oldest went (counted as blocked).
+        #expect(prompts.pending.map(\.phoneDeviceID) == (3...(MobileHostPairPrompts.quietLimit + 2)).map { "dev\($0)" })
+        #expect(prompts.blocked == 2)
+        #expect(prompts.prompted.isEmpty)
+        // Every loud place is still free.
+        for index in 1...MobileHostPairPrompts.limit {
+            #expect(prompts.receive(Self.phone("real\(index)"), at: start) == .ask)
+        }
+        #expect(prompts.prompted.map(\.phoneDeviceID) == (1...MobileHostPairPrompts.limit).map { "real\($0)" })
+        #expect(prompts.receive(Self.phone("flood"), at: start) == .blocked)
+        // Another quiet one evicts a quiet one, never a real phone's request.
+        #expect(prompts.receive(Self.phone("dev-late"), at: start, quietly: true) == .waitsQuietly)
+        #expect(prompts.prompted.count == MobileHostPairPrompts.limit)
+        #expect(prompts.pending.count == MobileHostPairPrompts.limit + MobileHostPairPrompts.quietLimit)
+    }
+
+    /// A quiet request is only a Settings row: nothing answers it but the person. A retry stays
+    /// quiet, an answer to another phone leaves it waiting, and it never moves into the prompt.
+    @Test func aQuietRequestIsAnsweredOnlyByThePerson() {
+        var prompts = MobileHostPairPrompts()
+        let start = Date(timeIntervalSince1970: 1_000)
+        #expect(prompts.receive(Self.phone("dev"), at: start, quietly: true) == .waitsQuietly)
+        #expect(prompts.receive(Self.phone("dev"), at: start, quietly: true) == .repeated)
+        #expect(prompts.receive(Self.phone("real"), at: start) == .ask)
+        #expect(prompts.answer(id: "real", allowed: true, at: start)?.phoneDeviceID == "real")
+        #expect(prompts.prompted.isEmpty)
+        #expect(prompts.request(id: "dev") != nil)
+        #expect(prompts.waitsQuietly(id: "dev"))
+        // The person's own answer in Settings still works.
+        #expect(prompts.answer(id: "dev", allowed: true, at: start)?.phoneDeviceID == "dev")
+        #expect(prompts.pending.isEmpty && !prompts.waitsQuietly(id: "dev"))
+        // Forgetting one frees its quiet place.
+        #expect(prompts.receive(Self.phone("dev2"), at: start, quietly: true) == .waitsQuietly)
+        prompts.forget(id: "dev2")
+        #expect(prompts.pending.isEmpty && !prompts.waitsQuietly(id: "dev2"))
+    }
+
     @Test func keysAreHex() {
         #expect(MobileHostPairedDevices.bytes(hex: "0aFF") == Data([0x0A, 0xFF]))
         #expect(MobileHostPairedDevices.bytes(hex: "abc") == nil)

@@ -96,6 +96,19 @@ import Testing
         #expect(IPhoneDevAutoApprove.devTag(of: BuildIdentity(bundleID: "com.cmuxterm.app.nightly", bundledTag: nil)) == nil)
     }
 
+    /// A request that waits quietly (another build's dev phone) is never one the dev auto-approve of
+    /// the Mac it waits on takes: that Mac is another tag's build, or no dev build at all.
+    @Test func aQuietRequestNeverAutoApproves() {
+        let phone = Self.request()  // dev.cmux.mobile.pair-fast-v1
+        let otherTag = Self.auto(bundleID: "com.cmuxterm.app.debug.cu.all", tag: "cu-all")
+        #expect(IPhoneDevAutoApprove.asksQuietly(phone, macDevTag: otherTag?.tag))
+        #expect(!Self.approves(phone, auto: otherTag))
+        #expect(IPhoneDevAutoApprove.asksQuietly(phone, macDevTag: nil))
+        #expect(!Self.approves(phone, auto: nil))
+        // Every request the dev auto-approve takes is one that would not wait quietly.
+        #expect(Self.approves(phone) && !IPhoneDevAutoApprove.asksQuietly(phone, macDevTag: Self.auto()?.tag))
+    }
+
     @Test func hostdForwardsThePhonesBundleID() throws {
         let line = #"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","bundle_id":"dev.cmux.mobile.pair-fast-v1"}"#
         guard case .pairRequest(let request)? = MobileHostEvent(line: Substring(line)) else {
