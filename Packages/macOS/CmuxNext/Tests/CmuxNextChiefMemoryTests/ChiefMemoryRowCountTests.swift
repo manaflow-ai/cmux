@@ -51,7 +51,7 @@ private nonisolated struct ManyLines: ChiefMemorySource {
     }
 
     /// The line names `change` drew, in draw order.
-    static func drawn(_ view: NSView, _ probe: Draws, _ change: () async -> Void) async -> [String] {
+    fileprivate static func drawn(_ view: NSView, _ probe: Draws, _ change: () async -> Void) async -> [String] {
         _ = probe.take()
         await change()
         settle(view)

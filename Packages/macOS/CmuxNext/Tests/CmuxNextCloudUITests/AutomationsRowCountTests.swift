@@ -47,7 +47,7 @@ import Testing
     }
 
     /// The row ids `change` drew, in draw order.
-    static func drawn(_ view: NSView, _ probe: Draws, _ change: () -> Void) -> [String] {
+    fileprivate static func drawn(_ view: NSView, _ probe: Draws, _ change: () -> Void) -> [String] {
         _ = probe.take()
         change()
         settle(view)
