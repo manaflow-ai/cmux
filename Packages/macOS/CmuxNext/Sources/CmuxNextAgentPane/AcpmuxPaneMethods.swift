@@ -42,15 +42,11 @@ nonisolated enum AcpmuxPaneMethods {
         // the child chat, which the click's scope credit brings in (``sourceScoped``). Only `sessionId` and `subagentId` (``knownParams``): never `_meta`,
         // which carries acpmux's control and trust-gate marks.
         "_acpmux/retry",
-        "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
+        "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond", "_acpmux/perf",
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
         "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/peers", "_acpmux/draft_get",
-        // The chat Inspector's Perf tab and its page reporter (perfReporter.ts, PerfPanel.tsx; acpmux
-        // perf_watch.rs): a default-off diagnostic of this Mac's daemon that names no path and
-        // starts nothing. acpmux answers it to this Mac's app and unix socket only.
-        "_acpmux/perf",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
         // An inbox notice's thread the person opened (direct.ts inboxThread, InboxNoticeCard):
