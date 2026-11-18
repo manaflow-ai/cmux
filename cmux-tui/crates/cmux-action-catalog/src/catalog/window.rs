@@ -40,6 +40,22 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("app"),
         ..Action::DEFAULT
     },
+    // Reset Customization Library: every library entry off, back to what was there before any
+    // layer, as `cmux customize library reset` (the CLI's own verb). The Settings card turns
+    // entries off one at a time and changes the library only on the person's click, so this row
+    // is the person's too.
+    Action {
+        id: "customize.library.reset",
+        group: GROUP,
+        title: t("SettingsActions", "action.customize.library.reset", "Reset Customization Library"),
+        keywords: &["customize", "customise", "customization", "library", "reset", "turn off", "all off", "disable", "layers", "entries", "undo", "rollback"],
+        category: "settings",
+        symbol: "arrow.counterclockwise",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action customize-library-reset",
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "newWindow",
         group: GROUP,

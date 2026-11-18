@@ -80,8 +80,8 @@ HOSTED_LOOP_JOBS = {
 }
 # The secret-free runner preflight ahead of decide left GitHub-hosted Ubuntu on 2026-11-18: the org-wide hosted
 # queue held it 1h25m+ (run 44207617943), and every nightly with it, while the nightly Macs were idle. It now runs on
-# the dedicated nightly-only pool (never vars.CI_NIGHTLY_MINI, the label it exists to judge;
-# tests/test_nightly_runner_preflight.py). No nightly job waits on GitHub-hosted Ubuntu before publish.
+# decide's own route: the nightly-only pool, or in one-mini mode vars.CI_NIGHTLY_MINI with the rest of the run
+# (tests/test_nightly_runner_preflight.py). No nightly job waits on GitHub-hosted Ubuntu before publish.
 HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 # Jobs on our minis for nightly-next only. Every other track (classic, RC) goes GitHub-hosted through this
 # short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
