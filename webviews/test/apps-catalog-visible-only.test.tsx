@@ -34,14 +34,17 @@ let dom: JSDOM;
 let root: Root | undefined;
 let host: HTMLElement;
 
-/** The page's scroll area is 800 px tall; each catalog row is as tall as the page estimates. */
+/** The page's scroll area is 800 px tall; each catalog row is as tall as the page estimates (a grid
+ *  card is as tall as its row). */
 const VIEWPORT = 800;
 const GRID_ROW = 150;
 const LIST_ROW = 56;
+const gridCard = (element: HTMLElement) =>
+  element.classList.contains("apps-card") && !!element.parentElement?.classList.contains("apps-catalog-space");
 const appsSizes = (element: HTMLElement) =>
   element.classList.contains("apps-scroll") || element.classList.contains("apps-split-list")
     ? VIEWPORT
-    : element.dataset.size?.startsWith("grid")
+    : gridCard(element)
       ? GRID_ROW
       : element.dataset.size === "list"
         ? LIST_ROW
@@ -268,9 +271,10 @@ async function tab(scroller: HTMLElement, layout: "grid" | "list", shift = false
   const stops = [...document.querySelectorAll<HTMLElement>(TABBABLE)];
   const next = stops[stops.indexOf(document.activeElement as HTMLElement) + (shift ? -1 : 1)];
   await act(async () => next?.focus());
-  const row = next?.closest<HTMLElement>(".apps-catalog-space > [data-index]");
-  if (!row) return;
-  const top = Number(row.dataset.index) * STEP[layout];
+  const listing = focusedListing();
+  if (listing < 0) return;
+  // Two grid columns at 800 px.
+  const top = Math.floor(listing / (layout === "grid" ? 2 : 1)) * STEP[layout];
   const bottom = top + STEP[layout];
   if (top < scroller.scrollTop) await scrollBy(scroller, top - scroller.scrollTop);
   else if (bottom > scroller.scrollTop + VIEWPORT) await scrollBy(scroller, bottom - scroller.scrollTop - VIEWPORT);
@@ -332,13 +336,15 @@ for (const layout of ["grid", "list"] as const) {
   });
 }
 
-// A width that changes the grid's columns moves every listing to another row, and a row's height
-// follows its cards' width. The first row in view stays where it was, and the rows not mounted are
-// estimated at the new columns' height. Before, the scroll stayed where it was (other listings came
-// into view) and every unmounted row kept the old columns' height.
-test("grid: a column change keeps the first listing in view where it was, and sizes the rows at the new height", async () => {
-  let width = 800; // two columns
-  const rowHeight = () => (width >= 830 ? 120 : GRID_ROW); // three columns from 830 px
+/** A column change in jsdom: the page is `width` px wide (two columns at 800 px, three from 830), a
+ *  grid row is 150 px tall at two columns and 120 at three, the catalog starts at the top of the
+ *  scroll area's content (no banner height in jsdom), and the page's ResizeObservers are kept so
+ *  `resize` can tell the listing it resized, as a browser does. */
+async function columnChange(
+  run: (page: { width: () => number; rowHeight: () => number; resize: (to: number) => Promise<void> }) => Promise<void>,
+) {
+  let width = 800;
+  const rowHeight = () => (width >= 830 ? 120 : GRID_ROW);
   const proto = dom.window.HTMLElement.prototype;
   const offsetWidth = Object.getOwnPropertyDescriptor(proto, "offsetWidth")!;
   const offsetHeight = Object.getOwnPropertyDescriptor(proto, "offsetHeight")!;
@@ -349,10 +355,9 @@ test("grid: a column change keeps the first listing in view where it was, and si
   Object.defineProperty(proto, "offsetHeight", {
     configurable: true,
     get(this: HTMLElement) {
-      return this.dataset.size?.startsWith("grid") ? rowHeight() : appsSizes(this);
+      return gridCard(this) ? rowHeight() : appsSizes(this);
     },
   });
-  // The catalog starts at the top of the scroll area's content (no banner height in jsdom).
   proto.getBoundingClientRect = function (this: HTMLElement) {
     const scroller = this.closest<HTMLElement>(".apps-scroll");
     const top = this.classList.contains("apps-catalog-space") && scroller ? -scroller.scrollTop : 0;
@@ -375,19 +380,8 @@ test("grid: a column change keeps the first listing in view where it was, and si
     }
   };
   scope.Event = dom.window.Event;
-  try {
-    const { scroller } = await mount(1_000, "grid");
-    // Row 30 (listings 60 and 61) at the top of the view.
-    await scrollBy(scroller, 30 * (GRID_ROW + 14));
-    const placeOf = (index: number) => {
-      const row = host
-        .querySelector<HTMLElement>(`[data-app="acme.tool-${index}"]`)
-        ?.closest<HTMLElement>("[data-index]");
-      const top = Number(/translateY\((-?[\d.]+)px\)/.exec(row?.style.transform ?? "")?.[1]);
-      return row ? top - scroller.scrollTop : undefined;
-    };
-    expect(placeOf(60)).toBe(0);
-    width = 830;
+  const resize = async (to: number) => {
+    width = to;
     const listing = host.querySelector(".apps-discover-list")!;
     await act(async () => {
       for (const { callback, targets } of observers)
@@ -397,11 +391,9 @@ test("grid: a column change keeps the first listing in view where it was, and si
             {} as ResizeObserver,
           );
     });
-    // Listing 60 begins row 20 of three columns, still at the top of the view.
-    expect(placeOf(60)).toBe(0);
-    // 334 rows of 120 px and the gaps between them.
-    const space = host.querySelector<HTMLElement>(".apps-catalog-space")!;
-    expect(parseFloat(space.style.height)).toBe(334 * 120 + 333 * 14);
+  };
+  try {
+    await run({ width: () => width, rowHeight, resize });
   } finally {
     Object.defineProperty(proto, "offsetWidth", offsetWidth);
     Object.defineProperty(proto, "offsetHeight", offsetHeight);
@@ -409,4 +401,75 @@ test("grid: a column change keeps the first listing in view where it was, and si
     scope.ResizeObserver = globals.ResizeObserver;
     scope.Event = globals.Event;
   }
+}
+
+// A width that changes the grid's columns moves every listing to another row, and a row's height
+// follows its cards' width. The first row in view stays where it was, and the rows not mounted are
+// estimated at the new columns' height. Before, the scroll stayed where it was (other listings came
+// into view) and every unmounted row kept the old columns' height.
+test("grid: a column change keeps the first listing in view where it was, and sizes the rows at the new height", async () => {
+  await columnChange(async ({ width, rowHeight, resize }) => {
+    const { scroller } = await mount(1_000, "grid");
+    // Row 30 (listings 60 and 61) at the top of the view.
+    await scrollBy(scroller, 30 * (GRID_ROW + 14));
+    // The grid's layout, as a browser does it: its cards fill rows of as many columns as fit, and
+    // a spacer takes a row of its own; a gap of 14 px after each row. The listing's top in the
+    // view, and the grid's height.
+    const layoutOf = (index?: number) => {
+      const space = host.querySelector<HTMLElement>(".apps-catalog-space")!;
+      const columns = width() >= 830 ? 3 : 2;
+      let top = 0;
+      let column = 0;
+      for (const child of space.children as Iterable<HTMLElement>) {
+        if (child.classList.contains("apps-catalog-gap")) {
+          if (column > 0) top += rowHeight() + 14;
+          column = 0;
+          top += parseFloat(child.style.height) + 14;
+          continue;
+        }
+        if (child.dataset.app === `acme.tool-${index}`) return { top: top - scroller.scrollTop, height: NaN };
+        if (++column === columns) {
+          top += rowHeight() + 14;
+          column = 0;
+        }
+      }
+      return { top: undefined, height: (column > 0 ? top + rowHeight() + 14 : top) - 14 };
+    };
+    const placeOf = (index: number) => layoutOf(index).top;
+    expect(placeOf(60)).toBe(0);
+    await resize(830);
+    // Listing 60 begins row 20 of three columns, still at the top of the view.
+    expect(placeOf(60)).toBe(0);
+    // 334 rows of 120 px and the gaps between them.
+    expect(layoutOf().height).toBe(334 * 120 + 333 * 14);
+  });
+});
+
+// A column change moves each listing to another row and column, not to another card: each listing
+// mounted before and after keeps its card element (and so its focus, hover and text selection), only
+// the cards the new window brings in draw, and the cards stay in listing order with their place
+// among every listing. Before, a card sat under its row's element, keyed by the row's first listing,
+// so a column change mounted nearly every card again.
+test("grid: a column change keeps each mounted listing's card, and draws only the cards it brings in", async () => {
+  await columnChange(async ({ resize }) => {
+    const { scroller } = await mount(1_000, "grid");
+    await scrollBy(scroller, 30 * (GRID_ROW + 14));
+    const catalogCards = () => [...host.querySelectorAll<HTMLElement>(".apps-catalog-space .apps-card")];
+    const renders = mountedRowRenders(catalogCards, "ItemCard");
+    for (const to of [830, 800, 830]) {
+      const before = new Map(catalogCards().map((card) => [card.dataset.app!, card]));
+      renders.mark();
+      await resize(to);
+      const after = catalogCards();
+      const kept = after.filter((card) => before.has(card.dataset.app!));
+      // Most of the window stays mounted across the change.
+      expect(kept.length).toBeGreaterThan(before.size / 2);
+      expect(kept.filter((card) => before.get(card.dataset.app!) !== card).map((card) => card.dataset.app)).toEqual([]);
+      expect(renders.since()).toBe(after.length - kept.length);
+      const places = after.map((card) => Number(card.getAttribute("aria-posinset")));
+      expect(places).toEqual(after.map((card) => Number(card.dataset.app!.split("-").pop()) + 1));
+      expect(places).toEqual([...places].sort((a, b) => a - b));
+      expect(after.every((card) => card.getAttribute("aria-setsize") === "1000")).toBe(true);
+    }
+  });
 });

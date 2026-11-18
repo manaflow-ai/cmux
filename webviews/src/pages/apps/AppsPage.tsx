@@ -11,9 +11,10 @@ import {
   useState,
   useSyncExternalStore,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
-import { defaultRangeExtractor, measureElement, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
@@ -265,9 +266,13 @@ const LIST_OVERSCAN = 16;
  * The catalog, windowed: only the rows near the viewport are mounted (a grid row holds as many
  * cards as the grid has columns), plus the selected and the focused row so focus and the split's
  * selection are never unmounted, and the focused row's neighbours and the first and last rows, so
- * the browser's own Tab and Shift-Tab keep listing order (no key handler). The first measured row of each kind sizes the rows not yet
- * mounted. Rows and cards are memoized on their listings, so a change to one listing draws its own
- * card, and a scroll step draws only the rows it brings in.
+ * the browser's own Tab and Shift-Tab keep listing order (no key handler). The first measured row
+ * of each kind sizes the rows not yet mounted. Rows and cards are memoized on their listings, so a
+ * change to one listing draws its own card, and a scroll step draws only the rows it brings in.
+ *
+ * The grid is one CSS grid of cards keyed by listing, in listing order, with a full-width spacer for
+ * each run of rows not mounted: a column change moves each mounted card to its new row and column
+ * without mounting it again or drawing it (a row of its own would hold other listings after one).
  */
 function CatalogList({
   apps,
@@ -295,12 +300,13 @@ function CatalogList({
   // featured row above it), read on mount and when the listing around it resizes.
   const [box, setBox] = useState({ width: 0, margin: 0 });
   // A width that changes the grid's columns moves every listing to another row. The first row in
-  // view is held, by its first listing and its distance below the viewport's top, before the rows
-  // are built again, and put back there after (`hold` and `restore`, set below).
-  const anchor = useRef<Anchor>({ hold: () => false, restore: () => {} });
+  // view is held, by its first listing and its distance below the viewport's top, and the scroll
+  // that keeps it there is worked out before the rows are built again (`hold`, set below).
+  const anchor = useRef<Anchor>({ hold: () => undefined, remeasure: () => {}, restore: () => {} });
   // `resized`: the listing's resize, the one place the width changes. A column change there draws
-  // the new rows and puts the held row back before the frame paints: a frame of the old rows at the
-  // new width shows other listings.
+  // the new rows at the held row's new scroll, in one draw, before the frame paints: a frame of the
+  // old rows at the new width shows other listings, and a draw at the old scroll mounts listings the
+  // held row's scroll would unmount again.
   const place = useCallback(
     (resized = false) => {
       const element = space.current;
@@ -311,8 +317,16 @@ function CatalogList({
         element.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop,
       );
       const update = () => setBox((old) => (old.width === width && old.margin === margin ? old : { width, margin }));
-      if (!resized || !anchor.current.hold(width, margin)) return update();
-      flushSync(update);
+      const target = resized ? anchor.current.hold(width, margin) : undefined;
+      if (target === undefined) return update();
+      flushSync(() => {
+        update();
+        anchor.current.remeasure();
+        // TanStack reads the new scroll in this same draw (its scroll handler draws it, with the
+        // new width, at once).
+        scroll.scrollTop = target;
+        scroll.dispatchEvent(new Event("scroll"));
+      });
       anchor.current.restore();
     },
     [scrollElement],
@@ -354,53 +368,112 @@ function CatalogList({
     gap: grid ? GRID_GAP : LIST_GAP,
     overscan: grid ? GRID_OVERSCAN : LIST_OVERSCAN,
     scrollMargin: box.margin,
-    // A row laid out at a width the rows were not built for (the columns changed, and the rows are
-    // not yet built again) keeps its size: its cards wrap onto a line of their own for that moment,
-    // and the size would move the rows and the scroll before the held row is read.
-    measureElement: (element, entry, instance) =>
-      grid && entry && gridColumns(entry.contentRect.width) !== columns
-        ? (instance.measurementsCache[instance.indexFromElement(element)]?.size ??
-          measureElement(element, entry, instance))
-        : measureElement(element, entry, instance),
     rangeExtractor: (range: Range) => {
       const indexes = defaultRangeExtractor(range);
       for (const index of kept) if (index >= 0 && index < rows.length && !indexes.includes(index)) indexes.push(index);
       return indexes.sort((a, b) => a - b);
     },
   });
+  // A grid row is as tall as its tallest card, and each of its cards is stretched to that height:
+  // one observer of the mounted cards sizes each one's row (found by its listing). Cards laid out at
+  // a width the rows were not built for (the columns changed, and the rows are not yet built again)
+  // are not read: they sit in other rows for that moment.
+  const cards = useRef<{ observer?: ResizeObserver; observed: Set<HTMLElement> }>({ observed: new Set() });
+  const current = useRef({ columns, rowOf, kind, virtualizer });
+  const observeCard = useCallback((node: HTMLElement | null) => {
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const own = cards.current;
+    own.observer ??= new ResizeObserver((entries) => {
+      const { columns, rowOf, kind, virtualizer } = current.current;
+      const element = space.current;
+      if (!element || gridColumns(element.offsetWidth) !== columns) return;
+      // TanStack draws the catalog again, at once, after each row whose new size moves the scroll
+      // (a row above the view), and the next row's resize then reads the layout that draw dirtied: a
+      // width step drew and laid out the catalog once per row above the view. The cards are laid
+      // out in the catalog's flow, so no draw is needed between rows: one, after them all.
+      const instance = virtualizer as unknown as { notify: (sync: boolean) => void };
+      const notify = instance.notify;
+      let sync: boolean | undefined;
+      instance.notify = (now) => {
+        sync = sync === true || now;
+      };
+      try {
+        for (const entry of entries) {
+          const row = rowOf.get((entry.target as HTMLElement).dataset.app ?? "");
+          const size = Math.round(entry.borderBoxSize?.[0]?.blockSize ?? (entry.target as HTMLElement).offsetHeight);
+          if (row === undefined || !(size > 0)) continue;
+          if (!sizes.current.has(kind)) sizes.current.set(kind, size);
+          virtualizer.resizeItem(row, size);
+        }
+      } finally {
+        instance.notify = notify;
+      }
+      if (sync !== undefined) notify(sync);
+    });
+    own.observer.observe(node);
+    own.observed.add(node);
+    return () => {
+      own.observer?.unobserve(node);
+      own.observed.delete(node);
+    };
+  }, []);
+  useEffect(() => () => cards.current.observer?.disconnect(), []);
   // Across the draw between `hold` and `restore`.
   const held = useRef<{ id: string; offset: number } | undefined>(undefined);
   useLayoutEffect(() => {
+    current.current = { columns, rowOf, kind, virtualizer };
     anchor.current = {
       hold: (width, margin) => {
         const scroll = scrollElement();
-        if (!grid || !scroll || gridColumns(width) === columns) return false;
+        const element = space.current;
+        const next = gridColumns(width);
+        if (!grid || !scroll || !element || next === columns) return undefined;
+        held.current = undefined;
         // Where the rows are now: placed for the old margin, in a catalog that starts at the new one
         // (the banner and chips above re-wrap; the browser may have moved the scroll to hold what is
         // in view).
         const top = scroll.scrollTop + virtualizer.options.scrollMargin - margin;
         // The mounted rows only (about two viewports of them), once per column change.
         const item = virtualizer.getVirtualItems().find((item) => item.start >= top);
-        held.current = item && { id: rows[item.index]![0]!.id, offset: item.start - top };
-        return true;
+        if (!item) return scroll.scrollTop;
+        // The new columns' row height: learned, or read from a card the browser has already laid
+        // out at the new width (this runs after layout, so the read costs no layout).
+        const nextKind = `grid:${card}:${next}`;
+        const sample = element.querySelector<HTMLElement>(":scope > [data-app]")?.offsetHeight;
+        if (!sizes.current.has(nextKind) && sample) sizes.current.set(nextKind, sample);
+        const size = sizes.current.get(nextKind) ?? GRID_ROW_ESTIMATE;
+        const offset = item.start - top;
+        held.current = { id: rows[item.index]![0]!.id, offset };
+        // The held row's first listing, its row at the new columns, and that row's start once every
+        // row is at the estimate (as TanStack places them: from the margin, a gap after each).
+        const row = Math.floor((item.index * columns) / next);
+        return Math.max(0, margin + row * (size + GRID_GAP) - offset);
       },
+      // The sizes measured at the old column count are not this one's: every row is placed again by
+      // the estimate, and re-measured as its cards report their size (`restore`).
+      remeasure: () => virtualizer.measure(),
       restore: () => {
         const scroll = scrollElement();
         const hold = held.current;
         held.current = undefined;
+        // Each mounted card reports its size at the new columns, for its row (in this frame: the
+        // cards are deeper than the listing whose resize this is).
+        const { observer, observed } = cards.current;
+        if (observer)
+          for (const node of observed) {
+            observer.unobserve(node);
+            observer.observe(node);
+          }
         if (!hold || !scroll) return;
         const row = rowOf.get(hold.id);
-        // The sizes measured at the old column count are not this one's (the rows now mounted
-        // already set the new count's estimate): every row is placed again by the estimate, and
-        // re-measured as it resizes or mounts.
-        virtualizer.measure();
-        // Places the rows again now, so the held row's start below is the new one.
         virtualizer.getTotalSize();
         const start = row === undefined ? undefined : virtualizer.measurementsCache[row]?.start;
         if (start === undefined) return;
-        scroll.scrollTop = Math.max(0, start - hold.offset);
-        // Read now, not at the next frame's scroll event, so the rows around the held one are
-        // drawn before this frame paints.
+        // The scroll was worked out from the estimate; put it right if the rows placed otherwise
+        // (the end of the catalog clamps it).
+        const target = Math.max(0, start - hold.offset);
+        if (Math.abs(scroll.scrollTop - target) < 1) return;
+        scroll.scrollTop = target;
         scroll.dispatchEvent(new Event("scroll"));
       },
     };
@@ -415,108 +488,99 @@ function CatalogList({
     },
     [virtualizer],
   );
+  const items = virtualizer.getVirtualItems();
+  if (grid) {
+    // Cards in listing order, so Tab, Shift-Tab and a screen reader go through the listings in order.
+    const cells: ReactNode[] = [];
+    let end: number | undefined;
+    let last = -1;
+    let gaps = 0;
+    for (const { index, start, size } of items) {
+      if (index > last + 1) {
+        // The rows between, at their sizes, less the grid's gaps around the spacer.
+        const height = end === undefined ? start - box.margin - GRID_GAP : start - end - 2 * GRID_GAP;
+        cells.push(
+          <div
+            key={`gap:${gaps++}`}
+            className="apps-catalog-gap"
+            aria-hidden="true"
+            style={{ height: Math.max(0, height) }}
+          />,
+        );
+      }
+      rows[index]!.forEach((app, column) =>
+        cells.push(
+          <ItemCard
+            key={app.id}
+            ref={observeCard}
+            app={app}
+            store={store}
+            strings={strings}
+            style={card}
+            position={index * columns + column + 1}
+            count={apps.length}
+          />,
+        ),
+      );
+      end = start + size;
+      last = index;
+    }
+    return (
+      <div
+        ref={space}
+        className="apps-catalog-space apps-grid"
+        onFocus={(event) => setFocused((event.target as HTMLElement).closest<HTMLElement>("[data-app]")?.dataset.app)}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setFocused(undefined);
+        }}
+      >
+        {cells}
+      </div>
+    );
+  }
   return (
     <div
       ref={space}
       className="apps-catalog-space"
-      role={grid ? undefined : "list"}
+      // The windowed list's positioned rows (no list markers or spacing to reset).
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="list"
       style={{ height: virtualizer.getTotalSize() }}
       onFocus={(event) => setFocused((event.target as HTMLElement).closest<HTMLElement>("[data-app]")?.dataset.app)}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setFocused(undefined);
       }}
     >
-      {virtualizer
-        .getVirtualItems()
-        .map(({ index, key, start }) =>
-          grid ? (
-            <CatalogGridRow
-              key={key}
-              index={index}
-              top={start - box.margin}
-              size={kind}
-              apps={rows[index]!}
-              first={index * columns}
-              count={apps.length}
-              card={card}
-              store={store}
-              strings={strings}
-              measure={measure}
-            />
-          ) : (
-            <CatalogListRow
-              key={key}
-              index={index}
-              top={start - box.margin}
-              app={rows[index]![0]!}
-              count={apps.length}
-              selected={rows[index]![0]!.id === selected}
-              store={store}
-              strings={strings}
-              measure={measure}
-            />
-          ),
-        )}
-    </div>
-  );
-}
-
-/** Holds the catalog's first row in view across a column change (`hold`, with the new width and
- *  margin; false when the columns do not change) and puts it back once the rows are built for the
- *  new columns (`restore`). */
-interface Anchor {
-  hold: (width: number, margin: number) => boolean;
-  restore: () => void;
-}
-
-/** Where a windowed row sits: its index (TanStack measures it by `data-index`) and offset. */
-interface Placed {
-  index: number;
-  top: number;
-  measure: (element: HTMLElement | null) => void;
-  /** Every listing in the catalog: the screen reader's "3 of 1000". */
-  count: number;
-  store: AppsStore;
-  strings: Strings;
-}
-
-/** One row of the grid: the same `auto-fill` grid as before, holding one row's cards. */
-const CatalogGridRow = memo(function CatalogGridRow({
-  index,
-  top,
-  size,
-  measure,
-  apps,
-  first,
-  count,
-  card,
-  store,
-  strings,
-}: Placed & { size: string; apps: readonly CatalogApp[]; first: number; card: CardStyle }) {
-  return (
-    <div
-      ref={measure}
-      data-index={index}
-      data-size={size}
-      className="apps-grid"
-      style={{ transform: `translateY(${top}px)` }}
-    >
-      {apps.map((app, column) => (
-        <ItemCard
-          key={app.id}
-          app={app}
+      {items.map(({ index, key, start }) => (
+        <CatalogListRow
+          key={key}
+          index={index}
+          top={start - box.margin}
+          app={rows[index]![0]!}
+          count={apps.length}
+          selected={rows[index]![0]!.id === selected}
           store={store}
           strings={strings}
-          style={card}
-          position={first + column + 1}
-          count={count}
+          measure={measure}
         />
       ))}
     </div>
   );
-});
+}
 
-/** One row of the list and split layouts. */
+/** Holds the catalog's first row in view across a column change: `hold`, with the new width and
+ *  margin, gives the scroll that keeps it in place once the rows are built for the new columns
+ *  (undefined when the columns do not change); `remeasure`, in that draw, drops the old columns'
+ *  row sizes; `restore`, after it, measures the new rows and puts the scroll right if they placed
+ *  otherwise. */
+interface Anchor {
+  hold: (width: number, margin: number) => number | undefined;
+  remeasure: () => void;
+  restore: () => void;
+}
+
+/** One row of the list and split layouts: its index (TanStack measures it by `data-index`) and
+ *  offset. */
 const CatalogListRow = memo(function CatalogListRow({
   index,
   top,
@@ -526,14 +590,24 @@ const CatalogListRow = memo(function CatalogListRow({
   selected,
   store,
   strings,
-}: Placed & { app: CatalogApp; selected: boolean }) {
+}: {
+  index: number;
+  top: number;
+  measure: (element: HTMLElement | null) => void;
+  app: CatalogApp;
+  /** Every listing in the catalog: the screen reader's "3 of 1000". */
+  count: number;
+  selected: boolean;
+  store: AppsStore;
+  strings: Strings;
+}) {
   return (
     <div
       ref={measure}
       data-index={index}
       data-size="list"
       data-app={app.id}
-      // A positioned row of the windowed list (no list markers or spacing to reset), as in the grid.
+      // A positioned row of the windowed list (no list markers or spacing to reset).
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listitem"
       aria-posinset={index + 1}
