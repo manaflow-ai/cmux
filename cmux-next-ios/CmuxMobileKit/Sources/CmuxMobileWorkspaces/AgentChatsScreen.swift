@@ -88,8 +88,14 @@ public final class AgentChatsModel {
         do {
             let page = try await backend.agentChats(on: macID, cursor: nil)
             guard generation == listGeneration else { return }
-            chats = page.chats
-            nextCursor = page.nextCursor
+            if let merged = chats.mergingFirstPage(page.chats, hasMore: page.nextCursor != nil) {
+                // Opened again (or pulled) while older pages were read: they stay, and so does the
+                // reader in them; the next cursor still reads after them.
+                chats = merged
+            } else {
+                chats = page.chats
+                nextCursor = page.nextCursor
+            }
             moreFailure = nil
             phase = .loaded
             remember()
