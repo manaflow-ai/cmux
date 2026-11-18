@@ -177,7 +177,8 @@ fn an_update_replaces_the_fonts_and_a_failed_one_keeps_the_old() {
 
     // The update goes through: the new fonts are in place.
     let old = customize.setups().unwrap().remove(0);
-    customize.replace_setup(&old, &next, "setup v2", "cli", 30).unwrap();
+    let installed = customize.replace_setup(&old, &next, "setup v2", "cli", 30).unwrap();
+    customize.record_setup(receipt(&next, &installed)).unwrap();
     assert_eq!(fs::read(folder.join("pack-sans.woff2")).unwrap(), WOFF2_V2);
 
     // An update that no longer carries fonts takes the old copy out.
