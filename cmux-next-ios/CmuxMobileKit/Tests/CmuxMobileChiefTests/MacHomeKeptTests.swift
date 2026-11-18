@@ -94,6 +94,35 @@ import Testing
         #expect(feed.isShowingKeptRows)
     }
 
+    /// Back-compat: a list kept by an app before head files (only `<key>.json` on disk) still
+    /// shows after the update's first launch, read off the main thread as before, and its next
+    /// save writes the head for the launch after.
+    @Test func aListKeptBeforeHeadFilesStillShows() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = MacHomeRowsCache.key(account: "user-a", macID: "mac-1")
+        let writer = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        writer.save(key, rows: HomeKeptRowsTimingTests.rows(200))
+        writer.flush()
+        // What an older app left: the list file alone.
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        for head in files where head.lastPathComponent.hasSuffix(".head.json") { try FileManager.default.removeItem(at: head) }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false)).count == 1)
+
+        let relaunched = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        #expect(relaunched.firstScreen(key) == nil)
+        let feed = Self.feed(relaunched, account: Account())
+        feed.showKeptRows(of: "mac-1")
+        #expect(await eventually { feed.rows?.count == 200 })
+        #expect(feed.isShowingKeptRows)
+
+        // The next save writes the head too: the launch after draws it in the first frame.
+        relaunched.save(key, rows: HomeKeptRowsTimingTests.rows(199))
+        relaunched.flush()
+        #expect(MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0)).firstScreen(key)?.count
+                == MacHomeRowsCache.firstScreenRows)
+    }
+
     /// Another Mac chosen: that Mac's kept rows at once (from memory), never the last Mac's;
     /// another account's rows never show.
     @Test func aMacChosenAgainShowsItsOwnKeptRowsAtOnce() async throws {
