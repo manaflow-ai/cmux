@@ -311,7 +311,12 @@ export function generate(): Record<string, string> {
     // and link hints drawn and followed by the built-in hints' own scripts. Hints and follow need a gesture.
     "page.read": { scope: "page:read", class: "read" },
     "page.hints": { scope: "page:write", class: "mutation" },
-    "page.follow": { scope: "page:write", class: "mutation" }
+    "page.follow": { scope: "page:write", class: "mutation" },
+    // What plays in cmux, from the Now Playing card's sources (cmux's player, a browser tab, another
+    // app while sidebar.nowPlaying.otherApps is on), answered by the Mac app (MediaAppOps). media.control
+    // runs only on a tap (PLAYBACK_OPS in cmux-app-manifest capabilities.rs).
+    "media.get": { scope: "media:read", class: "read" },
+    "media.control": { scope: "media:control", class: "mutation" }
   }
   Object.assign(scopes, hostOps)
   const signals = loadSignals(scopes, types)

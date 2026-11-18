@@ -307,6 +307,30 @@ mod tests {
         assert!(!needs_gesture("chat.list"));
     }
 
+    /// What plays: `media.get` reads with `media:read`; `media.control` (play, pause, skip,
+    /// seek) needs `media:control` and a tap, never `media:read` alone.
+    #[test]
+    fn cmux_next_media_reads_with_media_read_and_controls_only_with_media_control_and_a_tap() {
+        let table = ScopeTable::get();
+        assert_eq!(
+            table.check("media.get", &json!({}), &grant(&["media:read"])),
+            Decision::Allow(OpClass::Read),
+        );
+        assert!(!needs_gesture("media.get"));
+        let next = json!({"command": "next"});
+        assert_eq!(
+            table.check("media.control", &next, &grant(&["media:control"])),
+            Decision::Allow(OpClass::Mutation),
+        );
+        for scopes in [vec![], vec!["media:read"], vec!["actions:run"]] {
+            assert!(matches!(
+                table.check("media.control", &next, &grant(&scopes)),
+                Decision::ScopeMissing(_),
+            ));
+        }
+        assert!(needs_gesture("media.control"), "media.control needs a tap");
+    }
+
     #[test]
     fn cmux_next_memory_search_admits_only_the_memory_read_grant() {
         let table = ScopeTable::get();
