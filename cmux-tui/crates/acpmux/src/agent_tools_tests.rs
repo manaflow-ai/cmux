@@ -744,6 +744,18 @@ fn leased_desktops_are_off_until_the_env_names_a_binary_and_owned_by_the_session
 /// The person's saved MCP servers reach every chat as one upstream of `cmux`
 /// (`optchat-chief integrations serve`, tool `mcp_servers`), with the chat's session id so the
 /// server shows only the servers the person's scope gives it; cmux.json turns it off.
+/// Settings > MCP Servers' switch (schemas/settings/source/mcp-servers.json) is the key the
+/// daemon reads, on unless the person turns it off.
+#[test]
+fn the_saved_servers_switch_is_the_settings_row() {
+    const SOURCE: &str = include_str!("../../../../schemas/settings/source/mcp-servers.json");
+    let doc: serde_json::Value = serde_json::from_str(SOURCE).unwrap();
+    let row = &doc["lists"][0]["rows"][0];
+    assert_eq!(row["key"], serde_json::json!(super::SAVED_SERVERS_SETTING));
+    assert_eq!(row["kind"], serde_json::json!("toggle"));
+    assert_eq!(row["default"], serde_json::json!(true));
+}
+
 #[test]
 fn a_chat_gets_the_saved_mcp_servers_with_its_session() {
     use std::os::unix::fs::PermissionsExt;

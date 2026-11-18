@@ -105,4 +105,24 @@ import Testing
         #expect(!SettingsMcpServers.isWebPage(URL(string: "file:///etc/passwd")!))
         #expect(!SettingsMcpServers.isWebPage(URL(string: "cmux://settings")!))
     }
+
+    /// A build without the helper beside its CLI says so ("unavailable"), not "failed"; one with it
+    /// finds it. Only an executable file counts.
+    @Test func aBuildWithoutTheHelperShowsUnavailable() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "mcp-servers-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let cli = folder.appending(path: "cmux", directoryHint: .notDirectory)
+        let model = SettingsMcpServers(cli: { cli }, openPage: { _ in })
+        await model.refresh()
+        #expect(model.state["problem"] == .string("unavailable"))
+        #expect(model.state["servers"] == .array([]))
+
+        let helper = folder.appending(path: "optchat-chief", directoryHint: .notDirectory)
+        try Data("#!/bin/sh\n".utf8).write(to: helper)
+        #expect(await SettingsMcpServers.chief(besideCLI: cli) == nil, "not executable")
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+        #expect(await SettingsMcpServers.chief(besideCLI: cli) == helper)
+        #expect(await SettingsMcpServers.chief(besideCLI: nil) == nil)
+    }
 }
