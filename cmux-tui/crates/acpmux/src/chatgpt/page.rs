@@ -332,3 +332,25 @@ mod tests {
         assert!(csp.starts_with("default-src 'none'"));
     }
 }
+
+#[cfg(test)]
+mod scratch_dump {
+    use super::*;
+
+    #[test]
+    fn scratch_dump_pages() {
+        let back = ReturnLink::parse("cmux://settings").unwrap();
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.build/artifacts");
+        std::fs::create_dir_all(&dir).unwrap();
+        let pages = serde_json::json!({
+            "signed-in": render(Outcome::SignedIn, Some(&back)),
+            "cancelled": render(Outcome::failed("access_denied"), Some(&back)),
+            "no-plan": render(Outcome::failed("no_plan_scope"), Some(&back)),
+            "expired": render(Outcome::failed("state_mismatch"), Some(&back)),
+            "generic": render(Outcome::failed("token_exchange_failed"), Some(&back)),
+            "no-link": render(Outcome::SignedIn, None),
+            "csp": content_security_policy(),
+        });
+        std::fs::write(dir.join("chatgpt-pages.json"), pages.to_string()).unwrap();
+    }
+}
