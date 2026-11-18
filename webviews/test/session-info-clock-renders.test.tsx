@@ -9,7 +9,7 @@
 // name as before ("agent-0, Reading file 0, Running, 1m 0s") while the row itself is never drawn
 // again by the clock. Counted from React's commits (support/rowRenders.ts).
 import { createRoot, rowRenders } from "./support/rowRenders";
-import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
+import { afterAll, beforeAll, expect, jest, spyOn, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
@@ -47,9 +47,12 @@ beforeAll(() => {
     localStorage: window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The whole file on one fake clock (the page's clocks among them), so its time only moves forward.
+  jest.useFakeTimers();
 });
 
 afterAll(async () => {
+  jest.useRealTimers();
   await teardownDom(saved, { window: dom.window, scope });
 });
 
@@ -64,8 +67,12 @@ async function mount(element: ReactElement) {
   return { host, unmount: () => act(async () => root.unmount()).then(() => host.remove()) };
 }
 
-/// One tick of the page's second clock, waited out.
-const tick = (ms = 1_100) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
+/// The page's clocks moved on by `ms` (one second's tick by default), on the file's fake clock: the
+/// ticks are the behaviour counted, so their time is advanced, not waited out.
+const tick = (ms = 1_100) =>
+  act(async () => {
+    jest.advanceTimersByTime(ms);
+  });
 
 /// Calls of `fn` on `module` while `during` runs; -1 when the module has no such function.
 async function calls(module: object, fn: string, during: () => Promise<void>): Promise<number> {
