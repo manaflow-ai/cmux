@@ -118,7 +118,7 @@ bottom). Pixel measurements were divided by 3.
 | Background | `bg` #000000 / #FFFFFF | #151515 |
 | Lockup | 22 pt chevron + "cmux" (`welcomeWordmark`, title2 semibold); frame y 68-94 | 24 pt; center y ≈ 82 |
 | Art | 291 x 233 pt (`WelcomeArt.size` 260 x 208 x 1.12); Mac + phone line art, 3.3 pt stroke | 175 x 175 pt; one hand-drawn line, 4 pt |
-| Headline | "Your Macs, in your pocket." `welcomeTitle` (title, serif), y 443-477 | serif ≈ 28 pt, about 40 pt under the art |
+| Headline | "Your Macs, in your pocket." `welcomeTitle` (title, SF Pro semibold), y 443-477 | SF Pro ≈ 28 pt, about 40 pt under the art |
 | Buttons | 4 x 52 pt capsules, gap 10, side 20; y 567-805 | 2 x 48 pt pills + 48 pt email field, gap 8, side 16 |
 | Legal | caption2, `label3` (#47474A on black = **2.27:1**), y 819-832 | ≈ 12 pt gray (≈ 6:1), underlined links |
 
@@ -162,7 +162,7 @@ Top to bottom, inside the safe area:
 | Hero group | Art + headline, centered vertically in the space between the lockup and the button stack, then raised 16 pt (optical center) |
 | Art | 260 x 208 pt (drop the 1.12 scale; the art is then 1.5x Claude's area, not 2.2x) |
 | Art → headline | 32 pt |
-| Headline | Unchanged copy and font (`welcomeTitle`, serif title, `label`), centered, max 2 lines, side margin 20 |
+| Headline | Unchanged copy and font (`welcomeTitle`, SF Pro semibold title, `label`), centered, max 2 lines, side margin 20 |
 | Error slot | Overlay, no layout space. See "Errors" below |
 | Buttons | Production: Google, GitHub, email (3 rows). TestFlight: Apple, Google, GitHub, email. Height 50 pt (a new `ctaWelcomeHeight`; it must grow with Dynamic Type, see AX), gap 8, side margin 20 |
 | Buttons → legal | 16 pt |

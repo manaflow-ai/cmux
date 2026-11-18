@@ -39,6 +39,9 @@ public struct ShellLaunchOptions: Sendable {
     public var setupStep: String?
     /// DEBUG: setup's active space has no Mac online (`-cmux-mobile-setup-no-mac`).
     public var setupNoMac = false
+    /// DEBUG: setup's account has never connected a Mac (`-cmux-mobile-setup-never-paired`;
+    /// implies `-cmux-mobile-setup-no-mac`).
+    public var setupNeverPaired = false
     /// DEBUG: Welcome shows a failed sign-in's message (`-cmux-mobile-welcome-error`).
     public var welcomeError = false
     /// DEBUG: open Settings on this page (`SettingsRoute` case name).
@@ -61,7 +64,8 @@ public struct ShellLaunchOptions: Sendable {
         setupPairDemo = arguments.contains("-cmux-mobile-setup-pair")
         if setupPairDemo { forceSetup = true }
         setupStep = value("-cmux-mobile-setup-step")
-        setupNoMac = arguments.contains("-cmux-mobile-setup-no-mac")
+        setupNeverPaired = arguments.contains("-cmux-mobile-setup-never-paired")
+        setupNoMac = setupNeverPaired || arguments.contains("-cmux-mobile-setup-no-mac")
         if setupStep != nil || setupNoMac { forceSetup = true }
         welcomeError = arguments.contains("-cmux-mobile-welcome-error")
         settingsPage = value("-cmux-mobile-settings-page")
@@ -172,7 +176,8 @@ public struct RootView: View {
                                 firstChat.macID = mac
                                 setupComplete = true
                                 setupFinished = true
-                            }
+                            },
+                            planPage: setupPlanPage
                         ) {
                             setupComplete = true
                             setupFinished = true
@@ -272,6 +277,7 @@ public struct RootView: View {
             if options.setupNoMac, let index = store.teams.firstIndex(where: { $0.id == store.activeTeamID }) {
                 store.teams[index].macs = []
             }
+            if options.setupNeverPaired { store.accountMacCount = 0 }
             if options.welcomeError, !auth.isSignedIn {
                 auth.errorMessage = CmuxMobileAuthModel.message(for: URLError(.notConnectedToInternet), provider: .google)
             }
@@ -352,12 +358,22 @@ public struct RootView: View {
         if options.setupPairDemo { return [.pairMac, .notifications] }
         #if DEBUG
         // Captures of one page: every page, in setup's order, so Back walks them all.
-        if options.setupStep != nil { return SetupFlow.order.filter { $0 != .createTeam } }
+        // The plans page only with a billing model (BillingDemo in captures), as in a real plan.
+        if options.setupStep != nil { return SetupFlow.order.filter { $0 != .createTeam && ($0 != .plan || billing != nil) } }
         #endif
         // Until the team list loads, the team step shows its loading state
         // (and a failed list still lets the user choose Personal). The intro
         // is the root from the first frame, so the plan never swaps it.
         return setupPlan ?? SetupFlow.plan(teamCount: 0, macOnline: false, asksNotifications: asksNotifications == true)
+    }
+
+    /// Setup's plans page over this account's billing model; none (and no page) without one
+    /// (mock sign-in, a build with no billing service).
+    private var setupPlanPage: SetupFlow.PlanPage? {
+        guard let billing else { return nil }
+        return SetupFlow.PlanPage(skips: { billing.account.setupSkipsPlans }) { next in
+            AnyView(OnboardingPlansPage(next: next).environment(billing))
+        }
     }
 
     /// DEBUG: the page `-cmux-mobile-setup-step` opens on.
@@ -375,7 +391,8 @@ public struct RootView: View {
         let count = auth.isMock ? store.teams.count : auth.teamList.teams.count
         let steps = SetupFlow.plan(teamCount: count,
                                    macOnline: store.activeTeam?.macs.contains(where: \.isOnline) ?? false,
-                                   asksNotifications: asksNotifications)
+                                   asksNotifications: asksNotifications,
+                                   sellsPlans: billing != nil)
         setupPlan = steps
         log.info("setup plan: \(String(describing: steps), privacy: .public)")
         // Nothing to set up (one team, a Mac online, notifications decided).

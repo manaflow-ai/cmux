@@ -45,6 +45,10 @@ struct IntroStep: View {
 struct FirstChatStep: View {
     /// The first online Mac of the active space, if any.
     let onlineMac: String?
+    /// Whether the account has any Mac (nil: not known yet).
+    var accountHasMac: Bool? = nil
+    /// Opens Connect your Mac; shown while no Mac is online.
+    var connectMac: (() -> Void)? = nil
     /// Sends `prompt` to Chief and leaves setup.
     let start: (String) -> Void
     /// Leaves setup for Home, nothing sent.
@@ -54,7 +58,7 @@ struct FirstChatStep: View {
     @FocusState private var fieldFocused: Bool
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    private var destination: FirstChatDestination { FirstChatDestination(onlineMac: onlineMac) }
+    private var destination: FirstChatDestination { FirstChatDestination(onlineMac: onlineMac, accountHasMac: accountHasMac) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -113,8 +117,26 @@ struct FirstChatStep: View {
                 .foregroundStyle(theme.colors.label2)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("setup.first-chat.subtitle")
-            MacStatusChip(destination: destination)
-                .padding(.top, 6)
+            HStack(spacing: 8) {
+                MacStatusChip(destination: destination)
+                if destination.offersConnect, let connectMac {
+                    Button(action: connectMac) {
+                        HStack(spacing: 4) {
+                            Text("Connect your Mac")
+                            Image(systemName: "chevron.right").font(theme.type.meta.weight(.semibold))
+                        }
+                        .font(theme.type.meta.weight(.semibold))
+                        .foregroundStyle(theme.colors.label)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .contentShape(.capsule)
+                    }
+                    .buttonStyle(.cmuxPressFill)
+                    .disabled(started)
+                    .accessibilityIdentifier("setup.first-chat.connect-mac")
+                }
+            }
+            .padding(.top, 6)
         }
     }
 

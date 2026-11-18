@@ -8,8 +8,8 @@ public struct CmuxMobileTypography: Sendable {
     public var screenTitle = Font.headline
     public var sidebarTitle = Font.title2.weight(.semibold)
     public var heroTitle = Font.title.weight(.bold)
-    /// The welcome headline: a quiet serif display line (SPEC 5.2).
-    public var welcomeTitle = Font.system(.title, design: .serif)
+    /// The welcome and first-run headline (SPEC 5.2): SF Pro, never a serif (Aziz 2026-11-18).
+    public var welcomeTitle = Font.title.weight(.semibold)
     /// The "cmux" wordmark beside the chevron at the top of the welcome.
     public var welcomeWordmark = Font.title2.weight(.semibold)
     public var sheetTitle = Font.title3.weight(.semibold)

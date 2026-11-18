@@ -633,14 +633,14 @@ custom popover. Alerts follow `claude-04-new-session-alert`: title, body, two bu
 
 No carousel and no feature copy. The structure follows Claude's welcome
 (`verify/login-claude-reference.md`): a small brand lockup at the top, one illustration and one
-serif line in the middle, the sign-in stack at the bottom. Layout on `bg`:
+SF Pro headline in the middle, the sign-in stack at the bottom. Layout on `bg`:
 
 - Lockup, centered under the status bar (6 pt): the cmux chevron (the launch mark's image,
   the app icon's chevron layer), 22 pt tall, 7 pt gap, "cmux" in `welcomeWordmark` (`title2` semibold) `label`.
 - Hero, centered in the space between the lockup and the buttons: the illustration (a Mac and an
   iPhone drawn as one 3.3 pt round-capped `label` line, 291 x 233 pt), a gradient `>_` prompt on
   the Mac's screen and the gradient chevron (30 pt, soft `#2AA0F9` glow) on the phone's screen.
-  26 pt below it, centered `welcomeTitle` (`title`, serif, regular) `label`: "Your Macs, in your
+  26 pt below it, centered `welcomeTitle` (`title`, SF Pro semibold; never a serif, Aziz 2026-11-18) `label`: "Your Macs, in your
   pocket."
 - Bottom stack, 20 pt margins, 10 pt spacing, all 52 h capsules (ChatGPT's order, Apple first and
   no smaller than the others, as the HIG requires):

@@ -399,3 +399,16 @@ func settle(timeout: Duration = .seconds(10), _ condition: @MainActor () -> Bool
         await Task.yield()
     }
 }
+
+@Suite struct BillingSetupPlansPageTests {
+    @Test func setupShowsPlansOnlyToAFreeAccountThatCanBuyInTheApp() {
+        #expect(!BillingAccountState.loaded(BillingFixtures.account()).setupSkipsPlans)
+        #expect(!BillingAccountState.idle.setupSkipsPlans)
+        #expect(!BillingAccountState.loading.setupSkipsPlans)
+        #expect(BillingAccountState.failed(.network).setupSkipsPlans)
+        #expect(BillingAccountState.loaded(BillingFixtures.account(plan: .pro, source: .apple)).setupSkipsPlans)
+        #expect(BillingAccountState.loaded(BillingFixtures.account(eligible: false, reason: .stripeSubscriptionActive)).setupSkipsPlans)
+        #expect(BillingAccountState.loaded(BillingFixtures.account(eligible: false, reason: .teamBilling)).setupSkipsPlans)
+        #expect(BillingAccountState.loaded(BillingFixtures.account(products: [])).setupSkipsPlans)
+    }
+}

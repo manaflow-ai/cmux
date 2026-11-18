@@ -24,7 +24,7 @@ public struct LaunchMarkView: View {
 }
 
 /// Signed-out welcome (onboarding design spec, section 2), composed like
-/// Claude's: the cmux lockup at the top, an illustration and one serif line in
+/// Claude's: the cmux lockup at the top, an illustration and one SF Pro line in
 /// the middle, the sign-in rows and legal line at the bottom. On a cold launch
 /// it plays a ~4 s intro on one clock: the launch mark glides into the lockup
 /// while the text and buttons come up from 35% (usable at once), then the

@@ -17,6 +17,23 @@ import Testing
         #expect(SetupFlow.plan(teamCount: 1, macOnline: true, asksNotifications: true) == [.intro, .notifications, .firstChat])
     }
 
+    @Test func aBuildThatSellsPlansShowsThemBeforeTheFirstAgentButNeverAlone() {
+        #expect(SetupFlow.plan(teamCount: 0, macOnline: false, asksNotifications: true, sellsPlans: true)
+            == [.intro, .team, .pairMac, .notifications, .plan, .firstChat])
+        #expect(SetupFlow.plan(teamCount: 1, macOnline: true, asksNotifications: false, sellsPlans: true).isEmpty)
+        let plan = SetupFlow.plan(teamCount: 1, macOnline: true, asksNotifications: true, sellsPlans: true)
+        #expect(SetupFlow.step(after: .notifications, in: plan) == .plan)
+        #expect(SetupFlow.step(after: .plan, in: plan) == .firstChat)
+    }
+
+    @Test func theNotificationsPageVersionComesFromItsLaunchArgument() {
+        #expect(NotificationsPrimer.choice(in: ["app", "-cmux-mobile-notifications-primer", "preview"]) == .preview)
+        #expect(NotificationsPrimer.choice(in: ["app", "-cmux-mobile-notifications-primer", "actions"]) == .actions)
+        #expect(NotificationsPrimer.choice(in: ["app", "-cmux-mobile-notifications-primer", "nope"]) == nil)
+        #expect(NotificationsPrimer.choice(in: ["app", "-cmux-mobile-notifications-primer"]) == nil)
+        #expect(NotificationsPrimer.allCases.count == 3)
+    }
+
     @Test func nothingToAskMeansNoSetup() {
         #expect(SetupFlow.plan(teamCount: 1, macOnline: true, asksNotifications: false).isEmpty)
     }
@@ -31,7 +48,7 @@ import Testing
     @Test func aCapturedPageHasThePagesBeforeItOnTheStack() {
         let all = SetupFlow.order.filter { $0 != .createTeam }
         #expect(SetupFlow.path(to: .intro, in: all) == [])
-        #expect(SetupFlow.path(to: .firstChat, in: all) == [.team, .pairMac, .notifications, .firstChat])
+        #expect(SetupFlow.path(to: .firstChat, in: all) == [.team, .pairMac, .notifications, .plan, .firstChat])
         #expect(SetupFlow.path(to: .pairMac, in: [.intro, .pairMac, .firstChat]) == [.pairMac])
         #expect(SetupFlow.path(to: .team, in: [.intro, .pairMac]) == [])
     }
@@ -64,6 +81,20 @@ import Testing
         #expect(!waiting.isOnline)
         #expect(waiting.status == "Waiting for your Mac")
         #expect(FirstChatDestination(onlineMac: "") == waiting)
+        #expect(!online.offersConnect)
+        #expect(waiting.offersConnect)
+    }
+
+    @Test func anAccountWithNoMacIsToldSoAndOfferedTheWayToConnectOne() {
+        let none = FirstChatDestination(onlineMac: nil, accountHasMac: false)
+        #expect(none.kind == .noMac)
+        #expect(none.status == "No Mac connected")
+        #expect(none.subtitle.contains("connect your Mac"))
+        #expect(none.offersConnect)
+        // An unknown Mac count never claims there is none; an online Mac wins.
+        #expect(FirstChatDestination(onlineMac: nil, accountHasMac: nil).kind == .waiting)
+        #expect(FirstChatDestination(onlineMac: nil, accountHasMac: true).kind == .waiting)
+        #expect(FirstChatDestination(onlineMac: "Mac mini", accountHasMac: false).isOnline)
     }
 }
 #endif

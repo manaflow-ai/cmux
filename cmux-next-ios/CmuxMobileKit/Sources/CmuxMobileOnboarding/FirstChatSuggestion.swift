@@ -62,14 +62,25 @@ public struct FirstChatDestination: Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         /// A Mac is online: Chief starts the task there now.
         case online(macName: String)
-        /// No Mac is online yet: the task waits in Chief's composer.
+        /// The account has a Mac, but none is online: the task waits in Chief's composer.
         case waiting
+        /// The account has never connected a Mac: nothing can run yet. The task waits in
+        /// Chief's composer, and the page offers the way to connect one.
+        case noMac
     }
 
     public let kind: Kind
 
-    public init(onlineMac: String?) {
-        if let onlineMac, !onlineMac.isEmpty { kind = .online(macName: onlineMac) } else { kind = .waiting }
+    /// `accountHasMac`: whether the account has any Mac (nil: not known yet, read as
+    /// having one, so a slow Mac list never claims there is none).
+    public init(onlineMac: String?, accountHasMac: Bool? = nil) {
+        if let onlineMac, !onlineMac.isEmpty {
+            kind = .online(macName: onlineMac)
+        } else if accountHasMac == false {
+            kind = .noMac
+        } else {
+            kind = .waiting
+        }
     }
 
     /// The line under the page's title.
@@ -77,6 +88,7 @@ public struct FirstChatDestination: Equatable, Sendable {
         switch kind {
         case .online(let mac): "Chief starts it on \(mac) and tells you when it needs you."
         case .waiting: "Your Mac isn't online yet. Pick a task; it waits in Chief's message field for you to send once your Mac connects."
+        case .noMac: "Agents run on your Mac, and none is connected yet. Pick a task now and it waits in Chief's message field; connect your Mac to send it."
         }
     }
 
@@ -85,6 +97,7 @@ public struct FirstChatDestination: Equatable, Sendable {
         switch kind {
         case .online(let mac): mac
         case .waiting: "Waiting for your Mac"
+        case .noMac: "No Mac connected"
         }
     }
 
@@ -92,4 +105,7 @@ public struct FirstChatDestination: Equatable, Sendable {
         if case .online = kind { return true }
         return false
     }
+
+    /// Whether the page offers "Connect your Mac" (any state but online).
+    public var offersConnect: Bool { !isOnline }
 }

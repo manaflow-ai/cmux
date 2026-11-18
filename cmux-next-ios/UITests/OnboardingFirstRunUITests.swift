@@ -175,6 +175,10 @@ final class OnboardingFirstRunUITests: UIStateCaptureCase {
             Scene(group: g, id: "signout-confirm", args: Self.firstRun, env: Self.mock, signedIn: false, settle: 3) { app in
                 C.tap(C.any(app, "setup.sign-out"), "setup sign-out")
             },
+            // On a pushed page: the confirmation opens from that page's Sign out, not the root's.
+            Scene(group: g, id: "signout-confirm-pushed", args: Self.at("pairMac"), env: Self.mock, signedIn: false, settle: 3) { app in
+                C.tap(C.any(app, "setup.sign-out"), "setup sign-out")
+            },
         ])
     }
 
@@ -185,6 +189,15 @@ final class OnboardingFirstRunUITests: UIStateCaptureCase {
             Scene(group: g, id: "first-chat-mac-online", args: Self.at("firstChat"), env: Self.mock, signedIn: false, settle: 3),
             Scene(group: g, id: "first-chat-waiting-for-mac", args: Self.at("firstChat", ["-cmux-mobile-setup-no-mac"]), env: Self.mock,
                   signedIn: false, settle: 3),
+            Scene(group: g, id: "first-chat-never-paired", args: Self.at("firstChat", ["-cmux-mobile-setup-never-paired"]), env: Self.mock,
+                  signedIn: false, settle: 3),
+            Scene(group: g, id: "after-connect-mac", args: Self.at("firstChat", ["-cmux-mobile-setup-never-paired"]), env: Self.mock,
+                  signedIn: false, settle: 3) { app in
+                C.steps([
+                    { C.tap(C.any(app, "setup.first-chat.connect-mac"), "Connect your Mac") },
+                    { C.wait(app.staticTexts["Connect your Mac"], "Connect your Mac page") },
+                ])
+            },
             Scene(group: g, id: "first-chat-typing", args: Self.at("firstChat"), env: Self.mock, signedIn: false, settle: 3) { app in
                 C.steps([
                     { C.showKeyboard(app, field: C.any(app, "setup.first-chat.field"), "first agent field") },
@@ -210,6 +223,70 @@ final class OnboardingFirstRunUITests: UIStateCaptureCase {
                     { C.tap(app.navigationBars.buttons.firstMatch, "Back") },
                     { C.wait(app.buttons["Turn on notifications"], "notifications page") },
                 ])
+            },
+        ])
+    }
+
+    @MainActor
+    func testCaptureNotificationVersions() {
+        let g = "D Notifications, three versions"
+        func at(_ primer: String, _ extra: [String] = []) -> [String] {
+            Self.at("notifications", ["-cmux-mobile-notifications-primer", primer] + extra)
+        }
+        capture([
+            Scene(group: g, id: "A-list", args: at("list"), env: Self.mock, signedIn: false, settle: 3),
+            Scene(group: g, id: "B-preview", args: at("preview"), env: Self.mock, signedIn: false, settle: 3),
+            Scene(group: g, id: "C-actions", args: at("actions"), env: Self.mock, signedIn: false, settle: 3),
+            Scene(group: g, id: "B-preview-large-text", args: at("preview", Self.largeText), env: Self.mock, signedIn: false, settle: 3),
+            Scene(group: g, id: "C-actions-large-text", args: at("actions", Self.largeText), env: Self.mock, signedIn: false, settle: 3),
+            Scene(group: g, id: "B-preview-ax-text", args: at("preview", Self.axText), env: Self.mock, signedIn: false, settle: 3),
+            Scene(group: g, id: "C-actions-ax-text", args: at("actions", Self.axText), env: Self.mock, signedIn: false, settle: 3),
+        ])
+    }
+
+    @MainActor
+    func testCapturePlans() {
+        let g = "E Plans"
+        let free = Self.mock.merging(["CMUX_MOBILE_BILLING_DEMO": "free"]) { $1 }
+        capture([
+            Scene(group: g, id: "plans-free-yearly", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
+                C.wait(C.any(app, "setup.plans.card.pro"), "Pro card")
+            },
+            Scene(group: g, id: "plans-pro-selected", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
+                C.steps([
+                    { C.tap(C.any(app, "setup.plans.card.pro"), "Pro card") },
+                    { C.wait(C.any(app, "setup.plans.subscribe"), "Subscribe button") },
+                ])
+            },
+            Scene(group: g, id: "plans-monthly", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
+                C.steps([
+                    { C.wait(C.any(app, "setup.plans.card.pro"), "Pro card") },
+                    { C.tap(app.buttons["Monthly"], "Monthly") },
+                ])
+            },
+            Scene(group: g, id: "plans-large-text", args: Self.at("plan", Self.largeText), env: free, signedIn: false, settle: 3) { app in
+                C.wait(C.any(app, "setup.plans.card.free"), "Free card")
+            },
+            Scene(group: g, id: "plans-ax-text", args: Self.at("plan", Self.axText), env: free, signedIn: false, settle: 3) { app in
+                C.wait(C.any(app, "setup.plans.card.free"), "Free card")
+            },
+            Scene(group: g, id: "after-subscribe-first-agent", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
+                C.steps([
+                    { C.tap(C.any(app, "setup.plans.card.pro"), "Pro card") },
+                    { C.tap(C.any(app, "setup.plans.subscribe"), "Subscribe") },
+                    { C.wait(C.any(app, "setup.first-chat.skip"), "first agent page after the purchase") },
+                ])
+            },
+            Scene(group: g, id: "after-free-first-agent", args: Self.at("plan"), env: free, signedIn: false, settle: 3) { app in
+                C.steps([
+                    { C.tap(C.any(app, "setup.plans.free"), "Continue with Free") },
+                    { C.wait(C.any(app, "setup.first-chat.skip"), "first agent page") },
+                ])
+            },
+            // Billed on the web: nothing to buy here, so setup moves on by itself.
+            Scene(group: g, id: "web-billed-skips", args: Self.at("plan"), env: Self.mock.merging(["CMUX_MOBILE_BILLING_DEMO": "stripe"]) { $1 },
+                  signedIn: false, settle: 3) { app in
+                C.wait(C.any(app, "setup.first-chat.skip"), "first agent page")
             },
         ])
     }

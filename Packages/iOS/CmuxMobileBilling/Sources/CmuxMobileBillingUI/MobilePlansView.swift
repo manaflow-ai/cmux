@@ -32,9 +32,9 @@ public struct MobilePlansView: View {
     private let entryPoint: BillingEntryPoint
 
     /// The Terms of Use page.
-    static let termsURL = URL(string: "https://cmux.com/terms-of-service")!
+    public static let termsURL = URL(string: "https://cmux.com/terms-of-service")!
     /// The Privacy Policy page.
-    static let privacyURL = URL(string: "https://cmux.com/privacy-policy")!
+    public static let privacyURL = URL(string: "https://cmux.com/privacy-policy")!
 
     /// Creates the plans screen.
     /// - Parameters:
