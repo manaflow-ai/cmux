@@ -145,10 +145,25 @@ export function reportOlderSplit(events: Ev[], profile: CpuProfile | undefined, 
   type Row = Record<string, number>;
   const rows: Row[] = [];
   const windows: [number, number][] = [];
+  // direct.ts stamps `fold` and `published` around one synchronous block, so the nth of each are one page's.
+  // A trace that lost one (or a page that threw between them) is not split: it would pair a page's publish
+  // with another's fold.
+  if (input.fold.length !== input.published.length || input.fold.some((fold, i) => fold > input.published[i]!))
+    throw new Error(
+      `OLDER-SPLIT unpaired stamps: ${input.fold.length} fold and ${input.published.length} published, not one fold before each publish`,
+    );
+  const used = new Set<number>();
   for (const ask of input.asks) {
-    const published = before(input.published, ask.settledAt);
-    if (published === undefined) continue;
-    const fold = before(input.fold, published)!;
+    // The publish that drew this ask: the last before it settled, after it was asked, and no other ask's.
+    let index = input.published.length - 1;
+    while (index >= 0 && input.published[index]! > ask.settledAt) index--;
+    const published = input.published[index];
+    if (published === undefined || published < ask.askAt || used.has(index))
+      throw new Error(
+        `OLDER-SPLIT the drawn ask at ${r1(ask.askAt)} ms has no publish of its own (the last before it settled: ${published === undefined ? "none" : `${r1(published)} ms${used.has(index) ? ", another ask's" : ""}`})`,
+      );
+    used.add(index);
+    const fold = input.fold[index]!;
     const reply = before(input.reply, fold) ?? fold;
     const commit = input.commits.find((c) => c >= published) ?? ask.drawnAt;
     const a = at(published);
