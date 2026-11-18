@@ -24,9 +24,10 @@ extension PaneContentRidesTests {
     static func isOfThePagesKind(_ kind: NSView.Type) -> Bool { kind is any PaneCommitMotionPicture.Type }
 
     /// While its pane moves to a smaller rect the held content is at its pane's top leading corner, at the size it
-    /// had, and it covers its pane's content rect. The clip inside the pane cuts nothing then, and the pane's own
-    /// layer, the one that moves, cuts: the old picture is whole under the edge that moves. After the motion's end the
-    /// clip inside the pane cuts again and the content fills it.
+    /// had. The clip inside the pane cuts in each frame, and its layer has the pane's change of size as a move: it
+    /// starts at the size the content has, with no change of its corner, so the old picture is whole under the edge
+    /// that moves and the pane's inset and round corners stay. After the motion's end the clip has no move and the
+    /// content fills it.
     @Test(arguments: splits)
     func heldContentIsWholeAtItsPanesTopLeadingCornerUnderThePanesOwnClip(_ act: Motion.Act) throws {
         let begun = try Self.begin(act)
@@ -34,11 +35,19 @@ extension PaneContentRidesTests {
         let harness = begun.harness, screen = begun.screen
         let pane = try #require(begun.smaller.first, "SETUP: the act makes no pane smaller")
         let host = try #require(Motion.hosts(of: screen)[pane], "\(pane) does not show in the frame that shows the act")
-        let layer = try #require(host.layer), clip = host.clipView
+        let layer = try #require(host.layer), clip = host.clipView, cut = try #require(clip.layer)
         let before = try #require(begun.contents[pane]), was = try #require(begun.motion.was[pane])
         try #require(Motion.inFlight(screen), "no pane moves: the act shows in one frame")
         // The pane's layer starts where the pane showed, and the content is at the layer's corner: so is its picture.
         #expect(Commit.near(Motion.move(of: layer).start, was), "\(pane)'s move starts at \(Motion.move(of: layer).start), not where the pane showed: \(was)")
+        // The clip's layer starts at the size the content keeps, at the clip's own corner, and goes to the clip's size.
+        let opening = Motion.move(of: cut)
+        #expect(opening.moves, "the clip inside \(pane) has no move: it cuts the held content at the pane's new size in the frame that shows the act")
+        #expect(opening.issues.isEmpty, "the clip inside \(pane): \(opening.issues)")
+        #expect(Self.near(opening.start.size, before), "the clip inside \(pane) starts at \(opening.start.size); the held content is \(before)")
+        #expect(Commit.near(CGRect(origin: opening.start.origin, size: opening.end.size), opening.end),
+                "the clip inside \(pane) starts at \(opening.start.origin) and ends at \(opening.end.origin): its corner moves in its pane")
+        #expect(Commit.near(opening.end, cut.frame), "the clip inside \(pane) ends at \(opening.end), not at its place \(cut.frame)")
         var tick = 0
         while Motion.inFlight(screen), tick < Commit.frames {
             let content = host.content.frame
@@ -47,12 +56,13 @@ extension PaneContentRidesTests {
             #expect(Self.near(content.size, before), "frame \(tick): the held content is \(content.size); it was \(before)")
             #expect(content.width >= clip.bounds.width && content.height >= clip.bounds.height,
                     "frame \(tick): the held content \(content.size) does not cover its pane's content rect \(clip.bounds.size)")
-            #expect(clip.layer?.masksToBounds == false, "frame \(tick): the clip inside the pane cuts the held content at the pane's new size")
-            #expect(layer.masksToBounds, "frame \(tick): the pane's own layer does not cut the held content")
+            #expect(cut.masksToBounds, "frame \(tick): the clip inside the pane does not cut: the pane's inset and corners are gone")
+            #expect(Motion.move(of: cut).moves, "frame \(tick): the clip inside the pane has no move while its pane moves")
             _ = harness.root.advanceFrame(Motion.dt)
             tick += 1
         }
-        #expect(clip.layer?.masksToBounds == true, "after the motion's end the clip inside the pane does not cut")
+        #expect(!Motion.move(of: cut).moves, "after the motion's end the clip inside the pane has a move")
+        #expect(cut.masksToBounds, "after the motion's end the clip inside the pane does not cut")
         #expect(host.content.frame == clip.bounds, "after the motion's end the content is \(host.content.frame) in a clip of \(clip.bounds)")
     }
 

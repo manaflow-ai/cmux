@@ -42,11 +42,9 @@ final class PaneClipView: NSView {
     }
 
     /// The size the pane's content keeps while the pane's layer moves to a smaller rect (`PaneHostView+MoveHold`); nil
-    /// when the content fills this view. While it is set the content is larger than this view and this view cuts
-    /// nothing: the pane's own layer is the clip that moves over the content.
-    var moveHeldSize: CGSize? {
-        didSet { if (moveHeldSize == nil) != (oldValue == nil) { layer?.masksToBounds = moveHeldSize == nil } }
-    }
+    /// when the content fills this view. While it is set the content is larger than this view, and this view's layer
+    /// has the pane's change of size as a move (`PaneCommitMotion.moveClip`): it cuts the content where it shows.
+    var moveHeldSize: CGSize?
 
     /// Held content covers this view. A size that the held content does not cover (a second change made the pane
     /// larger than it was before the first) ends the hold here: the content takes this view's size in this pass, as

@@ -5,8 +5,8 @@ public import AppKit
 @MainActor
 public protocol PaneCommitMotionContentHost: NSView {
     /// Keeps the pane's whole content at the size it has now, at the top-left corner of its pane, until
-    /// ``releasePaneContentAfterMove()``. The content is larger than its pane then, and the pane's own layer is the one
-    /// clip over it.
+    /// ``releasePaneContentAfterMove()``. The content is larger than its pane then, and the pane's clip, which moves
+    /// with the pane's edge, cuts it.
     func holdPaneContentForMove()
     /// The content takes the size that its pane gives it now, one time.
     func releasePaneContentAfterMove()
@@ -18,8 +18,8 @@ public protocol PaneCommitMotionContentHost: NSView {
 /// the last picture at the old size, cut where the view got smaller. So it rides its pane's move
 /// (``PaneCommitMotionRiding``) and, while its pane gets smaller, keeps its own picture
 /// (``PaneCommitMotionHoldKind/ownPicture``): the pane's host keeps the whole content, its tabs and bars too, at the
-/// size it had before the change, so no view in it takes a size and no clip in it cuts the picture. The picture is
-/// whole under the pane's edge that moves. The frame that ends the move gives the content its pane's size, one time.
+/// size it had before the change, so no view in it takes a size. The pane's clip moves with the pane's edge, and the
+/// picture is whole under it. The frame that ends the move gives the content its pane's size, one time.
 ///
 /// A pane that grows gives its content its final size in the frame that shows the change, as with no move: the old
 /// picture shows at its old size beside the page's own ground until the page's next frame.

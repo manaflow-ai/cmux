@@ -184,6 +184,7 @@ final class PaneCommitMotion {
             move(layer, act.spring, origin: change.origin, size: change.size)
             showGround(beside: change)
             moveRing(of: change, act.spring)
+            moveClip(of: change, act.spring)
         }
         for view in screen.dividerViews.values where !view.isHidden {
             guard let layer = view.layer else { continue }

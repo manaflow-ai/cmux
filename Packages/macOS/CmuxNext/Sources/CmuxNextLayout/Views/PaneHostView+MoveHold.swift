@@ -6,9 +6,11 @@ import CmuxNextDesign
 /// it while its pane gets smaller:
 ///
 /// - From the ask to the release the content keeps the size it had, at the clip's top-left corner (the corner the
-///   pane's layer keeps while it moves). The host and its clip take their new frames as each pane does; the content
-///   is larger than both, the clip cuts nothing, and the pane's own layer is the one clip over the content: the old
-///   picture is whole under the edge that moves.
+///   pane's layer keeps while it moves). The host and its clip take their new frames as each pane does, so the
+///   content is larger than both. The clip's layer gets the pane's change of size as a move
+///   (``PaneCommitMotion/moveClip(of:_:)``): it cuts the content at the pane's inset and with the pane's corners in
+///   each frame, from the old rect to the new one. The old picture is whole under the edge that moves, and the end
+///   of the move changes no edge.
 /// - The release (the frame that ends the move) gives the content its pane's size, one time. The content hears that
 ///   size before it takes it and that it rests after it (`PaneMotionTargeting`, `PaneMotionSettling`: a page shows
 ///   its frame at that size in the same commit when it comes in time).
@@ -37,5 +39,14 @@ extension PaneHostView: PaneCommitMotionContentHost {
         content.notifyPaneMotionWillRest(sizeChange: CGSize(width: rest.width - held.width, height: rest.height - held.height))
         layOutLetGoContent()
         content.notifyPaneMotionSettled()
+    }
+}
+
+extension PaneCommitMotion {
+    /// The inner clip of a pane whose content is held gets the change of size of the pane's move. Its frame is the
+    /// pane's less a constant inset, so its edge goes with the pane's edge.
+    func moveClip(of change: Change, _ token: MotionSpring) {
+        guard holds[ObjectIdentifier(change.host)] != nil, let clip = change.host.clipView.layer else { return }
+        move(clip, token, origin: .zero, size: change.size)
     }
 }
