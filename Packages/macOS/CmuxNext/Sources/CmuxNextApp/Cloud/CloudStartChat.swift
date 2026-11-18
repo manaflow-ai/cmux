@@ -73,6 +73,7 @@ struct CloudStartChat {
             return AgentPaneReply.success(["machine": machine])
         } catch is CloudMoveFolder.Gone { // the card's own words, with no Retry: picking another folder is the way on
             return AgentPaneCloudFolderRefusal.missing.reply
+        } catch let needs as CloudMachineRoute.NeedsConnection { return await start.needsConnectionReply(needs.message, setup: services.cloud.setup) // its agent reaches no model there (cmux#45773)
         } catch is CloudMachineCap.RunHere { // the cap card's Run on This Mac: the page sends it here (cloudRun.ts)
             return AgentPaneReply.failure(code: CloudMachineCap.runHereCode, message: CloudMachineCap.runHereCode)
         } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { return refusal.reply // the repos inside it, another folder or none; no Retry
@@ -93,9 +94,7 @@ struct CloudStartChat {
     /// CLI gets a connection beside the app's (``CloudMove/connected(_:_:)``). Not behind Labs (Leo,
     /// 2026-10-30: "that seems dumb. i dont like putting so much stuff in labs"): the person picked
     /// Cloud for this send.
-    static func refusal(_ services: AppServices) -> String? { refusal(cloudDisabled: services.registry.disabledFeatures.contains(.cloud) || !services.cloud.mayCallCloud, signedIn: services.cloud.isSignedIn) }
-
-    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? { CloudStartCore().refusal(cloudDisabled: cloudDisabled, signedIn: signedIn) } // the rule: cmux-cloud-start-core `start`
+    static func refusal(_ services: AppServices) -> String? { CloudStartCore().refusal(cloudDisabled: services.registry.disabledFeatures.contains(.cloud) || !services.cloud.mayCallCloud, signedIn: services.cloud.isSignedIn) } // the rule: cmux-cloud-start-core `start`
 
     /// Where a start comes from: the tab that sent (this Mac's new tab, or for a repick the chat's tab on the machine it was on), the chat's folder
     /// on this Mac, the Mac workspace and account the send began in, and what closes the tab once the chat opened on its machine.
