@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 use std::io::{Read, Write};
 
 use base64::Engine;
+use cmux_customize::library::expire::{self, Expired, Expiring, Expiry};
 use cmux_customize::library::{Changed, Collection, Listing, Position, Recovered};
 use cmux_customize::{Customize, Error};
 use serde_json::{Value, json};
@@ -58,9 +59,13 @@ pub(in crate::cli) enum Request {
     /// Every code entry against what is published (a folder: built again)
     /// and this build.
     Refresh,
+    /// Every layer past its bound off: a PR merged or closed, a code layer
+    /// on longer than 24 hours, a hand-installed overlay as old (the app
+    /// runs it at launch).
+    Expire,
 }
 
-const USAGE: &str = "customize library takes list, status, refresh, on NAME, off NAME [--reason TEXT], off --code [--reason TEXT], off --all, reset, order NAME top|bottom|N, remove NAME, export [FILE] [--link] [--on] [--name NAME], import FILE|LINK|- [--on]";
+const USAGE: &str = "customize library takes list, status, refresh, expire, on NAME, off NAME [--reason TEXT], off --code [--reason TEXT], off --all, reset, order NAME top|bottom|N, remove NAME, export [FILE] [--link] [--on] [--name NAME], import FILE|LINK|- [--on]";
 
 /// Parses the words after `library`.
 pub(super) fn parse(words: &[String]) -> Result<Request, String> {
@@ -72,6 +77,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
     match verb.as_str() {
         "list" | "ls" if rest.is_empty() => Ok(Request::List),
         "refresh" if rest.is_empty() => Ok(Request::Refresh),
+        "expire" if rest.is_empty() => Ok(Request::Expire),
         "status" if rest.is_empty() => Ok(Request::Status),
         "reset" if rest.is_empty() => Ok(Request::OffAll),
         "on" | "enable" => Ok(Request::On { name: name(rest, "on")? }),
@@ -164,6 +170,12 @@ pub(super) fn execute(
     origin: &str,
     now_ms: u64,
 ) -> Result<Answer, Failure> {
+    // Every read first turns off what is past its bound, so a person or an
+    // agent never reads a layer as on that should have expired.
+    let expiring = match request {
+        Request::List | Request::Status => Some(expire_by_age(customize, origin, now_ms)),
+        _ => None,
+    };
     Ok(match request {
         Request::List => {
             let listing = customize.library()?;
@@ -179,9 +191,21 @@ pub(super) fn execute(
                     "Not in the library: {words} (`cmux customize library status`)\n"
                 ));
             }
+            human.push_str(&expired_lines(&customize.expired(now_ms), expiring.as_ref()));
             Answer::Library { json: json!({ "library": listing }), human }
         }
         Request::Refresh => super::pr::refresh(customize, origin, now_ms)?,
+        Request::Expire => super::expire::run(customize, origin, now_ms)?,
+        Request::On { name } if name == expire::WEB_DEV_OVERLAY => {
+            let path = customize.renew_overlay(now_ms)?;
+            Answer::Library {
+                json: json!({ "renewed": expire::WEB_DEV_OVERLAY, "overlay": path }),
+                human: format!(
+                    "the web-dev.json overlay is on again ({path}) for another {} hours; open pages reload onto it\n",
+                    expire::MAX_AGE_MS / 3_600_000
+                ),
+            }
+        }
         Request::On { name } => {
             let before = views_scopes(customize);
             let mut answer = changed(customize.library_set_on(&name, true, origin, now_ms)?);
@@ -240,6 +264,7 @@ pub(super) fn execute(
                     "  cmux customize library reset        everything back to before any layer\n",
                 );
             }
+            human.push_str(&expired_lines(&layers.expired, expiring.as_ref()));
             Answer::Library { json: json!({ "layers": layers }), human }
         }
         Request::Order { name, position } => {
@@ -329,6 +354,28 @@ fn waiting(answer: &mut Answer, before: &BTreeSet<String>, after: &BTreeSet<Stri
             if scopes.len() == 1 { "it" } else { "each one" },
         ));
     }
+}
+
+/// The age-only expiry every read runs first (no network: `library expire`
+/// also asks GitHub which PRs merged or closed).
+fn expire_by_age(customize: &Customize, origin: &str, now_ms: u64) -> Expiring {
+    let expiry = Expiry { now_ms, app_abi: super::app_web_abi(None), ..Expiry::default() };
+    customize.expire_stale(&expiry, origin)
+}
+
+/// What expired, each with its way back, and what could not be turned off.
+pub(super) fn expired_lines(expired: &[Expired], now: Option<&Expiring>) -> String {
+    let mut out = String::new();
+    for expired in expired {
+        out.push_str(&format!(
+            "  expired: {} ({}); back: {}\n",
+            expired.name, expired.why, expired.back
+        ));
+    }
+    for problem in now.map(|now| now.problems.as_slice()).unwrap_or_default() {
+        out.push_str(&format!("  not expired: {problem}\n"));
+    }
+    out
 }
 
 fn changed(change: Changed) -> Answer {
@@ -577,6 +624,7 @@ mod tests {
         assert_eq!(parse(&words("off --all")).unwrap(), Request::OffAll);
         assert_eq!(parse(&words("reset")).unwrap(), Request::OffAll);
         assert_eq!(parse(&words("status")).unwrap(), Request::Status);
+        assert_eq!(parse(&words("expire")).unwrap(), Request::Expire);
         for bad in [
             "off",
             "off --all --code",

@@ -27,6 +27,9 @@ phone), only Android has one (`adb shell`). iOS has no shell.
 
 ## 3. How TapKit works (public docs and its public Mac app, read only)
 
+TapKit is a paid iPhone-control service. It's not used by the team (dropped
+2026-11-16). This section stays as comparison research.
+
 - A Mac app (macOS 14.6+). The iPhone stays plugged in by USB and unlocked. Nothing
   is installed on the phone.
 - Screen: the iPhone over USB shows as a CoreMediaIO screen-capture camera
@@ -82,7 +85,8 @@ device needs the phone unlocked. This is a security rule, not a bug.
 
 ## 6. Privacy rules (all routes)
 
-- Screens and input stay on this Mac. Nothing goes to a cloud. This is unlike TapKit.
+- Screens and input stay on this Mac. Nothing goes to a cloud, unlike the cloud
+  service compared in section 3.
 - A visible "Being controlled by <agent>" badge on the tab while an agent drives
   the phone, and Esc or the tab's Stop button takes control back.
 - Agents never type passwords or passcodes. The phone tab refuses `phone.type`

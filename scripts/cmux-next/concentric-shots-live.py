@@ -15,6 +15,7 @@ composite with the overlay panels that toasts and dialogs draw in; no Screen Rec
   updated      the sidebar's Updated card, hovered so its close x shows
   notice       a tip's notice card ("Did you know?") with its close x
   keycaps      the Keycap Playground: every dialog keycap style on a real card's buttons, rest, hover and pressed
+  dialogs      the confirm and save dialogs alone (dialog-confirm, dialog-save), for keycap Before/After
 
 --only NAME[,NAME] shoots just those surfaces.
 """
@@ -128,7 +129,13 @@ try:
         # The playground opens in the app's appearance: open it again after each switch.
         shoot("keycaps", lambda: print("keycaps", rpc("debug.toast", {"perform": "debug.keycapPlayground"}), flush=True),
               window=lambda: playground_window("keycap"))
-    if ONLY and not ONLY - {"keycaps"}:
+    if wanted("dialogs"):
+        # The quit-style confirm and the three-button save dialog: their keyed buttons' keycaps.
+        shoot("dialog-confirm", lambda: rpc("debug.dialog", {"open": "confirm", "scope": "window"}),
+              lambda: rpc("debug.dialog", {"key": "escape"}))
+        shoot("dialog-save", lambda: rpc("debug.dialog", {"open": "save", "scope": "window"}),
+              lambda: rpc("debug.dialog", {"key": "escape"}))
+    if ONLY and not ONLY - {"keycaps", "dialogs"}:
         raise SystemExit(0)
     shoot("toast", lambda: rpc("debug.toast", {"stop_all": stop_all}),
           lambda: rpc("debug.toast", {"close": "home.stopAllAgents"}))

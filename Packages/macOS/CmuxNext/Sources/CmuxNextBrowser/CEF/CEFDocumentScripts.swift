@@ -48,6 +48,9 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
     /// The settled scroll report (its own world, main frame); the page-channel path only: a fork
     /// without it keeps the position measured when the person leaves the app and at quit.
     var scrollReport: [Script]
+    /// The Chrome Web Store's install buttons say cmux, not Chrome (its own world, main frame;
+    /// the script returns at once on every other page).
+    var webStoreLabels: [Script]
 
     init(post: Post) {
         let mediaChannel = BrowserMediaState.channel
@@ -82,10 +85,11 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
                       source: BrowserScrollReportScript.source(post: post.send(scrollChannel, "String(y)"), ready: post.ready(scrollChannel)),
                       allFrames: false)]
             : []
+        webStoreLabels = [Script(world: BrowserWebStoreLabels.world, source: BrowserWebStoreLabels.source, allFrames: false)]
     }
 
     /// Every script, in install order.
-    var all: [Script] { media + verification + firstPaint + scrollReport }
+    var all: [Script] { media + verification + firstPaint + scrollReport + webStoreLabels }
 
     /// Installs every script and channel for every browser (fork API 29). Returns the names the
     /// shim refused (empty when all went in).

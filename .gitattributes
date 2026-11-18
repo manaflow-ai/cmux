@@ -103,15 +103,19 @@ webviews/src/pages/diff/generated/localeLoaders.ts merge=cmux-generated-v1
 # regenerate-swift-exports.sh again after the exports it follows;
 # web/tests/next-docs.test.ts fails on a stale copy.
 web/data/next-docs/*.generated.json merge=cmux-generated-v1
-# The other exports scripts/ci/next_batch.py's merger rebuilds (its
-# SWIFT_GENERATED and SDK_GENERATED; tests/test_install_git_hooks.py checks
-# that every kept path is one of them). A kept copy that is stale fails its
-# --check until it is regenerated: regenerate-swift-exports.sh for the Swift
-# ones, cmux-tui/bindings/codegen/generate.py for the SDK. Generated files
-# without that rebuild (the app-host and cloud-wire code, the docs shortcuts,
-# the AppPlatform permission scopes) merge by line, so a lost change conflicts
-# instead of being dropped.
+# Every other generated file: the source of truth for which files are generated
+# is the generated-files check (scripts/ci/generated-files.json, the
+# generated_outputs.py exports, generated-files-baseline.txt and its naming
+# conventions), and scripts/cmux-next/generated_merge.py says how each family
+# is rebuilt after a merge. tests/test_generated_merge.py fails when a file that
+# check calls generated is not routed here the way its family needs, and when
+# a file kept here is not generated. A kept copy is rebuilt by
+# `scripts/cmux-next/generated_merge.py regenerate --merge` (the catch-up, the
+# batch merger and a lane's post-merge hook run it), or, for the Swift exports
+# only a Mac writes, by the base autofix after the pull request lands.
 plans/cmux-next/action-surfaces.json merge=cmux-generated-v1
+plans/cmux-next/action-catalog.json merge=cmux-generated-v1
+docs/mdm/cmux-example.mobileconfig merge=cmux-generated-v1
 plans/cmux-next/actions.md merge=cmux-generated-v1
 plans/cmux-next/links.json merge=cmux-generated-v1
 schemas/settings/settings-schema.json merge=cmux-generated-v1
@@ -137,6 +141,80 @@ cmux-tui/bindings/go/raw/generated_*.go merge=cmux-generated-v1
 cmux-tui/bindings/typescript/src/raw/generated/** merge=cmux-generated-v1
 cmux-tui/bindings/rust/src/generated/** merge=cmux-generated-v1
 cmux-tui/bindings/zig/src/raw/generated/** merge=cmux-generated-v1
+cmux-tui/bindings/*/.cmux-resource-api.json merge=cmux-generated-v1
+cmux-tui/bindings/cpp/.cmux-sdk-manifest.json merge=cmux-generated-v1
+# The Java raw package: every file its .cmux-sdk-manifest.json lists is
+# generated; the hand-written ones (not in the manifest) merge by line.
+# tests/test_generated_merge.py holds this list to the manifest both ways.
+cmux-tui/bindings/java/src/com/cmux/raw/* merge=cmux-generated-v1
+cmux-tui/bindings/java/src/com/cmux/raw/Bytes.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/CmuxAuthorityException.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/CmuxClient.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/CmuxCommandException.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/CmuxDecodeException.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/CmuxErrorDelivery.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/CmuxException.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/CmuxProtocolMismatchException.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/CmuxStream.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/CmuxStreamBufferOverflowException.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/CmuxTimeoutException.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/CmuxTransportException.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/CreateSurfaceWithReceiptRequestOperation.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/Field.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/Json.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/JsonException.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/JsonLineConnection.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/ReceiptedSurfaceResult.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/RenderText.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/SocketDiscovery.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/UInt64.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/ViewReleaseResult.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/ViewResizeResult.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/ViewportSplit.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/Wire.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/WireEnum.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/WireValue.java !merge
+cmux-tui/bindings/java/src/com/cmux/raw/WorkspaceLease.java !merge
+# The generators generated-files.json lists as committed, and the remaining
+# exports and baseline files a merge host can rebuild
+# (scripts/cmux-next/generated_merge.py REGENERATE, `here`). By name first,
+# then the families whose names do not say so.
+Packages/**/*.generated.swift merge=cmux-generated-v1
+Packages/**/*+Generated.swift merge=cmux-generated-v1
+*.generated.ts merge=cmux-generated-v1
+*.generated.json merge=cmux-generated-v1
+Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/ChromeStyle.swift merge=cmux-generated-v1
+Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ChromeStyleSetting+Choices.swift merge=cmux-generated-v1
+Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Catalog.swift merge=cmux-generated-v1
+Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconName+Members.swift merge=cmux-generated-v1
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt.swift merge=cmux-generated-v1
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/BackdropArt+Entries.swift merge=cmux-generated-v1
+cmux-tui/crates/acpmux/src/chats/brand/table.rs merge=cmux-generated-v1
+webviews/src/protocol/generated/** merge=cmux-generated-v1
+webviews/src/agent-session/acpmux/protocol/generated/** merge=cmux-generated-v1
+webviews/src/pages/shared/generated/pageRouter.ts merge=cmux-generated-v1
+cmux-tui/bindings/go-pane/internal/richpane/*.go merge=cmux-generated-v1
+cmux-tui/bindings/go-pane/examples/hello/hellopane/*.go merge=cmux-generated-v1
+workers/iroh-v2/generated/** merge=cmux-generated-v1
+workers/presence/src/generated/** merge=cmux-generated-v1
+web/services/relay/generated/** merge=cmux-generated-v1
+schemas/defaults/cmux-next.json merge=cmux-generated-v1
+cmux-tui/crates/cmux-app-host/generated/** merge=cmux-generated-v1
+clients/ts/cloud/src/generated.ts merge=cmux-generated-v1
+clients/ts/cloud/src/automation-cmux.ts merge=cmux-generated-v1
+cmux-tui/crates/cmux-cloud-wire/src/generated/** merge=cmux-generated-v1
+plans/cmux-next/coordination/INDEX.md merge=cmux-generated-v1
+scripts/ghosttykit-checksums.txt merge=cmux-generated-v1
+# The former bundle directories' placeholders are hand-written.
+Packages/macOS/CmuxNext/Sources/*/Resources/*/GENERATED.md !merge
+# Hand-written registries both sides insert into, which no generator rebuilds:
+# the acpmux RPC document, the agent pane's frame policy and its Swift tables,
+# and the protocol IR acpmux emits (its codegen above rebuilds what follows
+# it). Two lanes adding a method each collided here (cmux#44368, cmux#44453).
+cmux-tui/crates/acpmux/docs/acpmux-schema.json merge=cmux-insertions-v1
+cmux-tui/crates/acpmux/spec/acpmux-protocol.json merge=cmux-insertions-v1
+cmux-tui/crates/cmux-agent-pane-policy/policy.json merge=cmux-insertions-v1
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods*.swift merge=cmux-insertions-v1
 # The daemon capability export (DaemonCapabilityExportTests) is one sorted
 # array per list. Keeping one side whole dropped the other side's new entries
 # on rebases (cx-urd.9.3), so scripts/merge-daemon-capabilities.py merges each
