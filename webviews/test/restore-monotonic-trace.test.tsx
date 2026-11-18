@@ -133,6 +133,9 @@ const SUMMARY = {
 /// open socket, as a daemon that restarts does.
 class Daemon {
   static attachDelayMs = 0;
+  static metadataOnlyAttach = false;
+  static recordOffset = 0;
+  static tailCursor = 100;
   /// False: acpmux lists no such chat (it was deleted while the app was closed).
   static listsChat = true;
   /// Every request answered, in order, by method.
@@ -176,14 +179,37 @@ class Daemon {
   send(raw: string): void {
     const message = JSON.parse(raw) as { id?: number; method: string; params?: Record<string, unknown> };
     if (message.id === undefined) return;
+    const records = Daemon.recordOffset
+      ? RECORDS.map((record) => ({ ...record, seq: record.seq + Daemon.recordOffset }))
+      : RECORDS;
     let result: unknown = {};
     if (message.method === "initialize")
       result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
     else if (message.method === "_acpmux/watch") result = { sessions: Daemon.listsChat ? [SUMMARY] : [] };
     else if (message.method === "_acpmux/attach")
-      result = { session: SUMMARY, lastSeq: RECORDS.length, events: RECORDS, hasMore: false };
+      result = Daemon.metadataOnlyAttach
+        ? {
+            session: SUMMARY,
+            lastSeq: Daemon.tailCursor,
+            hasMore: true,
+            turnOpener: records[0],
+            events: [
+              { sessionId: CHAT, seq: Daemon.tailCursor, at: START + 1000, dir: "mux", kind: "resumed", msg: {} },
+            ],
+          }
+        : { session: SUMMARY, lastSeq: RECORDS.length, events: RECORDS, hasMore: false };
     else if (message.method === "_acpmux/draft_get") result = { draft: DRAFT };
-    else if (message.method === "_acpmux/events") result = { events: [], hasMore: false, lastSeq: RECORDS.length };
+    else if (message.method === "_acpmux/events")
+      result = {
+        events:
+          Daemon.metadataOnlyAttach &&
+          Array.isArray(message.params?.kinds) &&
+          message.params.kinds.includes("transcript")
+            ? records.filter((record) => record.seq < Number(message.params?.beforeSeq ?? Infinity))
+            : [],
+        hasMore: false,
+        lastSeq: RECORDS.length,
+      };
     const delay = message.method === "_acpmux/attach" ? Daemon.attachDelayMs : 1;
     setTimeout(() => {
       if (this.readyState !== 1) return;
@@ -518,6 +544,112 @@ test("retained presentation refuses another chat and strips stale live state", a
   expect(restored?.rows.length).toBeGreaterThan(0);
   expect(restored?.summary?.status).not.toBe("running");
   expect(restored?.connection).toBe("connecting");
+});
+
+test("a retained tail of restart metadata does not expose only the turn opener", async () => {
+  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
+  const tail = keptTail();
+  expect(
+    AcpmuxDirectClient.retainedSnapshot(CHAT, {
+      ...tail,
+      turnOpener: RECORDS[0],
+      events: [{ sessionId: CHAT, seq: 100, at: START + 1000, dir: "mux", kind: "resumed", msg: {} }],
+    }),
+  ).toBeUndefined();
+});
+
+test("an older background turn cannot claim replies after its end", async () => {
+  const { OrderedRows } = await import("../src/agent-session/acpmux/direct");
+  const rows = new OrderedRows();
+  rows.current = 30;
+  rows.set("later", { id: "later", kind: "assistant", version: 1, at: START, text: "Later reply" });
+  rows.current = 12;
+  rows.set("own", { id: "own", kind: "assistant", version: 1, at: START, text: "Task reply" });
+  rows.openBackground("old-task", 10);
+  rows.closeBackground(20, { id: "old-task", trigger: "system", running: false, quiet: false });
+  expect(rows.get("later")?.inBackground).toBeUndefined();
+  expect(rows.get("own")?.inBackground).toBe("old-task");
+  expect(rows.backgroundReply("old-task")).toBe("Task reply");
+  expect(rows.inOrder().find((row) => row.id === "later")?.inBackground).toBeUndefined();
+  rows.openBackground("new-task", 25);
+  rows.closeBackground(40, { id: "new-task", trigger: "system", running: false, quiet: false });
+  rows.openBackground("older-task", 2);
+  rows.closeBackground(5, { id: "older-task", trigger: "system", running: false, quiet: false });
+  expect(rows.get("later")?.inBackground).toBe("new-task");
+  expect(rows.get("own")?.inBackground).toBe("old-task");
+});
+
+test("an attach containing only restart metadata reads the reply before publishing its opener", async () => {
+  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
+  const { mockHost } = await import("../src/agent-session/acpmux/mock");
+  Daemon.refusing = false;
+  Daemon.metadataOnlyAttach = true;
+  const snapshots: import("../src/agent-session/acpmux/model").AcpmuxSnapshot[] = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => snapshots.push(snapshot),
+    undefined,
+    () => new Daemon() as unknown as WebSocket,
+  );
+  try {
+    await client.select(CHAT);
+    const showingPrompt = snapshots.filter(
+      (snapshot) => snapshot.sessionId === CHAT && snapshot.rows.some((row) => row.kind === "user"),
+    );
+    expect(showingPrompt.length).toBeGreaterThan(0);
+    expect(showingPrompt.every((snapshot) => snapshot.rows.some((row) => row.text === REPLY))).toBe(true);
+  } finally {
+    client.close();
+    Daemon.metadataOnlyAttach = false;
+  }
+});
+
+test("a rejected metadata tail cannot move history reads behind a newer reply", async () => {
+  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
+  const { mockHost } = await import("../src/agent-session/acpmux/mock");
+  Daemon.refusing = false;
+  Daemon.metadataOnlyAttach = true;
+  Daemon.recordOffset = 120;
+  Daemon.tailCursor = 200;
+  Object.assign(dom.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: (message: { method: string }) =>
+            Promise.resolve({
+              ok: true,
+              value:
+                message.method === "chat.tail.get"
+                  ? {
+                      ...keptTail(),
+                      historyExhausted: false,
+                      turnOpener: RECORDS[0],
+                      events: [{ sessionId: CHAT, seq: 100, at: START + 1000, dir: "mux", kind: "resumed", msg: {} }],
+                    }
+                  : null,
+            }),
+        },
+      },
+    },
+  });
+  let latest: import("../src/agent-session/acpmux/model").AcpmuxSnapshot | undefined;
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      latest = snapshot;
+    },
+    undefined,
+    () => new Daemon() as unknown as WebSocket,
+  );
+  try {
+    await client.select(CHAT);
+    expect(latest?.rows.some((row) => row.text === REPLY)).toBe(true);
+  } finally {
+    client.close();
+    Daemon.metadataOnlyAttach = false;
+    Daemon.recordOffset = 0;
+    Daemon.tailCursor = 100;
+  }
 });
 
 test("a retained tail that answers after its presentation unmounts cannot draw", async () => {
