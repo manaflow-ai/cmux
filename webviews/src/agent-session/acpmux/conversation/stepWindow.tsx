@@ -120,8 +120,10 @@ export function useRevealPins(items: readonly AcpmuxActivity[]): readonly number
 /// The window over a list of `keys.length` steps, each drawn as an element carrying `data-step={key}`
 /// as a child of `list`. `keys` is a new array only when the list's shape changes (a step joins or one
 /// takes another's place). `quiet(at)`: a step that draws nothing, 0 tall until drawn. `pinned`: steps
-/// mounted wherever the view is (the steps Find's match is in). The step holding focus and the steps
-/// holding a selection's two ends stay mounted too, as the transcript keeps a selection's end rows.
+/// mounted wherever the view is (the steps Find's match is in). The step holding focus stays mounted
+/// too, and a selection that touches the list keeps every step between its ends mounted while it is
+/// held (an end in a box or past the list stands for that edge), so a drag across steps, or Select
+/// All, copies every step's text in order, as the transcript's line windows do (lineWindow.ts).
 /// Returns the list's pieces in order: the caller draws each mounted one's steps and a box for each
 /// `rest`.
 export function useStepWindow({
@@ -160,18 +162,20 @@ export function useStepWindow({
   const { heights, index } = built.current!;
   const [view, setView] = useState<View>(() => ({ top: 0, height: BOX_PX }));
   const [, redraw] = useState(0);
-  // Steps held mounted by focus or a selection's ends, by key (so a change of shape keeps them).
-  const [held, setHeld] = useState<readonly string[]>([]);
+  // The step holding focus, by key (so a change of shape keeps it).
+  const [focused, setFocused] = useState<string | undefined>(undefined);
+  // The steps a held selection runs over, first and last (cleared when it collapses).
+  const [span, setSpan] = useState<readonly [number, number] | null>(null);
   const [first, last] = range(heights, view);
-  const extra = new Set<number>();
-  for (const at of pinned ?? []) if (at < keys.length && (at < first || at > last)) extra.add(at);
-  for (const key of held) {
-    const at = index.get(key);
-    if (at !== undefined && (at < first || at > last)) extra.add(at);
-  }
+  const wanted: [number, number][] = [[first, last + 1]];
+  for (const at of pinned ?? []) if (at < keys.length && (at < first || at > last)) wanted.push([at, at + 1]);
+  const focusAt = focused === undefined ? undefined : index.get(focused);
+  if (focusAt !== undefined) wanted.push([focusAt, focusAt + 1]);
+  if (span) wanted.push([Math.min(span[0], keys.length), Math.min(span[1] + 1, keys.length)]);
+  wanted.sort((a, b) => a[0] - b[0]);
   const mounted: [number, number][] = [];
-  for (const at of [...extra, first].sort((a, b) => a - b)) {
-    const [from, to] = at === first ? [first, last + 1] : [at, at + 1];
+  for (const [from, to] of wanted) {
+    if (from >= to) continue;
     const prior = mounted.at(-1);
     if (prior && from <= prior[1]) prior[1] = Math.max(prior[1], to);
     else mounted.push([from, to]);
@@ -275,31 +279,40 @@ export function useStepWindow({
       : undefined;
     sizes?.observe(node);
     if (box) sizes?.observe(box);
-    const stepKey = (target: Node | null | undefined) => {
-      const element = target instanceof Element ? target : target?.parentElement;
-      const step = element?.closest<HTMLElement>("[data-step]");
-      return step?.parentElement === node ? step.dataset.step : undefined;
+    /// The list's child holding `target`, if any.
+    const childOf = (target: Node | null | undefined) => {
+      let child: Node | null | undefined = target;
+      while (child && child.parentNode !== node) child = child.parentNode;
+      return child instanceof HTMLElement ? child : undefined;
     };
-    const hold = (keys: (string | undefined)[]) => {
-      const next = keys.filter((key): key is string => key !== undefined);
-      setHeld((prior) => (prior.length === next.length && prior.every((key, at) => key === next[at]) ? prior : next));
-    };
-    let focused: string | undefined;
-    let selected: (string | undefined)[] = [];
-    const focusin = (event: FocusEvent) => {
-      focused = stepKey(event.target as Node);
-      hold([focused, ...selected]);
-    };
+    const focusin = (event: FocusEvent) => setFocused(childOf(event.target as Node)?.dataset.step);
     const focusout = (event: FocusEvent) => {
-      if (node.contains(event.relatedTarget as Node | null)) return;
-      focused = undefined;
-      hold(selected);
+      if (!node.contains(event.relatedTarget as Node | null)) setFocused(undefined);
     };
     const doc = node.ownerDocument;
+    // One listener for the list's life: the steps a selection runs over, each end as the step it is
+    // in, a box's first or last step, or the list's edge when the end is outside it.
     const selection = () => {
       const now = doc.getSelection();
-      selected = now && !now.isCollapsed ? [stepKey(now.anchorNode), stepKey(now.focusNode)] : [];
-      hold([focused, ...selected]);
+      const range = now && now.rangeCount > 0 && !now.isCollapsed ? now.getRangeAt(0) : null;
+      if (!range || !range.intersectsNode(node)) {
+        setSpan((prior) => (prior ? null : prior));
+        return;
+      }
+      const total = built.current!.keys.length;
+      const stepAt = (target: Node, end: boolean): number => {
+        if (!node.contains(target) || target === node) return end ? total - 1 : 0;
+        const child = childOf(target);
+        const step = child?.dataset.step;
+        if (step !== undefined) return built.current!.index.get(step) ?? (end ? total - 1 : 0);
+        const from = Number(child?.dataset.restFrom);
+        const to = Number(child?.dataset.restTo);
+        if (Number.isFinite(from) && Number.isFinite(to)) return end ? to - 1 : from;
+        return end ? total - 1 : 0;
+      };
+      const from = stepAt(range.startContainer, false);
+      const to = stepAt(range.endContainer, true);
+      setSpan((prior) => (prior && prior[0] === from && prior[1] === to ? prior : [from, to]));
     };
     node.addEventListener("focusin", focusin);
     node.addEventListener("focusout", focusout);
@@ -339,13 +352,23 @@ export function windowedSteps(
         key={`rest:${piece.from}`}
         className="cv-steps__rest"
         data-steps-rest={piece.to - piece.from}
+        data-rest-from={piece.from}
+        data-rest-to={piece.to}
         style={{ height: piece.rest }}
         aria-hidden
       />,
     );
     count += 1;
     if ((count - piece.to) % 2 !== 0) {
-      children.push(<div key={`rest-pad:${piece.from}`} className="cv-steps__rest" aria-hidden />);
+      children.push(
+        <div
+          key={`rest-pad:${piece.from}`}
+          className="cv-steps__rest"
+          data-rest-from={piece.to}
+          data-rest-to={piece.to}
+          aria-hidden
+        />,
+      );
       count += 1;
     }
   }
