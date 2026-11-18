@@ -296,6 +296,38 @@ fn an_unanswered_sign_out_is_asked_again_and_the_host_is_off_meanwhile() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Review of #45369: a hub that fails (a 5xx) has not signed the device out, so its pending
+/// sign-out is kept; only a hub that signs it out or does not know it (404) drops it.
+#[test]
+fn a_pending_sign_out_is_kept_until_the_hub_confirms_it() {
+    let dir = dir("pending-5xx");
+    let old = hold(&dir, "http://127.0.0.1:1", Before::PersonAnchored).unwrap();
+    let unit = Recorded::new(Arc::new(Mutex::new(Vec::new())), false);
+    super::tear_down(&dir, super::Previous::load(&dir).unwrap(), &unit).unwrap();
+    let answering = |status: u16| {
+        stub(move |_, _| (status, serde_json::json!({ "error": { "code": "x", "message": "x" } })))
+    };
+    let point = |origin: String| {
+        let mut moved = super::load_pending(&dir).unwrap();
+        moved[0].hub = origin;
+        super::save_pending(&dir, &moved).unwrap();
+    };
+    for status in [500, 502, 503, 429] {
+        let (origin, seen) = answering(status);
+        point(origin);
+        super::retry_pending(&dir);
+        assert!(!seen.lock().unwrap().is_empty(), "{status}: not asked");
+        let left = super::load_pending(&dir).unwrap();
+        assert_eq!(left.len(), 1, "{status}: a failing hub dropped the pending sign-out");
+        assert_eq!(left[0].device.id, old.id);
+    }
+    let (origin, _) = answering(404);
+    point(origin);
+    super::retry_pending(&dir);
+    assert!(super::load_pending(&dir).unwrap().is_empty(), "a hub that does not know it");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Review of #45369: a pending sign-out keeps its device key on disk, so its file is private
 /// and its entries do not outlive the bound; one past it is dropped without asking the hub.
 #[test]
