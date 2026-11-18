@@ -68,7 +68,7 @@ public final class PaneZoomIndicatorView: NSView {
         isHidden = elsewhere || model?.zoomsSelected != true
         guard !isHidden else { return 0 }
         if surface == nil {
-            let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.buttonCornerRadius + Self.padding)
+            let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.buttonCornerRadius + Self.padding, tone: .neutralGlass(.transient))
             glass.translatesAutoresizingMaskIntoConstraints = true
             glass.autoresizingMask = [.width, .height]
             addSubview(glass, positioned: .below, relativeTo: button)
