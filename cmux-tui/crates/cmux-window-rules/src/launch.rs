@@ -203,9 +203,21 @@ pub enum FreshLanding {
 }
 
 /// What a launch opens fresh (Leo 2026-11-18: "fresh startup opening home is obv fine but if it's not first time and
-/// the user was on a workspace and a tab, obv just take them there").
-pub fn fresh_landing(_facts: &FreshFacts) -> FreshLanding {
-    FreshLanding::Saved
+/// the user was on a workspace and a tab, obv just take them there"). It waits while Home is not ensured yet: until
+/// then the tree cannot tell Home from a workspace of the person's own, so a relaunch would make a workspace over its
+/// saved front and a fresh install would miss Home. Then an empty tree lands on Home, or on a New Tab workspace under
+/// classic Home or when `ensure_home` named none; a tree with workspaces of the person's own reopens the saved
+/// windows, or opens a New Tab workspace when none of them is open.
+pub fn fresh_landing(facts: &FreshFacts) -> FreshLanding {
+    if facts.home_not_ensured_yet {
+        FreshLanding::WaitForHome
+    } else if !facts.empty_tree {
+        if facts.no_saved_window_open { FreshLanding::NewTab } else { FreshLanding::Saved }
+    } else if facts.classic_home || !facts.home_ensured {
+        FreshLanding::NewTab
+    } else {
+        FreshLanding::Home
+    }
 }
 
 #[cfg(test)]
