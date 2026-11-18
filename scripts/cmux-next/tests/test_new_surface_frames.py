@@ -8,6 +8,8 @@ recording on a Mac gives such rows.
     python3 -I scripts/cmux-next/tests/test_new_surface_frames.py
 """
 import argparse
+import contextlib
+import io
 import json
 import os
 import sys
@@ -26,6 +28,8 @@ STEP = 1000 / 120
 OLD, NEW = (0, 0.3), (0.3, 0)  # a region as before the key, and as in the last picture
 ROW_OLD, ROW_NEW = (0, 0.01), (0.01, 0)  # the window outside the pane: the same two
 STILL = (0, 0)  # a region that the key does not change
+# The name of the zero of a reply that says when its key went in (a test fails by its own rule when the reader has none).
+ZERO_SENT = getattr(nsf, "ZERO_SENT", "the reader has no name for the zero of a key's send time")
 
 
 def row(index, content, outside, blank=False, desync=False, strip=None, start=0.0):
@@ -215,6 +219,23 @@ class OneKeyTests(unittest.TestCase):
         got = nsf.one_key(take([(NEW, ROW_NEW)] * 240, spans=[{"name": "newTab.open", "ms": 0.0}]), "n", asked_hz=120)
         self.assertEqual((got["key_work_ms"], got["zero"], [reason.split(":")[0] for reason in got["invalid"]]), (None, None, ["zero"]))
 
+    def test_the_zero_is_the_time_the_key_went_in_when_the_reply_says_it(self):
+        # The reply says that the key went in 40 ms before its zero; `cmdN.start` began 7 ms after the key went in.
+        # The page is in the frame 42 ms after the reply's zero: 82 ms after the key, not 75 ms after the mark.
+        marks = [{"name": "cmdN.start", "ms": -33.0, "duration_ms": 33.0}]
+        reply = take([(OLD, ROW_OLD)] * 4 + [(NEW, ROW_NEW)] * 236, spans=marks, before=1, before_send_ms=40.0)
+        got = nsf.one_key(reply, "n", asked_hz=120)
+        self.assertEqual((got["key_work_ms"], got["zero"], got["invalid"]), (40.0, ZERO_SENT, []))
+        self.assertEqual(got["content_first"], {"frame": 10, "ms": 82.0, "file": "frame-007.png"})
+        self.assertNotEqual(ZERO_SENT, nsf.ZERO)
+        # The key's send time is the zero also when the spans have no opening mark of the key.
+        bare = nsf.one_key(take([(NEW, ROW_NEW)] * 240, spans=[], before_send_ms=12.5), "n", asked_hz=120)
+        self.assertEqual((bare["key_work_ms"], bare["zero"], bare["invalid"]), (12.5, ZERO_SENT, []))
+        # A reply with no such number (an older build's), or with one that is no time, has the mark's zero.
+        for value in (None, True, -1.0, "40"):
+            old = nsf.one_key({**reply, "before_send_ms": value}, "n", asked_hz=120)
+            self.assertEqual((old["key_work_ms"], old["zero"]), (33.0, nsf.ZERO), value)
+
     def test_a_region_that_goes_back_to_the_picture_before_the_key_is_invalid(self):
         # Frame 2: a terminal's cursor changes 0.02 % of the content area. Frames 3 to 19: as before the key. Frame 20: the page.
         pictures = [(OLD, ROW_OLD), ((0.0002, 0.3), ROW_OLD)] + [(OLD, ROW_OLD)] * 17 + [(NEW, ROW_NEW)] * 221
@@ -256,11 +277,13 @@ class InputProofTests(unittest.TestCase):
 class FakeApp:
     """The app's answers to the tool's calls: each frame_strip opens `opens` tabs or workspaces for its keys."""
 
-    def __init__(self, folder, pictures, opens=None, engine="cef", workspaces=3, work=0.0):
+    def __init__(self, folder, pictures, opens=None, engine="cef", workspaces=3, work=0.0, sent=None):
         self.folder, self.pictures, self.opens, self.engine = folder, pictures, opens, engine
         self.workspaces, self.tabs, self.openings, self.calls, self.closed, self.newest = workspaces, 1, [], [], [], []
         # `work`: the ms of each key's own work (the reply's zero is its end). `limit`: the records that the app keeps.
-        self.work, self.limit, self.recorded = work, None, 0
+        # `sent`: a build whose reply says how long before its zero the first key went in (`before_send_ms`), and
+        # whose later key is due from that time.
+        self.work, self.limit, self.recorded, self.sent = work, None, 0, sent
 
     def terminal_tab(self):
         self.tabs += 1
@@ -307,7 +330,9 @@ class FakeApp:
                 self.tabs += opened
             # The first key's mark starts `work` before the reply's zero; the second key's timer starts at that zero.
             reply = take(self.pictures, spans=[{"name": "cmdN.start" if params["key"] == "n" else "newTab.open",
-                                                "ms": 100.0 * n if n else -self.work, "duration_ms": 1.0} for n in range(keys)])
+                                                "ms": 100.0 * n - (self.sent or 0.0) if n else -self.work, "duration_ms": 1.0} for n in range(keys)])
+            if self.sent is not None:
+                reply["before_send_ms"] = self.sent
             os.makedirs(params["dir"], exist_ok=True)
             for frame in reply["frames"]:
                 Path(params["dir"], frame["file"]).write_bytes(b"png")
@@ -398,6 +423,37 @@ class ScreenTests(unittest.TestCase):
         self.assertEqual((row["key_work_ms"], row["opening_marks_ms"], row["second_key_late_ms"], row["invalid"]), (30.0, [0.0, 130.0], 30.0, []))
         self.assertEqual(report["cases"]["cmd-n/100 ms after a key"]["key_work_ms"], {"p50": 30.0, "max": 30.0})
 
+    def test_a_later_key_of_a_reply_with_its_send_time_is_due_from_the_time_the_first_key_went_in(self):
+        # The first key went in 35 ms before the reply's zero, its mark began 5 ms after that. The second key's
+        # timer counts from the time the first key went in: its opening begins 100 ms after it, and is not late.
+        app = FakeApp(self.folder, [(NEW, ROW_NEW)] * 252, work=30.0, sent=35.0)
+        report, _ = self.run_mode(app, keys="n", gaps="100", runs=1)
+        row = report["rows"][0]
+        self.assertEqual((row["key_work_ms"], row["zero"], row["opening_marks_ms"], row["second_key_late_ms"], row["invalid"]),
+                         (35.0, ZERO_SENT, [5.0, 100.0], 0.0, []))
+
+    def test_a_row_whose_first_content_frame_is_not_the_last_picture_keeps_its_pictures_and_says_so(self):
+        # No frame AFTER the first content is off the last picture, so `changes_after_content` is 0. The first content
+        # frame itself is off it (the sidebar still old in it): the row is not first-is-final, and a person must see it.
+        sidebar_late = [(OLD, ROW_OLD)] * 2 + [(NEW, ROW_OLD)] + [(NEW, ROW_NEW)] * 237
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            report, _ = self.run_mode(FakeApp(self.folder, sidebar_late), keys="n", runs=2, keep_keys=0,
+                                      screen_tgz=os.path.join(self.folder, "kept.tgz"))
+        self.assertEqual([(row["changes_after_content"], row["first_is_final"], row["invalid"]) for row in report["rows"]], [(0, False, [])] * 2)
+        with tarfile.open(os.path.join(self.folder, "kept.tgz")) as archive:
+            names = archive.getnames()
+        for run in (0, 1):
+            self.assertIn(f"new-surface-screen/cmd-n-idle-{run}-content_first-frame-005.png", names)
+            self.assertIn(f"new-surface-screen/cmd-n-idle-{run}-final-frame-006.png", names)
+        lines = [line for line in said.getvalue().splitlines() if "-ROW cmd-n-idle-" in line]
+        self.assertEqual([("first_is_final=False" in line, "changes_after_content=0" in line) for line in lines], [(True, True)] * 2)
+        # A row that IS first-is-final and past `--keep-keys` keeps none, and its line says True.
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            report, _ = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 240), keys="n", runs=1, keep_keys=0)
+        self.assertEqual((report["rows"][0].get("kept_pictures"), "first_is_final=True" in said.getvalue()), (None, True))
+
     def test_a_fresh_session_moves_the_tags_saved_state_aside(self):
         root = os.path.join(self.folder, "tags", "screen-test-tag")
         os.makedirs(os.path.join(root, "tui"))
@@ -452,6 +508,88 @@ class ScreenTests(unittest.TestCase):
     def test_a_fresh_session_ends_the_bundles_left_processes_when_no_app_of_it_runs(self):
         refusal, ended, moved = self.fresh_session_of("cmux DEV screen-test-tag.app", [])
         self.assertEqual((refusal, ended, moved), (None, [os.path.realpath(os.path.join(self.folder, "cmux DEV screen-test-tag.app"))], True))
+
+    def fresh_session_by_ps(self, given, runs_from, real=None, tag="screen-test-tag", bundle="cmux DEV screen-test-tag.app"):
+        """fresh_session for the bundle at `<folder>/real/<bundle>`, asked by the path `given`, while the system's
+        process list (a fake of `ps`'s OUTPUT: the search itself is the real one) has an app that runs from the
+        bundle path `runs_from`, a daemon of another bundle and this test's own process. `real`: what the system gives
+        as a path's real path (a Mac's `/private` before `/tmp` and `/var`). Gives (the refusal's text or None, the
+        teardowns that ran, the saved session moved)."""
+        import bench_launch
+        import tag_teardown
+        root, ended = os.path.join(self.folder, "tags", "screen-test-tag"), []
+        os.makedirs(os.path.join(root, "tui"))
+        os.makedirs(os.path.join(self.folder, "real", bundle, "Contents", "MacOS"))
+        os.symlink(os.path.join(self.folder, "real"), os.path.join(self.folder, "link"))
+        os.environ["BENCH_LAUNCH_STATE_BASE"] = self.folder
+        self.addCleanup(os.environ.pop, "BENCH_LAUNCH_STATE_BASE", None)
+        listed = "\n".join([f"  311 {self.folder}/real/cmux DEV other.app/Contents/Resources/bin/cmux-tui server",
+                            f" 4242 {runs_from}/Contents/MacOS/cmux DEV screen-test-tag" if runs_from else "  312 /sbin/launchd",
+                            f"{os.getpid():5d} {self.folder}/real/{bundle}/Contents/MacOS/this-test"]) + "\n"
+        asked = []
+
+        def ps(command, **_):
+            asked.append(command)
+            return mock.Mock(stdout=listed, returncode=0)
+
+        class Teardown:
+            def __init__(self, path):
+                self.path = path
+
+            def end(self):
+                ended.append(self.path)
+
+        refusal, true_path = None, os.path.realpath
+        patches = [mock.patch.object(bench_launch.subprocess, "run", ps), mock.patch.object(tag_teardown, "TagTeardown", Teardown)]
+        if real:
+            patches.append(mock.patch.object(os.path, "realpath", lambda path, *a, **k: real(true_path(path))))
+        with contextlib.ExitStack() as stack:
+            for patch in patches:
+                stack.enter_context(patch)
+            try:
+                new_surface_screen.fresh_session(tag, given)
+            except SystemExit as stop:
+                refusal = str(stop.code)
+        self.assertTrue(asked and all(command[0] == "ps" for command in asked), asked)
+        return refusal, ended, not os.path.exists(root)
+
+    def test_a_fresh_session_sees_an_app_that_runs_from_the_path_as_given_through_a_link(self):
+        bundle = "cmux DEV screen-test-tag.app"
+        given = os.path.join(self.folder, "link", bundle)
+        refusal, ended, moved = self.fresh_session_by_ps(given, runs_from=given)
+        self.assertEqual((ended, moved), ([], False))
+        self.assertIn("tag-in-use", refusal or "no refusal")
+        self.assertIn("pid 4242", refusal)
+
+    def test_a_fresh_session_sees_an_app_that_runs_from_the_real_path(self):
+        bundle = "cmux DEV screen-test-tag.app"
+        real = os.path.realpath(os.path.join(self.folder, "real", bundle))
+        refusal, ended, moved = self.fresh_session_by_ps(os.path.join(self.folder, "link", bundle), runs_from=real)
+        self.assertEqual((ended, moved), ([], False))
+        self.assertIn("pid 4242", refusal or "no refusal")
+
+    def test_a_fresh_session_sees_an_app_that_runs_from_the_real_path_with_no_private_before_it(self):
+        # A Mac's real path of `/var/...` and `/tmp/...` begins with `/private`, and a process can list either.
+        bundle = "cmux DEV screen-test-tag.app"
+        plain = os.path.realpath(os.path.join(self.folder, "real", bundle))
+        refusal, ended, moved = self.fresh_session_by_ps(os.path.join(self.folder, "link", bundle), runs_from=plain,
+                                                         real=lambda path: "/private" + path)
+        self.assertEqual((ended, moved), ([], False))
+        self.assertIn("pid 4242", refusal or "no refusal")
+
+    def test_a_fresh_session_with_no_app_of_the_bundle_in_the_process_list_ends_its_left_processes(self):
+        # The list has a daemon of ANOTHER bundle and this test's own process from below the bundle: neither is an app of it.
+        bundle = "cmux DEV screen-test-tag.app"
+        refusal, ended, moved = self.fresh_session_by_ps(os.path.join(self.folder, "link", bundle), runs_from=None)
+        self.assertEqual((refusal, ended, moved), (None, [os.path.realpath(os.path.join(self.folder, "real", bundle))], True))
+
+    def test_a_fresh_session_moves_the_state_of_the_bundles_tag_for_a_tag_that_is_written_another_way(self):
+        # `--tag "Screen Test Tag"` and the bundle `cmux DEV Screen Test Tag.app` are the tag `screen-test-tag`: its
+        # state is under that name, not under the words as typed.
+        bundle = "cmux DEV Screen Test Tag.app"
+        refusal, ended, moved = self.fresh_session_by_ps(os.path.join(self.folder, "real", bundle), runs_from=None,
+                                                         tag="Screen Test Tag", bundle=bundle)
+        self.assertEqual((refusal, ended, moved), (None, [os.path.realpath(os.path.join(self.folder, "real", bundle))], True))
 
 
 if __name__ == "__main__":
