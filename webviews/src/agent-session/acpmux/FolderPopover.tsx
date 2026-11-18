@@ -43,7 +43,7 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// one click connects in place: the host opens the install page, or sign-in when signed out, the menu
 /// stays open and lists the repositories once the status says ready. Its second line is a refusal (a
 /// click tries again), the wait for the browser, or why it can't connect yet. It never picks a folder.
-/// Before the first status read answers, nothing shows.
+/// Before the first status read answers the row says it is checking, so GitHub is never missing.
 export function FolderPopover({
   label,
   menu,
@@ -163,7 +163,9 @@ export function FolderPopover({
     [githubReady, githubRepos, typed],
   );
   const githubRows = [
-    ...(githubStatus === "not_connected" || githubStatus === "unavailable" ? [GITHUB_ADD] : []),
+    // GitHub is never missing from a menu that offers it: before the status answers the same row
+    // shows, saying it is being checked (a click connects all the same: the host reads the status first).
+    ...(github && !addingExtra && githubStatus !== "ready" ? [GITHUB_ADD] : []),
     ...repos.map((repo) => GITHUB_REPO + repo.fullName),
     // Connected: the way to GitHub's own page for the installation always shows, so a team whose
     // installation grants no repository yet sees GitHub here, not a menu with nothing of it.
@@ -264,11 +266,13 @@ export function FolderPopover({
         github?.state.connectError ??
         (github?.state.waiting
           ? t("composer.githubWaiting")
-          : reason === "not_configured"
-            ? t("composer.githubNotConfiguredDetail")
-            : reason === "signed_out"
-              ? t("composer.githubSignInDetail")
-              : undefined);
+          : githubStatus === undefined
+            ? t("composer.githubChecking")
+            : reason === "not_configured"
+              ? t("composer.githubNotConfiguredDetail")
+              : reason === "signed_out"
+                ? t("composer.githubSignInDetail")
+                : undefined);
       return (
         <span className="acpmux-location-action acpmux-location-row" data-github="" data-github-unavailable={reason}>
           <span className="acpmux-location-action-icon" aria-hidden="true">
