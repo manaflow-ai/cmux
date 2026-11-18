@@ -93,18 +93,19 @@ public struct WebKitPrivateCalls: Sendable {
     }
 
     /// Resumes once WebKit processed the mouse events sent to `webView` so far (SPI
-    /// `_doAfterProcessingAllPendingMouseEvents:`), or after the bound; at once without it.
-    @MainActor
-    public func afterPendingMouseEvents(_ webView: WKWebView) async {
+    /// `_doAfterProcessingAllPendingMouseEvents:`), or after the bound; at once without it. True when
+    /// WebKit answered, false when the bound passed first, nil without the SPI (nothing is known).
+    @MainActor @discardableResult
+    public func afterPendingMouseEvents(_ webView: WKWebView) async -> Bool? {
         // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
         let selector = NSSelectorFromString("_doAfterProcessingAllPendingMouseEvents:")
-        guard webView.responds(to: selector) else { return }
+        guard webView.responds(to: selector) else { return nil }
         typealias Action = @convention(block) () -> Void
         typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
         let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
         // Bounded like every WebKit block wait: a page whose web process
         // never answers (not loaded yet, suspended) must not hang the call.
-        _ = await awaitCallback { done in
+        return await awaitCallback { done in
             let action: Action = { done() }
             function(webView, selector, action)
         }

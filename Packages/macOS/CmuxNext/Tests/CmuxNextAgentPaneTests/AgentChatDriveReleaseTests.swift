@@ -354,4 +354,18 @@ struct AgentChatDriveReleaseTests {
             #expect(pointer.released && pointer.how == "person_pointer", "\(path), then the person's pointer")
         }
     }
+
+    /// The person's pointer comes into the pane while the run is still starting (its engine counters), before
+    /// any hover exists. The release is armed from the start, so it is not "done" with nothing held, and the
+    /// run makes no hover after it: a hover made then would have no release left to end it.
+    @Test func thePersonsPointerDuringStartupLeavesNoHoverBehind() async throws {
+        let sends = Sends()
+        let release = sends.release(armed: true)
+        #expect(release.mayHover)
+        release.personPointer()
+        #expect(!release.mayHover, "the run would hover after the person's pointer started the release")
+        try await settled(release)
+        #expect(release.released && release.triggered == "person")
+        #expect(sends.count == 1, "an armed release sends its pointer-leave rather than counting nothing as released")
+    }
 }
