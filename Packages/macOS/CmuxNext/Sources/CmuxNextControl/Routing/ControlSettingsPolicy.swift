@@ -16,13 +16,13 @@ enum ControlSettingsPolicy {
     static func userOnly(_ key: String) -> ControlError {
         ControlError(code: "setting_user_only", message: ControlStrings.format(
             "control.error.settingUserOnly",
-            "%1$@ can be changed only by you: use Settings, or `cmux settings set %1$@ <value> --confirm` and approve it in cmux",
+            "Only you can change %1$@: use Settings, or `cmux settings set %1$@ <value> --confirm`",
             key), data: ["key": .string(key)])
     }
 
     static func declined(_ key: String) -> ControlError {
         ControlError(code: "setting_user_only", message: ControlStrings.format(
-            "control.error.settingUserOnlyDeclined", "%1$@ was not changed: the confirmation was declined", key),
+            "control.error.settingUserOnlyDeclined", "%1$@ was not changed", key),
             data: ["key": .string(key), "declined": true])
     }
 

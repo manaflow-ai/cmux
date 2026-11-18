@@ -181,6 +181,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `docs.anthropic.com` | opens | setup docs for an agent, opened from onboarding |
 | `apple.com` | opens | a site the address bar suggests before it is in your history |
 | `developer.apple.com` | opens | a site the address bar suggests before it is in your history |
+| `apps.apple.com` | opens | Apple's App Store subscription management page, opened from the iPhone app's Delete Account warning when StoreKit can't show its own sheet |
 | `www.baidu.com` | opens | a search engine, when you search with it |
 | `bbc.com` | opens | a site the address bar suggests before it is in your history |
 | `bing.com` | opens | a site the address bar suggests before it is in your history |
@@ -343,6 +344,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `argument.app` | not-a-host | a localized string key |
 | `toast.detail.io` | not-a-host | a localized string key |
 | `cmux.app` | not-a-host | a file name |
+| `projection.io` | not-a-host | an error code of projected folders |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |
 | `arrow.down.app` | not-a-host | a symbol or icon name |

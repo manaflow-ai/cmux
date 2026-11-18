@@ -109,6 +109,7 @@ import Testing
             configure(model)
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
+            if PaneLayoutCommitMove.isOn { root.context.commitMotionOverride = true }
             // The test steps the frames: no display link runs beside it.
             root.driver.isManual = true
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1000), styleMask: [.borderless],
@@ -137,6 +138,8 @@ import Testing
                 frame.panes[host.pane] = host.frame
                 // A pane that shows no content of its own (its content view is hidden) fits nothing.
                 let content = host.convert(host.content.frame, from: host.content.superview)
+                // With the panes' move on, a pane that the layout no longer has shows to the motion's end: it fits nothing.
+                if PaneLayoutCommitMove.isOn, screen.context.hosts[host.pane] !== host { continue }
                 if host.content.isHidden || !near(content, host.contentRect) { frame.misfits[host.pane] = (content, host.contentRect) }
             } else if view is DividerHandleView {
                 frame.dividers.append(view.frame)
@@ -165,8 +168,12 @@ import Testing
         }
 
         /// Whether `frame` shows exactly this layout: its panes and no other, each at its rest rect, and its dividers.
+        /// With the panes' move on (`PaneLayoutCommitMove`), the panes that a close took out or a zoom covers can
+        /// show too, to the motion's end.
         func isShown(by frame: Frame) -> Bool {
-            guard Set(frame.panes.keys) == Set(panes.keys), frame.dividers.count == dividers.count else { return false }
+            let shown = Set(frame.panes.keys)
+            guard PaneLayoutCommitMove.isOn ? shown.isSuperset(of: panes.keys) : shown == Set(panes.keys) else { return false }
+            guard frame.dividers.count == dividers.count else { return false }
             guard panes.allSatisfy({ pane, rect in frame.panes[pane].map { PaneLayoutCommitTests.near($0, rect) } ?? false }) else { return false }
             return dividers.allSatisfy { rect in frame.dividers.contains { PaneLayoutCommitTests.near($0, rect) } }
         }
@@ -234,8 +241,9 @@ import Testing
     // MARK: Tests
 
     /// The frame of the change's own turn and each display frame after it show one layout: the one before the change,
-    /// then, from the first display frame on, the one after it. Every pane's content is at the rect its pane gives it in
-    /// each of them, and no content takes more than one new size.
+    /// then, from the display frame that shows the change on, the one after it. That frame is the first one after the
+    /// change, for a zoom too: this fixture asks for no move of its panes, so no dim comes (`PaneZoomDimTests`).
+    /// Every pane's content is at the rect its pane gives it in each of them, and no content takes more than one new size.
     @Test(arguments: changes)
     func aLayoutChangeShowsInOneFrame(_ change: Change) throws {
         let (before, after) = Self.layouts(of: change)
@@ -253,6 +261,10 @@ import Testing
         let old = Rest(harness.model.screens, in: screen, style: style)
         #expect(old.isShown(by: Self.shown(screen)), "the screen does not rest at the layout before the change: \(Self.shown(screen).panes)")
         let sizesBefore = harness.provider.contents.mapValues(\.sizes.count)
+        // The display frame that shows the change: the first one, for a zoom too: no frame waits for a dim
+        // (`PaneZoomDimTests.showFrame(of:)`; a zoom whose pane moves brings its dim in that frame).
+        let first = change.name == "zoom" ? PaneZoomDimTests.showFrame(of: screen) : 1
+        try #require(first <= Self.frames, "the zoom's dim takes \(first) display frames; this test steps \(Self.frames)")
 
         harness.model.apply(screens: after)
         let new = Rest(harness.model.screens, in: screen, style: style)
@@ -275,7 +287,10 @@ import Testing
             }
             #expect(frame.misfits.isEmpty, "frame \(index): a pane's content is not at the rect its pane gives it: \(frame.misfits)")
         }
-        #expect(new.isShown(by: shown[1]), "the first display frame after the change does not show its layout: \(shown[1].panes)")
+        #expect(new.isShown(by: shown[first]), "display frame \(first) after the change, the one that shows it, does not show its layout: \(shown[first].panes)")
+        if first > 1 {
+            #expect(old.isShown(by: shown[first - 1]), "the zoom showed before its dim was at its end: display frame \(first - 1) shows \(shown[first - 1].panes)")
+        }
         #expect(reached, "the layout after the change never showed")
         for (pane, content) in harness.provider.contents {
             let took = content.sizes.count - (sizesBefore[pane] ?? 0)

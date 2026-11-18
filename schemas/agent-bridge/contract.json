@@ -76,6 +76,7 @@
     "cloud.environment.list": "cloud.environment.list",
     "cloud.environment.update": "cloud.environment.update",
     "cloud.handoffTurn": "cloud.handoffTurn",
+    "cloud.plan.subscribe": "cloud.plan.subscribe",
     "cloud.preview.open": "cloud.preview.open",
     "cloud.releaseReservation": "cloud.releaseReservation",
     "cloud.repickChat": "cloud.repickChat",
@@ -237,6 +238,7 @@
     "uiPointer.report": "uiPointer.report",
     "video.frames": "video.frames",
     "video.info": "video.info",
+    "video.probes": "video.probes",
     "video.quickLook": "video.quickLook",
     "video.transcript": "video.transcript",
     "workspace.chooseFolder": "workspace.chooseFolder",
@@ -313,6 +315,9 @@
       "times"
     ],
     "video.info": [
+      "src"
+    ],
+    "video.probes": [
       "src"
     ],
     "video.quickLook": [
