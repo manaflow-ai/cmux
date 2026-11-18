@@ -635,24 +635,51 @@ fn an_unknown_hosts_line_says_why_and_what_to_do() {
 }
 
 #[test]
-fn the_lane_cap_is_lane_places_headroom_max_lanes_else_max_lanes() {
-    // leo-workspace lane_admission.py admits up to headroom_max_lanes while RAM holds a lane, and
-    // lane_cap_watch.py reads `headroom_max_lanes`, else `max_lanes`, as the cap: so does this.
+fn the_lane_cap_is_counted_as_lane_admission_room_for_counts_it() {
+    // leo-workspace lane_place OneCapCountTest's rows: max_lanes 6, headroom_max_lanes 12. Under
+    // max_lanes is under; past it and under the ceiling only while headroom holds; else full.
+    let lanes = Lanes::from_registry(&json!({"max_lanes": 6, "headroom_max_lanes": 12}));
+    for live in 0..15u64 {
+        for headroom in [true, false] {
+            let want = if live < 6 {
+                CapState::Under
+            } else if live < 12 && headroom {
+                CapState::Headroom
+            } else {
+                CapState::Full
+            };
+            assert_eq!(
+                lanes.cap_state(Some(live), headroom),
+                want,
+                "live {live}, headroom {headroom}"
+            );
+        }
+    }
+    // No cap, or no count: unknown. A ceiling under max_lanes is no ceiling.
+    let none = Lanes::from_registry(&json!({"headroom_max_lanes": 12}));
+    assert_eq!(none.cap_state(Some(3), true), CapState::Unknown);
+    assert_eq!(lanes.cap_state(None, true), CapState::Unknown);
+    let low = Lanes::from_registry(&json!({"max_lanes": 6, "headroom_max_lanes": 4}));
+    assert_eq!(low.cap_state(Some(6), true), CapState::Full);
+
+    // Through the pick: light (max_lanes 3) with headroom_max_lanes 5 and room takes lanes 3 and 4.
     let mut reg = registry();
     reg["machines"]["light"]["lanes"]["headroom_max_lanes"] = json!(5);
-    let at_max = [c("light", health(40.0, 12, 1.0, 300.0, 3))];
-    let v = place(&at_max, Some(&reg), Work::Agent);
+    let v = place(&[c("light", health(40.0, 12, 1.0, 300.0, 3))], Some(&reg), Work::Agent);
     // RAM (40 - 6) / 3 = 11, CPU 11, disk 18, lanes 5 - 3 = 2: room for 2.
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("light"), &json!(false)), "{v:#}");
     assert_eq!(host(&v, "light")["room"], 2.0, "{v:#}");
     assert!(host(&v, "light")["why"].as_str().unwrap().contains("3/5 lanes"), "{v:#}");
-    // Without it, max_lanes is the cap: 3 of 3 is full.
-    let v = place(&at_max, Some(&registry()), Work::Agent);
+    // Without it, max_lanes is the limit: 3 of 3 is full.
+    let v = place(&[c("light", health(40.0, 12, 1.0, 300.0, 3))], Some(&registry()), Work::Agent);
     assert_eq!(host(&v, "light")["refused"], "no room: lanes is the limit", "{v:#}");
-    // Past max_lanes and under headroom_max_lanes is still under the cap: it goes ahead of a
-    // host with no reading even when its RAM is short.
+    // Past max_lanes with no headroom (RAM short) is full: a host with no reading goes first.
     let short = c("light", health(8.0, 12, 1.0, 300.0, 4));
-    let v = place(&[c("big", Value::Null), short], Some(&reg), Work::Agent);
+    let v = place(&[c("big", Value::Null), short.clone()], Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "big", "{v:#}");
+    // Under max_lanes with RAM short is still under: it goes ahead of the unread host.
+    let under = c("light", health(8.0, 12, 1.0, 300.0, 2));
+    let v = place(&[c("big", Value::Null), under], Some(&reg), Work::Agent);
     assert_eq!(v["pick"], "light", "{v:#}");
 }
 

@@ -11,8 +11,8 @@
 //! - RAM: (free − `reserved_gb`) / `per_lane_gb`;
 //! - CPU: (cores − 1-minute load) / `cores_per_lane`;
 //! - disk: (free − `free_gb_floor`) / `disk_per_lane_gb`;
-//! - lanes: the lane cap − live agents, the cap lane-place's admission reads
-//!   (`headroom_max_lanes`, else `max_lanes`; leo-workspace `lane_admission.py`).
+//! - lanes: the lane limit − live agents, counted as leo-workspace's `lane_admission.room_for`
+//!   counts it: `max_lanes`, or `headroom_max_lanes` while the other three show room for a lane.
 //!
 //! The smallest of the four is its room. Among hosts with room, the registry's
 //! `lane_place.placement_preference` decides first, as leo-workspace's lane-place does
@@ -188,11 +188,39 @@ impl Lanes {
         }
     }
 
-    /// The lane cap lane-place admits up to: `headroom_max_lanes`, else `max_lanes`, as
-    /// leo-workspace's `lane_admission.py` and `lane_cap_watch.py` read it.
-    fn cap(&self) -> Option<f64> {
-        self.headroom_max_lanes.or(self.max_lanes)
+    /// The most lanes measured headroom may admit: `headroom_max_lanes` when it is at least
+    /// `max_lanes`, else `max_lanes`; none without `max_lanes`.
+    fn ceiling(&self) -> Option<f64> {
+        let cap = self.max_lanes?;
+        Some(self.headroom_max_lanes.filter(|c| *c >= cap).unwrap_or(cap))
     }
+
+    /// Where `live` lanes stand against the cap, as leo-workspace's `lane_admission.room_for`
+    /// counts them (the one count its picker, admission and cap watch read): under `max_lanes`;
+    /// past it and under the ceiling only while `headroom` (the reading shows room for a lane);
+    /// else full. Without `max_lanes` or a live count, unknown.
+    fn cap_state(&self, live: Option<u64>, headroom: bool) -> CapState {
+        let (Some(cap), Some(ceiling), Some(live)) = (self.max_lanes, self.ceiling(), live) else {
+            return CapState::Unknown;
+        };
+        let live = live as f64;
+        if live < cap {
+            CapState::Under
+        } else if live < ceiling && headroom {
+            CapState::Headroom
+        } else {
+            CapState::Full
+        }
+    }
+}
+
+/// A host's lanes against its cap (`Lanes::cap_state`, lane_admission's `room_for` states).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CapState {
+    Under,
+    Headroom,
+    Full,
+    Unknown,
 }
 
 /// The key `lane_hosts` sets in a held machine's `lanes` value: why it is held.
@@ -546,19 +574,17 @@ struct Weighed {
     /// It has no health reading (`unknown`): it takes the work only when no host with one is
     /// under its lane cap (`place`).
     unknown: bool,
+    /// Its lanes against its cap (`Lanes::cap_state`).
+    cap: CapState,
     why: String,
 }
 
 impl Weighed {
-    /// It has a reading and is not shown at or over its lane cap (`Lanes::cap`), whatever its
-    /// RAM or CPU. A host with no cap configured, or whose reading has no live count, counts as
-    /// under it: a host we can read goes ahead of one we cannot.
+    /// It has a reading and its lanes are not full (`CapState`): under `max_lanes`, or past it on
+    /// measured headroom. A host with no cap configured, or whose reading has no live count,
+    /// counts as under it: a host we can read goes ahead of one we cannot.
     fn under_cap(&self) -> bool {
-        !self.unknown
-            && match (self.lanes.cap(), self.live) {
-                (Some(cap), Some(live)) => (live as f64) < cap,
-                _ => true,
-            }
+        !self.unknown && self.cap != CapState::Full
     }
 }
 
@@ -600,6 +626,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         load: false,
         tier: None,
         unknown: !known,
+        cap: CapState::Unknown,
         why: String::new(),
     };
     let Some(lanes) = lanes else {
@@ -631,7 +658,18 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         parts.push(format!("{:.0} GB disk free", free / GB));
         rooms.push(("disk", (free / GB - lanes.free_gb_floor) / lanes.disk_per_lane_gb));
     }
-    if let (Some(max), Some(live)) = (lanes.cap(), live) {
+    // Headroom, as lane_admission's `headroom_short` judges it: the reading shows room for a lane
+    // in RAM, CPU and disk, within its budget and its swap limit. Past `max_lanes` only it admits
+    // lanes, up to the ceiling.
+    let swap = (reading(h, "/swap/usedBytes"), reading(h, "/swap/totalBytes").filter(|t| *t > 0.0));
+    let over_budget = h.pointer("/pressure/ok").and_then(Value::as_bool) == Some(false);
+    let swap_full = matches!((swap.0, swap.1, lanes.max_swap_used_fraction),
+        (Some(used), Some(total), Some(max)) if used / total >= max);
+    let fits = rooms.iter().map(|r| r.1).min_by(f64::total_cmp).is_some_and(|r| r >= 1.0);
+    let headroom = fits && !over_budget && !swap_full;
+    w.cap = lanes.cap_state(live, headroom);
+    let limit = if headroom { lanes.ceiling() } else { lanes.max_lanes };
+    if let (Some(max), Some(live)) = (limit, live) {
         parts.push(format!("{live}/{max:.0} lanes"));
         rooms.push(("lanes", max - live as f64));
     }
@@ -642,8 +680,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     }
     w.why = parts.join(", ");
     w.room = room;
-    let swap = (reading(h, "/swap/usedBytes"), reading(h, "/swap/totalBytes").filter(|t| *t > 0.0));
-    if h.pointer("/pressure/ok").and_then(Value::as_bool) == Some(false) {
+    if over_budget {
         let over: Vec<&str> = h
             .pointer("/pressure/over")
             .and_then(Value::as_array)
