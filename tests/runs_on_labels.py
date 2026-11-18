@@ -289,8 +289,6 @@ class _Evaluator:
         if kind == "prop":
             target = node[1]
             if target[:2] == ("call", "fromjson") and target[2] == [("ctx", "vars.RUNNER_POOLS")]:
-                if node[2] in RUNNER_POOLS_FLAGS:
-                    return set(RUNNER_POOLS_FLAGS[node[2]])
                 return set(pool_members(node[2]))
             return {EMPTY, NULL, False, 0.0, Unknown(f"{target[1]}(...).{node[2]}")}
         raise ValueError(f"unknown node {node!r}")
@@ -364,12 +362,6 @@ def holds_signing_material(job) -> bool:
         return True
     names = workflow_jobs.secret_names(job)
     return workflow_jobs.ALL_SECRETS in names or any(name.startswith(SIGNING_SECRET_PREFIXES) for name in names)
-
-
-# RUNNER_POOLS keys that are marks, not pools: what each can hold. `hosted_saturated` is the hosted-first valve's
-# since-time (scripts/ci/linux_pool_spill.py valve_choice()), absent (null) unless GitHub-hosted is saturated. It is
-# only ever a condition (`... && fromJSON(vars.RUNNER_POOLS).linux_2`), never a label.
-RUNNER_POOLS_FLAGS = {"hosted_saturated": (NULL, "2026-11-18T02:00:00Z")}
 
 
 def declared_pools(root: Path = ROOT) -> dict[str, list[str]]:

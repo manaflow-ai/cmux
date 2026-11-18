@@ -2123,6 +2123,17 @@ impl Brain {
             (self.log)(&format!("setting {key} = [{shown}]"));
             return Ok(format!("{key} = [{shown}]"));
         }
+        if key == crate::chief_settings::RELAY_MCP_SERVERS {
+            let list = crate::chief_settings::parse_mcp_servers(value)?;
+            let mut next = self.chief.clone();
+            next.relay_mcp_servers = list.clone();
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            let shown = list.join(", ");
+            (self.log)(&format!("setting {key} = [{shown}]"));
+            return Ok(format!("{key} = [{shown}]"));
+        }
         if key == crate::chief_settings::CLOUD_DELETE_AFTER_PAUSED_DAYS {
             let days = crate::chief_settings::parse_paused_days(value)?;
             let mut next = self.chief.clone();
@@ -2226,10 +2237,11 @@ impl Brain {
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
         Err(format!(
-            "unknown setting {key:?} (known: {CONTACT}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS}, {}, {})",
+            "unknown setting {key:?} (known: {CONTACT}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS}, {}, {}, {})",
             crate::chief_settings::CLOUD_AUTO_PAUSE,
             crate::chief_settings::TRUST_AGENTS,
-            crate::chief_settings::TRUSTED_AGENTS
+            crate::chief_settings::TRUSTED_AGENTS,
+            crate::chief_settings::RELAY_MCP_SERVERS
         ))
     }
 
