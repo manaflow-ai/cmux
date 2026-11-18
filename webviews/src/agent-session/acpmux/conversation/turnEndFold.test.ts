@@ -207,10 +207,10 @@ test("the fold's curve search picks the least lean that fits, and the straight l
   const { turnEndFoldTiming } = await import("./turnEndFold");
   const { MOTION_SETTLE, MOTION_SETTLE_MS } = await import("../../../motion/scale.generated");
   const timing = (px: number) => turnEndFoldTiming(px, MOTION_SETTLE_MS, MOTION_SETTLE);
-  expect(timing(100)).toEqual({ ms: 180, easing: "cubic-bezier(0.236, 0.708, 0.46, 0.854)" });
-  expect(timing(274)).toEqual({ ms: 180, easing: "cubic-bezier(0.328, 0.354, 0.655, 0.677)" });
-  expect(timing(800)).toEqual({ ms: 180, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
-  expect(timing(2000)).toEqual({ ms: 180, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
+  expect(timing(100)).toEqual({ ms: MOTION_SETTLE_MS, easing: "cubic-bezier(0.236, 0.708, 0.46, 0.854)" });
+  expect(timing(274)).toEqual({ ms: MOTION_SETTLE_MS, easing: "cubic-bezier(0.328, 0.354, 0.655, 0.677)" });
+  expect(timing(800)).toEqual({ ms: MOTION_SETTLE_MS, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
+  expect(timing(2000)).toEqual({ ms: MOTION_SETTLE_MS, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
 });
 
 test("the fold's curve search for a 2000 px move stays under half a millisecond", async () => {
