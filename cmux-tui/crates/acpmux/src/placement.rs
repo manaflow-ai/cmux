@@ -808,8 +808,8 @@ pub fn place_demoting(
     // only for room, load or swap whose role takes the work.
     // A demoted host (`place_demoting`) is left out of the first round, and joins only when
     // that round gives no pick or only one passed over for room.
-    let takes = |w: &&Weighed| w.load && (work == Work::Agent || w.lanes.build != Build::No);
-    let choose = |pool: &[&Weighed]| -> (Vec<&Weighed>, bool) {
+    fn choose<'w>(pool: &[&'w Weighed], work: Work) -> (Vec<&'w Weighed>, bool) {
+        let takes = |w: &&Weighed| w.load && (work == Work::Agent || w.lanes.build != Build::No);
         let order: Vec<&Weighed> =
             pool.iter().copied().filter(|w| w.refused.is_none() && !w.unknown).collect();
         if !order.is_empty() {
@@ -824,11 +824,11 @@ pub fn place_demoting(
             (false, false) => (under, true),
             (true, _) => (pool.iter().copied().filter(takes).collect(), true),
         }
-    };
+    }
     let fresh: Vec<&Weighed> = weighed.iter().filter(|w| w.demoted.is_none()).collect();
-    let (mut order, mut overloaded) = choose(&fresh);
+    let (mut order, mut overloaded) = choose(&fresh, work);
     if (order.is_empty() || overloaded) && fresh.len() < weighed.len() {
-        (order, overloaded) = choose(&weighed.iter().collect::<Vec<_>>());
+        (order, overloaded) = choose(&weighed.iter().collect::<Vec<_>>(), work);
     }
     // Lanes against the cap first, in lane_admission's pick order: under `max_lanes` (or no cap
     // configured), then past it on headroom, then a cap with no live count read, then full. An
