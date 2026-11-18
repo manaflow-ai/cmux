@@ -61,7 +61,8 @@ extension PaneCommitMotionTests {
     /// new column places it out of sight, and the camera's way brings it into sight in the motion's time. The new
     /// pane gets its move: it opens while it comes into sight.
     @Test func aPaneThatTheCameraBringsIntoSightKeepsItsMove() throws {
-        let harness = Self.strip(Self.columns([1, 2, 3, 4]), focused: "p2")
+        // The focus is in the first column, so the camera rests at the strip's start.
+        let harness = Self.strip(Self.columns([1, 2, 3, 4]), focused: "p1")
         defer { harness.window.closeAfterTest() }
         let screen = try #require(harness.screen)
         try #require(abs(screen.scroll.value) < 0.5 && screen.scroll.target == screen.scroll.value,
