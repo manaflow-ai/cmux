@@ -8,14 +8,23 @@ import { chat } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
 
 const typed = "Also keep the retry cap.";
+// As acpmux words it (cmux-tui/crates/acpmux/src/pr_feedback/draft.rs `checks`).
 const draft = [
-  "Fix the failing checks of example/project#42 that are this branch's own (1 more also fails on base, so leave it):",
+  "Fix the failing checks on example/project#42 (head 4db9066b). These 2 fail on this branch only:",
   "",
-  "- **lint** (step: Run vp lint)",
-  "  ```",
-  "  src/retry.ts:12:3 error no-unused-vars",
-  "  ```",
-  "- **unit-tests**",
+  "### lint (CI)",
+  "Failing step: Run vp lint",
+  "https://github.com/example/project/actions/runs/1/job/2",
+  "```text",
+  "src/retry.ts:12:3 error no-unused-vars",
+  "##[error]Process completed with exit code 1.",
+  "```",
+  "",
+  "### unit-tests (CI)",
+  "Failing step: Run bun test",
+  "https://github.com/example/project/actions/runs/1/job/3",
+  "",
+  "Left out: 1 failing check that also fails on main's tip, so not this branch's (e2e).",
   "",
 ].join("\n");
 
