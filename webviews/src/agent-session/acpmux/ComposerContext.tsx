@@ -45,7 +45,7 @@ import {
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
 import { FolderPopover } from "./FolderPopover";
-import { GitHubMark } from "./GitHubInstallCard";
+import { GitHubMark } from "./GitHubIcons";
 import { githubFolderRepo, useGitHubPicker, type GitHubPicker } from "./githubRepos";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
