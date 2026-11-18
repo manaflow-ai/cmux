@@ -47,6 +47,7 @@ use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
 pub mod code;
+mod collection;
 pub mod expire;
 pub mod keys;
 pub mod overlay;
@@ -56,12 +57,11 @@ mod text;
 
 use code::WebTarget;
 pub use code::{CodeKind, CodeLayer, WEB_KEY, WebBase};
-pub use expire::{Expired, Expiring, Expiry};
 use keys::KEYBINDINGS;
 pub use overlay::Overlay;
 pub use recover::{ActiveLayer, Layers, Recovered};
 pub use text::thumbnail;
-use text::{one_line, redact_serde, slug, unique_name};
+use text::{one_line, slug, unique_name};
 
 /// The collection format version this cmux reads and writes.
 pub const COLLECTION_VERSION: u32 = 1;
@@ -103,8 +103,7 @@ pub struct Entry {
     /// The generation it was saved from (local only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<u32>,
-    /// When it was last turned on (local only): a code entry on longer than
-    /// [`expire::MAX_AGE_MS`] expires ([`expire`]).
+    /// When it was last turned on (local only; [`expire`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_ms: Option<u64>,
     /// Code not in your build (`source` "pr", "branch", "sha", "dir", "fork"): its web part is the
@@ -469,7 +468,7 @@ impl Customize {
         now_ms: u64,
     ) -> Result<Changed, Error> {
         let label = format!("library: {} {name}", if on { "on" } else { "off" });
-        let change = self.library_change(&label, origin, now_ms, |library| {
+        self.library_change(&label, origin, now_ms, |library| {
             let entry = find(&mut library.entries, name)?;
             if on && let Some(code) = entry.code.as_ref().filter(|code| !code.has_web()) {
                 return Err(Error::Library(format!(
@@ -478,16 +477,9 @@ impl Customize {
                 )));
             }
             entry.on = on;
-            if on {
-                entry.on_ms = Some(now_ms);
-            }
+            entry.on_ms = if on { Some(now_ms) } else { entry.on_ms };
             Ok(())
-        })?;
-        if on {
-            // Turned on again by hand: it is no longer an expired one.
-            self.forget_expired(name);
-        }
-        Ok(change)
+        })
     }
 
     /// Puts code layer `layer` on top of the library as entry
@@ -742,58 +734,6 @@ impl Customize {
             Ok(())
         })?;
         Ok(Imported { added, already, renamed, change })
-    }
-
-    /// Reads a collection from its text, checking only its shape; import
-    /// checks every profile.
-    pub fn parse_collection(text: &str) -> Result<Collection, Error> {
-        if text.len() > MAX_COLLECTION_BYTES {
-            return Err(Error::Library(format!(
-                "a collection is at most {} MiB",
-                MAX_COLLECTION_BYTES / 1024 / 1024
-            )));
-        }
-        let probe: Value = serde_json::from_str(text).map_err(|error| {
-            Error::Library(format!(
-                "not a cmux collection (line {}, column {})",
-                error.line(),
-                error.column()
-            ))
-        })?;
-        // A single profile is a collection of one.
-        if probe.get("cmuxProfile").is_some() {
-            let profile: Profile = serde_json::from_value(probe)
-                .map_err(|_| Error::Library("not a cmux profile".to_owned()))?;
-            return Ok(Collection {
-                version: COLLECTION_VERSION,
-                name: profile.name.clone(),
-                description: String::new(),
-                entries: vec![Entry {
-                    on: true,
-                    source: "import".to_owned(),
-                    words: Vec::new(),
-                    thumbnail: Thumbnail::default(),
-                    profile,
-                    added_ms: None,
-                    generation: None,
-                    on_ms: None,
-                    code: None,
-                }],
-            });
-        }
-        match probe.get("cmuxCollection").and_then(Value::as_u64) {
-            Some(1) => {}
-            Some(n) => {
-                return Err(Error::Library(format!(
-                    "this collection is format {n}; this cmux reads format {COLLECTION_VERSION}"
-                )));
-            }
-            None => return Err(Error::Library("not a cmux collection".to_owned())),
-        }
-        // Where it stops reading, never what it read there.
-        serde_json::from_value(probe).map_err(|error| {
-            Error::Library(format!("not a cmux collection: {}", redact_serde(&error.to_string())))
-        })
     }
 
     /// Every entry of `collection` is one `use` would take, and the set is

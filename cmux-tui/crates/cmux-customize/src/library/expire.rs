@@ -249,16 +249,6 @@ impl Customize {
         Ok(overlay.path)
     }
 
-    /// Entry `name` was turned on again: it no longer reads as expired.
-    pub(super) fn forget_expired(&self, name: &str) {
-        let mut file = self.read_expired();
-        let before = file.expired.len();
-        file.expired.retain(|old| old.name != name);
-        if file.expired.len() != before {
-            let _ = self.write_expired(&file);
-        }
-    }
-
     fn read_expired(&self) -> ExpiredFile {
         std::fs::read(self.roots().state_dir.join(EXPIRED))
             .ok()

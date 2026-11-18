@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use cmux_customize::library::expire::{MAX_AGE_MS, WEB_DEV_OVERLAY};
-use cmux_customize::library::{CodeLayer, Expiry};
+use cmux_customize::library::CodeLayer;
+use cmux_customize::library::expire::{Expiry, MAX_AGE_MS, WEB_DEV_OVERLAY};
 use cmux_customize::{Customize, Roots};
 use serde_json::{Value, json};
 

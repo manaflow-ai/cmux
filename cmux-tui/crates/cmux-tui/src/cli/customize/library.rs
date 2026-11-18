@@ -6,9 +6,8 @@ use std::collections::BTreeSet;
 use std::io::{Read, Write};
 
 use base64::Engine;
-use cmux_customize::library::{
-    Changed, Collection, Expired, Expiring, Expiry, Listing, Position, Recovered, expire,
-};
+use cmux_customize::library::expire::{self, Expired, Expiring, Expiry};
+use cmux_customize::library::{Changed, Collection, Listing, Position, Recovered};
 use cmux_customize::{Customize, Error};
 use serde_json::{Value, json};
 
@@ -196,7 +195,7 @@ pub(super) fn execute(
             Answer::Library { json: json!({ "library": listing }), human }
         }
         Request::Refresh => super::pr::refresh(customize, origin, now_ms)?,
-        Request::Expire => super::pr::expire(customize, origin, now_ms)?,
+        Request::Expire => super::expire::run(customize, origin, now_ms)?,
         Request::On { name } if name == expire::WEB_DEV_OVERLAY => {
             let path = customize.renew_overlay(now_ms)?;
             Answer::Library {
