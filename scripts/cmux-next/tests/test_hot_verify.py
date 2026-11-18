@@ -540,6 +540,13 @@ class ApplyRustTest(unittest.TestCase):
             self.apply({"head": self.HEAD, "daemon_from": self.ONTO, "tree_key": "k"}, src_tree=tree)
         self.assertFalse(any(argv[0] == "cargo" for argv in self.calls))
 
+    def test_a_given_binary_without_daemon_from_is_refused(self):
+        # Review: a binary the worker built for its plan's daemon_from, given to a look whose own plan has none,
+        # would go in labelled as the head's daemon.
+        with self.assertRaisesRegex(hv.LookError, "daemon_from"):
+            self.apply({"head": self.HEAD, "tree_key": "k"}, binary=self.root / "cmux-tui")
+        self.assertEqual(self.calls, [])
+
     def test_a_plan_without_daemon_from_applies_the_head_as_before(self):
         self.published = True
         self.apply({"head": self.HEAD, "tree_key": "k"})

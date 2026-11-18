@@ -457,8 +457,12 @@ def onto_app(repo: Path, base: str, fork: str, head: str) -> tuple[str | None, s
     whose parent is BASE, and an empty reason; or None and why not (a conflict, a git too old for merge-tree).
     The commit's names and dates are fixed and its date is HEAD's, so one change on one app is always the same
     commit (and tree key). It is written to REPO's objects and never to a ref."""
-    done = subprocess.run(["git", "-C", str(repo), "merge-tree", "--write-tree", "--no-messages",
-                           f"--merge-base={fork}", base, head], capture_output=True, text=True, timeout=GIT_SECONDS)
+    try:
+        done = subprocess.run(["git", "-C", str(repo), "merge-tree", "--write-tree", "--no-messages",
+                               f"--merge-base={fork}", base, head], capture_output=True, text=True,
+                              timeout=GIT_SECONDS)
+    except subprocess.TimeoutExpired:
+        return None, f"git merge-tree ran past {GIT_SECONDS}s applying the change onto the app's commit"
     tree = (done.stdout.split() or [""])[0]
     if done.returncode == 1:
         return None, (f"the change's own commits ({fork[:12]}..{head[:12]}) do not apply cleanly onto the app's "
@@ -470,7 +474,7 @@ def onto_app(repo: Path, base: str, fork: str, head: str) -> tuple[str | None, s
            "GIT_COMMITTER_NAME": "hot-verify", "GIT_COMMITTER_EMAIL": "hot-verify@cmux.invalid",
            "GIT_AUTHOR_DATE": f"@{stamp} +0000", "GIT_COMMITTER_DATE": f"@{stamp} +0000"}
     message = f"hot-verify: {fork} .. {head} onto {base}"
-    return git(repo, "commit-tree", tree, "-p", base, "-m", message, env=who), ""
+    return git(repo, "commit-tree", "--no-gpg-sign", tree, "-p", base, "-m", message, env=who), ""
 
 
 def lag_pins_daemon(h, repo: Path, base: str, fork: str) -> list[str]:
@@ -1279,8 +1283,13 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
         return run_hot_apply_rust(argv, side, how)
     argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", planned["head"], "--branch",
             "--parts", "rust", "--app", str(side.app()), "--repo", str(rules)]
-    binary = given
-    if binary is None and src_tree is not None and (src_tree / "cmux-tui/Cargo.toml").is_file() and shutil.which("cargo"):
+    if given is not None:
+        # The look's own plan has no daemon_from, so a binary built for one (the worker's plan) is not this change's
+        # daemon: swapping it in would label another daemon as the head's.
+        raise LookError("--rust-binary is the daemon of a plan's daemon_from, and this plan has none: its daemon "
+                        "is the head's")
+    binary = None
+    if src_tree is not None and (src_tree / "cmux-tui/Cargo.toml").is_file() and shutil.which("cargo"):
         published = hot().published(planned["tree_key"]) if planned.get("tree_key") else False
         if not published:
             done = subprocess.run(["cargo", "build", "--release", "-p", "cmux-tui", "--bin", "cmux-tui"],
@@ -1290,8 +1299,7 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
             binary = src_tree / "cmux-tui/target/release/cmux-tui"
     if binary is not None:
         argv += ["--binary", str(binary)]
-    how = ("given binary" if given is not None else "local cargo build" if binary is not None
-           else "published tree build")
+    how = "local cargo build" if binary is not None else "published tree build"
     return run_hot_apply_rust(argv, side, how)
 
 
