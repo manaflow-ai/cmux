@@ -56,7 +56,7 @@ export function initialConnectionConfig(
   return {
     url: queryUrl || daemonUrl || rememberedUrl || defaultWebSocketUrl(location.hostname),
     token: fragment.get("token")?.trim() || "",
-    servedByDaemon: daemonUrl !== null,
+    servedByDaemon: daemonUrl !== null && !queryUrl,
   };
 }
 

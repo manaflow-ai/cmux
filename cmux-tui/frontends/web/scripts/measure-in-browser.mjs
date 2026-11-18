@@ -2,14 +2,21 @@
 // first paint, time to a live terminal, keystroke-to-echo, screenshots.
 // usage: node scripts/measure-in-browser.mjs URL OUTDIR [RUNS]  (needs google-chrome)
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const [url, outDir, runsArg] = process.argv.slice(2);
 const runs = Number(runsArg || 40);
+if (!url || !outDir) {
+  console.error("usage: measure-in-browser.mjs URL OUTDIR [RUNS]");
+  process.exit(2);
+}
+mkdirSync(outDir, { recursive: true });
 const port = 9300 + Math.floor(Math.random() * 500);
+// The profile's history holds the URL with its token: it is removed on exit.
 const profile = mkdtempSync(join(tmpdir(), "webproto-chrome-"));
+process.on("exit", () => rmSync(profile, { recursive: true, force: true }));
 const chrome = spawn(
   "google-chrome",
   [
@@ -23,6 +30,10 @@ const chrome = spawn(
   ],
   { stdio: "ignore" },
 );
+chrome.on("error", (error) => {
+  console.error(`measure-in-browser: cannot start google-chrome: ${error.message}`);
+  process.exit(2);
+});
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let version;
 for (let i = 0; i < 100 && !version; i++) {
@@ -31,6 +42,10 @@ for (let i = 0; i < 100 && !version; i++) {
   } catch {
     await sleep(100);
   }
+}
+if (!version) {
+  console.error("measure-in-browser: google-chrome did not open its debugging port");
+  process.exit(1);
 }
 const ws = new WebSocket(version.webSocketDebuggerUrl);
 await new Promise((r) => ws.addEventListener("open", r, { once: true }));
@@ -158,6 +173,7 @@ const gridText = await evaluate("document.querySelector('.render-grid')?.innerTe
 
 const stats = (xs) => {
   const v = [...xs].sort((a, b) => a - b);
+  if (v.length === 0) return { n: 0 };
   const q = (p) => v[Math.min(v.length - 1, Math.floor(p * v.length))];
   return {
     n: v.length,

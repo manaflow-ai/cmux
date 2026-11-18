@@ -45,15 +45,18 @@ describe("initialConnectionConfig", () => {
     expect(initialConnectionConfig(location, { getItem: () => "ws://10.0.0.2:9000" }).url).toBe("ws://10.0.0.2:9000");
   });
 
-  it("lets ?ws= win over the serving daemon", () => {
+  // The daemon's page CSP admits only its own origin, so another ?ws= target
+  // stays a manual Connect, never an automatic one.
+  it("lets ?ws= win over the serving daemon without connecting on load", () => {
     const config = initialConnectionConfig({
       hostname: "127.0.0.1",
       host: "127.0.0.1:7690",
       protocol: "http:",
       pathname: "/pages/web/",
       search: "?ws=ws://127.0.0.1:9999",
-      hash: "",
+      hash: "#token=abc",
     });
     expect(config.url).toBe("ws://127.0.0.1:9999");
+    expect(config.servedByDaemon).toBe(false);
   });
 });

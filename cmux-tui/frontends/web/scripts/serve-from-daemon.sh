@@ -30,7 +30,7 @@ done
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 if [ -z "$bin" ]; then
-  bin=$(command -v cmux-tui || command -v cmux || true)
+  bin=$(command -v cmux-tui || true)
 fi
 [ -x "$bin" ] || { echo "serve-from-daemon: no cmux-tui binary (pass --bin)" >&2; exit 2; }
 
@@ -40,17 +40,24 @@ if [ "$build" = 1 ]; then
 fi
 [ -f "$pages/web/index.html" ] || { echo "serve-from-daemon: $pages/web/index.html missing" >&2; exit 2; }
 
-CMUX_TUI_PAGES_DIR=$pages "$bin" --session "$session" --headless --ws "127.0.0.1:$port" &
+# A fresh user-only folder for the socket: the daemon writes its credential
+# next to it (<socket>.websocket.json), so no stale file from an earlier run
+# or another owner can be read, on any platform's runtime directory.
+sockdir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-web.XXXXXX")
+sock=$sockdir/$session.sock
+CMUX_TUI_PAGES_DIR=$pages "$bin" --socket "$sock" --headless --ws "127.0.0.1:$port" &
 daemon=$!
-trap 'kill "$daemon" 2>/dev/null' EXIT INT TERM
+trap 'kill "$daemon" 2>/dev/null; wait "$daemon" 2>/dev/null; rm -rf "$sockdir"' EXIT INT TERM
 
-credential=${XDG_RUNTIME_DIR:-/tmp}/cmux-tui-$(id -u)/$session.sock.websocket.json
+credential=$sock.websocket.json
 for _ in $(seq 1 100); do
   [ -s "$credential" ] && break
   kill -0 "$daemon" 2>/dev/null || { echo "serve-from-daemon: daemon exited" >&2; exit 1; }
   sleep 0.1
 done
-[ -s "$credential" ] || { echo "serve-from-daemon: no credential at $credential" >&2; exit 1; }
+# The daemon mints the credential only when no token is configured
+# (server.ws_token or --ws-token); with one, use that token in the URL.
+[ -s "$credential" ] || { echo "serve-from-daemon: no credential at $credential (is server.ws_token set?)" >&2; exit 1; }
 token=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).token)' "$credential")
 
 echo "cmux on the web: http://127.0.0.1:$port/pages/web/#token=$token"
