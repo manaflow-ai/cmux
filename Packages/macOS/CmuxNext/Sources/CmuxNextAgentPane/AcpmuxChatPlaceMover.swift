@@ -88,6 +88,8 @@ public final class AcpmuxChatPlaceMover {
     nonisolated deinit {
         reconnect?.cancel()
         connection?.cancel()
+        // The gate deregisters on main, where it lives; the hop holds it until then.
+        if let gate = sleepGate { MainDelivery().run { gate.stop() } }
     }
 
     /// The Mac goes to sleep: the daemon hears it, then sleep waits for the moves it started.

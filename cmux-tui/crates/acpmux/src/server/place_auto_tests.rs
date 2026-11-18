@@ -66,6 +66,7 @@ fn here(session: &str) -> Chat {
             local_over_secs: 0,
         },
         there: None,
+        needs: Needs::default(),
     }
 }
 
@@ -81,11 +82,11 @@ const T0: u64 = 1_000_000;
 #[test]
 fn chat_place_task_moves_a_chat_to_a_joined_machine_only_after_load_held() {
     let mut judge = Rejudger::default();
-    let i = input(loaded_mac(), vec![big_box()]);
+    let mut i = input(loaded_mac(), vec![big_box()]);
     let chats = [here("s1")];
-    assert!(judge.step(T0, &chats, &i, &[], false).is_empty(), "a burst of load moves nothing");
-    assert!(judge.step(T0 + 60_000, &chats, &i, &[], false).is_empty());
-    let orders = judge.step(T0 + 121_000, &chats, &i, &[], false);
+    assert!(judge.step(T0, &chats, &mut i, &[], false).is_empty(), "a burst of load moves nothing");
+    assert!(judge.step(T0 + 60_000, &chats, &mut i, &[], false).is_empty());
+    let orders = judge.step(T0 + 121_000, &chats, &mut i, &[], false);
     assert_eq!(orders.len(), 1, "{orders:?}");
     let Order::Run { session, mv, args } = &orders[0] else { panic!("{orders:?}") };
     assert_eq!(session, "s1");
@@ -97,25 +98,27 @@ fn chat_place_task_moves_a_chat_to_a_joined_machine_only_after_load_held() {
 fn chat_place_task_restarts_the_hold_when_load_clears() {
     let mut judge = Rejudger::default();
     let chats = [here("s1")];
-    let loaded = input(loaded_mac(), vec![big_box()]);
-    assert!(judge.step(T0, &chats, &loaded, &[], false).is_empty());
-    assert!(judge.step(T0 + 100_000, &chats, &input(idle_mac(), vec![]), &[], false).is_empty());
+    let mut loaded = input(loaded_mac(), vec![big_box()]);
+    assert!(judge.step(T0, &chats, &mut loaded, &[], false).is_empty());
     assert!(
-        judge.step(T0 + 130_000, &chats, &loaded, &[], false).is_empty(),
+        judge.step(T0 + 100_000, &chats, &mut input(idle_mac(), vec![]), &[], false).is_empty()
+    );
+    assert!(
+        judge.step(T0 + 130_000, &chats, &mut loaded, &[], false).is_empty(),
         "the load cleared in between: the hold starts again"
     );
-    assert_eq!(judge.step(T0 + 251_000, &chats, &loaded, &[], false).len(), 1);
+    assert_eq!(judge.step(T0 + 251_000, &chats, &mut loaded, &[], false).len(), 1);
     // No Auto chat at all forgets the hold too.
     let mut judge = Rejudger::default();
-    assert!(judge.step(T0, &chats, &loaded, &[], false).is_empty());
+    assert!(judge.step(T0, &chats, &mut loaded, &[], false).is_empty());
     judge.idle();
-    assert!(judge.step(T0 + 200_000, &chats, &loaded, &[], false).is_empty());
+    assert!(judge.step(T0 + 200_000, &chats, &mut loaded, &[], false).is_empty());
 }
 
 #[test]
 fn chat_place_task_sends_sleep_moves_to_cloud_through_the_app_at_once() {
     let mut judge = Rejudger::default();
-    let orders = judge.step(T0, &[here("s1")], &sleeping(input(idle_mac(), vec![])), &[], true);
+    let orders = judge.step(T0, &[here("s1")], &mut sleeping(input(idle_mac(), vec![])), &[], true);
     let [Order::App { session, mv }] = orders.as_slice() else { panic!("{orders:?}") };
     assert_eq!(session, "s1");
     assert_eq!(mv.to, Place::Cloud);
@@ -126,16 +129,16 @@ fn chat_place_task_sends_sleep_moves_to_cloud_through_the_app_at_once() {
 fn chat_place_task_asks_once_until_the_retry_window_or_a_new_sleep() {
     let mut judge = Rejudger::default();
     let chats = [here("s1")];
-    let i = sleeping(input(idle_mac(), vec![]));
-    assert_eq!(judge.step(T0, &chats, &i, &[], true).len(), 1);
+    let mut i = sleeping(input(idle_mac(), vec![]));
+    assert_eq!(judge.step(T0, &chats, &mut i, &[], true).len(), 1);
     // Moving: never asked again while it is.
-    assert!(judge.step(T0 + 1_000, &chats, &i, &["s1".into()], true).is_empty());
+    assert!(judge.step(T0 + 1_000, &chats, &mut i, &["s1".into()], true).is_empty());
     // Refused by the app (nothing in flight): not asked again on a plain pass...
-    assert!(judge.step(T0 + 30_000, &chats, &i, &[], false).is_empty());
+    assert!(judge.step(T0 + 30_000, &chats, &mut i, &[], false).is_empty());
     // ...but at once on a new sleep word, and after the retry window.
-    assert_eq!(judge.step(T0 + 31_000, &chats, &i, &[], true).len(), 1);
-    assert!(judge.step(T0 + 62_000, &chats, &i, &[], false).is_empty());
-    assert_eq!(judge.step(T0 + 31_000 + RETRY_MS, &chats, &i, &[], false).len(), 1);
+    assert_eq!(judge.step(T0 + 31_000, &chats, &mut i, &[], true).len(), 1);
+    assert!(judge.step(T0 + 62_000, &chats, &mut i, &[], false).is_empty());
+    assert_eq!(judge.step(T0 + 31_000 + RETRY_MS, &chats, &mut i, &[], false).len(), 1);
 }
 
 #[test]
@@ -146,7 +149,7 @@ fn chat_place_task_brings_chats_back_through_the_app_or_the_peer_move() {
         away("peered", Place::Peer("big-box".into()), Some("there-1")),
         away("lost", Place::Peer("big-box".into()), None),
     ];
-    let orders = judge.step(T0, &chats, &input(idle_mac(), vec![big_box()]), &[], false);
+    let orders = judge.step(T0, &chats, &mut input(idle_mac(), vec![big_box()]), &[], false);
     assert_eq!(orders.len(), 2, "a peer chat with no id there cannot be asked back: {orders:?}");
     let Order::App { session, mv } = &orders[0] else { panic!("{orders:?}") };
     assert_eq!((session.as_str(), &mv.to, mv.back), ("cloudy", &Place::Local, true));
@@ -158,14 +161,16 @@ fn chat_place_task_brings_chats_back_through_the_app_or_the_peer_move() {
     let mut busy = away("peered", Place::Peer("big-box".into()), Some("there-1"));
     busy.running.turn_active = true;
     assert!(
-        Rejudger::default().step(T0, &[busy], &input(idle_mac(), vec![]), &[], false).is_empty()
+        Rejudger::default()
+            .step(T0, &[busy], &mut input(idle_mac(), vec![]), &[], false)
+            .is_empty()
     );
     assert!(
         Rejudger::default()
             .step(
                 T0,
                 &[away("cloudy", Place::Cloud, None)],
-                &input(loaded_mac(), vec![]),
+                &mut input(loaded_mac(), vec![]),
                 &[],
                 false
             )
@@ -180,25 +185,71 @@ fn chat_place_task_reads_where_a_chat_is_from_its_row() {
         turn_active: true,
         moved_to,
         moved_tag: tag.map(str::to_owned),
+        needs_tag: None,
+        cwd: PathBuf::from("/nowhere"),
     };
     let no_turn = |_: &str, _: &str| false;
-    let c = Chat::of(&row(None, None), no_turn);
+    let c = Chat::of(&row(None, None), Needs::default(), no_turn);
     assert_eq!(
         (c.running.place, c.running.pinned, c.running.turn_active),
         (Place::Local, false, true)
     );
     // A stale tag on a chat that is here again does not move it.
-    assert_eq!(Chat::of(&row(None, Some("cloud")), no_turn).running.place, Place::Local);
+    assert_eq!(
+        Chat::of(&row(None, Some("cloud")), Needs::default(), no_turn).running.place,
+        Place::Local
+    );
     let moved = || Some(json!({"host": "big-box.ts.net", "sessionId": "there-1"}));
-    let c = Chat::of(&row(moved(), Some("peer:big-box")), |peer, id| {
+    let c = Chat::of(&row(moved(), Some("peer:big-box")), Needs::default(), |peer, id| {
         peer == "big-box" && id == "there-1"
     });
     assert_eq!(c.running.place, Place::Peer("big-box".into()));
     assert_eq!(c.there.as_deref(), Some("there-1"));
     assert!(c.running.turn_active, "the turn there, from the peer's row");
-    assert!(!Chat::of(&row(moved(), Some("cloud")), no_turn).running.turn_active);
+    assert!(!Chat::of(&row(moved(), Some("cloud")), Needs::default(), no_turn).running.turn_active);
     // Moved with no tag: the person moved it, and Auto leaves it.
-    let c = Chat::of(&row(moved(), None), no_turn);
+    let c = Chat::of(&row(moved(), None), Needs::default(), no_turn);
     assert!(c.running.pinned);
-    assert!(Rejudger::default().step(T0, &[c], &input(idle_mac(), vec![]), &[], false).is_empty());
+    assert!(
+        Rejudger::default().step(T0, &[c], &mut input(idle_mac(), vec![]), &[], false).is_empty()
+    );
+}
+
+#[test]
+fn chat_place_task_weighs_each_chat_with_its_own_needs() {
+    // An over-loaded Mac with only Cloud to go to: a plain chat moves, a macOS chat stays.
+    let mut judge = Rejudger::default();
+    let mut mac_work = here("xcode");
+    mac_work.needs = Needs { macos: true, ..Needs::default() };
+    let chats = [here("plain"), mac_work];
+    let mut i = input(loaded_mac(), vec![]);
+    assert!(judge.step(T0, &chats, &mut i, &[], false).is_empty());
+    let orders = judge.step(T0 + 121_000, &chats, &mut i, &[], false);
+    let [Order::App { session, mv }] = orders.as_slice() else { panic!("{orders:?}") };
+    assert_eq!((session.as_str(), &mv.to), ("plain", &Place::Cloud));
+}
+
+#[test]
+fn chat_place_task_reads_needs_from_the_tag_or_the_folder() {
+    assert_eq!(tag_needs("macos, gpu"), Needs { macos: true, gpu: true, long_build: false });
+    assert_eq!(tag_needs("build,mars"), Needs { long_build: true, ..Needs::default() });
+    assert_eq!(tag_needs(""), Needs::default());
+    let root = std::env::temp_dir().join(format!("place-auto-needs-{}", std::process::id()));
+    let folder = |name: &str| {
+        let dir = root.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    };
+    let xcode = folder("xcode");
+    std::fs::create_dir_all(xcode.join("App.xcodeproj")).unwrap();
+    assert!(folder_needs(&xcode).macos);
+    let apple = folder("apple-package");
+    std::fs::write(apple.join("Package.swift"), "let p = Package(platforms: [.macOS(.v14)])")
+        .unwrap();
+    assert!(folder_needs(&apple).macos);
+    let linux = folder("linux-package");
+    std::fs::write(linux.join("Package.swift"), "let p = Package(name: \"tool\")").unwrap();
+    assert!(!folder_needs(&linux).macos);
+    assert!(!folder_needs(&root.join("missing")).macos);
+    std::fs::remove_dir_all(&root).unwrap();
 }

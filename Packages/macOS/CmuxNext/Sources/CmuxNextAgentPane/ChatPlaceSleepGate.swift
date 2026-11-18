@@ -21,34 +21,50 @@ final class ChatPlaceSleepGate {
     private var root: io_connect_t = 0
     private var port: IONotificationPortRef?
     private var notifier: io_object_t = 0
+    /// IOKit's context: a retained box with a weak gate, so a message that comes after the gate is
+    /// gone finds nothing instead of freed memory. Released by ``stop()``.
+    private var context: Unmanaged<Context>?
+
+    /// What IOKit's callback holds: main-actor isolated, so the callback only passes it to main.
+    @MainActor
+    final class Context {
+        weak var gate: ChatPlaceSleepGate?
+        init(_ gate: ChatPlaceSleepGate) { self.gate = gate }
+    }
 
     init(willSleep: @escaping @MainActor () async -> Void, didWake: @escaping @MainActor () -> Void) {
         (self.willSleep, self.didWake) = (willSleep, didWake)
     }
 
-    /// Registers once; false when IOKit refused.
+    /// Registers once; false when IOKit refused (and nothing stays registered).
     func start() -> Bool {
         guard root == 0 else { return true }
-        // The gate lives as long as its mover, the app's lifetime (``stop()`` before it goes), so the
-        // unretained context never dangles.
-        let context = Unmanaged.passUnretained(self).toOpaque()
-        root = IORegisterForSystemPower(context, &port, { context, _, type, argument in
+        let context = Unmanaged.passRetained(Context(self))
+        self.context = context
+        root = IORegisterForSystemPower(context.toOpaque(), &port, { context, _, type, argument in
             guard let context else { return }
-            let gate = Unmanaged<ChatPlaceSleepGate>.fromOpaque(context).takeUnretainedValue()
+            let box = Unmanaged<Context>.fromOpaque(context).takeUnretainedValue()
             let id = Int(bitPattern: argument)
-            MainDelivery().run { gate.message(type, id) }
+            MainDelivery().run { box.gate?.message(type, id) }
         }, &notifier)
-        guard root != 0, let port, let source = IONotificationPortGetRunLoopSource(port)?.takeUnretainedValue() else { return false }
+        guard root != 0, let port, let source = IONotificationPortGetRunLoopSource(port)?.takeUnretainedValue() else {
+            stop()
+            return false
+        }
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         return true
     }
 
+    /// Deregisters (the mover's deinit calls it); a later message reaches nothing.
     func stop() {
-        guard root != 0 else { return }
-        IODeregisterForSystemPower(&notifier)
-        IOServiceClose(root)
+        if root != 0 {
+            IODeregisterForSystemPower(&notifier)
+            IOServiceClose(root)
+        }
         if let port { IONotificationPortDestroy(port) }
         (root, port, notifier) = (0, nil, 0)
+        context?.release()
+        context = nil
     }
 
     /// What the gate does with one system power message.

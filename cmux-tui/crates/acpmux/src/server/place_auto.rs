@@ -15,9 +15,10 @@
 //! not be judged again there as if it started there.
 
 use super::Hub;
-use crate::chat_place::{self, Input, Move, Place, Running};
-use crate::hub::chat_place_bus::{AutoChat, parse_moved_tag};
+use crate::chat_place::{self, Input, Move, Needs, Place, Running};
+use crate::hub::chat_place_bus::{AutoChat, NEEDS_TAG, parse_moved_tag};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -39,13 +40,15 @@ pub(super) struct Chat {
     pub running: Running,
     /// Its id on the joined machine it moved to (`moved_to.sessionId`).
     pub there: Option<String>,
+    /// What its work needs ([`NEEDS_TAG`], else [`folder_needs`]): `rejudge` weighs it per chat.
+    pub needs: Needs,
 }
 
 impl Chat {
     /// From the hub's row: here while it has not moved; away where Auto's tag says it went; a chat
     /// that moved with no such tag was moved by the person, and Auto leaves it alone (pinned).
     /// `remote_turn(peer, id)` says whether a joined machine's row of it runs a turn.
-    pub(super) fn of(c: &AutoChat, remote_turn: impl Fn(&str, &str) -> bool) -> Self {
+    pub(super) fn of(c: &AutoChat, needs: Needs, remote_turn: impl Fn(&str, &str) -> bool) -> Self {
         let there = c
             .moved_to
             .as_ref()
@@ -67,9 +70,48 @@ impl Chat {
             session: c.session.clone(),
             running: Running { place, home: Place::Local, pinned, turn_active, local_over_secs: 0 },
             there,
+            needs,
         }
     }
 }
+
+/// [`NEEDS_TAG`]'s value (`macos,gpu,build`) as needs; unknown words are ignored.
+pub(super) fn tag_needs(tag: &str) -> Needs {
+    let mut needs = Needs::default();
+    for word in tag.split(',').map(str::trim) {
+        match word {
+            "macos" => needs.macos = true,
+            "gpu" => needs.gpu = true,
+            "build" | "longBuild" => needs.long_build = true,
+            _ => {}
+        }
+    }
+    needs
+}
+
+/// What a folder says the work needs, for a chat the app tagged with no needs: `macos` when it
+/// holds an Xcode project or workspace, or a `Package.swift` that names an Apple platform. Reads
+/// only the folder's own entries and at most [`PACKAGE_READ_BYTES`] of the manifest.
+pub(super) fn folder_needs(cwd: &Path) -> Needs {
+    let apple_project = std::fs::read_dir(cwd).into_iter().flatten().flatten().any(|e| {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        name.ends_with(".xcodeproj") || name.ends_with(".xcworkspace")
+    });
+    let apple_package = || {
+        use std::io::Read as _;
+        let Ok(file) = std::fs::File::open(cwd.join("Package.swift")) else { return false };
+        let mut text = String::new();
+        let _ = file.take(PACKAGE_READ_BYTES).read_to_string(&mut text);
+        [".macOS(", ".iOS(", ".tvOS(", ".watchOS(", ".visionOS(", ".macCatalyst("]
+            .iter()
+            .any(|p| text.contains(p))
+    };
+    Needs { macos: apple_project || apple_package(), ..Needs::default() }
+}
+
+/// The most of a `Package.swift` [`folder_needs`] reads.
+const PACKAGE_READ_BYTES: u64 = 64 * 1024;
 
 /// What the task does for one move.
 #[derive(Debug, Clone, PartialEq)]
@@ -105,6 +147,8 @@ impl Order {
 pub(super) struct Rejudger {
     over_since_ms: Option<u64>,
     asked: HashMap<String, u64>,
+    /// What each untagged chat's folder says it needs (`chat_needs`).
+    folders: HashMap<PathBuf, Needs>,
 }
 
 impl Rejudger {
@@ -121,10 +165,12 @@ impl Rejudger {
         &mut self,
         now_ms: u64,
         chats: &[Chat],
-        input: &Input,
+        input: &mut Input,
         moving: &[String],
         slept: bool,
     ) -> Vec<Order> {
+        // This Mac is over for one plain lane of work; each chat is then weighed with its own needs.
+        input.needs = Needs::default();
         if chat_place::local_over(input) {
             self.over_since_ms.get_or_insert(now_ms);
         } else {
@@ -142,6 +188,7 @@ impl Rejudger {
                 continue;
             }
             let running = Running { local_over_secs, ..chat.running.clone() };
+            input.needs = chat.needs.clone();
             let Some(order) = chat_place::rejudge(&running, input).and_then(|m| Order::of(chat, m))
             else {
                 continue;
@@ -166,7 +213,6 @@ pub(super) fn start(hub: &Arc<Hub>) {
         let mut tick = tokio::time::interval(PASS_EVERY);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut seen = 0;
-        let mut last = tokio::time::Instant::now() - PEER_WAKE_GAP;
         loop {
             let generation = sleep.borrow_and_update().generation;
             {
@@ -175,7 +221,7 @@ pub(super) fn start(hub: &Arc<Hub>) {
                 hub.chat_place.rejudged(generation);
             }
             seen = generation;
-            last = tokio::time::Instant::now();
+            let last = tokio::time::Instant::now();
             loop {
                 tokio::select! {
                     changed = sleep.changed() => {
@@ -209,16 +255,20 @@ async fn pass(hub: &Arc<Hub>, judge: &mut Rejudger, slept: bool) {
             hub.clear_auto_move(&row.session);
         }
     }
-    let chats: Vec<Chat> =
-        rows.iter().map(|r| Chat::of(r, |peer, id| hub.remote_turn_active(peer, id))).collect();
-    let input = super::place::auto_input(
+    let needs = chat_needs(&rows, &mut judge.folders).await;
+    let chats: Vec<Chat> = rows
+        .iter()
+        .zip(needs)
+        .map(|(r, needs)| Chat::of(r, needs, |peer, id| hub.remote_turn_active(peer, id)))
+        .collect();
+    let mut input = super::place::auto_input(
         hub,
         chat_place::Folder::default(),
         chat_place::Needs::default(),
         hub.chat_place.cloud(),
     )
     .await;
-    for order in judge.step(crate::store::now_ms(), &chats, &input, &moving, slept) {
+    for order in judge.step(crate::store::now_ms(), &chats, &mut input, &moving, slept) {
         match order {
             Order::App { session, mv } => {
                 tracing::info!(session = %session, to = mv.to.kind(), why = %mv.why, "chat place: asking the app to move");
@@ -237,6 +287,29 @@ async fn pass(hub: &Arc<Hub>, judge: &mut Rejudger, slept: bool) {
             }
         }
     }
+}
+
+/// Each row's needs: its [`NEEDS_TAG`], else what its folder says ([`folder_needs`], read off the
+/// runtime once per folder and kept in `folders`, which keeps only the folders of `rows`).
+async fn chat_needs(rows: &[AutoChat], folders: &mut HashMap<PathBuf, Needs>) -> Vec<Needs> {
+    let untagged: Vec<PathBuf> =
+        rows.iter().filter(|r| r.needs_tag.is_none()).map(|r| r.cwd.clone()).collect();
+    folders.retain(|cwd, _| untagged.contains(cwd));
+    let unread: Vec<PathBuf> = untagged.into_iter().filter(|c| !folders.contains_key(c)).collect();
+    if !unread.is_empty() {
+        let read = tokio::task::spawn_blocking(move || {
+            unread.into_iter().map(|c| (folder_needs(&c), c)).collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        folders.extend(read.into_iter().map(|(n, c)| (c, n)));
+    }
+    rows.iter()
+        .map(|r| match &r.needs_tag {
+            Some(tag) => tag_needs(tag),
+            None => folders.get(&r.cwd).cloned().unwrap_or_default(),
+        })
+        .collect()
 }
 
 /// `acpmux --json ARGS` from this daemon's own binary, bounded by [`PEER_MOVE_BOUND`].

@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-18",
+  "row": "app_lines",
+  "allow": 14,
+  "why": "Auto chat placement: the daemon (acpmux place_auto.rs) decides when an Auto chat moves and AcpmuxChatPlaceMover (CmuxNextAgentPane) carries chatPlace/move out; the App keeps only the composition-root wiring that needs App-only types: the mover property on AgentTabStore, creating it with QuitAgents.environment, finding the tab through listTabsScoped and calling the existing moveAgentToMachine (CloudMove / CloudBringBack actions on the App action registry), and the empty machine meaning any Cloud machine.",
+  "author": "lane/auto-place-mover (claude opus 5.5)",
+  "owner": "lane/auto-place-mover",
+  "receipt": "Review (router-review gpt-6-astra high): SHIP at a7bdf3a799731b04ece8db12002f66873b5626da",
+  "expiry": "2026-12-18"
+}

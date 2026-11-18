@@ -31,6 +31,10 @@ pub const PLACEMENT_AUTO: &str = "auto";
 /// The tag that remembers where Auto moved a chat (`cloud`, `peer:NAME`), so a restarted daemon
 /// still brings it back. A chat that moved away without it was moved by the person: Auto leaves it.
 pub const MOVED_TAG: &str = "placementMoved";
+/// What the work needs, as the app placed it: `macos`, `gpu`, `build`, comma-separated
+/// (`placementNeeds=macos,gpu`). Without it the rejudge reads `macos` from the folder
+/// (`server/place_auto.rs` `folder_needs`).
+pub const NEEDS_TAG: &str = "placementNeeds";
 /// The log records that end a move.
 const ENDS: [&str; 3] = ["transferred", "transferred_in", "transfer_aborted"];
 const MOVES_BUFFER: usize = 64;
@@ -231,6 +235,10 @@ pub struct AutoChat {
     pub moved_to: Option<Value>,
     /// [`MOVED_TAG`], when Auto moved it.
     pub moved_tag: Option<String>,
+    /// [`NEEDS_TAG`], what the app said the work needs.
+    pub needs_tag: Option<String>,
+    /// Its folder here.
+    pub cwd: std::path::PathBuf,
 }
 
 impl Hub {
@@ -251,6 +259,8 @@ impl Hub {
                         ),
                         moved_to: m.moved_to.clone(),
                         moved_tag: tag(MOVED_TAG),
+                        needs_tag: tag(NEEDS_TAG),
+                        cwd: m.cwd.clone(),
                     })
                 })
             })
