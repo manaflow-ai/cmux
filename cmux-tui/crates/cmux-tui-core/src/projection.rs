@@ -172,10 +172,10 @@ fn attach(
         .map_err(|error| ("projection.params_invalid", format!("bad manifest: {error:#}")))?;
     let (files, bytes) = manifest.totals();
     let entries = manifest.len();
-    let state = roots
-        .first()
-        .map(|home| home.join(".cmux").join("projections").join(&line.name))
-        .ok_or(("projection.unavailable", "no file roots".to_owned()))?;
+    // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
+    let state = crate::platform::workspace_state_dir()
+        .map(|dir| dir.join("projections").join(&line.name))
+        .ok_or(("projection.unavailable", "no state folder".to_owned()))?;
     let projected = mount(&line.name, manifest, &state, &at, digest)?;
     let data = json!({
         "at": at,

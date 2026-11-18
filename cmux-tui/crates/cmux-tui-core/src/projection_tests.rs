@@ -134,9 +134,9 @@ fn a_dial_mounts_its_manifest_and_reads_ask_the_mac() {
     if let Some(mounted) = projected.mounted.lock().unwrap().take() {
         mounted.unmount();
     }
-    assert_eq!(
-        std::fs::read_to_string(home.path().join(".cmux/projections/test-chat/upper/src/new.rs"))
-            .unwrap(),
-        "new"
-    );
+    // The edit outlives the mount, in the daemon's own state folder.
+    let state =
+        crate::platform::workspace_state_dir().unwrap().join("projections").join("test-chat");
+    assert_eq!(std::fs::read_to_string(state.join("upper/src/new.rs")).unwrap(), "new");
+    let _ = std::fs::remove_dir_all(&state);
 }

@@ -152,37 +152,29 @@ pub(crate) fn start(
     std::fs::create_dir_all(&log)?;
     let name = name_of(remote);
     let stderr = std::fs::File::create(log.join(format!("{name}.log")))?;
-    let mut command = std::process::Command::new(exe);
+    let mut command = cmux_process::Command::new(exe);
     command
         .args(["link", "project", "serve", "--socket"])
         .arg(socket)
         .args(["--at", remote, "--name", &name])
         .arg(local)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(stderr);
-    // Its own process group: the server outlives this command and the app's run of it.
-    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(stderr)
+        // Its own process group: the server outlives this command and the app's run of it.
+        .process_group(0);
     let mut child = command.spawn().context("cannot start the folder's server")?;
     let stdout = child.stdout.take().context("no pipe from the folder's server")?;
-    let (sender, receiver) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut line = String::new();
-        let _ = BufReader::new(stdout).read_line(&mut line);
-        let _ = sender.send(line);
-    });
-    let line = match receiver.recv_timeout(START_WAIT) {
-        Ok(line) => line,
-        Err(_) => {
-            let _ = child.kill();
-            bail!("the machine did not mount the folder within {} s", START_WAIT.as_secs());
-        }
-    };
+    // The server answers one line once the machine mounted the folder or refused it; its own dial
+    // waits are bounded (START_WAIT), and an exit closes the pipe.
+    let mut line = String::new();
+    BufReader::new(stdout).read_line(&mut line).context("reading the folder's server")?;
     let answer: Value = serde_json::from_str(line.trim())
         .with_context(|| format!("the folder's server answered {line:?}"))?;
     if answer["ok"] == true {
         // It runs on as the folder's server; `cmux link project stop --at REMOTE` ends it.
         let _ = std::fs::write(log.join(format!("{name}.pid")), child.id().to_string());
+        child.detach("the folder's server outlives the start that made it");
         drop(child);
         return Ok(Ok(answer));
     }
@@ -210,15 +202,10 @@ fn stop(args: &[String]) -> anyhow::Result<Value> {
         return Ok(json!({"ok": true, "stopped": false}));
     };
     let pid = pid.trim().parse::<u32>().context("a bad pid file")?;
-    // Only a server of this binary: the pid may have been reused since.
-    let ours = std::fs::read_to_string(format!("/proc/{pid}/cmdline"))
-        .map(|line| line.contains("project"))
-        .unwrap_or(true);
-    let stopped = ours
-        && std::process::Command::new("kill")
-            .arg(pid.to_string())
-            .status()
-            .is_ok_and(|status| status.success());
+    let stopped = cmux_process::Command::new("kill")
+        .arg(pid.to_string())
+        .status()
+        .is_ok_and(|status| status.success());
     let _ = std::fs::remove_file(&pid_file);
     Ok(json!({"ok": true, "stopped": stopped}))
 }
