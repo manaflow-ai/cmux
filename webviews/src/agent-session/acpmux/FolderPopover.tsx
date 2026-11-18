@@ -17,6 +17,7 @@ import { folderRepo, groupByRepo, isMainCheckout, shownRepoRows, worktreeName, t
 
 /// A folder the popover offers: its path (`id`), name and, when known, its repository.
 export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
+const NO_FOLDERS: FolderChoice[] = [];
 
 /// The new chat's folder popover (hq#1957 composer location strip): a search field over the
 /// projects, one row per repository (projectRepos.ts: a repository's worktrees are its branches, not
@@ -122,11 +123,18 @@ export function FolderPopover({
       ?.focus();
   }, [addingExtra]);
   const extraFolders = extra?.folders;
-  // While adding, the project and the folders already added are not offered again.
+  // While adding, the project and the folders already added are not offered again. A closed menu
+  // offers none: the folders change with every chat that works in another one (their order is the
+  // newest chat's), and grouping thousands of them by repository on each change of a menu nobody
+  // opened cost each page about 7 ms a second at 10K chats (bench/session-scale-typing.bench.ts).
   const offered = useMemo(
     () =>
-      addingExtra ? folders.filter((folder) => folder.id !== current && !extraFolders?.includes(folder.id)) : folders,
-    [addingExtra, folders, current, extraFolders],
+      !open
+        ? NO_FOLDERS
+        : addingExtra
+          ? folders.filter((folder) => folder.id !== current && !extraFolders?.includes(folder.id))
+          : folders,
+    [open, addingExtra, folders, current, extraFolders],
   );
   const groups = useMemo(() => groupByRepo(offered, current), [offered, current]);
   // Repositories that share a name (two clones both called "cmux") are told apart by their path.
