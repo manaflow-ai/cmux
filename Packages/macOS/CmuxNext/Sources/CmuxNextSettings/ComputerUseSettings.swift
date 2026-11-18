@@ -7,12 +7,15 @@
 /// cmux-cua 0.8.12 helper.
 /// `livePreview` (on by default) shows a small live view of the app an agent
 /// drives at the top right of that agent's chat.
+/// `whileLocked` (off by default) lets the helper run calls to one app's
+/// window while the screen is locked (ComputerUseHelperV2Consent.result).
 public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     public var enabled = ComputerUseSettings.enabledDefault
     public var driver = ComputerUseSettings.driverDefault
     /// Whether cmux.json names the driver (the person chose it), not the default.
     public var driverIsSet = false
     public var livePreview = ComputerUseSettings.livePreviewDefault
+    public var whileLocked = ComputerUseSettings.whileLockedDefault
 
     public init() {}
 
@@ -25,6 +28,7 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
             settings.driverIsSet = true
         }
         if let value = reader.bool("livePreview") { settings.livePreview = value }
+        if let value = reader.bool("whileLocked") { settings.whileLocked = value }
         diagnostics = reader.diagnostics
         return settings
     }

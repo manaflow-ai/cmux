@@ -163,7 +163,7 @@ public final class ComputerUseHelperDaemon {
                                                        hostAuthToken: hostToken, machineName: "")
     }
 
-    /// Follows `computerUse.enabled`, `computerUse.driver` (and
+    /// Follows `computerUse.enabled`, `computerUse.driver`, `computerUse.whileLocked` (and
     /// DisabledFeatures) for the app's life.
     public func follow(_ settings: SettingsController, disabledByPolicy: @escaping () -> Bool) {
         observation?.cancel()
@@ -205,6 +205,8 @@ public final class ComputerUseHelperDaemon {
     /// starts the one that is on.
     func apply(_ settings: ComputerUseSettings, disabledByPolicy: Bool) async {
         guard !quitting, !Task.isCancelled else { return }
+        // Read by the helper v2 on its next consent question: no restart.
+        upstream.whileLocked = settings.whileLocked
         let upstreamInBuild = upstream.isInBuild
         let driver = Self.effectiveDriver(settings.driver, upstreamInBuild: upstreamInBuild)
         if driver != settings.driver, settings.enabled, !disabledByPolicy {

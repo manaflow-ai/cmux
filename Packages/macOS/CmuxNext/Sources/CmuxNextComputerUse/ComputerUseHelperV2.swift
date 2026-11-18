@@ -57,6 +57,9 @@ public final class ComputerUseHelperV2 {
     /// questions; set with `acpmux`. Unset, every answer is "no answer" and
     /// the helper refuses every call that needs consent.
     public var machineConsent: @Sendable () async -> Data? = { nil }
+    /// `computerUse.whileLocked`: each consent answer says so, and the helper then runs calls to
+    /// one app's window while the screen is locked (ComputerUseHelperV2Consent.answer).
+    public var whileLocked = false
     /// Records a call the helper refused for consent ("screen" or "control").
     public var consentRefused: @Sendable (String) async -> Void = { _ in }
     private let localSpawner: any ComputerUseHelperV2Spawning
@@ -241,8 +244,9 @@ public final class ComputerUseHelperV2 {
         let pid = spawned.pid
         // Read per question, so wiring set after this start still answers.
         let consent: @Sendable () async -> Data? = { [weak self] in
-            guard let query = await MainActor.run(body: { self?.machineConsent }) else { return nil }
-            return await query()
+            guard case let (query, whileLocked)? = await MainActor.run(body: { self.map { ($0.machineConsent, $0.whileLocked) } })
+            else { return nil }
+            return ComputerUseHelperV2Consent.result(await query(), whileLocked: whileLocked)
         }
         let refused: @Sendable (String) async -> Void = { [weak self] surface in
             guard let record = await MainActor.run(body: { self?.consentRefused }) else { return }

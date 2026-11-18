@@ -1360,7 +1360,8 @@
       "why": "On, cmux starts a helper that sees and controls other apps; only the person turns it on.",
       "keys": [
         "computerUse.enabled",
-        "computerUse.driver"
+        "computerUse.driver",
+        "computerUse.whileLocked"
       ]
     },
     {

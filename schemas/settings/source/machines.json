@@ -105,6 +105,32 @@
             "screenshot",
             "chat"
           ]
+        },
+        {
+          "key": "computerUse.whileLocked",
+          "note": "Off by default. On, the helper runs calls to one app's window (its pid and window_id) while the screen is locked; calls that use the desktop, the pointer or the frontmost app are still refused (cmuxterm-hq docs/design/locked-screen-computer-use.md).",
+          "title": {
+            "key": "settings.computerUse.whileLocked",
+            "text": "Keep Working While Locked"
+          },
+          "help": {
+            "key": "settings.computerUse.whileLocked.help",
+            "text": "Agents keep seeing and using app windows while this Mac is locked. Anything that needs the desktop or the pointer waits for you to unlock."
+          },
+          "summary": {
+            "key": "settings.computerUse.whileLocked.summary",
+            "text": "Lets agents use app windows while the Mac is locked"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "computer use",
+            "locked",
+            "lock screen",
+            "screen lock",
+            "background",
+            "while locked"
+          ]
         }
       ]
     },

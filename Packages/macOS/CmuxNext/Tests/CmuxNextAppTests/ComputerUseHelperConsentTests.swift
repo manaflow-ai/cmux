@@ -24,6 +24,23 @@ struct ComputerUseHelperConsentTests {
         }
     }
 
+    /// `computerUse.whileLocked`: on, the answer carries `"whileLocked": true` beside the daemon's
+    /// record; off, the record passes through byte for byte. No answer stays no answer.
+    @Test func theWhileLockedSettingRidesOnTheAnswer() throws {
+        let record = Data(#"{"consentRequired":false,"consent":{"screen":"none","control":"none"}}"#.utf8)
+        #expect(ComputerUseHelperV2Consent.result(record, whileLocked: false) == record)
+        let on = try #require(ComputerUseHelperV2Consent.result(record, whileLocked: true))
+        let object = try #require(try JSONSerialization.jsonObject(with: on) as? [String: Any])
+        #expect(object["whileLocked"] as? Bool == true)
+        #expect(object["consentRequired"] as? Bool == false)
+        #expect(object["consent"] as? [String: String] == ["screen": "none", "control": "none"])
+        #expect(ComputerUseHelperV2Consent.result(nil, whileLocked: true) == nil)
+        let line = try #require(try JSONSerialization.jsonObject(
+            with: ComputerUseHelperV2Consent.answer(id: 9, result: ComputerUseHelperV2Consent.result(Data("[]".utf8), whileLocked: true)))
+            as? [String: Any])
+        #expect(line["ok"] as? Bool == false, "a result that is not an object is still refused")
+    }
+
     @Test(.timeLimit(.minutes(1))) func everyQuestionIsAskedOfTheDaemonAndNothingInItRedirects() async throws {
         let asked = Mutex(0)
         let refusals = Mutex<[String]>([])

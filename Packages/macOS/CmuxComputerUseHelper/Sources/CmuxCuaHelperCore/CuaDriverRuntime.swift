@@ -115,12 +115,12 @@ public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
         // An acting call that would collide with the person (their app, or the
         // shared cursor) waits here while they are driving, before consent.
         // A background call to another app runs alongside them.
-        try await takeover?.admit(name, requirement: requirement,
-                                  footprint: ActingFootprint(tool: name, arguments: arguments, owner: TakeoverFocusProbe.owner(ofWindow:)))
+        let footprint = ActingFootprint(tool: name, arguments: arguments, owner: TakeoverFocusProbe.owner(ofWindow:))
+        try await takeover?.admit(name, requirement: requirement, footprint: footprint)
         // Consent is the last await before the driver runs: a revoke during
         // the target check, the takeover wait or an earlier preflight still
         // refuses this call.
-        try await gate.admit(name, requirement: requirement)
+        try await gate.admit(name, requirement: requirement, footprint: footprint)
         let free = self.free
         let release = self.release
         return try await withCheckedThrowingContinuation { continuation in
