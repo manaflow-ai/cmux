@@ -1029,7 +1029,9 @@ export function ComposerContext({
               // A new chat that can run on Cloud also offers the person's GitHub repositories, with This
               // Mac picked too: Connect to GitHub is found without knowing to pick Cloud first, and a
               // repository's pick moves the chat to Cloud (pickFolder).
-              {...((cloudSide || (runMode !== undefined && !started)) && !sandboxPicked && !readOnly ? { github } : {})}
+              {...((cloudSide || (runMode !== undefined && !started)) && !sandboxPicked && !readOnly
+                ? { github, githubFirst: cloudSide }
+                : {})}
             />
           ) : (
             <LocationPicker

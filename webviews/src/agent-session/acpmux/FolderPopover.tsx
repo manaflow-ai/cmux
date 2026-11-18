@@ -59,6 +59,7 @@ export function FolderPopover({
   note,
   extra,
   github,
+  githubFirst = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -85,6 +86,8 @@ export function FolderPopover({
   extra?: ExtraFolderRows;
   /// A new Cloud chat's GitHub repositories (githubRepos.ts); none for any other chat.
   github?: GitHubPicker;
+  /// The repositories list above the folders (a chat set to Cloud); under them otherwise.
+  githubFirst?: boolean;
 }) {
   // Add another folder… was chosen: a pick adds a folder the chat also sees instead of moving the chat.
   const [addingExtra, setAddingExtra] = useState(false);
@@ -162,15 +165,18 @@ export function FolderPopover({
     () => (githubReady && githubRepos ? matchingRepos(githubRepos, typed) : []),
     [githubReady, githubRepos, typed],
   );
-  const githubRows = [
-    // GitHub is never missing from a menu that offers it: before the status answers the same row
-    // shows, saying it is being checked (a click connects all the same: the host reads the status first).
-    ...(github && !addingExtra && githubStatus !== "ready" ? [GITHUB_ADD] : []),
-    ...repos.map((repo) => GITHUB_REPO + repo.fullName),
-    // Connected: the way to GitHub's own page for the installation always shows, so a team whose
-    // installation grants no repository yet sees GitHub here, not a menu with nothing of it.
-    ...(githubReady ? [GITHUB_MORE] : []),
-  ];
+  // Connect to GitHub (not connected yet) or Choose more repositories… (connected) is pinned with the
+  // actions under the list: the folder list scrolls (thousands of projects), and a row at its end
+  // would sit below the fold where nobody finds it.
+  const githubAction =
+    github && !addingExtra
+      ? githubReady
+        ? GITHUB_MORE
+        : githubStatus !== "ready"
+          ? GITHUB_ADD
+          : undefined
+      : undefined;
+  const githubRows = repos.map((repo) => GITHUB_REPO + repo.fullName);
   const repoRows = useMemo(() => new Map(repos.map((repo) => [GITHUB_REPO + repo.fullName, repo])), [repos]);
   const currentRepo = githubFolderRepo(current);
   // Actions stay under the folders; the arrows reach them after the last folder.
@@ -201,8 +207,20 @@ export function FolderPopover({
         ...(onNewProject ? [{ value: ACTION + "project", text: t("project.new"), run: onNewProject }] : []),
         ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noFolder"), run: onNoProject }] : []),
       ];
-  const pinned = actions.map((action) => action.value);
-  const suggestions = [...pinned, ...shown.keys(), ...(typedPath ? [typedPath] : []), ...githubRows];
+  // The GitHub row sits right under Add folder….
+  const actionValues = actions.map((action) => action.value);
+  const afterBrowse = actionValues[0] === ACTION + "browse" ? 1 : 0;
+  const pinned = githubAction
+    ? [...actionValues.slice(0, afterBrowse), githubAction, ...actionValues.slice(afterBrowse)]
+    : actionValues;
+  // A Cloud chat lists the repositories first (the machine clones one); any other lists the folders first.
+  const suggestions = [
+    ...pinned,
+    ...(githubFirst ? githubRows : []),
+    ...shown.keys(),
+    ...(typedPath ? [typedPath] : []),
+    ...(githubFirst ? [] : githubRows),
+  ];
   const close = () => {
     setOpen(false);
     setQuery("");
@@ -258,7 +276,7 @@ export function FolderPopover({
   };
   const row = (value: string) => {
     // The GitHub group's heading sits over its first row (composerLocation.css `data-section`).
-    const section = value === githubRows[0] && value !== GITHUB_ADD ? t("cloudRepository.github") : undefined;
+    const section = value === githubRows[0] ? t("cloudRepository.github") : undefined;
     if (value === GITHUB_ADD) {
       const reason = githubStatus === "unavailable" ? github?.state.status?.reason : undefined;
       // The host's refusal, else the wait for the browser, else why it can't connect yet.

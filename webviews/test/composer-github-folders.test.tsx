@@ -263,7 +263,8 @@ test("ready with no repository granted: GitHub still shows, with the way to choo
   try {
     await openFolderMenu();
     const more = option("Choose more repositories…")!;
-    expect(more.querySelector("[data-section]")?.getAttribute("data-section")).toBe("GitHub");
+    // Pinned with the actions under the list, so it is in view however long the folder list is.
+    expect(more.closest(".ui-combobox-pinned")).not.toBeNull();
     await press(more);
     expect(gh.calls.at(-1)).toEqual(["github.connect", {}]);
   } finally {
