@@ -16,7 +16,7 @@
 // Two windows on a 1,500-row chat built as it ships (production React, React Compiler on; unminified
 // so the report names components):
 //   idle    every commit in the window is the keys': none may render outside the composer.
-//   growth  Shift-Return lines grow the box: at most one transcript commit a line (a ratchet; see the test).
+//   growth  Shift-Return lines grow the box, followed and scrolled up: at most one transcript commit a line (a ratchet).
 //   stream  a reply streams (loadRun) while the keys are typed: what the same stream renders outside
 //           the composer with nobody typing (run first) is allowed; anything more is the keys'.
 //           Production React hands the hook no commit priority, so the keys' commits cannot be told
@@ -193,9 +193,17 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
     )) as Commit[];
   }
 
+  /// Components that render on their own clock, never a key's: a message's age (MessageTime,
+  /// clock.ts `useLabelClock`) turns over at the minute for every label in view, in one commit with
+  /// none of their parents. A commit made of those alone is the clock's, wherever the window falls
+  /// (2026-11-18: a scrolled-up growth window crossed a minute and drew 31 MessageTime). A key that
+  /// rendered a label would render its row with it, and still counts.
+  const CLOCK_ONLY = new Set(["MessageTime"]);
+  const byKey = (commit: Commit) => commit.outside.length > 0 && !commit.outside.every((name) => CLOCK_ONLY.has(name));
   const outsideOf = (commits: Commit[]) => {
     const counts = new Map<string, number>();
-    for (const commit of commits) for (const name of commit.outside) counts.set(name, (counts.get(name) ?? 0) + 1);
+    for (const commit of commits)
+      if (byKey(commit)) for (const name of commit.outside) counts.set(name, (counts.get(name) ?? 0) + 1);
     return Object.fromEntries([...counts.entries()].sort((a, b) => b[1] - a[1]));
   };
 
@@ -251,9 +259,13 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
             const form = document.querySelector("form.acpmux-composer");
             const cls = el && typeof el.className === "string" ? el.className.split(/\\s+/).filter(Boolean).slice(0, 2) : [];
             const label = el ? [el.tagName.toLowerCase(), ...cls].join(".") : String(this.nodeName);
-            return { inside: !!(form && el && form.contains(el)), label };
+            return { inside: !!(form && el && form.contains(el)), detached: !this.isConnected, label };
           }`,
-        })) as { result: { value: { inside: boolean; label: string } } };
+        })) as { result: { value: { inside: boolean; detached: boolean; label: string } } };
+        // A node the edit added and then replaced in the same window (ProseMirror swaps a text node on
+        // the next key) is out of the document by now: no layout happened outside, as with the removed
+        // ones above.
+        if (result.value.detached) continue;
         inside = result.value.inside;
         label = result.value.label;
       } catch {
@@ -292,52 +304,76 @@ await requireBrowserLane("composer-keystroke-isolation-browser.test.ts", async (
     });
   });
 
-  // A ratchet, not yet the rule: a line that grows the composer still renders the transcript once (its
-  // dock observer, VirtualTranscript.tsx `take`, flushSyncs the stack's height into React state so the
-  // room under the last row follows). Measured 2026-11-17: 3 lines, 2 transcript commits (TranscriptView,
-  // 2 rows, the minimaps, Jump to latest). The room moving out of React state is the transcript's
-  // piece (cmuxterm-hq handbook keystroke-renders-only-the-composer.md); until then the bound is one
-  // transcript commit per grown line, and a key that grows nothing renders nothing outside (idle above).
-  test("growth: a new line renders the transcript at most once, never more", async () => {
-    const page = await openChat();
-    const since = (await page.evaluate(() => performance.now())) as number;
-    const box = async () =>
-      (await page.evaluate(
-        () => document.querySelector("form.acpmux-composer")?.getBoundingClientRect().height ?? 0,
-      )) as number;
-    const before = await box();
-    let layout: Awaited<ReturnType<typeof layoutDirtied>> | undefined;
-    layout = await layoutDirtied(page, async () => {
-      for (let line = 0; line < 3; line += 1) {
-        await page.keyboard.press("x");
-        await page.keyboard.press("Shift+Enter");
-        await page.waitForTimeout(400);
+  // A ratchet, not yet the rule: a line that grows the composer renders the transcript at most once,
+  // never the pane root, followed and scrolled up. Since #45791 the list takes the growth's room in one
+  // ordinary render after the frame the growth starts in (never in the key's task); measured 2026-11-18
+  // on that head: 3 lines, 2 transcript commits (TranscriptView, rows, the minimaps, Jump to latest),
+  // followed and scrolled up alike. Zero needs the room out of React state without breaking #45791's
+  // one owner (composer-wrap-one-owner.test.ts); a refs-only room did reach zero and broke it. Followed,
+  // the latest row keeps its gap over the grown card.
+  for (const scrolled of [false, true])
+    test(`growth${scrolled ? ", scrolled up" : ""}: a new line renders the transcript at most once, never the pane`, async () => {
+      const page = await openChat();
+      if (scrolled) {
+        await page.mouse.move(550, 300);
+        await page.mouse.wheel(0, -1_200);
+        await page.waitForTimeout(800);
+        await settled(page);
+        await page.locator(PROMPT).first().click();
+        await page.waitForTimeout(300);
       }
-      await page.waitForTimeout(1_500);
+      // The latest drawn row's foot against the composer's top: the gap the lift keeps.
+      const gap = async () =>
+        (await page.evaluate(() => {
+          const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-thread > *")];
+          const foot = Math.max(...rows.map((row) => row.getBoundingClientRect().bottom));
+          return (document.querySelector("form.acpmux-composer")?.getBoundingClientRect().top ?? 0) - foot;
+        })) as number;
+      const gapBefore = await gap();
       await settled(page);
+      const since = (await page.evaluate(() => performance.now())) as number;
+      const box = async () =>
+        (await page.evaluate(
+          () => document.querySelector("form.acpmux-composer")?.getBoundingClientRect().height ?? 0,
+        )) as number;
+      const before = await box();
+      const layout = await layoutDirtied(page, async () => {
+        for (let line = 0; line < 3; line += 1) {
+          await page.keyboard.press("x");
+          await page.keyboard.press("Shift+Enter");
+          await page.waitForTimeout(400);
+        }
+        await page.waitForTimeout(1_500);
+        await settled(page);
+      });
+      const after = await box();
+      const gapAfter = await gap();
+      const commits = (await page.evaluate(
+        (from) => ((window as any).__keystrokeCommits as Commit[]).filter((commit) => commit.at >= from),
+        since,
+      )) as Commit[];
+      await page.close();
+      const report = {
+        scrolled,
+        grew_px: Math.round(after - before),
+        gap_before: Math.round(gapBefore * 10) / 10,
+        gap_after: Math.round(gapAfter * 10) / 10,
+        commits: commits.length,
+        commits_outside: commits.filter(byKey).length,
+        clock_commits: commits.filter((commit) => commit.outside.length > 0 && !byKey(commit)).length,
+        outside: outsideOf(commits),
+        layout,
+      };
+      console.log(`KEYSTROKE-ISOLATION growth ${JSON.stringify(report)}`);
+      // The box grew: the lines took.
+      expect(after - before).toBeGreaterThan(10);
+      const LINES = 3;
+      expect(report.commits_outside).toBeLessThanOrEqual(LINES);
+      expect(report.outside.AcpmuxPane ?? 0).toBe(0);
+      expect(report.outside.TranscriptView ?? 0).toBeLessThanOrEqual(LINES);
+      // Followed, the rows rose with the card: the latest row rests the same gap over it.
+      if (!scrolled) expect(Math.abs(gapAfter - gapBefore)).toBeLessThanOrEqual(1);
     });
-    const after = await box();
-    const commits = (await page.evaluate(
-      (from) => ((window as any).__keystrokeCommits as Commit[]).filter((commit) => commit.at >= from),
-      since,
-    )) as Commit[];
-    await page.close();
-    const LINES = 3;
-    const report = {
-      grew_px: Math.round(after - before),
-      commits: commits.length,
-      commits_outside: commits.filter((commit) => commit.outside.length > 0).length,
-      outside: outsideOf(commits),
-      layout,
-    };
-    console.log(`KEYSTROKE-ISOLATION growth ${JSON.stringify(report)}`);
-    // The box grew: the lines took.
-    expect(after - before).toBeGreaterThan(10);
-    expect(report.commits_outside).toBeLessThanOrEqual(LINES);
-    // Only the transcript takes the room: not the pane root, the header or the sidebar.
-    expect(report.outside.AcpmuxPane ?? 0).toBe(0);
-    expect((report.outside.TranscriptView ?? 0) <= LINES).toBe(true);
-  });
 
   test("streaming: typing renders nothing outside the composer that the stream alone does not", async () => {
     const page = await openChat();
