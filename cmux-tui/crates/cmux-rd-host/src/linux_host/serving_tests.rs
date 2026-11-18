@@ -138,7 +138,9 @@ fn cell(before: Before, sign_in_works: bool, stop_works: bool) {
         let joined = joined.unwrap_or_else(|| panic!("{tag}: a person's p:a kept"));
         assert!(super::current_join(&dir, &joined).is_err(), "{tag}: a host starts as p:a");
     }
-    if !kept {
+    // SameJoin's identity is the current join's: a host that serves on after a failed teardown
+    // (the hub down, the stop failed) still serves the current join. Any other stops itself.
+    if !matches!(before, Before::SameJoin) {
         assert!(earlier_stops_itself, "{tag}: a host started as the earlier identity serves on");
     }
     // The hub signs a person's earlier device out before the unit is stopped: its sessions end
