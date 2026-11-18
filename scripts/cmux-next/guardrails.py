@@ -2032,7 +2032,9 @@ def computing_observation_on_change(version: Version, index: int) -> tuple[bool,
 # A silenced PlistBuddy read of a plist file: `PlistBuddy -c 'Print :KEY' FILE 2>/dev/null`. On a FILE that is not
 # there, Print writes "File Doesn't Exist, Will Create: FILE" to stdout, so the `$(...)` takes the message as the value
 # (#45226: a Release build's Screen Sharing helper got that name and its mv failed).
-PLIST_PRINT = re.compile(r"PlistBuddy\b.*\bPrint\b.*2>\s*/dev/null")
+PLIST_PRINT = re.compile(r"PlistBuddy\b.*\bPrint\b")  # unguarded_plist_read then needs `2>/dev/null` in the command
+PLIST_SILENCED = re.compile(r"2>\s*/dev/null")
+PLIST_CONTINUED_LINES = 4  # a command read on through this many `\`-continued lines after its first
 PLIST_FILE = re.compile(r"""PlistBuddy\s+(?:-x\s+)?(?:-c\s+(?:'[^']*'|"[^"]*")\s+)+("[^"]*"|[^\s;|)]+)""")
 SHELL_FUNCTION = re.compile(r"^\s*(?:function\s+)?[\w-]+\s*\(\)\s*\{")
 PLIST_GUARD_LINES = 8  # a `[[ -f FILE ]]` on the line or this many lines above it guards it
@@ -2053,16 +2055,25 @@ def unguarded_plist_read(version: Version, index: int) -> tuple[bool, list[int]]
     """Whether the silenced Print on line INDEX reads a FILE that no `-f FILE`, `-e FILE` or `-s FILE` test on the
     line or the PLIST_GUARD_LINES above it checks (and those 1-based lines: a push that deletes the guard makes it
     new debt). For a function's argument (`"$1"`) the window stops at the read's own function line: a check of
-    `"$1"` in the function above guards nothing here. A commented-out check and a `! -f` test are no check. Stdin reads no file."""
-    found = PLIST_FILE.search(version.lines[index])
-    if found is None or found.group(1).strip('"') in ("/dev/stdin", "-"):
+    `"$1"` in the function above guards nothing here. A commented-out check and a `! -f` test are no check. Stdin reads no file.
+    The command is read on through lines that end in `\\`, so a `2>/dev/null` or the FILE on a continued line counts
+    (and those lines are in the window: an edit there rejudges the read)."""
+    command, last = version.lines[index], index
+    while (command.rstrip().endswith("\\") and last + 1 < len(version.lines)
+           and last - index < PLIST_CONTINUED_LINES):
+        last += 1
+        command = command.rstrip()[:-1] + " " + version.lines[last].lstrip()
+    found = PLIST_FILE.search(command)
+    if (found is None or not PLIST_SILENCED.search(command[found.start():])
+            or found.group(1).strip('"') in ("/dev/stdin", "-")):
         return False, []
     start, positional = index, re.search(r"\$\{?[1-9]", found.group(1)) is not None
     while start > max(0, index - PLIST_GUARD_LINES) and not (positional and SHELL_FUNCTION.search(version.lines[start])):
         start -= 1
     window = list(range(start, index + 1))
     guard = re.compile(r"(?:^|[\s\[(])(?<!!\s)-[fes]\s+" + re.escape(found.group(1)) + r"(?:\s|\]|$)")
-    return not any(guard.search(shell_code(version.lines[j])) for j in window), [j + 1 for j in window]
+    guarded = any(guard.search(shell_code(version.lines[j])) for j in window)
+    return not guarded, [j + 1 for j in window + list(range(index + 1, last + 1))]
 
 
 RULES = (
