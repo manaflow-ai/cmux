@@ -95,12 +95,14 @@ jobs:
       # run does not wait behind it (no shared group), but its own publish
       # needs the same approval, and an approval left for hours is how the
       # 2026-11-09 run held every dispatch until 11-13. Best effort: a failed
-      # read only skips the notice.
+      # read only skips the notice, so a rate-limited one is tried once rather
+      # than waiting out the job's hour.
       - name: Name runs still waiting for a publish approval
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          GH_BUDGET_WAIT_ATTEMPTS: "1"
         run: |
           set -uo pipefail
           waiting="$(gh api "repos/$GH_REPO/actions/workflows/cmux-next-cua-helper-dev-sign.yml/runs?status=waiting&per_page=20" \
