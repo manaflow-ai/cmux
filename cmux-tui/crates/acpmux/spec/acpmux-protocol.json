@@ -2093,6 +2093,17 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/place_chat_settled",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "notification",
+      "name": "chatPlace/move",
+      "params": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peer_add",
       "params": true,
       "result": true

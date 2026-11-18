@@ -368,6 +368,8 @@ final class AgentTabStore {
     var machineTargets: @MainActor (_ tab: AgentTabKey) -> [AgentPaneMoveTarget] = { _ in [] }
     /// Runs the existing CloudMove action for a validated target machine.
     var moveAgentToMachine: @MainActor (_ tab: AgentTabKey, _ machine: String) -> Bool = { _, _ in false }
+    /// Auto chat placement's hands: runs the daemon's `chatPlace/move` through ``moveAgentToMachine``.
+    var chatPlaceMover: AcpmuxChatPlaceMover?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     /// `daemons` and `updates` are the app's (`AppServices`); a test's store has its own and updates no other machine.

@@ -809,6 +809,8 @@ pub async fn serve_unix_with_v2(
     listener: UnixListener,
     v2: Option<Arc<acpmux_core::life::V2>>,
 ) -> Result<()> {
+    // Auto chat placement weighs this machine's Auto chats from now on (once per daemon).
+    place_auto::start(&hub);
     loop {
         let (stream, _) = match listener.accept().await {
             Ok(s) => s,
@@ -2361,10 +2363,10 @@ mod cancel_classes_tests;
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
 mod client_request;
-pub(crate) mod controls;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
+pub(crate) mod controls;
 mod in_flight;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
@@ -2423,6 +2425,8 @@ pub(crate) mod peer_status;
 pub mod peer_text;
 mod pending;
 mod place;
+/// Auto chat placement's rejudge task (`place_auto.rs`).
+mod place_auto;
 mod processes;
 mod prompt_cancel;
 mod workflow_activity;

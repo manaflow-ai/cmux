@@ -139,11 +139,23 @@ extension AgentTabStore {
         tabs.moveAgentToMachine = { [weak tabs] tab, machine in
             guard let tabs, let registry = tabs.actionRegistry else { return false }
             let local = machine == AgentPaneMoveTarget.localID
+            // "" (Auto's move to Cloud): no machine named, so the move takes any Cloud machine.
             let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key),
-                                               arguments: local ? [:] : ["machine": .string(machine)], origin: .user).onMachine(tab.machine)
+                                               arguments: local || machine.isEmpty ? [:] : ["machine": .string(machine)], origin: .user).onMachine(tab.machine)
             let onCloud = tabs.record(for: tab)?.record.host.hasPrefix(MachineRegistry.registryHostPrefix) == true
             let action = local ? CloudBringBack.action : onCloud ? CloudBringBack.toMachine : CloudMove.action
             return registry.perform(action, invocation: invocation)
+        }
+        // Auto chat placement (design/auto-chat-placement.md): the daemon decides; each chatPlace/move
+        // runs the same Move to… above on the tab showing that chat.
+        if let environment = QuitAgents.environment(services) {
+            tabs.chatPlaceMover = AcpmuxChatPlaceMover(environment: environment) { [weak tabs] move in
+                guard let tabs, let target = move.target,
+                      let row = tabs.listTabsScoped().first(where: { (tabs.sessions[tabs.tabKey($0.key, machine: $0.machine)] ?? $0.record.session) == move.session })
+                else { return false }
+                return tabs.moveAgentToMachine(tabs.tabKey(row.key, machine: row.machine), target)
+            }
+            tabs.chatPlaceMover?.start()
         }
         tabs.launchImages = services.launchImages; services.launchImages.localMachine = { [weak services] in services?.daemon.machineID }
         tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)

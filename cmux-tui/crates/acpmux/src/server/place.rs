@@ -422,13 +422,17 @@ mod tests {
     }
 }
 
-/// Whether the app said this machine is going to sleep (`_acpmux/place_chat_event`
-/// `willSleep`), until it says it woke (`didWake`). Auto moves chats off a machine that sleeps.
-static SLEEPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 /// `_acpmux/place_chat_event {kind: "willSleep"|"didWake"}`: the app's power events, which no
-/// health reading sees in time (the lid closes, the system sleeps seconds later).
-pub(super) fn chat_place_event(origin: Origin, params: &Value) -> Result<Value, RpcError> {
+/// health reading sees in time (the lid closes, the system sleeps seconds later). Until `didWake`
+/// Auto treats this Mac as away (`hub.chat_place`, `chat_place_bus.rs`). `willSleep` answers once
+/// the rejudge task has answered the change (at most `REJUDGE_BOUND`, 3 s), with the chats it
+/// started moving: `{sleeping, moving}`.
+pub(super) async fn chat_place_event(
+    hub: &Hub,
+    origin: Origin,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    use crate::hub::chat_place_bus::REJUDGE_BOUND;
     local_only(origin)?;
     let sleeping = match params.get("kind").and_then(Value::as_str) {
         Some("willSleep") => true,
@@ -439,8 +443,27 @@ pub(super) fn chat_place_event(origin: Origin, params: &Value) -> Result<Value, 
             )));
         }
     };
-    SLEEPING.store(sleeping, std::sync::atomic::Ordering::Relaxed);
-    Ok(json!({"sleeping": sleeping}))
+    let generation = hub.chat_place.set_sleeping(sleeping);
+    if sleeping {
+        hub.chat_place.wait_rejudged(generation, REJUDGE_BOUND).await;
+    }
+    Ok(json!({"sleeping": sleeping, "moving": hub.chat_place.in_flight()}))
+}
+
+/// The longest `_acpmux/place_chat_settled` waits: macOS sleeps 30 s after it asked anyway.
+const SETTLED_MAX_MS: u64 = 30_000;
+
+/// `_acpmux/place_chat_settled {waitMs}`: waits, at most `waitMs` (capped at 30 s), until no move
+/// Auto started is in flight; `{moving}` names the chats still moving.
+pub(super) async fn place_chat_settled(
+    hub: &Hub,
+    origin: Origin,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    local_only(origin)?;
+    let wait = params.get("waitMs").and_then(Value::as_u64).unwrap_or(0).min(SETTLED_MAX_MS);
+    let moving = hub.chat_place.settled(std::time::Duration::from_millis(wait)).await;
+    Ok(json!({"moving": moving}))
 }
 
 /// Auto chat placement answers this machine's own clients only, as `_acpmux/place` does: its unix
@@ -496,7 +519,8 @@ pub(super) async fn chat_place(
     params: &Value,
 ) -> Result<Value, RpcError> {
     local_only(origin)?;
-    use crate::chat_place::{Cloud, Folder, Input, Needs, Place, Power, Running};
+    use crate::chat_place::{Cloud, Folder, Needs, Place, Running};
+    let from_app = origin == Origin::LocalApp;
     // A missing or null object reads as every field's default.
     let parse = |k: &str| match params.get(k) {
         None | Some(Value::Null) => json!({}),
@@ -514,17 +538,11 @@ pub(super) async fn chat_place(
         let cwd = std::path::PathBuf::from(cwd);
         folder.bytes = tokio::task::spawn_blocking(move || folder_bytes(&cwd)).await.ok().flatten();
     }
-    let local = this_machine(hub).await;
-    let (peers, _down) = split_peers(hub.peers());
-    let registry = crate::placement::load_registry();
-    // Machines the registry keeps a person's (personal, interactive) take no one else's chat.
-    let (peers, _) = leave_out(peers, |name| {
-        crate::placement::personal(registry.as_ref(), name)
-            || crate::placement::interactive(registry.as_ref(), name)
-    });
-    let mut power = Power::from_health(&local.health);
-    power.sleeping |= SLEEPING.load(std::sync::atomic::Ordering::Relaxed);
-    let input = Input { local, peers, registry, power, folder, needs, cloud };
+    // The app's own pane passes the person's plan: the rejudge task weighs Cloud with it.
+    if from_app && params.get("cloud").is_some_and(Value::is_object) {
+        hub.chat_place.set_cloud(cloud.clone());
+    }
+    let input = auto_input(hub, folder, needs, cloud).await;
     let verdict = crate::chat_place::decide(&input);
     let mut out = verdict.to_json();
     if let Some(r) = params.get("running").filter(|r| r.is_object()) {
@@ -544,4 +562,27 @@ pub(super) async fn chat_place(
         cmux_json::JsonSet::set(&mut out, "move", mv.map(|m| m.to_json()).unwrap_or(Value::Null));
     }
     Ok(out)
+}
+
+/// What `chat_place::decide` and `rejudge` weigh, read now: this machine's health, each connected
+/// peer's last reading (less the ones the registry keeps a person's), the app's sleep word, and
+/// the folder, needs and Cloud plan given. `_acpmux/place_chat` and the rejudge task
+/// (`place_auto.rs`) both read it here.
+pub(super) async fn auto_input(
+    hub: &Hub,
+    folder: crate::chat_place::Folder,
+    needs: crate::chat_place::Needs,
+    cloud: crate::chat_place::Cloud,
+) -> crate::chat_place::Input {
+    let local = this_machine(hub).await;
+    let (peers, _down) = split_peers(hub.peers());
+    let registry = crate::placement::load_registry();
+    // Machines the registry keeps a person's (personal, interactive) take no one else's chat.
+    let (peers, _) = leave_out(peers, |name| {
+        crate::placement::personal(registry.as_ref(), name)
+            || crate::placement::interactive(registry.as_ref(), name)
+    });
+    let mut power = crate::chat_place::Power::from_health(&local.health);
+    power.sleeping |= hub.chat_place.sleeping();
+    crate::chat_place::Input { local, peers, registry, power, folder, needs, cloud }
 }

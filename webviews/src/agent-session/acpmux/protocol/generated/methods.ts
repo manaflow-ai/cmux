@@ -303,6 +303,7 @@ export interface AcpmuxRequests {
   "_acpmux/place": { params: unknown; result: unknown };
   "_acpmux/place_chat": { params: unknown; result: unknown };
   "_acpmux/place_chat_event": { params: unknown; result: unknown };
+  "_acpmux/place_chat_settled": { params: unknown; result: unknown };
   "_acpmux/peer_add": { params: unknown; result: unknown };
   "_acpmux/peer_lease": { params: unknown; result: unknown };
   "_acpmux/peer_reconnect": { params: PeerReconnectParams; result: unknown };
@@ -351,6 +352,7 @@ export interface AcpmuxNotifications {
   "_acpmux/chat_changed": unknown;
   "_acpmux/chats_lagged": unknown;
   "_acpmux/chats_window_changed": unknown;
+  "chatPlace/move": unknown;
   "_acpmux/event": SessionEvent;
   "_acpmux/message": MessageEvent;
   "_acpmux/session_changed": SessionChanged;
@@ -691,6 +693,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/place", kind: "request", acp: false, typed: false },
   { name: "_acpmux/place_chat", kind: "request", acp: false, typed: false },
   { name: "_acpmux/place_chat_event", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/place_chat_settled", kind: "request", acp: false, typed: false },
+  { name: "chatPlace/move", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/peer_add", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_lease", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_reconnect", kind: "request", acp: false, typed: true },
