@@ -30,6 +30,7 @@ import {
   chatFontFacesKey,
   measurableStack,
   quoteFamilyStack,
+  declaresFirstFamily,
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
@@ -69,6 +70,10 @@ export interface ChatDisplay {
   /// Code as a share of the text size, or null for the chat's own code sizes (13px inline and
   /// 12px blocks at 14px text, scaled with the text).
   codeScale: number | null;
+  /// False when the code family is a font pack's own face (its first family is in the faces map):
+  /// code then draws without ligatures, so `=>` and `===` read as typed, as in the default chat's
+  /// code font. A code family set to an installed font keeps its ligatures.
+  codeLigatures: boolean;
   /// Where Session Info goes when open (session-info/SessionInfo.tsx): `overlay` (the default) floats
   /// in the chat's right gutter, so opening, closing or updating it never reflows the chat (Leo,
   /// 2026-10-20), and pushes the chat aside only when the gutter has no room for it, so it never
@@ -202,6 +207,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   lineHeight: CHAT_DISPLAY.lineHeight.fallback,
   codeFamily: null,
   codeScale: null,
+  codeLigatures: true,
   sessionInfo: "overlay",
   railSide: "left",
   minimal: false,
@@ -255,6 +261,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
     : isPreset(values[MARKDOWN_FOLLOWED.font])
       ? (values[MARKDOWN_FOLLOWED.font] as ChatFontPreset)
       : "system";
+  const codeFamily = family(values[CHAT_DISPLAY.codeFamily.key]) ?? family(values[MARKDOWN_FOLLOWED.codeFamily]);
   return {
     harnessPlacement: harnessPlacement(values[HARNESS_PLACEMENT_KEY]),
     managedHarnessPlacement: harnessPlacement(values[`${HARNESS_PLACEMENT_KEY}.managed`]),
@@ -266,10 +273,11 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
     proseFamily: family(values[PROSE_FAMILY_KEY]),
     fontSize: number(values[CHAT_DISPLAY.fontSize.key], CHAT_DISPLAY.fontSize) ?? DEFAULT_CHAT_DISPLAY.fontSize,
     lineHeight: number(values[CHAT_DISPLAY.lineHeight.key], CHAT_DISPLAY.lineHeight) ?? DEFAULT_CHAT_DISPLAY.lineHeight,
-    codeFamily: family(values[CHAT_DISPLAY.codeFamily.key]) ?? family(values[MARKDOWN_FOLLOWED.codeFamily]),
+    codeFamily,
     codeScale:
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
+    codeLigatures: !declaresFirstFamily(values[CHAT_FONT_FACES_KEY], codeFamily),
     sessionInfo: values[SESSION_INFO_PLACEMENT_KEY] === "push" ? "push" : "overlay",
     railSide: values[RAIL_SIDE_KEY] === "right" ? "right" : "left",
     minimal: values[MINIMAL_MODE_KEY] === true,
@@ -351,6 +359,9 @@ export function chatDisplayVariables(
     "--cv-reply-font": display.proseFamily ? `${quoteFamilyStack(display.proseFamily)}, var(--cv-font)` : null,
     // At its designed spacing, as a pack's interface family is, whatever the Interface Font tracks.
     "--cv-reply-tracking": display.proseFamily ? "0px" : null,
+    // A pack's code face draws as typed (conversation.css `.cv-code`, `.cv-codeblock__body`).
+    "--cv-code-ligatures": display.codeLigatures ? null : "none",
+    "--cv-code-features": display.codeLigatures ? null : '"calt" 0, "liga" 0',
     "--cv-font-size": isDefault("fontSize") ? null : `${fontSize}px`,
     // New Tab applies density with zoom, so its prompt needs the unscaled preference.
     "--cv-base-font-size": display.fontSize === DEFAULT_CHAT_DISPLAY.fontSize ? null : `${display.fontSize}px`,

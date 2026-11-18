@@ -58,6 +58,27 @@ export function chatFontFaceCss(faces: readonly ChatFontFace[]): string {
 
 /// A cheap key of a faces value: its keys, each value's length and ends. A host push brings a new
 /// object each time; this tells an unchanged map without validating and joining megabytes again.
+/// Whether `stack`'s first family is one the faces map (CHAT_FONT_FACES_KEY) declares: a pack's own
+/// face, as opposed to a font installed on the Mac. Reads only the map's keys and each value's
+/// prefix, not the data.
+export function declaresFirstFamily(raw: unknown, stack: string | null): boolean {
+  if (!stack || !raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const first = stack
+    .split(",")[0]
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .toLowerCase();
+  return Object.entries(raw as Record<string, unknown>).some(
+    ([key, value]) =>
+      typeof value === "string" &&
+      value.startsWith("data:font/") &&
+      key
+        .replace(/:italic$/, "")
+        .trim()
+        .toLowerCase() === first,
+  );
+}
+
 export function chatFontFacesKey(raw: unknown): string {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
   return Object.entries(raw as Record<string, unknown>)

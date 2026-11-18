@@ -78,6 +78,9 @@ describe("with no pack keys", () => {
       // New, and unset: replies keep --cv-font (conversation.css falls back to it).
       "--cv-reply-font": null,
       "--cv-reply-tracking": null,
+      // New, and unset: code keeps its font's ligatures.
+      "--cv-code-ligatures": null,
+      "--cv-code-features": null,
       "--cv-font-size": null,
       "--cv-base-font-size": null,
       "--cv-base-line-height": null,
@@ -177,6 +180,38 @@ describe("the pack's families", () => {
     expect(fonts("prompt").length).toBeGreaterThan(0);
     expect(new Set(fonts("prompt"))).toEqual(new Set([measureFont]));
     setChatDisplay({});
+  });
+});
+
+describe("code ligatures", () => {
+  const CODE_FAMILY = "agentPane.display.code.family";
+
+  test("a pack's own code face draws without ligatures", () => {
+    const display = resolveChatDisplay({ [CODE_FAMILY]: "Folio Mono", [CHAT_FONT_FACES_KEY]: { "Folio Mono": WOFF2 } });
+    expect(display.codeLigatures).toBe(false);
+    const variables = chatDisplayVariables(display);
+    expect(variables["--cv-code-ligatures"]).toBe("none");
+    expect(variables["--cv-code-features"]).toBe('"calt" 0, "liga" 0');
+    // The first family decides, by name (case and an italic-only key count too).
+    expect(
+      resolveChatDisplay({ [CODE_FAMILY]: "folio mono, Menlo", [CHAT_FONT_FACES_KEY]: { "Folio Mono:italic": WOFF2 } })
+        .codeLigatures,
+    ).toBe(false);
+  });
+
+  test("an installed code font set by hand keeps its ligatures", () => {
+    for (const values of [
+      { [CODE_FAMILY]: "Fira Code" },
+      // A pack face that is not the code family's first entry.
+      { [CODE_FAMILY]: "Fira Code, Folio Mono", [CHAT_FONT_FACES_KEY]: { "Folio Mono": WOFF2 } },
+      // A key whose value is not a font data URL declares nothing.
+      { [CODE_FAMILY]: "Folio Mono", [CHAT_FONT_FACES_KEY]: { "Folio Mono": "https://example.invalid/f.woff2" } },
+    ]) {
+      const display = resolveChatDisplay(values);
+      expect(display.codeLigatures).toBe(true);
+      expect(chatDisplayVariables(display)["--cv-code-ligatures"]).toBeNull();
+      expect(chatDisplayVariables(display)["--cv-code-features"]).toBeNull();
+    }
   });
 });
 

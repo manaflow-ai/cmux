@@ -1260,6 +1260,8 @@
   font-size: var(--cv-code-size, 13px);
   line-height: var(--cv-code-line-height, inherit);
   letter-spacing: var(--cv-code-tracking, 0px);
+  font-variant-ligatures: var(--cv-code-ligatures, normal);
+  font-feature-settings: var(--cv-code-features, normal);
   padding: var(--cv-code-padding, 0.75px 5px);
   border-radius: var(--cv-code-radius, 5px);
   background: var(--cv-code-bg);
@@ -1666,6 +1668,9 @@
 .cv-codeblock__body {
   display: block;
   margin: 0 1px 13px 13px;
+  /* Inherited into the highlighter's lines: a font pack's code face draws without ligatures. */
+  font-variant-ligatures: var(--cv-code-ligatures, normal);
+  font-feature-settings: var(--cv-code-features, normal);
 }
 /* An unlabeled fence (CodeHeader.tsx `corner`): no header row. Its actions float in the card's
    top-right corner as bare glyphs, no strip behind them (the first line keeps their room, below),
