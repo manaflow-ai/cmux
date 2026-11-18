@@ -13654,6 +13654,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               inputToken={newTab?.inputToken}
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
               onComposer={setNewTabComposer}
+              // `.opens(...)`: the paths cmux's own page takes for a recent card and a Recently Closed row.
+              onOpen={(target) =>
+                "chat" in target
+                  ? void callNative("chats.open", { key: target.chat }).catch(() => undefined)
+                  : void callNative("tab.jump", { target: "closed", id: target.closed }).catch(() => undefined)
+              }
             />
           ) : null}
           {newTabAppShown && !newTabComposerSlot ? null : showNewTab &&

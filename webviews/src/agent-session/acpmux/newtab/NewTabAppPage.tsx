@@ -1,7 +1,13 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useSyncExternalStore } from "react";
 import { AppSceneMount } from "../../../apps/scene/appSceneMount";
 import { appPanelsDevClient } from "../../../apps/scene/panelsClient";
-import { SceneHostContext, SceneRenderer, type SceneComposerSlot } from "../../../apps/scene/SceneRenderer";
+import {
+  SceneHostContext,
+  SceneRenderer,
+  type SceneComposerSlot,
+  type SceneHost,
+  type SceneOpenTarget,
+} from "../../../apps/scene/SceneRenderer";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { PageClient } from "../../../pages/shared/pageClient";
@@ -25,6 +31,9 @@ type Props = {
   /// Tab composer there, and that field reports the page's input readiness. Without it a Composer
   /// node draws nothing.
   onComposer?(slot: SceneComposerSlot | null): void;
+  /// A node's `.opens(...)` tap: the caller opens the chat or reopens the closed item in this tab,
+  /// as cmux's own page does (its card and Recently Closed paths).
+  onOpen?(target: SceneOpenTarget): void;
 };
 
 /// A whole New Tab page drawn by an extension (`cmux.newtab/1`), shown only because the person named
@@ -33,7 +42,7 @@ type Props = {
 /// the rest of this page's life, so a reconnect never swaps out a page the person is typing in. It
 /// stays mounted while the page lives, also behind another tab (no visibility listener:
 /// check:switch-fetches).
-export function NewTabAppPage({ app, cwd, onUnavailable, inputToken, onInputReady, client: injected, onComposer }: Props) {
+export function NewTabAppPage({ app, cwd, onUnavailable, inputToken, onInputReady, client: injected, onComposer, onOpen }: Props) {
   const client = injected === undefined ? (pageHostClient() ?? appPanelsDevClient()) : injected;
   const mount = useMemo(() => new AppSceneMount(client, "newTab", app, cwd ? { cwd } : {}), [client, app, cwd]);
   const status = useSyncExternalStore(mount.store.subscribeStatus, mount.store.getStatus, mount.store.getStatus);
@@ -67,11 +76,17 @@ export function NewTabAppPage({ app, cwd, onUnavailable, inputToken, onInputRead
   // The latest caller's callback behind one host value: a re-render of the caller re-registers nothing.
   const giveComposer = useRef(onComposer);
   giveComposer.current = onComposer;
+  const opener = useRef(onOpen);
+  opener.current = onOpen;
   const hosts = !!onComposer;
-  const host = useMemo(
-    () => (hosts ? { composer: (slot: SceneComposerSlot | null) => giveComposer.current?.(slot) } : undefined),
-    [hosts],
-  );
+  const opens = !!onOpen;
+  const host = useMemo((): SceneHost | undefined => {
+    if (!hosts && !opens) return undefined;
+    return {
+      ...(hosts ? { composer: (slot: SceneComposerSlot | null) => giveComposer.current?.(slot) } : {}),
+      ...(opens ? { open: (target: SceneOpenTarget) => opener.current?.(target) } : {}),
+    };
+  }, [hosts, opens]);
   if (failed) return null;
   return (
     <div className="nt-app-page" data-app={app} data-status={status.state} aria-busy={status.state === "loading"}>

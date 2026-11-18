@@ -31,7 +31,7 @@ const screen: ComponentProps<typeof NewTabScreen> = {
 };
 
 const card = (id: string, harness: string, title: string, preview: string, age: string): SceneOp[] => [
-  { op: "create", id, type: "VStack", props: { spacing: 4, padding: 12, background: "secondaryFill", cornerRadius: 12, onTap: true } },
+  { op: "create", id, type: "VStack", props: { spacing: 4, padding: 12, background: "secondaryFill", cornerRadius: 12, onTap: true, opens: { chat: id } } },
   { op: "create", id: `${id}-meta`, type: "HStack", props: { spacing: 6 } },
   { op: "create", id: `${id}-mark`, type: "Icon", props: { symbol: `harness:${harness}`, size: 14 } },
   { op: "create", id: `${id}-age`, type: "Text", props: { text: age, font: "caption", color: "secondary" } },
@@ -42,7 +42,7 @@ const card = (id: string, harness: string, title: string, preview: string, age: 
 ];
 
 const row = (id: string, harness: string, title: string, age: string): SceneOp[] => [
-  { op: "create", id, type: "HStack", props: { spacing: 8, onTap: true } },
+  { op: "create", id, type: "HStack", props: { spacing: 8, onTap: true, opens: { chat: id } } },
   { op: "create", id: `${id}-mark`, type: "Icon", props: { symbol: `harness:${harness}`, size: 14 } },
   { op: "create", id: `${id}-title`, type: "Text", props: { text: title, monospaced: true, lineLimit: 1 } },
   { op: "create", id: `${id}-gap`, type: "Spacer", props: {} },

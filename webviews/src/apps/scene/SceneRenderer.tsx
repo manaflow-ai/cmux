@@ -31,7 +31,21 @@ export type SceneDispatch = (node: string, event: string, payload?: unknown) => 
 export type SceneComposerSlot = { element: HTMLElement; prompt: boolean; placeholder?: string; cwd?: string };
 /** What the embedding host draws into an app's scene. A New Tab page (NewTabAppPage) gives
  * `composer`; every other host gives none, and a `Composer` node draws nothing there. */
-export type SceneHost = { composer?(slot: SceneComposerSlot | null): void };
+/** A host-handled tap (`.opens(...)`): a recent chat by its chat key, or a Recently Closed item. */
+export type SceneOpenTarget = { chat: string } | { closed: string };
+/** What the embedding host draws into an app's scene, and the taps it runs itself. A New Tab page
+ * (NewTabAppPage) gives `composer` and `open`; every other host gives none: a `Composer` node draws
+ * nothing there, and an `.opens(...)` node runs its own `onTap`. */
+export type SceneHost = { composer?(slot: SceneComposerSlot | null): void; open?(target: SceneOpenTarget): void };
+
+/** A node's `opens` prop, when it names one chat or one closed item. */
+export function sceneOpenTarget(value: unknown): SceneOpenTarget | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { chat, closed } = value as Record<string, unknown>;
+  if (typeof chat === "string" && chat) return { chat };
+  if (typeof closed === "string" && closed) return { closed };
+  return undefined;
+}
 export const SceneHostContext = createContext<SceneHost | undefined>(undefined);
 /** The embedding host resolves an app-relative bundle path to a trusted local resource URL.
  * App-supplied URLs are never passed directly to an image. */
@@ -403,6 +417,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
   // A leaving node (and its subtree) draws from its last props, which the store keeps, until
   // its transition ends.
   const inLeaving = useContext(SceneLeavingContext);
+  const host = useContext(SceneHostContext);
   const leaving = own === true || inLeaving;
   const node = live ?? (leaving ? store.getDeparted(id) : undefined);
   const entering = useSceneEntering(store, node);
@@ -446,9 +461,14 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
       style.borderWidth = Math.max(0, sceneNumber(props.strokeWidth) ?? 1);
     }
   }
-  const tappable = props.onTap === true || node.type === "Button";
+  // `.opens(...)`: the host opens the chat or closed item through cmux's own path, as the person's
+  // click; with no host that opens, the node's own onTap runs.
+  const opens = sceneOpenTarget(props.opens);
+  const tappable = props.onTap === true || node.type === "Button" || (!!opens && !!host?.open);
   const tap = () => {
-    if (!disabled) dispatch(node.id, "tap");
+    if (disabled) return;
+    if (opens && host?.open) return host.open(opens);
+    dispatch(node.id, "tap");
   };
   const shared = {
     "data-app-node": node.id,
