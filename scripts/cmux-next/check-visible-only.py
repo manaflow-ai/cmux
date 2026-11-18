@@ -60,8 +60,8 @@ ESCAPE = re.compile(r"//\s*visible-only:\s*\S")
 COMMENT_LINE = re.compile(r"^\s*(//|\*|/\*)")
 FIX = ("Draw only the visible rows: window it (only rows in viewport + overscan get views; see FileGridView's "
        "diffable collection or SidebarListView.realizeVisibleRows), bound it with a named cap <= 100 rows, or "
-       "register the list with the visible-rows contract test (VisibleRowsContract in "
-       "Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport). A hit that is right as written carries "
+       "register the list with the visible-rows contract test (VisibleRowsContract.check, product "
+       "CmuxVisibleRowsTesting in Packages/Shared/CmuxVisibleRows). A hit that is right as written carries "
        "`// visible-only: <reason>`.")
 
 
