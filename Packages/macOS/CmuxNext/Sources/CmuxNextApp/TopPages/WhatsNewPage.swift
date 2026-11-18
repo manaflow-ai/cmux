@@ -29,6 +29,8 @@ enum WhatsNewPage {
     /// Chief subagent row opens its chat. Other machines' chats draw no rows (`RemoteMachinesSidebar` is not bound).
     static func activateClientItem(_ id: LayoutItemID, services: AppServices, in state: WindowState?) {
         if ChiefSidebar.shared.activate(id, registry: services.registry) { return }
+        // A nav block row (`sidebar.nav`): its action, as a person's click.
+        if let action = SidebarTransientItem.navAction(id) { _ = services.registry.perform(ActionID(rawValue: action), invocation: .init(origin: .user)); return }
         // The Channels entry after Home (cx-frn2y): the one Home view path, as a person's click.
         if id == SidebarTransientItem.channelsID { _ = services.registry.perform("home.switchView", invocation: .init(arguments: ["view": .string("channels")], origin: .user)) }
     }

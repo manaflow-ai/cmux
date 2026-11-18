@@ -74,6 +74,32 @@ workspace moved and ranked within its section. The watcher test writes a
 temporary \`cmux-next.json\` through an atomic replacement and observes the new
 projection without a restart.
 
+## A nav block of cmux actions: `sidebar.nav`
+
+A look (or you) can put a column of plain rows at the very top of the sidebar, each running a cmux
+action, as the Codex app's sidebar does with New chat, Search, Pull requests and Scheduled. Each entry
+is an action id (`cmux action list` names them), optionally followed by a title and an SF Symbol:
+
+```json
+{
+  "sidebar.nav": [
+    "palette.newAgentChat | New chat | square.and.pencil",
+    "search.chats | Search | magnifyingglass",
+    "palette.openWorkspacePullRequests | Pull requests | arrow.triangle.pull",
+    "automations.show | Scheduled | clock",
+    "appStore.show | Plugins | puzzlepiece.extension"
+  ]
+}
+```
+
+The rows draw in the built-in look (an icon and a label, no fill at rest, the hover fill), above
+Home, and follow `sidebar.sectionLook`. A row with no title or symbol takes the action's own. Rust
+checks the list (`cmux-layout-reducer` `sidebar_nav.rs`): an unknown id, a debug-only or destructive
+action, a duplicate, or more than 12 rows is dropped with a diagnostic, and the rest still draw. The
+rows are never written to the sidebar document, so removing the key, or the look that set it, leaves
+your sidebar as it was. Empty (the default) draws no block. Together with `sidebar.groupBy: recents`
+(Projects and Recents headers) and Pinned, this gives a sidebar the shape of the Codex app's.
+
 # Customizing the sidebar's hover card and rows
 
 cmux-next lets you redraw a workspace row's hover card and decorate sidebar rows with a short
