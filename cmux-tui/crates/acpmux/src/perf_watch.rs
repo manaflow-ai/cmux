@@ -772,7 +772,7 @@ fn top_zones(inner: &Inner, now: u64, limit: usize) -> Vec<Value> {
         .map(|(key, meter)| (meter.minute(second), key, meter))
         .filter(|(minute, _, _)| *minute > 0)
         .collect();
-    rows.sort_by(|a, b| b.0.cmp(&a.0));
+    rows.sort_by_key(|row| std::cmp::Reverse(row.0));
     rows.into_iter()
         .take(limit)
         .map(|(minute, (channel, label), meter)| {
@@ -849,7 +849,7 @@ fn thousands(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
