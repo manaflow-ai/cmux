@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -129,16 +131,17 @@ class AnswerTests(unittest.TestCase):
         self.assertEqual(drill.parsed("not json"), {})
 
 
-class FakeGuest:
-    """The guest: the bundled CLI and the socket, as a NIGHTLY that updates to N and rolls back to K answers."""
+class FakeGuest(drill.Capped):
+    """The guest: the bundled CLI and the socket, as a NIGHTLY that updates to N and rolls back to K answers. Its
+    commands go through drill.Capped.sh, the budget cut the real Guest has."""
 
     def __init__(self, build="100", install_exit=1, offer=True):
         self.build, self.install_exit, self.offer, self.calls = build, install_exit, offer, []
 
-    def sh(self, cmd, timeout):
+    def run(self, cmd, timeout):
         self.calls.append(cmd)
         if cmd.startswith("/bin/sh -c"):
-            return 0, ("TEAM 7WLXT3NR37\nBUILD 100\nBUNDLE com.cmuxterm.app.nightly.cmux-next\n"
+            return 0, ("BUILD 100\nBUNDLE com.cmuxterm.app.nightly.cmux-next\n"
                        "APP /Applications/cmux NEXT.app\n"), ""
         if cmd.startswith("/usr/bin/open"):
             return 0, "", ""
@@ -160,6 +163,21 @@ class FakeGuest:
 
     def close(self):
         pass
+
+
+class SlowGuest(FakeGuest):
+    """Every guest command takes its whole timeout (the worst case each call allows), then answers."""
+
+    def __init__(self, clock, never_build=False, **kw):
+        super().__init__(**kw)
+        self.clock, self.never_build = clock, never_build
+
+    def run(self, cmd, timeout):
+        self.clock.t += timeout
+        code, out, err = super().run(cmd, timeout)
+        if self.never_build and "app identify" in cmd:
+            return 0, json.dumps({"ok": True, "result": {"build": "999", "socket_path": "/tmp/s"}}), ""
+        return code, out, err
 
 
 class Clock:
@@ -241,6 +259,59 @@ class WalkTests(unittest.TestCase):
         result = run(FakeGuest(offer=False), budget=60)
         self.assertIn("not within", result["failure"])
         self.assertLessEqual(sum(s["ms"] or 0 for s in result["steps"]), 61_000)
+
+    def test_install_checks_the_team_by_requirement(self):
+        guest = FakeGuest()
+        run(guest)
+        install = next(c for c in guest.calls if c.startswith("/bin/sh -c"))
+        self.assertIn("--globoff", install)
+        self.assertIn('-R="$3"', install)
+        self.assertIn("'anchor apple generic and certificate leaf[subject.OU] = \"7WLXT3NR37\"'", install)
+
+    def test_every_call_at_its_limit_ends_within_the_budget(self):
+        """vm.sh's DRILL_BUDGET_S (1380 s) and smaller ones: each guest command and read takes its whole timeout, the
+        walk, the OS read and all, ends by the budget."""
+        for budget in (drill.BUDGET_S, 600, 300, 61):
+            for kw in ({}, {"offer": False}, {"never_build": True}):
+                with self.subTest(budget=budget, **kw), tempfile.TemporaryDirectory() as out:
+                    clock = Clock()
+                    guest = SlowGuest(clock, **kw)
+                    reads = {drill.DRILL_URL: appcast(), drill.RECEIPT_URL: json.dumps(receipt())}
+
+                    def read(url, timeout):
+                        clock.t += timeout
+                        return reads[url.split("?", 1)[0]]
+                    b = drill.Budget(budget, clock, reserve=drill.RESERVE_S)
+                    result = drill.drive(guest, b, out, echo=False, read=read, wall=lambda: NOW + clock.t,
+                                         clock=clock, pause=clock.pause)
+                    self.assertLessEqual(clock.t, budget, result["failure"])
+                    with open(os.path.join(out, "result.json")) as f:
+                        self.assertEqual(json.load(f)["steps"], result["steps"])
+
+    def test_result_json_after_every_step(self):
+        class Killed(BaseException):
+            pass  # a hard kill: nothing in the walk catches it
+
+        guest = FakeGuest()
+        real = guest.sh
+
+        def sh(cmd, timeout):
+            if "install-available-update" in cmd:
+                raise Killed()
+            return real(cmd, timeout)
+        guest.sh = sh
+        clock = Clock()
+        reads = {drill.DRILL_URL: appcast(), drill.RECEIPT_URL: json.dumps(receipt())}
+        with tempfile.TemporaryDirectory() as out:
+            with self.assertRaises(Killed):
+                drill.drive(guest, drill.Budget(1380, clock), out, echo=False,
+                            read=lambda url, _t: reads[url.split("?", 1)[0]], wall=lambda: NOW + clock.t,
+                            clock=clock, pause=clock.pause)
+            with open(os.path.join(out, "result.json")) as f:
+                left = json.load(f)
+        self.assertFalse(left["ok"])
+        self.assertEqual([s["outcome"] for s in left["steps"]], ["ok"] * 4)
+        self.assertEqual(left["seen_at"], "2026-11-16T09:30:00Z")
 
     def test_limits_sum_under_the_worker_bound(self):
         caps = (2 * drill.PICK_READ_S + drill.INSTALL_KEPT_S + drill.LAUNCH_S + drill.RPC_S + drill.CHECK_S

@@ -64,7 +64,8 @@ EVERY_S = 2
 
 # Each step's own limit (s). Their sum is 1420 s; vm.sh also passes --budget-s (1380 s less the boot) and every
 # limit is cut to what is left of it, so a major's whole cycle (clone, boot, the drill, stop, delete) stays under the
-# worker's 25 min per-major bound.
+# worker's 25 min per-major bound. Nothing runs outside the budget: every guest command (Guest.sh) and every pause is
+# cut to the time left, and the walk keeps RESERVE_S of it for the OS read and closing ssh.
 PICK_READ_S = 15          # feed/pick: two reads (appcast, receipt)                                     30
 INSTALL_KEPT_S = 240      # app/install-kept: download, attach, copy and verify K in the guest        240
 LAUNCH_S = 120            #                   then `open` until identify answers K                     120
@@ -77,6 +78,9 @@ ROLLBACK_S = 120          # app/restore: `settings rollback-update --confirm`   
 RESTORE_S = 180           #              the app quits and opens on K until identify answers          180
 WRAP_S = 10               # the guest's OS version                                                      10
 BUDGET_S = 1380           # the default --budget-s                                              sum: 1420
+RESERVE_S = WRAP_S + 5    # the end of the budget the walk leaves for the OS read and `ssh -O exit`
+# Signed by Apple's Developer ID chain with the team's own leaf, not only a TeamIdentifier the signer claims.
+TEAM_REQUIREMENT = f'anchor apple generic and certificate leaf[subject.OU] = "{TEAM_ID}"'
 
 # Linear-time item split: the lazy repeat only ever runs up to the text's last `</item>`.
 ITEM = re.compile(r"<item>.*?</item>", re.S)
@@ -265,8 +269,8 @@ def refused_as_pulled(message: str) -> bool:
 class Walk:
     """hq's og.Walk: each step timed; a step whose NEEDS did not pass is a skip that names it."""
 
-    def __init__(self, clock=time.monotonic, echo=True):
-        self.clock, self.steps, self.echo = clock, [], echo
+    def __init__(self, clock=time.monotonic, echo=True, after=None):
+        self.clock, self.steps, self.echo, self.after = clock, [], echo, after  # after(steps): each step's row written
 
     def step(self, flow: str, name: str, fn, needs: str | None = None):
         if needs and not self.passed(needs):
@@ -280,6 +284,8 @@ class Walk:
 
     def add(self, flow, name, outcome, ms, note) -> bool:
         self.steps.append({"flow": flow, "step": name, "outcome": outcome, "ms": ms, "note": str(note)[:600]})
+        if self.after:
+            self.after(self.steps)
         if self.echo:
             print(f"{outcome:>4} {flow}/{name}" + (f" {ms} ms" if ms is not None else "") + (f": {note}"[:400] if note else ""),
                   flush=True)
@@ -290,29 +296,51 @@ class Walk:
 
 
 class Budget:
-    """The run's own deadline: every step limit is cut to what is left of it."""
+    """The run's own deadline: every step limit, guest command and pause is cut to what is left of it. The walk
+    (limit) stops RESERVE short of the end; the wrap-up after it (left with reserved=True) may use that too."""
 
-    def __init__(self, seconds: float, clock=time.monotonic):
-        self.clock, self.end = clock, clock() + seconds
+    def __init__(self, seconds: float, clock=time.monotonic, reserve: float = 0):
+        self.clock, self.end, self.reserve = clock, clock() + seconds, reserve
+        self.wrapping = False
+
+    def left(self) -> float:
+        return self.end - self.clock() - (0 if self.wrapping else self.reserve)
 
     def limit(self, cap: float) -> float:
-        left = self.end - self.clock()
+        left = self.left()
         if left < 1:
             raise RuntimeError("the run's time budget (--budget-s) is spent")
         return min(cap, left)
 
 
-class Guest:
+class Capped:
+    """sh(cmd, timeout) with the timeout cut to the budget's time left: no guest command outlives the budget."""
+
+    budget: Budget | None = None
+
+    def sh(self, cmd: str, timeout: float) -> tuple[int, str, str]:
+        if self.budget is not None:
+            timeout = min(timeout, self.budget.left())
+            if timeout < 1:
+                return 124, "", "the run's time budget (--budget-s) is spent"
+        return self.run(cmd, timeout)
+
+    def run(self, cmd: str, timeout: float) -> tuple[int, str, str]:
+        raise NotImplementedError
+
+
+class Guest(Capped):
     """The VM over one multiplexed ssh connection (fuzz.py's Guest): /bin/sh commands, bounded on the host."""
 
-    def __init__(self, target: str, ssh_opts: list[str]):
+    def __init__(self, target: str, ssh_opts: list[str], budget: Budget | None = None):
+        self.budget = budget
         self.ctl_dir = tempfile.mkdtemp(prefix="drill-ssh-", dir="/tmp")
         self.base = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
                      "-o", "ControlMaster=auto", "-o", f"ControlPath={self.ctl_dir}/ctl", "-o", "ControlPersist=600",
                      "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=3",
                      *ssh_opts, target]
 
-    def sh(self, cmd: str, timeout: float) -> tuple[int, str, str]:
+    def run(self, cmd: str, timeout: float) -> tuple[int, str, str]:
         try:
             done = subprocess.run([*self.base, cmd], capture_output=True, text=True, timeout=timeout,
                                   stdin=subprocess.DEVNULL)
@@ -321,18 +349,24 @@ class Guest:
         return done.returncode, done.stdout or "", done.stderr or ""
 
     def close(self) -> None:
-        subprocess.run([*self.base[:-1], "-O", "exit", self.base[-1]], capture_output=True, timeout=15,
-                       stdin=subprocess.DEVNULL)
+        limit = min(5.0, self.budget.left()) if self.budget is not None else 5.0
+        if limit >= 1:
+            try:
+                subprocess.run([*self.base[:-1], "-O", "exit", self.base[-1]], capture_output=True, timeout=limit,
+                               stdin=subprocess.DEVNULL)
+            except subprocess.TimeoutExpired:
+                pass  # the master ends with ControlPersist, or with the guest when vm.sh deletes it
         try:
             os.rmdir(self.ctl_dir)
         except OSError:
             pass  # the master's socket is gone with it; a dir left in /tmp is harmless
 
 
-# K's DMG into /Applications, in the guest ($1 the DMG's URL, $2 the User-Agent). Prints KEY value lines.
+# K's DMG into /Applications, in the guest ($1 the DMG's URL, $2 the User-Agent, $3 the code requirement: Apple's
+# Developer ID anchor and the team's leaf). Prints KEY value lines.
 INSTALL_SCRIPT = r'''
 d=$HOME/rollback-drill; rm -rf "$d"; mkdir -p "$d/mnt" || exit 3
-curl -fsSL --retry 2 --retry-delay 5 --retry-all-errors -A "$2" -o "$d/kept.dmg" "$1" || { echo "FAIL download: curl exit $?"; exit 1; }
+curl -fsSL --globoff --retry 2 --retry-delay 5 --retry-all-errors -A "$2" -o "$d/kept.dmg" "$1" || { echo "FAIL download: curl exit $?"; exit 1; }
 hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$d/mnt" "$d/kept.dmg" >/dev/null || { echo "FAIL hdiutil attach"; exit 1; }
 src=$(ls -d "$d"/mnt/*.app 2>/dev/null | head -1)
 if [ -z "$src" ]; then hdiutil detach -force "$d/mnt" >/dev/null 2>&1; echo "FAIL the DMG holds no app"; exit 1; fi
@@ -340,8 +374,7 @@ app="/Applications/${src##*/}"
 rm -rf "$app"; ditto "$src" "$app"; rc=$?
 hdiutil detach -force "$d/mnt" >/dev/null 2>&1
 [ "$rc" = 0 ] || { echo "FAIL copying the app: ditto exit $rc"; exit 1; }
-codesign --verify --deep --strict "$app" 2>"$d/verify.txt" || { echo "FAIL signature: $(tail -c 300 "$d/verify.txt" | tr '\n' ' ')"; exit 1; }
-echo "TEAM $(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+codesign --verify --deep --strict -R="$3" "$app" 2>"$d/verify.txt" || { echo "FAIL signature or team: $(tail -c 300 "$d/verify.txt" | tr '\n' ' ')"; exit 1; }
 echo "BUILD $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
 echo "BUNDLE $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
 xattr -cr "$app"
@@ -391,7 +424,7 @@ class Drill:
             if str(last.get("build") or "") == build and last.get("socket_path"):
                 self.socket = str(last["socket_path"])
                 return last
-            self.pause(EVERY_S)  # bounded by `limit`: the app opens on its own
+            self.pause(max(0.0, min(EVERY_S, end - self.clock())))  # bounded by `limit`: the app opens on its own
         raise RuntimeError(f"the app did not answer as build {build} within {int(limit)} s"
                            f" (last: build {last.get('build') or 'none'})")
 
@@ -399,7 +432,7 @@ class Drill:
         limit = self.budget.limit(cap)
         line = json.dumps({"id": 1, "method": method, "params": params or {}})
         cmd = " ".join(shlex.quote(w) for w in ("/usr/bin/perl", "-e", RPC_PERL, self.socket, line, str(int(limit))))
-        code, out, err = self.guest.sh(cmd, limit + 15)
+        code, out, err = self.guest.sh(cmd, min(limit + 15, self.budget.left()))
         if code != 0 and not out.strip():
             raise RuntimeError(f"{method}: exit {code}: {err.strip()[-200:]}")
         return answer(method, out)
@@ -427,13 +460,12 @@ class Drill:
                 f"{self.result['receipt_run']} (published {receipt.get('published_at')})")
 
     def install_kept(self) -> str:
-        cmd = " ".join(shlex.quote(w) for w in ("/bin/sh", "-c", INSTALL_SCRIPT, "sh", self.kept["url"], USER_AGENT))
+        cmd = " ".join(shlex.quote(w) for w in ("/bin/sh", "-c", INSTALL_SCRIPT, "sh", self.kept["url"], USER_AGENT,
+                                                    TEAM_REQUIREMENT))
         code, out, err = self.guest.sh(cmd, self.budget.limit(INSTALL_KEPT_S))
         got = fields(out)
         if code != 0 or "APP" not in got:
             raise RuntimeError(got.get("FAIL") or f"installing K in the guest: exit {code}: {(err or out).strip()[-200:]}")
-        if got.get("TEAM") != TEAM_ID:
-            raise RuntimeError(f"K is signed by team {got.get('TEAM') or 'none'!r}, not {TEAM_ID}")
         if got.get("BUILD") != self.kept["build"]:
             raise RuntimeError(f"K's DMG holds build {got.get('BUILD')}, not {self.kept['build']}")
         if not BUNDLE_ID.fullmatch(got.get("BUNDLE", "")):
@@ -467,7 +499,7 @@ class Drill:
                         f"{self.result['seen_s']} s after the publish")
             if last.get("phase") == "error":
                 break
-            self.pause(EVERY_S)  # bounded by `limit`: Sparkle's own check
+            self.pause(max(0.0, min(EVERY_S, end - self.clock())))  # bounded by `limit`: Sparkle's own check
         raise RuntimeError(f"the check finding {self.bad['build']}: not within {int(limit)} s (phase {last.get('phase')}; "
                            "log: " + " / ".join(str(x) for x in (last.get("log") or [])[-3:])[:300] + ")")
 
@@ -510,6 +542,7 @@ class Drill:
 
     def run(self, walk: Walk) -> dict:
         prev = None
+        self.guest.budget = self.budget  # every guest command, identify and open included, is cut to the time left
         for (flow, name), fn in zip(STEPS, (self.feed_pick, self.install_kept, self.serve, self.sees_bad,
                                             self.install_bad, self.restore)):
             walk.step(flow, name, fn, needs=prev)
@@ -543,6 +576,20 @@ def write(out: str, result: dict) -> None:
     os.replace(tmp, os.path.join(out, "result.json"))
 
 
+def drive(guest: Capped, budget: Budget, out: str, expect_bad: str = "", echo: bool = True, **drill_kw) -> dict:
+    """The walk, then the guest's OS version, all within BUDGET; result.json is written after every step, so a run
+    killed partway still leaves one (ok false until the last step)."""
+    drill = Drill(guest, budget, expect_bad, **drill_kw)
+    walk = Walk(drill.clock, echo=echo, after=lambda steps: write(out, judge(steps, drill.result)))
+    result = drill.run(walk)
+    write(out, result)
+    budget.wrapping = True  # the OS read may use the reserve
+    code, text, _ = guest.sh("sw_vers -productVersion", WRAP_S)
+    result["os"] = drill.result["os"] = text.strip() if code == 0 else None
+    write(out, result)
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--ssh", required=True)
@@ -554,15 +601,12 @@ def main(argv: list[str] | None = None) -> int:
     if a.bad and not a.bad.isdigit():
         p.error("--bad takes digits")
     os.makedirs(a.out, exist_ok=True)
-    guest = Guest(a.ssh, a.ssh_opt)
+    budget = Budget(max(a.budget_s, 1), reserve=RESERVE_S)
+    guest = Guest(a.ssh, a.ssh_opt, budget)
     try:
-        drill = Drill(guest, Budget(max(a.budget_s, 1)), a.bad)
-        result = drill.run(Walk())
-        write(a.out, result)  # before the OS read: a guest that went away keeps every step's verdict
-        code, out, _ = guest.sh("sw_vers -productVersion", WRAP_S)
-        result["os"] = out.strip() if code == 0 else None
-        write(a.out, result)
+        result = drive(guest, budget, a.out, a.bad)
     finally:
+        budget.wrapping = True
         guest.close()
     print("ROLLBACK-DRILL %s bad=%s kept=%s seen_s=%s restore_s=%s restored_by=%s failed=%s %s" % (
         "PASS" if result["ok"] else "FAIL", result.get("bad_build"), result.get("kept_build"), result.get("seen_s"),

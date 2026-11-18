@@ -185,7 +185,9 @@ print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["imag
     # The app runs in the guest's own home (its update and rollback relaunch through LaunchServices with no
     # environment), and the whole guest is thrown away after: no build.zip, the drill installs its own builds.
     ssh "${SSHB[@]}" "admin@$ip" "$GUEST_QUIT_FIRST_LOGIN_APPS" </dev/null || true
-    local budget=$(( DRILL_BUDGET_S - (SECONDS - started) )); (( budget > 60 )) || budget=60
+    # No floor past the bound: a boot that left under 60 s of the budget is a failure, not an overrun.
+    local budget=$(( DRILL_BUDGET_S - (SECONDS - started) ))
+    (( budget >= 60 )) || { echo "the boot left ${budget} s of the drill's ${DRILL_BUDGET_S} s budget" >"$out/failure"; return 0; }
     python3 -I "$HERE/rollback/drill.py" --ssh "admin@$ip" --out "$out" --budget-s "$budget" ${DRILL_BAD:+--bad "$DRILL_BAD"} \
       --ssh-opt=-oPubkeyAuthentication=no --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive \
       --ssh-opt=-oNumberOfPasswordPrompts=1 >"$out/rollback-drill.log" 2>&1 || echo "rollback-drill exit $?" >"$out/failure"
