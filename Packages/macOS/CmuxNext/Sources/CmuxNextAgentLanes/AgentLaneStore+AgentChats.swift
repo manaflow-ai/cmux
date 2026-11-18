@@ -9,7 +9,7 @@ extension AgentActivityLane {
         AgentChatSummary(id: id, title: title, harness: harness, state: state.rawValue, unread: unread,
                          project: project ?? cwd.map { URL(fileURLWithPath: $0).lastPathComponent }, cwd: cwd,
                          workspace: workspaceID, machine: peer, step: step, error: error, since: since,
-                         updatedAt: updatedAt, createdAt: createdAt, pullRequests: pullRequests)
+                         updatedAt: updatedAt, createdAt: createdAt, pullRequests: pullRequests, branch: branch)
     }
 }
 
