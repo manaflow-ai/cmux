@@ -189,6 +189,8 @@ impl Command {
             Self::MoveTabToColumn(..) => "move-tab-to-column",
             Self::NewRow(..) => "new-row",
             Self::SetRowHeights(..) => "set-row-heights",
+            Self::FloatPane(..) => "float-pane",
+            Self::QuickTerminal(..) => "quick-terminal",
             Self::MoveColumn(..) => "move-column",
             Self::MoveTabToNewWorkspace { .. } => "move-tab-to-new-workspace",
             Self::MoveWorkspace { .. } => "move-workspace",

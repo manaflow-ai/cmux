@@ -16,7 +16,7 @@ extension SidebarBridge {
         let moved = Set(ids.map(\.rawValue))
         let localOrder = scoped.flatMap(\.workspaces).map(\.id.rawValue).filter { !moved.contains($0) }
         let global = WindowManager.orderedIDs(of: daemon, machines: services.machines, doc: services.sidebarDoc).filter { !moved.contains($0) }
-        return SidebarMembership.globalIndex(localIndex: local, local: localOrder, global: global)
+        return SidebarRowSection.globalIndex(localIndex: local, local: localOrder, global: global)
     }
 
     /// Workspaces dragged in from another window (or moved by an action):
