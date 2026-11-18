@@ -424,10 +424,12 @@ impl McpConnects {
 }
 
 /// Writes `bytes` to `path` through a temporary file and a rename, with `mode` (the Unix file
-/// mode; Windows has none). Each step goes through the folder this daemon holds (`home_fs`): a
-/// home replaced after a writer's check never gets the file.
+/// mode; Windows has none). The home is checked first, as the secret's writer checks it: a home
+/// that is gone gets no record. Each step then goes through the folder this daemon holds
+/// (`home_fs`): a home replaced after that check never gets the file.
 fn write_file(path: &std::path::Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
     use std::io::Write as _;
+    crate::config::refuse_lost_home(path).map_err(std::io::Error::other)?;
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no folder"))?;
     crate::home_fs::create_dirs(dir)?;
     let tmp = dir.join(format!(
