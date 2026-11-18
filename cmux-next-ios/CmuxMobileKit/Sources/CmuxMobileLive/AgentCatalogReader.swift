@@ -59,7 +59,15 @@ extension AgentCatalog {
             let start = entry["start"]?["model"]?.stringValue ?? entry["model"]?.stringValue
             // What its chats report (acpmux `reported`): mode names, and its options.
             let reported = entry["reported"]
-            let options = (reported?["configOptions"]?.arrayValue ?? []).compactMap(Self.configChoice)
+            let reportedOptions = reported?["configOptions"]?.arrayValue ?? []
+            // The effort option names the levels whatever a phone may set; the other options are
+            // offered only when the Mac says a remote device may set them (`remoteSettable`, the
+            // remote guard's rule: Fast mode is not, so a pill for it would do nothing).
+            let options = reportedOptions.compactMap(Self.configChoice)
+            let settable = Set(reportedOptions.compactMap { option -> String? in
+                guard case .bool(true)? = option["remoteSettable"] else { return nil }
+                return option["id"]?.stringValue
+            })
             let modes = (reported?["modes"]?.arrayValue ?? []).compactMap { mode -> AgentSettingChoice? in
                 guard let id = mode["id"]?.stringValue, !id.isEmpty else { return nil }
                 return AgentSettingChoice(id: id, name: mode["name"]?.stringValue ?? AgentSettingChoice.name(for: id),
@@ -73,7 +81,7 @@ extension AgentCatalog {
                 startEffort: entry["start"]?["effort"]?.stringValue,
                 reportedModes: modes,
                 effortOption: options.first(where: \.isEffort),
-                configOptions: options.filter { Self.isOwnOption($0, family: family, hasModes: !modes.isEmpty) }
+                configOptions: options.filter { settable.contains($0.id) && Self.isOwnOption($0, family: family, hasModes: !modes.isEmpty) }
             ))
         }
         // The Mac's default first, then by name (the catalog is keyed, so unordered).

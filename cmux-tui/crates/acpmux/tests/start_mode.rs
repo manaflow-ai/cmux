@@ -1650,6 +1650,8 @@ async fn harnesses_report_each_agents_modes_and_options_for_a_new_chat() {
             .unwrap_or_else(|| panic!("{reported}"));
         assert_eq!(model["options"].as_array().map(Vec::len), Some(2), "{reported}");
         assert!(model.get("currentValue").is_none(), "a chat's value stays with it: {reported}");
+        // A phone may set the model (a free option); it is told so.
+        assert_eq!(model["remoteSettable"], true, "{reported}");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

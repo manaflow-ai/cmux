@@ -1057,12 +1057,10 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
             ])
         }
         // As a Mac's acpmux lists them: each model's efforts, the modes a phone may start, and
-        // what the agent's chats reported (mode names, Fast mode).
+        // what the agent's chats reported (mode names). No Fast mode: a phone may not set it.
         let claudeEfforts = ["low", "medium", "high", "xhigh", "max"]
         let modes = [AgentSettingChoice(id: "default", name: "Manual", detail: "Always ask before making changes"),
                      AgentSettingChoice(id: "plan", name: "Plan", detail: "Create a plan before making changes")]
-        let fast = AgentConfigChoice(id: "fast-mode", name: "Fast mode", choices: [AgentSettingChoice(id: "off", name: "Off"),
-                                                                                  AgentSettingChoice(id: "on", name: "On")])
         return AgentCatalog(harnesses: [
             AgentHarnessChoice(id: "claude", name: "Claude Code", family: "claude", isDefault: true,
                                models: [AgentModelChoice(id: "claude-opus-5-5", name: "Claude Opus 5.5", efforts: claudeEfforts, defaultEffort: "high",
@@ -1074,7 +1072,7 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
                                                          shortName: "Opus 5", isCurrent: false),
                                         AgentModelChoice(id: "claude-opus-4-8", name: "Claude Opus 4.8", efforts: ["low", "medium", "high"],
                                                          defaultEffort: "high", shortName: "Opus 4.8", isCurrent: false)],
-                               defaultModel: "opus", askingModes: ["default", "plan"], reportedModes: modes, configOptions: [fast]),
+                               defaultModel: "opus", askingModes: ["default", "plan"], reportedModes: modes),
             AgentHarnessChoice(id: "claude-cr", name: "Claude Code Router", family: "claude",
                                models: [AgentModelChoice(id: "gpt-5.5", name: "GPT-5.5", efforts: ["low", "medium", "high"], defaultEffort: "medium"),
                                         AgentModelChoice(id: "kimi-k2", name: "Kimi K2")],

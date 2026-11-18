@@ -244,7 +244,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { C.tap(C.any(app, "taskComposer.model.claude-cr"), "Router's model menu") }])
             },
             // Each setting the Mac lists, its own picker: effort (the model's levels), mode (the
-            // modes a phone may start) and the agent's other options (Fast mode).
+            // modes a phone may start), and the agent's other options a phone may set.
             Scene(group: g, id: "agent-settings-two", args: Self.list) { app in
                 C.steps([{ Self.composeTwoAgents(app) }, { Self.revealTap(C.any(app, "taskComposer.settings"), "Each agent's settings") },
                          { C.tap(C.any(app, "taskComposer.settings.claude"), "Claude Code's settings") },
@@ -259,10 +259,6 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
                          { Self.revealTap(C.any(app, "taskComposer.mode.claude"), "Claude Code's mode") },
                          { Self.check(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Plan'")).firstMatch.exists, "no Plan mode") }])
-            },
-            Scene(group: g, id: "fast-mode-menu", args: Self.list) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { Self.revealTap(C.any(app, "taskComposer.option.fast-mode.claude"), "Fast mode") }])
             },
             Scene(group: g, id: "effort-picked", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
@@ -417,7 +413,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             // One agent: each setting its own pill, as the Mac lists them.
             Scene(group: g, id: "settings-pills", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
-                         { Self.check(["model", "effort", "mode", "option.fast-mode"].allSatisfy { C.any(app, "taskComposer.\($0).claude").exists },
+                         { Self.check(["model", "effort", "mode"].allSatisfy { C.any(app, "taskComposer.\($0).claude").exists },
                                       "a setting has no pill") }])
             },
             Scene(group: g, id: "composer-chat-chosen", args: Self.list) { app in

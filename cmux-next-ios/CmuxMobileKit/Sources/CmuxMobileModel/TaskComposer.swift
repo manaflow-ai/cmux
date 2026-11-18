@@ -69,9 +69,10 @@ public struct AgentTask: Hashable, Sendable {
         let command: String
         switch family {
         case "claude":
-            // The mode as Claude Code's own flag; its effort stays the CLI's (it takes no flag for it).
+            // The mode and effort as Claude Code's own flags.
             let modeFlag = mode.map { " --permission-mode=\(Self.ansiQuoted($0))" } ?? ""
-            command = "claude" + modelFlag + modeFlag + " -- " + quoted
+            let effortFlag = effort.map { " --effort=\(Self.ansiQuoted($0))" } ?? ""
+            command = "claude" + modelFlag + effortFlag + modeFlag + " -- " + quoted
         case "codex":
             // The effort as Codex's config override (`-c key=value`).
             let effortFlag = effort.map { " -c " + Self.ansiQuoted("model_reasoning_effort=\($0)") } ?? ""

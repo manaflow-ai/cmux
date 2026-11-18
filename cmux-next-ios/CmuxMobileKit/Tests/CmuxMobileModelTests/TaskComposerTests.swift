@@ -482,7 +482,7 @@ import Testing
     /// override; each value one quoted word.
     @Test func modeAndEffortGoAsEachCLIsOwnFlags() {
         #expect(AgentTask(prompt: "Fix it", model: "opus", launch: .terminal, family: "claude", effort: "high", mode: "plan").terminalLine()
-            == "claude --model=$'opus' --permission-mode=$'plan' -- $'Fix it'\n")
+            == "claude --model=$'opus' --effort=$'high' --permission-mode=$'plan' -- $'Fix it'\n")
         #expect(AgentTask(prompt: "Fix it", launch: .terminal, family: "codex", effort: "high").terminalLine()
             == "codex -c $'model_reasoning_effort=high' -- $'Fix it'\n")
         #expect(AgentTask(prompt: "x", launch: .terminal, family: "claude", mode: "pl'an; rm").terminalLine()

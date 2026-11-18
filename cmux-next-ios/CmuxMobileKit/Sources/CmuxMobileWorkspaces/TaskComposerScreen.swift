@@ -817,7 +817,9 @@ struct TaskComposerSettingsMenus: View {
         if harness.modes.count > 1 {
             picker("Mode", id: "mode", current: pick.mode, choices: harness.modes) { value in update { $0.mode = value } }
         }
-        ForEach(harness.configOptions) { option in
+        // A terminal launch passes the model, effort and mode on the CLI's command line, not the
+        // agent's other options: their pickers show only for a chat.
+        ForEach(creator.taskDraft.launch == .chat ? harness.configOptions : []) { option in
             picker(option.name, id: "option.\(option.id)", current: pick.options?[option.id], choices: option.choices,
                    namesSetting: true) { value in
                 update { pick in

@@ -308,8 +308,8 @@ import Testing
                  {"id": "effort", "name": "Effort", "category": "thought_level", "type": "select",
                   "options": [{"value": "low", "name": "Low"}, {"value": "high", "name": "High"}, {"value": "xhigh", "name": "Extra High"}]},
                  {"id": "model", "name": "Model", "category": "model", "type": "select", "options": [{"value": "opus", "name": "Opus"}, {"value": "sonnet", "name": "Sonnet"}]},
-                 {"id": "fast-mode", "name": "Fast mode", "type": "select", "options": [{"value": "off", "name": "Off"}, {"value": "on", "name": "On"}]},
-                 {"id": "style", "name": "Style", "type": "select",
+                 {"id": "fast-mode", "name": "Fast mode", "type": "select", "remoteSettable": false, "options": [{"value": "off", "name": "Off"}, {"value": "on", "name": "On"}]},
+                 {"id": "style", "name": "Style", "type": "select", "remoteSettable": true,
                   "options": [{"group": "g", "name": "Concise", "options": [{"value": "terse", "name": "Terse"}, {"value": "brief", "name": "Brief"}]}]},
                  {"id": "session-recap", "name": "Session recap", "type": "select", "options": [{"value": "off"}, {"value": "on"}]},
                  {"id": "one", "name": "One choice", "type": "select", "options": [{"value": "only"}]},
@@ -349,9 +349,10 @@ import Testing
 
     @Test func otherOptionsAreTheAgentsOwnWithChoices() throws {
         let claude = try #require(AgentCatalog(harnesses: json(harnesses), models: json(models)).harness("claude"))
-        // Not the model or effort (their own pickers), a per-chat switch, one choice or a non-select.
-        #expect(claude.configOptions.map(\.id) == ["fast-mode", "style"])
-        #expect(claude.configOptions[1].choices.map(\.id) == ["terse", "brief"])
+        // Not the model or effort (their own pickers), a per-chat switch, one choice, a non-select,
+        // nor one a phone may not set (Fast mode: the Mac's remote rule refuses it).
+        #expect(claude.configOptions.map(\.id) == ["style"])
+        #expect(claude.configOptions[0].choices.map(\.id) == ["terse", "brief"])
         #expect(claude.effortOption?.id == "effort")
     }
 

@@ -1011,8 +1011,15 @@ impl Hub {
                     .filter(|o| o.get("id").and_then(Value::as_str).is_some())
                     .map(|o| {
                         let mut o = o.clone();
+                        let id = o.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
                         if let Some(map) = o.as_object_mut() {
                             map.remove("currentValue");
+                            // Whether a remote device may set it (the remote guard's rule,
+                            // `web_modes::FREE_CONFIG_IDS`): a phone offers only these.
+                            map.insert(
+                                "remoteSettable".into(),
+                                json!(crate::web_modes::FREE_CONFIG_IDS.contains(&id.as_str())),
+                            );
                         }
                         o
                     })
