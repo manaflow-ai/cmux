@@ -71,6 +71,12 @@ public final class IPhoneHostService {
         var cloudLinks: @Sendable () async -> MobileHostCloudLinks = { MobileHostCloudLinks() }
         /// Test-only (DEBUG): phones this tagged test instance trusts without the prompt.
         var pairingSeed: IPhonePairingSeed?
+        /// DEBUG tagged dev builds only: this tag's own iPhone app pairs without the prompt
+        /// (``IPhoneDevAutoApprove``); nil in Release, other builds and `--approve-first` launches.
+        var devAutoApprove: IPhoneDevAutoApprove?
+        /// This build's dev tag (any configuration; nil unless a tagged dev build): another tag's
+        /// dev iPhone app asks quietly (``IPhoneDevAutoApprove/asksQuietly(_:macDevTag:)``).
+        var macDevTag: String?
         /// This app's own Chief owner: its session (from the app's `ChiefHome`, always known)
         /// and its socket once connected. hostd's `chief` service dials it; without it hostd
         /// guesses `~/.cmux/chief/default`, which is not a DEV or tagged build's Chief.

@@ -100,7 +100,8 @@ use it before the build is done. The agent itself runs it there only when asked;
 - **iOS:** the iPhone app is `cmux-next-ios/`. Run `cmux-next-ios/scripts/review.sh --tag <task-slug>`.
   In one command it builds the same-tag Mac app and the iPhone app on the fleet, publishes the Mac
   app to HQ, and leaves the build on every connected iPhone signed in and paired with that Mac
-  (`--manual-pairing` to pair by hand, `--no-auth` for a signed-out install). It proves both
+  (`--manual-pairing` to pair by hand, `--approve-first` to test the Mac's Allow prompt, `--no-auth`
+  for a signed-out install; a tagged dev Mac otherwise pairs its own tag's iPhone app with no prompt). It proves both
   survive a relaunch, and checks the build in a fleet simulator signed in with the agent account,
   whose session comes from this Mac (`cmux-ci run --sign-in agent`; no credential lives on a
   worker). Never install with raw `devicectl`, and nothing boots in a simulator on the person's

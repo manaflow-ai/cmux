@@ -29,21 +29,30 @@ phone's blocker. It leaves the task's build on every connected iPhone,
 signed in and paired with the same-tag Mac build, from one command at the pushed head:
 
 ```bash
-cmux-next-ios/scripts/review.sh --tag <task-slug> [--target-worker <simulator worker>] [--manual-pairing | --no-auth]
+cmux-next-ios/scripts/review.sh --tag <task-slug> [--target-worker <simulator worker>] [--manual-pairing | --approve-first | --no-auth]
 ```
 
 The default is the rule for every dev build on a phone: signed in with the `personal` account and
 paired with the same-tag Mac at once, and still both after the person relaunches the app or the
 Mac. Those relaunches run the app's production persistence path: a launch with no
 `CMUX_MOBILE_STACK_*` has no auto-login credentials, so the session comes back from the Keychain
-token store the same way it does in Release, and the pairing state is the app's own. The two
+token store the same way it does in Release, and the pairing state is the app's own. The
 flags are for checking the other paths, and are never the hand-off:
 
 | Flag | The phone | The proof | Its report line |
 | --- | --- | --- | --- |
 | (none) | signed in, paired by the Mac's code | signed in, paired, linked; again after a credential-free relaunch and after the Mac app restarts | `installed, signed in (auto_login), paired and linked with <Mac>; ...` |
 | `--manual-pairing` | signed in; no code handed over or marked used, so the person pairs by hand | signed in, and still after a credential-free relaunch; no pairing checks, no Mac restart | `installed, signed in (auto_login); credential-free relaunch: signed in (restored); pairing left to you (--manual-pairing)` |
+| `--approve-first` | signed in; no code; the tagged Mac starts (again, if it runs) with `CMUX_NEXT_IPHONE_APPROVE_FIRST=1`, so its dev auto-approve is off and it shows "Allow “<phone>” to connect?" | waits for the person's Allow on the Mac (`CNX_REVIEW_ALLOW_TIMEOUT`, 600 s), then paired, linked, listed by the Mac, and again after a credential-free relaunch; no Mac restart | `installed, signed in (auto_login), paired and linked with <Mac> (allowed on the Mac, --approve-first); ...`, or `waiting for Allow on the Mac: not paired in time (...)` |
 | `--no-auth` | no credentials, no code; the first launch clears the tag's stored session with the DEBUG-only `CMUX_MOBILE_CLEAR_AUTH=1` (compiled out of Release) | the receipt says signed out (welcome screen), and a plain relaunch is still signed out | `installed, not signed in (--no-auth): ...; relaunch: still signed out` |
+
+A tagged dev Mac (DEBUG `com.cmuxterm.app.debug.<tag>`) pairs its own tag's iPhone app
+(`dev.cmux.mobile.<tag>`) of the signed-in account without the Allow prompt, so a phone opened by
+hand or through the Tag Opener link pairs at once too; a machine, another account or another tag's
+phone still asks, and another build's dev iPhone app asks NIGHTLY, release and other tags only
+quietly (Settings > Mobile, no prompt). `--approve-first` turns it off for the run, to check the
+Allow prompt itself; a phone already paired with that Mac is not asked again (forget it in Settings
+> Mobile first). The rules and their safety argument: [SECURITY.md](SECURITY.md) "Dev auto-approve".
 
 `--no-auth` implies no pairing; given both, `--no-auth` wins.
 
