@@ -436,6 +436,8 @@ def main():
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
             if a.theme and paired:
                 note(f"- theme: {theme_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, rpc, screens)}")
+            if paired and has_new_chat_demo():
+                note(f"- new chat from the phone: {new_chat_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot)}")
             if paired and probe:
                 # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
@@ -507,6 +509,29 @@ def theme_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot, rpc, sc
     mac = rpc("debug.window_snapshot", {"path": os.path.join(screens, "theme-mac-window.png")}, timeout=60)
     mac_line = "screens/theme-mac-window.png" if isinstance(mac, dict) and not mac.get("error") else f"no Mac snapshot ({mac.get('error')})"
     return f"live-terminal {outcome}; phone {phone}; Mac {mac_line}"
+
+
+def has_new_chat_demo():
+    """Whether this ref's app has the DEBUG `live-new-chat` demo (a new chat started from the phone)."""
+    src = os.path.join(ROOT, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/DemoDriver.swift")
+    return os.path.exists(src) and '"live-new-chat"' in open(src).read()
+
+
+def new_chat_leg(simctl, udid, bundle_id, phone_env, phone_log, phone_shot):
+    """A new agent chat tab with no session, made on the paired Mac, opens on the phone with no
+    notice, and its first message, sent from the phone, starts it (DEBUG demo `live-new-chat`; Leo,
+    2026-11-18: "you should be able to just start the chat right there"). Returns the summary line."""
+    since = time.monotonic()
+    subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+    subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live-new-chat"],
+                   env=phone_env, check=True, capture_output=True)
+    opened = phone_log.wait_at(re.compile(r"demo step: live-new-chat (open notice=.*|no .*|tab not listed)"), 240, since=since)
+    open_line = opened[1].group(1) if opened else "timed out before the chat opened"
+    open_shot = phone_shot("new-chat-open")
+    done = phone_log.wait_at(re.compile(r"demo step: live-new-chat (sent .*|not sent: .*)"), 180, since=since)
+    done_line = done[1].group(1) if done else "timed out after the send"
+    sent_shot = phone_shot("new-chat-sent")
+    return f"{open_line}; {open_shot}; then {done_line}; {sent_shot}"
 
 
 def log_time(line):

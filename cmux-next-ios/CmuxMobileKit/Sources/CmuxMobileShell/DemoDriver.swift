@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "live-new-chat"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -194,6 +194,7 @@ struct DemoDriver {
         case "onboarding": break  // driven by CmuxMobileOnboarding's script until the shell appears
         case "live": await live()
         case "live-terminal": await liveTerminal()
+        case "live-new-chat": await liveNewChat()
         case "approve": await approve()
         case "workspace-new": await workspaceNew()
         case "connect-mac": await connectMac()
@@ -722,6 +723,55 @@ struct DemoDriver {
         let known = CmuxMobileTerminalThemes.shared.theme(for: ws.macID)?.background ?? "none"
         step("live-terminal theme \(model.hostTheme?.background ?? "none"), known for its Mac \(known), state \(model.debugState)")
         step("live-terminal shown")
+    }
+
+    /// Live (paired Mac, cmux_next_pair_e2e.py): a new agent chat tab with no session opens with
+    /// no notice, and its first message, sent here, starts it (Leo, 2026-11-18: "you should be
+    /// able to just start the chat right there"). Steps: `open notice=...`, then `sent` once the
+    /// transcript shows the prompt, or `not sent: <reason>`.
+    private func liveNewChat() async {
+        step("live-new-chat start")
+        shell.tab = .workspaces
+        guard await until(120, { shell.live?.link.phase.isConnected == true }), let live = shell.live else {
+            return step("live-new-chat no link")
+        }
+        guard await until(60, { shell.store.workspaces.contains { $0.tabs.contains { $0.kind == .terminal } } }),
+              let ws = shell.store.workspaces.first(where: { $0.tabs.contains { $0.kind == .terminal } }) else {
+            return step("live-new-chat no workspace")
+        }
+        let tabID: String
+        do {
+            tabID = try await live.debugNewUnboundChat(in: ws)
+        } catch {
+            return step("live-new-chat no tab: \(error)")
+        }
+        guard await until(30, { shell.store.workspaces.first { $0.id == ws.id }?.tabs.contains { $0.id == tabID } == true }),
+              let listed = shell.store.workspaces.first(where: { $0.id == ws.id }),
+              let tab = listed.tabs.first(where: { $0.id == tabID }) else {
+            return step("live-new-chat tab not listed")
+        }
+        shell.store.requestOpen(tabID: tab.id, in: listed.id)
+        shell.workspacesPath = [listed]
+        await pause(2)
+        WorkspaceDemoDirector.shared.post(.activate(tab.id))
+        await pause(3)
+        let mac = shell.store.activeTeam?.macs.first { $0.id == listed.macID }?.name ?? "Mac"
+        let chat = AgentSessionDirectory.shared.store(workspace: listed, tab: tab, macName: mac)
+        step("live-new-chat open notice=\(chat.clientError ?? "none")")
+        let prompt = "Say hi from the phone"
+        chat.send(prompt: prompt)
+        await until(120) {
+            let current = AgentSessionDirectory.shared.store(workspace: listed, tab: tab, macName: mac)
+            if current.returnedDraft != nil { return true }
+            return current.turns.contains { $0.prompt == prompt } && !current.source.awaitsFirstPrompt
+        }
+        await pause(4)
+        let current = AgentSessionDirectory.shared.store(workspace: listed, tab: tab, macName: mac)
+        if let draft = current.returnedDraft {
+            step("live-new-chat not sent: \(current.clientError ?? draft.text)")
+        } else {
+            step("live-new-chat sent turns=\(current.turns.count) notice=\(current.clientError ?? "none")")
+        }
     }
 
     /// Live end to end (real Mac): Mac online and connected, the daemon's
