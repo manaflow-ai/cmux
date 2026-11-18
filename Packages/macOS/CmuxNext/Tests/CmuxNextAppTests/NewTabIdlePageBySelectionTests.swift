@@ -11,19 +11,18 @@ import Testing
 
 /// Which New Tab page view is idle (`AgentTabStore.idlePage`): never the page view of a tab that a pane of a workspace
 /// which a window shows has selected, except the tab that the pane of a New Tab key leaves. The surface ledger alone
-/// does not decide it: a pane is `visible` in the ledger only after a layout pass of its workspace's view, so a tab
-/// that the window shows since this turn is `not drawn` there.
+/// does not decide it: a pane is `visible` in the ledger only after a layout pass of its workspace's view, so the
+/// ledger can say `not drawn` for a tab that the window shows.
 ///
 /// Each row starts after one New Workspace key: the window shows that key's workspace on a New Tab page that the
 /// person did not touch, with the page view that the window made ahead. The window makes no workspace ahead in the
 /// row until the row asks for it (the store's pause of the reservation, as under memory pressure).
 ///
-/// - Rows 1 and 2, in the turn of the key (the window shows the key's workspace, and no layout pass ran since): a
-///   taker with no tab of its own to leave asks for a page view. Row 1: the store shows a new workspace (the store's
-///   own call, no window). Row 2: the store makes the next workspace ahead (the call of the window's idle work).
-///   Want: the tab that the window shows keeps its page view.
-/// - Row 3, after the frames of the key: the window makes its next workspace ahead by its own idle work. Want: the
-///   tab that the window shows keeps its page view.
+/// - Rows 1 to 3, after one more New Workspace key (the window shows a workspace that it did not make ahead, whose
+///   content it made at that key): a taker with no tab of its own to leave asks for a page view. Row 1: the store
+///   shows a new workspace (the store's own call, no window). Row 2: the store makes the next workspace ahead (the
+///   call of the window's idle work). Row 3: the window makes its next workspace ahead by its own idle work. Want:
+///   the tab that the window shows keeps its page view. Each setup prints what the surface ledger says of that tab.
 /// - Row 4, print only: a workspace that went out of view gave its page view to the workspace that the window made
 ///   ahead, and is shown again. How many page views are built at that show, with an untouched page in another
 ///   workspace that is out of view, and with none.
@@ -80,9 +79,10 @@ struct NewTabIdlePageBySelectionTests {
     }
 
     /// The app after one New Workspace key, with no made-ahead workspace after it. `firstPageUsed`: the app's own
-    /// first New Tab page counts as one that the person used. `atOnce`: the row runs in the turn of the key, after
-    /// the window's swap of that turn and before a layout pass; else after the frames of the key.
-    static func afterOneKey(_ install: String, firstPageUsed: Bool, atOnce: Bool = false, _ body: (AppServices, Start) async throws -> Void) async throws {
+    /// first New Tab page counts as one that the person used. `second`: one more New Workspace key after it, so the
+    /// window shows a workspace that it did not make ahead (its content is made at that key), on the page view of
+    /// the tab that the key left.
+    static func afterOneKey(_ install: String, firstPageUsed: Bool, second: Bool = false, _ body: (AppServices, Start) async throws -> Void) async throws {
         try await NewTabPageAtItsFrameTests.withAnEmptyPool(install, usedPages: false) { services, _, pane, _ in
             let tabs = services.agentTabs, store = services.daemon.store
             let controller = try #require(services.windows.active, "setup: no window")
@@ -97,25 +97,25 @@ struct NewTabIdlePageBySelectionTests {
             // No workspace is made ahead from here on, until the row asks for it; the key takes the one that is there.
             store.reservationPaused = true
             defer { store.reservationPaused = false }
-            try #require(services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)), "setup: the New Workspace key was refused")
-            if atOnce {
-                // The window's own swap of the key's turn (its run loop block makes the same call), now.
-                controller.showWorkspace(requested: controller.state.workspaceID)
-            } else {
+            var left = firstWorkspace
+            for _ in 0..<(second ? 2 : 1) {
+                let from = left
+                try #require(services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)), "setup: the New Workspace key was refused")
                 await NewTabPageAtItsFrameTests.frame(services)
-                try await PasswordManagerRouteTests.until({ controller.content.map { $0.workspace.id != firstWorkspace && $0.focusedPane != nil } == true },
+                try await PasswordManagerRouteTests.until({ controller.content.map { $0.workspace.id != from && $0.focusedPane != nil } == true },
                                                           within: .seconds(5), report: { "setup: the window shows no focused pane of the key's workspace" })
                 await NewTabPageAtItsFrameTests.frame(services)
+                left = try #require(controller.content?.workspace.id, "setup: the window shows no workspace after the key")
             }
-            try #require(controller.content.map { $0.workspace.id != firstWorkspace } == true, "setup: the window does not show the key's workspace")
             let shown = try #require(Self.selected(controller), "setup: no pane of the key's workspace has a selected tab")
             try #require(tabs.isNewTabPage(shown), "setup: the key's workspace does not show a New Tab page")
             try #require(tabs.existingView(shown) === page, "setup: the key's workspace does not show the page view that the window made ahead")
             try #require(controller.reservedContent.ready == nil, "setup: the window has a made-ahead workspace after the key, with the reservation paused")
             print("""
-                NewTabIdlePageBySelectionTests: setup of \(install): after the key the window shows a New Tab tab with the page \
-                view that the window made ahead; in the turn of the key: \(atOnce); the surface ledger says that a pane draws \
-                that tab: \(Self.ledgerDraws(shown, services)); the app's first page counts as used: \(firstPageUsed)
+                NewTabIdlePageBySelectionTests: setup of \(install): after \(second ? 2 : 1) New Workspace key(s) the window shows \
+                a New Tab tab with the page view that the window made ahead; the window made the shown workspace ahead: \
+                \(!second); the surface ledger says that a pane draws that tab: \(Self.ledgerDraws(shown, services)); the app's \
+                first page counts as used: \(firstPageUsed)
                 """)
             try await body(services, Start(controller: controller, shown: shown, page: page, first: first, firstWorkspace: firstWorkspace, ahead: ahead))
             store.reservationPaused = false
@@ -135,8 +135,8 @@ struct NewTabIdlePageBySelectionTests {
     }
 
     /// Row 1.
-    @Test func aNewWorkspaceTakesNoPageViewOfATabThatTheWindowShowsSinceThisTurn() async throws {
-        try await Self.afterOneKey("cn-idle-by-selection-new", firstPageUsed: true, atOnce: true) { services, start in
+    @Test func aNewWorkspaceTakesNoPageViewOfATabThatTheWindowShows() async throws {
+        try await Self.afterOneKey("cn-idle-by-selection-new", firstPageUsed: true, second: true) { services, start in
             let tabs = services.agentTabs, daemon = services.daemon
             let repair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
             let made = try #require(tabs.showWorkspace(WorkspaceKey.generate(), name: "a workspace of the row", index: nil, cwd: nil, token: nil, on: daemon, repair: repair),
@@ -145,7 +145,7 @@ struct NewTabIdlePageBySelectionTests {
             let took = tabs.existingView(made.tabKey) === start.page
             made.abandon()
             print("""
-                NewTabIdlePageBySelectionTests: row 1, the store showed a new workspace in the turn of the key: the tab that \
+                NewTabIdlePageBySelectionTests: row 1, the store showed a new workspace: the tab that \
                 the window shows kept its page view: \(kept); the new workspace's tab took that page view: \(took)
                 """)
             #expect(kept && !took, "the tab that the window shows lost its page view to a new workspace of the store (the new workspace's tab took it: \(took))")
@@ -153,8 +153,8 @@ struct NewTabIdlePageBySelectionTests {
     }
 
     /// Row 2.
-    @Test func theWorkspaceMadeAheadTakesNoPageViewOfATabThatTheWindowShowsSinceThisTurn() async throws {
-        try await Self.afterOneKey("cn-idle-by-selection-reserve", firstPageUsed: true, atOnce: true) { services, start in
+    @Test func theWorkspaceMadeAheadTakesNoPageViewOfATabThatTheWindowShows() async throws {
+        try await Self.afterOneKey("cn-idle-by-selection-reserve", firstPageUsed: true, second: true) { services, start in
             let tabs = services.agentTabs, daemon = services.daemon
             daemon.store.reservationPaused = false
             let made = tabs.reserveWorkspace(on: daemon, cwd: nil)
@@ -164,7 +164,7 @@ struct NewTabIdlePageBySelectionTests {
             let took = ahead.map { tabs.existingView($0) === start.page } ?? false
             tabs.releaseReservedWorkspace(on: daemon.store, .unshown)
             print("""
-                NewTabIdlePageBySelectionTests: row 2, the store made the next workspace ahead in the turn of the key (it made \
+                NewTabIdlePageBySelectionTests: row 2, the store made the next workspace ahead (it made \
                 one: \(made != nil)): the tab that the window shows kept its page view: \(kept); the made-ahead workspace's tab \
                 took that page view: \(took)
                 """)
@@ -174,7 +174,7 @@ struct NewTabIdlePageBySelectionTests {
 
     /// Row 3.
     @Test func theWindowsIdleWorkTakesNoPageViewThatTheWindowShows() async throws {
-        try await Self.afterOneKey("cn-idle-by-selection-ahead", firstPageUsed: true) { services, start in
+        try await Self.afterOneKey("cn-idle-by-selection-ahead", firstPageUsed: true, second: true) { services, start in
             let tabs = services.agentTabs
             let before = Self.pages(services)
             try await Self.makesTheNextWorkspaceAhead(start, services)
