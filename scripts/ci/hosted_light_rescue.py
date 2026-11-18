@@ -33,6 +33,11 @@ recovery attempts a pass, and a run with any other unfinished job is left alone 
 cancellations have durable log receipts. A later minute or successor may resume only those receipts, after reading
 the live attempt and current open PR again; incomplete history and unmarked cancellations never authorize a rerun.
 
+`--backlog` is a second, separate pass (ci-hosted-backlog-rescue.yml, every 10 minutes and on dispatch) for what the
+minute pass leaves: any pull request run, up to GitHub's 24 h queue limit, whose every unfinished job has waited
+BACKLOG_STALL on hosted Ubuntu. A run at its pull request's head is cancelled and re-run on today's routes; a
+superseded one is only cancelled (see BACKLOG_STALL below).
+
 Quota: reads go out as the cmux-bot App (HOSTED_LIGHT_TOKEN is its installation token when the workflow minted one;
 with BOT_APP_ID and BOT_APP_KEY a new one is minted before the hour is up), whose installation pool is its own. The
 workflow token (HOSTED_LIGHT_FALLBACK_TOKEN) is the repository's one GITHUB_TOKEN pool (1,000 requests an hour on this
@@ -825,6 +830,272 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
     return lines
 
 
+# The backlog pass (`--backlog`, ci-hosted-backlog-rescue.yml). On 2026-11-18 Blacksmith Linux started almost no jobs
+# from about 21:34Z, so LINUX_RUNNER and the x64 pools pointed at GitHub-hosted `ubuntu-24.04` until 02:34Z (cmux#45710).
+# Every job queued in that window stayed bound to the hosted label after the routes came back, since GitHub never
+# re-routes a queued job: at 02:20Z about 2,500 runs were queued, cmux#44204's 35 light jobs had waited 3 h, and new
+# pushes' hosted light jobs queued behind them. The minute pass above never saw those runs: it lists runs under WINDOW
+# (90 min) old, in declared workflows only, on the premise that GitHub cancels a hosted job that never got a runner
+# well before then; GitHub keeps it queued for 24 h. The backlog pass covers the rest of that class, bounded:
+# - pull request runs only (pull_request and pull_request_target, attempt 1, of this repository's own branches),
+#   never a push, schedule, dispatch, nightly, DEV, promote or release run, never nightly.yml;
+# - created BACKLOG_STALL to BACKLOG_WINDOW ago, except a run the minute pass owns (a declared workflow's run under
+#   WINDOW old), so the two never act on the same run;
+# - every unfinished job queued, with no runner, on GitHub-hosted Ubuntu labels only, for BACKLOG_STALL or more
+#   (a run with anything running or waiting otherwise is left alone);
+# - a run at its pull request's current head is cancelled and its failed jobs re-run (attempt 2: each job takes its
+#   route as the variables read now); a run whose pull request closed or moved on is only cancelled, since nobody
+#   reads its result; a run whose pull request cannot be read is left alone;
+# - at most BACKLOG_ACTIONS cancels and BACKLOG_READS job reads a pass (BACKLOG_IN_PROGRESS_READS of them for
+#   runs that started a job), oldest queued runs first.
+BACKLOG_STALL = dt.timedelta(minutes=30)
+BACKLOG_WINDOW = dt.timedelta(hours=24)
+BACKLOG_EVENTS = ("pull_request", "pull_request_target")
+BACKLOG_ACTIONS = 20
+BACKLOG_ACTIONS_MAX = 100
+BACKLOG_READS = 60
+BACKLOG_IN_PROGRESS_READS = 20
+BACKLOG_SLICE = dt.timedelta(hours=3)
+BACKLOG_SETTLE_S = 120.0
+
+
+def backlog_stalled(job: Mapping[str, Any], now: dt.datetime) -> bool:
+    """Queued on GitHub-hosted Ubuntu labels only, with no runner, for BACKLOG_STALL or more."""
+    labels = [str(label) for label in job.get("labels") or ()]
+    created = parse_time(job.get("created_at"))
+    return (job.get("status") == "queued" and not job.get("runner_id") and not job.get("runner_name")
+            and bool(labels) and all(HOSTED_LABEL.match(label) for label in labels)
+            and created is not None and now - created >= BACKLOG_STALL)
+
+
+def backlog_verdict(jobs: Sequence[Mapping[str, Any]], now: dt.datetime) -> tuple[bool, list[Mapping[str, Any]]]:
+    """(every unfinished job is a stalled hosted job, the stalled jobs)."""
+    stuck = [job for job in jobs if backlog_stalled(job, now)]
+    stuck_ids = {id(job) for job in stuck}
+    others = [job for job in jobs if job.get("status") != "completed" and id(job) not in stuck_ids]
+    return bool(stuck) and not others, stuck
+
+
+def backlog_listing(client: Any, status: str, event: str, start: dt.datetime, end: dt.datetime,
+                    page: int = 1) -> tuple[int, list[dict[str, Any]]]:
+    """One page of `status` runs of `event` created in [start, end], newest first, and the listing's total count."""
+    query = urllib.parse.urlencode({"status": status, "event": event, "per_page": LIST_PAGE, "page": page,
+                                    "created": f"{iso(start)}..{iso(end)}"})
+    answer = client.request("GET", f"/actions/runs?{query}")
+    return int(answer.get("total_count") or 0), list(answer.get("workflow_runs") or [])
+
+
+def backlog_oldest(client: Any, status: str, event: str, start: dt.datetime, end: dt.datetime,
+                   want: int) -> list[dict[str, Any]]:
+    """The oldest `status` runs of `event` in [start, end], about `want` of them.
+
+    A quiet repository costs one read. A listing over one page reads its last (oldest) page instead, and one over
+    the 1,000 runs GitHub serves is walked in BACKLOG_SLICE slices from the oldest, so the runs that waited longest
+    are found first however deep the queue is."""
+    total, rows = backlog_listing(client, status, event, start, end)
+    if total <= LIST_PAGE:
+        return rows
+    if total <= 10 * LIST_PAGE:
+        return oldest_pages(client, status, event, start, end, total, want)
+    found: list[dict[str, Any]] = []
+    cut = start
+    while cut < end and len(found) < want:
+        upper = min(end, cut + BACKLOG_SLICE)
+        part_total, part = backlog_listing(client, status, event, cut, upper)
+        if part_total > LIST_PAGE:
+            part = oldest_pages(client, status, event, cut, upper, min(part_total, 10 * LIST_PAGE), want - len(found))
+        found.extend(part)
+        cut = upper
+    return found
+
+
+def oldest_pages(client: Any, status: str, event: str, start: dt.datetime, end: dt.datetime, total: int,
+                 want: int) -> list[dict[str, Any]]:
+    """The last pages of a listing of `total` runs (the oldest), back to at least `want` runs."""
+    found: list[dict[str, Any]] = []
+    page = -(-total // LIST_PAGE)
+    while page >= 1 and len(found) < want:
+        found.extend(backlog_listing(client, status, event, start, end, page=page)[1])
+        page -= 1
+    return found
+
+
+def backlog_pulls(client: Any, run: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """(state, head sha) of each pull request the run belongs to, read live.
+
+    From the run's own pull request list; when GitHub left it empty (it drops the link once the head moves on), the
+    pull requests whose head is the run's branch in this repository."""
+    numbers = [pr["number"] for pr in run.get("pull_requests") or ()
+               if isinstance(pr, Mapping) and isinstance(pr.get("number"), int)]
+    if numbers:
+        found = []
+        for number in numbers:
+            pull = client.request("GET", f"/pulls/{number}")
+            found.append((str(pull.get("state") or ""), str((pull.get("head") or {}).get("sha") or "")))
+        return found
+    branch = str(run.get("head_branch") or "")
+    owner = str(((run.get("head_repository") or {}).get("owner") or {}).get("login") or "")
+    if not branch or not owner:
+        return []
+    query = urllib.parse.urlencode({"state": "all", "head": f"{owner}:{branch}", "per_page": 10})
+    pulls = client.request("GET", f"/pulls?{query}")
+    return [(str(pull.get("state") or ""), str((pull.get("head") or {}).get("sha") or ""))
+            for pull in pulls if isinstance(pull, Mapping)] if isinstance(pulls, list) else []
+
+
+def backlog_head(client: Any, run: Mapping[str, Any]) -> str:
+    """'current', 'superseded' or 'unknown' for the run's pull request.
+
+    A pull_request run is at its head when an open pull request's head is the run's head_sha. A pull_request_target
+    run's head_sha is the base branch's, so its pull request is at the head the run was made for when the head the run
+    lists for it is still the live one."""
+    if run.get("event") == "pull_request_target":
+        listed = {pr["number"]: str((pr.get("head") or {}).get("sha") or "") for pr in run.get("pull_requests") or ()
+                  if isinstance(pr, Mapping) and isinstance(pr.get("number"), int)}
+        if not listed:
+            return "unknown"
+        live = backlog_pulls(client, run)
+        if any(state == "open" and head and head in listed.values() for state, head in live):
+            return "current"
+        return "superseded" if live else "unknown"
+    live = backlog_pulls(client, run)
+    if any(state == "open" and head == run.get("head_sha") for state, head in live):
+        return "current"
+    return "superseded" if live else "unknown"
+
+
+def backlog_sweep(client: Any, *, now: dt.datetime, dry_run: bool, declared: Sequence[str] | None,
+                  actions: int = BACKLOG_ACTIONS, sleep: Callable[[float], None] = time.sleep,
+                  clock: Callable[[], float] = time.monotonic) -> tuple[list[str], dict[str, int]]:
+    """One bounded backlog pass. Returns its log lines and counts (cancelled, superseded, rerun, ...)."""
+    lines: list[str] = []
+    counts = {"candidates": 0, "read": 0, "stalled": 0, "cancelled": 0, "superseded": 0, "rerun": 0}
+    actions = max(0, min(int(actions), BACKLOG_ACTIONS_MAX))
+    start, end = now - BACKLOG_WINDOW, now - BACKLOG_STALL
+    minute_pass_from = now - WINDOW
+    repo = getattr(client, "repo", "")
+    if pool_low(client, now):
+        lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); nothing read")
+        return lines, counts
+    listed: dict[int, Mapping[str, Any]] = {}
+    for status in ("queued", "in_progress"):
+        for event in BACKLOG_EVENTS:
+            try:
+                rows = backlog_oldest(client, status, event, start, end, BACKLOG_READS)
+            except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
+                lines.append(f"could not list {status} {event} runs ({error})")
+                continue
+            for run in rows:
+                created = parse_time(run.get("created_at")) if isinstance(run, Mapping) else None
+                workflow = workflow_file(run)
+                if (not isinstance(run.get("id"), int) or created is None or not (start <= created <= end)
+                        or run.get("event") not in BACKLOG_EVENTS or run.get("run_attempt") != 1
+                        or run.get("status") not in IN_FLIGHT or workflow is None or workflow in EXCLUDED_WORKFLOWS
+                        or (repo and str((run.get("head_repository") or {}).get("full_name") or "") != repo)):
+                    continue
+                # The minute pass owns a declared workflow's run under WINDOW old; unread declarations leave every
+                # run under WINDOW to it.
+                if created >= minute_pass_from and (declared is None or workflow in declared):
+                    continue
+                listed[run["id"]] = {**run, "_workflow": workflow}
+    # Queued runs first (nothing of theirs started), then the rest; oldest first within each.
+    order = sorted(listed.values(), key=lambda run: (run.get("status") != "queued",) + run_key(run))
+    counts["candidates"] = len(order)
+    chosen: list[tuple[Mapping[str, Any], str, str]] = []
+    in_progress_reads = 0
+    for run in order:
+        if counts["read"] >= BACKLOG_READS or counts["cancelled"] >= actions:
+            break
+        if run.get("status") != "queued":
+            # A run that started something is usually still working: read a few a pass, not every old one.
+            if in_progress_reads >= BACKLOG_IN_PROGRESS_READS:
+                break
+            in_progress_reads += 1
+        if pool_low(client, now):
+            lines.append(f"the read token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); stopped")
+            break
+        where = f"run {run['id']} ({run['_workflow']}, {run.get('event')}, {run.get('head_branch')})"
+        try:
+            counts["read"] += 1
+            rescue_it, stuck = backlog_verdict(client.jobs(run["id"]), now)
+            if not rescue_it:
+                continue
+            counts["stalled"] += 1
+            head = backlog_head(client, run)
+        except Exception as error:  # noqa: BLE001 - unread means unknown: leave the run
+            lines.append(f"{where}: could not read ({error}); left alone")
+            continue
+        oldest = max(int((now - parse_time(job["created_at"])).total_seconds() // 60) for job in stuck)
+        detail = f"{len(stuck)} jobs queued on hosted Ubuntu, the oldest {oldest} min"
+        if head == "unknown":
+            lines.append(f"{where}: {detail}; its pull request could not be told; left alone")
+            continue
+        if dry_run:
+            verb = "cancel and re-run" if head == "current" else "cancel (superseded)"
+            lines.append(f"{where}: {detail}; would {verb} (dry run)")
+            continue
+        # Right before the cancel: still attempt 1, in flight, and every unfinished job still a stalled hosted one.
+        try:
+            fresh = client.request("GET", f"/actions/runs/{run['id']}")
+            again, _ = backlog_verdict(client.jobs(run["id"]), now)
+        except Exception as error:  # noqa: BLE001
+            lines.append(f"{where}: could not re-read before the cancel ({error}); left alone")
+            continue
+        if fresh.get("run_attempt") != 1 or fresh.get("status") not in IN_FLIGHT or not again:
+            lines.append(f"{where}: a job started, or the run moved on, since the read; left alone")
+            continue
+        try:
+            client.cancel(run["id"])
+        except Exception as error:  # noqa: BLE001
+            lines.append(f"{where}: cancel refused ({error})")
+            continue
+        counts["cancelled"] += 1
+        if head == "superseded":
+            counts["superseded"] += 1
+            lines.append(f"{where}: {detail}; its pull request closed or moved on: cancelled, not re-run")
+            continue
+        chosen.append((run, where, detail))
+    # Re-run each cancelled current-head run once its cancel settles, checking its pull request is still at that head.
+    deadline = clock() + BACKLOG_SETTLE_S
+    waiting = list(chosen)
+    while waiting:
+        left = []
+        for run, where, detail in waiting:
+            try:
+                state = client.request("GET", f"/actions/runs/{run['id']}")
+            except Exception:  # noqa: BLE001 - read again until the budget runs out
+                left.append((run, where, detail))
+                continue
+            if state.get("status") != "completed":
+                left.append((run, where, detail))
+                continue
+            if state.get("run_attempt") != 1 or state.get("conclusion") != "cancelled":
+                lines.append(f"{where}: {detail}; cancelled, but the run finished otherwise or was re-run; left alone")
+                continue
+            try:
+                head = backlog_head(client, state)
+                if head != "current":
+                    lines.append(f"{where}: {detail}; cancelled; its pull request moved on meanwhile, not re-run")
+                    continue
+                client.rerun_failed(run["id"])
+            except Exception as error:  # noqa: BLE001
+                lines.append(f"{where}: {detail}; cancelled, re-run refused ({error}); re-run it by hand")
+                continue
+            counts["rerun"] += 1
+            lines.append(f"{where}: {detail}; cancelled and re-ran its failed jobs on today's routes")
+        waiting = left
+        if waiting and clock() >= deadline:
+            for run, where, detail in waiting:
+                lines.append(f"{where}: {detail}; cancelled, but the cancel did not settle in "
+                             f"{BACKLOG_SETTLE_S:.0f} s; re-run it by hand")
+            break
+        if waiting:
+            sleep(SETTLE_INTERVAL_S)
+    lines.append(f"{counts['candidates']} candidate runs, {counts['read']} read, {counts['stalled']} stalled, "
+                 f"{counts['cancelled']} cancelled ({counts['superseded']} superseded), {counts['rerun']} re-run")
+    return lines, counts
+
+
 def follow(pass_once: Callable[[], Any], *, stopped: Callable[[float], bool], seconds: float,
            clock: Callable[[], float] = time.monotonic, log: Callable[[str], None] = print) -> None:
     """One bounded light-job watch inside the existing sweeper, independent of its App budget pacing.
@@ -881,6 +1152,40 @@ def from_env(env: Mapping[str, str], repo: str, *, now: Callable[[], dt.datetime
     return once
 
 
+def backlog_main(args: argparse.Namespace, env: Mapping[str, str], repo: str, *, client: Any,
+                 now: dt.datetime, sleep: Callable[[float], None]) -> int:
+    """Run one backlog pass. Reads and writes go out as cmux-bot (HOSTED_LIGHT_TOKEN) when the workflow minted it, so
+    the repository's shared GITHUB_TOKEN pool (GH_TOKEN) answers only reads, only while cmux-bot is low or refused."""
+    declared: list[str] | None = None
+    if args.policy is not None:
+        try:
+            runners = json.loads((args.policy / "runners.json").read_text(encoding="utf-8"))
+            declared = with_callers(declared_workflows(runners), args.policy / "workflows")
+        except (OSError, ValueError) as error:
+            print(f"could not read the declared workflows under {args.policy} ({error}); "
+                  f"every run under {int(WINDOW.total_seconds() // 60)} min is left to the minute pass")
+    raw = (env.get("BACKLOG_ACTIONS") or "").strip()
+    actions = int(raw) if raw.isdigit() else BACKLOG_ACTIONS
+    if client is None:
+        bot = (env.get("HOSTED_LIGHT_TOKEN") or "").strip()
+        workflow = (env.get("GH_TOKEN") or "").strip()
+        if not (bot or workflow) or not repo:
+            print("::warning title=Hosted backlog rescue::no token or repository; nothing to do")
+            return 0
+        if bot and workflow and bot != workflow:
+            client = GitHub(bot, repo, bot, fallback=workflow)
+        else:
+            client = GitHub(bot or workflow, repo, bot or workflow)
+    lines, _ = backlog_sweep(client, now=now, dry_run=args.dry_run, declared=declared, actions=actions, sleep=sleep)
+    for line in lines:
+        print(line)
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write("### Hosted backlog rescue\n\n" + "\n".join(f"- {line}" for line in lines) + "\n\n")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None, *, client: Any = None,
          now: dt.datetime | None = None, sleep: Callable[[float], None] = time.sleep) -> int:
     env = os.environ if env is None else env
@@ -890,6 +1195,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                       help="the .github/runners.json whose hosted_light_jobs scope the pass")
     mode.add_argument("--wake-sweeper", action="store_true",
                       help="wake the existing single concurrency owner without cancelling or rerunning any job")
+    mode.add_argument("--backlog", action="store_true",
+                      help="one backlog pass: pull request runs stalled on hosted Ubuntu for 30 min or more")
+    parser.add_argument("--policy", type=Path, default=None,
+                        help="with --backlog: the .github directory whose declared workflows the minute pass owns")
     parser.add_argument("--workflows", type=Path, default=None,
                         help="the .github/workflows directory whose callers of reusable declared workflows are listed too")
     parser.add_argument("--dry-run", action="store_true",
@@ -910,6 +1219,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         client.wake_sweeper()
         print("dispatched the single owned-pool-sweeper on main")
         return 0
+    if args.backlog:
+        return backlog_main(args, env, repo, client=client, now=now, sleep=sleep)
     try:
         workflows = with_callers(declared_workflows(json.loads(args.runners.read_text(encoding="utf-8"))),
                                  args.workflows)
