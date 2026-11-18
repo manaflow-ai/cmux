@@ -122,6 +122,28 @@ def _pixels(row: list) -> tuple[float, float, str | None]:
     return -1.0, -1.0, None
 
 
+# The page-window counters of `debug.cef` (CEFTrackerStats) a gesture's trace reports the change of.
+CEF_COUNTERS = ("fences", "fence_joined", "fence_presented", "fence_missed", "fences_expired", "detaches",
+                "attaches", "geometry_posts", "clip_builds", "clip_ms", "occlusion_reads")
+
+
+def _cef_counters(reply) -> dict[str, float]:
+    """CEF_COUNTERS wherever they sit in a `debug.cef` reply (the first of each found); {} for none."""
+    found: dict[str, float] = {}
+    stack = [reply]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in CEF_COUNTERS and key not in found and isinstance(value, (int, float)):
+                    found[key] = float(value)
+                elif isinstance(value, (dict, list)):
+                    stack.append(value)
+        elif isinstance(node, list):
+            stack.extend(node)
+    return found
+
+
 def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
           gestures: tuple[str, ...] | list[str] = ("divider",), seed: int = 0) -> None:
     """Splits right, opens the page (`pane`) in the right pane, then traces each of `gestures` four times.
@@ -311,8 +333,12 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
     for gesture in gestures:
         for act in acts(gesture):
             reset()
+            cef_before = _cef_counters(driver.call("debug.cef", {}, timeout=10))
             trace = driver.trace(TARGETS, act, 0.8 if gesture != "sidebar" else 1.2)
             trace["page_frames"], clock = read()
+            cef_after = _cef_counters(driver.call("debug.cef", {}, timeout=10))
+            # What the page windows did through this gesture: resize fences joined, presented, missed, expired.
+            trace["cef"] = {key: round(cef_after[key] - cef_before.get(key, 0.0), 2) for key in cef_after}
             trace.update({"gesture": gesture, "pane": pane, "chat_pane": chat_pane, "clock": clock})
             drags.append(trace)
             time.sleep(0.6)
@@ -485,6 +511,10 @@ def judge_drag(trace: dict, refresh: float) -> dict:
         "gap_frames": gap_frames,
         "dropped": dropped,
         "worst_stall_ms": worst_stall_ms,
+        # The app's display-frame intervals while the pane moved (ms): p50, p95, max.
+        "interval_ms": spread(intervals),
+        # The page windows' counters through the gesture (`debug.cef`; drive's `cef`).
+        "cef": trace.get("cef"),
         "page_dropped": page_dropped,
         "page_frames": len(page),
         # The host's widths over the drag: one value when it held its size (no Chromium host: None).
@@ -519,6 +549,9 @@ def _summary(measured: list[dict]) -> dict:
         "dropped": sum(drag["dropped"] for drag in measured),
         "worst_stall_ms": worst("worst_stall_ms", None),
         "page_dropped": sum(drag["page_dropped"] for drag in measured),
+        "interval_ms_p95": worst("interval_ms", "p95"),
+        "interval_ms_max": worst("interval_ms", "max"),
+        "cef": {key: round(sum((drag.get("cef") or {}).get(key, 0.0) for drag in measured), 2) for key in CEF_COUNTERS},
     }
 
 
