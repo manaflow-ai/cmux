@@ -1,7 +1,8 @@
 // Settings > Cloud > Models for Cloud (CloudModelsCard.tsx, model-connections.md Revision 2): each row
-// says whether Cloud chats on it are set up, by the rule a Cloud start uses, so a Mac-only login that
-// looks healthy in Models is not read as set up; Set Up opens Models' own steps; a focus opens the page
-// on its row; and Models' This Mac only rows link here.
+// says whether Cloud chats on it are set up, by the rule a Cloud start uses, and names only connections
+// that serve Cloud, so a Mac-only login is neither read as set up nor explained here; each row fixes
+// itself in place (Sign in with ChatGPT, Turn On, Set Up opening Models' own steps); a focus opens the
+// page on its row; and Models' This Mac only rows link here.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { cloudReadiness } from "./components/CloudModelsCard";
 import { mockModels } from "./mockModels";
@@ -52,25 +53,58 @@ test("with nothing connected, every row is Not set up for Cloud with its way in"
   expect(statuses(rendered)).toEqual({ claude: "missing", chatgpt: "missing", apiKey: "missing" });
   expect(row(rendered, "claude").textContent).toContain("Not set up for Cloud");
   expect(row(rendered, "claude").querySelector('[data-cloud-action="setUpClaude"]')).not.toBeNull();
-  expect(row(rendered, "chatgpt").querySelector('[data-cloud-action="connectChatGPT"]')).not.toBeNull();
+  expect(row(rendered, "chatgpt").querySelector('[data-cloud-action="connectChatGPT"]')?.textContent).toBe(
+    "Sign in with ChatGPT",
+  );
   expect(row(rendered, "apiKey").querySelector('[data-menu="cloud-api-key"]')).not.toBeNull();
-  expect(card(rendered).querySelector("[data-cloud-mac-only]")).toBeNull();
 });
 
-test("Mac-only logins are not set up for Cloud, and each row says why plainly", async () => {
+test("Mac-only logins are not listed: the card names only what serves Cloud", async () => {
   const rendered = await render(mockModels.macOnly);
   expect(statuses(rendered)).toEqual({ claude: "missing", chatgpt: "missing", apiKey: "missing" });
-  const lines = (id: string) =>
-    [...row(rendered, id).querySelectorAll("[data-cloud-mac-only] .row-help")].map((line) => line.textContent);
-  expect(lines("claude")).toEqual([
-    "Your Claude Code login works on this Mac only.",
-    "Cloud needs a token from claude setup-token.",
+  expect(card(rendered).textContent).toContain("What Cloud chats run on.");
+  expect(card(rendered).textContent).not.toMatch(/Mac|Codex CLI|Claude Code login/);
+  expect(card(rendered).querySelector("[data-cloud-via]")).toBeNull();
+  expect(row(rendered, "chatgpt").querySelector('[data-cloud-action="connectChatGPT"]')?.textContent).toBe(
+    "Sign in with ChatGPT",
+  );
+});
+
+test("a signed-out ChatGPT plan says Signed out and signs in again in place", async () => {
+  const rendered = await render(mockModels.chatgptSignedOut);
+  const chatgpt = row(rendered, "chatgpt");
+  expect(chatgpt.dataset.cloudStatus).toBe("off");
+  expect(chatgpt.querySelector("[data-cloud-status-text]")?.textContent).toBe("Signed out");
+  expect(chatgpt.querySelector("[data-cloud-via]")?.textContent).toContain("ChatGPT plan");
+  expect(chatgpt.textContent).not.toContain("Models");
+  await click(chatgpt.querySelector('[data-cloud-action="connectChatGPT"]')!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPT", id: "chatgpt" }]);
+  expect(row(rendered, "chatgpt").querySelector('[data-chatgpt="pending"]')).not.toBeNull();
+});
+
+test("a turned-off ChatGPT plan says Turned off and Turn On makes it Connected for Cloud", async () => {
+  const rendered = await render(mockModels.chatgptOff);
+  const chatgpt = row(rendered, "chatgpt");
+  expect(chatgpt.querySelector("[data-cloud-status-text]")?.textContent).toBe("Turned off");
+  expect(chatgpt.querySelector('[data-cloud-action="connectChatGPT"]')).toBeNull();
+  await click(chatgpt.querySelector('[data-cloud-action="turnOn"]')!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "enable", id: "chatgpt", on: true }]);
+  expect(statuses(rendered).chatgpt).toBe("ready");
+});
+
+test("a ChatGPT plan both turned off and signed out turns on as it signs in", async () => {
+  const both = structuredClone(mockModels.chatgptSignedOut);
+  both.personal.connections = both.personal.connections.map((c) =>
+    c.kind === "chatgpt-plan" ? { ...c, enabled: false } : c,
+  );
+  const rendered = await render(both);
+  expect(row(rendered, "chatgpt").querySelector("[data-cloud-status-text]")?.textContent).toBe("Signed out");
+  expect(row(rendered, "chatgpt").querySelector('[data-cloud-action="turnOn"]')).toBeNull();
+  await click(row(rendered, "chatgpt").querySelector('[data-cloud-action="connectChatGPT"]')!);
+  expect(rendered.provider.modelRuns).toEqual([
+    { action: "enable", id: "chatgpt", on: true },
+    { action: "connectChatGPT", id: "chatgpt" },
   ]);
-  expect(lines("chatgpt")).toEqual([
-    "Your Codex CLI login works on this Mac only.",
-    "Cloud needs a ChatGPT sign-in or an OpenAI key.",
-  ]);
-  expect(row(rendered, "apiKey").querySelector("[data-cloud-mac-only]")).toBeNull();
 });
 
 test("a Claude Code token is Connected for Cloud; ChatGPT stays not set up", async () => {
@@ -79,7 +113,6 @@ test("a Claude Code token is Connected for Cloud; ChatGPT stays not set up", asy
   expect(row(rendered, "claude").querySelector("[data-cloud-status-text]")?.textContent).toBe("Connected for Cloud");
   expect(row(rendered, "claude").querySelector("[data-cloud-via]")?.textContent).toBe("Claude Code token");
   expect(row(rendered, "claude").querySelector("[data-cloud-action]")).toBeNull();
-  expect(row(rendered, "claude").querySelector("[data-cloud-mac-only]")).toBeNull();
 });
 
 test("a ChatGPT plan is Connected for Cloud; Claude stays not set up", async () => {
@@ -122,7 +155,7 @@ test("Set Up on Claude opens Models' Claude steps, which add the pasted token on
   expect(document.body.innerHTML).not.toContain("sk-ant-oat01-secret");
 });
 
-test("Continue with ChatGPT runs the sign-in and waits with Cancel on its row", async () => {
+test("Sign in with ChatGPT runs the sign-in and waits with Cancel on its row", async () => {
   const rendered = await render(mockModels.macOnly);
   await click(row(rendered, "chatgpt").querySelector('[data-cloud-action="connectChatGPT"]')!);
   expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPT" }]);

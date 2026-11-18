@@ -226,6 +226,10 @@ export interface MenuButtonProps {
   buttonRef?: RefObject<HTMLButtonElement | null>;
   /** A field-like trigger (a select, a host field): its menu opens as wide as it (`matchTrigger`). */
   fieldTrigger?: boolean;
+  /** With the `ui-btn` class: a `Button`'s variant and size, so the trigger takes its hover, press
+   *  and open fills (controls.css). */
+  variant?: "ghost" | "subtle" | "solid";
+  size?: "sm" | "md" | "lg";
   children: ReactNode;
 }
 
@@ -239,6 +243,8 @@ export function MenuButton({
   "data-menu": dataMenu,
   buttonRef,
   fieldTrigger,
+  variant,
+  size,
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
@@ -261,6 +267,8 @@ export function MenuButton({
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}
       data-field-trigger={fieldTrigger ? "" : undefined}
+      data-variant={variant}
+      data-size={size}
       data-popup-open={context?.isOpen ? "" : undefined}
       disabled={disabled}
       onKeyUp={(event) => {
