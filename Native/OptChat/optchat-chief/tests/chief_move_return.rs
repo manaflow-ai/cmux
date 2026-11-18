@@ -633,3 +633,43 @@ fn a_chief_on_a_mini_comes_back_into_the_home_it_left() {
     assert_eq!(local_memory(&src).len(), 4);
     assert_eq!(conversation(&src).len(), 4);
 }
+
+/// Repro harness (scratch): the round trip as N concurrent copies of this test binary, so the
+/// machine is as busy as a 2 vCPU runner; prints every failure's message.
+#[test]
+#[ignore]
+fn round_trip_stress() {
+    let n: usize = std::env::var("ROUND_TRIP_COPIES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(24);
+    let exe = std::env::current_exe().unwrap();
+    let kids: Vec<_> = (0..n)
+        .map(|_| {
+            Command::new(&exe)
+                .args([
+                    "a_round_trip_from_the_cloud_to_a_mini_and_home_loses_nothing",
+                    "--exact",
+                    "--nocapture",
+                ])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    let mut failed = 0;
+    for (i, kid) in kids.into_iter().enumerate() {
+        let out = kid.wait_with_output().unwrap();
+        if !out.status.success() {
+            failed += 1;
+            println!(
+                "=== copy {i} failed\n{}\n{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+    }
+    println!("ROUND-TRIP-STRESS: {failed} of {n} failed");
+    assert_eq!(failed, 0);
+}
