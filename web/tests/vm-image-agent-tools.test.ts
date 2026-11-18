@@ -219,7 +219,7 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     for (const word of ["claude-token-file", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "anthropic-oauth"]) expect(source).not.toContain(word);
     const base = ["bun", "probe.ts", "--snapshot", "sh-1", "--tag", "t"];
     const parsed = probeOptionsFromArgv(base);
-    expect({ ...parsed, outDir: typeof parsed.outDir }).toEqual({ snapshotId: "sh-1", tag: "t", vmId: undefined, modelRoute: "none", outDir: "string" });
+    expect({ ...parsed, outDir: typeof parsed.outDir }).toEqual({ snapshotId: "sh-1", tag: "t", vmId: undefined, modelRoute: "none", outDir: "string", baseline: "none" });
     for (const flag of ["--claude-token-file", "--token-file", "--credentials", "--anthropic-key-file"]) expect(() => probeOptionsFromArgv([...base, flag, "/x"])).toThrow();
   });
 

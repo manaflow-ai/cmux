@@ -1,9 +1,9 @@
-// The frame classification of bench/first-load-after-restart.bench.ts (bench/firstLoadFrames.ts): a
+// The frame classification of bench/first-load-after-restart.bench.ts (src/agent-session/acpmux/firstLoadFrames.ts): a
 // first load whose first frame is its last counts nothing, and a pane that blanked after it had
 // content, or whose composer or last row moved, counts each such frame (Leo, 2026-11-09: "the chat
 // loading kinda flickered in and out and layout shifted").
 import { describe, expect, test } from "bun:test";
-import { classifyFrames, type FrameRecord, type FrameRow } from "../bench/firstLoadFrames";
+import { classifyFrames, type FrameRecord, type FrameRow } from "../src/agent-session/acpmux/firstLoadFrames";
 
 const ROWS: FrameRow[] = [
   { id: "user-117", top: 120 },
@@ -77,6 +77,19 @@ describe("first load frames", () => {
     const replaced = [ROWS[0]!, ROWS[1]!, { id: "assistant-119", top: 540 }];
     const metrics = classifyFrames([frame(40), frame(56, { rows: replaced })]);
     expect(metrics.shiftFrames).toBe(1);
+  });
+
+  test("a row above a bottom row that held still moving counts as a shift", () => {
+    // A code block drawn at another height than the copy's: the bottom row holds, the rows above it move.
+    const settled = [{ ...ROWS[0]!, top: 90 }, { ...ROWS[1]!, top: 230 }, ROWS[2]!];
+    const metrics = classifyFrames([
+      frame(40, { copyShown: true }),
+      frame(56, { rows: settled }),
+      frame(72, { rows: settled }),
+    ]);
+    expect(metrics.shiftFrames).toBe(1);
+    expect(metrics.shiftAt[0]!.why).toContain("row user-117");
+    expect(metrics.finalFirstPaintMs).toBe(56);
   });
 
   test("finalFirstPaintMs is the first frame of the last state, not of an earlier equal one", () => {

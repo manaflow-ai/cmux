@@ -2,6 +2,7 @@
 // `cmuxPage` bridge; in the browser dev loop (`/cloud-progress/?mock`) the mock provider stands in and
 // walks a new machine through its stages.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";

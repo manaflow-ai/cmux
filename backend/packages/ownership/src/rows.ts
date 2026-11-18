@@ -50,8 +50,13 @@ export const checkWrites = (writes: ReadonlyArray<RowWrite>): void => {
   }
 }
 
-/** A RowReader that hides the writer methods of the object behind it (reducers only read). */
-export const readOnly = (r: RowReader): RowReader => ({ get: (t, k) => r.get(t, k), range: (t, q) => r.range(t, q) })
+/** A RowReader that hides the writer methods of the object behind it (reducers only read). A reader
+ * with `keyRange` (SqlRows, MemoryRows) keeps it: a reducer scans a key prefix (a session's
+ * followers) the same way a read does, instead of seeing an empty range. */
+export const readOnly = (r: RowReader & { keyRange?: <T>(tbl: string, q: KeyRange) => Array<StoredRow<T>> }): RowReader => {
+  const keyed = r.keyRange?.bind(r)
+  return { get: (t, k) => r.get(t, k), range: (t, q) => r.range(t, q), ...(keyed ? { keyRange: <T>(t: string, q: KeyRange) => keyed<T>(t, q) } : {}) }
+}
 
 /** The reader JSON-only domains get: no rows exist for them. */
 export const EMPTY_ROWS: RowReader = { get: () => undefined, range: () => [] }

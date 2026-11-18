@@ -59,7 +59,7 @@ extension WebKitTab: PageInfoProviding {
     public func pageInfoLivePermissions(origin: String) async -> [SitePermissionKind: SitePermissionSetting] { [:] }
 
     public func pageInfoDidChange(_ kind: SitePermissionKind, to setting: SitePermissionSetting, origin: String) async {
-        guard setting == .block else { return }
+        guard setting == .block, resumeIfSuspended() else { return }
         // Blocking stops a capture in progress at once.
         switch kind {
         case .camera: await webView.setCameraCaptureState(.none)
