@@ -48,9 +48,10 @@ pub use compaction::{Compaction, CompactionResult};
 pub use edition::IndexEdition;
 pub use kin::{ChildSet, FolderKey, KinTables};
 pub use log::{IndexLog, replay_generation_logs, replay_log, replay_log_from};
+use snapshot::StreamGeneration;
 pub use snapshot::{
-    DiskSnapshot, FatalSnapshotRead, SnapshotMeta, SnapshotRows, SortedSnapshot,
-    is_corrupt_snapshot_row, is_fatal_snapshot_read,
+    CHECKPOINT_BYTES, DiskSnapshot, FatalSnapshotRead, PAGE_BYTES, SEEK_BYTES, SnapshotMeta,
+    SnapshotRows, SortedSnapshot, is_corrupt_snapshot_row, is_fatal_snapshot_read,
 };
 
 use std::io;
@@ -400,12 +401,18 @@ impl SummaryIndex {
             .is_some_and(|(key, _)| key.origin.as_ref() == origin)
     }
 
-    /// The chat ids of `origin`'s rows, in key order.
-    pub fn origin_chat_ids<'a>(&'a self, origin: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+    /// `origin`'s rows, in key order: a seek and the origin's own range, not a
+    /// walk of the index.
+    pub fn origin_rows<'a>(&'a self, origin: &'a str) -> impl Iterator<Item = &'a Summary> + 'a {
         self.by_id
             .range::<_, RowKey>((Included(&RowKey::new(origin, "")), Unbounded))
             .take_while(move |(key, _)| key.origin.as_ref() == origin)
-            .map(|(key, _)| key.chat_id.as_ref())
+            .map(|(_, row)| row.as_ref())
+    }
+
+    /// The chat ids of `origin`'s rows, in key order.
+    pub fn origin_chat_ids<'a>(&'a self, origin: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+        self.origin_rows(origin).map(|row| row.chat_id.as_str())
     }
 
     pub fn finish_origin_removal(&self, origin: &str) -> Self {
@@ -1359,7 +1366,7 @@ mod tests {
         let mut last = None;
         for turn in 0..20 {
             let page = index
-                .read_page(anchor.as_ref(), ReadSide::After, false, 50, snapshot::PAGE_BYTES, None)
+                .read_page(anchor.as_ref(), ReadSide::After, false, 50, PAGE_BYTES, None)
                 .unwrap();
             assert!(page.rows.iter().all(|row| row.origin == "other"));
             seen.extend(page.rows.iter().map(|row| row.chat_id.clone()));
@@ -1380,14 +1387,7 @@ mod tests {
         let mut backwards = Vec::new();
         for turn in 0..20 {
             let page = index
-                .read_page(
-                    anchor.as_ref(),
-                    ReadSide::Before,
-                    turn == 0,
-                    50,
-                    snapshot::PAGE_BYTES,
-                    None,
-                )
+                .read_page(anchor.as_ref(), ReadSide::Before, turn == 0, 50, PAGE_BYTES, None)
                 .unwrap();
             assert!(page.rows.iter().all(|row| row.origin == "other"));
             backwards.extend(page.rows.iter().map(|row| row.chat_id.clone()));
@@ -1406,7 +1406,7 @@ mod tests {
     fn live_pages_drop_removed_origin_rows_before_the_origin_returns() {
         fn live_keys(index: &SummaryIndex) -> Vec<RowKey> {
             index
-                .read_live_page(None, ReadSide::After, false, 100, snapshot::PAGE_BYTES, None)
+                .read_live_page(None, ReadSide::After, false, 100, PAGE_BYTES, None)
                 .unwrap()
                 .rows
                 .iter()

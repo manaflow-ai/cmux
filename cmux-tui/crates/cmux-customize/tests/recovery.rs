@@ -60,6 +60,8 @@ fn key(n: u8) -> String {
 
 fn layer(pr: u64, n: u8) -> CodeLayer {
     CodeLayer {
+        kind: Default::default(),
+        source: String::new(),
         repo: "manaflow-ai/cmux".to_owned(),
         pr,
         title: format!("pr {pr}"),

@@ -329,7 +329,7 @@ impl Hub {
             return answer;
         }
         if opts.resend
-            && let Some(logged) = self.logged_prompt(session, &prompt_id)
+            && let Some(logged) = self.logged_prompt_past_inbox(session, &prompt_id)
         {
             if let Some(f) = opts.on_accepted.take() {
                 let value = match &logged {
@@ -1297,6 +1297,8 @@ impl Hub {
                 // Written: a notice this is went in, and what is new in the inbox may steer in
                 // behind it (`inbox.rs`).
                 self.inbox_prompt_written(session, &prompt_id);
+                // A Codex chat's stop condition becomes its goal now that a turn has its task.
+                self.codex_goal_after_prompt(session, &child, &agent_sid);
                 self.title_after_prompt(session)
             },
         )
@@ -1790,11 +1792,22 @@ impl Hub {
             };
             signed_out = true;
         }
+        // A Codex with no sign-in and no team plane: say so, typed as a sign-in failure, never
+        // codex's bare missing env var (`codex_cloud_auth::explain_missing_key`). Only a Codex
+        // session's text names Codex; another harness's stays as it said it (still typed).
+        if let Err(e) = &mut result
+            && session.meta().harness.to_ascii_lowercase().contains("codex")
+            && let Some(text) = crate::codex_cloud_auth::explain_missing_key(&e.message)
+        {
+            tracing::warn!(session = %session.id, "Codex agent is not signed in");
+            e.message = text;
+            signed_out = true;
+        }
         if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
-            match &mut e.data {
-                Some(Value::Object(data)) => data.extend(info.clone()),
-                None => e.data = Some(Value::Object(info.clone())),
-                Some(_) => {}
+            // An agent's string or list data moves under `agentData`, so the route still shows.
+            crate::recovery::object_data(e);
+            if let Some(Value::Object(data)) = &mut e.data {
+                data.extend(info.clone());
             }
         }
         // A failure acpmux knows the remedy for says it (`recovery.rs`): a full disk, an agent
