@@ -253,6 +253,10 @@ path = "tests/test_cmux_cua_drag_cursor_harness.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_cua_helper_run_check.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_cua_drag_cursor.py"
 lane = "manual"
 reason = "Requires an isolated macOS GUI session, a running cmux-cua helper with capture/input permissions, and observed window/divider coordinates."
