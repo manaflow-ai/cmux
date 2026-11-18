@@ -696,6 +696,9 @@ const NATIVE_HISTORY_KIND = "native_history";
 const NATIVE_PAGES_PER_ASK = 4;
 /** How long a session list that failed to load waits before it is read once more. */
 const SESSION_REREAD_MS = 2000;
+/// How long a page shown again holds its draw for the list changes it missed while unseen
+/// (`resumeWatch`): one follow read, so the first draw after the show has them with the rest.
+const SHOW_CATCH_UP_MS = 150;
 /// How often the pane reads the peers again while a missing chat's machine is still connecting.
 const MISSING_RECHECK_MS = 2000;
 
@@ -3517,6 +3520,8 @@ export class AcpmuxDirectClient {
   private ownerCloud = false;
   /// `sessions` holds the daemon's list: its first page has been read.
   private listedSessions = false;
+  /// This connection turned its list watch off while nobody sees the page (`pauseWatch`).
+  private watchPaused = false;
   /// This page drew a chat from a kept tail (`drawKeptTail`), so those rows were on screen before
   /// any attach answered. The pane's host reads it in the first-paint report and shows such a chat
   /// in one frame instead of fading it in (tailCache.ts, AgentPaneView+Loading.swift).
@@ -4248,6 +4253,8 @@ export class AcpmuxDirectClient {
       let opened = false;
       socket.onopen = () => {
         opened = true;
+        // A new connection watches the list once its first read asks (`SessionPager.first`).
+        this.watchPaused = false;
         this.daemonLastFrameAt = Date.now();
         this.daemonProvedAt = this.daemonLastFrameAt;
         this.daemonProbe = undefined;
@@ -4376,12 +4383,12 @@ export class AcpmuxDirectClient {
       // Keep their newer rows (and purges) when replacing the previous list.
       else if (first && !linkedLater) {
         this.sessions = this.sessionPages.settle(first.sessions);
-        if (!laterPages) this.sessionPages.done(first.run);
+        if (!laterPages) this.listWhole(first.run);
       } else {
         // A linked chat older than the first page, or a lagged watch restarted the list: read the
         // whole list before calling the chat missing.
         this.sessions = await this.sessionPages.settledWhole();
-        this.sessionPages.done(first?.run);
+        this.listWhole(first?.run);
         laterPages = undefined;
       }
       this.listedSessions = !attachedRow && (first !== undefined || this.sessions.length > 0);
@@ -5858,7 +5865,7 @@ export class AcpmuxDirectClient {
     if (first.next && !(await this.sessionPages.rest(first, () => list, add))) return false;
     // Changes that came while the pages did are newer than the pages.
     this.sessions = this.sessionPages.settle(list);
-    this.sessionPages.done(first.run);
+    this.listWhole(first.run);
     this.listedSessions = true;
     this.recheckSenders(this.sessions);
     this.learnChatThread();
@@ -6116,7 +6123,7 @@ export class AcpmuxDirectClient {
         this.rereadSessionsLater();
         return false;
       });
-    if (whole) this.sessionPages.done(first.run);
+    if (whole) this.listWhole(first.run);
   }
 
   /// A list that could not be read to its end (a page and the whole-list fallback both failed)
@@ -6149,10 +6156,14 @@ export class AcpmuxDirectClient {
   /// leaves a turn that ends while nobody shows the chat unread, and showing it is seeing it.
   private showChanged = (): void => {
     if (this.closed) return;
-    // An acpmux that takes `shown` (acpmux server/list_shown.rs) sends a hidden page only its own
-    // chats; shown again, the page follows the rows changed meanwhile, and draws once (Leo,
-    // 2026-11-18: "Why should non visible thing even affect the renderer thread anyways?").
-    if (this.listShownChanged()) this.listChangedWhileHidden = false;
+    // Nobody sees the page (Leo, 2026-11-18: "Why should non visible thing even affect the renderer
+    // thread anyways?"): an acpmux with the list's row log stops its watch (`pauseWatch`); one that
+    // takes `shown` alone (acpmux server/list_shown.rs) sends it only its own chats. Shown again,
+    // either follows the rows changed meanwhile and draws once. A paused watch sends no `shown`,
+    // which would turn it back on.
+    if (!pageShown()) this.pauseWatch();
+    else if (this.watchPaused) this.resumeWatch();
+    if (this.watchPaused || this.listShownChanged()) this.listChangedWhileHidden = false;
     else if (this.listChangedWhileHidden && pageShown()) {
       // An older acpmux sent every chat while hidden: they draw now.
       this.listChangedWhileHidden = false;
@@ -6191,6 +6202,42 @@ export class AcpmuxDirectClient {
     }
     void this.refreshSessions().catch(() => this.rereadSessionsLater());
     return true;
+  }
+
+  /// The list is whole (`SessionPager.done`): a page nobody sees turns its watch off from here.
+  private listWhole(run: number | undefined): void {
+    this.sessionPages.done(run);
+    if (!pageShown()) this.pauseWatch();
+  }
+
+  /// Nobody sees the page (a tab behind another, the New Tab spare waiting, a covered window): it
+  /// turns its list watch off, so acpmux sends it no other chat's `session_changed` at all, where it
+  /// sent about 4 a second at a fleet's scale and each one woke the renderer every page shares (Leo,
+  /// 2026-11-18: "Why should non visible thing even affect the renderer thread anyways?"). Only
+  /// while the list is whole and acpmux follows it from a position (`SessionPager.followable`), so
+  /// the show reads only the rows changed meanwhile; the chat's own records still come by its attach.
+  private pauseWatch(): void {
+    if (this.watchPaused || this.closed || !this.sessionPages.followable) return;
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    this.watchPaused = true;
+    this.listChangedWhileHidden = false;
+    void this.request("_acpmux/watch", { enabled: false }).catch(() => undefined);
+  }
+
+  /// The page shows again: the watch goes back on with one follow read from the list's position, and
+  /// the page holds its draw for it (at most `SHOW_CATCH_UP_MS`), so what changed while it was unseen
+  /// draws in one step with what its own chat held.
+  private resumeWatch(): void {
+    this.watchPaused = false;
+    this.listChangedWhileHidden = false;
+    const hold = this.holdSnapshots(SHOW_CATCH_UP_MS);
+    this.releaseSnapshotsOnEmit(hold);
+    void this.refreshSessions()
+      .catch(() => {
+        this.rereadSessionsLater();
+        return false;
+      })
+      .finally(() => this.releaseSnapshots(hold));
   }
 
   private stopAttention?: () => void;
@@ -7955,7 +8002,8 @@ export class AcpmuxDirectClient {
     // change waits for the scroll to rest and draws then, every one held in one snapshot, so the
     // wheel's frames are the scrolled chat's own.
     if (session.sessionId !== this.selectedSessionId && this.holdForScroll()) return;
-    this.emitInFrame("session changed");
+    // A hidden page still draws its own chat's change soon, so the tab it shows stays right.
+    this.emitInFrame("session changed", session.sessionId === this.selectedSessionId);
   }
 
   /// The wait of other chats' changes held while a chat scrolls, if any: one at a time.
@@ -7967,7 +8015,10 @@ export class AcpmuxDirectClient {
     if (!quiet?.scrolling()) return false;
     this.scrollHold = quiet.afterScroll(() => {
       this.scrollHold = undefined;
-      if (!this.closed) this.emitInFrame("session changed");
+      if (this.closed) return;
+      // Hidden since the scroll began: the held changes wait for the show, as any other chat's do.
+      if (!pageShown()) this.listChangedWhileHidden = true;
+      else this.emitInFrame("session changed");
     });
     return true;
   }
@@ -8083,7 +8134,7 @@ export class AcpmuxDirectClient {
     // (Leo, 2026-11-18, "Why should non visible thing even affect the renderer thread anyways?").
     // A new tool call still draws within 50 ms, since a subagent's start opens its own pane, and a
     // turn's start or end draws at once (`emitInFrame`).
-    this.emitInFrame(event.kind, this.streamGrew || event.kind !== "tool_call");
+    this.emitInFrame(event.kind, !this.streamGrew && event.kind === "tool_call");
     if (event.dir === "mux" && event.kind === "turn_result" && event.sessionId) {
       this.checkFinishedTurn(event.sessionId, event.seq);
       this.shedOlderHeld();
@@ -8400,18 +8451,19 @@ export class AcpmuxDirectClient {
   }
 
   /// Snapshots before the next display frame, once for every event that lands before it.
-  private emitInFrame(connection: string, streamGrew = false): void {
+  private emitInFrame(connection: string, hiddenSoon = false): void {
     const schedule = AcpmuxDirectClient.scheduleFrame;
     if (!schedule) return this.emit(connection);
     const scheduled = this.frameSnapshot !== undefined;
     this.frameSnapshot = connection;
-    // A hidden page's frames wait for it to show (`nextFrame`), and only the reply's and the
-    // thought's text growing waits for them: the token stream, the bulk of a running chat's events.
-    // Everything else draws within 50 ms as before, since the page's effects still act on it while
-    // hidden (a subagent's own pane, the tab's header). A turn starting or ending draws at once, each
-    // one, so the header refreshes on every end (App.tsx `pane.tabState`).
+    // A hidden page's frames wait for it to show (`nextFrame`), and so does every change but two:
+    // a turn starting or ending draws at once, each one, so the header refreshes on every end
+    // (App.tsx `pane.tabState`), and a change asked to draw soon (`hiddenSoon`: a new tool call,
+    // since a subagent's start opens its own pane) draws within 50 ms. Any other caller's change
+    // (an ask, another chat's change a scroll held) waits for the show, and a soon draw's timer
+    // takes it along only when one is already due.
     if (!pageShown() && this.workingNow() !== this.drawnWorking) return this.emit(connection);
-    if (!pageShown() && !streamGrew) {
+    if (!pageShown() && hiddenSoon) {
       this.hiddenDraw ??= setTimeout(() => {
         this.hiddenDraw = undefined;
         const pending = this.frameSnapshot;
@@ -13174,7 +13226,7 @@ export class AcpmuxDirectClient {
       });
     }
     this.watchOfferChildren();
-    this.emitInFrame("offer child");
+    this.emitInFrame("offer child", true);
   }
   /// This Mac's acpmux health row for harness `id` (`_acpmux/harness/health`, cx-ny85), or
   /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
