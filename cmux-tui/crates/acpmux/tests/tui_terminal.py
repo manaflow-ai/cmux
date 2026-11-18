@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the real TUI in a PTY against an isolated, deterministic daemon.
 
+    cargo build --release -p acpmux --features tui
     python3 tests/tui_terminal.py target/release/acpmux
 
 No real agents, account configuration or user sessions are touched. --baseline

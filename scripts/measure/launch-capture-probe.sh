@@ -4,12 +4,15 @@
 # each source cost (scripts/measure/launch-capture-probe.py, schema launch-capture-probe/v1).
 #   cmux-ci run --class exclusive --measurement --label measure --display --key KEY \
 #     --script scripts/measure/launch-capture-probe.sh --ref <feat-cmux-next sha> \
-#     [--arg=build=nightly|SHA|head] [--arg=config=bench] [--arg=rounds=12] \
+#     [--arg=build=nightly|SHA|head] [--arg=config=bench] [--arg=rounds=12] [--arg=launch=open] \
 #     --artifact .build/launch-capture-probe/report.tgz --timeout 3600
 #   build=nightly  the newest app the NIGHTLY feed offers (default; as tab-switch.sh); dmg=https:// one DMG instead
 #   build=SHA|head an app built at SHA (40 hex) or this checkout, Release; config=bench keeps the debug.* commands, which
 #                  add the window server's composite alone and with the page images (debug.window_snapshot)
 #   rounds=N       runs per source for the timing (10 to 50, default 12)
+#   launch=open    start the app through LaunchServices (`open -n`), its own responsible process for TCC, not a child of
+#                  the fleet worker; the report's tcc_verdict says STOP for any Screen Recording request beyond a
+#                  preflight answered unknown
 # A key=value mode of tab-switch.sh's shape, with its helpers (sourced): the app comes from app_under_test, the screen
 # pixels from CuaDriver (the fleet's granted recorder, never the app), the window rect from tools.swift's marker.
 # Writes .build/launch-capture-probe/report.json, report.md and images/*.png, all in report.tgz. Prints LCP lines.
@@ -20,13 +23,14 @@ cd "$(git rev-parse --show-toplevel)"
 # shellcheck source=scripts/measure/tab-switch.sh
 source scripts/measure/tab-switch.sh # prepare_build, app_under_test
 
-build=nightly config=release dmg="" rounds=12
+build=nightly config=release dmg="" rounds=12 launch=child
 for arg in "$@"; do
   case "$arg" in
     build=*) build="${arg#build=}" ;;
     config=release|config=bench) config="${arg#config=}" ;;
     dmg=https://*) dmg="${arg#dmg=}" ;;
     rounds=*) rounds="${arg#rounds=}" ;;
+    launch=child|launch=open) launch="${arg#launch=}" ;;
     *) echo "launch-capture-probe: unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -53,7 +57,7 @@ app_under_test "$build" "$config" "$dmg" "$tmp" "$root" launchcap LCP || exit 3
 rc=0
 set +e
 GITHUB_WORKSPACE="$root" scripts/ci/frame-pacing/console-session.sh python3 -I "$root/scripts/measure/launch-capture-probe.py" \
-  "${APP_ARGS[@]}" --build "$APP_LABEL" --tools "$tmp/tab-switch-tools" --rounds "$rounds" --out "$out" 2>&1 | tee "$out/run.log"
+  "${APP_ARGS[@]}" --build "$APP_LABEL" --tools "$tmp/tab-switch-tools" --rounds "$rounds" --launch "$launch" --out "$out" 2>&1 | tee "$out/run.log"
 rc=${PIPESTATUS[0]}
 set -e
 rm -f "$tmp/in.dmg"

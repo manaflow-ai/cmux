@@ -85,7 +85,10 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         self.assertIn("needs.action-exports.outputs.exports == 'true'", download["if"])
         env = step(PR, "repair", "Repair")["env"]
         self.assertIn("needs.action-areas.outputs.settings", env["SETTINGS"])
-        self.assertEqual(env["SETTINGS_VERIFIED"], "${{ needs.action-exports.outputs.settings-verified }}")
+        # A pack from the same merge commit's cmux-next generated-files job counts as verified exports too
+        # (tests/test_base_autofix_pushed_exports.py PrAutofixTakesTheGeneratedFilesPack).
+        self.assertEqual(env["SETTINGS_VERIFIED"], "${{ needs.generated-exports.outputs.hit == 'true' && 'true' || "
+                                                   "needs.action-exports.outputs.settings-verified }}")
 
 
 class ExportGuardBehavior(unittest.TestCase):

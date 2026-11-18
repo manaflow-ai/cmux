@@ -56,7 +56,6 @@
     "_acpmux/handoff_discard", "_acpmux/retry", "_acpmux/review_verdict"
   ],
   "gesture_rules": {
-    "session/prompt": "always",
     "chat.fix_from_link": "always",
     "_acpmux/queue_approve": "always",
     "_acpmux/review_verdict": "always",
@@ -115,7 +114,7 @@
     "_acpmux/prewarm": {"params": ["harness", "cwd", "release"], "acpmux": []},
     "_acpmux/start_mode": {"params": ["harness", "cwd"], "acpmux": []},
     "_acpmux/project_new": {"params": ["name"], "acpmux": []},
-    "_acpmux/harnesses": {"params": ["cwd"], "acpmux": []},
+    "_acpmux/harnesses": {"params": ["cwd", "_meta"], "acpmux": ["peer"]},
     "_acpmux/models": {"params": ["refresh", "localOnly"], "acpmux": []},
     "_acpmux/status": {"params": [], "acpmux": []},
     "_acpmux/peers": {"params": [], "acpmux": []},

@@ -698,8 +698,7 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--skip-group", action="append", default=[], metavar="GROUP",
-        help="leave out this group or job even when --feat-routes picks it (a feat-cmux-next push runs "
-             "release-notary in nightly-guards, judged at its tip)",
+        help="leave out this group or job even when --feat-routes picks it",
     )
     args = parser.parse_args(argv)
     if args.root:
