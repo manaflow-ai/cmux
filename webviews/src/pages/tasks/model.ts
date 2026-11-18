@@ -392,9 +392,26 @@ export function inboxGroups(tasks: readonly Task[], me: Principal | undefined): 
 
 /** The task's active agent session, else its most recent one. */
 export function sessionFor(mirror: Mirror, task: string): Session | undefined {
-  const sessions = [...mirror.sessions.values()]
-    .filter((session) => session.task === task)
-    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return pickSession([...mirror.sessions.values()].filter((session) => session.task === task));
+}
+
+/** `sessionFor` for every task at once, in one pass over the sessions: a list draws each row's
+ * session from it instead of every row scanning all sessions. */
+export function sessionsByTask(sessions: ReadonlyMap<string, Session>): Map<string, Session> {
+  const byTask = new Map<string, Session[]>();
+  for (const session of sessions.values()) {
+    const list = byTask.get(session.task);
+    if (list) list.push(session);
+    else byTask.set(session.task, [session]);
+  }
+  const out = new Map<string, Session>();
+  for (const [task, list] of byTask) out.set(task, pickSession(list)!);
+  return out;
+}
+
+/** The live session with the lowest id, else the last one to end. */
+function pickSession(sessions: Session[]): Session | undefined {
+  sessions.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return sessions.find((session) => !isTerminal(session.status)) ?? sessions.at(-1);
 }
 
@@ -431,7 +448,7 @@ export function assigneeChoices(mirror: Mirror, tasks: readonly Task[]): Assigne
 export type AssigneeChoice = { type: "person"; id: string } | { type: "agent"; harness: string } | { type: "nobody" };
 
 /** Whether the task has `choice` now (menu check marks). Only the local person's agent counts. */
-export function isCurrentChoice(mirror: Mirror, task: Task, choice: AssigneeChoice): boolean {
+export function isCurrentChoice(mirror: Pick<Mirror, "me">, task: Task, choice: AssigneeChoice): boolean {
   switch (choice.type) {
     case "person":
       return stableId(task.assignee) === choice.id;
