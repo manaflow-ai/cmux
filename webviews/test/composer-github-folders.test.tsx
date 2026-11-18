@@ -40,6 +40,7 @@ const { createGitHubPicker, useGitHubPicker, githubFolderRepo } =
   await import("../src/agent-session/acpmux/githubRepos");
 const { cloudStartFolder, newTabProjectPick } = await import("../src/agent-session/acpmux/cloudRun");
 const { installPageKey } = await import("../src/agent-session/acpmux/pageKey");
+const { widestLines } = await import("../src/agent-session/acpmux/FolderPopover");
 const { useState } = await import("react");
 
 afterAll(async () => {
@@ -226,6 +227,38 @@ test("a new Cloud chat with no folder draws no line under the folder menu's acti
   } finally {
     await act(async () => root.unmount());
   }
+});
+
+test("the folder menu lists its fullest rows' words for its width, and never as a second visible name", async () => {
+  const gh = host({ "github.status": { state: "not_connected", repos_scope: null } });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    const menu = doc().querySelector(".acpmux-folder-popover")!;
+    const fit = menu.querySelector(".acpmux-folder-fit")!;
+    expect(fit.getAttribute("aria-hidden")).toBe("true");
+    // The two listed folders, by the names their rows show; the words are drawn by CSS from the attribute.
+    expect(new Set([...fit.children].map((line) => line.getAttribute("data-text")))).toEqual(new Set(["app", "notes"]));
+    expect(fit.textContent).toBe("");
+    // The actions are in the page's flow and size the menu themselves: no line for them.
+    expect(fit.querySelector('[data-text="Connect to GitHub"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("only the few longest lines are measured, the room beside the words counted", () => {
+  const row = (text: string) => ({ text, kind: "row" as const });
+  const many = Array.from({ length: 4000 }, (_, index) => row("f" + index));
+  const picked = widestLines([...many, row("a much longer folder name"), row("f1")]);
+  expect(picked).toHaveLength(6);
+  expect(picked[0]).toEqual(row("a much longer folder name"));
+  // The same row is listed once.
+  expect(widestLines([row("api"), row("api"), row("web")])).toEqual([row("api"), row("web")]);
+  // A worktree count beside shorter words can reach further than longer words alone.
+  expect(widestLines([row("cmuxterm"), { text: "cmux 24", kind: "count" }], 1)).toEqual([
+    { text: "cmux 24", kind: "count" },
+  ]);
 });
 
 /// Nothing with text follows the pinned actions in the folder menu, and `line` comes before them.

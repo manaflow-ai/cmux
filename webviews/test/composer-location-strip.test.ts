@@ -343,8 +343,15 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     // The list is no longer held at the shared 260 px location-list cap.
     expect(viewportRect!.height).toBeGreaterThan(260);
     expect(popupRect!.height).toBeLessThanOrEqual(560);
-    expect(popupRect!.width).toBeGreaterThanOrEqual(380 - 1);
+    // As wide as its fullest listed row needs, between the old 240 px floor and 560: no name in view is cut.
+    expect(popupRect!.width).toBeGreaterThanOrEqual(240 - 1);
     expect(popupRect!.width).toBeLessThanOrEqual(560 + 1);
+    const cut = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".acpmux-folder-popover [role='option'] .acpmux-location-name")]
+        .filter((name) => name.scrollWidth > name.clientWidth + 1)
+        .map((name) => name.textContent),
+    );
+    expect(cut).toEqual([]);
     expect(await page.locator(".acpmux-location-note").count()).toBe(0);
     await page.close();
   });

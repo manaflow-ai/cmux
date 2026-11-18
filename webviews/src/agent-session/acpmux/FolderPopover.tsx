@@ -9,7 +9,7 @@ import type { ExtraFolderRows } from "./extraFolders";
 import { GitHubMark, LockIcon } from "./GitHubIcons";
 import { githubFolder, githubFolderRepo, matchingRepos, type GitHubPicker } from "./githubRepos";
 import { translate as t } from "./i18n";
-import { FOLDER_MENU_LIST_CAP, FOLDER_MENU_MIN_HEIGHT, useLocationOpener, useLocationPopover } from "./locationPopover";
+import { FOLDER_MENU_LIST_CAP, folderMenuShortest, useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import { folderRepo, groupByRepo, isMainCheckout, shownRepoRows, worktreeName, type ProjectRepo } from "./projectRepos";
@@ -110,17 +110,15 @@ export function FolderPopover({
     setOpen: setPopoverOpen,
     side,
     flip,
-  } = useLocationPopover({
-    listCap: FOLDER_MENU_LIST_CAP,
-    shortest: FOLDER_MENU_MIN_HEIGHT,
-  });
+  } = useLocationPopover({ listCap: FOLDER_MENU_LIST_CAP });
   const setOpen = (next: boolean) => {
     if (next) {
       setHighlightAuto(true);
       // Each open reads whether GitHub is connected, and its repositories once it is.
       if (!open) github?.onOpen();
     }
-    setPopoverOpen(next);
+    // The side fits the rows and actions the menu has now (they are counted below, before any press).
+    setPopoverOpen(next, folderMenuShortest(suggestions.length - pinned.length, pinned.length));
   };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
@@ -235,6 +233,28 @@ export function FolderPopover({
     ...(typedPath ? [typedPath] : []),
     ...(githubFirst ? [] : githubRows),
   ];
+  // A worktree or subfolder leading its row is named by its branch or path; the main checkout needs none.
+  const leadSuffix = (folder: FolderChoice) =>
+    folderRepo(folder) && !isMainCheckout(folder) ? worktreeName(folder) : suffixes.get(folder.id);
+  // The menu is as wide as its fullest listed row needs (composerLocation.css `.acpmux-folder-fit`).
+  // The list mounts only the rows in view and places them itself, so the rows give the popup no
+  // width: the longest rows' words are listed once more, unseen, and the browser measures those.
+  const fit = widestLines(
+    suggestions.slice(pinned.length).map((value): FitLine => {
+      const place = shown.get(value);
+      if (!place) {
+        const repo = repoRows.get(value);
+        return repo
+          ? { text: repo.fullName, kind: repo.private ? "lock" : "row" }
+          : { text: t("project.usePath", { path: value }), kind: "row" };
+      }
+      if (place.worktree) return { text: worktreeName(place.worktree), kind: "worktree" };
+      const suffix = leadSuffix(place.group.lead);
+      const others = place.group.members.length - 1;
+      const name = suffix ? `${place.group.name} · ${suffix}` : place.group.name;
+      return others > 0 && !typed ? { text: `${name} ${others}`, kind: "count" } : { text: name, kind: "row" };
+    }),
+  );
   const close = () => {
     setOpen(false);
     setQuery("");
@@ -408,8 +428,7 @@ export function FolderPopover({
       );
     const folder = group.lead;
     const repo = folderRepo(folder);
-    // A worktree or subfolder leading its row is named by its branch or path; the main checkout needs none.
-    const suffix = repo && !isMainCheckout(folder) ? worktreeName(folder) : suffixes.get(folder.id);
+    const suffix = leadSuffix(folder);
     const others = group.members.length - 1;
     const open = expanded.has(group.key);
     return (
@@ -521,6 +540,11 @@ export function FolderPopover({
         flip={flip}
         finalFocus={false}
       >
+        <span className="acpmux-folder-fit" aria-hidden="true">
+          {fit.map((line) => (
+            <span key={line.kind + line.text} data-text={line.text} data-kind={line.kind} />
+          ))}
+        </span>
         <Combobox
           // A fresh field for Add another folder…'s pick.
           key={addingExtra ? "extra" : "folder"}
@@ -569,6 +593,29 @@ export function FolderPopover({
     </span>
   );
 }
+
+/// One listed row's words and what its row draws beside them (a worktree count, a worktree's
+/// indent, a private repository's lock), for the menu's width.
+export type FitLine = { text: string; kind: "row" | "count" | "worktree" | "lock" };
+
+/// The few lines that can be the widest: the longest by their letters, the room beside them counted
+/// in letters too. Thousands of folders stay a handful of measured lines.
+export function widestLines(lines: readonly FitLine[], keep = 6): FitLine[] {
+  const reach = (line: FitLine) => line.text.length + FIT_KIND_LETTERS[line.kind];
+  // One pass, the kept few in order: no sort of every folder on each render.
+  const widest: FitLine[] = [];
+  for (const line of lines) {
+    if (widest.length === keep && reach(line) <= reach(widest[keep - 1]!)) continue;
+    if (widest.some((kept) => kept.kind === line.kind && kept.text === line.text)) continue;
+    const at = widest.findIndex((kept) => reach(kept) < reach(line));
+    widest.splice(at === -1 ? widest.length : at, 0, line);
+    if (widest.length > keep) widest.pop();
+  }
+  return widest;
+}
+
+/// About how many letters wide each kind's extra room is (composerLocation.css gives the real widths).
+const FIT_KIND_LETTERS: Record<FitLine["kind"], number> = { row: 0, count: 6, worktree: 4, lock: 9 };
 
 /// An action row's value: never a path.
 const ACTION = "\u0000action:";
