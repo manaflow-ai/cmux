@@ -1,5 +1,5 @@
 import { isLineRow, LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
-import { PrefixFilter } from "./prefixFlatMap";
+import { keptWith, PrefixFilter } from "./prefixFlatMap";
 import { inboxText, senderKey, type InboxNotice } from "./inboxNotice";
 import {
   laneNotice,
@@ -98,7 +98,9 @@ let version = 0;
 const extensionCache = new WeakMap<AcpmuxRow, WeakMap<AcpmuxRow, AcpmuxRow>>();
 const listCache = new WeakMap<readonly AcpmuxRow[], readonly AcpmuxRow[]>();
 /// `offsets`: where each source row's drawn rows start, the end last; the delivered (folded)
-/// projection's only (projectInboxRows reuses it), the flat one has none.
+/// projection's only (projectInboxRows reuses it), the flat one has none. A delivered projection that
+/// draws every row as it is holds none either: row `i` starts at `i` (`startOf`), so an update of a
+/// long chat with no inbox makes no array of its length.
 type InboxProjection = { rows: readonly AcpmuxRow[]; offsets?: readonly number[] };
 const inboxFlattenCache = new WeakMap<readonly AcpmuxRow[], InboxProjection>();
 // Waiting rows already have an outer fold; delivered notices need their own. Search and display
@@ -328,7 +330,7 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   // as they are: found from a pass that reads only the rows a snapshot changed (prefixFlatMap.ts),
   // not by reading every row of a long chat on each event.
   if ((foldNotices ? foldedInboxMarks : flatInboxMarks).read(rows).items.length === 0) {
-    cache.set(rows, foldNotices ? { rows, offsets: identityOffsets(rows.length) } : { rows });
+    cache.set(rows, { rows });
     return rows;
   }
   const deliveredIds = new Set<string>();
@@ -361,7 +363,7 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   const gathersLines =
     foldNotices && !hasInbox && rows.some((row, i) => i > 0 && receivedMessages(row) && receivedMessages(rows[i - 1]!));
   if (!hasInbox && !gathersLines) {
-    cache.set(rows, foldNotices ? { rows, offsets: identityOffsets(rows.length) } : { rows });
+    cache.set(rows, { rows });
     return rows;
   }
   const seenIds = new Set<string>();
@@ -468,7 +470,6 @@ const foldedInboxMarks = new PrefixFilter<AcpmuxRow>(
     holdsInbox(row) ||
     (index > 0 && receivedMessages(row) !== undefined && receivedMessages(rows[index - 1]!) !== undefined),
 );
-const identityOffsets = (length: number) => Array.from({ length: length + 1 }, (_, index) => index);
 
 /** Reuse the display projection of the turn prefix that turnViewFrom already reused. Streaming
  * only changes assistant/tool rows: when the tail's incoming rows are the same immutable objects,
@@ -504,20 +505,31 @@ export function projectInboxRows(
     if (old?.row !== rows[i] || old.next !== (i > 0 && relevant(rows[i - 1]!))) return projectAllInboxRows(rows, true);
   }
   if (at !== oldMessages.length) return projectAllInboxRows(rows, true);
-  const heldOffsets = held.offsets!;
-  const projected = held.rows.slice(0, heldOffsets[reusedRows]);
-  const offsets = heldOffsets.slice(0, reusedRows);
+  // The last projection drew every row as it is, and every row it drew here is the same object at
+  // the same place: so is this one, with no copy of the chat (bench/transcript-replay.bench.ts god:
+  // each thought update copied every row and offset twice).
+  const heldOffsets = held.offsets;
+  if (!heldOffsets) {
+    deliveredInboxCache.set(rows, { rows });
+    return rows;
+  }
+  // The changed rows' drawn rows and offsets first, then one copy of the kept ones with them (keptWith).
+  const keep = heldOffsets[reusedRows]!;
+  const tail: AcpmuxRow[] = [];
+  const tailOffsets: number[] = [];
   at = 0;
   for (let i = reusedRows; i < rows.length; i += 1) {
-    offsets.push(projected.length);
+    tailOffsets.push(keep + tail.length);
     const row = rows[i]!;
     if (relevant(row)) {
       const oldIndex = oldMessages[at++]!.index;
-      projected.push(...held.rows.slice(heldOffsets[oldIndex], heldOffsets[oldIndex + 1]));
-    } else projected.push(row);
+      for (let drawn = heldOffsets[oldIndex]!; drawn < heldOffsets[oldIndex + 1]!; drawn += 1)
+        tail.push(held.rows[drawn]!);
+    } else tail.push(row);
   }
-  offsets.push(projected.length);
-  deliveredInboxCache.set(rows, { rows: projected, offsets });
+  tailOffsets.push(keep + tail.length);
+  const projected = keptWith(held.rows, keep, tail);
+  deliveredInboxCache.set(rows, { rows: projected, offsets: keptWith(heldOffsets, reusedRows, tailOffsets) });
   return projected;
 }
 
