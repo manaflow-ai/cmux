@@ -246,7 +246,8 @@ test("a command acpmux says waits on the network never gets the chip, however lo
   expect(calls.offers).toEqual([command]);
   expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
   // It asks again while the command runs, and the answer is still no.
-  await advance(RUN_ELSEWHERE_RECHECK_MS * 3);
+  // One recheck at a time: each is set only once the answer before it has come back.
+  for (let i = 0; i < 3; i++) await advance(RUN_ELSEWHERE_RECHECK_MS);
   expect(calls.offers.length).toBe(4);
   expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
 });
