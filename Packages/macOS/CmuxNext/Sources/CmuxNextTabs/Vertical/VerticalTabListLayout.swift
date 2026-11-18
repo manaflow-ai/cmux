@@ -1,5 +1,6 @@
 public import CoreGraphics
 import CmuxNextDesign
+import CmuxVisibleRows
 
 /// Every size the vertical tab list uses. Plain data so the layout is testable with fixed numbers;
 /// `current` reads the density tokens and the Debug Settings tunables.
@@ -175,24 +176,15 @@ public struct VerticalTabListLayout: Equatable {
     /// The rows that reach into `minY...maxY` (content coordinates), by index: two binary searches, since the rows run
     /// top to bottom and only the pinned tiles of one line share a band.
     public func rowRange(minY: CGFloat, maxY: CGFloat) -> Range<Int> {
-        let start = Self.partition(rows.count) { rows[$0].frame.maxY >= minY }
-        return start..<max(start, Self.partition(rows.count) { rows[$0].frame.minY > maxY })
+        let rows = rows
+        return VisibleWindow.range(count: rows.count, low: Double(minY), high: Double(maxY),
+                                   start: { Double(rows[$0].frame.minY) }, end: { Double(rows[$0].frame.maxY) })
     }
 
     /// The group lines or panes in `lines` that reach into `minY...maxY` (they run top to bottom too).
     static func lineRange(_ lines: [GroupLine], minY: CGFloat, maxY: CGFloat) -> Range<Int> {
-        let start = partition(lines.count) { lines[$0].frame.maxY >= minY }
-        return start..<max(start, partition(lines.count) { lines[$0].frame.minY > maxY })
-    }
-
-    /// The first index in `0..<count` that `isPast` (false before it, true from it on).
-    static func partition(_ count: Int, _ isPast: (Int) -> Bool) -> Int {
-        var low = 0, high = count
-        while low < high {
-            let mid = (low + high) / 2
-            if isPast(mid) { high = mid } else { low = mid + 1 }
-        }
-        return low
+        VisibleWindow.range(count: lines.count, low: Double(minY), high: Double(maxY),
+                            start: { Double(lines[$0].frame.minY) }, end: { Double(lines[$0].frame.maxY) })
     }
 
     private var rowWidth: CGFloat { max(0, width - 2 * metrics.padding) }

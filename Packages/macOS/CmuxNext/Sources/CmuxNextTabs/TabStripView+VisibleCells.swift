@@ -13,37 +13,25 @@ extension TabStripView {
     private var mountViewportWidth: CGFloat { viewportWidth > 0 ? viewportWidth : bounds.width }
 
     /// The content x range of unpinned (or scrolling pinned) tabs within one viewport each side of the view at `offset`.
-    private func mountSpan(offset: CGFloat) -> ClosedRange<CGFloat> {
-        let width = mountViewportWidth
-        return (offset - width)...(offset + 2 * width)
+    private func mountSpan(offset: CGFloat) -> ClosedRange<Double> {
+        VisibleWindow.span(offset: Double(offset), length: Double(mountViewportWidth))
     }
 
     /// Whether `slot` gets a cell at `offset`: inside the span, or a pinned tab in the fixed band (always shown).
     func isInMountRange(_ slot: TabLayoutSlot, offset: CGFloat, band: CGFloat) -> Bool {
         if slot.isPinned, band > 0 { return true }
         let span = mountSpan(offset: offset)
-        return slot.maxX >= span.lowerBound && slot.x <= span.upperBound
+        return Double(slot.maxX) >= span.lowerBound && Double(slot.x) <= span.upperBound
     }
 
-    /// The slots that get a cell at `offset`, by index in `result.slots`: the fixed pinned band and the span. Binary
-    /// search, since the slots run left to right (each starts where the one before ends, or after).
+    /// The slots that get a cell at `offset`, by index in `result.slots`: the fixed pinned band and the span
+    /// (`VisibleWindow`, binary search: the slots run left to right, each starting where the one before ends, or after).
     func mountRanges(offset: CGFloat, band: CGFloat) -> [Range<Int>] {
         let slots = result.slots
-        let span = mountSpan(offset: offset)
-        let start = Self.partition(slots) { $0.maxX >= span.lowerBound }
-        let end = max(start, Self.partition(slots) { $0.x > span.upperBound })
-        let pinnedEnd = band > 0 ? min(start, Self.partition(slots) { !$0.isPinned }) : 0
-        return pinnedEnd > 0 ? [0..<pinnedEnd, start..<end] : [start..<end]
-    }
-
-    /// The first index whose slot `isPast` (false for every slot before it, true from it on).
-    static func partition(_ slots: [TabLayoutSlot], _ isPast: (TabLayoutSlot) -> Bool) -> Int {
-        var low = 0, high = slots.count
-        while low < high {
-            let mid = (low + high) / 2
-            if isPast(slots[mid]) { high = mid } else { low = mid + 1 }
-        }
-        return low
+        let span = VisibleWindow.mounted(count: slots.count, offset: Double(offset), length: Double(mountViewportWidth),
+                                         start: { Double(slots[$0].x) }, end: { Double(slots[$0].maxX) })
+        let pinnedEnd = band > 0 ? min(span.lowerBound, VisibleWindow.partition(slots.count) { !slots[$0].isPinned }) : 0
+        return pinnedEnd > 0 ? [0..<pinnedEnd, span] : [span]
     }
 
     /// Tabs that keep their cell wherever they are: what the pointer, a press, a drag, a close, a rename or the
