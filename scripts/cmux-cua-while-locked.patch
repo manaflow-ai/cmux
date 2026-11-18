@@ -228,24 +228,38 @@ index 379762e..b1d4857 100644
      async fn the_deprecated_alias_is_gated_as_the_tool_it_names() {
          let home = tempfile::tempdir().unwrap();
 diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/dispatch_gate.rs b/libs/cmux-cua/rust/crates/platform-macos/src/dispatch_gate.rs
-index 5319804..f0e1f75 100644
+index 5319804..aa422bc 100644
 --- a/libs/cmux-cua/rust/crates/platform-macos/src/dispatch_gate.rs
 +++ b/libs/cmux-cua/rust/crates/platform-macos/src/dispatch_gate.rs
-@@ -16,6 +16,13 @@ use std::sync::{
+@@ -16,6 +16,27 @@ use std::sync::{
  
  type LockProbe = Arc<dyn Fn() -> Option<bool> + Send + Sync>;
  
-+/// Why a call admitted with `computerUse.whileLocked` still stopped.
++/// Why a call admitted with `computerUse.whileLocked` still stopped: it
++/// drives what the lock screen owns.
 +pub(crate) const SHARED_WHILE_LOCKED: &str = "This Mac's screen is locked. This step uses the \
 +     desktop, the pointer, the keyboard focus or the frontmost app, which on a locked Mac belong \
 +     to the lock screen (a keystroke there would type into its password field), so it did not \
-+     run. Calls to one app's window, input posted to that app and Accessibility actions on it, \
-+     still run while the Mac is locked";
++     run. A screenshot of one app's window, and pixel clicks and keys posted to that \
++     app's process, still run while the Mac is locked";
++
++/// The reason an Accessibility step refuses on a locked screen.
++pub(crate) const ACCESSIBILITY_WHILE_LOCKED_REASON: &str =
++    "accessibility is unavailable while the Mac is locked";
++
++/// Why a call admitted with `computerUse.whileLocked` still stopped: it
++/// reads or writes through Accessibility, which macOS does not serve to
++/// apps while the screen is locked (reads come back empty, writes fail with
++/// kAXErrorCannotComplete).
++pub(crate) const ACCESSIBILITY_WHILE_LOCKED: &str = "This Mac's screen is locked and \
++     accessibility is unavailable while the Mac is locked (its reads come back empty and its \
++     writes fail), so this step did not run. A screenshot of one app's window, and pixel clicks \
++     and keys posted to that app's process, still run while the Mac is locked";
 +
  #[derive(Clone)]
  struct ActiveGate {
      registration: u64,
-@@ -63,14 +70,32 @@ pub(crate) struct NativeDispatchGate {
+@@ -63,14 +84,39 @@ pub(crate) struct NativeDispatchGate {
  #[derive(Clone, Copy, Debug, Eq, PartialEq)]
  pub(crate) enum DispatchGateError {
      ScreenLocked,
@@ -253,6 +267,9 @@ index 5319804..f0e1f75 100644
 +    /// the lock screen owns: the global HID event stream, the real cursor or
 +    /// the frontmost app.
 +    SharedWhileLocked,
++    /// `computerUse.whileLocked` admitted the call, but this sink reads or
++    /// writes through Accessibility, which a locked Mac does not serve.
++    AccessibilityWhileLocked,
      EpochChanged,
      SessionStateUnavailable,
  }
@@ -260,10 +277,13 @@ index 5319804..f0e1f75 100644
 +/// What a mutation sink drives, for the screen-lock gate.
 +#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 +enum Route {
-+    /// Input posted to one pid, an Accessibility action on one app, or a
-+    /// capture of one window: runs while locked for a call admitted with
-+    /// `computerUse.whileLocked`.
++    /// Input posted to one pid, or a capture of one window: runs while
++    /// locked for a call admitted with `computerUse.whileLocked`.
 +    Window,
++    /// An Accessibility read or write on one app: never while locked, since
++    /// macOS answers it with nothing (reads) or kAXErrorCannotComplete
++    /// (writes) until the screen unlocks.
++    Accessibility,
 +    /// The global HID event tap, the real cursor, or a frontmost-app or
 +    /// key-focus change: on a locked Mac that is the lock screen (a
 +    /// keystroke would land in its password field), so never while locked.
@@ -275,18 +295,46 @@ index 5319804..f0e1f75 100644
          formatter.write_str(match self {
              Self::ScreenLocked => "Computer Use is unavailable while the macOS screen is locked",
 +            Self::SharedWhileLocked => SHARED_WHILE_LOCKED,
++            Self::AccessibilityWhileLocked => ACCESSIBILITY_WHILE_LOCKED,
              Self::EpochChanged => {
                  "the macOS lock state changed during Computer Use; refresh app state before acting"
              }
-@@ -99,8 +124,31 @@ impl NativeDispatchGate {
+@@ -99,8 +145,58 @@ impl NativeDispatchGate {
      }
  
      /// Reconcile the authoritative Window Server flag and validate the exact
 -    /// action epoch immediately before a mutation sink.
 +    /// action epoch immediately before a mutation sink that targets one
-+    /// app's window (input posted to its pid, an Accessibility action).
++    /// app's window (input posted to its pid).
      pub(crate) fn check(&self) -> Result<(), DispatchGateError> {
 +        self.check_route(Route::Window)
++    }
++
++    /// [`check`](Self::check) for an Accessibility sink (an AX action, value
++    /// or focus write). Refused while locked even with `whileLocked` on.
++    pub(crate) fn check_ax(&self) -> Result<(), DispatchGateError> {
++        self.check_route(Route::Accessibility)
++    }
++
++    /// For an optional Accessibility route the call can do without (the AX
++    /// press a pixel click tries before posting the click to the pid):
++    /// `Ok(false)` skips it while a `whileLocked` call runs on a locked screen.
++    pub(crate) fn allows_ax(&self) -> Result<bool, DispatchGateError> {
++        match self.check_ax() {
++            Ok(()) => Ok(true),
++            Err(DispatchGateError::AccessibilityWhileLocked) => Ok(false),
++            Err(error) => Err(error),
++        }
++    }
++
++    /// Whether this is a call admitted with `whileLocked` running on a
++    /// screen the Window Server reports locked right now. Inert gates (the
++    /// normal profile) and unreadable sessions say no.
++    pub(crate) fn runs_on_locked_screen(&self) -> bool {
++        let Some(active) = &self.active else {
++            return false;
++        };
++        active.epoch.runs_while_locked() && (active.probe)() == Some(true)
 +    }
 +
 +    /// [`check`](Self::check) for a sink that drives the shared desktop: a
@@ -311,7 +359,7 @@ index 5319804..f0e1f75 100644
          let Some(active) = &self.active else {
              return Ok(());
          };
-@@ -112,7 +160,12 @@ impl NativeDispatchGate {
+@@ -112,7 +208,16 @@ impl NativeDispatchGate {
          };
          active.guardian.observe(locked);
          if locked {
@@ -319,13 +367,17 @@ index 5319804..f0e1f75 100644
 +            if !active.epoch.runs_while_locked() {
 +                return Err(DispatchGateError::ScreenLocked);
 +            }
-+            if route == Route::Shared {
-+                return Err(DispatchGateError::SharedWhileLocked);
++            match route {
++                Route::Window => {}
++                Route::Shared => return Err(DispatchGateError::SharedWhileLocked),
++                Route::Accessibility => {
++                    return Err(DispatchGateError::AccessibilityWhileLocked)
++                }
 +            }
          }
          active.guardian.validate(active.epoch).map_err(|error| match error {
              SessionLockError::Locked => DispatchGateError::ScreenLocked,
-@@ -127,6 +180,16 @@ impl NativeDispatchGate {
+@@ -127,6 +232,16 @@ impl NativeDispatchGate {
          self.check()?;
          mutation()
      }
@@ -342,26 +394,32 @@ index 5319804..f0e1f75 100644
  }
  
  pub(crate) fn install(
-@@ -210,6 +273,44 @@ mod tests {
+@@ -210,6 +325,57 @@ mod tests {
          assert_eq!(mutations.load(Ordering::SeqCst), 0);
      }
  
 +    /// With `whileLocked` on (a while-locked epoch) a locked screen still runs
-+    /// sinks that post to one pid or act through Accessibility, and refuses
-+    /// every HID, cursor-warp and activation sink. With it off, both refuse.
++    /// sinks that post to one pid, and refuses every Accessibility sink and
++    /// every HID, cursor-warp and activation sink. With it off, all refuse.
 +    #[test]
-+    fn while_locked_runs_window_sinks_and_refuses_hid_sinks() {
++    fn while_locked_runs_window_sinks_and_refuses_hid_and_ax_sinks() {
 +        let guardian = SessionLockGuardian::for_test(true);
 +        let epoch = guardian.begin_while_locked();
 +        let _on = install_for_test("wl-on", guardian.clone(), epoch, || Some(true));
 +        let gate = NativeDispatchGate::for_session("wl-on");
 +        assert_eq!(gate.check(), Ok(()));
 +        assert_eq!(gate.dispatch(|| Ok(7)).unwrap(), 7);
++        assert!(gate.runs_on_locked_screen());
 +        assert_eq!(gate.check_shared(), Err(DispatchGateError::SharedWhileLocked));
 +        assert_eq!(gate.allows_shared(), Ok(false));
 +        let error = gate.dispatch_shared(|| Ok(())).unwrap_err();
 +        assert!(error.to_string().contains("password field"), "{error}");
 +        assert!(error.to_string().contains("still run"), "{error}");
++        assert_eq!(gate.check_ax(), Err(DispatchGateError::AccessibilityWhileLocked));
++        assert_eq!(gate.allows_ax(), Ok(false));
++        let error = gate.check_ax().unwrap_err().to_string();
++        assert!(error.contains(ACCESSIBILITY_WHILE_LOCKED_REASON), "{error}");
++        assert!(error.contains("still run while the Mac is locked"), "{error}");
 +
 +        let off = SessionLockGuardian::for_test(true);
 +        // A normal epoch cannot even begin while locked; take one unlocked.
@@ -372,6 +430,10 @@ index 5319804..f0e1f75 100644
 +        assert_eq!(gate.check(), Err(DispatchGateError::ScreenLocked));
 +        assert_eq!(gate.check_shared(), Err(DispatchGateError::ScreenLocked));
 +        assert_eq!(gate.allows_shared(), Err(DispatchGateError::ScreenLocked));
++        assert_eq!(gate.check_ax(), Err(DispatchGateError::ScreenLocked));
++        assert_eq!(gate.allows_ax(), Err(DispatchGateError::ScreenLocked));
++        assert!(!gate.runs_on_locked_screen());
++        assert!(!NativeDispatchGate::default().runs_on_locked_screen());
 +    }
 +
 +    #[test]
@@ -382,11 +444,45 @@ index 5319804..f0e1f75 100644
 +        let gate = NativeDispatchGate::for_session("wl-unlocked");
 +        assert_eq!(gate.check_shared(), Ok(()));
 +        assert_eq!(gate.allows_shared(), Ok(true));
++        assert_eq!(gate.check_ax(), Ok(()));
++        assert_eq!(gate.allows_ax(), Ok(true));
++        assert!(!gate.runs_on_locked_screen());
 +    }
 +
      #[test]
      fn unavailable_direct_probe_fails_closed() {
          let guardian = SessionLockGuardian::for_test(false);
+diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/input/ax_actions.rs b/libs/cmux-cua/rust/crates/platform-macos/src/input/ax_actions.rs
+index 3e90808..712909d 100644
+--- a/libs/cmux-cua/rust/crates/platform-macos/src/input/ax_actions.rs
++++ b/libs/cmux-cua/rust/crates/platform-macos/src/input/ax_actions.rs
+@@ -18,7 +18,7 @@ pub(crate) fn perform_ax_action_guarded(
+     gate: &NativeDispatchGate,
+ ) -> anyhow::Result<()> {
+     let ax_action = map_action(action);
+-    gate.check()?;
++    gate.check_ax()?;
+     let err = unsafe {
+         perform_action(element_ptr as AXUIElementRef, ax_action)
+     };
+@@ -51,7 +51,7 @@ pub(crate) fn focus_element_guarded(
+     element_ptr: usize,
+     gate: &NativeDispatchGate,
+ ) -> anyhow::Result<()> {
+-    gate.check()?;
++    gate.check_ax()?;
+     let err = unsafe {
+         set_bool_attr_true(element_ptr as AXUIElementRef, "AXFocused")
+     };
+@@ -74,7 +74,7 @@ pub(crate) fn set_ax_value_guarded(
+     value: &str,
+     gate: &NativeDispatchGate,
+ ) -> anyhow::Result<()> {
+-    gate.check()?;
++    gate.check_ax()?;
+     let err = unsafe {
+         set_string_attr(element_ptr as AXUIElementRef, "AXValue", value)
+     };
 diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/input/mouse.rs b/libs/cmux-cua/rust/crates/platform-macos/src/input/mouse.rs
 index ef0f31f..c4ee815 100644
 --- a/libs/cmux-cua/rust/crates/platform-macos/src/input/mouse.rs
@@ -598,20 +694,67 @@ index 5b97cd1..41d41ba 100644
 +        assert_eq!(guardian.validate(unlocked), Err(SessionLockError::EpochChanged));
 +    }
  }
+diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/tools/click.rs b/libs/cmux-cua/rust/crates/platform-macos/src/tools/click.rs
+index 12ba3bb..a448063 100644
+--- a/libs/cmux-cua/rust/crates/platform-macos/src/tools/click.rs
++++ b/libs/cmux-cua/rust/crates/platform-macos/src/tools/click.rs
+@@ -689,11 +689,14 @@ impl Tool for ClickTool {
+             // backend after resolving the requested screen point. This keeps
+             // targeting (PX) orthogonal to delivery (AX) and avoids making a
+             // Chromium/AppKit window key merely to satisfy first-mouse rules.
++            // A `whileLocked` call on a locked screen skips it (Accessibility
++            // is unavailable there) and posts the click to the pid below.
+             if !delivery_mode.is_foreground()
+                 && window_id.is_some()
+                 && button_str == "left"
+                 && count == 1
+                 && modifiers.is_empty()
++                && matches!(dispatch_gate.allows_ax(), Ok(true))
+             {
+                 let focus_only = action == "focus";
+                 // The AX delivery backend must stay visually identical to the
+@@ -785,7 +788,14 @@ impl Tool for ClickTool {
+             if !delivery_mode.is_foreground() {
+                 if let Some(wid) = window_id {
+                     if let Some(error) =
+-                        super::pixel_obstruction_error(pid, wid, screen_x, screen_y, None)
++                        super::pixel_obstruction_error(
++                            pid,
++                            wid,
++                            screen_x,
++                            screen_y,
++                            None,
++                            dispatch_gate.runs_on_locked_screen(),
++                        )
+                     {
+                         return error;
+                     }
+@@ -1085,7 +1095,7 @@ fn perform_ax_click(
+     // (AX returns success even when the element doesn't advertise the action).
+     let advertised = unsafe { copy_action_names(element) };
+ 
+-    gate.check()?;
++    gate.check_ax()?;
+     let err = unsafe { crate::ax::bindings::perform_action(element, ax_action) };
+     if err != crate::ax::bindings::kAXErrorSuccess {
+         return Err(classify_ax_action_error(ax_action, err).into());
 diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/tools/codex_compat.rs b/libs/cmux-cua/rust/crates/platform-macos/src/tools/codex_compat.rs
-index ba065fa..21b3692 100644
+index ba065fa..395f450 100644
 --- a/libs/cmux-cua/rust/crates/platform-macos/src/tools/codex_compat.rs
 +++ b/libs/cmux-cua/rust/crates/platform-macos/src/tools/codex_compat.rs
-@@ -34,7 +34,7 @@ use crate::ax::bindings::{
+@@ -34,7 +34,10 @@ use crate::ax::bindings::{
      AXUIElementSetAttributeValue, AXValueRef, _AXUIElementGetWindow, kAXErrorSuccess,
      kAXValueCFRangeType,
  };
 -use crate::dispatch_gate::{DispatchGateError, NativeDispatchGate};
-+use crate::dispatch_gate::{DispatchGateError, NativeDispatchGate, SHARED_WHILE_LOCKED};
++use crate::dispatch_gate::{
++    DispatchGateError, NativeDispatchGate, ACCESSIBILITY_WHILE_LOCKED,
++    ACCESSIBILITY_WHILE_LOCKED_REASON, SHARED_WHILE_LOCKED,
++};
  use crate::session::{SessionLockEpoch, SessionLockError, SessionLockGuardian};
  
  const ANONYMOUS_SESSION: &str = "__codex_compat_connection__";
-@@ -130,14 +130,92 @@ impl Tool for CompatTool {
+@@ -130,14 +133,154 @@ impl Tool for CompatTool {
      }
  
      async fn invoke(&self, args: Value) -> ToolResult {
@@ -632,44 +775,53 @@ index ba065fa..21b3692 100644
  }
  
 +/// What a compatibility call touches, for a locked screen
-+/// (`computerUse.whileLocked`). On a locked Mac the desktop, the global HID
-+/// event stream and the frontmost app belong to the lock screen: a keystroke
-+/// posted there would type into its password field. One app's window does
-+/// not: its picture comes from its own backing store (window-id capture) and
-+/// input reaches it posted to its pid or through Accessibility.
++/// (`computerUse.whileLocked`). As measured on a locked macOS 26 Mac: the
++/// desktop, the global HID event stream and the frontmost app belong to the
++/// lock screen (a keystroke posted through the HID tap types into its
++/// password field); one app's window can still be captured by its id
++/// (its own backing store) and receives pixel clicks, wheel events and keys
++/// posted to its pid; Accessibility answers nothing (reads come back empty,
++/// writes fail with kAXErrorCannotComplete) until the screen unlocks.
 +#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 +enum LockedRoute {
 +    /// Reads what this Mac runs, with no picture and no input.
 +    Inventory,
-+    /// One app's window, by pid and window id: a window capture, input
-+    /// posted to the pid, or an Accessibility action on that app.
++    /// One app's window, by pid and window id: a window capture, or pixel
++    /// and key input posted to the pid.
 +    Window,
++    /// Reads or writes through Accessibility: an element-addressed call.
++    Accessibility,
 +    /// The global HID tap, the real cursor or the frontmost app.
 +    Shared,
 +}
 +
 +fn locked_route(kind: CompatKind, args: &Value) -> LockedRoute {
 +    let foreground = args.get("delivery_mode").and_then(Value::as_str) == Some("foreground");
++    let element = args.get("element_index").is_some_and(|index| !index.is_null());
 +    match kind {
 +        CompatKind::ListApps => LockedRoute::Inventory,
-+        // A capture of the app's key window by its id. Launching an app that
-+        // is not running activates it: that sink refuses on its own
-+        // (`guarded_app_launch`).
++        // A capture of the app's key window by its id; its element tree
++        // comes back empty while locked. Launching an app that is not running
++        // activates it: that sink refuses on its own (`guarded_app_launch`).
 +        CompatKind::GetAppState => LockedRoute::Window,
 +        // Background clicks post to the pid; `foreground` fronts the window.
 +        CompatKind::Click if foreground => LockedRoute::Shared,
++        // An element click presses it, or finds its frame, through AX.
++        CompatKind::Click if element => LockedRoute::Accessibility,
 +        CompatKind::Click => LockedRoute::Window,
 +        // macOS has no background drag: the only drag that posts is the
 +        // foreground one, through the HID tap with the app activated.
 +        CompatKind::Drag => LockedRoute::Shared,
-+        // Accessibility on the snapshot's app, or keys and wheel events
-+        // posted to its pid.
++        // Keys posted to the pid. While locked, type_text posts every
++        // character as a key event and skips its AX insert (`type_text`).
++        CompatKind::PressKey | CompatKind::TypeText => LockedRoute::Window,
++        // AX actions, values and selections on a snapshot element. A scroll
++        // is addressed by an element too (its schema has no x,y): the wheel
++        // goes to the element's AX frame, which a locked Mac does not give.
 +        CompatKind::PerformSecondaryAction
 +        | CompatKind::SelectText
 +        | CompatKind::SetValue
-+        | CompatKind::PressKey
-+        | CompatKind::TypeText
-+        | CompatKind::Scroll => LockedRoute::Window,
++        | CompatKind::Scroll => LockedRoute::Accessibility,
 +    }
 +}
 +
@@ -684,6 +836,8 @@ index ba065fa..21b3692 100644
 +    RunsWhileLocked,
 +    /// On, but the call drives the shared desktop: refused, saying why.
 +    RefuseShared,
++    /// On, but the call needs Accessibility: refused, saying why.
++    RefuseAccessibility,
 +}
 +
 +fn lock_policy(while_locked: bool, kind: CompatKind, args: &Value) -> LockPolicy {
@@ -692,6 +846,7 @@ index ba065fa..21b3692 100644
 +    }
 +    match locked_route(kind, args) {
 +        LockedRoute::Inventory | LockedRoute::Window => LockPolicy::RunsWhileLocked,
++        LockedRoute::Accessibility => LockPolicy::RefuseAccessibility,
 +        LockedRoute::Shared => LockPolicy::RefuseShared,
 +    }
 +}
@@ -701,12 +856,62 @@ index ba065fa..21b3692 100644
 +fn shared_while_locked_error(tool: &str) -> CompatError {
 +    CompatError::new("screen_locked", format!("`{tool}` did not run. {SHARED_WHILE_LOCKED}."))
 +        .with_detail("whileLocked", json!(true))
++        .with_detail(
++            "reason",
++            json!(
++                "the lock screen owns the desktop, the pointer, the keyboard focus and the \
++                 frontmost app"
++            ),
++        )
++}
++
++/// The refusal for an Accessibility call on a locked screen with
++/// `computerUse.whileLocked` on.
++fn accessibility_while_locked_error(tool: &str) -> CompatError {
++    CompatError::new(
++        "screen_locked",
++        format!("`{tool}` did not run. {ACCESSIBILITY_WHILE_LOCKED}."),
++    )
++    .with_detail("whileLocked", json!(true))
++    .with_detail("reason", json!(ACCESSIBILITY_WHILE_LOCKED_REASON))
++}
++
++/// Added to `get_app_state` when it ran on a locked screen: the element tree
++/// is empty because Accessibility is, not because the window is.
++fn locked_screen_state_note() -> String {
++    format!(
++        "This Mac's screen is locked, so the element tree above is empty: \
++         {ACCESSIBILITY_WHILE_LOCKED_REASON}. The screenshot is current. Pixel clicks \
++         (click with x and y) and keys (press_key, type_text) are posted to the app's process \
++         and still work. Element clicks, scroll, set_value, select_text, \
++         perform_secondary_action and drag refuse until the screen unlocks."
++    )
++}
++
++fn with_locked_screen_note(mut result: ToolResult) -> ToolResult {
++    let note = locked_screen_state_note();
++    if let Some(Content::Text { text, .. }) = result.content.first_mut() {
++        text.push('\n');
++        text.push_str(&note);
++    } else {
++        result.content.insert(0, Content::text(note.clone()));
++    }
++    if let Some(Value::Object(structured)) = result.structured_content.as_mut() {
++        structured.insert("screen_locked".to_owned(), json!(true));
++        structured.insert("whileLocked".to_owned(), json!(true));
++        structured.insert(
++            "accessibility".to_owned(),
++            json!(ACCESSIBILITY_WHILE_LOCKED_REASON),
++        );
++        structured.insert("locked_screen_note".to_owned(), json!(note));
++    }
++    result
 +}
 +
  pub(super) fn register_all(registry: &mut ToolRegistry) {
      let state = Arc::new(CompatState::new());
      crate::app_approval::register_session_cleanup();
-@@ -570,6 +648,11 @@ struct CompatState {
+@@ -570,6 +713,11 @@ struct CompatState {
      operation_locks: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
      lock_removed_cursors: Arc<Mutex<HashSet<String>>>,
      guardian: Arc<SessionLockGuardian>,
@@ -718,7 +923,7 @@ index ba065fa..21b3692 100644
  }
  
  impl CompatState {
-@@ -584,10 +667,27 @@ impl CompatState {
+@@ -584,10 +732,27 @@ impl CompatState {
              operation_locks: Arc::new(Mutex::new(HashMap::new())),
              lock_removed_cursors: Arc::new(Mutex::new(HashSet::new())),
              guardian,
@@ -746,7 +951,7 @@ index ba065fa..21b3692 100644
          self.snapshots.clear_all();
          let native_sessions = {
              let mut sessions = self.native_sessions.lock().unwrap();
-@@ -611,15 +711,31 @@ impl CompatState {
+@@ -611,15 +776,35 @@ impl CompatState {
          }
      }
  
@@ -764,8 +969,12 @@ index ba065fa..21b3692 100644
 +            // screen alone does not refuse it.
 +            LockPolicy::RunsWhileLocked => Ok(self.guardian.begin_while_locked()),
 +            LockPolicy::RefuseShared if locked => Err(shared_while_locked_error(tool)),
++            LockPolicy::RefuseAccessibility if locked => {
++                Err(accessibility_while_locked_error(tool))
++            }
 +            LockPolicy::Refuse if locked => Err(lock_guard_error(SessionLockError::Locked)),
-+            LockPolicy::Refuse | LockPolicy::RefuseShared => {
++            // Unlocked: a normal epoch, which a lock during the call stales.
++            LockPolicy::Refuse | LockPolicy::RefuseShared | LockPolicy::RefuseAccessibility => {
 +                self.guardian.begin().map_err(lock_guard_error)
 +            }
 +        }
@@ -784,7 +993,7 @@ index ba065fa..21b3692 100644
          if result.is_err() {
              // A native state may have been lazily created after the lifecycle
              // hook drained the maps. Repeating cleanup is idempotent and closes
-@@ -629,19 +745,19 @@ impl CompatState {
+@@ -629,19 +814,19 @@ impl CompatState {
          result
      }
  
@@ -810,7 +1019,7 @@ index ba065fa..21b3692 100644
      }
  
      fn revive_cursor_after_fresh_state(&self, session: &str) -> bool {
-@@ -735,7 +851,7 @@ impl CompatState {
+@@ -735,7 +920,7 @@ impl CompatState {
          ToolResult::text(lines.join("\n")).with_structured(structured)
      }
  
@@ -819,7 +1028,7 @@ index ba065fa..21b3692 100644
          let app_ref = match required_string(args, "app") {
              Ok(value) => value,
              Err(result) => return result,
-@@ -752,6 +868,7 @@ impl CompatState {
+@@ -752,6 +937,7 @@ impl CompatState {
              } else {
                  AppResolveMode::LaunchIfNeeded
              },
@@ -827,7 +1036,7 @@ index ba065fa..21b3692 100644
          )
              .await
      }
-@@ -762,8 +879,9 @@ impl CompatState {
+@@ -762,8 +948,9 @@ impl CompatState {
          compat_args: &Value,
          session: &str,
          resolve_mode: AppResolveMode,
@@ -838,7 +1047,7 @@ index ba065fa..21b3692 100644
              Ok(epoch) => epoch,
              Err(error) => return error.into_result(),
          };
-@@ -782,6 +900,12 @@ impl CompatState {
+@@ -782,6 +969,12 @@ impl CompatState {
          if let Err(error) = self.validate_lock_epoch(lock_epoch) {
              return error.into_result();
          }
@@ -851,7 +1060,19 @@ index ba065fa..21b3692 100644
          let target_policy_bypassed = resolve_mode == AppResolveMode::UnrestrictedLaunchIfNeeded;
          if !target_policy_bypassed {
              if let Err(error) = enforce_target_policy(&app) {
-@@ -1007,7 +1131,7 @@ impl CompatState {
+@@ -998,6 +1191,11 @@ impl CompatState {
+             return error.into_result();
+         }
+         let result = match state_result(native_result, &snapshot) {
++            // A window capture on a locked screen: say why the tree is empty
++            // and what still works.
++            Ok(result) if lock_epoch.runs_while_locked() && self.guardian.is_locked() => {
++                with_locked_screen_note(result)
++            }
+             Ok(result) => result,
+             Err(error) => error.into_result(),
+         };
+@@ -1007,7 +1205,7 @@ impl CompatState {
          result
      }
  
@@ -860,7 +1081,7 @@ index ba065fa..21b3692 100644
          let app_ref = match required_string(&args, "app") {
              Ok(value) => value,
              Err(result) => return result,
-@@ -1050,7 +1174,7 @@ impl CompatState {
+@@ -1050,7 +1248,7 @@ impl CompatState {
              .into_result();
          }
  
@@ -869,7 +1090,66 @@ index ba065fa..21b3692 100644
              Ok(epoch) => epoch,
              Err(error) => return error.into_result(),
          };
-@@ -2531,7 +2655,7 @@ fn guarded_app_launch<T>(
+@@ -1623,6 +1821,13 @@ impl CompatState {
+         if let Err(result) = self.require_current_lock_epoch(lock_epoch) {
+             return result;
+         }
++        let dispatch_gate = NativeDispatchGate::for_session(session);
++        if dispatch_gate.runs_on_locked_screen() {
++            // The native type_text inserts through Accessibility first, which
++            // a locked Mac refuses. Post every character as a key event to
++            // the app's pid instead, the route measured to land while locked.
++            return type_text_as_pid_keys(snapshot.app.pid, text, dispatch_gate).await;
++        }
+         let native_args = native_action_arguments(
+             json!({
+                 "pid": snapshot.app.pid,
+@@ -1638,6 +1843,44 @@ impl CompatState {
+     }
+ }
+ 
++/// Inter-character delay for [`type_text_as_pid_keys`], the native
++/// type_text's default.
++const LOCKED_TYPE_DELAY_MS: u64 = 30;
++
++/// `type_text` on a locked screen: each character as a key down/up pair
++/// posted to `pid` (never the HID tap), with no Accessibility insert,
++/// focus write or read-back. Nothing can confirm it landed: the result says
++/// to look at the next `get_app_state` screenshot.
++async fn type_text_as_pid_keys(pid: i32, text: String, gate: NativeDispatchGate) -> ToolResult {
++    let text =
++        cmux_cua_core::text_sanitize::strip_trailing_agent_protocol_tags(&text).into_owned();
++    let characters = text.chars().count();
++    let posted = tokio::task::spawn_blocking(move || {
++        crate::input::keyboard::type_text_with_delay_guarded(
++            pid,
++            &text,
++            LOCKED_TYPE_DELAY_MS,
++            &gate,
++        )
++    })
++    .await;
++    match posted {
++        Ok(Ok(())) => ToolResult::text(format!(
++            "Typed {characters} char(s) as key events posted to pid {pid}. The screen is locked, \
++             so the text went in as keystrokes, not through Accessibility; check the next \
++             get_app_state screenshot to confirm it landed."
++        ))
++        .with_structured(json!({
++            "path": "key_events",
++            "characters": characters,
++            "verified": false,
++            "effect": "unverifiable",
++        })),
++        Ok(Err(error)) => ToolResult::error(format!("type_text failed: {error}")),
++        Err(error) => ToolResult::error(format!("type_text task failed: {error}")),
++    }
++}
++
+ fn element_supports_native_click(actions: &[String], button: &str) -> bool {
+     match button {
+         "left" => actions.iter().any(|action| action == "AXPress"),
+@@ -2531,7 +2774,7 @@ fn guarded_app_launch<T>(
      dispatch_gate: &NativeDispatchGate,
      launch: impl FnOnce() -> anyhow::Result<T>,
  ) -> Result<T, CompatError> {
@@ -878,7 +1158,7 @@ index ba065fa..21b3692 100644
          let message = error.to_string();
          dispatch_gate_compat_error(error.downcast_ref::<DispatchGateError>(), &message)
      })
-@@ -2540,6 +2664,7 @@ fn guarded_app_launch<T>(
+@@ -2540,6 +2783,7 @@ fn guarded_app_launch<T>(
  fn dispatch_gate_compat_error(error: Option<&DispatchGateError>, message: &str) -> CompatError {
      match error.copied() {
          Some(DispatchGateError::ScreenLocked) => lock_guard_error(SessionLockError::Locked),
@@ -886,7 +1166,27 @@ index ba065fa..21b3692 100644
          Some(DispatchGateError::EpochChanged) => {
              lock_guard_error(SessionLockError::EpochChanged)
          }
-@@ -3514,7 +3639,11 @@ mod tests {
+@@ -2775,6 +3019,9 @@ fn lock_guard_error(error: SessionLockError) -> CompatError {
+     }
+ }
+ 
++/// Runs one Accessibility step of a compatibility call (every caller is an
++/// AX read or write) if its lock epoch is still current. A while-locked
++/// epoch on a locked screen refuses too: Accessibility is unavailable then.
+ fn dispatch_if_epoch_current<T>(
+     guardian: &SessionLockGuardian,
+     epoch: SessionLockEpoch,
+@@ -2787,6 +3034,9 @@ fn dispatch_if_epoch_current<T>(
+         );
+     };
+     guardian.observe(locked);
++    if locked && epoch.runs_while_locked() {
++        anyhow::bail!("{ACCESSIBILITY_WHILE_LOCKED}");
++    }
+     guardian
+         .validate(epoch)
+         .map_err(|error| anyhow::anyhow!(lock_guard_error(error).message))?;
+@@ -3514,7 +3764,11 @@ mod tests {
      async fn action_without_app_snapshot_fails_closed() {
          let state = CompatState::new();
          let result = state
@@ -899,7 +1199,7 @@ index ba065fa..21b3692 100644
              .await;
          assert_eq!(result.is_error, Some(true));
          assert_eq!(
-@@ -3890,6 +4019,133 @@ mod tests {
+@@ -3890,6 +4144,211 @@ mod tests {
          }
      }
  
@@ -948,20 +1248,16 @@ index ba065fa..21b3692 100644
 +    }
 +
 +    #[test]
-+    fn with_while_locked_on_window_calls_run_and_shared_calls_refuse() {
++    fn with_while_locked_on_window_calls_run_and_shared_and_ax_calls_refuse() {
 +        let background = json!({"app": "Notes", "x": 10, "y": 10});
-+        let runs = [
++        // A window capture, pixel clicks and keys posted to the pid.
++        for kind in [
 +            CompatKind::ListApps,
 +            CompatKind::GetAppState,
 +            CompatKind::Click,
-+            CompatKind::PerformSecondaryAction,
-+            CompatKind::SelectText,
-+            CompatKind::SetValue,
 +            CompatKind::PressKey,
 +            CompatKind::TypeText,
-+            CompatKind::Scroll,
-+        ];
-+        for kind in runs {
++        ] {
 +            assert_eq!(
 +                lock_policy(true, kind, &background),
 +                LockPolicy::RunsWhileLocked,
@@ -970,16 +1266,98 @@ index ba065fa..21b3692 100644
 +        }
 +        assert_eq!(locked_route(CompatKind::ListApps, &background), LockedRoute::Inventory);
 +        assert_eq!(locked_route(CompatKind::Click, &background), LockedRoute::Window);
++        // Everything addressed by an accessibility element: Accessibility is
++        // unavailable on a locked Mac.
++        let element = json!({"app": "Notes", "element_index": "3", "direction": "down"});
++        for kind in [
++            CompatKind::Click,
++            CompatKind::PerformSecondaryAction,
++            CompatKind::SelectText,
++            CompatKind::SetValue,
++            CompatKind::Scroll,
++        ] {
++            assert_eq!(locked_route(kind, &element), LockedRoute::Accessibility, "{kind:?}");
++            assert_eq!(
++                lock_policy(true, kind, &element),
++                LockPolicy::RefuseAccessibility,
++                "{kind:?}"
++            );
++        }
++        // A null element_index is no element: the pixel click runs.
++        let null_element = json!({"app": "Notes", "element_index": null, "x": 1, "y": 1});
++        assert_eq!(
++            lock_policy(true, CompatKind::Click, &null_element),
++            LockPolicy::RunsWhileLocked
++        );
 +        // `foreground` fronts the window and posts through the HID tap; a
 +        // drag has only that route on macOS.
 +        let foreground = json!({"app": "Notes", "x": 10, "y": 10, "delivery_mode": "foreground"});
 +        assert_eq!(lock_policy(true, CompatKind::Click, &foreground), LockPolicy::RefuseShared);
++        let foreground_element =
++            json!({"app": "Notes", "element_index": "3", "delivery_mode": "foreground"});
++        assert_eq!(
++            lock_policy(true, CompatKind::Click, &foreground_element),
++            LockPolicy::RefuseShared
++        );
 +        for args in [&background, &foreground] {
 +            assert_eq!(lock_policy(true, CompatKind::Drag, args), LockPolicy::RefuseShared);
 +        }
 +        // A delivery mode that is not the string "foreground" is not one.
 +        let odd = json!({"app": "Notes", "delivery_mode": true});
 +        assert_eq!(lock_policy(true, CompatKind::Click, &odd), LockPolicy::RunsWhileLocked);
++    }
++
++    #[test]
++    fn the_accessibility_refusal_says_why_and_what_still_runs() {
++        for tool in ["set_value", "select_text", "perform_secondary_action", "scroll", "click"] {
++            let result = accessibility_while_locked_error(tool).into_result();
++            assert_eq!(result.is_error, Some(true));
++            let structured = result.structured_content.unwrap();
++            assert_eq!(structured["code"], "screen_locked");
++            assert_eq!(structured["whileLocked"], true);
++            assert_eq!(
++                structured["reason"],
++                "accessibility is unavailable while the Mac is locked"
++            );
++            let message = structured["message"].as_str().unwrap();
++            assert!(message.starts_with(&format!("`{tool}` did not run.")), "{message}");
++            assert!(
++                message.contains("accessibility is unavailable while the Mac is locked"),
++                "{message}"
++            );
++            assert!(message.contains("still run while the Mac is locked"), "{message}");
++        }
++    }
++
++    /// `get_app_state` on a locked screen keeps its screenshot and says the
++    /// empty tree is the lock, and what still works.
++    #[test]
++    fn a_locked_screen_state_says_why_the_tree_is_empty() {
++        let state = ToolResult {
++            content: vec![
++                Content::text("cmux CUA Computer Use state\n<app_state>\n</app_state>"),
++                Content::image_jpeg("AAAA".to_owned()),
++            ],
++            is_error: None,
++            structured_content: Some(json!({"elements": []})),
++        };
++        let noted = with_locked_screen_note(state);
++        assert_eq!(noted.content.len(), 2);
++        assert!(matches!(noted.content[1], Content::Image { .. }));
++        let text = first_text(&noted);
++        assert!(text.starts_with("cmux CUA Computer Use state"), "{text}");
++        assert!(text.contains("screen is locked, so the element tree above is empty"), "{text}");
++        assert!(text.contains("accessibility is unavailable while the Mac is locked"), "{text}");
++        assert!(text.contains("Pixel clicks"), "{text}");
++        assert!(text.contains("press_key, type_text"), "{text}");
++        let structured = noted.structured_content.unwrap();
++        assert_eq!(structured["screen_locked"], true);
++        assert_eq!(structured["whileLocked"], true);
++        assert_eq!(
++            structured["accessibility"],
++            "accessibility is unavailable while the Mac is locked"
++        );
++        assert_eq!(structured["elements"], json!([]));
 +    }
 +
 +    #[test]
@@ -1015,7 +1393,7 @@ index ba065fa..21b3692 100644
 +        assert_eq!(launches.load(Ordering::SeqCst), 0);
 +    }
 +
-+    /// A while-locked epoch runs Accessibility and pid dispatch on a locked
++    /// A while-locked epoch runs pid dispatch and the window capture on a locked
 +    /// screen, and goes stale on the unlock.
 +    #[tokio::test]
 +    async fn a_while_locked_epoch_dispatches_on_a_locked_screen() {
@@ -1055,3 +1433,192 @@ index 8b1bf03..b05555f 100644
                                          apps::activate_pid(previous_pid);
                                      }
                                  }
+diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs b/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs
+index e6e3204..ac1bae7 100644
+--- a/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs
++++ b/libs/cmux-cua/rust/crates/platform-macos/src/tools/mod.rs
+@@ -246,19 +246,31 @@ pub fn front_target_if_watchable(target_pid: i64, session: Option<&str>) {
+ /// Fail closed when a background pixel event would be hit-tested onto a
+ /// different visible window. Cursor-overlay windows are filtered inside the
+ /// WindowServer hit-test because they share this process's pid.
++///
++/// `locked_screen` is a `computerUse.whileLocked` call on a locked screen
++/// (`NativeDispatchGate::runs_on_locked_screen`): the lock screen covers
++/// every app window then, and the event is posted to the target's pid, so
++/// the lock screen's own windows do not count as an obstruction. Any other
++/// window in front of the point still does.
+ pub(crate) fn pixel_obstruction_error(
+     target_pid: i32,
+     target_window_id: u32,
+     screen_x: f64,
+     screen_y: f64,
+     point_name: Option<&str>,
++    locked_screen: bool,
+ ) -> Option<cmux_cua_core::protocol::ToolResult> {
+-    let occluder = crate::windows::pixel_obstruction(
+-        target_pid,
+-        target_window_id,
+-        screen_x,
+-        screen_y,
+-    )?;
++    let occluder = if locked_screen {
++        crate::windows::pixel_obstruction_under_lock_screen(
++            target_pid,
++            target_window_id,
++            screen_x,
++            screen_y,
++        )
++    } else {
++        crate::windows::pixel_obstruction(target_pid, target_window_id, screen_x, screen_y)
++    };
++    let occluder = occluder?;
+     let app = if occluder.app_name.trim().is_empty() {
+         format!("pid {}", occluder.pid)
+     } else {
+diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/tools/scroll.rs b/libs/cmux-cua/rust/crates/platform-macos/src/tools/scroll.rs
+index 7f8ee0f..2765a54 100644
+--- a/libs/cmux-cua/rust/crates/platform-macos/src/tools/scroll.rs
++++ b/libs/cmux-cua/rust/crates/platform-macos/src/tools/scroll.rs
+@@ -550,7 +550,7 @@ impl Tool for ScrollTool {
+                 // otherwise the wheel is posted outside the rendered window
+                 // and nested overflow regions never receive it.
+                 unsafe {
+-                    if gate.check().is_ok() {
++                    if gate.check_ax().is_ok() {
+                         let _ = crate::ax::bindings::perform_action(
+                             element_ptr as AXUIElementRef,
+                             "AXScrollToVisible",
+@@ -648,6 +648,7 @@ impl Tool for ScrollTool {
+                         target.screen_x,
+                         target.screen_y,
+                         None,
++                        dispatch_gate.runs_on_locked_screen(),
+                     ) {
+                         return error;
+                     }
+diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/tools/set_value.rs b/libs/cmux-cua/rust/crates/platform-macos/src/tools/set_value.rs
+index d8e1f43..57ef2be 100644
+--- a/libs/cmux-cua/rust/crates/platform-macos/src/tools/set_value.rs
++++ b/libs/cmux-cua/rust/crates/platform-macos/src/tools/set_value.rs
+@@ -289,17 +289,17 @@ fn set_value_blocking(
+         let numeric_target = value.trim().parse::<f64>().ok();
+         let err = match numeric_target {
+             Some(n) => {
+-                gate.check()?;
++                gate.check_ax()?;
+                 let e = unsafe { set_number_attr(element, "AXValue", n) };
+                 if e == kAXErrorSuccess {
+                     e
+                 } else {
+-                    gate.check()?;
++                    gate.check_ax()?;
+                     unsafe { set_string_attr(element, "AXValue", value) }
+                 }
+             }
+             None => {
+-                gate.check()?;
++                gate.check_ax()?;
+                 unsafe { set_string_attr(element, "AXValue", value) }
+             }
+         };
+@@ -361,7 +361,7 @@ fn step_to_value(
+         } else {
+             "AXDecrement"
+         };
+-        gate.check()?;
++        gate.check_ax()?;
+         let _ = unsafe { perform_action(element, action) };
+ 
+         let next = match unsafe { copy_number_attr(element, "AXValue") } {
+@@ -422,7 +422,7 @@ fn select_popup_option(
+             let child = children[i];
+             let opt_title =
+                 unsafe { copy_string_attr(child, "AXTitle") }.unwrap_or_else(|| value.to_string());
+-            match gate.check() {
++            match gate.check_ax() {
+                 Ok(()) => {
+                     let err = unsafe { perform_action(child, "AXPress") };
+                     if err == kAXErrorSuccess {
+diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/tools/type_text.rs b/libs/cmux-cua/rust/crates/platform-macos/src/tools/type_text.rs
+index 1fc002c..f10db5d 100644
+--- a/libs/cmux-cua/rust/crates/platform-macos/src/tools/type_text.rs
++++ b/libs/cmux-cua/rust/crates/platform-macos/src/tools/type_text.rs
+@@ -622,7 +622,7 @@ fn type_text_blocking(
+     if let Some((element, owns, idx_opt)) = ax_target {
+         let role  = unsafe { copy_string_attr(element, "AXRole") }.unwrap_or_default();
+         let title = unsafe { copy_string_attr(element, "AXTitle") }.unwrap_or_default();
+-        if let Err(error) = gate.check() {
++        if let Err(error) = gate.check_ax() {
+             if owns {
+                 unsafe { CFRelease(element as _) };
+             }
+diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/windows.rs b/libs/cmux-cua/rust/crates/platform-macos/src/windows.rs
+index a4392a9..37e43c3 100644
+--- a/libs/cmux-cua/rust/crates/platform-macos/src/windows.rs
++++ b/libs/cmux-cua/rust/crates/platform-macos/src/windows.rs
+@@ -297,6 +297,35 @@ pub fn pixel_obstruction(
+     )
+ }
+ 
++/// [`pixel_obstruction`] on a locked screen, for a call admitted with
++/// `computerUse.whileLocked`: the lock screen's windows cover every app
++/// window, so they are left out of the stack; any other window still counts.
++pub fn pixel_obstruction_under_lock_screen(
++    target_pid: i32,
++    target_window_id: u32,
++    x: f64,
++    y: f64,
++) -> Option<WindowInfo> {
++    let windows = without_lock_screen(hit_test_windows());
++    let driver_pid = std::process::id() as i32;
++    pixel_obstruction_in_stack(
++        &windows,
++        target_pid,
++        target_window_id,
++        x,
++        y,
++        driver_pid,
++    )
++}
++
++/// Drop the windows the lock screen draws (owned by `loginwindow`).
++fn without_lock_screen(windows: Vec<WindowInfo>) -> Vec<WindowInfo> {
++    windows
++        .into_iter()
++        .filter(|window| window.app_name.trim() != "loginwindow")
++        .collect()
++}
++
+ fn pixel_obstruction_in_stack(
+     windows: &[WindowInfo],
+     target_pid: i32,
+@@ -422,6 +451,29 @@ mod tests {
+         assert_eq!(obstruction.app_name, "Notes");
+     }
+ 
++    /// On a locked screen (a `whileLocked` call) the lock screen's windows
++    /// cover the target but do not obstruct a click posted to its pid; any
++    /// other window in front of the point still does.
++    #[test]
++    fn lock_screen_windows_do_not_obstruct_under_the_lock_screen() {
++        let lock = window(5, 90, "loginwindow", 2003, 1.0);
++        let target = window(9, 300, "Calculator", 0, 1.0);
++        let stack = vec![lock.clone(), target.clone()];
++        assert_eq!(
++            pixel_obstruction_in_stack(&stack, 300, 9, 50.0, 50.0, 100).unwrap().window_id,
++            5,
++            "unlocked, the same stack is an obstruction"
++        );
++        let stack = without_lock_screen(vec![lock.clone(), target.clone()]);
++        assert!(pixel_obstruction_in_stack(&stack, 300, 9, 50.0, 50.0, 100).is_none());
++        let stack =
++            without_lock_screen(vec![lock, window(8, 200, "Notes", 0, 1.0), target]);
++        assert_eq!(
++            pixel_obstruction_in_stack(&stack, 300, 9, 50.0, 50.0, 100).unwrap().window_id,
++            8
++        );
++    }
++
+     #[test]
+     fn hit_test_allows_exact_target_window() {
+         let windows = vec![
