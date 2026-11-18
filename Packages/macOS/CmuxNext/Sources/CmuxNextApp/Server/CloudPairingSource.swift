@@ -28,9 +28,9 @@ final class CloudPairingSource: ServerSource {
     /// as the signed-in user. Phase 1 pairs into the Worker's team for the
     /// session (the personal team, server.md 6.2 step 4), read from the
     /// Worker: the app's Stack team id is not a Worker team id.
-    static func app(feed: FeedService, auth: CloudAuth, cli: BundledExecutable, chiefPlaced: @escaping @MainActor () -> Void = {}) -> CloudPairingSource {
+    static func app(feed: FeedService, auth: CloudAuth, cli: BundledExecutable, inner: (any ServerSource)? = nil, chiefPlaced: @escaping @MainActor () -> Void = {}) -> CloudPairingSource {
         CloudPairingSource(
-            inner: LocalServerSource.app(cli: cli),
+            inner: inner ?? LocalServerSource.app(cli: cli),
             call: { [weak feed] path, body in
                 guard let feed else { throw FeedServiceError.signedOut }
                 return try await feed.call(path, body)
