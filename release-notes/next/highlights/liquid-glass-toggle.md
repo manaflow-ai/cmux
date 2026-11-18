@@ -1,6 +1,7 @@
-title: Turn off Liquid Glass for solid menus and cards
+title: Solid menus and cards, with Liquid Glass as a setting
 category: new
 docs: https://cmux.com/docs/next/settings
 gallery: agent-pane.composer-look/composer-material-liquid-glass-off
+before: agent-pane.composer-look/composer-material-plain
 
-Settings > Appearance > Liquid Glass. Off draws the composer, menus, popovers and cards as solid surfaces with a plain border, with no blur or glass rim.
+The composer, menus, popovers and cards now draw solid with a plain border. Turn on Settings > Appearance > Liquid Glass to bring back the glass.

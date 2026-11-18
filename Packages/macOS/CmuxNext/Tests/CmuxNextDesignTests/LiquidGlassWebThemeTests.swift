@@ -3,7 +3,8 @@ import Foundation
 import Testing
 
 /// `appearance.liquidGlass` off (CMUX-653, Lawrence 2026-11-18: a toggle that removes all liquid
-/// glass on web views): the web theme sends `glass: "off"` whatever the lens choice, so every page
+/// glass on web views; off by default since standup 2026-11-19): the web theme sends `glass: "off"`
+/// whatever the lens choice, so every page
 /// sets `data-glass="off"` and draws its glass surfaces solid; the lens mode is plain, so no
 /// wallpaper still is fed; and the change repaints every open page (``WebTheme/pushInputs``).
 @MainActor @Suite(.serialized) struct LiquidGlassWebThemeTests {
@@ -25,6 +26,11 @@ import Testing
             #expect(try glass(WebTheme(.unresolved, glass: mode)) == WebTheme.glassOff)
         }
         #expect(try glass(WebTheme(.unresolved)) == "off")
+    }
+
+    /// With no setting, the app's design settings say off, so a fresh window's pages draw solid.
+    @Test func offIsTheDefault() {
+        #expect(DesignSettings().liquidGlass == false)
     }
 
     /// The lens chosen in Debug draws (and is fed a wallpaper still) only while Liquid Glass is on.

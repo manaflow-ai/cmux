@@ -1722,7 +1722,7 @@
         },
         {
           "key": "appearance.liquidGlass",
-          "note": "Web pages only: off sends data-glass=\"off\" with the web theme (WebTheme), and every web glass surface draws the solid look of Reduce Transparency (webviews ui/glass/glass.css). Scroll fades stay; native surfaces keep their material. CMUX-653 (Lawrence 2026-11-18).",
+          "note": "Web pages only: off sends data-glass=\"off\" with the web theme (WebTheme), and every web glass surface draws the solid look of Reduce Transparency (webviews ui/glass/glass.css). Scroll fades stay; native surfaces keep their material. Off by default: CMUX-653, Lawrence decided it at standup 2026-11-19.",
           "title": {
             "key": "settings.appearance.liquidGlass",
             "text": "Liquid Glass"
@@ -1733,7 +1733,7 @@
           },
           "kind": "toggle",
           "swift_owner": "LiquidGlassSetting",
-          "default": true,
+          "default": false,
           "keywords": [
             "glass",
             "liquid glass",

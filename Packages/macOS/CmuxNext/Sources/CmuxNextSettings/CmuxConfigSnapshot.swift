@@ -211,7 +211,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
-    /// `appearance.liquidGlass`; on when unset or invalid. Off, web pages draw no glass.
+    /// `appearance.liquidGlass`; off when unset or invalid, so web pages draw no glass.
     public var liquidGlass: Bool = LiquidGlassSetting.fallback
     /// `appearance.fontSmoothing`; `antialiased` when unset or invalid. Applied once per launch
     /// (``ProcessFontSmoothing/apply(_:to:)``), so a change shows after a restart.

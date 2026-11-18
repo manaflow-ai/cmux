@@ -298,9 +298,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
-    /// `appearance.liquidGlass`: whether web pages draw their glass. Off, every web glass surface is
-    /// solid with a hairline rim (``WebTheme/glass`` is `off`).
-    public var liquidGlass = true
+    /// `appearance.liquidGlass`: whether web pages draw their glass. Off (the default, Lawrence
+    /// 2026-11-19), every web glass surface is solid with a hairline rim (``WebTheme/glass`` is `off`).
+    public var liquidGlass = false
     /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Chrome text cmux draws
     /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
     /// value (``ProcessFontSmoothing/current``).

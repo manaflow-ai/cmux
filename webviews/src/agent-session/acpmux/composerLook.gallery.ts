@@ -531,7 +531,7 @@ export default agentPaneEntry({
     },
     "composer-material-plain": {
       composerLook: "claude",
-      note: "The shared glass material (Plain, what ships) over the colorful wallpaper on a see-through window: the specular rim lit from above-left, the sheen under the top edge, the soft shadow, and a frost that keeps the colors vivid.",
+      note: "The shared glass material (Plain, with Liquid Glass on) over the colorful wallpaper on a see-through window: the specular rim lit from above-left, the sheen under the top edge, the soft shadow, and a frost that keeps the colors vivid.",
       snapshot: startedChat(),
       play: (ctx) => materialStage(ctx, "plain"),
     },

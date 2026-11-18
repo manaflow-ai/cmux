@@ -54,6 +54,11 @@ import CmuxNextDesignTokens
     }
 
     @Test func thePayloadCarriesTheGlassMode() throws {
+        // The glass mode reaches pages only while Liquid Glass is on (off by default).
+        let design = DesignSettings.shared
+        let before = design.liquidGlass
+        defer { design.liquidGlass = before }
+        design.liquidGlass = true
         for mode in GlassLensMode.allCases {
             let json = WebTheme(.unresolved, glass: mode).payloadJSON
             let payload = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
