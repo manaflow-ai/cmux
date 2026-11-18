@@ -444,11 +444,29 @@ def workflow_problem(workflow: dict) -> str | None:
     return None
 
 
-def closed_context(workflow: dict, number: int, labels: list[str]) -> dict[str, Any]:
-    """The contexts of the `closed` run of pull request `number`."""
+def closed_context(workflow: dict, number: int, labels: list[str], merged: bool) -> dict[str, Any]:
+    """The contexts of the `closed` run of pull request `number`.
+
+    A pull request closed unmerged keeps its merge ref in `github.ref`. One that
+    merged does not: GitHub runs its closed event on the base branch, so
+    `github.ref` is `refs/heads/<base>` and `github.sha` the merge commit. A twin
+    keyed on `github.ref` would join the base branch's group, not the PR's, and
+    cancel nothing (or worse, a base push run), so both shapes are judged.
+    """
     context = pr_context(workflow, "pull_request", number, 1)
-    context["github"]["event"]["action"] = "closed"
-    context["github"]["event"]["pull_request"]["labels"] = [{"name": name} for name in labels]
+    event = context["github"]["event"]
+    event["action"] = "closed"
+    pull_request = event["pull_request"]
+    pull_request["labels"] = [{"name": name} for name in labels]
+    pull_request["state"] = "closed"
+    pull_request["merged"] = merged
+    if merged:
+        base = pull_request["base"]["ref"]
+        merge_sha = f"m{number:039d}"
+        pull_request["merge_commit_sha"] = merge_sha
+        context["github"]["ref"] = f"refs/heads/{base}"
+        context["github"]["ref_name"] = base
+        context["github"]["sha"] = merge_sha
     return context
 
 
@@ -461,19 +479,21 @@ def twin_problem(twin: dict, target: dict) -> str | None:
     types = trigger.get("types") if isinstance(trigger, dict) else None
     if list(types or []) != ["closed"]:
         return f"the twin must run only on pull_request closed, not {types!r}"
+    group, cancel = twin_concurrency.get("group"), twin_concurrency.get("cancel-in-progress", False)
     try:
-        closed = _text(resolve(twin_concurrency.get("group"), closed_context(twin, 101, [])))
-        kept = _text(resolve(twin_concurrency.get("group"), closed_context(twin, 101, ["no-janitor"])))
         target_group = _text(resolve(target_concurrency.get("group"), pr_context(target, "pull_request", 101, 1)))
-        cancels = _truthy(resolve(twin_concurrency.get("cancel-in-progress", False), closed_context(twin, 101, [])))
+        for merged in (True, False):
+            how = "merged" if merged else "closed unmerged"
+            closed = _text(resolve(group, closed_context(twin, 101, [], merged)))
+            kept = _text(resolve(group, closed_context(twin, 101, ["no-janitor"], merged)))
+            if closed != target_group:
+                return f"its group for a PR {how} {closed!r} is not the target's pull request group {target_group!r}"
+            if kept == target_group:
+                return f"a no-janitor PR {how} has its run cancelled too; give it a group of its own"
+            if not _truthy(resolve(cancel, closed_context(twin, 101, [], merged))):
+                return f"cancel-in-progress is false for a PR {how}"
     except (ExpressionError, KeyError, IndexError, TypeError, ValueError) as error:
         return f"cannot evaluate a group: {error}"
-    if closed != target_group:
-        return f"its closed group {closed!r} is not the target's pull request group {target_group!r}"
-    if kept == target_group:
-        return "a no-janitor pull request's run is cancelled too; give it a group of its own"
-    if not cancels:
-        return "cancel-in-progress is false"
     return None
 
 
@@ -510,6 +530,10 @@ def self_check() -> list[str]:
         failures.append(f"self-check: a matching closed twin fails: {twin_problem(twin, target)}")
     if twin_problem({**twin, "concurrency": {"group": "W-other", "cancel-in-progress": True}}, target) is None:
         failures.append("self-check: a closed twin with another group passes")
+    # Matches on a PR closed unmerged, but a merged PR's closed run has the base branch in github.ref.
+    by_ref = {**twin, "concurrency": {"group": "W-${{ github.ref }}", "cancel-in-progress": True}}
+    if twin_problem(by_ref, target) is None:
+        failures.append("self-check: a closed twin keyed on github.ref passes, but misses every merged PR")
     return failures
 
 
