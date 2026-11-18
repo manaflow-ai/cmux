@@ -1220,6 +1220,34 @@ mod tests {
     }
 
     #[test]
+    fn nightly_refuses_a_tailnet_backend_written_into_its_state_file() {
+        // The picker's set() refuses it, but the state file is a plain file: a
+        // hand-written or stale one must not move NIGHTLY to a tailnet backend.
+        let home = Home::new();
+        let nightly = Resolver::new(NIGHTLY_BUNDLE, &home.0).unwrap();
+        let state = nightly.state_path();
+        std::fs::create_dir_all(state.parent().unwrap()).unwrap();
+        for body in [
+            format!(r#"{{"name":"{TAILNET}","revision":3,"explicit":true}}"#),
+            format!(r#"{{"name":"{TAILNET}"}}"#),
+        ] {
+            std::fs::write(&state, &body).unwrap();
+            assert!(nightly.resolve(None).is_err(), "{body}");
+            assert!(nightly.resolve_persisted().is_err(), "{body}");
+        }
+        // A dev build may keep one there.
+        let dev = Resolver::new("com.cmuxterm.app.debug.cnx-tag", &home.0).unwrap();
+        let state = dev.state_path();
+        std::fs::create_dir_all(state.parent().unwrap()).unwrap();
+        std::fs::write(
+            &state,
+            format!(r#"{{"name":"{TAILNET}","revision":3,"explicit":true}}"#),
+        )
+        .unwrap();
+        assert_eq!(dev.resolve(None).unwrap().name, TAILNET);
+    }
+
+    #[test]
     fn the_persisted_read_never_takes_the_tag_file() {
         let home = Home::new();
         let bundle = "com.cmuxterm.app.debug.cnx-tag";
