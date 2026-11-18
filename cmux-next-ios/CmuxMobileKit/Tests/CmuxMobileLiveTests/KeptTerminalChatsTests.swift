@@ -66,6 +66,33 @@ import Testing
         #expect(kept.showsChat("acct|mac|s1") == nil)
     }
 
+    /// A file from this build (with `faces`) read by an older build: the shapes below are the base's
+    /// `Stamped` and `Contents` (`chats` only, synthesized decoding, read with `try? JSONDecoder()` as
+    /// before), so an older build skips the unknown `faces` key and keeps every pairing.
+    @Test func anOlderBuildReadsANewerFileAndKeepsItsPairings() async throws {
+        struct OlderStamped: Codable, Equatable {
+            var value: String
+            var at: Double
+        }
+        struct OlderContents: Codable, Equatable {
+            var chats: [String: OlderStamped] = [:]
+        }
+        let directory = Self.folder()
+        let kept = Self.cache(directory).terminalChats
+        let file = kept.file
+        defer { try? FileManager.default.removeItem(at: file) }
+        let chatKey = try #require(KeptTerminalChats.key("acct", "mac", "claude", "h-1"))
+        kept.keepChat("a-1", for: chatKey)
+        let faceKey = try #require(KeptTerminalChats.key("acct", "mac", "s1"))
+        kept.keepFace(showsChat: true, for: faceKey)
+        await kept.flush()
+        let data = try Data(contentsOf: file)
+        #expect(String(decoding: data, as: UTF8.self).contains("\"faces\""))
+        let older = try #require(try? JSONDecoder().decode(OlderContents.self, from: data))
+        #expect(older.chats[chatKey]?.value == "a-1")
+        #expect(older.chats.count == 1)
+    }
+
     /// Ids are opaque: a `|` in one never makes two keys one (each part is escaped), on disk too.
     @Test func aBarInAnIDKeepsItsOwnKey() async throws {
         let directory = Self.folder()
