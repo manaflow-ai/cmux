@@ -517,8 +517,15 @@ pub(crate) fn resume_argv_for(
     spawned: Option<&crate::config::HarnessProfile>,
     fallback: impl FnOnce() -> Option<String>,
 ) -> Vec<String> {
-    let _ = (spawned, fallback);
-    resume_argv(family, id)
+    if family != "codex" {
+        return resume_argv(family, id);
+    }
+    let Some((program, globals)) =
+        spawned.and_then(|p| crate::codex_app_server::launch_codex(&p.argv, &p.env, fallback))
+    else {
+        return resume_argv(family, id);
+    };
+    std::iter::once(program).chain(globals).chain(["resume".to_owned(), id.to_owned()]).collect()
 }
 
 /// `file`'s length, and for a Codex rollout whether it is a current one whose message items are

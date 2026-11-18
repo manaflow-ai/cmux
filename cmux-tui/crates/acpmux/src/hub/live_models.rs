@@ -25,7 +25,7 @@ struct Target {
 
 /// The harnesses with a live list: every Claude Code (stdio) profile, through
 /// its own argv, and every Codex-family ACP profile, through the real `codex`
-/// (the adapter's `CODEX_PATH`, else `codex` on the login PATH).
+/// its launch runs (`CODEX_PATH`, else the bridge's argv0, else `codex` on the login PATH).
 fn targets(harnesses: &BTreeMap<String, HarnessProfile>) -> Vec<Target> {
     let codex = crate::managed_codex::codex_binary;
     harnesses
@@ -36,7 +36,10 @@ fn targets(harnesses: &BTreeMap<String, HarnessProfile>) -> Vec<Target> {
                     (Cli::Claude, profile.argv.clone())
                 }
                 HarnessKind::Acp if crate::config::derive_family(name, profile) == "codex" => {
-                    let bin = profile.env.get("CODEX_PATH").cloned().or_else(codex)?;
+                    // The codex the profile's launch runs (`launch_codex`): the bridge's own
+                    // argv0 too, not only CODEX_PATH or the PATH's codex.
+                    let (bin, _) =
+                        crate::codex_app_server::launch_codex(&profile.argv, &profile.env, codex)?;
                     (Cli::Codex, vec![bin])
                 }
                 _ => return None,
