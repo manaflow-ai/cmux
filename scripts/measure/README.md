@@ -58,7 +58,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
-| `instant-new-surfaces.sh` | Key to visible frame for Cmd-N, Cmd-T, Cmd-D, Cmd-Shift-D. | - | 2026-10-27 | active |
+| `instant-new-surfaces.sh` | Key to visible frame for Cmd-N, Cmd-T, Cmd-D, Cmd-Shift-D. With `--bench=cmd-n-paint --screen`: one Cmd-T and one Cmd-N from the screen's own frames, alone and 100 ms after another key, in a session of many workspaces (the frame of the tab or row, of the page's first content and of the last change; a report with the kept pictures, no judgement). | - | 2026-11-18 | active |
 | `new-terminal-100x.sh` | New terminal, split and workspace latency through the cmux-tui daemon. | - | 2026-11-07 | active |
 | `held-new-tab.sh` | Held Cmd-T with Cmd-W now and then, in a session of many workspaces. | - | 2026-11-15 | active |
 | `held-new-tab.py` | Python driver for held-new-tab.sh. | - | 2026-11-16 | active |

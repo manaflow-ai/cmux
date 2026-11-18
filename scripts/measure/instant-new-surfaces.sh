@@ -8,6 +8,13 @@
 # of a page, so a host with no engine fails at its build and gives no WebKit time by accident; the bench is asked
 # for Chromium pages (`--page-engine=cef`: a New Tab page in another engine is an error of its row, not a number).
 # `--allow-no-chromium` turns both off for a measure of WebKit (scripts/measure/require-chromium.sh).
+# `--vdisplay=HZ` holds a virtual main display at HZ for the run (as held-new-tab.sh; it is 1x). The step's log has
+# the build's form (scripts/measure/build-flags.py's `BUILD-FLAGS` line).
+# One Cmd-T and one Cmd-N as the screen showed them, frame by frame, alone and 100 ms after another key, in a session
+# of N workspaces (scripts/cmux-next/new_surface_screen.py; a report, with the kept pictures in the artifact):
+#   cmux-ci run --class exclusive --label gui-session-v1 --label measure --script scripts/measure/instant-new-surfaces.sh \
+#     --ref <sha> --arg=--bench=cmd-n-paint --arg=--screen --arg=--config=bench --arg=--vdisplay=120 \
+#     --arg=--workspaces=<N> --arg=--live-shells=<K> --arg=--runs=10 --artifact artifacts/new-surface-screen.tgz
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 . scripts/measure/require-chromium.sh
@@ -27,16 +34,24 @@ fi
 tag="instantnew"
 out="$(mktemp -d)"
 # Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
-trap 'rm -rf -- "$out"' EXIT
+vdisplay_pid=""
+# shellcheck disable=SC2329 # run by the trap below
+cleanup() {
+  if [[ -n "$vdisplay_pid" ]]; then kill "$vdisplay_pid" 2>/dev/null || true; wait "$vdisplay_pid" 2>/dev/null || true; fi  # the helper this script started
+  rm -rf -- "$out"
+}
+trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 # --config=<debug|release|bench> picks reload.sh's build configuration (bench: Release optimization with the
-# debug.* control commands kept); every other argument goes to the bench.
-reload_config=() bench_args=()
+# debug.* control commands kept), --vdisplay=HZ the display; every other argument goes to the bench.
+reload_config=() bench_args=() vdisplay_hz="" screen=0
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
+    --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
     --allow-no-chromium) ;;
+    --screen) screen=1; bench_args+=("$arg") ;;
     *) bench_args+=("$arg") ;;
   esac
 done
@@ -63,6 +78,38 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
   exit 1
 fi
+# The form of the build, in the step's log. A fault of this read stops no measure: the line then says that the
+# build's form was not read.
+python3 scripts/measure/build-flags.py "$out/reload.log" --out "$out/build-flags.json" || true
+display="real"
+if [[ -n "$vdisplay_hz" ]]; then
+  vd="$out/vdisplay"
+  mkdir -p "$vd/VDisplay.app/Contents/MacOS"
+  if xcrun clang -fobjc-arc -O2 -Wno-deprecated-declarations -framework AppKit -framework CoreVideo \
+      scripts/ci/frame-pacing/vdisplay.m -o "$vd/VDisplay.app/Contents/MacOS/VDisplay" 2> "$vd/clang.err"; then
+    cp scripts/ci/frame-pacing/VDisplay-Info.plist "$vd/VDisplay.app/Contents/Info.plist"
+    codesign -s - --force "$vd/VDisplay.app" 2>/dev/null || true
+    "$vd/VDisplay.app/Contents/MacOS/VDisplay" "$vdisplay_hz" 3600 main 1920x1200 > "$vd/out" 2> "$vd/err" &
+    vdisplay_pid=$!
+    for _ in $(seq 20); do
+      grep -q '^ready\|^error' "$vd/out" 2>/dev/null && break
+      kill -0 "$vdisplay_pid" 2>/dev/null || break
+      sleep 1  # bounded wait for the helper's own ready line
+    done
+    display="$(grep -m1 '^ready\|^error' "$vd/out" 2>/dev/null || echo 'the virtual display never reported')"
+    echo "instant-new-surfaces: display: $display"
+    sleep 2  # WindowServer settles the new main display before the app opens on it
+  else
+    echo "instant-new-surfaces: the virtual display helper did not compile; measuring on the real display"
+  fi
+fi
 mkdir -p artifacts
+# --screen (cmd-n-paint-e2e.py's report of each key from the screen's frames) gets the display and the build's form
+# for its report, and its window on the virtual display when this script made one (the main display: screen 0).
+screen_args=()
+if [[ "$screen" == 1 ]]; then
+  screen_args=(--display="$display" --build "$out/build-flags.json" --screen-tgz artifacts/new-surface-screen.tgz)
+  if [[ "$display" == ready* ]]; then screen_args+=(--display-hz "$vdisplay_hz" --window-screen 0); fi
+fi
 python3 scripts/cmux-next/instant-new-surfaces-bench.py --tag "$tag" --app "$app" --out "$out" \
-  --json artifacts/instant-new-surfaces.json "$@"
+  --json artifacts/instant-new-surfaces.json "$@" ${screen_args[@]+"${screen_args[@]}"}
