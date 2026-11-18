@@ -2,15 +2,24 @@
 // suggestion list keeps it), its renderItem and itemAttributes inline arrows that change identity
 // on every render, and its renderItem reading a per-id suffix map from the caller's state (not the
 // item): a highlight move re-renders the caller, and so passes new callbacks to every row.
+// `?stable=1`: the callbacks are module functions instead (stable, as a compiled caller's are),
+// and each call draws a new style object and handler, which no comparison by value matches.
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { Listbox } from "../../../src/ui/Listbox";
 import { caseItems, type VisibleListCase } from "./case";
 
-function ListboxInlineRow({ label }: { label: string }) {
-  return <span>{label}</span>;
+function ListboxInlineRow({ label, tone }: { label: string; tone?: { opacity: number }; onPick?(): void }) {
+  return <span style={tone}>{label}</span>;
 }
+
+const stable = new URLSearchParams(location.search).get("stable") === "1";
+type CaseItem = ReturnType<typeof caseItems>[number];
+const drawStable = (item: CaseItem) => (
+  <ListboxInlineRow label={item.label} tone={{ opacity: 1 }} onPick={() => item.id} />
+);
+const attributesStable = (item: CaseItem) => ({ "data-item": item.id });
 
 let changeOne = () => {};
 let setSuffix = (_id: string, _suffix: string) => {};
@@ -34,8 +43,10 @@ function CaseListbox({ n }: { n: number }) {
       items={items}
       getKey={(item) => item.id}
       textValue={(item) => item.label}
-      renderItem={(item) => <ListboxInlineRow label={`${item.label}${suffixes[item.id] ?? ""}`} />}
-      itemAttributes={(item) => ({ "data-item": item.id })}
+      renderItem={
+        stable ? drawStable : (item) => <ListboxInlineRow label={`${item.label}${suffixes[item.id] ?? ""}`} />
+      }
+      itemAttributes={stable ? attributesStable : (item) => ({ "data-item": item.id })}
       label="Items"
       activeIndex={active}
       onActiveIndexChange={setActive}

@@ -263,6 +263,9 @@ export function Listbox<T>({
               className={rowClassName}
               selected={index === current}
               setSize={windowed ? items.length : undefined}
+              item={item}
+              renderItem={renderItem}
+              itemAttributes={itemAttributes}
               content={renderItem(item, index)}
               attributes={itemAttributes?.(item, index)}
               onHover={hoverRow}
@@ -292,7 +295,13 @@ interface ListboxRowProps {
   selected: boolean;
   /** Set when the list is windowed: the full length, for aria-setsize and aria-posinset. */
   setSize?: number;
-  /** What the row draws, and its attributes: compared by value, not by the callbacks that drew them. */
+  /** The row's item and the callbacks that drew it: unchanged, the row is (a stable callback's
+   * output may hold a new handler or style object each call, which no comparison would match). */
+  item: unknown;
+  renderItem: unknown;
+  itemAttributes: unknown;
+  /** What the row draws, and its attributes: else compared by value, so a new callback identity
+   * alone (a caller's inline arrow) re-renders nothing. */
   content: ReactNode;
   attributes?: Record<string, string | undefined>;
   onHover(index: number): void;
@@ -301,6 +310,15 @@ interface ListboxRowProps {
   measure?: (element: Element | null) => void;
 }
 
+/** The row props compared together, by the item and its callbacks or else by what they draw. */
+const DRAWN_BY: ReadonlySet<keyof ListboxRowProps> = new Set([
+  "item",
+  "renderItem",
+  "itemAttributes",
+  "content",
+  "attributes",
+]);
+
 const ListboxRow = memo(
   function ListboxRow({
     index,
@@ -308,6 +326,8 @@ const ListboxRow = memo(
     className,
     selected,
     setSize,
+    item,
+    renderItem,
     content,
     attributes,
     onHover,
@@ -335,25 +355,32 @@ const ListboxRow = memo(
           onOpen(index);
         }}
       >
-        <ListboxRowContent content={content} />
+        <ListboxRowContent item={item} renderItem={renderItem} content={content} />
       </div>
     );
   },
   (previous, next) => {
     for (const key of Object.keys(next) as (keyof ListboxRowProps)[]) {
-      if (key === "content" || key === "attributes") continue;
+      if (DRAWN_BY.has(key)) continue;
       if (!Object.is(previous[key], next[key])) return false;
     }
-    return sameAttributes(previous.attributes, next.attributes) && sameDrawn(previous.content, next.content);
+    const sameItem = Object.is(previous.item, next.item);
+    return (
+      ((sameItem && Object.is(previous.itemAttributes, next.itemAttributes)) ||
+        sameAttributes(previous.attributes, next.attributes)) &&
+      ((sameItem && Object.is(previous.renderItem, next.renderItem)) || sameDrawn(previous.content, next.content))
+    );
   },
 );
 
 /** The row's content on its own: a highlight change re-renders the row, not what it draws. */
 const ListboxRowContent = memo(
-  function ListboxRowContent({ content }: { content: ReactNode }) {
+  function ListboxRowContent({ content }: { item: unknown; renderItem: unknown; content: ReactNode }) {
     return content;
   },
-  (previous, next) => sameDrawn(previous.content, next.content),
+  (previous, next) =>
+    (Object.is(previous.item, next.item) && Object.is(previous.renderItem, next.renderItem)) ||
+    sameDrawn(previous.content, next.content),
 );
 
 function sameAttributes(

@@ -103,4 +103,12 @@ await requireBrowserLane("visible-lists-listbox-callbacks.browser.test.ts", asyn
       });
     });
   }
+  test("stable callbacks whose rows draw a new style object each call: a highlight move re-renders two rows", async () => {
+    const open = await server.open("listbox-inline&stable=1", 1000);
+    for (let step = 0; step < 5; step++) {
+      const counts = await rendersAcross(open.page, () => press(open.page, "ArrowDown"));
+      expect({ step, counts }).toEqual({ step, counts: { ListboxRow: 2, ListboxInlineRow: 0 } });
+    }
+    await open.close();
+  });
 });
