@@ -39,6 +39,17 @@ import { SplitEdge } from "../../ui/SplitEdge";
 import { useUiDirection } from "../../ui/UiProvider";
 import { useLasting } from "../../ui/lasting";
 
+/** TanStack Virtual's private redraw hook: an own field of each virtualizer (virtual-core 3.17.11
+ *  sets it in the constructor), called by `resizeItem` after a size that moves the scroll. */
+type PrivateNotify = { notify: (sync: boolean) => void };
+
+/** Whether `virtualizer` has the private `notify` the catalog holds back across a batch of row
+ *  resizes. Not public API: a TanStack upgrade can rename or drop it, and the catalog then resizes
+ *  rows one at a time (test/apps-virtualizer-notify.test.tsx fails first). */
+export function notifiesPrivately(virtualizer: object): boolean {
+  return typeof (virtualizer as Partial<PrivateNotify>).notify === "function";
+}
+
 export function AppsPage({ store, strings }: { store: AppsStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const tabRefs = useRef<Partial<Record<StoreTab, HTMLButtonElement>>>({});
@@ -379,25 +390,17 @@ function CatalogList({
   // a width the rows were not built for (the columns changed, and the rows are not yet built again)
   // are not read: they sit in other rows for that moment.
   const cards = useRef<{ observer?: ResizeObserver; observed: Set<HTMLElement> }>({ observed: new Set() });
-  const current = useRef({ columns, rowOf, kind, virtualizer });
+  // Checked once per virtualizer (the hook keeps one for the page's life).
+  const notifies = useMemo(() => notifiesPrivately(virtualizer), [virtualizer]);
+  const current = useRef({ columns, rowOf, kind, virtualizer, notifies });
   const observeCard = useCallback((node: HTMLElement | null) => {
     if (!node || typeof ResizeObserver === "undefined") return;
     const own = cards.current;
     own.observer ??= new ResizeObserver((entries) => {
-      const { columns, rowOf, kind, virtualizer } = current.current;
+      const { columns, rowOf, kind, virtualizer, notifies } = current.current;
       const element = space.current;
       if (!element || gridColumns(element.offsetWidth) !== columns) return;
-      // TanStack draws the catalog again, at once, after each row whose new size moves the scroll
-      // (a row above the view), and the next row's resize then reads the layout that draw dirtied: a
-      // width step drew and laid out the catalog once per row above the view. The cards are laid
-      // out in the catalog's flow, so no draw is needed between rows: one, after them all.
-      const instance = virtualizer as unknown as { notify: (sync: boolean) => void };
-      const notify = instance.notify;
-      let sync: boolean | undefined;
-      instance.notify = (now) => {
-        sync = sync === true || now;
-      };
-      try {
+      const resizeRows = () => {
         for (const entry of entries) {
           const row = rowOf.get((entry.target as HTMLElement).dataset.app ?? "");
           const size = Math.round(entry.borderBoxSize?.[0]?.blockSize ?? (entry.target as HTMLElement).offsetHeight);
@@ -405,6 +408,22 @@ function CatalogList({
           if (!sizes.current.has(kind)) sizes.current.set(kind, size);
           virtualizer.resizeItem(row, size);
         }
+      };
+      // TanStack draws the catalog again, at once, after each row whose new size moves the scroll
+      // (a row above the view), and the next row's resize then reads the layout that draw dirtied: a
+      // width step drew and laid out the catalog once per row above the view. The cards are laid
+      // out in the catalog's flow, so no draw is needed between rows: one, after them all. This
+      // holds back TanStack's private `notify` (see `notifiesPrivately`); a TanStack without it
+      // gets the rows one at a time, as before.
+      if (!notifies) return resizeRows();
+      const instance = virtualizer as unknown as PrivateNotify;
+      const notify = instance.notify;
+      let sync: boolean | undefined;
+      instance.notify = (now) => {
+        sync = sync === true || now;
+      };
+      try {
+        resizeRows();
       } finally {
         instance.notify = notify;
       }
@@ -421,7 +440,7 @@ function CatalogList({
   // Across the draw between `hold` and `restore`.
   const held = useRef<{ id: string; offset: number } | undefined>(undefined);
   useLayoutEffect(() => {
-    current.current = { columns, rowOf, kind, virtualizer };
+    current.current = { columns, rowOf, kind, virtualizer, notifies };
     anchor.current = {
       hold: (width, margin) => {
         const scroll = scrollElement();
