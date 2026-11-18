@@ -162,12 +162,14 @@ def holes(row):
     An INVALID row's line so still says how wrong its first frame can be."""
     span, second, records = row.get("first_frame_span"), row.get("second_first"), row.get("opening_records")
     said = "" if not span else (f" no_row_to_content_first={span['no_row']}/{span['frames']} longest_gap_ms={span['longest_gap_ms']:g} "
-                                f"early_ms_at_most={span['early_ms_at_most']:g}")
+                                f"early_ms_at_most={span['early_ms_at_most']:g}"
+                                + (f" partial state: not seen in {span['no_row']} frames" if span["no_row"] else ""))
     if row.get("gap_ms") and "second_first" in row:
         said += " second_first=" + ("none" if not second else (
             f"{json.dumps([second['frame'], second['ms']])} after_mark_ms={second['after_mark_ms']:g} "
-            f"second_no_row={second['span']['no_row']}/{second['span']['frames']} second_early_ms_at_most={second['span']['early_ms_at_most']:g} "
-            f"moving_at_the_mark={second['moving_at_the_mark']}"))
+            f"second_no_row={second['span']['no_row']}/{second['span']['frames']} second_early_ms_at_most={second['span']['early_ms_at_most']:g}"
+            + (f" second key's partial state: not seen in {second['span']['no_row']} frames" if second["span"]["no_row"] else "")
+            + f" moving_at_the_mark={second['moving_at_the_mark']}"))
     return said + ("" if not records else f" records={json.dumps(records['spare'])}")
 
 

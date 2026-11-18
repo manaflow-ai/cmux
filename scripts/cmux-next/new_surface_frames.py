@@ -59,9 +59,15 @@ recording its rows come at its own pace. So the rows' step over the whole record
 that moves, and a rule is needed for that part alone:
 
   first_frame_span  the frames from the key to `content_first`: how many, how many with no row and which, the
-                 longest step between two rows, and `early_ms_at_most` (`span_of`). The first frame is a number
-                 only when each of them has a row: with one that has none the row is INVALID (`no-row`), and the
-                 reason says how early the page can have been. A frame inside the key's own work is one of them.
+                 longest step between two rows, and `early_ms_at_most` (`span_of`): the frames with no row
+                 directly before the first content row, which is: with no row of the old picture between them
+                 (a blank row is not the old picture). The page can have come in one of those, so the row is then
+                 INVALID (`no-row`) and the reason says how early the page can have been. A frame with no row
+                 that is before a row of the old picture (a frame inside the key's own work is one) cannot be the
+                 page's first frame: the row stays valid for its TIME.
+  partial_state_not_seen  the frames from the key to `content_first` with no row, each of them. What such a
+                 frame showed is not known: a page that came and went again in it is not seen. A row that is
+                 valid for its time with a count above 0 here does not prove that no frame had a partial state.
   refresh_moving_ms  the step of the rows from the key to `content_final`, when there are 4 of them at least. A
                  step of more than 1.15 frame times there is INVALID (`refresh`). The still part is not judged.
 
@@ -75,7 +81,7 @@ then the one before the FIRST key, so `tab` is the frame at which the tab's regi
 new tabs or rows drawn), and `content_first` is 1 when the first key's page is on the screen already. The second
 key's OWN first frame is `second_first` (`second_first_of`): the first row after the start of that key's own
 opening mark in which the tab's region is unlike the row before it, with its frames with no row as for
-`content_first` (INVALID with one). The rows carry only each region's shares unlike two pictures, so a change
+`content_first` (INVALID with one that is not before a row in which the region did not move). The rows carry only each region's shares unlike two pictures, so a change
 that keeps both shares is not seen, and a change of the first key's that still runs at the mark is taken as the
 second key's (`moving_at_the_mark` says that it ran).
 
@@ -151,26 +157,29 @@ def refresh_of(rows, asked_hz=None):
     return measured, measured
 
 
-def span_of(inside, refresh, start_frame=0, start_ms=0.0):
+def span_of(inside, refresh, start_frame=0, start_ms=0.0, old=None):
     """The frames of the display after `start_frame` (0: the key) up to the last of the numbered rows `inside`:
     how many there are (`frames`), how many have a row (`rows`), how many have none (`no_row`, and which:
     `no_row_frames`, the first 32), the longest time between two rows one after the other, the span's start as the
-    first time (`longest_gap_ms`), and `early_ms_at_most`: the frames with no row directly before the last row, in
-    ms. What the last row is the first to show can have been on the screen that much earlier and no more: the row
-    before those frames does not show it."""
+    first time (`longest_gap_ms`), and `early_ms_at_most`: the frames with no row after the last row that still
+    shows the old state (`old`: the frames of those rows; None: each row before the last one), in ms. What the last
+    row is the first to show can have been on the screen that much earlier and no more: that row of the old state
+    does not show it, and a frame with no row before it cannot be the first one."""
     have = {frame for frame, _ in inside}
     last = inside[-1][0]
     missing = [frame for frame in range(start_frame + 1, last + 1) if frame not in have]
     times = [start_ms] + [row["ms"] for _, row in inside]
-    before = inside[-2][0] if len(inside) > 1 else start_frame
+    floor = max([frame for frame, _ in inside[:-1] if old is None or frame in old] + [start_frame])
     return {"frames": last - start_frame, "rows": len(have), "no_row": len(missing), "no_row_frames": missing[:32],
             "longest_gap_ms": round(max(b - a for a, b in zip(times, times[1:])), 1),
-            "early_ms_at_most": round(max(0, last - before - 1) * refresh, 1)}
+            "early_ms_at_most": round(sum(1 for frame in missing if frame > floor) * refresh, 1)}
 
 
 def no_row_fault(span, start, name):
-    """The INVALID reason of a span with a frame that has no row, or None."""
-    if not span or not span["no_row"]:
+    """The INVALID reason of a span in which what its last row is the first to show can have come in a frame with
+    no row (`early_ms_at_most` above 0), or None. A span whose frames with no row are each before a row of the old
+    state has none: its time is proved."""
+    if not span or not span["early_ms_at_most"]:
         return None
     return (f"no-row: {span['no_row']} of the {span['frames']} frames from {start} to {name} have no row (frames "
             f"{', '.join(map(str, span['no_row_frames']))}; the longest step between rows {span['longest_gap_ms']:g} ms): "
@@ -322,8 +331,11 @@ def second_first_of(key, gap_ms, every, offset, spans, shift, refresh, tolerance
     if found is None:
         return None, f"not known: no row after the second key's `{mark}` mark has the {which} region unlike the row before it"
     frame, row = every[found]
-    inside = every[(0 if start is None else start + 1):found + 1]
-    span = span_of(inside, refresh, *((every[start][0], every[start][1]["ms"]) if start is not None else (inside[0][0] - 1, at)))
+    low = 0 if start is None else start + 1
+    inside = every[low:found + 1]
+    # A row in which the region did not move still shows the state before the second key's change.
+    old = {every[index][0] for index in range(low, found) if moved(index) is False}
+    span = span_of(inside, refresh, *((every[start][0], every[start][1]["ms"]) if start is not None else (inside[0][0] - 1, at)), old=old)
     return {"region": which, "mark_ms": round(at, 1), "frame": frame, "ms": row["ms"], "file": row.get("file"),
             "after_mark_ms": round(row["ms"] - at, 1), "content": regions["content"]["states"][found - offset],
             "moving_at_the_mark": None if start is None else moved(start), "span": span}, f"the rows' {which} numbers and the second `{mark}` mark"
@@ -371,9 +383,12 @@ def one_key(reply, key, gap_ms=0, tolerance=TOLERANCE, asked_hz=None, settle_ms=
                   if pair(row, "content")[0] > tolerance and not row.get("blank")), None)
     out["content_first"], out["content_final"] = _at(numbered, first), content["final"]
     out["content_first_vs_before"] = None if first is None else pair(numbered[first][1], "content")[0]
-    # The first frame is a number only when each frame of the display from the key to it has a row: the page can
-    # have come in a frame with no row. The row still says how many such frames there are and how early it can be.
-    out["first_frame_span"] = None if first is None else span_of(numbered[:first + 1], refresh)
+    # The first frame's time is proved only when no frame with no row is between the last row of the old picture
+    # and it: the page can have come in such a frame. The row still says how many frames from the key to it have
+    # no row (in those a partial state is not seen) and how early the first frame can be.
+    still_old = {frame for frame, row in numbered[:first or 0] if pair(row, "content")[0] <= tolerance}
+    out["first_frame_span"] = None if first is None else span_of(numbered[:first + 1], refresh, old=still_old)
+    out["partial_state_not_seen"] = None if first is None else out["first_frame_span"]["no_row"]
     out["invalid"] += [fault for fault in [no_row_fault(out["first_frame_span"], "the key", "content_first")] if fault]
     # The rows of the part that moves, from the key to `content_final` (to the end when the content has none): 4 of
     # them at least, and their own step. Rows that come slower than the display there are not each frame of it. The
@@ -495,6 +510,10 @@ def summarize(rows):
     # Over EACH row with a first content frame, also an INVALID one: how wrong its first frame can be.
     spans = [row["first_frame_span"] for row in rows if row.get("first_frame_span")]
     out["first_frame_no_row"] = {"rows": len(spans), "with_a_frame_with_no_row": sum(1 for span in spans if span["no_row"]),
+                                 # The 2 kinds apart: the page can have come in a frame with no row (INVALID for the
+                                 # time), or each such frame is before a row of the old picture (the time is proved).
+                                 "time_not_proved": sum(1 for span in spans if span["early_ms_at_most"]),
+                                 "time_proved_partial_state_not_seen": sum(1 for span in spans if span["no_row"] and not span["early_ms_at_most"]),
                                  "no_row": _spread([span["no_row"] for span in spans]),
                                  "longest_gap_ms": _spread([span["longest_gap_ms"] for span in spans]),
                                  "early_ms_at_most": _spread([span["early_ms_at_most"] for span in spans])}
@@ -510,7 +529,9 @@ def cell(summary):
     return (f"valid {summary['valid']}/{summary['n']}" + (f" (INVALID: {', '.join(summary['invalid'])})" if summary["invalid"] else "")
             + ("" if not holes["rows"] else
                f"; frames with no row from the key to content_first, over EACH of {holes['rows']} rows (also the INVALID ones): in "
-               f"{holes['with_a_frame_with_no_row']} rows, p50 {holes['no_row']['p50']:g} max {holes['no_row']['max']:g}, the longest step "
+               f"{holes['with_a_frame_with_no_row']} rows ({holes['time_not_proved']} with one directly before content_first: the time is "
+               f"not proved; {holes['time_proved_partial_state_not_seen']} with each before a row of the old picture: the time is proved, "
+               f"a partial state is not seen), p50 {holes['no_row']['p50']:g} max {holes['no_row']['max']:g}, the longest step "
                f"between rows max {holes['longest_gap_ms']['max']:g} ms, content_first at most {holes['early_ms_at_most']['max']:g} ms early")
             + ("" if not summary["second_first"]["frame"] else f"; second_first {said('second_first')}")
             + f"; tab {said('tab')} [known {summary['tab_known']}/{summary['valid']}]; content_first {said('content_first')}; "

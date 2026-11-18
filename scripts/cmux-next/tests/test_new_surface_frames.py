@@ -1025,7 +1025,7 @@ class ScreenRowTests(unittest.TestCase):
         valid, said = self.run_mode(FakeApp(self.folder, [(OLD, ROW_OLD)] * 2 + [(NEW, ROW_NEW)] * 238), keys="n", runs=1)
         self.assertIn(": valid ", said)
         self.assertIn(" no_row_to_content_first=0/3 longest_gap_ms=9 early_ms_at_most=0", said)
-        self.assertNotIn("partial state", said)
+        self.assertNotIn("partial state", next(line for line in said.splitlines() if "-ROW cmd-n-idle-0" in line))
 
     def test_a_rows_line_says_that_a_partial_state_is_not_seen_when_its_time_is_proved(self):
         # Frame 1 has no row and frame 2's row shows the old picture: a valid row, with the count and the words.
