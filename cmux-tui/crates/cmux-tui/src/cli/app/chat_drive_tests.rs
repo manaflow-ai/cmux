@@ -181,3 +181,19 @@ fn app_chat_drive_summary_reads_the_report() {
     assert!(text.contains("Measured nothing: no_frames."), "{text}");
     assert!(!text.contains("Frames:"), "{text}");
 }
+
+/// The typed line gives a count, never the text: from a page's count, and from an older page that
+/// sent the text itself.
+#[test]
+fn app_chat_drive_summary_counts_what_was_typed() {
+    let mut typed = report();
+    typed["page"]["typed"] = json!(8);
+    let text = human(&typed, &english().app_control);
+    assert!(text.contains("Typed 8 characters; they stay in the draft\n"), "{text}");
+    typed["page"]["typed"] = json!("hi there");
+    let text = human(&typed, &english().app_control);
+    assert!(text.contains("Typed 8 characters; they stay in the draft\n"), "{text}");
+    assert!(!text.contains("hi there"), "{text}");
+    typed["page"]["typed"] = json!(null);
+    assert!(!human(&typed, &english().app_control).contains("Typed"));
+}

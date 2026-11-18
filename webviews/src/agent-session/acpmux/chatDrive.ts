@@ -137,7 +137,7 @@ type Run = {
   last: { active: Element | null; within: boolean; inactive: boolean };
   focusBefore: { area: string; within: boolean };
   inactiveBefore: boolean;
-  type: { text: string[]; typed: string; stopped: string | null } | undefined;
+  type: { text: string[]; typed: string; count: number; stopped: string | null } | undefined;
   /// Our own execCommand is running: its trusted input events are not the person's.
   typingNow: boolean;
   personTypedAt: number | undefined;
@@ -302,7 +302,7 @@ export class ChatDrive {
       last: { active: document.activeElement, within: within(composer), inactive: pageInactive() },
       focusBefore: { area: focusedArea(document.activeElement), within: within(composer) },
       inactiveBefore: pageInactive(),
-      type: typing ? { text, typed: "", stopped: null } : undefined,
+      type: typing ? { text, typed: "", count: 0, stopped: null } : undefined,
       typingNow: false,
       personTypedAt: undefined,
       personActive: null,
@@ -532,8 +532,10 @@ export class ChatDrive {
     const char = typing.text.shift()!;
     run.typingNow = true;
     try {
-      if (document.execCommand("insertText", false, char)) typing.typed += char;
-      else typing.stopped = "insert_refused";
+      if (document.execCommand("insertText", false, char)) {
+        typing.typed += char;
+        typing.count += 1;
+      } else typing.stopped = "insert_refused";
     } finally {
       run.typingNow = false;
     }
@@ -588,8 +590,9 @@ export class ChatDrive {
         composer_focus_within_after: within(run.composer),
       },
       page_inactive: { before: run.inactiveBefore, after: pageInactive() },
-      // What the run typed stays in the draft: nothing is restored.
-      typed: typing ? typing.typed : null,
+      // How many characters (graphemes) the run typed; they stay in the draft, nothing is restored.
+      // A count, never the text: the report goes to the CLI's output and to logs.
+      typed: typing ? typing.count : null,
       draft_left: typing ? typing.typed.length > 0 : false,
       ...(typing?.stopped ? { type_stopped: typing.stopped } : {}),
       // The hover and card as the run ended; the host's own release comes after (`state()`).

@@ -263,8 +263,15 @@ pub(super) fn human(report: &Value, catalog: &AppControlMessages) -> String {
             ("frames", frames.len().to_string()),
         ],
     );
-    if !page["typed"].is_null() && page["typed"].as_u64() != Some(0) {
-        line(messages.typed, &[("count", text(&page["typed"]))]);
+    // A count of what the run typed; a page from before that sent the text itself, and the
+    // summary counts it rather than printing it.
+    let typed = match &page["typed"] {
+        Value::Number(count) => count.as_u64().unwrap_or(0),
+        Value::String(typed) => typed.chars().count() as u64,
+        _ => 0,
+    };
+    if typed > 0 {
+        line(messages.typed, &[("count", typed.to_string())]);
     }
     match report["engine_counters"].as_object() {
         Some(counters) => {

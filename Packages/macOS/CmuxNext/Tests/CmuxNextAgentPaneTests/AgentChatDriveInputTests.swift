@@ -88,7 +88,7 @@ struct AgentChatDriveInputTests {
             #expect(seen.allSatisfy { $0["trusted"] as? Bool == true }, "\(type) was not trusted: \(seen)")
         }
 
-        #expect(await input.release())
+        #expect(await input.release() == .wentIn)
         await input.settle()
         try await page.until("the hover dropped") { try await page.read("document.getElementById('box').matches(':hover')") as? Bool == false }
         #expect(try await page.hoverStyle == "rgb(9, 9, 9)")

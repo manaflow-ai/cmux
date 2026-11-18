@@ -242,17 +242,21 @@ public struct AgentChatDriveControl: Sendable {
         let release = DriveRelease(input: input)
         // The backstop stays armed until a release went in: the release holds it past this call when none did.
         release.armBackstop(after: .seconds(params.seconds + 2))
+        // The tab closing and the view leaving its window release at once, during the run and after it.
+        release.register(on: view)
+        let surroundings = DriveSurroundings(view: view, window: window)
 
         var run = DriveRun(params: params, begun: begun ?? [:])
         let how: String
         do {
-            try await run.drive(view: view, input: input, person: person, release: release)
+            try await run.drive(view: view, input: input, person: person, surroundings: surroundings, release: release)
             how = "end"
         } catch is CancellationError {
             how = "cancel"
         } catch {
             how = Task.isCancelled ? "cancel" : "error"
         }
+        release.runEnded = true
         // The page's report, whatever happened; never a call that would thaw a page frozen meanwhile.
         var report: [String: JSONValue]?
         if !view.pageIsFrozen { report = (try? await Self.call(view, endScript, [:], timeout: .seconds(10))) ?? nil }
@@ -267,7 +271,7 @@ public struct AgentChatDriveControl: Sendable {
                 "ticks": .number(Double(params.wheel?.ticks ?? 0)), "delta": .number(Double(params.wheel?.delta ?? 0)),
                 "tick_ms": .number(Double(params.wheel?.tickMilliseconds ?? 16)), "delivered": .number(Double(run.delivered)),
             ],
-            "interrupted": run.interrupted.map(JSONValue.string) ?? .null,
+            "interrupted": (run.interrupted ?? release.triggered).map(JSONValue.string) ?? .null,
             "released": .bool(release.released),
             "release": .string(release.how ?? "pending"),
             "capture": .null,
@@ -376,7 +380,9 @@ private struct DriveRun {
     }
 
     @MainActor
-    mutating func drive(view: AgentPaneView, input: AgentChatDriveInput, person: DrivePerson, release: DriveRelease) async throws {
+    mutating func drive(view: AgentPaneView, input: AgentChatDriveInput, person: DrivePerson, surroundings: DriveSurroundings,
+                        release: DriveRelease) async throws {
+        self.surroundings = surroundings
         let started = ProcessInfo.processInfo.systemUptime
         let stop = ContinuousClock.now + .seconds(params.seconds)
         // The page types one character a frame from `begin`: the run lasts until it can have typed them all.
@@ -406,6 +412,11 @@ private struct DriveRun {
         hover.removeValue(forKey: "reason")
         if let wheel = params.wheel {
             for tick in 0..<wheel.ticks {
+                // A trigger from outside the run (the tab or window closing, the app resigning) already released.
+                if let trigger = Self.outside(surroundings, release) {
+                    interrupted = trigger
+                    return
+                }
                 // The person goes first: the moment they come back to the chat, stop and hand the pointer back.
                 if person.isUsing(since: started) {
                     interrupted = "person"
@@ -423,6 +434,16 @@ private struct DriveRun {
         try await hold(until: stop, watching: person, since: started, release: release)
     }
 
+    /// What the run is driven in, read with the person (set by ``drive(view:input:person:surroundings:release:)``).
+    private var surroundings: DriveSurroundings?
+
+    /// The trigger from outside the run, if any: one `release` already heard, or one `surroundings`
+    /// sees now, which it tells `release` (it starts releasing at once).
+    static func outside(_ surroundings: DriveSurroundings?, _ release: DriveRelease) -> String? {
+        if release.triggered == nil, let trigger = surroundings?.trigger() { release.trigger(trigger) }
+        return release.triggered
+    }
+
     /// A frame and a margin per character the page types (one a frame at 60 Hz).
     static let typingFrameMilliseconds = 20
     /// When the page can have typed all of `type.text`.
@@ -434,7 +455,15 @@ private struct DriveRun {
                                release: DriveRelease) async throws {
         let now = ContinuousClock.now
         let end = min(max(now + .milliseconds(params.holdMilliseconds), typed), stop)
-        guard try await DriveWatch.watch(until: end, isUsing: { person.isUsing(since: started) }) else { return }
+        let surroundings = surroundings
+        guard try await DriveWatch.watch(until: end, isUsing: {
+            Self.outside(surroundings, release) != nil || person.isUsing(since: started)
+        }) else { return }
+        // A trigger from outside the run released already; else the person is back.
+        guard release.triggered == nil else {
+            interrupted = release.triggered
+            return
+        }
         interrupted = "person"
         await release.release("person")
     }
@@ -457,29 +486,61 @@ struct DriveWatch {
     }
 }
 
-/// Gives the hover back once, whichever path gets there first (the run's end, an error, a
-/// cancelled call, the person, the backstop timer); `how` says which. Only a release that went in
-/// counts: one that failed leaves the hover held and the backstop armed, and a later path tries again.
+/// Gives the hover back, once, whichever path gets there first: the run's end, an error, a cancelled
+/// call, the person, the backstop timer, or a trigger from outside the run (the tab closing, the window
+/// closing, the app resigning active); `how` says which. Only a release that went in counts, and one
+/// that can't is retried, bounded: after a failed send it waits ``retryWaits`` (50 ms doubling to 1 s,
+/// 9 sends in about 4.5 s). One round runs at a time; a release asked for during a round joins it.
+/// A view that is gone (``AgentChatDriveInput/ReleaseOutcome/gone``) holds no hover: that counts as
+/// released by `teardown`. Past the cap the release stays pending, registered on its view
+/// (``AgentPaneView/heldDrives``), and the view's next trigger (back in a window, the tab closing)
+/// runs another round. The registration lasts until a release went in. The run itself reads the
+/// window and the app (``DriveSurroundings``) with the person: no observer of its own.
 @MainActor
 final class DriveRelease {
-    /// Sends the pointer-leave; true when it went in.
-    private let send: @MainActor () async -> Bool
+    typealias Outcome = AgentChatDriveInput.ReleaseOutcome
+
+    /// The waits between the sends of one round.
+    static let retryWaits: [Duration] = [50, 100, 200, 400, 800, 1000, 1000, 1000].map { Duration.milliseconds($0) }
+    /// The triggers that stop a run that is still going (`interrupted`); the others only retry a pending release.
+    static let interrupting: Set<String> = ["teardown", "window_close", "resign", "detached"]
+
+    /// Sends the pointer-leave.
+    private let send: @MainActor () async -> Outcome
+    /// Waits between two sends of a round (tests pass their own).
+    private let sleep: @MainActor (Duration) async -> Void
     /// A move went in, or is on its way, so there is a hover to give back.
     var armed = false
+    /// The run returned: a trigger from now on only retries the release.
+    var runEnded = false
     /// The path whose release went in; nil until one did.
     private(set) var how: String?
     private(set) var released = false
-    /// A release is being sent now (one at a time).
-    private var sending = false
+    /// The first trigger from outside the run while it was still going; the run stops at it.
+    private(set) var triggered: String?
+    /// The sends made, for the report and tests.
+    private(set) var sends = 0
+    /// The round running now; a release asked for meanwhile waits for it.
+    private var round: Task<Void, Never>?
+    /// The tab closed: whatever the next send does, nothing is left to hold.
+    private var tornDown = false
     /// The deadline that releases even when the run never gets there; dropped once a release went in.
     private var backstop: DemandTimer?
+    private weak var view: AgentPaneView?
 
     init(input: AgentChatDriveInput) {
         send = { await input.release() }
+        sleep = DriveRelease.pause
     }
 
-    init(send: @escaping @MainActor () async -> Bool) {
+    init(send: @escaping @MainActor () async -> Outcome, sleep: @escaping @MainActor (Duration) async -> Void = DriveRelease.pause) {
         self.send = send
+        self.sleep = sleep
+    }
+
+    static func pause(_ delay: Duration) async {
+        // wakeup-allow: one wait between two release sends (at most 1 s, 8 a round), in the round's own task
+        try? await Task.sleep(for: delay)
     }
 
     var isDone: Bool { released }
@@ -493,16 +554,110 @@ final class DriveRelease {
 
     var isBackstopArmed: Bool { backstop?.isScheduled == true }
 
+    /// Registers on `view` until a release went in: the tab closing and the view moving between
+    /// windows (``AgentPaneView/heldDrives``) trigger it.
+    func register(on view: AgentPaneView) {
+        guard !released else { return }
+        self.view = view
+        view.heldDrives[ObjectIdentifier(self)] = self
+    }
+
+    /// Something outside the run happened (`teardown`, `window_close`, `resign`, `detached`, `window`).
+    /// A run still going stops at an interrupting one and the release starts at once; after the run,
+    /// every trigger retries a release that is still pending.
+    func trigger(_ name: String) {
+        guard !released else { return }
+        if name == "teardown" { tornDown = true }
+        let interrupts = Self.interrupting.contains(name)
+        if !runEnded {
+            guard interrupts else { return }
+            if triggered == nil { triggered = name }
+        }
+        // task-owner: one bounded release round (about 4.5 s at most), joined by a round already running
+        // main-hop-allow: a trigger's release is not frame work: one pointer-leave per send, at most 9 sends a round
+        Task { @MainActor in await self.release(name) }
+    }
+
+    /// Its view moved to another window or out of every one (``AgentPaneView/viewDidMoveToWindow()``).
+    func viewMoved(inWindow: Bool) {
+        trigger(inWindow ? "window" : "detached")
+    }
+
+    /// Gives the hover back: one bounded round of sends, or the round already running.
     func release(_ reason: String) async {
-        guard !released, !sending else { return }
-        sending = true
-        defer { sending = false }
-        // Nothing was moved: the page's hover is already the person's pointer's.
-        guard armed ? await send() : true else { return }
+        guard !released else { return }
+        if let round { return await round.value }
+        // The round clears itself as it ends, so a release asked for after it starts the next one.
+        // main-hop-allow: its own task so a cancelled call can't cut the round short; one pointer-leave per send, at most 9
+        let attempt = Task { @MainActor in
+            await self.retry(reason)
+            self.round = nil
+        }
+        round = attempt
+        await attempt.value
+    }
+
+    /// One round: a send, and after each failed one a wait from ``retryWaits`` and another send.
+    private func retry(_ reason: String) async {
+        for wait in [Duration.zero] + Self.retryWaits {
+            // wakeup-allow: the spacing after a failed send (50 ms doubling to 1 s, 8 in a round, about 4.5 s); the
+            // event that can make it succeed (the view back in a window, the tab closing) starts the next round
+            if wait > .zero { await sleep(wait) }
+            guard !released else { return }
+            // Nothing was moved: the page's hover is already the person's pointer's.
+            guard armed else { return finish(tornDown ? "teardown" : reason) }
+            sends += 1
+            switch await send() {
+            case .wentIn: return finish(tornDown ? "teardown" : reason)
+            case .gone: return finish("teardown")
+            case .failed: if tornDown { return finish("teardown") }
+            }
+        }
+    }
+
+    private func finish(_ reason: String) {
         released = true
         how = reason
         backstop?.cancel()
         backstop = nil
+        view?.heldDrives[ObjectIdentifier(self)] = nil
+    }
+}
+
+/// The window and the app a run drives in, read with the person (at most 100 ms apart, and before
+/// each wheel tick): what outside the run ended it. No observer: a run reads them while it goes.
+@MainActor
+struct DriveSurroundings {
+    /// The view's window now.
+    let windowNow: @MainActor () -> NSWindow?
+    /// The window the run started in.
+    let window: NSWindow
+    let isVisible: @MainActor () -> Bool
+    let isActive: @MainActor () -> Bool
+    /// The app was active when the run started: only a resign after that is one.
+    let wasActive: Bool
+
+    init(windowNow: @escaping @MainActor () -> NSWindow?, window: NSWindow, isVisible: @escaping @MainActor () -> Bool,
+         isActive: @escaping @MainActor () -> Bool) {
+        self.windowNow = windowNow
+        self.window = window
+        self.isVisible = isVisible
+        self.isActive = isActive
+        wasActive = isActive()
+    }
+
+    init(view: AgentPaneView, window: NSWindow) {
+        self.init(windowNow: { [weak view] in view?.window }, window: window, isVisible: { [weak window] in window?.isVisible == true },
+                  isActive: { NSApp.isActive })
+    }
+
+    /// `detached` (the view left every window), `window_close` (it is in another window now, or its
+    /// window closed or is no longer shown), `resign` (the app was active and is not), or nil.
+    func trigger() -> String? {
+        guard let now = windowNow() else { return "detached" }
+        if now !== window || !isVisible() { return "window_close" }
+        if wasActive, !isActive() { return "resign" }
+        return nil
     }
 }
 

@@ -385,7 +385,7 @@ test("a person's key during the run stops the typing and marks the run person_ac
   page.frames(3);
   const report = (await drive.end()) as Record<string, any>;
   expect(inserted).toEqual(["a", "b", "c"]);
-  expect(report.typed).toBe("abc");
+  expect(report.typed).toBe(3);
   expect(report.type_stopped).toBe("person");
   expect(report.person_active).toBe(true);
   expect(report.person_active_by).toBe("key");

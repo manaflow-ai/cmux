@@ -231,9 +231,11 @@ await requireBrowserLane("chat-drive-browser.test.ts", async () => {
         expect((await call(page, "state")).person_active).toBe(true);
         const report = await call(page, "end");
         expect(report.type_stopped).toBe("person");
-        expect(report.typed.length).toBeLessThan(text.length);
+        expect(report.typed).toBeLessThan(text.length);
         // The drive typed nothing after the person's key: the draft ends with it.
-        expect(await page.evaluate(() => window.cmuxAcpmuxBridge!.composerState!()?.text)).toBe(`${report.typed}y`);
+        expect(await page.evaluate(() => window.cmuxAcpmuxBridge!.composerState!()?.text)).toBe(
+          `${text.slice(0, report.typed)}y`,
+        );
         await page.close();
       });
 
@@ -269,7 +271,7 @@ await requireBrowserLane("chat-drive-browser.test.ts", async () => {
         expect(person.typing_ms_ago).toBeLessThan(2000);
         const report = await call(page, "end");
         console.log(name, JSON.stringify({ typed: report.typed, focus: report.focus, totals: report.totals }));
-        expect(report.typed).toBe("hi there");
+        expect(report.typed).toBe("hi there".length);
         expect(report.draft_left).toBe(true);
         expect(report.person_active).toBe(true);
         expect(report.person_active_by).toBe("key");

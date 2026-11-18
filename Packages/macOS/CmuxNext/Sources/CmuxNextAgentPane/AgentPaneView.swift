@@ -78,6 +78,9 @@ public final class AgentPaneView: NSView {
     public var drawsLastPage: (() -> Bool)?
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: AgentPaneNotice?
+    /// `agent.chat.drive` runs whose hover this page may still hold: told when the tab closes and when
+    /// the view changes windows, each removed once its release went in (``DriveRelease``).
+    var heldDrives: [ObjectIdentifier: DriveRelease] = [:]
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
     var runsOnOtherInstall = false
     /// "Not verified as you, reconnecting identity": this pane's connection did not prove the
@@ -533,6 +536,8 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        // A drive's hover goes with the page.
+        for drive in Array(heldDrives.values) { drive.trigger("teardown") }
         // A closed page must not notify the pane that used to host it after it leaves.
         onNativeToolOwnerChange = nil
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.
@@ -624,6 +629,8 @@ public final class AgentPaneView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Out of a window a drive's hover can't be released; back in one it can.
+        for drive in Array(heldDrives.values) { drive.viewMoved(inWindow: window != nil) }
         // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
         if window == nil {
             dictation.handle(.stop)

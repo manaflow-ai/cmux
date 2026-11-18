@@ -19,34 +19,59 @@ public import WebKit
 /// - Chromium: DevTools `Input.dispatchMouseEvent` (`mouseMoved`, `mouseWheel`), as `debugHover` does.
 ///
 /// Points are the page's viewport CSS pixels from its top-left, as `getBoundingClientRect` gives them.
+/// The views are held weakly: input for a view that is gone does nothing, and a release there
+/// reports ``ReleaseOutcome/gone``.
 public struct AgentChatDriveInput {
     private enum Engine {
         case webKit(WKWebView)
         case chromium(PageWebView, any PageChromiumPage)
     }
 
-    private let engine: Engine
+    /// What one release did.
+    public enum ReleaseOutcome: Sendable, Equatable {
+        /// The pointer-leave went in: the page dropped the hover.
+        case wentIn
+        /// Nothing is left to hold a hover: the web view is gone, or the Chromium page closed or no
+        /// longer shows the page (its target is gone).
+        case gone
+        /// Not sent, and the hover may still be held (a WebKit view out of every window keeps a stale
+        /// `:hover`): try again, at the latest when the view is back in a window.
+        case failed
+    }
+
+    private weak var webView: WKWebView?
+    private weak var pageView: PageWebView?
+    private weak var chromiumPage: (any PageChromiumPage)?
+
+    /// Whether the page showed in Chromium (DevTools input and layout counters) rather than WebKit.
+    public let isChromium: Bool
 
     /// Input for a bare WebKit view (the pane's own WebKit host; tests).
     public init(webView: WKWebView) {
-        engine = .webKit(webView)
+        self.webView = webView
+        isChromium = false
     }
 
     /// Input for a page on the shared page host, in whichever engine shows it now.
     public init(page: PageWebView) {
-        engine = page.chromiumPage.map { Engine.chromium(page, $0) } ?? Engine.webKit(page.webKitView)
+        pageView = page
+        chromiumPage = page.chromiumPage
+        isChromium = page.chromiumPage != nil
+        if !isChromium { webView = page.webKitView }
     }
 
-    /// Whether the page shows in Chromium (DevTools input and layout counters) rather than WebKit.
-    public var isChromium: Bool {
-        if case .chromium = engine { return true }
-        return false
+    /// The engine the input goes to now; nil when it is gone (the view released, or the Chromium page
+    /// closed or replaced: the page view no longer shows it).
+    private var engine: Engine? {
+        guard isChromium else { return webView.map(Engine.webKit) }
+        guard let pageView, let chromiumPage, pageView.chromiumPage === chromiumPage else { return nil }
+        return .chromium(pageView, chromiumPage)
     }
 
     /// Moves the page's pointer to `css` and holds it there: the element under it is hovered until
     /// another move. False when no event could be made or sent (no window, the page is gone).
     public func move(to css: CGPoint) async -> Bool {
-        guard css.x.isFinite, css.y.isFinite else { return false }
+        guard css.x.isFinite, css.y.isFinite, let engine else { return false }
         switch engine {
         case .webKit(let webView):
             return Self.webKitMove(webView, viewPoint: Self.viewPoint(webView, css: css))
@@ -58,7 +83,7 @@ public struct AgentChatDriveInput {
     /// One wheel tick of `deltaY` CSS px at `css`, with the sign the page's `wheel` event reports
     /// (positive scrolls the content down). False when no event could be made or sent.
     public func wheel(at css: CGPoint, deltaY: Double) async -> Bool {
-        guard css.x.isFinite, css.y.isFinite, deltaY.isFinite else { return false }
+        guard css.x.isFinite, css.y.isFinite, deltaY.isFinite, let engine else { return false }
         switch engine {
         case .webKit(let webView):
             guard let window = webView.window,
@@ -77,14 +102,16 @@ public struct AgentChatDriveInput {
 
     /// Gives the hover back to the person's pointer: a move to where the real pointer is when it is
     /// over this page (and no other window covers it there), else to a point just outside the page,
-    /// so the page drops the hover exactly as when the real pointer is elsewhere. True when the move went in.
-    public func release() async -> Bool {
+    /// so the page drops the hover exactly as when the real pointer is elsewhere.
+    public func release() async -> ReleaseOutcome {
+        guard let engine else { return .gone }
         switch engine {
         case .webKit(let webView):
-            guard let window = webView.window else { return false }
+            // AppKit events need a window: a detached view keeps its hover until it is back in one.
+            guard let window = webView.window else { return .failed }
             let pointer = Self.realPointer(in: webView, window: window)
             let outside = NSPoint(x: -1, y: webView.isFlipped ? -1 : webView.bounds.height + 1)
-            guard Self.webKitMove(webView, viewPoint: pointer ?? outside) else { return false }
+            guard Self.webKitMove(webView, viewPoint: pointer ?? outside) else { return .failed }
             // WebKit drops a move outside its visible rect while the view is first responder (the chat the
             // person types in), so the hover there ends the way the real pointer's leaving ends it: an exit.
             if pointer == nil, window.firstResponder === webView,
@@ -93,12 +120,14 @@ public struct AgentChatDriveInput {
                                                  context: nil, eventNumber: 0, trackingNumber: 0, userData: nil) {
                 webView.mouseExited(with: exit)
             }
-            return true
+            return .wentIn
         case .chromium(let view, let page):
             let zoom = max(view.pageZoom, 0.01)
             // The page view is flipped (top-left origin), as the page's viewport is.
             let css = view.window.flatMap { Self.realPointer(in: view, window: $0) }.map { CGPoint(x: $0.x / zoom, y: $0.y / zoom) }
-            return await Self.devToolsMove(page, css: css ?? CGPoint(x: -1, y: -1))
+            if await Self.devToolsMove(page, css: css ?? CGPoint(x: -1, y: -1)) { return .wentIn }
+            // A page that closed while the move was on its way has no hover left.
+            return self.engine == nil ? .gone : .failed
         }
     }
 
@@ -106,7 +135,7 @@ public struct AgentChatDriveInput {
     /// effect: WebKit's next presentation update, then its pending mouse events (each bounded to
     /// `bound`); Chromium handled each DevTools input before it answered.
     public func settle(bound: Duration = .seconds(1)) async {
-        guard case .webKit(let webView) = engine else { return }
+        guard case .webKit(let webView)? = engine else { return }
         // A wheel that reaches a page before its next presentation update is dropped (WebKitNativeInput).
         await Self.afterWebKitCallback(webView, "_doAfterNextPresentationUpdate:", bound: bound)
         await Self.afterWebKitCallback(webView, "_doAfterProcessingAllPendingMouseEvents:", bound: bound)
@@ -121,7 +150,7 @@ public struct AgentChatDriveInput {
     /// the start of a span: nil on WebKit, which has none for the app, or when `Performance.enable`
     /// failed; empty when it went in but Chromium gave no metrics.
     public func startEngineCounters() async -> [String: Double]? {
-        guard case .chromium(_, let page) = engine else { return nil }
+        guard case .chromium(_, let page)? = engine else { return nil }
         guard (try? await page.devTools("Performance.enable", params: [:])) != nil else { return nil }
         return await Self.metrics(page) ?? [:]
     }
@@ -130,7 +159,7 @@ public struct AgentChatDriveInput {
     /// `Performance.disable`, sent only when ``startEngineCounters()``'s enable went in (a non-nil
     /// `start`). Nil on WebKit, or when Chromium gave no metrics.
     public func engineCounters(since start: [String: Double]?) async -> [String: Double]? {
-        guard case .chromium(_, let page) = engine, let start else { return nil }
+        guard case .chromium(_, let page)? = engine, let start else { return nil }
         let end = await Self.metrics(page)
         _ = try? await page.devTools("Performance.disable", params: [:])
         guard !start.isEmpty, let end else { return nil }
