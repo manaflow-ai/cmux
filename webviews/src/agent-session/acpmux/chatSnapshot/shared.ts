@@ -17,6 +17,10 @@ export const SNAPSHOT_GLOBAL = "__cmuxChatSnapshot";
 /// The global the host's `__snapshot/chat.js` sets: the key of the theme the page gets now (the
 /// host's `theme` event `key`, AgentPageEvent.swift).
 export const SNAPSHOT_THEME_GLOBAL = "__cmuxChatSnapshotTheme";
+/** The pane theme values the host gives the page now (AgentPaneChatSnapshots.swift `agentThemeGlobal`):
+ * a copy drawn under another theme takes their `--agent-*` colors, which the page itself sets only after
+ * its handshake. */
+export const SNAPSHOT_AGENT_THEME_GLOBAL = "__cmuxChatSnapshotAgentTheme";
 /// The global the boot script sets when it drew nothing: why (live.ts `chatSnapshotReport`).
 export const SNAPSHOT_MISS_GLOBAL = "__cmuxChatSnapshotMiss";
 /// The global the boot script sets once it drew one: when, in `performance.now()` time.

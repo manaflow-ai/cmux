@@ -17,11 +17,14 @@ import {
   SNAPSHOT_SCROLL_ATTRIBUTE,
   SNAPSHOT_SHEETS_ATTRIBUTE,
   SNAPSHOT_SHOWN_GLOBAL,
+  SNAPSHOT_AGENT_THEME_GLOBAL,
   SNAPSHOT_THEME_GLOBAL,
   shadowSelector,
   type ChatSnapshot,
   type SnapshotAttributes,
 } from "./shared";
+import { agentThemeColors } from "../../shared/themeVariables";
+import type { AgentSessionTheme } from "../../shared/types";
 
 /// The copy shows its final frame: what was running when it was written ends at once, as the
 /// motion-off rule ends it (WebTheme `data-cmux-motion="off"`), so nothing in it enters again.
@@ -82,12 +85,20 @@ export function isHostLookAttribute(name: string): boolean {
 /// variable this build added is there for this build's sheet. Under the theme the copy was written in
 /// the values are the same. A look attribute the copy's theme set and the live one leaves out goes too
 /// (an old theme's working look or decoration drew its borders and motion until the swap); the copy's
-/// page-state attributes, which the host never sets, stay as the copy laid out with them.
-export function layerHostTheme(stand: HTMLElement, root: HTMLElement): void {
+/// page-state attributes, which the host never sets, stay as the copy laid out with them. `agent` is the
+/// pane theme the host serves beside the copy (shared.ts `SNAPSHOT_AGENT_THEME_GLOBAL`): the page sets
+/// its `--agent-*` colors only after its handshake, so the copy takes them from it, set or cleared as the
+/// page's own theme apply would (theme.ts), and draws the live theme's colors from its first frame.
+export function layerHostTheme(stand: HTMLElement, root: HTMLElement, agent?: unknown): void {
   for (let index = 0; index < root.style.length; index += 1) {
     const name = root.style.item(index);
     if (name.startsWith("--")) stand.style.setProperty(name, root.style.getPropertyValue(name));
   }
+  if (agent && typeof agent === "object" && !Array.isArray(agent))
+    for (const [variable, value] of agentThemeColors(agent as Partial<AgentSessionTheme>)) {
+      if (value === undefined) stand.style.removeProperty(variable);
+      else stand.style.setProperty(variable, value);
+    }
   if (root.style.colorScheme) stand.style.colorScheme = root.style.colorScheme;
   for (const attribute of Array.from(stand.attributes))
     if (isHostLookAttribute(attribute.name) && !root.hasAttribute(attribute.name))
@@ -207,7 +218,11 @@ export function paintSnapshot(
   // live one (95 against 91 in the relaunch-shift bench, where the swap never matched); the swap's report
   // (swapDiff.ts `copyAsk`/`liveAsk`) says.
   if ((view as unknown as Record<string, unknown>)[SNAPSHOT_THEME_GLOBAL] !== snapshot.theme)
-    layerHostTheme(html, doc.documentElement);
+    layerHostTheme(
+      html,
+      doc.documentElement,
+      (view as unknown as Record<string, unknown>)[SNAPSHOT_AGENT_THEME_GLOBAL],
+    );
   html.classList.add(SNAPSHOT_ROOT_CLASS);
   const body = doc.createElement(SNAPSHOT_BODY_TAG);
   setAttributes(body, snapshot.body);
