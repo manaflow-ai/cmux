@@ -84,11 +84,16 @@ COMMAND_HEADS = {"sys.executable", "python3", "python", "bash", "sh", "node", "b
 # A tool a Python source starts that reads files of its own choosing (a Makefile's recipes, a package.json's
 # scripts, a crate graph): what it reads is not in the source's text.
 TOOL_HEADS = {"make", "gmake", "cargo", "rustc", "swift", "swiftc", "xcodebuild", "npm", "npx", "pnpm", "yarn", "bun",
-              "bunx", "deno", "tsc", "go", "zig", "cmake", "ninja", "just", "gradle", "pytest"}
+              "bunx", "deno", "tsc", "go", "zig", "cmake", "ninja", "just", "gradle", "pytest", "uv", "uvx", "pip", "pip3",
+              "ruff", "mypy", "vitest", "jest", "eslint", "prettier", "playwright", "biome", "tox", "nox"}
+TOOL_MODULES = {"pytest", "mypy", "ruff", "pip", "coverage", "tox", "black", "build"}  # python3 -m NAME
+# Words before the command that run it: `env A=B make`, `sudo make`, `xcrun swift`.
+COMMAND_PREFIXES = {"env", "sudo", "nice", "xcrun", "timeout", "time", "command", "exec", "nohup", "stdbuf"}
+SHELLS = {"bash", "sh", "zsh", "/bin/bash", "/bin/sh"}
 JOINS = {"os.path.join", "Path", "pathlib.Path", "PurePath"}
 PATH_TOKEN = re.compile(r"[A-Za-z0-9_.@+${}*-]+(?:/[A-Za-z0-9_.@+${}*<>-]*)+|[A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,8}\b")
 JS_IMPORT = re.compile(r"""(?:\bfrom\s+|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)["']([^"']+)["']""", re.M)
-JS_JOIN = re.compile(r"\b(?:path\.)?(?:join|resolve)\(([^()]*)\)")
+JS_JOIN = re.compile(r"(?<![\w.$])(?:path\.)?(?:join|resolve)\(|\bpath\.(?:join|resolve)\(")
 GLOB_CHARS = re.compile(r"[*?\[{$<]")
 # A command a step may be made of and still have its inputs read: the runner, then files and flags.
 RUNNERS = (
@@ -228,7 +233,7 @@ class Tree:
             found.whole = f"{current} reads more of the tree than it names ({marker.group(0).strip()!r})"
             return found
         if current.endswith(JS_SUFFIXES):
-            self.javascript(current, code, found)
+            self.javascript(current, code, found, changed)
         for token in PATH_TOKEN.findall(code):  # a shell script runs what it names
             self.place(token, str(Path(current).parent), found, changed)
         return found
@@ -279,6 +284,12 @@ class Tree:
                 parts = slash_parts(node)
                 if parts:
                     self.place("/".join(parts), parent, named, changed)
+            if (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
+                    or isinstance(node, ast.JoinedStr)
+                    or isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "joinpath"):
+                # where() joins an f-string's constant parts only: its runtime parts decide
+                if (isinstance(node, ast.JoinedStr) or source.where(node) is UNKNOWN) and runtime_part(node) and source.rooted(node):
+                    return f"{path}:{node.lineno} reads {ast.unparse(node)[:50]!r}, a tree file it names at runtime"
             if isinstance(node, (ast.BinOp, ast.Call)):
                 place = source.where(node)
                 if place and place[0] == REPO_ROOT and place[1]:
@@ -323,6 +334,7 @@ class Tree:
                     place = source.where(node.args[-1])
                     if place and place[0] == REPO_ROOT:
                         search.add(place[1])
+                        found.files.update(self.submodule_of(place[1]))
         if dynamic:  # import_module("x"): any identifier string may name a module
             names.update(n.value for n in nodes
                          if isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.isidentifier())
@@ -354,15 +366,18 @@ class Tree:
                     dotted(e) in COMMAND_HEADS or (isinstance(e, ast.Constant) and e.value in COMMAND_HEADS) for e in node.elts):
                 commands.append(node)
         found = Inputs()
-        for command in commands:
-            head = command.elts[0] if isinstance(command, (ast.List, ast.Tuple)) and command.elts else (
-                command.args[0] if isinstance(command, ast.Call) and command.args else None)
-            if isinstance(head, (ast.List, ast.Tuple)) and head.elts:  # subprocess.run(["make", ...])
-                head = head.elts[0]
-            word = head.value.split()[0] if (isinstance(head, ast.Constant) and isinstance(head.value, str)
-                                             and head.value.split()) else ""
-            if word.rsplit("/", 1)[-1] in TOOL_HEADS:
-                found.whole = f"{source.path}:{command.lineno} starts {word!r}, which reads files its text does not name"
+        # Any list or string a call may run, wherever it is built (`cmd = ["make", "check"]; run(cmd)`).
+        for node in nodes:
+            words: list[str] | None = None
+            if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
+                words = [e.value if isinstance(e, ast.Constant) and isinstance(e.value, str) else
+                         ("python3" if dotted(e) == "sys.executable" else "") for e in node.elts]
+            elif (isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str) and node in commands):
+                words = node.args[0].value.split()
+            tool = starts_tool(words or [])
+            if tool:
+                found.whole = f"{source.path}:{node.lineno} starts {tool!r}, which reads files its text does not name"
                 return found
         for node in nodes:
             why = runs_built_code(node)
@@ -409,43 +424,78 @@ class Tree:
         for f in self.files:
             if f.endswith("package.json") and "/node_modules/" not in f:
                 try:
-                    name = json.loads(self.read(f) or "{}").get("name")
+                    name = json.loads((self.read(f) or "{}").lstrip("\ufeff")).get("name")
                 except (ValueError, AttributeError):
                     continue
                 if isinstance(name, str):
                     packages[name] = str(Path(f).parent)
         return packages
 
-    def javascript(self, path: str, text: str, found: Inputs) -> None:
+    @functools.lru_cache(maxsize=None)
+    def js_package_folders(self, name: str) -> frozenset[str]:
+        """A workspace package's folder and those of the workspace packages it depends on or imports, transitively."""
+        folders, todo = set(), [name]
+        while todo:
+            current = todo.pop()
+            folder = self.js_packages().get(current)
+            if folder is None or folder in folders:
+                continue
+            folders.add(folder)
+            try:
+                manifest = json.loads((self.read(os.path.join(folder, "package.json")) or "{}").lstrip("\ufeff"))
+            except ValueError:
+                continue
+            for key in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+                deps = manifest.get(key) if isinstance(manifest, dict) else None
+                todo.extend(d for d in (deps if isinstance(deps, dict) else {}) if d in self.js_packages())
+            for f in self.files:
+                if f.startswith(folder + "/") and f.endswith(JS_SUFFIXES) and "/node_modules/" not in f:
+                    for spec in JS_IMPORT.findall(self.read(f) or ""):
+                        dep = "/".join(spec.split("/")[:2]) if spec.startswith("@") else spec.split("/")[0]
+                        if dep in self.js_packages():
+                            todo.append(dep)
+        return frozenset(folders)
+
+    @functools.lru_cache(maxsize=None)
+    def js_aliases(self) -> tuple[str, ...]:
+        """Import prefixes a tsconfig `paths` entry maps to a folder (`@app/*`): an import of one may read any folder."""
+        aliases: set[str] = set()
+        for f in self.files:
+            if Path(f).name.startswith(("tsconfig", "jsconfig")) and f.endswith(".json") and "/node_modules/" not in f:
+                for key in re.findall(r'"([^"\s]+)"\s*:\s*\[', self.read(f) or ""):
+                    if "*" in key or "/" in key or key.startswith(("@", "~", "#", "$")):
+                        aliases.add(key.split("*", 1)[0])
+        return tuple(sorted(a for a in aliases if a))
+
+    def submodule_of(self, path: str) -> set[str]:
+        return {m for m in self.submodules if path == m or path.startswith(m + "/")}
+
+    def javascript(self, path: str, text: str, found: Inputs, changed: frozenset[str]) -> None:
         folder = Path(path).parent
         for spec in JS_IMPORT.findall(text):
             if not spec.startswith("."):
                 continue
             target = os.path.normpath(folder / spec)
+            found.files.update(self.submodule_of(target))
             for candidate in [target] + [target + s for s in JS_SUFFIXES + (".json",)] + [f"{target}/index{s}" for s in JS_SUFFIXES]:
                 if candidate in self.files:
                     found.files.add(candidate)
         for call in JS_JOIN.finditer(text):  # path.join(here, "..", "web", "fix", "data.json")
-            args = [a.strip() for a in call.group(1).split(",")]
-            literal = [a[1:-1] for a in args if len(a) > 1 and a[0] == a[-1] and a[0] in "\"'"]
-            parts = literal[1:] if len(literal) < len(args) else literal  # the first may be a folder: __dirname
-            if len(literal) < len(args) - 1:
-                found.whole = f"{path} builds a path at runtime ({call.group(0)[:50]!r})"
+            args = js_arguments(text, call.end())
+            if not all(js_string(a) for a in args[1:]):  # the first may be a folder (__dirname, a root); no other
+                found.whole = f"{path} builds a path at runtime ({text[call.start():call.end() + 40]!r})"
                 return
-            if parts:
-                target = os.path.normpath(folder / "/".join(parts))
-                for candidate in (target, "/".join(p for p in parts if p not in ("..", "."))):
-                    if candidate in self.files:
-                        found.files.add(candidate)
-                    elif candidate in self.folders:
-                        found.folders.add(candidate)
+            literal = [a[1:-1] for a in args if js_string(a)]
+            if literal:  # the first, when not a string, is a folder: __dirname, a root
+                self.place("/".join(literal), str(folder), found, changed)
+                self.place("/".join(p for p in literal if p not in ("..", ".")), "", found, changed)
         for spec in JS_IMPORT.findall(text):  # a workspace package is its folder; an alias may be any folder
             if spec.startswith((".", "node:")):
                 continue
             name = "/".join(spec.split("/")[:2]) if spec.startswith("@") else spec.split("/")[0]
             if name in self.js_packages():
-                found.folders.add(self.js_packages()[name])
-            elif spec.startswith(("@/", "~/", "#", "$")):
+                found.folders |= self.js_package_folders(name)
+            elif spec.startswith(("@/", "~/", "#", "$")) or any(spec.startswith(a) for a in self.js_aliases()):
                 found.whole = f"{path} imports {spec!r} through an alias its text does not resolve"
                 return
         for parent in [folder, *folder.parents]:  # its package and lockfile: a dependency bump
@@ -572,10 +622,14 @@ class PythonSource:
         while True:
             if self.where(node) == (REPO_ROOT, ""):
                 return True
-            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-                node = node.left
-            elif isinstance(node, ast.Call) and node.args and dotted(node.func) in JOINS:
+            if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Div, ast.Add)):
+                node = node.left  # ROOT / d, str(ROOT) + "/" + d
+            elif isinstance(node, ast.Call) and node.args and dotted(node.func) in JOINS | {"str", "os.fspath"}:
                 node = node.args[0]
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "joinpath":
+                node = node.func.value
+            elif isinstance(node, ast.JoinedStr) and node.values and isinstance(node.values[0], ast.FormattedValue):
+                node = node.values[0].value  # f"{ROOT}/{d}/index.md"
             else:
                 return False
 
@@ -627,6 +681,74 @@ def join(base: str, part: str) -> tuple[str, str]:
     if joined.startswith(".."):
         return (OTHER, "")
     return (REPO_ROOT, joined)
+
+
+def starts_tool(words: list[str]) -> str:
+    """The tool a command's words start, past `env A=B`, `sudo`, `bash -c "..."` and `python3 -m`, or ""."""
+    words = [w for w in words if w is not None]
+    while words and (words[0].rsplit("/", 1)[-1] in COMMAND_PREFIXES or re.fullmatch(r"[A-Za-z_]+=.*", words[0])):
+        words = words[1:]
+    if not words or not words[0]:
+        return ""
+    head = words[0].split()[0].rsplit("/", 1)[-1] if words[0].split() else ""
+    if head in TOOL_HEADS:
+        return head
+    if head in {w.rsplit("/", 1)[-1] for w in SHELLS} and "-c" in words[1:-1]:
+        return starts_tool(words[words.index("-c") + 1].split())
+    if head.startswith("python") and "-m" in words[1:-1]:
+        module = words[words.index("-m") + 1]
+        if module in TOOL_MODULES or (module == "unittest" and "discover" in words):
+            return f"{head} -m {module}"
+    return ""
+
+
+def runtime_part(node: ast.AST) -> bool:
+    """Whether a path expression has a part only known at runtime past its base (a name, a call, a value)."""
+    if isinstance(node, ast.JoinedStr):
+        return sum(isinstance(v, ast.FormattedValue) for v in node.values) > 1
+    if isinstance(node, ast.BinOp):
+        return not isinstance(node.right, ast.Constant) or runtime_part(node.left)
+    if isinstance(node, ast.Call):
+        return any(not isinstance(a, ast.Constant) for a in node.args) or (
+            isinstance(node.func, ast.Attribute) and runtime_part(node.func.value))
+    return False
+
+
+def js_string(arg: str) -> bool:
+    return len(arg) > 1 and arg[0] == arg[-1] and arg[0] in "\"'" and arg[0] not in arg[1:-1]
+
+
+def js_arguments(text: str, start: int) -> list[str]:
+    """The top-level arguments of the call whose `(` ends at `start`, as written."""
+    args, depth, quote, current, i = [], 0, "", [], start
+    while i < len(text):
+        c = text[i]
+        if quote:
+            current.append(c)
+            if c == "\\" and i + 1 < len(text):
+                current.append(text[i + 1])
+                i += 1
+            elif c == quote:
+                quote = ""
+        elif c in "\"'`":
+            quote = c
+            current.append(c)
+        elif c in "([{":
+            depth += 1
+            current.append(c)
+        elif c in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+            current.append(c)
+        elif c == "," and depth == 0:
+            args.append("".join(current).strip())
+            current = []
+        else:
+            current.append(c)
+        i += 1
+    tail = "".join(current).strip()
+    return args + [tail] if tail or args else args
 
 
 def runs_built_code(node: ast.AST) -> str:

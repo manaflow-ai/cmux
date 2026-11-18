@@ -102,6 +102,29 @@ FILES = {
         from pathlib import Path
         print((Path(__file__).resolve().parents[1] / "vendor/sub/build.zig.zon").exists())
     """,
+    # The same holes in the shapes the code here writes them: each reads a tree file or starts a tool at runtime.
+    "tests/runtime_joinpath.py": "from pathlib import Path\nROOT = Path(__file__).resolve().parents[1]\n"
+                                 "for d in ('docs',):\n    (ROOT.joinpath(d) / 'index.md').read_text()\n",
+    "tests/runtime_fstring.py": "from pathlib import Path\nROOT = Path(__file__).resolve().parents[1]\n"
+                                "for d in ('docs',):\n    open(f'{ROOT}/{d}/index.md').read()\n",
+    "tests/runtime_concat.py": "import os\nROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))\n"
+                               "for d in ('docs',):\n    open(ROOT + '/' + d + '/index.md').read()\n",
+    "tests/tool_variable.py": "import subprocess\nCMD = ['make', 'check']\nsubprocess.run(CMD)\n",
+    "tests/tool_shell.py": "import subprocess\nsubprocess.run(['bash', '-c', 'make check'])\n",
+    "tests/tool_prefix.py": "import subprocess\nsubprocess.run(['env', 'A=1', '/usr/bin/cargo', 'test'])\n",
+    "tests/tool_module.py": "import subprocess, sys\nsubprocess.run([sys.executable, '-m', 'pytest', '-q'])\n",
+    # JavaScript: a join whose folder argument is itself a call, and a workspace package that imports another.
+    "tests/test_nested.test.mjs": """
+        import path from "node:path";
+        import { fileURLToPath } from "node:url";
+        import "@fx/a";
+        readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "n.json"));
+    """,
+    "tests/fixtures/n.json": "{}\n",
+    "packages/a/package.json": '{"name": "@fx/a"}\n',
+    "packages/a/index.js": 'import "@fx/b";\n',
+    "packages/b/package.json": '{"name": "@fx/b"}\n',
+    "packages/b/index.js": "export const b = 1;\n",
     "unrelated.txt": "x\n",
 }
 
@@ -120,7 +143,10 @@ STEPS = [
     ("J", "python3 tests/test_j.py", None),
     ("K", "python3 tests/test_k.py", None),
     ("L", "python3 tests/test_l.py", None),
+    ("N", "node --test tests/test_nested.test.mjs", None),
 ]
+RUNTIME = ["runtime_joinpath", "runtime_fstring", "runtime_concat"]
+TOOLS = ["tool_variable", "tool_shell", "tool_prefix", "tool_module"]
 
 
 class GuardStepInputs(unittest.TestCase):
@@ -152,6 +178,15 @@ class GuardStepInputs(unittest.TestCase):
 
     def test_a_javascript_path_joined_from_segments_reaches_its_test(self):
         self.assertIn("I", self.picked("web/fix/data.json"))
+        self.assertIn("N", self.picked("tests/fixtures/n.json"))  # the folder argument is a nested call
+
+    def test_a_workspace_package_reaches_the_packages_it_imports(self):
+        self.assertIn("N", self.picked("packages/b/index.js"))
+
+    def test_every_shape_of_a_runtime_root_path_or_a_tool_run_reads_the_whole_tree(self):
+        for name in RUNTIME + TOOLS:
+            with self.subTest(name):
+                self.assertTrue(g.step_inputs(self.tree, f"python3 tests/{name}.py", None, frozenset()).whole)
 
     def test_a_new_file_that_shadows_a_standard_module_reaches_its_test(self):
         self.assertIn("J", self.picked("tests/json.py"))
