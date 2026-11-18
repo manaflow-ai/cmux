@@ -5,6 +5,7 @@
 //! is armed when every part is healthy or hidden.
 
 mod daemon;
+mod liveness;
 mod page;
 mod parts;
 mod scale;
