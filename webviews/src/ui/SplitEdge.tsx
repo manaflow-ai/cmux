@@ -34,10 +34,12 @@ export function declareSplitResize(by: string): void {
  * For a pane that opens beside another and narrows it (a side panel beside the chat): declares the
  * split's resize before the frame that lays the opening out, and again for the closing. Each box moves
  * once, to its new place, in that frame; a second move (a row rewrapped a frame later) is a bounce and
- * stays undeclared.
+ * stays undeclared. `undefined`: the pane opens in a place of its own (a tab), beside nothing it
+ * narrows, so there is no resize to declare.
  */
-export function useSplitOpenResize(pane: string): void {
+export function useSplitOpenResize(pane: string | undefined): void {
   useLayoutEffect(() => {
+    if (pane === undefined) return;
     declareSplitResize(`${pane} opens`);
     return () => declareSplitResize(`${pane} closes`);
   }, [pane]);
