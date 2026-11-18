@@ -15,7 +15,7 @@ import Testing
 
 /// A session of a ``SessionFixtureSize`` as a store fixture. `large` (the default) is the session of
 /// plans/cmux-next/main-thread-scheduling.md 1.5: 60 workspaces x 6 tabs (per workspace one screen with two panes: 3
-/// terminals in the first; 1 agent chat, 1 Chromium page and 1 WebKit page in the second). `real` is the person's
+/// terminals in the first; 1 agent chat, 1 Chromium page and 1 WebKit page in the second). `real` is a large
 /// session: 826 workspaces, 858 panes, 1600 tabs, 798 terminals (``SessionFixtureSize/shape(_:)`` has the mix rule).
 /// Workspace `w` (1...) is handle `w`, resource `ws_<w>`; its tab `i` is `tab_<w>_<i>`; its agent chat (one at most)
 /// shows session `s-<w>` on host ``host``. MTS-0 (step 0) owns the large session; this is the minimal fixture its row

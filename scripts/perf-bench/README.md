@@ -341,7 +341,7 @@ $BH selftest               # the safety rules with 4 to 6 threads for at most 10
 
 ## The shared `real` session (`session_real.py`)
 
-One bench session of the size of the person who uses the app (read from his session daemon on
+One bench session of the size of a large session of real use (read from one session daemon on
 2026-11-10): 826 workspaces, 858 panes, 1600 tabs, 798 terminals, 170 agents, 13 clients. Every
 bench that has a session-size arm uses this script; the count tests use the same mix rule
 (`SessionFixtureSize.real`, the test fixture size of #40488). Fleet minis only.
