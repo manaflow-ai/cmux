@@ -1117,7 +1117,15 @@ if (import.meta.main) {
             `heap +${live.heapMb} MB idle ${live.idleMsPerS} ms/s`,
         );
         for (const burst of live.bursts)
-          console.log(`  ${log.name} ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record`);
+          console.log(
+            `  ${log.name} ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record` +
+              (burst.dom ? ` (${burst.dom.elements} elements, ${burst.dom.mounted} rows mounted)` : "") +
+              (burst.probe
+                ? ` probe per record: reads ${burst.probe.reads} forced ${burst.probe.forced} row renders ` +
+                  `${burst.probe.rowRenders} content renders ${burst.probe.contentRenders}; most layout objects ` +
+                  `${burst.probe.layoutObjects} restyled ${burst.probe.styled}`
+                : ""),
+          );
       }
       if (PROFILE) for (const line of pairedProfile(godLive, smallLive)) console.log(line);
       for (const each of judge([], [godLive], "god").rows) scaledPerfRow(printRow, "god")(each);

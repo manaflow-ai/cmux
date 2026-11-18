@@ -110,8 +110,15 @@ export type ReferenceScopeCache = {
   generation: number;
   rowTurn: Map<string, string>;
   evidence?: { key: string; value: ReferenceEvidence };
-  scopes: Map<string, { key: string; scope: ReferenceScope }>;
+  /// Each turn's scope, with the turn object it was drawn from (`turn`) and that turn's key. A reading's
+  /// turn objects are never changed once a scope is drawn from them (a later row reads into a copy), so the
+  /// same object needs no key: only a turn that is a new object builds one.
+  scopes: Map<string, { turn: TurnReading; key: string; scope: ReferenceScope }>;
 };
+
+type TurnReading = { at: number; named: Map<number, string> };
+/// The turn of a row read before any prompt: one object, so its scope is kept by identity too.
+const NO_TURN: TurnReading = { at: 0, named: new Map() };
 
 export const newReferenceScopeCache = (): ReferenceScopeCache => ({
   prefixLength: 0,
@@ -206,12 +213,16 @@ export function referenceScopes(
   const evidence = cache.evidence.value;
   if (cache.scopes.size > MAX_KEPT_TURNS) cache.scopes.clear();
   return (opener) => {
-    const turn = whole.turns.get(opener) ?? { at: 0, named: NONE };
-    const key = `${turn.at}:${JSON.stringify([...turn.named])}`;
+    const turn = whole.turns.get(opener) ?? NO_TURN;
     const scope = cache.scopes.get(opener);
-    if (scope?.key === key) return scope.scope;
+    if (scope?.turn === turn) return scope.scope;
+    const key = `${turn.at}:${JSON.stringify([...turn.named])}`;
+    if (scope?.key === key) {
+      scope.turn = turn;
+      return scope.scope;
+    }
     const next = { evidence, turn: turn.named, at: turn.at };
-    cache.scopes.set(opener, { key, scope: next });
+    cache.scopes.set(opener, { turn, key, scope: next });
     return next;
   };
 }
@@ -221,13 +232,14 @@ export function referenceScopes(
  *  it that came from the client (a "Worked for" line, a date or a footer is the pane's own). */
 export function turnOpener(cache: ReferenceScopeCache, rows: readonly Pick<AcpmuxRow, "id">[], index: number): string {
   for (let at = index; at >= 0; at--) {
-    const turn = cache.rowTurn.get(rows[at]!.id.replace(/:fold$/, ""));
+    const id = rows[at]!.id;
+    // No regex and no new string for a row that is not a fold copy: this runs for every mounted row.
+    const turn = cache.rowTurn.get(id.endsWith(":fold") ? id.slice(0, -5) : id);
     if (turn !== undefined) return turn;
   }
   return "";
 }
 
-const NONE: ReadonlyMap<number, string> = new Map();
 /** Turns of chats this view drew before, kept no longer than this. */
 const MAX_KEPT_TURNS = 4_000;
 
