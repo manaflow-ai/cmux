@@ -17,15 +17,14 @@ import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserL
 import { warmViteServer } from "./support/warmDevServer";
 import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
-const PROMPT = "Run the sidebar tests and fix what fails";
-const CARD = ".acpmux-cloud-start";
-const RETRY = ".acpmux-cloud-start__retry";
-/// The pane's renders over the send, the refusal and the retry, per engine, as the base drew them (b4933ba8547: 3 and 3).
-const PANE_RENDERS: Record<string, number> = { chromium: 3, webkit: 3 };
-
 type StartCall = { key?: unknown; task?: unknown };
 
 await requireBrowserLane("app-cloud-send-hook-renders.test.ts", async () => {
+  const PROMPT = "Run the sidebar tests and fix what fails";
+  const CARD = ".acpmux-cloud-start";
+  const RETRY = ".acpmux-cloud-start__retry";
+  /// The pane's renders over the send, the refusal and the retry, per engine, as the base drew them (b4933ba8547: 3 and 3).
+  const PANE_RENDERS: Record<string, number> = { chromium: 3, webkit: 3 };
   setDefaultTimeout(280_000);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
