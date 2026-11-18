@@ -262,7 +262,13 @@ extension CmuxDialogButtonView {
     /// button's fill read as no title at all. The button dims as a whole instead (its `alphaValue`).
     final class TitleCell: NSButtonCell {
         override func drawTitle(_ title: NSAttributedString, withFrame frame: NSRect, in controlView: NSView) -> NSRect {
-            super.drawTitle(isEnabled ? title : attributedTitle, withFrame: frame, in: controlView)
+            guard !isEnabled, title.length == attributedTitle.length else { return super.drawTitle(title, withFrame: frame, in: controlView) }
+            // The title as AppKit laid it out (centered), in the button's own inks.
+            let own = NSMutableAttributedString(attributedString: title)
+            attributedTitle.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: own.length)) { ink, range, _ in
+                if let ink { own.addAttribute(.foregroundColor, value: ink, range: range) }
+            }
+            return super.drawTitle(own, withFrame: frame, in: controlView)
         }
     }
 

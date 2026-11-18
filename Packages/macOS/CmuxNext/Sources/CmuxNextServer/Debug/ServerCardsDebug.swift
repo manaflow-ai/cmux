@@ -84,12 +84,15 @@ public enum ServerCardsDebug {
             parse: AddMachineServices.hostDestination, candidates: { _ in candidates },
             run: { _ in
                 AsyncThrowingStream(bufferingPolicy: .bufferingNewest(8)) { continuation in
-                    continuation.yield(step("reach", "ok", "ssh answered in 42 ms"))
-                    continuation.yield(step("install", "ok", "cmux-tui 0.42.1"))
+                    var lines = [step("reach", "ok", "ssh answered in 42 ms"), step("install", "ok", "cmux-tui 0.42.1")]
                     if state == "failed" {
-                        continuation.yield(step("daemon", "fail", "The daemon did not start.", fix: "Run cmux-tui daemon start on studio."))
+                        lines.append(step("daemon", "fail", "The daemon did not start.", fix: "Run cmux-tui daemon start on studio."))
+                        // The run's report, as cmux-tui prints it before it exits non-zero.
+                        let report = "{\"report\":{\"name\":\"Studio\",\"host\":\"studio\",\"ok\":false,\"steps\":[\(lines.joined(separator: ","))]}}"
+                        (lines + [report]).forEach { continuation.yield($0) }
                         continuation.finish()
                     } else {
+                        lines.forEach { continuation.yield($0) }
                         hold.continuation = continuation
                     }
                 }
