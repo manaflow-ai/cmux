@@ -1,7 +1,10 @@
 // l10n-allow-file: deterministic gallery fixture labels, not shipped copy.
 // Blank to text (Leo, 2026-11-07, ask-69299b9711: "going from blank to text is more jarring than
 // blank to fast fade in to text"). The chat opens before its read is in: the transcript is blank,
-// then its rows land in two chunks (the first page, then the read). Each arm plays that sequence
+// then its rows land in two chunks as a real open draws them: the chat's latest page, followed at
+// the bottom, then the read with the older rows above it (direct.ts attach, rows/store.ts window
+// then pages at its edges). Rows already drawn never move (Leo: "the correctness of the layout
+// shifts"); the read's rows appear above them. Each arm plays that sequence
 // with one length or curve of the load fade (shared/loadFade.ts, desktop.css `cmux-load-fade`);
 // `pop` is the old behaviour, the rows drawn in one frame. Replay mounts it again.
 import { useEffect, useMemo, useState } from "react";
@@ -20,14 +23,8 @@ const row = (id: string, kind: "user" | "assistant", text: string, at: number): 
   at,
 });
 
+/// The open's first chunk: the chat's latest page, the newest rows.
 const FIRST: AcpmuxRow[] = [
-  row("load-user-1", "user", "Why does the pane open blank after a restart?", 1),
-  row(
-    "load-answer-1",
-    "assistant",
-    "The page shows before the daemon has answered the attach, so the transcript has nothing to draw for a moment.",
-    2,
-  ),
   row("load-user-2", "user", "Can it load faster?", 3),
   row(
     "load-answer-2",
@@ -35,26 +32,34 @@ const FIRST: AcpmuxRow[] = [
     "Usually it does: a kept tail draws on the first frame. When it cannot, the rows fade in instead of popping.",
     4,
   ),
-];
-const SECOND: AcpmuxRow[] = [
   row("load-user-3", "user", "And the rest of the chat?", 5),
-  row("load-answer-3", "assistant", "The read lands right after and fades in the same way.", 6),
+  row("load-answer-3", "assistant", "The read lands right after, above these, and fades in the same way.", 6),
+];
+/// The read: the whole chat, its older rows above the first page.
+const OLDER: AcpmuxRow[] = [
+  row("load-user-1", "user", "Why does the pane open blank after a restart?", 1),
+  row(
+    "load-answer-1",
+    "assistant",
+    "The page shows before the daemon has answered the attach, so the transcript has nothing to draw for a moment.",
+    2,
+  ),
 ];
 
-/// The chunks' timing: blank for a beat, the first page, then the read right after it.
+/// The chunks' timing: blank for a beat, the latest page, then the read right after it.
 const FIRST_AT = 400;
 const READ_AT = 520;
 
-/// The capture moment of the timed arms: the stage is ready once the read's last row is drawn and
+/// The capture moment of the timed arms: the stage is ready once the read's oldest row is drawn and
 /// its fade has settled (a play step settles on running animations), so a still shows the end
 /// state on every run instead of whatever the timers had reached when the DOM first went quiet.
-const LAST_ROW = SECOND[SECOND.length - 1]!.id;
+const READ_ROW = OLDER[0]!.id;
 const atEnd: Play = ({ waitFor, document }) =>
-  waitFor(() => document.querySelector(`[data-blank-load-fade] [data-row-id="${LAST_ROW}"]`));
+  waitFor(() => document.querySelector(`[data-blank-load-fade] [data-row-id="${READ_ROW}"]`));
 
 function Sequence({ variant, frozen }: { variant: Variant; frozen: boolean }) {
   const [step, setStep] = useState(0);
-  // gallery-capture: the timed arms' play `atEnd` waits for the read's last row and its fade to settle.
+  // gallery-capture: the timed arms' play `atEnd` waits for the read's oldest row and its fade to settle.
   useEffect(() => {
     // The still: the rows land on the frame after the blank one and hold at the fade's midpoint.
     if (frozen) {
@@ -68,7 +73,7 @@ function Sequence({ variant, frozen }: { variant: Variant; frozen: boolean }) {
       window.clearTimeout(read);
     };
   }, [frozen]);
-  const rows = useMemo(() => (step === 0 ? [] : step === 1 ? FIRST : [...FIRST, ...SECOND]), [step]);
+  const rows = useMemo(() => (step === 0 ? [] : step === 1 ? FIRST : [...OLDER, ...FIRST]), [step]);
   return (
     <VirtualTranscript
       rows={rows}
@@ -93,7 +98,7 @@ function BlankLoadFadeGallery({ variant, frozen = false }: { variant: Variant; f
       <header className="blank-load-fade-gallery__header">
         <div>
           <h1>Blank to text</h1>
-          <p>The chat opens blank, then its rows land in two chunks.</p>
+          <p>The chat opens blank, then its latest page lands, then the older rows above it.</p>
         </div>
         <button type="button" className="ui-button" onClick={() => setRun((value) => value + 1)}>
           Replay
