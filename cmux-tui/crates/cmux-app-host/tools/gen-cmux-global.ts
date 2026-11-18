@@ -423,6 +423,13 @@ ${render(root, "  ")}
     /** \`page.follow\` (mutation, scope \`page:write\`, needs a gesture): clicks the element of a shown hint, or with \`new_split\` opens its link in a new browser split (the built-in \`F\`), then clears the hints. \`followed\` is false when the label is not shown (any more), or \`new_split\` names a hint with no link. */
     follow: CmuxOp<{ tab?: string; label: string; new_split?: boolean }, { tab: string; followed: boolean; href: string | null }>
   }
+  /** What plays in cmux, answered by the cmux app: the track the Now Playing card shows. To follow it live, \`cmux.watch("media.now_playing")\`. */
+  media: {
+    /** \`media.get\` (read, scope \`media:read\`): what plays now, or \`{track: null}\` while nothing does. */
+    get: CmuxOp<Record<string, never>, CmuxSignalMap["media.now_playing"]["value"]>
+    /** \`media.control\` (mutation, scope \`media:control\`, needs a gesture): play or pause, skip, or seek to \`seconds\` in. Throws CmuxError \`media.nothing_playing\` while nothing plays. */
+    control: CmuxOp<{ command: "play_pause" | "previous" | "next" } | { command: "seek"; seconds: number }, null>
+  }
   palette: CmuxPalette
   act: typeof act
   log(...parts: unknown[]): void
