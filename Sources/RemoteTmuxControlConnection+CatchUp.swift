@@ -35,7 +35,11 @@ extension RemoteTmuxControlConnection {
     /// the same without leaving the connection. Every pane starts a full-history seed, as a
     /// reconnect does, and its live output up to the capture is dropped, because the capture
     /// already shows its result. A seed in progress whose capture has not arrived joins the
-    /// catch-up instead and stops retaining its output too.
+    /// catch-up and stops retaining its output too. A pane whose last seed is such a
+    /// full-history seed needs nothing more. Any other pane gets a full-history seed behind the
+    /// ones it has: a visible-only capture would leave out the lines the backlog pushed into
+    /// history, so a visible seed that joins drops output until it finishes, and the new seed
+    /// drops it up to its own capture.
     ///
     /// Idle panes are repainted too: the backlog is still unparsed in the transport, so nothing
     /// says which panes it belongs to. Each full-history capture replaces the pane's scrollback
@@ -53,22 +57,22 @@ extension RemoteTmuxControlConnection {
         guard connectionState == .connected, enterReceived, !catchUp.isRunning else { return }
         catchUp.begin()
         var joined = 0
-        var joinedPaneIDs: Set<Int> = []
+        var coveredPaneIDs: Set<Int> = []
         for paneId in Array(pendingPaneSeeds.keys) {
             for index in pendingPaneSeeds[paneId]!.indices
             where pendingPaneSeeds[paneId]![index].canJoinCatchUp {
                 releasePendingPaneSeedBytes(pendingPaneSeeds[paneId]![index].joinCatchUp())
                 catchUp.track(seedID: pendingPaneSeeds[paneId]![index].id)
-                joinedPaneIDs.insert(paneId)
                 joined += 1
             }
+            if pendingPaneSeeds[paneId]?.last?.coversCatchUp == true { coveredPaneIDs.insert(paneId) }
         }
         var seeded = 0
         var queued = 0
         // A pane whose seeds all have their captures gets a new one too: the output still to
         // come is newer than those captures. Every capture goes out at once, so the order the
         // panes are visited in does not matter.
-        var seenPaneIDs = joinedPaneIDs
+        var seenPaneIDs = coveredPaneIDs
         let queuedForReconnect = Set(pendingReconnectPaneIDs)
         for window in windowsByID.values {
             for paneId in window.paneIDsInOrder where seenPaneIDs.insert(paneId).inserted {

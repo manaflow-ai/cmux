@@ -19,7 +19,7 @@ import Testing
     }
 
     @Test func joiningACatchUpDropsThePreCaptureOutputAndReportsItsBytes() {
-        var seed = RemoteTmuxPendingPaneSeed(id: UUID(), kind: .visibleRepaint, snapshot: Data())
+        var seed = RemoteTmuxPendingPaneSeed(id: UUID(), kind: .fullHistory, snapshot: Data())
         seed.retainLiveOutput(Data("stale".utf8))
         #expect(seed.canJoinCatchUp)
         #expect(!seed.dropsLiveOutput)
@@ -33,5 +33,32 @@ import Testing
         seed.isCaptureInstalled = true
         #expect(!seed.dropsLiveOutput, "output after the capture is newer than it and must be kept")
         #expect(!seed.canJoinCatchUp)
+        #expect(seed.restartsLiveStream)
+    }
+
+    /// A visible-only capture leaves out the lines a backlog pushed into history, so a visible
+    /// seed that joins a catch-up keeps dropping output after its capture and never stands in
+    /// for the catch-up's own full-history capture.
+    @Test func aVisibleSeedInACatchUpDropsOutputUntilItFinishes() {
+        var seed = RemoteTmuxPendingPaneSeed(id: UUID(), kind: .visibleRepaint, snapshot: Data())
+        #expect(!seed.coversCatchUp)
+
+        _ = seed.joinCatchUp()
+        seed.isCaptureInstalled = true
+
+        #expect(seed.dropsLiveOutput)
+        #expect(seed.restartsLiveStream)
+        #expect(!seed.coversCatchUp)
+        #expect(RemoteTmuxPendingPaneSeed(id: UUID(), kind: .fullHistory, snapshot: Data()).coversCatchUp)
+    }
+
+    @Test func aSeedAfterDroppedOutputRestartsTheLiveStreamWithoutDroppingItsOwn() {
+        var seed = RemoteTmuxPendingPaneSeed(id: UUID(), kind: .fullHistory, snapshot: Data())
+        #expect(!seed.restartsLiveStream)
+
+        seed.followsDroppedOutput = true
+
+        #expect(seed.restartsLiveStream)
+        #expect(!seed.dropsLiveOutput)
     }
 }

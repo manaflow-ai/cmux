@@ -26,6 +26,14 @@ public struct RemoteTmuxPendingPaneSeed: Sendable {
     /// capture covers it, and retaining it would only run into the live-byte
     /// budget and restart the seed.
     public var dropsPreCaptureOutput = false
+    /// Live output is dropped until the seed finishes, not only until its capture. Set when a
+    /// visible-only seed joins a catch-up: its capture shows the screen but not the lines the
+    /// backlog pushed into history, so a full-history seed behind it repaints the pane, and
+    /// everything up to that seed's capture is dropped.
+    public var dropsOutputUntilFinished = false
+    /// Output before this seed was dropped by a budget recovery without passing through the
+    /// live escape filters, so they start over at this seed.
+    public var followsDroppedOutput = false
 
     /// Creates a seed whose snapshot starts as `snapshot`, before any capture arrives.
     public init(
@@ -48,7 +56,19 @@ public struct RemoteTmuxPendingPaneSeed: Sendable {
     /// Whether live output arriving now is dropped: the seed belongs to a catch-up and its
     /// capture has not arrived.
     public var dropsLiveOutput: Bool {
-        dropsPreCaptureOutput && !isCaptureInstalled
+        dropsOutputUntilFinished || (dropsPreCaptureOutput && !isCaptureInstalled)
+    }
+
+    /// Whether the live escape filters start over when this seed is delivered, because the
+    /// output before it was dropped rather than retained.
+    public var restartsLiveStream: Bool {
+        dropsPreCaptureOutput || followsDroppedOutput
+    }
+
+    /// Whether this seed's capture can stand in for a catch-up's own, as the last seed of its
+    /// pane: only a full-history capture that has not arrived covers the backlog before it.
+    public var coversCatchUp: Bool {
+        kind == .fullHistory && !isCaptureInstalled
     }
 
     /// Whether a catch-up can still take this seed over. Once the capture has arrived, output
@@ -58,12 +78,15 @@ public struct RemoteTmuxPendingPaneSeed: Sendable {
     }
 
     /// Makes the seed part of a catch-up: drops the output retained before the capture, and any
-    /// more until the capture arrives. Returns the number of retained bytes released.
+    /// more until the capture arrives, or until the seed finishes for a visible-only seed, which
+    /// leaves the pane's history to a full-history seed behind it. Returns the number of retained
+    /// bytes released.
     public mutating func joinCatchUp() -> Int {
         let dropped = discardedOutput.reduce(0) { $0 + $1.count }
         discardedOutput = []
         bufferedLiveByteCount -= dropped
         dropsPreCaptureOutput = true
+        if kind != .fullHistory { dropsOutputUntilFinished = true }
         return dropped
     }
 

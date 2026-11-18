@@ -15,7 +15,8 @@ import Testing
 extension RemoteTmuxPaneSeedTransportTests {
     /// A catch-up drops each pane's output up to its capture instead of retaining it, so a
     /// backlog larger than the live-byte budget neither reaches the terminal nor restarts the
-    /// seed, and a pane already being repainted joins the catch-up instead of seeding twice.
+    /// seed. A pane already being repainted joins the catch-up, and because that repaint only
+    /// captures the screen, it also gets a full-history seed behind it.
     @Test func catchUpDropsBacklogUpToTheCaptureWithoutSpendingTheSeedBudget() throws {
         let fixture = attachedConnection()
         defer { fixture.close() }
@@ -44,7 +45,7 @@ extension RemoteTmuxPaneSeedTransportTests {
 
         fixture.connection.catchUpAfterFallingBehind()
         #expect(fixture.connection.pendingPaneSeeds[7]?.first?.kind == .fullHistory)
-        #expect(fixture.connection.pendingPaneSeeds[8]?.count == 1)
+        #expect(fixture.connection.pendingPaneSeeds[8]?.map(\.kind) == [.visibleRepaint, .fullHistory])
         #expect(fixture.connection.pendingPaneSeeds[8]?.first?.discardedOutput.isEmpty == true)
         #expect(fixture.connection.pendingPaneSeedByteCount < 1_024)
         let queuedCommands = fixture.connection.pendingCommandKindsForTesting.count
@@ -79,6 +80,7 @@ extension RemoteTmuxPaneSeedTransportTests {
             #expect(Self.occurrences(of: "current screen", in: seed.snapshot) == 1)
         }
         #expect(seeds[7]?.kind == .fullHistory)
+        #expect(seeds[8]?.kind == .fullHistory)
         #expect(!fixture.connection.isCatchingUpAfterFallingBehind)
 
         // Falling behind again later starts a new catch-up.
@@ -282,5 +284,105 @@ extension RemoteTmuxPaneSeedTransportTests {
         #expect(seeds.last?.restartsLiveStream == true)
         #expect(seeds.last.map { Self.occurrences(of: "current screen", in: $0.snapshot) } == 1)
         #expect(!fixture.connection.isCatchingUpAfterFallingBehind)
+    }
+
+    /// A visible-only repaint captures the screen, not the lines a backlog pushed into history.
+    /// When one is in progress as a catch-up starts, the backlog must stay dropped through that
+    /// repaint, after its capture too, until a full-history capture behind it repaints the pane.
+    @Test func aVisibleRepaintInACatchUpLeavesTheHistoryToAFullCapture() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(8))
+        )
+        var rendered = 0
+        var seeds: [RemoteTmuxPaneSeed] = []
+        let token = fixture.connection.addObserver(
+            onPaneOutput: { _, data in rendered += data.count },
+            onPaneSeed: { _, seed in seeds.append(seed) }
+        )
+        defer { fixture.connection.removeObserver(token) }
+
+        let visibleSeed = try #require(fixture.connection.repaintPaneVisibleScreen(paneId: 8))
+        fixture.connection.catchUpAfterFallingBehind()
+        #expect(
+            fixture.connection.pendingPaneSeeds[8]?.map(\.kind) == [.visibleRepaint, .fullHistory],
+            "the catch-up left the pane's history to a visible-only capture"
+        )
+
+        finishPendingCommands(
+            on: fixture.connection, captureRows: ["older screen"], paneHeight: 24, startingAt: 400,
+            until: { fixture.connection.pendingPaneSeeds[8]?.first?.isCaptureInstalled == true }
+        )
+        fixture.connection.handleMessageForTesting(.output(paneId: 8, data: Data("backlog\r\n".utf8)))
+        finishPendingCommands(
+            on: fixture.connection, captureRows: ["older screen"], paneHeight: 24, startingAt: 500,
+            until: { fixture.connection.pendingPaneSeeds[8]?.first?.id != visibleSeed }
+        )
+        fixture.connection.handleMessageForTesting(.output(paneId: 8, data: Data("backlog\r\n".utf8)))
+        #expect(rendered == 0, "the backlog after the visible capture was drawn")
+        #expect(seeds.first?.catchUpOutput.isEmpty == true)
+
+        finishPendingCommands(
+            on: fixture.connection, captureRows: ["current screen"], paneHeight: 24, startingAt: 600
+        )
+        #expect(seeds.map(\.kind) == [.visibleRepaint, .fullHistory])
+        #expect(seeds.last?.restartsLiveStream == true)
+        #expect(!fixture.connection.isCatchingUpAfterFallingBehind)
+    }
+
+    /// A budget recovery drops the output a pane's seed retained, and the live escape filters
+    /// never saw it. The seed that replaces it must restart them: a filter left inside a title
+    /// would swallow the pane's next output as title text.
+    @Test func aSeedAfterABudgetRecoveryRestartsTheLiveEscapeFilters() throws {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+        fixture.connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            width: 80,
+            height: 24,
+            layout: RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(7))
+        )
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = manager.selectedWorkspace!
+        workspace.isRemoteTmuxMirror = true
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: fixture.connection.host,
+            sessionName: "work",
+            connection: fixture.connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+        var seeds: [RemoteTmuxPaneSeed] = []
+        let token = fixture.connection.addObserver(onPaneSeed: { _, seed in seeds.append(seed) })
+        defer { fixture.connection.removeObserver(token) }
+
+        // The last routed output opened a screen title. The bytes that close it are retained by
+        // a repaint, then dropped with it when the pane runs past its live-byte budget.
+        fixture.connection.handleMessageForTesting(.output(paneId: 7, data: Data("\u{1b}kvim".utf8)))
+        _ = try #require(fixture.connection.repaintPaneVisibleScreen(paneId: 7))
+        fixture.connection.handleMessageForTesting(.output(paneId: 7, data: Data("\u{1b}\\".utf8)))
+        fixture.connection.handleMessageForTesting(.output(
+            paneId: 7,
+            data: Data(
+                repeating: UInt8(ascii: "x"),
+                count: RemoteTmuxControlConnection.maximumPendingPaneSeedLiveBytes
+            )
+        ))
+        #expect(fixture.connection.pendingPaneSeeds[7] == nil)
+        #expect(fixture.connection.snapshot().recentEvents.contains { $0.hasPrefix("pane-seed-backpressure") })
+
+        // The replacement seed, started the way the deferred recovery starts it.
+        _ = try #require(fixture.connection.seedPane(paneId: 7, clearScrollback: true))
+        finishPendingCommands(
+            on: fixture.connection, captureRows: ["screen"], paneHeight: 24, startingAt: 400
+        )
+        #expect(seeds.last?.restartsLiveStream == true)
+        var filter = sessionMirror.titleFilters[7] ?? RemoteTmuxScreenTitleFilter()
+        #expect(filter.filter(Data("next".utf8)) == Data("next".utf8))
     }
 }

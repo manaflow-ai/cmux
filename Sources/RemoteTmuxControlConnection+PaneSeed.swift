@@ -30,12 +30,14 @@ extension RemoteTmuxControlConnection {
             ? Data("\u{1b}[H\u{1b}[2J\u{1b}[3J".utf8)
             : Data()
         guard reservePendingPaneSeedBytes(reset.count, paneId: paneId) else { return nil }
-        pendingPaneSeeds[paneId, default: []].append(
-            RemoteTmuxPendingPaneSeed(
-                id: id, kind: kind, snapshot: reset,
-                dropsPreCaptureOutput: catchUp.seedStarted(id, forPane: paneId)
-            )
+        var seed = RemoteTmuxPendingPaneSeed(
+            id: id, kind: kind, snapshot: reset,
+            dropsPreCaptureOutput: catchUp.seedStarted(id, forPane: paneId)
         )
+        // A budget recovery dropped this pane's retained output, which the live escape
+        // filters never saw, so they start over at this seed.
+        seed.followsDroppedOutput = deferredPaneSeedBudgetRecoveryPaneIDs.contains(paneId)
+        pendingPaneSeeds[paneId, default: []].append(seed)
         return id
     }
 
@@ -110,7 +112,7 @@ extension RemoteTmuxControlConnection {
                 snapshot: completed.snapshot,
                 catchUpOutput: completed.catchUpOutput,
                 state: state,
-                restartsLiveStream: completed.dropsPreCaptureOutput
+                restartsLiveStream: completed.restartsLiveStream
             )
         )
     }
@@ -184,7 +186,7 @@ extension RemoteTmuxControlConnection {
                     snapshot: failed.snapshot,
                     catchUpOutput: failed.catchUpOutput,
                     state: Data(),
-                    restartsLiveStream: failed.dropsPreCaptureOutput
+                    restartsLiveStream: failed.restartsLiveStream
                 )
             )
         case .paneState:
