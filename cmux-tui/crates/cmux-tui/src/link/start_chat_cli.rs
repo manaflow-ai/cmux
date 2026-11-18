@@ -1210,9 +1210,14 @@ fn push(
 /// would end there, refused, before a projection that needs no room was tried.
 fn project_first(socket: &Path, local: &Path, remote: &str, chat: &str) -> Option<Value> {
     match super::sync_cli::project::start(socket, local, remote, chat) {
-        Ok(Ok(answer)) => {
-            Some(json!({"mode": "projected", "projected": answer.get("data").cloned()}))
-        }
+        Ok(Ok(answer)) => Some(json!({
+            "ok": true,
+            "chat": super::sync_cli::project::chat_name(chat),
+            "folder": remote,
+            "copied": false,
+            "mode": "projected",
+            "projected": answer.get("data").cloned()
+        })),
         Ok(Err(_)) => None,
         Err(error) => {
             eprintln!(
