@@ -53,6 +53,8 @@ struct CmuxMobileApp: App {
                 ShellScreenSharingDemo()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
+            } else if TerminalResizeDemoRoot.isRequested {
+                TerminalResizeDemoRoot()
             } else if AgentCLIHybridBenchRoot.isRequested {
                 AgentCLIHybridBenchRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
