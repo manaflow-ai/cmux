@@ -195,6 +195,9 @@ open class CmuxFloatingDialogPanel: NSPanel {
             route.makeKey(self)
             route.moveKeyboard(in: self, to: view)
         }
+        // Escape always takes the card away: its Cancel answers it, and a card with none (a failed run's Copy Details
+        // and Try Again) closes as a popover does.
+        if event.type == .keyDown, event.keyCode == 53, let card = dialogView, card.spec.cancelButton == nil { return hide() }
         guard let personOnlyClick else { return super.sendEvent(event) }
         let allows: @MainActor () -> [NSControl] = { [weak self] in
             guard let card = self?.dialogView else { return [] }

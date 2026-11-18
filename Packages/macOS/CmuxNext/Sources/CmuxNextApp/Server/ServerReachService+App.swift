@@ -87,12 +87,10 @@ extension PairInviteDialog {
 }
 
 extension WebCardPanel {
-    /// The App's server card panel, kept warm: Add Machine (``AppServices/addMachine``'s runs) and the menu bar
-    /// item's own `cards` (Add Server).
+    /// The App's server card panel, kept warm: the menu bar item's own `cards` (Add Server).
     @MainActor
     static func serverCards(services: AppServices, with cards: [any WebCard] = []) -> WebCardPanel? {
-        guard let panel = WebCardPanel(descriptor: .serverCards, cards: [services.addMachine.provider] + cards,
-                                       overlayProcess: services.overlayProcess) else { return nil }
+        guard let panel = WebCardPanel(descriptor: .serverCards, cards: cards, overlayProcess: services.overlayProcess) else { return nil }
         panel.isPersonEvent = { [person = PersonInputCheck(sources: services.personInput.sources)] in person.isPerson($0) }
         return panel
     }

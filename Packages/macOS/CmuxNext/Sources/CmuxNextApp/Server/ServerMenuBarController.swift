@@ -27,7 +27,7 @@ final class ServerMenuBarController: NSObject {
     /// The model's page provider; its model's source runs while `running` (`hide()` stops it).
     private var provider: ServerPageProvider?
     private var running = false
-    /// The floating web cards (Add Server, Add Machine), made on the first opening and kept warm.
+    /// The floating web card (Add Server), made on the first opening and kept warm.
     private var cards: WebCardPanel?
     /// The native Pair Another Machine card, made on its first opening (nil without the App's services).
     private lazy var invite: PairInviteDialog? = makeInvite()
@@ -106,12 +106,6 @@ final class ServerMenuBarController: NSObject {
     /// new invite (a card still showing a live one keeps it). Opened by a person only: the palette's person-only
     /// action and Add Device's hand-off.
     func openInvite() { invite?.open(over: Self.frontWindow()) }
-
-    /// The web card panel (Add Server, Add Machine), made on its first use and kept warm. It carries Add
-    /// Server's provider, so the model starts with it.
-    func cardPanel() -> WebCardPanel? {
-        currentProvider().flatMap(currentCards)
-    }
 
     /// The cmux window the card belongs over: the main window, else the
     /// frontmost visible ordinary window.

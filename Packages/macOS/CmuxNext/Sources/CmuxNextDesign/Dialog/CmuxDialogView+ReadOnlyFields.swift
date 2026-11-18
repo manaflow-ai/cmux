@@ -42,9 +42,48 @@ extension CmuxDialogView {
             return [row]
         case .note(let text, let danger):
             return [label(text, font: Typography.caption, role: danger ? .danger : .secondary, width: width)]
+        case .steps(let steps):
+            let list = NSStackView(views: steps.map { stepRow($0, width: width) })
+            list.orientation = .vertical
+            list.alignment = .leading
+            list.spacing = Metrics.space2
+            list.setAccessibilityElement(true)
+            list.setAccessibilityRole(.list)
+            return [list]
         case .text, .choice, .check:
             return []
         }
+    }
+
+    /// One step: its state's glyph (the shapes the sidebar draws: idle, spinning, done, waiting, error), its name, then
+    /// what it found and its fix in the caption size.
+    private func stepRow(_ step: CmuxDialogStep, width: CGFloat) -> NSView {
+        let glyph = StatusIndicatorView(frame: .zero)
+        glyph.translatesAutoresizingMaskIntoConstraints = false
+        let side = Typography.body.pointSize
+        NSLayoutConstraint.activate([glyph.widthAnchor.constraint(equalToConstant: side), glyph.heightAnchor.constraint(equalToConstant: side)])
+        switch step.state {
+        case .pending, .skipped: glyph.configure(.idle)
+        case .running: glyph.configure(.busy)
+        case .done: glyph.configure(.success)
+        case .warning: glyph.configure(.waiting(kind: nil))
+        case .failed: glyph.configure(.error)
+        }
+        let textWidth = width - side - Metrics.space2
+        let text = NSStackView(views: [label(step.title, font: Typography.body, role: step.state == .pending || step.state == .skipped ? .secondary : .primary,
+                                             width: textWidth)])
+        text.orientation = .vertical
+        text.alignment = .leading
+        text.spacing = Metrics.space1
+        if !step.detail.isEmpty { text.addArrangedSubview(label(step.detail, font: Typography.caption, role: .secondary, width: textWidth)) }
+        if let fix = step.fix { text.addArrangedSubview(label(fix, font: Typography.caption, role: step.state == .failed ? .danger : .secondary, width: textWidth)) }
+        let row = NSStackView(views: [glyph, text])
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = Metrics.space2
+        row.setAccessibilityElement(true)
+        row.setAccessibilityLabel(([step.title, step.detail, step.fix ?? ""]).filter { !$0.isEmpty }.joined(separator: ". "))
+        return row
     }
 
     /// A small button inside a field (Copy): pressed by click or by Space once Tab reaches it; it answers nothing.

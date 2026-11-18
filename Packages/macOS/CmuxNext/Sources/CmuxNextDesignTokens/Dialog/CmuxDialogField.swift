@@ -25,11 +25,13 @@ public nonisolated enum CmuxDialogField: Equatable, Sendable {
     case progress(String)
     /// A short caption among the fields (a warning, a hint); `danger` draws it in the danger ink.
     case note(String, danger: Bool)
+    /// The steps of a run, one row each: its state's glyph, its name, what it found and how to fix it.
+    case steps([CmuxDialogStep])
 
     public var id: String? {
         switch self {
         case .text(let id, _, _, _, _), .choice(let id, _, _, _), .check(let id, _, _): id
-        case .preview, .code, .copyLine, .pairingCode, .progress, .note: nil
+        case .preview, .code, .copyLine, .pairingCode, .progress, .note, .steps: nil
         }
     }
 
@@ -81,6 +83,24 @@ public nonisolated struct CmuxDialogPairingCode: Equatable, Sendable {
     public static func clock(until date: Date, now: Date) -> String {
         let left = max(0, Int((date.timeIntervalSince(now)).rounded(.up)))
         return String(format: "%d:%02d", left / 60, left % 60)
+    }
+}
+
+/// One step of a run as a dialog lists it (``CmuxDialogField/steps(_:)``).
+public nonisolated struct CmuxDialogStep: Equatable, Sendable {
+    public enum State: String, Equatable, Sendable { case pending, running, done, warning, failed, skipped }
+
+    public var title: String
+    public var state: State
+    public var detail: String
+    /// A sentence for the person; never a command cmux runs for them.
+    public var fix: String?
+
+    public init(title: String, state: State, detail: String = "", fix: String? = nil) {
+        self.title = title
+        self.state = state
+        self.detail = detail
+        self.fix = fix
     }
 }
 

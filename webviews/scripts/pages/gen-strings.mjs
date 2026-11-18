@@ -277,15 +277,10 @@ export const PAGES = {
     ],
   },
   // The server cards (cmux-page://cmux.server-cards/) share the tables of the Swift they replaced. Pair Another
-  // Machine and app health are native cards now (PairInviteDialog, AppHealthPopover).
+  // Machine, Add Machine and app health are native cards now (PairInviteDialog, AddMachineDialog, AppHealthPopover).
   "server-cards": {
     out: "webviews/src/pages/server-cards/generated/strings.json",
     catalogs: [
-      // Add Machine's card shares its table with the Machines section (`addMachine.` keys only).
-      {
-        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
-        keys: (all) => all.filter((key) => key.startsWith("addMachine.")),
-      },
       // The server surfaces' own table (the menu bar panel, Health, pairing, Add Server); the app's
       // refusals (`refusal.*`) stay native.
       {

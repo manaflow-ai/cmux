@@ -1,5 +1,5 @@
 // The server card page's host: one floating glass panel (WebCardPanel.swift) that shows one card
-// per route (`#/add-machine`). The page measures its card and the panel takes that size in the same
+// per route (`#/add-server`). The page measures its card and the panel takes that size in the same
 // frame, growing downward from its top edge; the card's Cancel or Done closes the panel.
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import type { PageClient } from "../shared/pageClient";
@@ -13,7 +13,7 @@ export const CardOps = {
   commands: "cmux.card.commands",
 } as const;
 
-/** The card a hash names (`#/add-machine` → `add-machine`), or null. */
+/** The card a hash names (`#/add-server` → `add-server`), or null. */
 export function cardOfHash(hash: string): string | null {
   const match = /^#\/([a-z0-9-]+)/.exec(hash);
   return match ? match[1]! : null;
