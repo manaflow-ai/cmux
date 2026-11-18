@@ -10,10 +10,10 @@ public nonisolated struct SelectionSetting: Sendable {
 
     /// A missing key is the default with no diagnostic; a bad value is the default plus a diagnostic.
     func parse(_ root: JSONValue) -> (ThemeSelection, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
+        guard let value = root.value(at: Self.configPath) else { return (Self.fallback, nil) }
         guard let text = value.stringValue, let selection = ThemeSelection(rawValue: text) else {
             let choices = ThemeSelection.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "appearance.selection", message: "expected one of \(choices)"))
+            return (Self.fallback, SettingsDiagnostic(kind: .invalidValue, path: "appearance.selection", message: "expected one of \(choices)"))
         }
         return (selection, nil)
     }
