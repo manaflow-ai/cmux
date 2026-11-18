@@ -99,9 +99,14 @@ extension PaneLayoutCommitTests {
 
         _ = try #require(harness.model.showPaneClose("p1"), "set-up: the model left p1's close to the daemon's tree")
         try #require(harness.model.focusedPane == "p2", "set-up: the close gave the focus to \(String(describing: harness.model.focusedPane))")
+        // The key's turn holds its presentations only where the root runs frames. Elsewhere the change shows in its own
+        // turn with no hold, no ask is held, and this test would pass with nothing to prove.
+        try #require(harness.root.isLive && harness.root.driver.isAttached, "set-up: the root runs no frames: the key's turn takes no hold")
+        let asked = harness.root.driver.startRequests
         harness.root.syncWithModelForNextFrame()
         try #require(!screen.hasMotion && !screen.frameInput.snapWaitsForContent,
                      "set-up: a frame tick follows the key's turn: a camera moves, or a pane changed its size")
+        #expect(harness.root.driver.startRequests == asked, "the key's turn asked for a display frame")
         #expect(closed.isHidden, "the key's turn, which no frame tick follows, still shows the closed pane")
         #expect(next.chromeInputs?.focused == true && next.chromeInputs?.dim == 0,
                 "the turn that hides the closed pane did not give the pane that gets the focus its look: dim \(String(describing: next.chromeInputs?.dim))")

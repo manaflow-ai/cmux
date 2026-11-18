@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PlacedHeightIndex, type GapBetween } from "./placedHeightIndex";
+import { PlacedHeightIndex, placedIndexStats, type GapBetween } from "./placedHeightIndex";
 
 /// placeRows' left-to-right walk: a drawn row's gap comes from the nearest drawn row above it.
 function sequential(heights: readonly number[], marks: readonly number[], between: GapBetween) {
@@ -202,5 +202,43 @@ describe("PlacedHeightIndex", () => {
     expect([...index.materializeTops()]).toEqual([0, 0, 10, 13, 28]);
     expect(index.totalHeight).toBe(38);
     expect(index.lastMarks).toEqual({ last: 0, beforeLast: 0 });
+  });
+});
+
+describe("PlacedHeightIndex rows in view", () => {
+  const between: GapBetween = (before, next) => ((before + next) % 4) + 1;
+  const count = 35_000;
+  const heights = Array.from({ length: count }, (_, index) => (index % 11 === 0 ? 0 : 20 + (index % 9)));
+  const marks = Array.from({ length: count }, (_, index) => (index * 7) % 5);
+
+  test("the rows in view share one prefix walk per leaf, however long the chat", () => {
+    const god = PlacedHeightIndex.fromRows(heights, marks, undefined, { between });
+    const { tops } = sequential(heights, marks, between);
+    // A frame draws every mounted row: its top and the gap under it (VirtualTranscript drawRowFrames).
+    const first = 34_900;
+    const walks = placedIndexStats.prefixWalks;
+    for (let at = first; at < first + 60; at += 1) {
+      expect(god.topAt(at)).toBeCloseTo(tops[at]!, 6);
+      god.gapAt(at + 1);
+    }
+    // 60 rows span at most two leaves of 64.
+    expect(placedIndexStats.prefixWalks - walks).toBeLessThanOrEqual(2);
+  });
+
+  test("a leaf's shared walk answers the same as a walk of its own, and a new snapshot walks again", () => {
+    const base = PlacedHeightIndex.fromRows(heights, marks, undefined, { between });
+    const asked = Array.from({ length: 200 }, (_, offset) => 20_000 + offset * 3);
+    const together = asked.map((at) => [base.topAt(at), base.gapAt(at)]);
+    for (const [slot, at] of asked.entries()) {
+      const alone = PlacedHeightIndex.fromRows(heights, marks, undefined, { between });
+      expect([alone.topAt(at), alone.gapAt(at)]).toEqual(together[slot]!);
+    }
+    // The next snapshot (a streamed token grows the last row) is another tree: nothing is kept from this one.
+    const next = base.update(count - 1, 99, marks[count - 1]);
+    const before = base.topAt(count - 1);
+    const walks = placedIndexStats.prefixWalks;
+    const after = next.topAt(count - 1);
+    expect(after).toBeGreaterThan(before - 1);
+    expect(placedIndexStats.prefixWalks - walks).toBe(1);
   });
 });

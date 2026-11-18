@@ -133,14 +133,22 @@ struct DensityControlsProportionTests {
             let font = try #require(bar.field.font)
             #expect(font.capHeight <= field.height)
             #expect(bar.bounds.contains(bar.chip.frame))
-            for control in [bar.chip, bar.starButton] as [NSView] {
-                control.layoutSubtreeIfNeeded()
-                let side = min(control.bounds.width, control.bounds.height)
-                #expect(control.layer?.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: side))
-                #expect((control.layer?.cornerRadius ?? side) < side / 2)
-                for image in control.subviews.compactMap({ $0 as? NSImageView }) {
-                    #expect(control.bounds.contains(image.frame))
-                }
+            bar.chip.layoutSubtreeIfNeeded()
+            let chipSide = min(bar.chip.bounds.width, bar.chip.bounds.height)
+            #expect(bar.chip.layer?.cornerRadius == Metrics.buttonCornerRadius(proportionalTo: chipSide))
+            #expect((bar.chip.layer?.cornerRadius ?? chipSide) < chipSide / 2)
+            for image in bar.chip.subviews.compactMap({ $0 as? NSImageView }) {
+                #expect(bar.chip.bounds.contains(image.frame))
+            }
+            // The star's plate is Helium's, a quarter of its side round (Lucas 2026-11-18: "match it 1:1"), and its glyph's
+            // ink stays inside it; the glyph's clear margin may pass it.
+            let star = bar.starButton
+            star.layoutSubtreeIfNeeded()
+            let starSide = min(star.bounds.width, star.bounds.height)
+            #expect(star.layer?.cornerRadius == OmnibarStyle.starPlateCornerRadius(side: starSide))
+            for image in star.subviews.compactMap({ $0 as? NSImageView }) {
+                let inset = image.frame.height * (1 - OmnibarMetrics.starInkRatio) / 2
+                #expect(star.bounds.contains(image.frame.insetBy(dx: inset, dy: inset)), "\(preset): the star's ink passes its plate")
             }
             if !bar.starButton.isHidden {
                 #expect(field.maxX <= bar.convert(bar.starButton.bounds, from: bar.starButton).minX)
