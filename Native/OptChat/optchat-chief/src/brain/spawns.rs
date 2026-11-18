@@ -1115,6 +1115,15 @@ impl Brain {
         // Idle before its prompt started (a new session is ready first); the
         // tick settles one that stays idle with no turn end (#7).
         let Some(last_end) = last_end else { return };
+        // Codex under its goal (goal.rs) ends a turn and starts the next by
+        // itself while the goal is active: that idle is not its end. One quiet
+        // for QUIET_AFTER since (the tick reads it then) reports after all.
+        if !cancelled
+            && super::children::goal_goes_on(&events, self.now(), super::control::QUIET_AFTER)
+        {
+            self.trace.emit("subagent.goal_goes_on", json!({"id": id}));
+            return;
+        }
         self.trace_sub_events(id, &events, floor);
         let report = report_of(&replies, cancelled);
         self.sub_done(id, report, cancelled, Some(last_end), Some(&events));

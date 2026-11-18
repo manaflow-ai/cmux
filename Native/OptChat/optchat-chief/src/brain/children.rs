@@ -546,6 +546,25 @@ pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>
     (replies, last_end, cancelled)
 }
 
+/// Whether the session's goal is still active in `events` (the last
+/// `session_info_update` `_meta.goal` has status `active`) and its last event
+/// is younger than `quiet` at `now` (one with no time counts as young). Codex
+/// keeps working toward an active goal in turns it starts itself (codex-acp
+/// 1.10.0), so a turn end then is not the subagent's end.
+pub(super) fn goal_goes_on(events: &[AcpmuxEvent], now: u64, quiet: std::time::Duration) -> bool {
+    let active = events
+        .iter()
+        .rev()
+        .find_map(|e| e.msg.get("params")?.pointer("/update/_meta/goal"))
+        .is_some_and(|goal| goal.get("status").and_then(Value::as_str) == Some("active"));
+    let young = events
+        .iter()
+        .rev()
+        .find_map(|e| e.at)
+        .is_none_or(|at| now.saturating_sub(at) < quiet.as_millis() as u64);
+    active && young
+}
+
 /// A tool call of the session itself; a Task subagent's (`<acp>/<toolu>`
 /// session, or `_meta.acpmux.subagent`) is not the turn's.
 fn is_own_tool_call(event: &AcpmuxEvent) -> bool {
