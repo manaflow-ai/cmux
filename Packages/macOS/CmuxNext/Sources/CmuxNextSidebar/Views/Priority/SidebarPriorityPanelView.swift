@@ -19,11 +19,11 @@ final class SidebarPriorityPanelView: NSView {
     private let count = ChromeLabel(labelWithString: "")
     private let empty = ChromeLabel(labelWithString: Strings.priorityEmpty)
     private let scroll = OverlayScrollView()
-    private let clip = ScrollReportingClipView()
+    let clip = ScrollReportingClipView()
     private lazy var fade = ScrollEdgeFadeView(scrollView: scroll)
-    private let document = FlippedDocument()
+    let document = FlippedDocument()
     /// The drawn rows (`drawnIndices`), never one per chat.
-    private(set) var rows: [String: SidebarPriorityRowView] = [:]
+    var rows: [String: SidebarPriorityRowView] = [:]
     /// Rows that left and still close their slot; they go when their move ends. They take no clicks
     /// (`FlippedDocument.hitTest`), so a right-click there opens no menu for a chat that left.
     private var closing: [SidebarPriorityRowView] = []
@@ -31,36 +31,26 @@ final class SidebarPriorityPanelView: NSView {
     /// slot the placement whose end unclips it: a row whose slot changes again while it opens keeps
     /// clipping until the later move ends, as the main list's `opens` count does.
     private var placement = 0
-    private var opensUntil: [ObjectIdentifier: Int] = [:]
+    var opensUntil: [ObjectIdentifier: Int] = [:]
     /// Drawn rows ranked out of view, still sliding to their place: they go when the last move ends.
-    private var slidingOut: Set<String> = []
+    var slidingOut: Set<String> = []
     private(set) var panel = SidebarPriorityPanel(entries: []) { didSet { reindex() } }
     /// Each row's top in rank order, then the rows' full height: `panel.entries[i]` spans `tops[i]..<tops[i + 1]`.
-    private var tops: [CGFloat] = [0]
+    var tops: [CGFloat] = [0]
     /// Each listed chat's place in `panel.entries`.
-    private var places: [String: Int] = [:]
+    var places: [String: Int] = [:]
     /// `tops` and `places` at the last placement: a chat that ranks into view slides in from where it was.
     private var placed: (tops: [CGFloat], places: [String: Int]) = ([0], [:])
     /// The panel's row work, for the count tests (`SidebarPriorityRenderCountTests`).
-    struct Counts: Equatable {
-        /// Row views made (a row coming into view).
-        var made = 0
-        /// Row configures, a new row's own included.
-        var configured = 0
-        /// Row frames set (placed, moved or landed).
-        var framed = 0
-        /// Rows a clock tick redrew (their working time read differently).
-        var ticked = 0
-    }
-    private(set) var counts = Counts()
+    var counts = Counts()
     /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise.
-    private let ticker = DemandTimer(owner: "sidebar-priority-minute")
+    let ticker = DemandTimer(owner: "sidebar-priority-minute")
     private(set) var draggingID: String?
     /// The scroll position when the held row's drag began: scrolling while holding a row moves the
     /// pointer through the document, so the drag adds it to the pointer's window offset.
     private var dragScrollStart: CGFloat?
     /// The held row's last pointer offset (window points): a scroll with the pointer still moves the row again.
-    private var dragPointerOffset: CGFloat = 0
+    var dragPointerOffset: CGFloat = 0
     /// Whether the left button is held now (`endReleasedGesture`). Tests inject an answer.
     var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     /// Frames while a held row's pointer is in the list's top or bottom edge zone; idle otherwise
@@ -135,7 +125,7 @@ final class SidebarPriorityPanelView: NSView {
     /// into view slides in from its old place; a drawn row that ranks out of view slides there and goes when
     /// its move ends. A row already at its slot is not set again. With motion off (the master switch, the
     /// sidebar switch, speed "off", Reduce Motion) all of it lands at once.
-    private func placeRows(animated: Bool) {
+    func placeRows(animated: Bool) {
         let width = scroll.contentView.bounds.width
         let moves = animated && Motion.sidebar.animatesMovement(in: window)
         var targets: [(SidebarPriorityRowView, NSRect)] = [], opening: [(SidebarPriorityRowView, NSRect)] = []
@@ -144,8 +134,7 @@ final class SidebarPriorityPanelView: NSView {
         // Only drawn rows can leave: visit those, not every chat.
         for (id, row) in rows.sorted(by: { $0.value.frame.minY < $1.value.frame.minY }) {
             guard places[id] == nil, rows.removeValue(forKey: id) != nil else { runTop = nil; continue }
-            let frame = row.frame
-            let top = runTop ?? frame.minY
+            let frame = row.frame, top = runTop ?? row.frame.minY
             runTop = top
             row.onAction = nil
             row.onDrag = nil
@@ -163,10 +152,7 @@ final class SidebarPriorityPanelView: NSView {
             let frame = slotFrame(index, width: width)
             kept.insert(entry.id)
             if let row = rows[entry.id] {
-                if row.entry != entry {
-                    row.configure(entry)
-                    counts.configured += 1
-                }
+                if row.entry != entry { row.configure(entry); counts.configured += 1 }
                 targets.append((row, frame))
                 runTop = nil
             } else if let was = placed.places[entry.id], was + 1 < placed.tops.count {
@@ -256,129 +242,17 @@ final class SidebarPriorityPanelView: NSView {
         })
     }
 
-    /// The row is whole at `frame` with no move in flight, so landing it there again changes nothing.
-    private static func landed(_ row: SidebarPriorityRowView, at frame: NSRect) -> Bool {
-        row.slot == frame && row.frame == frame && row.alphaValue == 1 && !row.clipsToBounds
-            && (row.layer?.animationKeys()?.isEmpty ?? true)
-    }
-
-    /// The rows to draw in rank order: those in the clip and one viewport above and below (`drawnRange`), and
-    /// the held and the focused row wherever they are (a drag or the keyboard keeps its row).
-    private func drawnIndices() -> [Int] {
-        let range = drawnRange()
-        let focused = (window?.firstResponder as? SidebarPriorityRowView).flatMap { $0.superview === document ? $0.entry.id : nil }
-        let extra = Set([draggingID, focused].compactMap { $0.flatMap { places[$0] } }.filter { !range.contains($0) })
-        guard !extra.isEmpty else { return Array(range) }
-        return (Array(range) + extra).sorted()
-    }
-
-    /// The rows in the clip's bounds and one viewport above and below; none while folded. Before the clip has a
-    /// height (a panel shown before its first layout) the panel's own body stands in for it.
-    private func drawnRange() -> Range<Int> {
-        guard !panel.collapsed, !panel.entries.isEmpty else { return 0..<0 }
-        let visible = clip.bounds
-        let height = visible.height > 0 ? visible.height : max(0, bounds.height - headerHeight)
-        guard height > 0 else { return 0..<0 }
-        let lower = row(below: visible.minY - height)
-        let upper = min(panel.entries.count, row(below: visible.minY + 2 * height) + 1)
-        return lower..<max(lower, upper)
-    }
-
-    /// The first row whose bottom is below `y` (`entries.count` past the last): a search of `tops`, not a walk.
-    private func row(below y: CGFloat) -> Int {
-        var low = 0, high = panel.entries.count
-        while low < high {
-            let mid = (low + high) / 2
-            if tops[mid + 1] <= y { low = mid + 1 } else { high = mid }
-        }
-        return low
-    }
-
-    private func slotFrame(_ index: Int, width: CGFloat) -> NSRect {
-        NSRect(x: 0, y: tops[index], width: width, height: tops[index + 1] - tops[index])
-    }
-
-    /// `tops` and `places` for `panel.entries`: four row heights at the current type sizes, not a measure per chat.
-    private func reindex() {
-        let heights = [false, true].flatMap { preview in
-            [false, true].map { SidebarPriorityRowView.height(hasPreview: preview, answerable: $0) }
-        }
-        var tops: [CGFloat] = [], places: [String: Int] = [:]
-        tops.reserveCapacity(panel.entries.count + 1)
-        places.reserveCapacity(panel.entries.count)
-        var y: CGFloat = 0
-        for (index, entry) in panel.entries.enumerated() {
-            tops.append(y)
-            places[entry.id] = index
-            y += heights[(entry.preview != nil ? 2 : 0) + (entry.answerable ? 1 : 0)]
-        }
-        tops.append(y)
-        self.tops = tops
-        self.places = places
-    }
-
-    /// After a scroll or a resize: the rows that came into the drawn range get views at their slots, and those
-    /// that left it go. The rows still drawn are not touched.
-    private func realizeDrawnRows() {
-        let width = scroll.contentView.bounds.width
-        guard document.frame.width == width else { return placeRows(animated: false) }
-        var kept = Set<String>()
-        for index in drawnIndices() {
-            let entry = panel.entries[index]
-            kept.insert(entry.id)
-            guard rows[entry.id] == nil else { continue }
-            let row = mount(entry), frame = slotFrame(index, width: width)
-            row.frame = frame
-            row.slot = frame
-            counts.framed += 1
-        }
-        for id in rows.keys where !kept.contains(id) && !slidingOut.contains(id) { unmount(id) }
-    }
-
-    /// A view for `entry`'s row in the document.
-    private func mount(_ entry: SidebarPriorityEntry) -> SidebarPriorityRowView {
-        let row = SidebarPriorityRowView(entry: entry)
-        counts.made += 1
-        counts.configured += 1
-        row.onAction = { [weak self] action in self?.onAction?(action) }
-        row.onMove = { [weak self, weak row] direction in
-            guard let self, let row else { return }
-            self.move(row.entry.id, direction: direction)
-        }
-        row.onDrag = { [weak self] row, offset, ended in self?.drag(row, offset: offset, ended: ended) }
-        document.addSubview(row)
-        rows[entry.id] = row
-        return row
-    }
-
-    /// Takes `id`'s row out of the document: it left the drawn range.
-    private func unmount(_ id: String) {
-        guard let row = rows.removeValue(forKey: id) else { return }
-        row.onAction = nil
-        row.onDrag = nil
-        row.onMove = nil
-        opensUntil[ObjectIdentifier(row)] = nil
-        row.removeFromSuperview()
-    }
-
     /// The row follows the pointer over the others; released, it takes the slot its middle is in
     /// (past the middle of a row it passed), the view shows that order at once and the App keeps it.
     /// A drop back in its own slot changes nothing.
-    private func drag(_ row: SidebarPriorityRowView, offset: CGFloat, ended: Bool) {
+    func drag(_ row: SidebarPriorityRowView, offset: CGFloat, ended: Bool) {
         guard let from = places[row.entry.id], from < panel.entries.count, panel.entries[from].id == row.entry.id else { return }
         let top = tops[from], height = tops[from + 1] - top, total = tops.last ?? 0
         let scrollY = scroll.contentView.bounds.origin.y
         let scrollStart = dragScrollStart ?? scrollY
         let offset = offset + scrollY - scrollStart
         let middle = top + height / 2 + offset
-        // The slot: the other rows whose middle is above the held row's. The middles rise in rank order, so a
-        // search of `tops` finds them, not a walk of every chat.
-        var low = 0, high = panel.entries.count
-        while low < high {
-            let mid = (low + high) / 2
-            if (tops[mid] + tops[mid + 1]) / 2 < middle { low = mid + 1 } else { high = mid }
-        }
-        let slot = low - (top + height / 2 < middle ? 1 : 0)
+        let slot = dropSlot(from: from, middle: middle)
         guard ended else {
             draggingID = row.entry.id
             dragScrollStart = scrollStart
@@ -440,14 +314,6 @@ final class SidebarPriorityPanelView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil { endPointerGesture() }
-    }
-
-    /// The scroll moved: the rows it revealed come and those it left go, and a held row follows it, as a
-    /// pointer move would.
-    private func clipScrolled() {
-        realizeDrawnRows()
-        guard let id = draggingID, let row = rows[id] else { return }
-        drag(row, offset: dragPointerOffset, ended: false)
     }
 
     /// Ends a held row or a pending press: a drag goes back to its slot, and a press opens nothing on its release.
@@ -525,22 +391,6 @@ final class SidebarPriorityPanelView: NSView {
         onAction?(.place(id, order: order.map(\.id)))
     }
 
-    /// A chip says minutes: one redraw a minute while a row works, none otherwise.
-    private func updateTicker() {
-        let working = !panel.collapsed && panel.entries.contains { if case .working = $0.state { true } else { false } }
-        guard working else { return ticker.cancel() }
-        ticker.scheduleIfIdle(after: .seconds(60)) { @MainActor [weak self] in
-            guard let self else { return }
-            self.tick(now: Date())
-            self.updateTicker()
-        }
-    }
-
-    /// Redraws the drawn rows whose working time reads differently at `now`; the others are not touched.
-    func tick(now: Date) {
-        for row in rows.values where row.tick(now: now) { counts.ticked += 1 }
-    }
-
     override func layout() {
         super.layout()
         let b = bounds, inset = SidebarStyle.horizontalInset
@@ -569,7 +419,7 @@ final class SidebarPriorityPanelView: NSView {
 
     /// Rows lay out top down. A row `passesThrough` says takes no clicks: the row under it (or the
     /// document) gets them.
-    private final class FlippedDocument: NSView {
+    final class FlippedDocument: NSView {
         var passesThrough: (NSView) -> Bool = { _ in false }
 
         nonisolated override var isFlipped: Bool { true }
@@ -583,23 +433,5 @@ final class SidebarPriorityPanelView: NSView {
             }
             return self
         }
-    }
-}
-
-/// The Priority view's clip view: it reports each scroll (a wheel, a scroller drag, a programmatic scroll) so a held
-/// row can follow the document, and each resize, so the rows drawn follow the viewport.
-final class ScrollReportingClipView: NSClipView {
-    var onScroll: (() -> Void)?
-    var onResize: (() -> Void)?
-
-    override func setFrameSize(_ newSize: NSSize) {
-        let changed = newSize != frame.size
-        super.setFrameSize(newSize)
-        if changed { onResize?() }
-    }
-
-    override func scroll(to newOrigin: NSPoint) {
-        setBoundsOrigin(newOrigin)
-        onScroll?()
     }
 }
