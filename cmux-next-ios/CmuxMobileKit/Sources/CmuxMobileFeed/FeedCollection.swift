@@ -151,6 +151,16 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private var everShown: Set<String> = []
     /// Snapshots applied (tests and the rig read it).
     private(set) var applyCount = 0
+    /// Event rows whose height the table asked for (`heightForRowAt`).
+    private(set) var heightQueries = 0
+    /// Row layouts built (`FeedRowLayout.make`), on the main thread or off it.
+    private(set) var rowsLaidOut = 0
+    /// Event rows handed to a snapshot's `reconfigureItems`.
+    private(set) var rowsReconfigured = 0
+    /// Event cells the cell provider bound to a layout.
+    private(set) var cellsConfigured = 0
+    /// A snapshot or a layout batch is still on its way (tests wait for it).
+    var hasPendingWork: Bool { applyScheduled || batchInFlight }
 
     init(context: FeedRowContext, swipe: FeedSwipeCoordinator, control: FeedListControl) {
         self.context = context
@@ -211,6 +221,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                 let cell = tableView.dequeueReusableCell(withIdentifier: FeedRowCell.reuseID, for: indexPath)
                 guard let self, let row = cell as? FeedRowCell, let layout = self.layout(for: id) else { return cell }
                 row.delegate = self
+                self.cellsConfigured += 1
                 row.apply(layout, item: self.items[id], settled: self.rowsSettled)
                 return row
             }
@@ -318,8 +329,13 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private func layout(for id: String) -> FeedRowLayout? {
         guard let item = items[id] else { return nil }
         let key = key(for: item)
-        let styles = styles, scale = scale
-        return layouts.value(for: key) { FeedRowLayout.make(key, styles: styles, scale: scale) }
+        return layouts.value(for: key) { makeLayout(key) }
+    }
+
+    /// Builds one row's layout on the main thread.
+    private func makeLayout(_ key: FeedRowKey) -> FeedRowLayout {
+        rowsLaidOut += 1
+        return FeedRowLayout.make(key, styles: styles, scale: scale)
     }
 
     private func applyPending() {
@@ -370,8 +386,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         if !missing.isEmpty {
             if shownOrder.isEmpty {
                 // The first screen at once; the rest follow.
-                let styles = styles, scale = scale
-                for key in missing.prefix(10) { layouts.store(FeedRowLayout.make(key, styles: styles, scale: scale), for: key) }
+                for key in missing.prefix(10) { layouts.store(makeLayout(key), for: key) }
             }
             let still = keys.filter { !unchanged.contains($0.0) && layouts.cached($0.1) == nil }.map(\.1)
             if !still.isEmpty { computeInBackground(still) }
@@ -387,6 +402,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private func computeInBackground(_ keys: [FeedRowKey]) {
         guard !batchInFlight else { return }
         batchInFlight = true
+        rowsLaidOut += keys.count
         let styles = styles, scale = scale
         queue.async { [weak self] in
             let built = keys.map { FeedRowLayout.make($0, styles: styles, scale: scale) }
@@ -463,6 +479,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         // relayout's list may name rows the snapshot just removed.
         let reconfigure = plan.orderChanged ? plan.reconfigure.filter { shownSet.contains($0) && previousSet.contains($0) } : plan.reconfigure
         if !reconfigure.isEmpty { snapshot.reconfigureItems(reconfigure) }
+        rowsReconfigured += reconfigure.count
         applyCount += 1
         UIView.performWithoutAnimation {
             dataSource.apply(snapshot, animatingDifferences: false)
@@ -612,10 +629,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         let pendingItems = pending ?? shownOrder.compactMap { items[$0] }
         pending = pendingItems
         let keys = pendingItems.map { key(for: $0) }
-        let styles = styles, scale = scale
         let visible = Set(collectionView?.indexPathsForVisibleRows?.compactMap { dataSource?.itemIdentifier(for: $0) } ?? [])
         for key in keys where visible.contains(key.item.id) || (visible.isEmpty && keys.firstIndex(of: key).map { $0 < 10 } == true) {
-            layouts.store(FeedRowLayout.make(key, styles: styles, scale: scale), for: key)
+            layouts.store(makeLayout(key), for: key)
         }
         relayingOut = !shownOrder.isEmpty
         // Off the layout pass (this runs from layoutSubviews and trait changes).
@@ -650,7 +666,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         for id in present {
             guard let item = items[id] else { continue }
             let key = key(for: item)
-            if layouts.cached(key) == nil { layouts.store(FeedRowLayout.make(key, styles: styles, scale: scale), for: key) }
+            if layouts.cached(key) == nil { layouts.store(makeLayout(key), for: key) }
             keys[id] = key
         }
         // A row the person toggled keeps its top where it is, so what they read does not move: anchoring
@@ -666,6 +682,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         }
         var snapshot = dataSource.snapshot()
         snapshot.reconfigureItems(present)
+        rowsReconfigured += present.count
         // One batch update reconfigures the rows and reads their new heights; animated, the table moves
         // the rows to them (Reduce Motion: at once).
         let animate = animated && !UIAccessibility.isReduceMotionEnabled
@@ -826,6 +843,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     /// Exact heights: the header's measured height, each row's from its layout.
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         guard indexPath.section != 0 else { return headerHeight }
+        heightQueries += 1
         guard let id = dataSource?.itemIdentifier(for: indexPath) else { return 1 }
         return shownHeights[id] ?? 1
     }
@@ -998,7 +1016,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         states[id] = state
         // Only a new line count changes the row; otherwise the field grows nothing.
         guard let item = items[id], let before, let old = layouts.cached(before) else { return refreshRows([id], animated: false) }
-        let layout = FeedRowLayout.make(key(for: item), styles: styles, scale: scale)
+        let layout = makeLayout(key(for: item))
         layouts.store(layout, for: layout.key)
         if abs(layout.height - old.height) > 0.25 || (layout.composer?.height != old.composer?.height) {
             refreshRows([id], animated: false)
