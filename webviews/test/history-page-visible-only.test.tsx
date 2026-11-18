@@ -188,9 +188,11 @@ test("Up and Down far past the window keep the focused row and reach the selecte
         new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
       );
     });
-  // TanStack scrolls to the selection in a frame of its own.
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
-  expect(host.querySelector<HTMLElement>("#history-list")!.scrollTop).toBeGreaterThan(600);
+  // TanStack scrolls to the selection in a frame of its own: yield frames until it has, at most 60.
+  const list = host.querySelector<HTMLElement>("#history-list")!;
+  for (let frame = 0; frame < 60 && list.scrollTop <= 600; frame++)
+    await act(async () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
+  expect(list.scrollTop).toBeGreaterThan(600);
   // The row that had focus is still in the page and still has it; the selection is 40 rows on.
   expect(first.isConnected).toBe(true);
   expect(dom.window.document.activeElement).toBe(first);
