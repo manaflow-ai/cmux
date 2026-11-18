@@ -17,13 +17,23 @@ declare global {
   }
 }
 
-const n = Number(new URLSearchParams(location.hash.slice(1)).get("n") ?? 1000);
+const params = new URLSearchParams(location.hash.slice(1));
+const n = Number(params.get("n") ?? 1000);
+// `#blank=1`: the middle line is empty, two lines are only spaces and tabs, and the text ends in a line end.
+const blank = params.get("blank") === "1";
 const ITEM = "fi_codex_edit";
-const diff = Array.from({ length: n }, (_, index) =>
-  index % 40 === 0
-    ? `@@ -${index},40 +${index},40 @@`
-    : `${index % 3 === 0 ? "+" : index % 3 === 1 ? "-" : " "}    let value${index} = compute(${index}) // ${"x".repeat(index % 50)}`,
-).join("\n");
+const diff =
+  Array.from({ length: n }, (_, index) =>
+    blank && index === Math.floor(n / 2)
+      ? ""
+      : blank && index === Math.floor(n / 3)
+        ? "   "
+        : blank && index === Math.floor((n * 2) / 3)
+          ? " \t "
+          : index % 40 === 0
+            ? `@@ -${index},40 +${index},40 @@`
+            : `${index % 3 === 0 ? "+" : index % 3 === 1 ? "-" : " "}    let value${index} = compute(${index}) // ${"x".repeat(index % 50)}`,
+  ).join("\n") + (blank ? "\n" : "");
 window.benchDiffText = diff;
 const items = sampleFeed(Date.now()).map((item) =>
   item.id === ITEM
