@@ -45,9 +45,24 @@ import Testing
 
     /// `top` over `bottom`.
     static func over(_ top: [Double], _ bottom: [Double]) -> [Double] {
-        let alpha = top[3] + bottom[3] * (1 - top[3])
+        let above: Double = top[3]
+        let below: Double = bottom[3] * (1 - above)
+        let alpha: Double = above + below
         guard alpha > 0 else { return [0, 0, 0, 0] }
-        return (0..<3).map { (top[$0] * top[3] + bottom[$0] * bottom[3] * (1 - top[3])) / alpha } + [alpha]
+        var mixed: [Double] = []
+        for index in 0..<3 {
+            let sum: Double = top[index] * above + bottom[index] * below
+            mixed.append(sum / alpha)
+        }
+        mixed.append(alpha)
+        return mixed
+    }
+
+    /// Each part of `a` is within `limit` of the same part of `b`.
+    static func near(_ a: [Double], _ b: [Double], within limit: Double) -> Bool {
+        guard a.count == b.count else { return false }
+        for index in a.indices where abs(a[index] - b[index]) >= limit { return false }
+        return true
     }
 
     /// The card's ground shape: the first layer of the card's surface, which is the card's last view.
@@ -72,8 +87,8 @@ import Testing
         let theme = GhosttyThemeConfig(config: config, themeName: "cmux-next-test",
                                        colors: GhosttyRuntime.themeColors(of: config, backgroundOpacity: 1))
         let want = Self.rgba(TerminalHostView.opaqueGround(theme))
-        try #require(zip(want, [0x20 / 255.0, 0x22 / 255.0, 0x28 / 255.0, 1]).allSatisfy { abs($0 - $1) < 0.01 },
-                     "SETUP: the theme's ground is \(want)")
+        let dark: [Double] = [Double(0x20) / 255, Double(0x22) / 255, Double(0x28) / 255, 1]
+        try #require(Self.near(want, dark, within: 0.01), "SETUP: the theme's ground is \(want)")
 
         let io = ScriptedTerminalIO()
         let session = TerminalSession(io: io)
@@ -132,7 +147,7 @@ import Testing
         }
 
         #expect(cardGround[3] > 0.99, "the card is not solid with the default look: its ground is \(cardGround)")
-        #expect(zip(shown, want).allSatisfy { abs($0 - $1) < 0.02 },
+        #expect(Self.near(shown, want, within: 0.02),
                 """
                 under the floating terminal's text the ground is \(shown), the terminal's own ground is \(want); \
                 the card's ground is \(cardGround); the grounds over it: \(grounds); \
