@@ -5,12 +5,12 @@ import CmuxNextTestSupport
 import QuartzCore
 import Testing
 
-/// A pane whose content is a page's picture (a page, a chat) rides its pane's move as each pane does, and its picture
-/// is never cut and never scaled on the way.
+/// A pane whose content is a page's picture (a browser page, a chat) rides its pane's move as each pane does, and its
+/// picture is never cut and never scaled on the way.
 ///
 /// A page draws in another process: its picture at a new size comes some display frames after its view takes that
 /// size, and until then its view shows the last picture at the old size, cut where the view is smaller. So content of
-/// this kind (the provider's rule `holdsContentInMotion`) takes no size in a frame that would cut its picture:
+/// this kind (`PaneCommitMotionPicture`) takes no size in a frame that would cut its picture:
 ///
 /// - A pane that gets smaller (the pane a split halves, the pane an unzoom gives its place back) keeps its content at
 ///   the size it had before the act from the frame that shows the act to the motion's end: the picture is whole under
@@ -18,20 +18,58 @@ import Testing
 /// - A second act that gives the pane its old size back resizes nothing: the content never left that size.
 ///
 /// The test is the clock (`PaneCommitMotionTests`): it steps the layout's frames itself and reads each size the
-/// content takes. It makes no page: the content is a plain view that records its sizes, so these rows hold the
-/// layout's part only. What a page's layer shows is not read here.
+/// content takes. It makes no page: each pane's content is a plain view that records its sizes, with a content area
+/// that a view of the pages' kind fills (``Picture``), so these rows hold the layout's part only. What a page's layer
+/// shows is not read here.
 @MainActor
 @Suite(.closesItsWindows) struct PaneContentRidesTests {
     typealias Commit = PaneLayoutCommitTests
     typealias Motion = PaneCommitMotionTests
 
-    /// One act, begun on panes whose content the provider holds, and what each content was before it.
+    /// A page's view as the app's are (a browser's chrome, a chat): it rides its pane's move and keeps its own
+    /// picture. It records each size it takes and each notice of a rest that it hears, in their order.
+    final class Picture: NSView, PaneCommitMotionPicture, PaneMotionTargeting, PaneMotionSettling {
+        private(set) var log: [String] = []
+        /// The size change of each `will rest` notice.
+        private(set) var rests: [CGSize] = []
+
+        override func setFrameSize(_ newSize: NSSize) {
+            if newSize != frame.size { log.append("size") }
+            super.setFrameSize(newSize)
+        }
+
+        func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
+            log.append("will rest")
+            rests.append(sizeChange)
+            return .top
+        }
+
+        func paneMotionDidSettle() { log.append("settled") }
+    }
+
+    /// Gives `content` what the app's pane content has: one content area that fills it, and in it a page's view that
+    /// fills the area.
+    static func showPicture(in content: NSView) -> Picture {
+        let area = PaneContentAreaView(frame: content.bounds)
+        area.autoresizingMask = [.width, .height]
+        let picture = Picture(frame: area.bounds)
+        picture.autoresizingMask = [.width, .height]
+        area.addSubview(picture)
+        content.addSubview(area)
+        return picture
+    }
+
+    /// One act, begun on panes that show a page's view, and what each content was before it.
     struct Begun {
         let motion: Motion.Begun
         /// How many sizes each pane's content had taken before the act.
         let sizes: [PaneID: Int]
         /// Each pane's content size before the act.
         let contents: [PaneID: CGSize]
+        /// The page's view of each pane that was there before the act.
+        let pictures: [PaneID: Picture]
+        /// How many sizes and notices each of them had in its log before the act.
+        let heard: [PaneID: Int]
 
         var harness: Commit.Harness { motion.harness }
         var screen: ScreenContentView { motion.screen }
@@ -43,14 +81,19 @@ import Testing
                 return rect.width < old.width - 1 || rect.height < old.height - 1 ? pane : nil
             }
         }
+
+        /// How many sizes `pane`'s content took from the act on.
+        func took(_ pane: PaneID) -> Int { (harness.provider.contents[pane]?.sizes.count ?? 0) - (sizes[pane] ?? 0) }
     }
 
     /// An unzoom gives the zoomed pane its place in the layout back: the pane gets smaller.
     nonisolated static let unzoom = PaneCommitMotionTests.Act(name: "unzoom", time: PaneCommitMotionTests.zoom.time)
-    /// The acts that make a pane smaller. A split to the left or up moves the old pane's origin too.
-    nonisolated static let shrinks = ["split right", "split down", "split left", "split up"].map {
+    /// A split to each side. A split to the left or up moves the old pane's origin too.
+    nonisolated static let splits = ["split right", "split down", "split left", "split up"].map {
         PaneCommitMotionTests.Act(name: $0, time: PaneCommitMotionTests.split.time)
-    } + [unzoom]
+    }
+    /// The acts that make a pane smaller.
+    nonisolated static let shrinks = splits + [unzoom]
     /// Each act that moves a pane.
     nonisolated static let moves = shrinks + [PaneCommitMotionTests.close, PaneCommitMotionTests.zoom]
 
@@ -76,17 +119,23 @@ import Testing
         }
     }
 
-    /// The screen rests at the layout before `act` with the pane animations on, then the act comes in its own turn
-    /// and the first display frame after it is stepped: the frame that shows the change.
-    static func begin(_ act: Motion.Act) throws -> Begun {
+    /// The screen rests at the layout before `act` with the pane animations on and a page's view in each pane, then
+    /// the act comes in its own turn and the first display frame after it is stepped: the frame that shows the change.
+    /// `off`: the motion is off, by "Reduce Motion" or by the pane animations setting (the caller sets that one).
+    static func begin(_ act: Motion.Act, off: String? = nil, focused: PaneID = Commit.left) throws -> Begun {
         let (before, after) = layouts(of: act)
         // An unzoom starts from a zoom the screen showed: the pane that zoom covered comes back, it is not made.
-        let harness = Commit.Harness(act.name == "unzoom" ? Commit.pair : before, focused: Commit.left, holds: true)
+        let harness = Commit.Harness(act.name == "unzoom" ? Commit.pair : before, focused: focused, holds: true)
         var begun = false
         defer { if !begun { harness.window.closeAfterTest() } }
-        Motion.movePanes(harness)
+        if let off {
+            harness.root.context.reduceMotionOverride = off == "Reduce Motion" ? true : nil
+        } else {
+            Motion.movePanes(harness)
+        }
+        Commit.rest(harness)
+        let pictures = harness.provider.contents.mapValues { showPicture(in: $0) }
         if act.name == "unzoom" {
-            Commit.rest(harness)
             harness.model.apply(screens: before)
             harness.root.syncWithModel()
         }
@@ -98,16 +147,19 @@ import Testing
         try #require(old.isShown(by: rested) && rested.misfits.isEmpty && !Motion.inFlight(screen),
                      "SETUP: the screen does not rest at the layout before the act: \(rested.panes)")
         let shown = Motion.hosts(of: screen)
+        try #require(shown.values.allSatisfy { $0.content.paneCommitMotionHolder is Picture },
+                     "SETUP: a pane's content does not show a page's view that fills its area")
         let was = shown.compactMapValues { $0.layer?.frame }
         let sizes = harness.provider.contents.mapValues { $0.sizes.count }
         let contents = shown.mapValues { $0.content.frame.size }
+        let heard = pictures.mapValues { $0.log.count }
         harness.model.apply(screens: after)
         let new = Commit.Rest(harness.model.screens, in: screen, style: style)
         harness.root.syncWithModel()
         let asks = harness.root.advanceFrame(Motion.dt)
         begun = true
         let motion = Motion.Begun(harness: harness, screen: screen, old: old, new: new, was: was, rings: [:], asks: asks)
-        return Begun(motion: motion, sizes: sizes, contents: contents)
+        return Begun(motion: motion, sizes: sizes, contents: contents, pictures: pictures, heard: heard)
     }
 
     static func near(_ a: CGSize, _ b: CGSize) -> Bool {
@@ -116,8 +168,8 @@ import Testing
 
     // MARK: Tests
 
-    /// A pane whose content the provider holds moves as each pane does: the frame that shows the act has the layout
-    /// after it as its model, and each pane whose rect changed has a move on its layer from where it showed.
+    /// A pane that shows a page's view moves as each pane does: the frame that shows the act has the layout after it
+    /// as its model, and each pane whose rect changed has a move on its layer from where it showed.
     @Test(arguments: moves)
     func aPaneWithHeldContentHasItsMoveOnItsLayer(_ act: Motion.Act) throws {
         let begun = try Self.begin(act)
@@ -149,7 +201,7 @@ import Testing
         let smaller = begun.smaller
         try #require(!smaller.isEmpty, "SETUP: the act makes no pane smaller")
         let contents = harness.provider.contents
-        func took(_ pane: PaneID) -> Int { (contents[pane]?.sizes.count ?? 0) - (begun.sizes[pane] ?? 0) }
+        func took(_ pane: PaneID) -> Int { begun.took(pane) }
 
         for pane in smaller {
             let content = try #require(contents[pane]), before = try #require(begun.contents[pane])
@@ -197,7 +249,7 @@ import Testing
         _ = Motion.toTheEnd(harness, screen)
         Commit.rest(harness)
 
-        let took = content.sizes.count - (begun.sizes[Commit.left] ?? 0)
+        let took = begun.took(Commit.left)
         #expect(took == 0, "a split and the close of its new pane resized the first pane's content \(took) times: \(content.sizes.suffix(took)); it never left \(before)")
         #expect(Self.near(content.frame.size, before), "after the two acts the first pane's content is \(content.frame.size); it was \(before)")
         let end = Commit.shown(screen)
@@ -220,7 +272,7 @@ import Testing
         _ = Motion.toTheEnd(harness, screen)
         Commit.rest(harness)
 
-        let took = content.sizes.count - (begun.sizes[Commit.left] ?? 0)
+        let took = begun.took(Commit.left)
         #expect(took == 1, "two splits of one pane resized its content \(took) times: \(content.sizes.suffix(took)); it takes the last size one time")
         let end = Commit.shown(screen)
         let final = try #require(Motion.hosts(of: screen)[Commit.left]?.contentRect.size, "the first pane does not show after the two acts")
