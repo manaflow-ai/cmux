@@ -1839,17 +1839,6 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
       return 26;
   }
 }
-/// Whether a call sends another agent a message (toolGroups.ts `SentEntry`): cheap checks first.
-const sendsMessage = (tool: NonNullable<AcpmuxActivity["tool"]>): boolean =>
-  Boolean(
-    agentMessage(tool) ||
-    acpmuxSendCalls(tool) ||
-    acpmuxMcpSends(tool) ||
-    (() => {
-      const mcp = mcpCall(tool);
-      return mcp !== undefined && subsessionCall(tool, mcp)?.tool === "send";
-    })(),
-  );
 /// A folded run's lines as ToolRows draws them (TurnRows.tsx, toolGroups.ts `runStretches`): the
 /// work between coordination cards folds under one summary line per stretch, and every card the run
 /// keeps in sight is its own row. A run of agent-to-agent messages ("Sent to lane-a", a command,
@@ -2437,17 +2426,11 @@ function fallbackRowHeight(
       if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items))
         return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width, sessionId));
     }
-    let steps = items.length
-      ? items.reduce((height, item) => height + activityStepHeight(item, width), 0)
-      : toolRowHeight();
-    // Adjacent calls that each sent a message draw as one closed group's line (toolGroups.ts
-    // `sendGroup`), not a line per call. One call's batch is one step already.
-    if (items.filter((item) => item.tool && sendsMessage(item.tool)).length > 1)
-      for (const group of toolGroups(items))
-        if (group.type === "sendGroup" && group.items.length > 1)
-          steps +=
-            messageRowHeight(true) - group.items.reduce((height, item) => height + activityStepHeight(item, width), 0);
-    return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
+    if (!items.length) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + toolRowHeight());
+    // Any other row draws its entries as ToolRows does (TurnRows.tsx): one node per group, so a run of
+    // commands is one "Ran N commands" group, open by default in its scroll box (`openRunBody`), not a
+    // line per call (Leo, 2026-11-17: a gap under the row, and rows shifting when it was measured).
+    return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, toolGroups(items), width, sessionId));
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
   // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
@@ -3969,8 +3952,6 @@ import { runStretches, staysInSight, stretchStart, toolGroups, type ToolGroup } 
 import { callDisclosureKeys, disclosureOpen } from "./conversation/transcriptDisclosureModel";
 import { groupDisclosureKey, runDisclosureKey, runLinks } from "./conversation/turnRowsModel";
 import { runScroll } from "./conversation/runScroll.experiment";
-import { acpmuxSendCalls } from "./conversation/acpmuxSends";
-import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
