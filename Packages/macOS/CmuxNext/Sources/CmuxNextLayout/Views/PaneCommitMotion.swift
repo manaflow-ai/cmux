@@ -209,7 +209,8 @@ final class PaneCommitMotion {
         let last = taken
         taken = nil
         guard let act = armed.act, moves(on: screen) else {
-            MotionTrace.note("layout.commit: one frame (an act that moves: \(armed.act != nil), the panes move at a commit: \(moves(on: screen)))")
+            // Only an act gets a note: a change of no act is not a move that did not come, and a record has few places.
+            if let act = armed.act { MotionTrace.note("layout.commit: \(act) in one frame (the panes move at a commit: false)") }
             finish()
             return nil
         }
