@@ -256,6 +256,9 @@ await requireBrowserLane("transcript-scroll-frame-renders.test.ts", async () => 
         // mount, its measure).
         expect(transcript, "TranscriptView renders").toBeLessThanOrEqual(3 * run.windowChanges);
         expect(rows.rerendered + rows.added, "rows that rendered").toBeLessThanOrEqual(2 * run.entered);
+        // A row that was mounted already renders again only when its DOM changes (a measured neighbour
+        // moves its top); when every frame rendered, 5 rows redrew to the same DOM.
+        expect(rows.wasted, "mounted rows that rendered to the same DOM").toBeLessThanOrEqual(1);
         expect(fibers.counts.RowFrame ?? 0, "RowFrame renders").toBeLessThanOrEqual(3 * run.entered + 2);
       });
     });
