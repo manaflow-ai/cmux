@@ -17,6 +17,7 @@ export type LinkReposLabels = {
   more: string;
   link: string;
   linking: string;
+  refresh: string;
   view: string;
   unlink: string;
   unlinking: string;
@@ -176,7 +177,8 @@ function RepoList({ login, avatarUrl, labels }: { login: string; avatarUrl?: str
       return;
     }
     setOutcome({ kind: "result", repo: repo.fullName, result: answer.value });
-    update(repo.fullName, { page: answer.value.page, community: answer.value.status === "linked" });
+    // A problem keeps the page hidden, so the row offers Link again rather than a page that 404s.
+    if (!answer.value.problem) update(repo.fullName, { page: answer.value.page, community: answer.value.status === "linked" });
   };
 
   const unlinkRepo = async (repo: LinkRepo) => {
@@ -277,7 +279,7 @@ function RepoRow({
             className={BUTTON_PRIMARY}
             style={{ color: "var(--background)" }}
           >
-            {working && !repo.page ? labels.linking : labels.link}
+            {working ? labels.linking : repo.page ? labels.refresh : labels.link}
           </button>
         ) : null}
       </div>
