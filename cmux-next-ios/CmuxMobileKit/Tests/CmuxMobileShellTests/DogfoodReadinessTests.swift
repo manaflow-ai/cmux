@@ -25,6 +25,9 @@ import Testing
         #expect(readiness(["CMUX_MOBILE_STACK_EMAIL": "a@b.c"]).sessionSource == "auto_login")
         #expect(readiness(["CMUX_MOBILE_STACK_EMAIL": ""]).sessionSource == "restored")
         #expect(readiness([:]).sessionSource == "restored")
+        // A fleet step's own session (cmux-ci run --sign-in agent): a refresh token, no password.
+        #expect(readiness(["CMUX_MOBILE_STACK_REFRESH_TOKEN": "rt"]).sessionSource == "auto_login")
+        #expect(readiness(["CMUX_MOBILE_STACK_REFRESH_TOKEN": ""]).sessionSource == "restored")
     }
 
     @Test func devTagDropsTheBundleDot() {

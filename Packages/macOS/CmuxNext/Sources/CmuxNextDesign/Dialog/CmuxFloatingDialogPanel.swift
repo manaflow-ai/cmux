@@ -18,6 +18,23 @@ open class CmuxFloatingDialogPanel: NSPanel {
     /// How far the card sits from the screen's visible top and trailing edges.
     public static var screenMargin: CGFloat { Metrics.space5 }
 
+    /// The window the card shows over, top center (a card the person opened from it: app health); nil: the top
+    /// right of the main screen (a prompt over every app).
+    public var anchor: (@MainActor () -> NSWindow?)?
+    /// Whether showing gives the card the keyboard (a card the person opened by a click, so Escape and Return work
+    /// at once); a prompt that comes on its own never takes it.
+    public var takesKeyboardOnShow = false
+    /// Whether the card goes away when the person works elsewhere (it stops being key): a card the person
+    /// opened, as a popover does. A prompt waits for its answer.
+    public var hidesWhenInactive = false
+    /// Called when the card goes away (answered, Escape, or the person worked elsewhere).
+    public var onHide: (@MainActor () -> Void)?
+    /// SECURITY: answers the card's ``CmuxDialogButton/personOnly`` buttons (Confirm on a pairing card): only the
+    /// person's own click on one, read from this panel's dispatch (``CmuxDialogPersonClick``), calls
+    /// ``onPersonPress`` with its id. Nil: the card has none.
+    public var personOnlyClick: CmuxDialogPersonClick?
+    public var onPersonPress: (@MainActor (String) -> Void)?
+
     /// The view shown now (the card, or a host's view that holds one); nil while none is.
     public private(set) var hosted: NSView?
 
@@ -74,9 +91,18 @@ open class CmuxFloatingDialogPanel: NSPanel {
         return view
     }
 
+    /// Whether `spec` has words to show: a card with no title and no lines is an empty glass shell and never shows.
+    public static func hasContent(_ spec: CmuxDialogSpec) -> Bool {
+        !spec.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || spec.lines.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
     /// Shows `content`, a view that holds one cmux dialog card (a consent's own view around its card), as ``show(_:onPress:)``
     /// shows a spec. Showing the view already shown again re-sizes and re-places the panel to it.
     public func present(_ content: NSView) {
+        // Never an empty shell: a view with no card, or a card with no words, hides the panel instead.
+        let card = content as? CmuxDialogView ?? Self.firstCard(under: content)
+        guard let card, Self.hasContent(card.spec) else { return hide() }
         let wasVisible = isVisible
         let hadKeyboard = dialogView?.containsKeyboard == true
         if hosted !== content {
@@ -96,25 +122,52 @@ open class CmuxFloatingDialogPanel: NSPanel {
             FocusRoute(.system, "a floating dialog redrew its card: keep its keys").moveKeyboard(in: self, to: card)
         }
         orderFrontRegardless()
-        if !wasVisible { enter() }
+        if !wasVisible {
+            enter()
+            if takesKeyboardOnShow, let card = dialogView {
+                let route = FocusRoute(.person, "the person opened a card: its keys work at once")
+                route.makeKey(self)
+                route.moveKeyboard(in: self, to: card)
+            }
+        }
     }
 
     /// Takes the card away at once, with no fade: an answered prompt never lingers to take a second click.
     public func hide() {
+        let wasShown = hosted != nil
         orderOut(nil)
         hosted?.removeFromSuperview()
         hosted = nil
+        if wasShown { onHide?() }
+    }
+
+    open override func resignKey() {
+        super.resignKey()
+        if hidesWhenInactive, hosted != nil { hide() }
     }
 
     /// The window is this much larger than the card on every side, so the card's shadow is not clipped.
     static var shadowRoom: CGFloat { PopupStyle.standard.shadowMargin }
 
-    /// Sizes the panel to a card `size` big, the card ``screenMargin`` in from the main screen's visible top right.
+    /// How far below the anchor window's top a card over it sits (under its title bar and toolbar).
+    public static var anchorTopInset: CGFloat { 56 }
+
+    /// Sizes the panel to a card `size` big: top center over the ``anchor`` window, else ``screenMargin`` in from
+    /// the main screen's visible top right; always inside the screen's visible area.
     private func place(_ size: NSSize) {
         let room = Self.shadowRoom
-        let area = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(origin: .zero, size: size)
-        let card = NSRect(x: area.maxX - size.width - Self.screenMargin, y: area.maxY - size.height - Self.screenMargin,
+        let window = anchor?()
+        let area = (window?.screen ?? NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(origin: .zero, size: size)
+        var card: NSRect
+        if let window {
+            card = NSRect(x: window.frame.midX - size.width / 2, y: min(window.frame.maxY, area.maxY) - Self.anchorTopInset - size.height,
                           width: size.width, height: size.height)
+            card.origin.x = min(max(card.minX, area.minX + Self.screenMargin), area.maxX - Self.screenMargin - size.width)
+            card.origin.y = max(card.minY, area.minY + Self.screenMargin)
+        } else {
+            card = NSRect(x: area.maxX - size.width - Self.screenMargin, y: area.maxY - size.height - Self.screenMargin,
+                          width: size.width, height: size.height)
+        }
         setFrame(card.insetBy(dx: -room, dy: -room), display: true)
     }
 
@@ -142,7 +195,16 @@ open class CmuxFloatingDialogPanel: NSPanel {
             route.makeKey(self)
             route.moveKeyboard(in: self, to: view)
         }
-        super.sendEvent(event)
+        // Escape always takes the card away: its Cancel answers it, and a card with none (a failed run's Copy Details
+        // and Try Again) closes as a popover does.
+        if event.type == .keyDown, event.keyCode == 53, let card = dialogView, card.spec.cancelButton == nil { return hide() }
+        guard let personOnlyClick else { return super.sendEvent(event) }
+        let allows: @MainActor () -> [NSControl] = { [weak self] in
+            guard let card = self?.dialogView else { return [] }
+            return card.spec.buttons.filter(\.personOnly).compactMap { card.buttonView($0.id) }
+        }
+        let control = personOnlyClick.dispatch(event, allows: allows, in: windowNumber) { super.sendEvent(event) }
+        if let id = (control as? CmuxDialogButtonView)?.button.id { onPersonPress?(id) }
     }
 }
 

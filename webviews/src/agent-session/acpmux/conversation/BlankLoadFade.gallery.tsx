@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { VirtualTranscript } from "../App";
 import type { AcpmuxRow } from "../model";
+import { MOTION_MS } from "../../../motion/scale.generated";
 
 type Variant = "pop" | "micro" | "standard" | "large" | "linear" | "stagger";
 
@@ -120,7 +121,7 @@ export default componentEntry<{ variant: Variant; frozen?: boolean }>({
   variants: {
     micro: {
       props: { variant: "micro" },
-      note: "Selected: the host's fade-in token (micro, 120 ms), ease-out. Fast enough to read as a load, not an effect.",
+      note: `Selected: the host's fade-in token (micro, ${MOTION_MS.micro} ms), ease-out. Fast enough to read as a load, not an effect.`,
     },
     "micro-mid": {
       props: { variant: "micro", frozen: true },
@@ -128,13 +129,19 @@ export default componentEntry<{ variant: Variant; frozen?: boolean }>({
     },
     standard: {
       props: { variant: "standard" },
-      note: "180 ms (standard), ease-out: softer, starts to read as an animation.",
+      note: `${MOTION_MS.standard} ms (standard), ease-out: softer, starts to read as an animation.`,
     },
-    large: { props: { variant: "large" }, note: "240 ms (large), ease-out: the ceiling; visibly slow on a restart." },
-    linear: { props: { variant: "linear" }, note: "120 ms, linear: the text stays faint longer before it is legible." },
+    large: {
+      props: { variant: "large" },
+      note: `${MOTION_MS.large} ms (large), ease-out: the ceiling; visibly slow on a restart.`,
+    },
+    linear: {
+      props: { variant: "linear" },
+      note: `${MOTION_MS.micro} ms, linear: the text stays faint longer before it is legible.`,
+    },
     stagger: {
       props: { variant: "stagger" },
-      note: "120 ms with each row 16 ms after the last: reads as a cascade, not a load.",
+      note: `${MOTION_MS.micro} ms with each row 16 ms after the last: reads as a cascade, not a load.`,
     },
     pop: { props: { variant: "pop" }, note: "Before: no fade; the rows pop in from blank in one frame." },
   },

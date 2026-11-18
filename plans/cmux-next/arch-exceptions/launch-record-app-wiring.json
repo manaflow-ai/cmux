@@ -6,5 +6,6 @@
   "author": "Codex launch-record-swift-wiring",
   "owner": "huge-blue/fable-startup-arch",
   "receipt": "Review (independent Codex review subagent): SHIP at 4747f09d31ccc1809cf3bc6e4ea556faa988c1ea",
-  "expiry": "2026-12-16"
+  "expiry": "2026-12-16",
+  "applied_sha": "92aeb2987f12fc87762cd724d9f805cc2fa2d221"
 }

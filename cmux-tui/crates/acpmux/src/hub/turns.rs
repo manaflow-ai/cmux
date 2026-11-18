@@ -329,7 +329,7 @@ impl Hub {
             return answer;
         }
         if opts.resend
-            && let Some(logged) = self.logged_prompt(session, &prompt_id)
+            && let Some(logged) = self.logged_prompt_past_inbox(session, &prompt_id)
         {
             if let Some(f) = opts.on_accepted.take() {
                 let value = match &logged {
