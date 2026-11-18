@@ -167,13 +167,14 @@ export function PerfPanel({
   const toggle = async (next: boolean) => {
     setBusy(true);
     setNotice(undefined);
-    try {
-      apply(await send({ op: next ? "on" : "off" }));
-    } catch (error) {
-      setNotice(t("inspector.perfFailed", { message: errorText(error) }));
-    } finally {
-      setBusy(false);
-    }
+    // No `finally`: the React Compiler cannot memoize a try with one (react-doctor react-hooks-js/todo).
+    const answer = await send({ op: next ? "on" : "off" }).then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    setBusy(false);
+    if ("error" in answer) setNotice(t("inspector.perfFailed", { message: errorText(answer.error) }));
+    else apply(answer.value);
   };
 
   const copyDiagnosis = async () => {
