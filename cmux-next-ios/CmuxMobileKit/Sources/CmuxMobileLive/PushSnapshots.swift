@@ -63,15 +63,22 @@ public struct PushSnapshots {
     /// The App Group resolves and the files are written off the main thread;
     /// a build without the group saves nothing (the long look shows the push alone).
     public func save(directory: AgentSessionDirectory = .shared) async {
+        await save(chats: directory.loadedStores, includingChief: true)
+    }
+
+    /// Saves `chats`' last messages (and Chief's, with `includingChief`): the directory's whole
+    /// list on the way to the background, or the chats it lets go
+    /// (`AgentSessionDirectory.onRelease`), which the next background no longer sees.
+    public func save(chats: [AgentChatStore], includingChief: Bool) async {
         guard let store = PushSnapshotStore(group: await PushAppGroup.resolved()) else { return }
         var snapshots: [PushSnapshot] = []
-        for chat in directory.loadedStores {
+        for chat in chats {
             guard let source = chat.source as? AcpmuxSessionSource, !chat.summary.macID.isEmpty else { continue }
             let messages = Self.messages(chat.turns)
             guard !messages.isEmpty else { continue }
             snapshots.append(PushSnapshot(mac: chat.summary.macID, session: source.sessionID, title: chat.summary.name, messages: messages))
         }
-        if let chief = Self.chief(.shared) { snapshots.append(chief) }
+        if includingChief, let chief = Self.chief(.shared) { snapshots.append(chief) }
         guard !snapshots.isEmpty else { return }
         let toSave = snapshots
         // Writes and the sign-out wipe run one after another; a save that read its chats before a

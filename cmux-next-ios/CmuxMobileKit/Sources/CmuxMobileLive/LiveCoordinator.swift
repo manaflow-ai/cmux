@@ -309,6 +309,11 @@ public final class LiveCoordinator {
             }
             return self.agentSource(owner, session: session, summary: scoped)
         }
+        // A chat the directory lets go (past its kept stores) saves its notification preview now:
+        // the next background's save sees only the chats still loaded.
+        AgentSessionDirectory.shared.onRelease = { chats in
+            Task { await PushSnapshots().save(chats: chats, includingChief: false) }
+        }
         restoreSnapshot()
         // Which chat each terminal agent shows, read now: an offline relaunch opens on its kept turns.
         if let kept = transcriptCache?.terminalChats { Task { await kept.load() } }

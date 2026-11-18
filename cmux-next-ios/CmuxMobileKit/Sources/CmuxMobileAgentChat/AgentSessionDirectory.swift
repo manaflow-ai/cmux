@@ -17,7 +17,20 @@ public final class AgentSessionDirectory {
     /// `AgentChatStore` is observable itself). `generation` tells readers
     /// when a store was replaced (`invalidate`).
     @ObservationIgnored private var stores: [String: AgentChatStore] = [:]
+    /// The stores' keys, least recently asked for first (`store(for:)`).
+    @ObservationIgnored private var recent: [String] = []
     private var generation = 0
+    /// The most stores kept once nothing else uses them. A store keeps its chat subscribed to its
+    /// source (every record applied on the main actor), so one kept for each card a grid ever
+    /// built grew with every workspace opened in a launch. Past this, the least recently asked
+    /// for store that nobody else holds and that holds nothing of its own
+    /// (``AgentChatStore/holdsLocalState``) is let go, and its subscription with it; the next
+    /// `store(for:)` builds it again from `makeSource`, which opens on the chat's kept copy and
+    /// catches up, as a relaunch does. More than one grid's built and drawn-ahead cards (30).
+    public nonisolated static let keptStores = 32
+    /// Stores let go past ``keptStores`` (just before they go): notification previews save their
+    /// last messages, as they save ``loadedStores`` when the app goes to the background.
+    @ObservationIgnored public var onRelease: (@MainActor ([AgentChatStore]) -> Void)?
     public var makeSource: (AgentSessionSummary) -> any AgentSessionSource = { summary in
         #if DEBUG
         if DeveloperOptions.mockContentEnabled {
@@ -70,13 +83,52 @@ public final class AgentSessionDirectory {
     public func store(for summary: AgentSessionSummary) -> AgentChatStore {
         _ = generation
         let key = Self.key(id: summary.id, macID: summary.macID)
-        if let store = stores[key] { return store }
+        if let store = stores[key] {
+            touch(key)
+            return store
+        }
         let store = AgentChatStore(source: makeSource(summary))
         // Kept for the tab while the person is elsewhere: it spills and answers memory warnings
         // on its own, as the chat on screen does.
         store.boundsMemoryOffScreen()
         stores[key] = store
+        recent.append(key)
+        trim()
         return store
+    }
+
+    /// `key` was asked for: it is the most recent now.
+    private func touch(_ key: String) {
+        guard recent.last != key else { return }
+        if let index = recent.lastIndex(of: key) { recent.remove(at: index) }
+        recent.append(key)
+    }
+
+    /// Lets go of the least recently asked for stores past ``keptStores`` that only this
+    /// directory holds and that hold nothing of their own. One still held elsewhere (a chat,
+    /// card or row on screen, a send in flight) stays: a second store for its tab would split the
+    /// chat's state. It goes at a later trim, once it is let go there. Cost: at most one pass
+    /// over the kept keys per store built.
+    private func trim() {
+        guard stores.count > Self.keptStores else { return }
+        var released: [AgentChatStore] = []
+        var index = 0
+        while stores.count > Self.keptStores, index < recent.count {
+            let key = recent[index]
+            guard stores[key] != nil else {
+                recent.remove(at: index)
+                continue
+            }
+            if isKnownUniquelyReferenced(&stores[key]!), stores[key]?.holdsLocalState == false,
+               let store = stores.removeValue(forKey: key) {
+                recent.remove(at: index)
+                released.append(store)
+            } else {
+                index += 1
+            }
+        }
+        guard !released.isEmpty else { return }
+        onRelease?(released)
     }
 
     /// Every chat loaded in this launch (notification previews save their last messages).
@@ -90,7 +142,9 @@ public final class AgentSessionDirectory {
     /// Forgets the tab's store; the next `store(for:)` builds one from
     /// `makeSource` again (the tab's session changed on the Mac).
     public func invalidate(id: String, macID: String = "") {
-        guard stores.removeValue(forKey: Self.key(id: id, macID: macID)) != nil else { return }
+        let key = Self.key(id: id, macID: macID)
+        guard stores.removeValue(forKey: key) != nil else { return }
+        recent.removeAll { $0 == key }
         generation += 1
     }
 
@@ -99,6 +153,7 @@ public final class AgentSessionDirectory {
     public func removeAll() {
         guard !stores.isEmpty else { return }
         stores.removeAll()
+        recent.removeAll()
         generation += 1
     }
 
