@@ -129,6 +129,7 @@ fn valid_name(name: &str) -> Result<(), UsageError> {
         "RPS2", "NULLCMD", "READNULLCMD", "HISTCHARS", "WATCHFMT", "PERIOD", "KEYTIMEOUT", "SAVEHIST", "STTY",
         "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONUSERBASE", "PYTHONSAFEPATH",
         "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+        "GOOGLE_GEMINI_BASE_URL", "GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL", "GROK_XAI_API_BASE_URL",
     ];
     let reserved = RESERVED.contains(&upper.as_str())
         || [
@@ -242,6 +243,45 @@ impl IndexLock {
     }
 }
 
+/// Stores `value` as the cloud secret `account` (`<scope>/<NAME>`, as [`parse`] makes it) in the Keychain and
+/// marks it in the index, so `cmux vm deliver-secrets` and the machine vault deliver it. `cmux cloud secret
+/// set` and `cmux keys mint --store keychain:...` both store through here. The value reaches `security -i`
+/// on stdin only.
+pub(super) fn store_value(account: &str, value: &str) -> Result<(), String> {
+    if std::env::consts::OS != "macos" {
+        return Err(
+            "cloud secrets live in this Mac's Keychain: run it on the Mac with the cmux app".into(),
+        );
+    }
+    if !valid_account(account) {
+        return Err(format!("{account:?} is not a cloud secret account (<scope>/<NAME>)"));
+    }
+    value_size(value)?;
+    let path = index_path().ok_or("HOME is not set")?;
+    let _lock = IndexLock::take(&path).map_err(|e| format!("cannot lock the index: {e}"))?;
+    let mut secrets = read_index(&path)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    // Strictly later than every mark the index holds: two sets in the same millisecond still differ,
+    // so a machine that has the first one gets the second. Worked out before anything is stored.
+    let newest = secrets.values().filter_map(Value::as_u64).max().unwrap_or(0);
+    let mark = now.max(newest + 1);
+    if mark > i64::MAX as u64 {
+        return Err(
+            "the index's newest mark is too large; remove the index and set the secrets again"
+                .into(),
+        );
+    }
+    let store =
+        store_item("macos", SERVICE, account, &format!("cmux cloud secret {account}"), value)
+            .map_err(|e| e.to_string())?;
+    run_store(&store).map_err(|e| e.to_string())?;
+    secrets.insert(account.to_owned(), json!(mark));
+    write_index(&path, secrets).map_err(|e| format!("stored, but the index was not written: {e}"))
+}
+
 fn run(command: Command, output: OutputMode) -> Result<i32, String> {
     let fail = |message: String| message;
     let load_index = || -> Result<_, String> {
@@ -270,37 +310,15 @@ fn run(command: Command, output: OutputMode) -> Result<i32, String> {
             json!({"secrets": rows})
         }
         Command::Set { account } => {
-            let (path, _lock, mut secrets) = load_index()?;
             if std::env::consts::OS != "macos" {
                 return Err(fail("cloud secrets live in this Mac's Keychain: run it on the Mac with the cmux app".into()));
             }
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            // Strictly later than every mark the index holds: two sets in the same millisecond still differ,
-            // so a machine that has the first one gets the second. Worked out before anything is stored.
-            let newest = secrets.values().filter_map(Value::as_u64).max().unwrap_or(0);
-            let mark = now.max(newest + 1);
-            if mark > i64::MAX as u64 {
-                return Err(fail("the index's newest mark is too large; remove the index and set the secrets again".into()));
-            }
+            // A damaged index fails before the prompt, as it always has.
+            drop(load_index()?);
             let (_, name) = account.rsplit_once('/').unwrap_or(("*", &account));
             let value = read_value(name).map_err(|e| fail(e.to_string()))?;
-            value_size(value.as_str())?;
-            let store = store_item(
-                "macos",
-                SERVICE,
-                &account,
-                &format!("cmux cloud secret {account}"),
-                value.as_str(),
-            )
-            .map_err(|e| fail(e.to_string()))?;
+            store_value(&account, value.as_str())?;
             drop(value);
-            run_store(&store).map_err(|e| fail(e.to_string()))?;
-            secrets.insert(account.clone(), json!(mark));
-            write_index(&path, secrets)
-                .map_err(|e| fail(format!("stored, but the index was not written: {e}")))?;
             json!({"stored": account, "next": "cmux vm deliver-secrets --target vm:<id>"})
         }
         Command::Rm { account } => {
@@ -384,6 +402,11 @@ mod tests {
             "set BASH_FUNC_x",
             "set LC_ALL",
             "set TZ",
+            // The gateway's endpoints for Gemini and Grok: the platform withholds them (hq#11225).
+            "set GOOGLE_GEMINI_BASE_URL",
+            "set GROK_MODELS_BASE_URL",
+            "set grok_models_list_url",
+            "set GROK_XAI_API_BASE_URL",
             "set A-B",
             "set API_KEY --repo ../x",
             "set API_KEY --repo owner",

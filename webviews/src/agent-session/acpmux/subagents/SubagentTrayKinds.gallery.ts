@@ -21,6 +21,7 @@ import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxSnapshot } from "../model";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
+import { RUNNING_TRAY_LIST_LINE } from "./subagentSelectors";
 
 function agent(task: string, minutes: number, state: Subagent["state"], fields: Partial<Subagent> = {}): Subagent {
   return {
@@ -111,7 +112,7 @@ async function open(ctx: PlayContext, lines?: number): Promise<void> {
   await ctx.waitFor(() => head(ctx));
   if (head(ctx)!.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
   await ctx.waitFor(() => {
-    const count = ctx.document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length;
+    const count = ctx.document.querySelectorAll(RUNNING_TRAY_LIST_LINE).length;
     return lines === undefined ? count > 0 : count === lines;
   });
   // The lines are drawn at once, but the list's box opens on the shared fold (settle curve), whose
@@ -132,7 +133,7 @@ const centre = (rect: DOMRect) => (rect.left + rect.right) / 2;
  *  panel button and chevron on them, and no scrollbar under five lines. */
 function columns(ctx: PlayContext): void {
   const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
-  const lines = [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
+  const lines = [...tray.querySelectorAll<HTMLElement>(RUNNING_TRAY_LIST_LINE)];
   const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
   // Under 400px (the tray's container query) each line takes two rows, so five of them scroll.
   if (lines.length <= 5 && tray.getBoundingClientRect().width > 400 && list.scrollHeight > list.clientHeight + 0.5)

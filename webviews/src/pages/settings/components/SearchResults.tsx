@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { shownCategories } from "../categories";
-import { useSettingsState } from "../context";
+import { useSettingsState, useStore } from "../context";
 import { filterRows } from "../search";
 import { valueOf } from "../store";
 import { t, text } from "../strings";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
+import { AskCmuxRow } from "./AskCmuxRow";
 import { GroupList } from "./GroupList";
 
 /**
@@ -14,6 +15,7 @@ import { GroupList } from "./GroupList";
  */
 export function SearchResults({ query }: { query: string }) {
   const state = useSettingsState();
+  const store = useStore();
   const devBuild = state.host?.dev_build === true;
   const categories = useMemo(() => shownCategories(devBuild), [devBuild]);
   const matches = useMemo(
@@ -36,9 +38,12 @@ export function SearchResults({ query }: { query: string }) {
   if ([...shown].some((key) => !mounted.has(key))) setMounted(new Set([...mounted, ...shown]));
   return (
     <div className="search-results" data-search-results="">
-      <p className="empty collapse" data-open={empty ? "" : undefined}>
-        <span className="collapse-body">{t("settingsPage.noResults")}</span>
-      </p>
+      <div className="empty collapse" data-open={empty ? "" : undefined}>
+        <div className="collapse-body">
+          <p>{t("settingsPage.noResults")}</p>
+          {empty && query.trim() ? <AskCmuxRow words={query} onAsk={() => void store.askCmux(query)} /> : null}
+        </div>
+      </div>
       {categories.map((category) => {
         const open = category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
         const pet = category.id === "chief";

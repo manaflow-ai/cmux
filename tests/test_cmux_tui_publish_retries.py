@@ -220,6 +220,59 @@ sys.exit(status)
         self.assertEqual(sum(bool(re.search(r"\bcurl -", line)) for line in code), 1, "every read goes through get()")
 
 
+
+# Jobs whose GitHub calls ask for the next step of a published tree. On 2026-11-16 run 43797999732's
+# image roll dispatch was refused "HTTP 403: API rate limit exceeded for installation" in publish and
+# again in request-image-roll: every workflow's github.token shares one hourly budget, so no Cloud
+# image rolled. Each of these jobs mints the cmux-bot App's token (its own limit) and its gh calls go
+# through scripts/ci/gh_budget_wait.sh, which moves a refused call to GH_TOKEN_SPARE at once.
+SPARE_DISPATCHERS = ("request-image-roll", "request-nightly-next", "request-team-signed-tree")
+# Bare dispatches on github.token alone, each with a backup above: publish's roll asks before
+# verify-publish (request-image-roll asks when it did not), and the tick ask is an early one
+# (request-nightly-next asks, and the tick's workflow_run trigger fires at the run's end).
+BARE_DISPATCH_OK = {
+    ("publish", "Request the Cloud VM image roll"),
+    ("publish-windows", "Request the Cloud VM image roll"),
+    ("publish-tree", "Ask the nightly-next tick to promote this commit"),
+    ("publish-tree-windows", "Ask the nightly-next tick to promote this commit"),
+}
+MINT = "actions/create-github-app-token@"
+
+
+class DispatchesHaveASpareToken(unittest.TestCase):
+    def setUp(self) -> None:
+        self.jobs = load()["jobs"]
+
+    def test_each_request_job_moves_a_refused_call_to_the_bot_token(self) -> None:
+        for name in SPARE_DISPATCHERS:
+            job = self.jobs[name]
+            self.assertEqual(job.get("environment", {}).get("name"), "ci-routing-agent", name)
+            steps = job["steps"]
+            mints = [s for s in steps if str(s.get("uses", "")).startswith(MINT)]
+            self.assertEqual(len(mints), 1, name)
+            self.assertEqual(mints[0].get("id"), "cmux-bot-token", name)
+            self.assertEqual(mints[0]["with"].get("permission-actions"), "write", name)
+            self.assertIs(mints[0].get("continue-on-error"), True, name)
+            callers = [s for s in steps if "GH_TOKEN" in (s.get("env") or {})]
+            self.assertTrue(callers, name)
+            installed = any("gh_budget_wait.sh --install" in str(s.get("run", "")) for s in steps)
+            for step in callers:
+                env = step["env"]
+                self.assertEqual(env.get("GH_TOKEN_SPARE"), "${{ steps.cmux-bot-token.outputs.token }}", (name, step.get("name")))
+                self.assertTrue(installed or "gh_budget_wait.sh workflow run" in str(step.get("run", "")), (name, step.get("name")))
+                # A wait (only when the spare is refused too) ends inside the job's own limit.
+                self.assertLess(int(env["GH_BUDGET_WAIT_MAX_SECONDS"]), int(job["timeout-minutes"]) * 60 - 60, name)
+
+    def test_no_other_dispatch_rides_on_the_shared_token_alone(self) -> None:
+        bare = set()
+        for name, job in self.jobs.items():
+            for step in job.get("steps", []):
+                run = str(step.get("run", ""))
+                if "gh workflow run" in run and "GH_TOKEN_SPARE" not in (step.get("env") or {}):
+                    bare.add((name, step.get("name")))
+        self.assertEqual(bare - BARE_DISPATCH_OK, set(),
+                         "mint the cmux-bot App token and pass GH_TOKEN_SPARE, as request-image-roll does")
+
 if __name__ == "__main__":
     result = unittest.main(exit=False, verbosity=2).result
     sys.exit(0 if result.wasSuccessful() else 1)

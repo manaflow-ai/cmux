@@ -4,10 +4,9 @@ import CmuxNextDesign
 import CmuxNextTestSupport
 import Testing
 
-/// Closing the bottom row springs the surviving row back into view from where it showed. Since
-/// 9bcad4da60ed (Lawrence 2026-10-20: "immediately alongside the pane closing we also need to see
-/// a shift") the change that drops the row already takes the camera's first spring step, so the
-/// surviving pane moves a little toward its rest in that frame, and never jumps.
+/// Closing the bottom row of a column whose rows overflow: the close and the shift it needs are one commit. The
+/// frame that shows the close shows the row that stays at its place, with the column's camera at rest at the new end
+/// of its rows. No frame shows that row on its way there, beside the ground of the row that left.
 @MainActor
 @Suite(.closesItsWindows)
 struct RowCloseMotionTests {
@@ -15,7 +14,7 @@ struct RowCloseMotionTests {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
     }
 
-    @Test func closingTheFocusedBottomRowSpringsTheMiddleRowIntoView() throws {
+    @Test func closingTheFocusedBottomRowShowsTheMiddleRowAtItsPlaceInTheSameFrame() throws {
         let provider = Panes()
         let kept: SplitNode = .split("upper", axis: .vertical, ratio: 0.5, a: .leaf("top"), b: .leaf("middle"))
         let tree: SplitNode = .split("lower", axis: .vertical, ratio: 0.5, a: kept, b: .leaf("bottom"))
@@ -47,21 +46,15 @@ struct RowCloseMotionTests {
         model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([remaining]))])
         model.focus("middle")
         root.syncWithModel()
-        let after = try #require(screen.displayedFrame(of: "middle"))
-        #expect(screen.rowsMoving)
-        #expect(screen.hasMotion)
-        for _ in 0..<240 { if !root.advanceFrame(1.0 / 120) { break } }
-
-        let shown = try #require(screen.displayedFrame(of: "middle"))
-        // The close's own frame is the spring's first step toward the rest: under way, and no jump.
-        let firstStep = after.minY - before.minY, travel = shown.minY - before.minY
-        #expect(abs(travel) > 100, "the middle row did not travel: \(before) -> \(shown)")
-        #expect(firstStep * travel > 0, "the close's frame did not start the shift: \(before) -> \(after)")
-        // The split spring (0.085 s) moves about 13% in its first 120 Hz frame; a jump is the whole travel.
-        #expect(abs(firstStep) < abs(travel) * 0.15, "closing a row jumped the surviving pane: \(before) -> \(after)")
-        #expect(screen.bounds.insetBy(dx: -0.5, dy: -0.5).contains(shown), "the middle row rested off screen: \(shown)")
-        #expect(abs(screen.rowOffset(of: "middle") - 400) < 0.5)
-        #expect(!screen.hasMotion)
+        // What shows: the host's frame in the close's own turn (the close resizes no pane, so it waits for no tick).
+        let shown = try #require(root.context.hosts["middle"]?.frame)
+        #expect(!screen.rowsMoving && !screen.hasMotion, "the close left the column's camera or a pane on a spring")
+        #expect(abs(screen.rowOffset(of: "middle") - 400) < 0.5, "the column's camera is not at the new end of its rows: \(screen.rowOffset(of: "middle"))")
+        #expect(abs(shown.minY - before.minY) > 100, "the middle row did not move into view with the close: \(before) -> \(shown)")
+        #expect(screen.bounds.insetBy(dx: -0.5, dy: -0.5).contains(shown), "the middle row is not on screen in the frame that shows the close: \(shown)")
+        #expect(shown == screen.displayedFrame(of: "middle"), "the middle row's host is not where the layout puts it: \(shown)")
+        #expect(!root.advanceFrame(1.0 / 120), "a close that showed asks for frames")
+        #expect(root.context.hosts["middle"]?.frame == shown, "the middle row moved after the frame that showed the close")
         #expect(screen.visiblePanes().contains("middle"))
     }
 }

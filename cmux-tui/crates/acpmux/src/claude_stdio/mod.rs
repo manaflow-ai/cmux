@@ -311,6 +311,7 @@ mod live_name_tests;
 mod loops;
 #[cfg(test)]
 mod loops_tests;
+pub(crate) mod native_messaging;
 mod outbound;
 mod policy_gate;
 #[cfg(test)]

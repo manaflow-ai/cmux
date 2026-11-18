@@ -28,6 +28,9 @@ use vt_boundary::*;
 
 mod replay_rows;
 
+mod window_replay;
+pub use window_replay::VtReplayWindow;
+
 mod settled_replay;
 
 mod alternate_replay;
@@ -60,6 +63,9 @@ mod active_text;
 mod logical_text;
 
 mod clear_history;
+
+mod command_output;
+pub use command_output::CommandOutput;
 
 mod program_status;
 pub use program_status::{
@@ -619,9 +625,7 @@ impl Terminal {
         self.ensure_history_anchor();
         let previous_history_rows = self.scrollback_rows();
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
-        let normalized = self.c1_normalizer.normalize(data);
-        let normalized = self.empty_kitty_probe_filter.write(normalized);
-        let mouse_modes_may_have_changed = self.feed_trackers(&normalized);
+        let (normalized, mouse_modes_may_have_changed) = self.prepare_write(data);
         self.history_markers_before_write();
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();
@@ -2001,6 +2005,26 @@ impl Terminal {
         Ok(String::from_utf8_lossy(&self.format(opts)?).into_owned())
     }
 
+    /// Bounded plain text of the active screen and its retained history.
+    /// `None` means the formatter would exceed `max_bytes`; it never builds
+    /// an unbounded output buffer first.
+    pub fn plain_text_bounded(&mut self, max_bytes: usize) -> Result<Option<String>> {
+        let opts = sys::GhosttyFormatterTerminalOptions {
+            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
+            unwrap: false,
+            trim: true,
+            extra: sys::GhosttyFormatterTerminalExtra {
+                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                ..Default::default()
+            },
+            selection: ptr::null(),
+        };
+        Ok(self
+            .format_bounded(opts, max_bytes)?
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned()))
+    }
+
     /// Replay of the terminal's current state.
     ///
     /// Feeding `bytes` into a fresh terminal of the same size and restoring
@@ -3286,6 +3310,14 @@ mod prompt_clear_tests;
 #[path = "alternate_replay_tests.rs"]
 mod alternate_replay_tests;
 
+#[cfg(test)]
+#[path = "window_replay_tests.rs"]
+mod window_replay_tests;
+
 #[path = "terminal_history.rs"]
 mod history;
 pub use history::{HistoryPage, HistoryPages, HistorySnapshot, MarkerError};
+
+#[cfg(test)]
+#[path = "vt_write_breakdown_tests.rs"]
+mod vt_write_breakdown_tests;

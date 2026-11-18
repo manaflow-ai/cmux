@@ -263,6 +263,8 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 recover_requested: AtomicBool::new(false),
+                #[cfg(unix)]
+                host_fence_wait: Default::default(),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(false),
@@ -386,7 +388,26 @@ impl Surface {
                                     local_output::readable(fd, 0).unwrap_or(false)
                                 });
                             let result = if ready {
-                                output.read(pty, |buf| reader.read(buf)).map(Some)
+                                output
+                                    .read(pty, |buf| {
+                                        let mut count = reader.read(buf)?;
+                                        // A flood: the bytes already waiting are parsed with
+                                        // this read, not one parse per PTY read (1 KiB on
+                                        // macOS). A lone echo finds nothing more.
+                                        #[cfg(unix)]
+                                        if count > 0
+                                            && let Some(fd) = read_fd
+                                        {
+                                            local_output::fill_waiting(
+                                                fd,
+                                                buf,
+                                                &mut count,
+                                                |rest| reader.read(rest),
+                                            );
+                                        }
+                                        Ok(count)
+                                    })
+                                    .map(Some)
                             } else {
                                 Ok(None)
                             };

@@ -27,6 +27,28 @@ gives every agent session.
 Each run writes `result.json` with each step's verdict, the person's actions, its seconds and the
 findings, plus a still per step (`shot-<step>.png`) and `onboarding.mp4` of the whole run.
 
+## Grant prompts per app identity (tcc.json)
+
+Lawrence: "ensure screen sharing + computer use uses same app for permissions, unless there's a good
+reason for having different apps for requesting screen sharing/accessibility". Each run counts which
+app identities asked macOS for Accessibility and Screen Recording, so a NIGHTLY before and after a
+change give comparable numbers (`onboarding/tcc.py`):
+
+- **log**: tccd's own log (`log stream` in the guest, from before the install to the end). Per
+  request: the service, the function, preflight or not, the identity tccd charges (responsible, else
+  accessing, else requesting) and its result.
+- **db**: the system and user TCC.db rows for the two services before and after (`sudo -n sqlite3`;
+  without Full Disk Access for the guest's ssh session it says unreadable).
+- **screen**: each macOS prompt the person answered, with the OCR line that names the app.
+
+`tcc.json` (and `result.json`'s `tcc`) has `grant_prompts`: one row per (identity, service) with a
+non-preflight ask, and `cmux_grant_prompt_count`, the grants a fresh Mac meets from cmux's own
+identities. The matrix line prints it as `tcc_grant_prompts=N`. The app's name and bundle id are
+read from the DMG, so the suite follows the NIGHTLY's rename from "cmux NEXT" to "cmux NIGHTLY".
+
+The Screen Sharing step still needs a signed-in cmux account (finding F5): until the VM has one, a run
+counts the Computer Use flow's grants and the Mac Screen page up to its sign-in gate.
+
 ## The reference flow
 
 The reference comes from Claude Desktop, the Claude Code CLI and Codex / ChatGPT computer use (studied

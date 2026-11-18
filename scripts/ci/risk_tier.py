@@ -278,7 +278,8 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # (scripts/cmux-next/check-*.py, guardrails.py, the package check scripts, run-check-pieces.py) stay normal.
     ("high", "the pre-push hook's trust boundary", (
         "scripts/web_lint_prepush.py", "scripts/cmux-next/prepush-gate.py", "scripts/cmux-next/push_range.py",
-        "scripts/git-hooks/pre-push",
+        "scripts/git-hooks/pre-push", "scripts/git-hooks/hook_python.sh",
+        "scripts/git-hooks/merge_python.sh",
         "scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py", "scripts/install-git-hooks.sh",
     )),
     # The gate grades every other pull request, so a change to it gets a person.

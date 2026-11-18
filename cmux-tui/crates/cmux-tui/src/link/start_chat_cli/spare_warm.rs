@@ -104,6 +104,20 @@ impl ReceiptScope {
             && !self.install.is_empty()
             && !self.credential.is_empty()
     }
+
+    /// The scope in its own install token's team ([`install_team`]): the team the spare, its claim
+    /// and its copy are in (#36037), never the App's active team. A member of a shared team has an
+    /// active team that is not the install token's (a personal issuance names the personal team),
+    /// so before this every installed copy's receipt was refused and every claimed start read the
+    /// machine's login again (hourly app-chat probe on Leo's NIGHTLY, 13 of 13 spare hits,
+    /// 2026-11-15/16: `login.machine` p50 1.4 s). An install that is no token with a team keeps the
+    /// App's team.
+    fn in_install_team(mut self) -> Self {
+        if let Some(team) = install_team(&self.install) {
+            self.team = team;
+        }
+        self
+    }
 }
 
 /// A warm's login copy in flight: registered before the platform call (no machine yet, so a start
@@ -205,6 +219,16 @@ pub(super) fn report_login(request: &Request, credential: &str, team: &str, mach
     }
 }
 
+/// The warm's own answer object. The platform wraps it (`{ok: true, value: {machine, ...}}`,
+/// SpareWarmRoute.ts): read bare, `machine` was never found and every warm answered "no spare",
+/// so no login was copied and no spare was keyed or linked ahead. A bare object is read as it is.
+fn answered(body: Value) -> Value {
+    match body.get("value") {
+        Some(value) if value.is_object() => value.clone(),
+        _ => body,
+    }
+}
+
 /// The real transport: the person's session credential, in `team` (`x-cmux-team`).
 pub(super) fn post(
     request: &Request,
@@ -246,10 +270,14 @@ pub(super) fn run_reporting(
     transport: Transport<'_>,
     report: Report<'_>,
 ) -> Option<Value> {
-    let request: Request = match serde_json::from_str(flags.one("--request")?) {
+    let mut request: Request = match serde_json::from_str(flags.one("--request")?) {
         Ok(request) => request,
         Err(error) => return Some(refused("bad_request", error)),
     };
+    // Rust names the scope's team, from the scope's own install token; a token of another team than
+    // the one on stdin is still refused (`accepted`'s `scope.team == team`).
+    request.scope = request.scope.take().map(ReceiptScope::in_install_team);
+    request.current_scope = request.current_scope.take().map(ReceiptScope::in_install_team);
     if request.account.is_empty() || !valid_account(&request.account) {
         return Some(refused("bad_request", "invalid spare warm"));
     }
@@ -373,6 +401,10 @@ pub(super) fn run_reporting(
     });
     if let Some(last) = live {
         let mut answer = json!({"ok": true, "machine": last.machine, "warm_until": last.warm_until, "team": team, "fresh": false});
+        // The replay says whose it is, as the platform's answer did: the App makes only the person's own spare ready.
+        if last.owner {
+            answer.set("vm_kind", json!("owner"));
+        }
         // A copy abandoned since is answered again from the record: the machine is still warm.
         if last.owner && !last.copy_given {
             answer.set("fresh", json!(true));
@@ -426,9 +458,16 @@ pub(super) fn run_reporting(
             ));
         }
     };
+    let body = answered(body);
     let Some(machine) = reservations::machine(&body).map(str::to_string) else {
         let reason = body.get("reason").and_then(Value::as_str).unwrap_or("none");
-        let answer = json!({"ok": true, "machine": null, "fresh": false, "reason": reason});
+        let mut answer = json!({"ok": true, "machine": null, "fresh": false, "reason": reason});
+        // Which check refused and how the warm read the pool, as the platform said it: a warm that names no spare says why.
+        for key in ["why", "fill", "spares", "spare_skips"] {
+            if let Some(value) = body.get(key).filter(|value| !value.is_null()) {
+                answer.set(key, value.clone());
+            }
+        }
         return Some(attempted(&path, file, &request.account, &team, now_ms, answer));
     };
     // Scope changes invalidate proof, not an active guest writer. Wait for its bounded work to
@@ -674,6 +713,9 @@ fn receipt_scoped(
     scope: Option<&ReceiptScope>,
     now_ms: u64,
 ) -> Value {
+    // The team the report's scope was stored under (`in_install_team`).
+    let scope = scope.cloned().map(ReceiptScope::in_install_team);
+    let scope = scope.as_ref();
     // One snapshot: a completion cannot land between an in-flight read and a proof read.
     let file = read(state);
     let installed = provider == COPIED_PROVIDER

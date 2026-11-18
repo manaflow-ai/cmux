@@ -7,7 +7,7 @@ public import Observation
 import os
 import CmuxNextCompat
 
-private let helperLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
+nonisolated private let helperLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 
 /// Starts the cmux-cua daemon in a helper app (LaunchServices in the App, a fake in tests).
 @MainActor
@@ -31,8 +31,9 @@ protocol ComputerUseHelperLaunching: AnyObject {
 /// children). The acpmux daemon this app spawns gets the socket and the
 /// agent token as CMUX_NEXT_CUA_SOCKET and CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN
 /// in its spawn environment (`childEnvironment`); the host token stays in
-/// this app. The agent token lives for this app launch, not for one helper
-/// start, and the endpoint is published while Computer Use is off too: an
+/// this app. The agent token outlives one helper start and one app launch
+/// (kept owner-only beside the helper's state), and the endpoint is published
+/// while Computer Use is off too: an
 /// agent's computer use server gets them once, when its chat starts, so a
 /// chat started before the person turned Computer Use on (or before a helper
 /// restart) still reaches the helper afterwards. With no helper running the
@@ -84,9 +85,18 @@ public final class ComputerUseHelperDaemon {
     /// acpmux reads it only when a pane looks up its daemon, and connected
     /// panes do not look again.
     @ObservationIgnored public var onEndpointChange: (@MainActor ([String: String]) -> Void)?
-    /// The agent token of this app launch: every helper start serves it.
-    /// Replaced only when a launched helper fails its running check.
-    @ObservationIgnored private var launchAgentToken = ComputerUseHelperDaemon.makeToken()
+    /// The agent token every helper start serves. It outlives an app relaunch
+    /// (`agentTokenFile`): a chat's computer use server got it once, when the
+    /// chat started, and chats outlive the app (every nightly update relaunches
+    /// it). A new token per launch left every such chat on a token no helper
+    /// served, and its recovery (cmux-tui `cua_recovery.rs`) depends on reading
+    /// the new one from acpmux, which failed on 2026-11-14 ("the r2
+    /// thing ... it's just not doing things", Leo). Replaced only when a launched
+    /// helper fails its running check.
+    @ObservationIgnored private var launchAgentToken: String
+    /// Where `launchAgentToken` is kept between launches: beside the helper's
+    /// state folder, owner-only (0600 in a 0700 folder).
+    @ObservationIgnored private let agentTokenFile: URL
     @ObservationIgnored private var agentToken: String?
     @ObservationIgnored private var hostToken: String?
     @ObservationIgnored private var requestedEnabled = false
@@ -120,6 +130,9 @@ public final class ComputerUseHelperDaemon {
         self.ownerPID = ownerPID
         self.socketPath = socketPath
         self.stateDirectory = stateDirectory
+        let tokenFile = stateDirectory.deletingLastPathComponent().appending(path: "agent-token", directoryHint: .notDirectory)
+        self.agentTokenFile = tokenFile
+        self.launchAgentToken = Self.readAgentToken(tokenFile) ?? Self.makeAgentToken(keptAt: tokenFile)
         // Published from launch with the default driver, before settings
         // load: an agent pane that connects first must not enroll an empty
         // endpoint. The first settings value withdraws it under the helper v2
@@ -384,7 +397,7 @@ public final class ComputerUseHelperDaemon {
     /// does not serve it; a published endpoint moves to the new token, and
     /// `onEndpointChange` gives it to the running acpmux.
     private func replaceAgentToken() {
-        launchAgentToken = Self.makeToken()
+        launchAgentToken = Self.makeAgentToken(keptAt: agentTokenFile)
         let isPublished = published.withLock { !$0.isEmpty }
         if isPublished { publish(true) }
     }
@@ -478,28 +491,80 @@ public final class ComputerUseHelperDaemon {
         return path.hasSuffix("/") ? path : path + "/"
     }
 
-    nonisolated static func defaultStateDirectory(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app") -> URL {
-        cuaRoot(home: FileManager.default.homeDirectoryForCurrentUser)
-            .appending(path: "runtime/\(scope(bundleID))/state", directoryHint: .isDirectory)
+    /// NEXT's own runtime folder for the bundle (its `agent-token` and `state`), under `cmux-next`
+    /// (cmuxterm-hq goals/next-store-out-of-classic.md). Builds before kept it in classic's
+    /// `cmux/cmux-cua`; the launch moves it here once (`ClassicFolderItemsMove.moveComputerUseRuntime`).
+    nonisolated static func defaultStateDirectory(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+                                                  applicationSupport: URL = NextSupport.applicationSupportDirectory()) -> URL {
+        NextSupport(applicationSupport: applicationSupport).computerUseRuntime(bundleID: bundleID)
+            .appending(path: "state", directoryHint: .isDirectory)
     }
 
-    /// The cmux-cua folder every build shares with classic cmux; each build's
-    /// own items in it are named by its scope.
+    /// NEXT's own cmux-cua folder, under `cmux-next` (cmuxterm-hq goals/next-store-out-of-classic.md);
+    /// each build's items in it are named by its scope. Builds before staged their helper copies in classic's
+    /// `cmux/cmux-cua`; the launch moves them here once (`ClassicFolderItemsMove.moveComputerUseCopies`).
     nonisolated static func cuaRoot(home: URL) -> URL {
-        home.appending(path: "Library/Application Support/cmux/cmux-cua", directoryHint: .isDirectory)
+        NextSupport(applicationSupport: home.appending(path: "Library/Application Support", directoryHint: .isDirectory))
+            .folder.appending(path: "cmux-cua", directoryHint: .isDirectory)
     }
 
     /// A stable 16-hex scope for a bundle id (FNV-1a).
-    nonisolated static func scope(_ bundleID: String) -> String {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        for byte in bundleID.utf8 { hash = (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3 }
-        return String(format: "%016llx", hash)
-    }
+    nonisolated static func scope(_ bundleID: String) -> String { NextSupport.computerUseScope(bundleID) }
 
     nonisolated static func makeToken() -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
         _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         return bytes.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// A new agent token, kept at `file` for the next launch. Kept or not, it
+    /// serves this launch (a failed write only means the next launch makes another).
+    nonisolated static func makeAgentToken(keptAt file: URL) -> String {
+        let token = makeToken()
+        if !writeAgentToken(token, to: file) {
+            helperLogger.error("cmux Computer Use agent token not kept at \(file.path, privacy: .public); the next launch makes a new one")
+        }
+        return token
+    }
+
+    /// The agent token an earlier launch kept at `file`: read without following a
+    /// symlink, only from a regular file this user owns that no one else may read
+    /// or write, and only when it is a token `makeToken` makes (64 lowercase hex).
+    nonisolated static func readAgentToken(_ file: URL) -> String? {
+        let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { return nil }
+        defer { close(descriptor) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_uid == geteuid(), info.st_mode & S_IFMT == S_IFREG,
+              info.st_mode & 0o077 == 0 else { return nil }
+        var buffer = [UInt8](repeating: 0, count: 128)
+        let count = read(descriptor, &buffer, buffer.count)
+        guard count > 0 else { return nil }
+        let token = String(decoding: buffer[..<count], as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard token.utf8.count == 64, token.utf8.allSatisfy({ (0x30...0x39).contains($0) || (0x61...0x66).contains($0) }) else {
+            return nil
+        }
+        return token
+    }
+
+    /// Keeps `token` at `file`: its folder made private (`makePrivateDirectory`), the
+    /// token written to a new 0600 file beside it and renamed over `file`, so a
+    /// reader never sees half a token.
+    nonisolated static func writeAgentToken(_ token: String, to file: URL) -> Bool {
+        let folder = file.deletingLastPathComponent().path
+        guard makePrivateDirectory(folder) else { return false }
+        let staged = "\(file.path).\(getpid()).\(UInt32.random(in: 0...UInt32.max))"
+        let descriptor = open(staged, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { return false }
+        let bytes = Array((token + "\n").utf8)
+        let wrote = bytes.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) } == bytes.count
+        let synced = fsync(descriptor) == 0
+        close(descriptor)
+        guard wrote, synced, rename(staged, file.path) == 0 else {
+            unlink(staged)
+            return false
+        }
+        return true
     }
 
     /// Creates `path` (0700; missing parents get the default mode) or takes

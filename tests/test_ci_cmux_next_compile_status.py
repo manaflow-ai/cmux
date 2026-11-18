@@ -201,11 +201,57 @@ class StatusMapping(unittest.TestCase):
         code, posts, _ = self.run_step(self.reply("pass"), POST_REFUSALS="000 403 503 403", PENDING_BUDGET="-1")
         self.assertEqual((code, [p["state"] for p in posts]), (0, ["success"]))
         # A Retry-After or an exhausted primary limit is waited out in full; past POST_BUDGET it is a red, said why.
-        code, posts, _ = self.run_step(self.reply("pass"), POST_REFUSALS="403 403", POST_BUDGET="5", PENDING_BUDGET="-1",
+        code, posts, _ = self.run_step(self.reply("pass"), POST_REFUSALS="403 403", POST_BUDGET="5", POST_END_SECONDS="5", PENDING_BUDGET="-1",
                                        REFUSAL_HEADERS="retry-after: 30\r\n")
         self.assertEqual((code, posts), (1, []))
         self.assertIn("GitHub refused the success status for cmux-next/compile after 1 tries: HTTP 403", self.stdout)
         self.assertRegex(self.stdout, NO_VERDICT_LINE)  # "(pass)": no verdict, never a compile red
+
+    SPENT_POOL = '{"message":"API rate limit exceeded for installation ID 175618676."}'
+
+    def spent_until(self, seconds: int) -> str:
+        return f"x-ratelimit-remaining: 0\r\nx-ratelimit-reset: {int(time.time()) + seconds}\r\n"
+
+    def test_cmux_43659_a_spent_pool_is_waited_out_to_the_steps_end_and_the_verdict_posts(self):
+        """hq#11485, cmux#43659 at 7ca5a87e (run 43724432899 job 132843528642): the compile read `pass`, the success
+        post got the installation's 403 with its reset past POST_BUDGET's 600 s, and post() stopped after one try;
+        the check sat pending 2.5 h. A spent pool's x-ratelimit-reset is waited for up to the step's end."""
+        code, posts, _ = self.run_step(self.reply("pass"), POST_REFUSALS="403 403", PENDING_BUDGET="-1",
+                                       POST_BUDGET="1", POST_END_SECONDS="30", REFUSAL_BODY=self.SPENT_POOL,
+                                       REFUSAL_HEADERS=self.spent_until(2))
+        self.assertEqual((code, [p["state"] for p in posts]), (0, ["success"]))
+        self.assertEqual(self.tries, ["pending", "success", "success"])
+        self.assertIn("posting again in", self.stdout)
+
+    def test_a_spent_pool_past_the_steps_end_is_a_no_verdict_red_naming_the_rerun(self):
+        code, posts, _ = self.run_step(self.reply("pass"), POST_REFUSALS="403 403", PENDING_BUDGET="-1",
+                                       POST_BUDGET="1", POST_END_SECONDS="5", REFUSAL_BODY=self.SPENT_POOL,
+                                       REFUSAL_HEADERS=self.spent_until(600))
+        self.assertEqual((code, posts), (1, []))
+        self.assertEqual(self.tries, ["pending", "success"])  # no wait it cannot finish
+        self.assertIn("NO_VERDICT: GitHub refused the cmux-next/compile verdict (pass) for " + SHA, self.stdout)
+        self.assertIn("re-run this job, https://github.com/run/1", self.stdout)
+        self.assertRegex(self.stdout, NO_VERDICT_LINE)  # autoland and base_red_excuse still read no verdict
+        # The handoff's post: the same wait, the same NO_VERDICT line.
+        code, posts, out = self.run_handoff("skipped/", "success", POST_REFUSALS="403", POST_END_SECONDS="30",
+                                            POST_BUDGET="1", REFUSAL_BODY=self.SPENT_POOL,
+                                            REFUSAL_HEADERS=self.spent_until(2))
+        self.assertEqual((code, [p["state"] for p in posts]), (0, ["success"]))
+        code, posts, out = self.run_handoff("skipped/", "success", POST_REFUSALS="403", POST_END_SECONDS="5",
+                                            POST_BUDGET="1", REFUSAL_BODY=self.SPENT_POOL,
+                                            REFUSAL_HEADERS=self.spent_until(600))
+        self.assertEqual((code, posts), (1, []))
+        self.assertIn("NO_VERDICT: could not post the fallback's verdict (success)", out)
+        self.assertIn("re-run this job, https://github.com/run/1", out)
+
+    def test_the_rate_limit_wait_ends_inside_the_step_and_the_token_hour(self):
+        for name, j in (("compile-status", job()), ("compile-status-handoff", handoff_job())):
+            with self.subTest(job=name):
+                step = next(step for step in j["steps"] if "run" in step)
+                self.assertIn("post_end=$((SECONDS + ${POST_END_SECONDS:-3240}))", step["run"])
+                self.assertLessEqual(3240 + 40, step["timeout-minutes"] * 60)
+                self.assertLessEqual(step["timeout-minutes"], j["timeout-minutes"])
+                self.assertLess(j["timeout-minutes"], 60)  # the App token minted at the job's start lasts an hour
 
     def run_handoff(self, fast: str, mac: str, **env: str) -> tuple[int, list[dict], str]:
         """compile-status-handoff's publish step, as written, against the fake curl."""
@@ -234,7 +280,7 @@ class StatusMapping(unittest.TestCase):
         code, posts, _ = self.run_handoff("failure/fail", "skipped", POST_REFUSALS="403")
         self.assertEqual((code, [p["state"] for p in posts]), (1, ["failure"]))
         # Past its budget it is a red that names the refused post, never a pass.
-        code, posts, out = self.run_handoff("skipped/", "success", POST_REFUSALS="403 403", POST_BUDGET="5",
+        code, posts, out = self.run_handoff("skipped/", "success", POST_REFUSALS="403 403", POST_BUDGET="5", POST_END_SECONDS="5",
                                             REFUSAL_HEADERS="retry-after: 30\r\n")
         self.assertEqual((code, posts), (1, []))
         self.assertIn("could not post the fallback's verdict", out)
@@ -242,11 +288,11 @@ class StatusMapping(unittest.TestCase):
     def test_a_refused_terminal_post_still_prints_the_no_verdict_line(self):
         """A rate limit past POST_BUDGET on a failure post: the job's own ::error line still says why, so
         base_red_excuse.py reads it (NO_VERDICT for every state but fail)."""
-        code, posts, _ = self.run_step(self.reply("unavailable"), POST_REFUSALS="403 403 403", POST_BUDGET="5",
+        code, posts, _ = self.run_step(self.reply("unavailable"), POST_REFUSALS="403 403 403", POST_BUDGET="5", POST_END_SECONDS="5",
                                        PENDING_BUDGET="-1", REFUSAL_HEADERS="retry-after: 30\r\n")
         self.assertEqual((code, posts), (1, []))
         self.assertRegex(self.stdout, NO_VERDICT_LINE)
-        code, _, _ = self.run_step(self.reply("fail"), POST_REFUSALS="403 403 403", POST_BUDGET="5",
+        code, _, _ = self.run_step(self.reply("fail"), POST_REFUSALS="403 403 403", POST_BUDGET="5", POST_END_SECONDS="5",
                                    PENDING_BUDGET="-1", REFUSAL_HEADERS="retry-after: 30\r\n")
         self.assertEqual(code, 1)
         self.assertIn("cmux-next/compile is not a pass for " + SHA + " (fail)", self.stdout)

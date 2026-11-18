@@ -42,6 +42,7 @@ nonisolated struct AcpmuxPeerUpdateTarget: DaemonUpdateTarget {
         switch reply.outcome {
         case .updated: return .updated(build: reply.build)
         case .current: return .current
+        case .kept(let kept): return .kept(kept)
         case .busy: return .busy
         case .needsBinary(let triple): return .needsBinary(target: triple)
         case .rolledBack: return .rolledBack(reason: reply.error ?? "the new acpmux did not start")

@@ -47,6 +47,9 @@ public final class CEFSignInCallbacks {
         apply(tab)
     }
 
+    /// `tab` is a sign-in tab: its callback must reach the shim, so nothing loads in it ahead of time.
+    func isSignInTab(_ tab: CEFTab) -> Bool { entries[ObjectIdentifier(tab)] != nil }
+
     func attached(_ tab: CEFTab) {
         if entries[ObjectIdentifier(tab)] != nil { apply(tab) }
     }

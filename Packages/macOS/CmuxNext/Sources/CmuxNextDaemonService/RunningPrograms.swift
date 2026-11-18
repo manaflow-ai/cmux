@@ -48,7 +48,7 @@ extension Dictionary where Key == SurfaceID, Value == ProcessAnswer {
 }
 
 extension DaemonService {
-    /// The live terminals of every workspace: what a quit that ends the sessions ends (`QuitLosses`).
+    /// The live terminals of every workspace: what a quit that ends the sessions ends.
     @MainActor public var liveTerminalCount: Int {
         store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
             .filter { $0.kind == .pty && !$0.dead && !ProvisionalTab.isProvisional(surface: $0.surface) }.count

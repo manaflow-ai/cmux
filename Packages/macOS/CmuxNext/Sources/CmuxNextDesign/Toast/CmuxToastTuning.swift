@@ -14,9 +14,8 @@ public nonisolated struct CmuxToastTuning: Equatable, Sendable {
     public var durationScale: Double
     public var minimumSeconds: Double
     public var glass: CmuxToastGlass
-    public var horizontalPadding: CGFloat
-    public var trailingPadding: CGFloat
-    public var verticalPadding: CGFloat
+    /// The toast's one padding, edge to buttons (``CmuxToastTunables/padding``).
+    public var padding: CGFloat
     public var buttonSpacing: CGFloat
     public var messageWidth: CGFloat
     public var rise: CGFloat
@@ -36,9 +35,7 @@ public nonisolated struct CmuxToastTuning: Equatable, Sendable {
         durationScale = read(CmuxToastTunables.durationScale)
         minimumSeconds = read(CmuxToastTunables.minimumSeconds)
         self.glass = glass
-        horizontalPadding = CGFloat(read(CmuxToastTunables.horizontalPadding))
-        trailingPadding = CGFloat(read(CmuxToastTunables.trailingPadding))
-        verticalPadding = CGFloat(read(CmuxToastTunables.verticalPadding))
+        padding = CGFloat(read(CmuxToastTunables.padding))
         buttonSpacing = CGFloat(read(CmuxToastTunables.buttonSpacing))
         messageWidth = CGFloat(read(CmuxToastTunables.messageWidth))
         rise = CGFloat(read(CmuxToastTunables.rise))

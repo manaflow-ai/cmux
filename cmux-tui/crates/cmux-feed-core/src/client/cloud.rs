@@ -36,7 +36,16 @@ pub enum CloudAction {
     Event { items: Vec<FeedItem>, removed: Vec<String> },
     /// The owner settled one of this client's intents.
     Settled { key: String, reject: Option<Reject> },
+    /// A provider's data changed for this person (`integration.changed`, a verified webhook): an
+    /// invalidation with no payload the daemon passes on (the `github.changed` app stream).
+    IntegrationChanged { provider: String },
+    /// Whether the owner can push this provider's changes (`integration.watching {live}`): it
+    /// has a usable, active connection. Not live, readers keep their slow re-read.
+    IntegrationLive { provider: String, live: bool },
 }
+
+/// The providers whose changes the stream asks the owner to push (`integration.watch`).
+pub const WATCHED_PROVIDERS: &[&str] = &["github"];
 
 /// One decoded frame.
 #[derive(Clone, Debug, PartialEq)]
@@ -46,6 +55,8 @@ pub enum Frame {
     Event { items: Vec<FeedItem>, present: Option<Vec<String>> },
     Reject { key: String, reject: Reject },
     Settled { key: String },
+    IntegrationChanged { provider: String },
+    IntegrationWatching { provider: String, live: bool },
     Ignored,
 }
 
@@ -95,6 +106,19 @@ impl Frame {
                 None => Frame::Ignored,
             },
             Some("request-settled") => key().map_or(Frame::Ignored, |key| Frame::Settled { key }),
+            Some("integration.changed") => {
+                frame.get("provider").and_then(Value::as_str).map_or(Frame::Ignored, |provider| {
+                    Frame::IntegrationChanged { provider: provider.to_owned() }
+                })
+            }
+            Some("integration.watching") => {
+                match (frame.get("provider").and_then(Value::as_str), frame.get("live")) {
+                    (Some(provider), Some(Value::Bool(live))) => {
+                        Frame::IntegrationWatching { provider: provider.to_owned(), live: *live }
+                    }
+                    _ => Frame::Ignored,
+                }
+            }
             _ => Frame::Ignored,
         }
     }
@@ -285,6 +309,12 @@ impl CloudStream {
                 if let Some(frame) = self.presence_frame() {
                     actions.push(CloudAction::Send(frame));
                 }
+                // Every live connection asks again: the owner forgets a listener whose sockets closed.
+                for provider in WATCHED_PROVIDERS {
+                    actions.push(CloudAction::Send(
+                        json!({"t": "integration.watch", "provider": provider}).to_string(),
+                    ));
+                }
                 for (_, _, frame) in &self.unsettled {
                     actions.push(CloudAction::Send(frame.clone()));
                 }
@@ -327,6 +357,16 @@ impl CloudStream {
                         let reject = self.part_rejects.remove(&intent).or(reject);
                         actions.push(CloudAction::Settled { key: intent, reject });
                     }
+                }
+            }
+            Frame::IntegrationChanged { provider } => {
+                if self.live && WATCHED_PROVIDERS.contains(&provider.as_str()) {
+                    actions.push(CloudAction::IntegrationChanged { provider });
+                }
+            }
+            Frame::IntegrationWatching { provider, live } => {
+                if self.live && WATCHED_PROVIDERS.contains(&provider.as_str()) {
+                    actions.push(CloudAction::IntegrationLive { provider, live });
                 }
             }
             Frame::Ignored => {}

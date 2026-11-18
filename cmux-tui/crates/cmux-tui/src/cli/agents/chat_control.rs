@@ -39,7 +39,8 @@ pub(in crate::cli) const CONTINUE_TEXT: &str = "Continue.";
 /// A new chat's settings (`chat new` flags).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) struct NewChat {
-    /// An existing workspace (`ws_` id) whose focused pane (else its first) gets the tab.
+    /// An existing workspace (its `ws_` id, a unique prefix, its name or its key) whose focused
+    /// pane (else its first) gets the tab.
     pub workspace: Option<String>,
     /// An existing pane (`pane_` id) that gets the tab.
     pub pane: Option<String>,
@@ -65,10 +66,14 @@ pub(in crate::cli) struct NewChat {
     /// The new workspace goes first in the sidebar (below Home), whatever
     /// `workspaces.newPlacement` says (`--top`, #29875).
     pub top: bool,
+    /// A peer of the acpmux the chat starts in (`--peer`): the chat runs on that machine
+    /// (`_meta.acpmux.peer`, as `acpmux new --on` and New Agent Chat's Environment picker start
+    /// one), its tab here. With no `--cwd` the peer picks its folder.
+    pub peer: Option<String>,
 }
 
-const NEW_USAGE: &str = "agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] \
-     [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] \
+const NEW_USAGE: &str = "agents chat new [--workspace <ws>|--pane <pane>|--top] [--peer <machine>] \
+     [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] \
      [--attach <file>]... [--] [<prompt>]";
 
 /// `chat new ...` (the words after `new`).
@@ -134,6 +139,7 @@ pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
             "--mode" => &mut chat.mode,
             "--policy" => &mut chat.policy,
             "--cwd" => &mut chat.cwd,
+            "--peer" => &mut chat.peer,
             other => {
                 return Err(UsageError::new(format!(
                     "agents chat new: unknown flag {other:?}; usage: {NEW_USAGE}"
@@ -313,6 +319,39 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
         }
         return Ok(Place { key, pane: None, arguments });
     }
+    // The selector as every other `--workspace` and `--pane` reads it: the daemon's resolver
+    // (an id, a unique id prefix, a name, `name:NAME`, `current`), a name several share
+    // refused with their ids.
+    let (scope, selector) = match (&chat.workspace, &chat.pane) {
+        (Some(selector), _) => ("workspace", selector.as_str()),
+        (None, Some(selector)) => ("pane", selector.as_str()),
+        (None, None) => return Err(not_run("usage.invalid", "name --workspace or --pane")),
+    };
+    // `workspace list` also prints the app's Cloud workspaces: read only when a selector may
+    // name one (a name, or nothing local matched).
+    let cloud = std::cell::OnceCell::new();
+    let cloud_rows = || cloud.get_or_init(|| super::super::cloud_workspaces::listed_rows(global));
+    let (resolved, missing) = match daemon_lookup(global, scope, selector) {
+        Lookup::Found(id) => (Some(id), None),
+        Lookup::Missing(error) => (None, Some(error)),
+        Lookup::Ambiguous(error) if scope == "workspace" => {
+            let local = candidate_ids(&error);
+            return Err(ambiguous(selector, &local, &cloud_matches(cloud_rows(), selector)));
+        }
+        Lookup::Ambiguous(error) | Lookup::Failed(error) => {
+            return Err(CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None });
+        }
+    };
+    // A name one local workspace and a Cloud one share is as ambiguous as two local ones.
+    if scope == "workspace"
+        && let Some(id) = &resolved
+        && is_name(selector)
+    {
+        let cloud = cloud_matches(cloud_rows(), selector);
+        if !cloud.is_empty() {
+            return Err(ambiguous(selector, std::slice::from_ref(id), &cloud));
+        }
+    }
     let snapshot = mcp::agent_resource(global, super::snapshot_plan())
         .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
     let list =
@@ -320,10 +359,11 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
     let (workspaces, screens, panes) = (list("workspaces"), list("screens"), list("panes"));
     let by_id = |items: &[Value], id: &Value| items.iter().find(|item| &item["id"] == id).cloned();
     // The app gets the ids the snapshot names, never the caller's spelling.
-    let (scope, found) = match (&chat.workspace, &chat.pane) {
-        (Some(id), _) => {
+    let id = resolved.as_deref().unwrap_or(selector);
+    let (scope, found) = match scope {
+        "workspace" => {
             let workspace = workspaces.iter().find(|workspace| {
-                workspace["id"] == id.as_str()
+                workspace["id"] == id
                     || workspace["extra"]["key"]
                         .as_str()
                         .is_some_and(|key| chat::workspace_key(key) == chat::workspace_key(id))
@@ -340,11 +380,23 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
                 let pane = own.iter().find(|pane| pane["focused"] == true).or(own.first())?;
                 Some((workspace.clone(), pane["id"].clone()))
             });
+            if let Some(workspace) = workspace
+                && found.is_none()
+            {
+                return Err(not_run(
+                    "workspace.no_pane",
+                    format!(
+                        "workspace {selector:?} ({}) has no pane to open the chat in; \
+                         name one with --pane",
+                        workspace["id"].as_str().unwrap_or_default()
+                    ),
+                ));
+            }
             ("workspace", found)
         }
-        (None, Some(id)) => {
+        _ => {
             // A pane names its screen, and the screen its workspace.
-            let pane = panes.iter().find(|pane| pane["id"] == id.as_str());
+            let pane = panes.iter().find(|pane| pane["id"] == id);
             let found = pane.and_then(|pane| {
                 let screen = by_id(&screens, &pane["screen_id"])?;
                 let workspace = by_id(&workspaces, &screen["workspace_id"])?;
@@ -352,24 +404,174 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
             });
             ("pane", found)
         }
-        // Handled above (a new workspace); answered as usage, never a panic.
-        (None, None) => return Err(not_run("usage.invalid", "name --workspace or --pane")),
     };
-    let target = chat.workspace.as_deref().or(chat.pane.as_deref()).unwrap_or_default();
     let named = found.and_then(|(workspace, id)| {
         Some((workspace["extra"]["key"].as_str()?.to_owned(), id.as_str()?.to_owned()))
     });
     let Some((key, id)) = named else {
+        if scope == "workspace" {
+            match cloud_matches(cloud_rows(), selector).as_slice() {
+                [] => {}
+                [row] => return Err(on_cloud_machine(selector, row)),
+                several => return Err(ambiguous(selector, &[], several)),
+            }
+        }
+        // The daemon's own word on a selector it cannot read (`workspace_1`: pass `name:`).
+        if let Some(error) = missing.filter(|error| error["code"] == "validation.invalid") {
+            return Err(CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None });
+        }
+        let next = if scope == "workspace" { "cmux workspace list" } else { "cmux pane list" };
         return Err(CallFailure {
             kind: FailureKind::NotRun,
             error: json!({"code": "selector.not_found",
-                          "message": format!("no {scope} {target:?} in this cmux session"),
-                          "details": {"scope": scope, "selector": target},
+                          "message": format!("no {scope} {selector:?} in this cmux session \
+                                              ({next} names them)"),
+                          "details": {"scope": scope, "selector": selector},
                           "retryable": false}),
             idempotency_key: None,
         });
     };
     Ok(Place { key, pane: Some(id), arguments })
+}
+
+/// What the daemon's resolver answers for a `--workspace` or `--pane` selector.
+enum Lookup {
+    /// The object's public id.
+    Found(String),
+    /// No such object, or a selector the resolver cannot read (`selector.not_found`,
+    /// `validation.invalid`): a workspace key, or a Cloud workspace, may still match.
+    Missing(Value),
+    /// A name several objects share (`selector.ambiguous`, with their ids).
+    Ambiguous(Value),
+    /// The daemon did not answer.
+    Failed(Value),
+}
+
+/// `workspace.get` / `pane.get` for `selector`, the request every other `--workspace` and
+/// `--pane` makes: an id, a unique id prefix, a name (`name:` forces one) or `current`. A pane
+/// that is not an id is read in the current screen, as `cmux pane NAME` reads it.
+fn daemon_lookup(global: &GlobalArgs, scope: &str, selector: &str) -> Lookup {
+    use super::super::command::{RequestPlan, ResponseView, WireOperation};
+    use cmux_tui_core::resource::ResourceOperation;
+    let mut params = json!({"machine": "current", "session": "current"});
+    let operation = if scope == "workspace" {
+        params["workspace"] = json!(selector);
+        ResourceOperation::WorkspaceGet
+    } else {
+        if !selector.starts_with("pane_") {
+            params["workspace"] = json!("current");
+            params["screen"] = json!("current");
+        }
+        params["pane"] = json!(selector);
+        ResourceOperation::PaneGet
+    };
+    let plan = RequestPlan {
+        operation: WireOperation::Typed(operation),
+        params,
+        idempotency_key: None,
+        stream: false,
+        resolve: Vec::new(),
+        view: ResponseView::Full,
+        filter: Default::default(),
+    };
+    match mcp::agent_resource(global, plan) {
+        Ok(found) => match found.get("id").and_then(Value::as_str) {
+            Some(id) => Lookup::Found(id.to_owned()),
+            None => Lookup::Missing(found),
+        },
+        Err(error) => match error["code"].as_str() {
+            Some("selector.not_found" | "validation.invalid") => Lookup::Missing(error),
+            Some("selector.ambiguous") => Lookup::Ambiguous(error),
+            _ => Lookup::Failed(error),
+        },
+    }
+}
+
+/// Whether `selector` names an object rather than giving its id (`Selector::parse`).
+fn is_name(selector: &str) -> bool {
+    matches!(
+        cmux_tui_core::resource::Selector::parse(selector),
+        Ok(cmux_tui_core::resource::Selector::Name(_))
+    )
+}
+
+/// The ids a daemon `selector.ambiguous` names.
+fn candidate_ids(error: &Value) -> Vec<String> {
+    error["details"]["candidates"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|id| id.as_str().map(str::to_owned))
+        .collect()
+}
+
+/// The Cloud rows of `workspace list` that `selector` names: by their `ws_` id, their durable
+/// `workspace_id`, or their name (`name:NAME` only by name).
+fn cloud_matches<'a>(rows: &'a [Value], selector: &str) -> Vec<&'a Value> {
+    let forced = selector.strip_prefix("name:");
+    let name = forced.unwrap_or(selector);
+    rows.iter()
+        .filter(|row| {
+            let text = |key: &str| row.get(key).and_then(Value::as_str);
+            text("name") == Some(name)
+                || (forced.is_none()
+                    && (text("id") == Some(selector) || text("workspace_id") == Some(selector)))
+        })
+        .collect()
+}
+
+/// How a Cloud row reads in a refusal: its id and its machine.
+fn cloud_label(row: &Value) -> String {
+    let text = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default();
+    format!("{} (Cloud machine {} vm:{})", text("id"), text("machine_name"), text("machine_id"))
+}
+
+/// A name several rows of `workspace list` share: refused, with every one's id.
+fn ambiguous(selector: &str, local: &[String], cloud: &[&Value]) -> CallFailure {
+    let mut listed: Vec<String> = local.to_vec();
+    listed.extend(cloud.iter().map(|row| cloud_label(row)));
+    let mut candidates: Vec<Value> = local.iter().map(|id| json!(id)).collect();
+    candidates.extend(
+        cloud.iter().map(
+            |row| json!({"id": row["id"], "machine_id": row["machine_id"], "origin": "cloud"}),
+        ),
+    );
+    CallFailure {
+        kind: FailureKind::NotRun,
+        error: json!({
+            "code": "selector.ambiguous",
+            "message": format!(
+                "{} workspaces are named {selector:?}: {}; name one by its id",
+                listed.len(),
+                listed.join(", ")
+            ),
+            "details": {"scope": "workspace", "selector": selector, "candidates": candidates},
+            "retryable": false,
+        }),
+        idempotency_key: None,
+    }
+}
+
+/// A Cloud workspace `workspace list` prints: its panes live in the Cloud machine's daemon,
+/// which only the app reaches, so a chat for it starts on that machine.
+fn on_cloud_machine(selector: &str, row: &Value) -> CallFailure {
+    let machine = row["machine_id"].as_str().unwrap_or_default();
+    CallFailure {
+        kind: FailureKind::NotRun,
+        error: json!({
+            "code": "workspace.on_cloud_machine",
+            "message": format!(
+                "workspace {selector:?} is {}, not in this Mac's session; start a chat there \
+                 with `cmux chat --on vm:{machine}`",
+                cloud_label(row)
+            ),
+            "details": {"scope": "workspace", "selector": selector, "workspace": row["id"],
+                        "machine_id": machine,
+                        "next": format!("cmux chat --on vm:{machine}")},
+            "retryable": false,
+        }),
+        idempotency_key: None,
+    }
 }
 
 /// A workspace key in the dashed UUID form acpmux takes for
@@ -389,6 +591,31 @@ fn uuid_form(key: &str) -> String {
     dashed().unwrap_or_else(|| key.to_owned())
 }
 
+/// The new chat's `_meta.acpmux`: its settings, and where it runs. A chat here carries its
+/// workspace as `CMUX_WORKSPACE_ID` (`_meta.acpmux.env`), so `chat send|read` reach it. A chat on
+/// a peer names the peer instead and carries no env: a peer takes a session env only from its own
+/// unix socket (acpmux `remote_guard.rs`, `env.origin_refused`), so it would refuse the start.
+fn session_meta(chat: &NewChat, workspace_key: &str) -> Map<String, Value> {
+    let mut meta = Map::new();
+    for (name, value) in [
+        ("harness", &chat.harness),
+        ("model", &chat.model),
+        ("effort", &chat.effort),
+        ("mode", &chat.mode),
+        ("policy", &chat.policy),
+        ("name", &chat.name),
+        ("peer", &chat.peer),
+    ] {
+        if let Some(value) = value {
+            meta.insert(name.into(), json!(value));
+        }
+    }
+    if chat.peer.is_none() {
+        meta.insert("env".into(), json!({"CMUX_WORKSPACE_ID": uuid_form(workspace_key)}));
+    }
+    meta
+}
+
 /// `chat new`: the chat, its tab, and its first prompt.
 pub(in crate::cli) fn new(
     global: &GlobalArgs,
@@ -402,30 +629,23 @@ pub(in crate::cli) fn new(
     let app_socket = chat::app_acpmux(global);
     let socket = app_socket.as_deref();
     let place = place(global, chat)?;
-    let cwd = match &chat.cwd {
-        Some(cwd) => cwd.clone(),
-        None => std::env::current_dir()
-            .map_err(|error| not_run("usage.invalid", format!("no current folder: {error}")))?
-            .to_string_lossy()
-            .into_owned(),
+    // A chat here runs in the caller's folder when none is named; on a peer, the peer picks
+    // one, since this machine's folder may not be there.
+    let cwd = match (&chat.cwd, &chat.peer) {
+        (Some(cwd), _) => Some(cwd.clone()),
+        (None, Some(_)) => None,
+        (None, None) => Some(
+            std::env::current_dir()
+                .map_err(|error| not_run("usage.invalid", format!("no current folder: {error}")))?
+                .to_string_lossy()
+                .into_owned(),
+        ),
     };
-    let mut meta = Map::new();
-    for (name, value) in [
-        ("harness", &chat.harness),
-        ("model", &chat.model),
-        ("effort", &chat.effort),
-        ("mode", &chat.mode),
-        ("policy", &chat.policy),
-        ("name", &chat.name),
-    ] {
-        if let Some(value) = value {
-            meta.insert(name.into(), json!(value));
-        }
-    }
-    meta.insert("env".into(), json!({"CMUX_WORKSPACE_ID": uuid_form(&place.key)}));
-    let created = chat::acp::new_session(&cwd, Value::Object(meta), socket).map_err(|error| {
-        not_run("chat.create_failed", format!("cannot start the chat: {error}"))
-    })?;
+    let meta = session_meta(chat, &place.key);
+    let created =
+        chat::acp::new_session(cwd.as_deref(), Value::Object(meta), socket).map_err(|error| {
+            not_run("chat.create_failed", format!("cannot start the chat: {error}"))
+        })?;
     let session = created["sessionId"].as_str().unwrap_or_default().to_owned();
     if session.is_empty() {
         return Err(not_run(
@@ -443,6 +663,9 @@ pub(in crate::cli) fn new(
         "name": created.pointer("/_meta/acpmux/name").cloned().unwrap_or(Value::Null),
         "harness": created.pointer("/_meta/acpmux/harness").cloned().unwrap_or(Value::Null),
     });
+    if let Some(peer) = &chat.peer {
+        result.set("peer", json!(peer));
+    }
 
     // The tab, in the background: neither action takes focus for a script's run.
     let new_workspace = place.new_workspace();
@@ -597,7 +820,8 @@ pub(in crate::cli) fn interrupt(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_new, take_attach};
+    use super::{parse_new, session_meta, take_attach};
+    use serde_json::json;
 
     #[test]
     fn attach_flags_come_before_the_text_and_repeat() {
@@ -619,5 +843,28 @@ mod tests {
         assert_eq!(chat.attach, ["a.png", "b.txt"]);
         assert_eq!(chat.prompt.as_deref(), Some("look"));
         assert!(parse_new(&["--attach", "a.png"]).is_err());
+    }
+
+    /// `--peer` starts the chat on that machine through this acpmux: the peer goes in
+    /// `_meta.acpmux.peer` and no session env goes with it (a peer refuses one from another
+    /// daemon); a chat here keeps its workspace env and names no peer.
+    #[test]
+    fn a_peer_chat_names_the_peer_and_carries_no_env() {
+        let key = "0123456789abcdef0123456789abcdef";
+        let here = parse_new(&["--harness", "codex", "--", "go"]).unwrap();
+        let meta = session_meta(&here, key);
+        assert_eq!(meta.get("peer"), None);
+        assert_eq!(
+            meta.get("env"),
+            Some(&json!({"CMUX_WORKSPACE_ID": "01234567-89ab-cdef-0123-456789abcdef"}))
+        );
+        let there = parse_new(&["--peer", "studio", "--harness", "codex", "--", "go"]).unwrap();
+        assert_eq!(there.peer.as_deref(), Some("studio"));
+        let meta = session_meta(&there, key);
+        assert_eq!(meta.get("peer"), Some(&json!("studio")));
+        assert_eq!(meta.get("harness"), Some(&json!("codex")));
+        assert_eq!(meta.get("env"), None);
+        assert!(parse_new(&["--peer"]).is_err());
+        assert!(parse_new(&["--peer="]).is_err());
     }
 }
