@@ -10,6 +10,8 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
 
     override init(id: String, node: AppSceneNode) {
         super.init(id: id, node: node)
+        // Its own layer: a content transition rolls or crossfades the label alone.
+        label.wantsLayer = true
         addSubview(label)
     }
 
@@ -20,10 +22,13 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
     private var shownText: String { dateText?.text(at: Date()) ?? node.string("text") ?? "" }
 
     override func configure(_ node: AppSceneNode) {
+        let before = label.stringValue
         super.configure(node)
         dateText = AppSceneDateText(node)
         updateTicking()
-        label.stringValue = shownText
+        let text = shownText
+        if text != before, window != nil, !before.isEmpty { transitionContent(from: before, to: text) }
+        label.stringValue = text
         label.font = Self.font(node)
         let lines = node.number("lineLimit").map { max(1, Int($0)) } ?? 0
         label.maximumNumberOfLines = lines
@@ -100,6 +105,25 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
                 .paragraphStyle: paragraph,
             ]
         )
+    }
+
+    /// `contentTransition` on a text already on screen: `numericText` rolls the new value in (up when
+    /// it grew, down when it shrank), `opacity` crossfades it, behind the sidebar's motion gate (Reduce
+    /// Motion crossfades; motion off draws the new value at once).
+    private func transitionContent(from before: String, to after: String) {
+        switch node.string("contentTransition") {
+        case "numericText": Motion.sidebar.rollInPlace(label.layer, upward: Self.grew(from: before, to: after))
+        case "opacity": Motion.sidebar.crossfadeInPlace(label.layer)
+        default: break
+        }
+    }
+
+    /// Whether `after` reads as a larger number than `before` (digits only, so "9:41" and "12°" compare
+    /// by their digits); a text that is not a number rolls up.
+    static func grew(from before: String, to after: String) -> Bool {
+        let digits = { (text: String) in Double(text.filter(\.isNumber)) }
+        guard let old = digits(before), let new = digits(after) else { return true }
+        return new >= old
     }
 
     override var contentNaturalWidth: CGFloat? { ceil(label.naturalSize.width) }
