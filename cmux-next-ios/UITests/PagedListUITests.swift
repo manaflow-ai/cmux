@@ -155,7 +155,10 @@ final class PagedListUITests: XCTestCase {
         XCTAssertFalse(app.alerts.firstMatch.exists, "a failed page still shows an alert")
         attach(app, "agentchats-edge-failed")
         app.buttons["agentChats.list.retry"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["agentChats.row.chat-25"].waitForExistence(timeout: 10), "Try Again did not load the page")
+        // The page lands below the edge, out of view: scroll to it.
+        let landed = app.descendants(matching: .any)["agentChats.row.chat-25"]
+        for _ in 0..<6 where !landed.waitForExistence(timeout: 2) { list.swipeUp(velocity: .slow) }
+        XCTAssertTrue(landed.exists, "Try Again did not load the page")
         attach(app, "agentchats-edge-recovered")
     }
 
@@ -164,7 +167,7 @@ final class PagedListUITests: XCTestCase {
         let list = slow.collectionViews["agentChats.list"]
         XCTAssertTrue(slow.descendants(matching: .any)["agentChats.row.chat-0"].waitForExistence(timeout: 10))
         let loading = slow.descendants(matching: .any)["agentChats.list.edge.loading"]
-        for _ in 0..<8 where !loading.exists { list.swipeUp(velocity: .fast) }
+        for _ in 0..<4 where !loading.exists { list.swipeUp(velocity: .fast) }
         XCTAssertTrue(loading.waitForExistence(timeout: 5), "no loading edge")
         attach(slow, "agentchats-edge-loading")
         slow.terminate()
@@ -258,19 +261,36 @@ final class PagedListUITests: XCTestCase {
             }
             XCTAssertEqual(now.edge, "loading", "page \(landing + 1) was never asked for")
             XCTAssertLessThan(now.rows, target, "page \(landing + 1) landed before the reader held still; slow the lab's source")
-            let row = visibleRow(app)
-            settle(row)
-            let before = row.frame.minY
+            // Every row on screen, from one snapshot before the page lands and one after.
+            let before = rowTops(app)
+            XCTAssertLessThan(hud(app).rows, target, "page \(landing + 1) landed before the rows were measured")
             attach(app, "\(name)-page\(landing + 1)-before")
-            waitFor("page \(landing + 1)", timeout: 15) { self.hud(app).rows >= target }
-            settle(row)
+            waitFor("page \(landing + 1)", timeout: 20) { self.hud(app).rows >= target }
+            settle(app.collectionViews["lab.list"].cells.firstMatch)
+            let after = rowTops(app)
             attach(app, "\(name)-page\(landing + 1)-after")
-            XCTAssertEqual(row.frame.minY, before, accuracy: 0.5, "page \(landing + 1) moved the row being read (\(row.identifier))")
+            let common = Set(before.keys).intersection(after.keys)
+            XCTAssertFalse(common.isEmpty, "no row on screen both before and after page \(landing + 1)")
+            let moved = common.map { abs(after[$0]! - before[$0]!) }.max() ?? .infinity
+            XCTAssertLessThanOrEqual(moved, 0.5, "page \(landing + 1) moved the rows being read by \(moved) pt")
             let stats = hud(app)
             record("landing-\(name)-page\(landing + 1)",
-                   "{\"case\":\"\(name)\",\"page\":\(landing + 1),\"outsideShift\":\(abs(row.frame.minY - before)),\"probeMaxShift\":\(stats.maxShift)}")
+                   "{\"case\":\"\(name)\",\"page\":\(landing + 1),\"rowsCompared\":\(common.count),\"outsideShift\":\(moved),\"probeMaxShift\":\(stats.maxShift)}")
             XCTAssertLessThanOrEqual(stats.maxShift, 0.5, "the probe saw the reader move \(stats.maxShift) pt")
         }
+    }
+
+    /// The top of every lab row on screen (a row partly under the bars counts), from one snapshot.
+    @MainActor
+    private func rowTops(_ app: XCUIApplication) -> [String: CGFloat] {
+        guard let snapshot = try? app.collectionViews["lab.list"].snapshot() else { return [:] }
+        var tops: [String: CGFloat] = [:]
+        func walk(_ element: XCUIElementSnapshot) {
+            if element.identifier.hasPrefix("lab.row."), !element.frame.isEmpty { tops[element.identifier] = element.frame.minY }
+            element.children.forEach(walk)
+        }
+        walk(snapshot)
+        return tops
     }
 
     /// The first lab row fully on screen inside the list.

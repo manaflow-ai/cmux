@@ -5,7 +5,7 @@ import SwiftUI
 /// The Chats list (``AgentChatsList``, on the shared ``PagedList``) on fixed chats, for screenshots
 /// and UI tests of every state (verify/paged-list.md). Scenarios: `pages` (three pages of 20 chats,
 /// 0.6 s each, then the end), `edgefail` (the second page fails once; Try Again reads it), `slow`
-/// (2.5 s pages: the edge's spinner), `empty`, `firstfail` (no chats: the screen's failure).
+/// (6 s older pages: the edge's spinner), `empty`, `firstfail` (no chats: the screen's failure).
 public struct AgentChatsGallery: View {
     @State private var model: AgentChatsModel
     /// Held here: the model keeps its backend weakly, as the app's workspace source owns the real one.
@@ -52,7 +52,7 @@ final class GalleryChatsBackend: AgentChatsBackend {
 
     func agentChats(on macID: String, cursor: String?) async throws -> AgentChatPage {
         // motion: not an animation; the gallery's Mac answers after a network-like delay.
-        try await Task.sleep(for: scenario == "slow" ? .seconds(2.5) : .milliseconds(600))
+        try await Task.sleep(for: scenario == "slow" && cursor != nil ? .seconds(6) : .milliseconds(600))
         if scenario == "firstfail" { throw Refused() }
         if scenario == "empty" { return AgentChatPage(chats: [], nextCursor: nil) }
         let start = cursor.flatMap(Int.init) ?? 0

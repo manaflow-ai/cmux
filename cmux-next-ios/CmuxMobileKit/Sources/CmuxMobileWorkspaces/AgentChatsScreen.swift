@@ -387,8 +387,13 @@ struct AgentChatRow: View {
         return formatter
     }()
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
-        HStack(spacing: 12) {
+        // At accessibility text sizes the age goes under the title and lines wrap: beside it, the
+        // title truncated to a word or two.
+        let large = typeSize.isAccessibilitySize
+        HStack(alignment: large ? .top : .center, spacing: 12) {
             AgentBrandMark(agent: chat.harness, size: 20, style: .brand)
                 .frame(width: 32, height: 32)
                 .background(theme.colors.label.color.opacity(0.06), in: .circle)
@@ -396,7 +401,7 @@ struct AgentChatRow: View {
                 Text(chat.displayTitle)
                     .font(.body)
                     .foregroundStyle(theme.colors.label.color)
-                    .lineLimit(1)
+                    .lineLimit(large ? 3 : 1)
                 // No blank line under the title when there is nothing to say (no status, no folder).
                 if chat.isActive || !subtitle.isEmpty {
                     HStack(spacing: 6) {
@@ -407,23 +412,29 @@ struct AgentChatRow: View {
                         Text(subtitle)
                             .font(.footnote)
                             .foregroundStyle(theme.colors.label2.color)
-                            .lineLimit(1)
+                            .lineLimit(large ? 2 : 1)
                             .truncationMode(.middle)
                     }
                 }
+                if large { trailing }
             }
             Spacer(minLength: 8)
-            if busy {
-                CmuxSpinner()
-            } else if let updated = chat.updatedAt {
-                Text(Self.ages.localizedString(for: updated, relativeTo: Date()))
-                    .font(.footnote)
-                    .foregroundStyle(theme.colors.label2.color)
-            }
+            if !large { trailing }
         }
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
         .accessibilityHint(chat.archived ? "Archived" : "")
+    }
+
+    @ViewBuilder
+    private var trailing: some View {
+        if busy {
+            CmuxSpinner()
+        } else if let updated = chat.updatedAt {
+            Text(Self.ages.localizedString(for: updated, relativeTo: Date()))
+                .font(.footnote)
+                .foregroundStyle(theme.colors.label2.color)
+        }
     }
 
     private var subtitle: String {

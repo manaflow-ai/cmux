@@ -11,7 +11,7 @@ private let theme = CmuxMobileTheme.standard
 /// Launch with `-cmux-mobile-paged-lab DIRECTION:SCENARIO`:
 /// - DIRECTION: `down` (newest at the top, older pages below) or `up` (a chat: newest at the
 ///   bottom, older pages above, a composer under it);
-/// - SCENARIO: `normal` (30-row pages, 0.4 s each, 20 pages), `slow` (4 s a page: the edge's
+/// - SCENARIO: `normal` (30-row pages, 0.4 s each, 20 pages), `slow` (6 s a page: the edge's
 ///   spinner shows), `fast` (50 pages at 0.05 s, for fling hitches), `end` (two pages, then the
 ///   end), `empty`, `firstfail` (the first read fails once), `morefail` (the second page fails
 ///   once), `live` (a new row arrives every 1.5 s).
@@ -157,7 +157,7 @@ enum PagedLabScenario: String, Sendable {
 
     var latency: Duration {
         switch self {
-        case .slow: .seconds(4)
+        case .slow: .seconds(6)
         case .fast: .milliseconds(50)
         default: .milliseconds(400)
         }
