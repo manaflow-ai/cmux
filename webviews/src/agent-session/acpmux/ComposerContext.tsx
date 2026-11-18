@@ -738,6 +738,8 @@ export function ComposerContext({
     folderPicks.current += 1;
     setBrowseError(undefined);
     onCloudMachinePicked?.(undefined);
+    // A GitHub repository runs on Cloud: its pick with This Mac still picked moves the new chat there.
+    if (githubFolderRepo(cwd) && runMode && runMode.mode !== "cloud" && !started && !readOnly) runMode.onMode("cloud");
     onProject?.(cwd);
     const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
     if (environment) savedRows.onPick(environment.id);
@@ -1024,8 +1026,10 @@ export function ComposerContext({
               {...(onNewProject ? { onNewProject } : {})}
               {...((folderDetail ?? folderNote) && !currentFolder ? { note: folderDetail ?? folderNote } : {})}
               {...(extra ? { extra } : {})}
-              // A new chat with Cloud picked also offers the person's GitHub repositories.
-              {...(cloudSide && !sandboxPicked && !readOnly ? { github } : {})}
+              // A new chat that can run on Cloud also offers the person's GitHub repositories, with This
+              // Mac picked too: Connect to GitHub is found without knowing to pick Cloud first, and a
+              // repository's pick moves the chat to Cloud (pickFolder).
+              {...((cloudSide || (runMode !== undefined && !started)) && !sandboxPicked && !readOnly ? { github } : {})}
             />
           ) : (
             <LocationPicker

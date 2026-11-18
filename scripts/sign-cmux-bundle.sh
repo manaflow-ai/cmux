@@ -28,8 +28,8 @@
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
 #                              "main-only". The split Computer Use notarization
 #                              flow uses all-except-computer-use while Apple's
-#                              service processes the helpers (Computer Use and the
-#                              Screen Sharing helper, one submission), then
+#                              service processes the Computer Use helper (with
+#                              the screen sharing executable inside), then
 #                              main-only after stapling so the submitted helper
 #                              CDHashes survive.
 #
@@ -145,6 +145,15 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
   # signature in all-except-computer-use mode; changing it would invalidate the
   # ticket that finish is waiting to staple.
   if [[ "$SIGN_MODE" == "all" && -d "$COMPUTER_USE_HELPER" ]]; then
+    # The screen sharing executable inside it (one permission identity for screen sharing and
+    # computer use, bundle-screen-sharing-helper.sh) first: nested code is signed before the
+    # bundle that seals it, with the helper's identifier, so a macOS that checks the process by
+    # its own signature finds the same com.cmuxterm.cua row. No entitlements.
+    if [[ -f "$COMPUTER_USE_HELPER/Contents/MacOS/cmux-screen-sharing" ]]; then
+      echo "==> signing cmux-screen-sharing inside $(basename "$COMPUTER_USE_HELPER")"
+      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --identifier com.cmuxterm.cua \
+        "$COMPUTER_USE_HELPER/Contents/MacOS/cmux-screen-sharing"
+    fi
     echo "==> signing nested helper $(basename "$COMPUTER_USE_HELPER")"
     "$SCRIPT_DIR/codesign-retry.sh" \
       "${COMMON[@]}" \
@@ -152,8 +161,11 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
       "$COMPUTER_USE_HELPER"
   fi
 
-  # 2b. The Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
-  # plans/cmux-next/screen-sharing-helper.md): stamped for this app's final bundle id and name
+  # 2b. A separate Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
+  # plans/cmux-next/screen-sharing-helper.md), which only an app packaged before the screen
+  # sharing executable moved into the Computer Use helper carries (--stamp removes it from an
+  # app whose Computer Use helper has the executable; verify-computer-use-helper.sh fails a
+  # release app that keeps both): stamped for this app's final bundle id and name
   # (nightly and RC rename the app after the build), then signed as its own app with the
   # hardened runtime and no entitlements. Its bundle id and team are what macOS keeps its
   # Screen Recording and Accessibility grants under, so a grant survives every update.

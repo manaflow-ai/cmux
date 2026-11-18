@@ -36,7 +36,8 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// strip. A typed absolute or `~/` path is offered as typed. `note` is a quiet line under the list:
 /// where the chat starts while no folder is picked (a new chat's private folder).
 /// `github` (a new Cloud chat only, githubRepos.ts) adds the person's GitHub repositories under the
-/// folders: a GitHub group, filtered by the same search, whose pick is the folder `github:owner/name`.
+/// folders: a GitHub group, filtered by the same search, whose pick is the folder `github:owner/name`,
+/// ending in Choose more repositories… (the installation's page on GitHub) so a connected team always sees it.
 /// GitHub is optional: until it is connected (the cmux GitHub App not installed, signed out, no GitHub
 /// App on this Cloud service, or the check did not answer) one Connect to GitHub row ends the list, and
 /// one click connects in place: the host opens the install page, or sign-in when signed out, the menu
@@ -164,7 +165,9 @@ export function FolderPopover({
   const githubRows = [
     ...(githubStatus === "not_connected" || githubStatus === "unavailable" ? [GITHUB_ADD] : []),
     ...repos.map((repo) => GITHUB_REPO + repo.fullName),
-    ...(githubReady && github?.state.status?.reposScope === "selected" ? [GITHUB_MORE] : []),
+    // Connected: the way to GitHub's own page for the installation always shows, so a team whose
+    // installation grants no repository yet sees GitHub here, not a menu with nothing of it.
+    ...(githubReady ? [GITHUB_MORE] : []),
   ];
   const repoRows = useMemo(() => new Map(repos.map((repo) => [GITHUB_REPO + repo.fullName, repo])), [repos]);
   const currentRepo = githubFolderRepo(current);
