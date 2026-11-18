@@ -818,3 +818,55 @@ fn an_agent_chat_uses_the_saved_servers_over_stdio() {
     drop(stdin);
     let _ = child.wait();
 }
+
+/// Settings > MCP Servers reads and changes the store through the CLI's JSON
+/// mode: every saved server (the person sees all of them) with its state and
+/// scope in plain fields, never a secret; remove forgets it everywhere.
+#[test]
+fn settings_lists_and_removes_saved_servers_through_the_cli() {
+    let r = rig();
+    call(
+        &r.hub,
+        json!({"action": "add", "name": "fake", "target": format!("python3 {} --era session", fake()), "env": {"FAKE_TOKEN": "s3cret-value"}}),
+    );
+    set_scope(&r.shared, "fake", "chat", Some("s-1"));
+    let cli = |args: &[&str]| -> (i32, Value) {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_optchat-chief"))
+            .arg("integrations")
+            .args(args)
+            .env("CMUX_MCP_HOME", &r.shared)
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert!(!text.contains("s3cret-value"), "{text}");
+        let last = text.lines().last().unwrap_or("{}");
+        (
+            out.status.code().unwrap_or(-1),
+            serde_json::from_str(last).unwrap(),
+        )
+    };
+    let (code, list) = cli(&["--json", "list"]);
+    assert_eq!(code, 0, "{list}");
+    let row = &list["servers"][0];
+    assert_eq!(row["name"], "fake", "{list}");
+    assert_eq!(row["kind"], "local");
+    assert_eq!(row["state"], "connected");
+    assert_eq!(row["scope"], "chat");
+    assert!(row["tools"].as_u64().unwrap() > 0, "{row}");
+    let (code, gone) = cli(&["--json", "remove", "fake"]);
+    assert_eq!(
+        (code, gone["status"].clone()),
+        (0, json!("removed")),
+        "{gone}"
+    );
+    assert!(!r.shared.join("servers/fake.json").exists());
+    assert!(!r.shared.join("secrets/fake.json").exists());
+    let (code, none) = cli(&["--json", "remove", "fake"]);
+    assert_eq!(
+        (code, none["status"].clone()),
+        (1, json!("failed")),
+        "{none}"
+    );
+    let (_, list) = cli(&["--json", "list"]);
+    assert_eq!(list["servers"], json!([]), "{list}");
+}

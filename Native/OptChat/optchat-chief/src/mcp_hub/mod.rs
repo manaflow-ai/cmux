@@ -2551,6 +2551,10 @@ pub fn cli(words: &[String]) -> i32 {
     if words.first().is_some_and(|w| w == "serve") {
         return serve::run();
     }
+    if words.iter().any(|w| w == "--json") {
+        let words: Vec<String> = words.iter().filter(|w| *w != "--json").cloned().collect();
+        return cli_json(&words, &mut std::io::stdout());
+    }
     let shared = store::shared_dir();
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     let tx = Mutex::new(tx);
@@ -2612,6 +2616,115 @@ pub fn cli(words: &[String]) -> i32 {
     };
     hub.stop();
     code
+}
+
+/// One saved server as Settings > MCP Servers shows it (no secret, ever).
+pub fn settings_row(server: &Server) -> Value {
+    let (kind, address) = match &server.transport {
+        Some(Transport::Http { url }) => ("remote", url.clone()),
+        Some(t) => ("local", t.label()),
+        None => ("remote", String::new()),
+    };
+    let state = match server.state.as_str() {
+        "connected" => "connected",
+        "needs sign-in" => "signInNeeded",
+        s if s.starts_with("failed") => "failed",
+        _ => "unknown",
+    };
+    json!({
+        "name": server.name,
+        "kind": kind,
+        "address": redact(&address),
+        "publisher": server.publisher,
+        "verified": server.verified,
+        "state": state,
+        "problem": server.state.strip_prefix("failed: ").map(redact),
+        // None: a Chief added it, every agent has it (`shared::visible`).
+        "scope": server.scope.as_deref().unwrap_or("agents"),
+        "tools": server.tools.len(),
+        "addedMs": server.added_ms,
+    })
+}
+
+/// `optchat-chief integrations --json list | signin NAME | remove NAME`, for
+/// Settings > MCP Servers: one JSON object per line. `signin` prints
+/// `{"status":"waiting","page":URL}` (the page the person opens), waits for
+/// them, then `{"status":"connected"}` or `{"status":"failed","why":...}`;
+/// a server that connects at once prints only `{"status":"connected"}`.
+pub fn cli_json(words: &[String], out: &mut dyn std::io::Write) -> i32 {
+    let shared = store::shared_dir();
+    let word = |i: usize| words.get(i).map(String::as_str).unwrap_or("");
+    let mut emit = |v: Value| {
+        let _ = writeln!(out, "{v}");
+        let _ = out.flush();
+    };
+    match word(0) {
+        "" | "list" | "ls" => {
+            let dir = Dir::new(shared.join("cli"), shared.clone());
+            let rows: Vec<Value> = dir.load_servers().values().map(settings_row).collect();
+            emit(json!({"servers": rows}));
+            0
+        }
+        verb @ ("signin" | "remove") if !word(1).is_empty() => {
+            let (tx, rx) = std::sync::mpsc::channel::<String>();
+            let tx = Mutex::new(tx);
+            let hub = McpHub::new(
+                shared.join("cli"),
+                shared.clone(),
+                None,
+                Arc::new(move |t: String| {
+                    let _ = tx.lock().unwrap().send(t);
+                }),
+            );
+            let code = match hub.handle(&json!({"action": verb, "server": word(1)}), &Caller::Chief)
+            {
+                Err(why) => {
+                    emit(json!({"status": "failed", "why": redact(&why)}));
+                    1
+                }
+                Ok(_) if verb == "remove" => {
+                    emit(json!({"status": "removed"}));
+                    0
+                }
+                Ok(text) if text.starts_with("outcome: waiting") => {
+                    let page = text
+                        .lines()
+                        .find(|l| l.starts_with("https://") || l.starts_with("http://"))
+                        .unwrap_or_default();
+                    emit(json!({"status": "waiting", "page": page}));
+                    match rx.recv_timeout(oauth::SIGN_IN_WINDOW + Duration::from_secs(30)) {
+                        Ok(note) if note.contains("signed in and connected") => {
+                            emit(json!({"status": "connected"}));
+                            0
+                        }
+                        Ok(note) => {
+                            let why = note.split_once("] ").map_or(note.as_str(), |(_, w)| w);
+                            emit(json!({"status": "failed", "why": redact(why)}));
+                            1
+                        }
+                        Err(_) => {
+                            emit(
+                                json!({"status": "failed", "why": "the sign-in was not finished in time"}),
+                            );
+                            1
+                        }
+                    }
+                }
+                Ok(_) => {
+                    emit(json!({"status": "connected"}));
+                    0
+                }
+            };
+            hub.stop();
+            code
+        }
+        other => {
+            emit(
+                json!({"status": "failed", "why": format!("unknown {other:?}: use list, signin NAME or remove NAME")}),
+            );
+            2
+        }
+    }
 }
 
 #[cfg(test)]
