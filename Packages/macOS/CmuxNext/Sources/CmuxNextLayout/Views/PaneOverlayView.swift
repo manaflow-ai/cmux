@@ -176,9 +176,12 @@ final class PaneOverlayView: NSView {
     var ringFrame: CGRect { ring.frame }
     /// The focus ring's corner radius (for tests).
     var ringCornerRadius: CGFloat { ring.cornerRadius }
+    /// The focus ring's rounded corners (for tests).
+    var ringCorners: CACornerMask { ring.maskedCorners }
     /// The unread ring's rect and corner radius (for tests).
     var attentionFrame: CGRect { attention.frame }
     var attentionCornerRadius: CGFloat { attention.cornerRadius }
+    var attentionCorners: CACornerMask { attention.maskedCorners }
     /// The inactive dim's rect, corner radius and rounded corners (for tests).
     var dimFrame: CGRect { dimLayer.frame }
     var dimCornerRadius: CGFloat { dimLayer.cornerRadius }
