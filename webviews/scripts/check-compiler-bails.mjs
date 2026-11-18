@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { transformSync } from "@babel/core";
 import { REACT_COMPILER_TARGET } from "../reactCompiler.mjs";
+import { compilerSkips } from "./reactCompilerSkips.mjs";
 
 /**
  * React Compiler bail ratchet for the agent chat (src/agent-session/acpmux). The compiler skips a
@@ -32,13 +33,14 @@ const HEADER =
   "# Functions the React Compiler skips, per file, from before the rule (scripts/check-compiler-bails.mjs). Only moves down.\n";
 
 /**
- * Each skipped function in `source` as `file:line reason`, one per function.
+ * Each skipped function in `source` as `file:line reason`, one per function (reactCompilerSkips.mjs: a
+ * compile error, a pipeline error or a `"use no memo"` opt-out).
  * @param {string} file
  * @param {string} source
  * @returns {string[]}
  */
 export function findBails(file, source) {
-  /** @type {{ kind: string; fnLoc?: { start?: { line?: number } } | null; detail?: any }[]} */
+  /** @type {import("./reactCompilerSkips.mjs").CompilerEvent[]} */
   const events = [];
   transformSync(source, {
     filename: file,
@@ -52,16 +54,7 @@ export function findBails(file, source) {
       ],
     ],
   });
-  /** @type {Map<number, string>} */
-  const skipped = new Map();
-  for (const event of events) {
-    if (event.kind !== "CompileError" && event.kind !== "PipelineError") continue;
-    const at = event.fnLoc?.start?.line ?? 0;
-    if (skipped.has(at)) continue;
-    const reason = event.detail?.reason ?? event.detail?.options?.reason ?? "";
-    skipped.set(at, String(reason).split("\n")[0].slice(0, 120));
-  }
-  return [...skipped].sort(([a], [b]) => a - b).map(([at, reason]) => `${path.relative(root, file)}:${at} ${reason}`);
+  return compilerSkips(events).map((skip) => `${path.relative(root, file)}:${skip.line} ${skip.reason.slice(0, 120)}`);
 }
 
 /** @returns {Map<string, number>} */

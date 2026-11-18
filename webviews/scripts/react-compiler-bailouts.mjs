@@ -8,6 +8,7 @@ import { transformAsync } from "@babel/core";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { REACT_COMPILER_TARGET } from "../reactCompiler.mjs";
+import { compilerSkips } from "./reactCompilerSkips.mjs";
 
 const files = process.argv.slice(2);
 if (files.length === 0) {
@@ -32,20 +33,17 @@ for (const file of files) {
       ],
     ],
   });
-  for (const event of events) {
-    const line = event.fnLoc?.start?.line ?? event.detail?.loc?.start?.line ?? "?";
-    if (event.kind === "CompileSuccess") {
-      console.log(`compiled  ${file}:${line} ${event.fnName ?? "(anonymous)"} memo slots ${event.memoSlots}`);
-    } else if (event.kind === "CompileError" || event.kind === "CompileSkip" || event.kind === "PipelineError") {
-      left += 1;
-      const detail = event.detail?.options ?? event.detail ?? {};
-      const reason = detail.reason ?? event.reason ?? event.kind;
-      const at = detail.loc?.start?.line ?? detail.details?.[0]?.loc?.start?.line;
+  for (const event of events)
+    if (event.kind === "CompileSuccess")
       console.log(
-        `LEFT      ${file}:${line} ${event.fnName ?? ""} ${event.kind}: ${String(reason).slice(0, 300)}${at ? ` (line ${at})` : ""}`,
+        `compiled  ${file}:${event.fnLoc?.start?.line ?? "?"} ${event.fnName ?? "(anonymous)"} memo slots ${event.memoSlots}`,
       );
-      if (process.env.BAILOUT_RAW) console.log(`  raw ${JSON.stringify(event).slice(0, 800)}`);
-    }
+  for (const skip of compilerSkips(events)) {
+    left += 1;
+    console.log(
+      `LEFT      ${file}:${skip.line || "?"} ${skip.fnName ?? ""} ${skip.kind}: ${skip.reason.slice(0, 300)}${skip.at ? ` (line ${skip.at})` : ""}`,
+    );
   }
+  if (process.env.BAILOUT_RAW) for (const event of events) console.log(`  raw ${JSON.stringify(event).slice(0, 800)}`);
 }
 console.log(`REACT-COMPILER-BAILOUTS left ${left}`);
