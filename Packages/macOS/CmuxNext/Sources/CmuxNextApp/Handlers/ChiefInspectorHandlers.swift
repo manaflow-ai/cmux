@@ -37,7 +37,8 @@ enum ChiefInspectorHandlers {
         context.services.pages.register(remotePage)
         let memory = ChiefMemoryPageService(services: context.services)
         context.services.pages.register(memory)
-        registry.bind(actionID, run: { invocation in
+        // Not offered when the web fallback has no Chief to read here or on a paired server (as `chief.openUsage`).
+        registry.bind(actionID, unavailable: { opensWebPage && !HomeBrainHost.canStart() && remoteChief(context) == nil ? ChiefInspectorStrings.noLocalChief : nil }, run: { invocation in
             if opensWebPage {
                 try openWeb(invocation, remotePage: remotePage, context: context)
                 return

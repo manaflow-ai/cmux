@@ -201,6 +201,13 @@ fn scripted_app_host() {
                 }
             }
             ToHost::Unmount { .. } => {}
+            // A widget tick: the scripted render draws the clock it got.
+            ToHost::Tick { mount, now_ms } => {
+                send(FromHost::Scene {
+                    mount,
+                    ops: json!([{ "op": "update", "id": "n1", "props": { "tick": now_ms } }]),
+                });
+            }
             ToHost::Shutdown => break,
         }
     }
@@ -645,6 +652,46 @@ fn unknown_ops_ungranted_ops_storage_and_egress() {
         f.call("m1", "net.fetch", json!({ "url": "https://other.example.org/" }), false)["body"]["code"],
         "scope.missing"
     );
+}
+
+/// `net.fetch {cache: "shared"}` (the http.json signal source): mounts that
+/// read one URL share one request, and the egress gate still runs first, so
+/// an app that may not fetch the URL never reads another app's cached body.
+#[test]
+fn shared_fetches_are_one_request_per_url_and_still_need_the_grant() {
+    let f = fixture();
+    f.install("cmux/demo");
+    f.install("local/spy");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    f.mount("m2", "cmux/demo", "cmux.section/1", json!({}));
+    f.mount("s1", "local/spy", "cmux.section/1", json!({}));
+    let shared = json!({ "url": "https://api.example.com/weather", "cache": "shared" });
+    let first = f.call("m1", "net.fetch", shared.clone(), false);
+    assert_eq!(first["body"]["value"]["body"], "hi");
+    assert_eq!(first["body"]["value"]["cache"]["hit"], false);
+    let second = f.call("m2", "net.fetch", shared.clone(), false);
+    assert_eq!(second["body"]["value"]["cache"]["hit"], true);
+    assert_eq!(second["body"]["value"]["cache"]["maxAgeSeconds"], 60);
+    assert_eq!(f.fetcher.requests.lock().unwrap().len(), 1, "one request for both mounts");
+    // The spy is sandboxed: no network, so it is refused before the cache, cached or not.
+    assert_eq!(f.call("s1", "net.fetch", shared, false)["body"]["code"], "scope.missing");
+    // A body another reader cached for a host this app holds no grant for stays out of reach.
+    let theirs = FetchRequest {
+        url: "https://other.example.org/x".into(),
+        method: "GET".into(),
+        headers: vec![],
+        body: None,
+    };
+    let priming = Arc::new(FakeFetcher::default());
+    f.supervisor.http_cache.get(&priming, theirs, Instant::now()).unwrap();
+    let other = json!({ "url": "https://other.example.org/x", "cache": "shared" });
+    assert_eq!(f.call("m1", "net.fetch", other, false)["body"]["code"], "scope.missing");
+    let post =
+        json!({ "url": "https://api.example.com/weather", "method": "POST", "cache": "shared" });
+    assert_eq!(f.call("m1", "net.fetch", post, false)["body"]["code"], "validation.invalid");
+    let unknown = json!({ "url": "https://api.example.com/weather", "cache": "forever" });
+    assert_eq!(f.call("m1", "net.fetch", unknown, false)["body"]["code"], "validation.invalid");
+    assert_eq!(f.fetcher.requests.lock().unwrap().len(), 1);
 }
 
 #[test]
@@ -1171,6 +1218,8 @@ mod safe_mode;
 mod servers;
 #[path = "supervisor_subscription_tests.rs"]
 mod subscriptions;
+#[path = "supervisor_widget_tests.rs"]
+mod widget_tiles;
 
 #[path = "supervisor_run_lifecycle_tests.rs"]
 mod run_lifecycle;

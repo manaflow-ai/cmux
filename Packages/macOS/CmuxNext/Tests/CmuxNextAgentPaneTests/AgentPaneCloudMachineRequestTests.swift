@@ -133,6 +133,24 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(rows[1]["evictAt"] == nil)
     }
 
+    @Test func theListCarriesTheMachineSizeWhenKnown() async throws {
+        let machines = AgentPaneCloudMachines()
+        machines.list = {
+            .init(signedIn: true, loaded: true, machines: [
+                .init(id: "vm-1", name: "box", stage: "ready", size: .init(cpu: 4, memoryMb: 16384, diskMb: 65536)),
+                .init(id: "vm-2", name: "gpu", stage: "ready", size: .init(cpu: 2, memoryMb: 0)),
+                .init(id: "vm-3", name: "old", stage: "paused"),
+            ])
+        }
+        let value = try #require(await AgentPaneCloudMachineRequest.list.reply(machines, gestures: AgentPaneUserGestures())["value"] as? [String: Any])
+        let rows = try #require(value["machines"] as? [[String: Any]])
+        let size = try #require(rows[0]["size"] as? [String: Any])
+        #expect(size["cpu"] as? Int == 4 && size["memoryMb"] as? Int == 16384 && size["diskMb"] as? Int == 65536)
+        // Only the positive numbers the record gave; a machine with no size has no `size`.
+        #expect((rows[1]["size"] as? [String: Any])?.keys.sorted() == ["cpu"])
+        #expect(rows[2]["size"] == nil)
+    }
+
     @Test func aMachineTheAppRefusesIsAVisibleFailure() async {
         let machines = AgentPaneCloudMachines()
         let gestures = AgentPaneUserGestures()
