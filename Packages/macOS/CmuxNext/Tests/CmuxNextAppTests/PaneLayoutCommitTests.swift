@@ -235,7 +235,7 @@ import Testing
 
     /// The frame of the change's own turn and each display frame after it show one layout: the one before the change,
     /// then, from the display frame that shows the change on, the one after it. That frame is the first one after the
-    /// change; a zoom's is the one at which the dim that comes over the other panes is at its end (`PaneZoomDimTests`).
+    /// change, for a zoom too: this fixture asks for no move of its panes, so no dim comes (`PaneZoomDimTests`).
     /// Every pane's content is at the rect its pane gives it in each of them, and no content takes more than one new size.
     @Test(arguments: changes)
     func aLayoutChangeShowsInOneFrame(_ change: Change) throws {

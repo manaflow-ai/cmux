@@ -12,7 +12,7 @@ import Testing
 /// layout before, the panes that it covers stay where they are under it, and the dim starts its fade over them. The
 /// frame that ends the motion hides the covered panes and takes the dim away.
 ///
-/// These rows hold, for that order, what `PaneZoomDimTests` holds for a dim that comes before the zoom shows: a
+/// These rows hold, for that order, what `PaneZoomDimTests` held when a dim came before the zoom showed: a
 /// second key, a screen switch, a change of the screen's size, panes that stop animating, a split and a close of
 /// the zooming pane, each in the zoom's motion, and how many sizes the pane that zooms hears.
 extension PaneCommitMotionTests {

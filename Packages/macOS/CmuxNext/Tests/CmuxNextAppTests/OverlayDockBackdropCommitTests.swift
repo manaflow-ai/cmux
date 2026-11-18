@@ -72,7 +72,7 @@ import Testing
         // The zoom's own turn: the screen still shows the layout with the dock, whole.
         try #require(Commit.same(Commit.shown(screen), before), "SETUP: the zoom's own turn changed the panes the screen shows")
         #expect(Self.backdrops(screen) == glass, "the zoom's own turn took the backdrop from under the dock's panes: \(Self.backdrops(screen))")
-        // While the dim comes the screen shows that layout still, and the dock keeps its backdrop.
+        // A frame before the one that shows the zoom shows that layout still, and the dock keeps its backdrop.
         for tick in 1..<first {
             _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
             #expect(Self.backdrops(screen) == glass, "frame \(tick), before the zoom shows, took the backdrop from under the dock's panes")

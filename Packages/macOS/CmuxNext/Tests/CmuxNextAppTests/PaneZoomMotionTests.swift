@@ -4,8 +4,8 @@ import CmuxNextTestSupport
 import Testing
 
 /// Zoom and unzoom (Cmd-Shift-Enter) have no motion between two layouts: each shows whole in one frame. An unzoom's
-/// is the first display frame after its change. A zoom's is the display frame at which the dim that comes over the
-/// other panes is at its end (`PaneZoomDimTests`): each frame before it shows the layout before the zoom, whole. The
+/// is the first display frame after its change, and so is a zoom's here: this fixture asks for no move of its panes
+/// (`PaneZoomDimTests`). A frame before the one that shows a zoom shows the layout before the zoom, whole. The
 /// zoomed pane fills its screen with its content at that size, and the other panes are hidden with it; an unzoom shows
 /// every pane at its place again. No frame shows the zoomed pane at a size between its slot and its screen, or a pane
 /// beside it that the layout does not have.
