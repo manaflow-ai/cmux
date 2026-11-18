@@ -1293,7 +1293,9 @@ class PathRoutingStructure(unittest.TestCase):
             with self.subTest(workflow=filename):
                 self.assertIn("Authorization: Basic", script)
                 self.assertIn("x-access-token:%s", script)
-                self.assertIn("timeout 15 git", script)
+                # push-head-preflight runs on a nightly Mac on a feat-cmux-next push, and macOS has no timeout(1):
+                # perl's alarm bounds it there (tree-preflight keeps GNU timeout on Linux).
+                self.assertRegex(script, r"timeout 15 git|perl -e 'alarm 15; exec @ARGV' git")
                 self.assertNotIn("Authorization: Bearer", script)
 
 
