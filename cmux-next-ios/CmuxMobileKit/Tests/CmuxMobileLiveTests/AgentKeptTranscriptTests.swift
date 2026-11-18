@@ -393,6 +393,30 @@ import Testing
         try Self.expectBothFilesCurrent(relaunched, key, wholeFrom: headFirst)
     }
 
+    /// A read of the whole copy in flight when the chat's kept copy is forgotten (the attach found
+    /// it too old, ``keptCopyTooFarBehindOpensFresh``) never puts it back in memory: the source
+    /// rebuilt after the drop would restore the stale turns again (review F1 at e54b7ec1).
+    @Test func aReadInFlightWhenTheChatIsForgottenNeverBringsItBack() async throws {
+        let directory = Self.folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = try #require(AgentTranscriptCache.key(accountID: "acct", macID: "mac1", tabID: "s7"))
+        Self.keepWholeAndHead(directory, key)
+
+        let relaunched = Self.cache(directory)
+        // Holds the cache's queue: the read waits behind it, the file still on disk.
+        let gate = DispatchSemaphore(value: 0)
+        relaunched.queue.async { gate.wait() }
+        let read = Task { await relaunched.load(key) }
+        for _ in 0..<5 { await Task.yield() } // test: lets the read start and wait on the queue
+        relaunched.forget(key)
+        gate.signal()
+        #expect(await read.value == nil, "the read that started before the forget does not land")
+        #expect(relaunched.cached(key) == nil)
+        relaunched.flush()
+        #expect(!FileManager.default.fileExists(atPath: relaunched.file(for: key).path(percentEncoded: false)))
+        #expect(relaunched.firstScreen(key) == nil)
+    }
+
     /// Records kept for another session of the tab (the Mac started a new one) are not shown.
     @Test func keptRecordsOfAnotherSessionAreIgnored() async throws {
         let cache = Self.cache()
