@@ -134,8 +134,8 @@ final class CloudTeamSectionView: NSView {
         let width = scroll.contentSize.width
         let range = Self.realizedRange(count: sessions.count, visible: scroll.contentView.bounds)
         listWork.walked(range.count)
-        let window = sessions[range].map { (key: $0.key, item: Optional($0)) }
-        let plan = FixedRowWindow.remount(window: window, mounted: made.mapValues(\.row))
+        let inRange = sessions[range].map { (key: $0.key, item: Optional($0)) }
+        let plan = FixedRowWindow.remount(window: inRange, mounted: made.mapValues(\.row))
         for key in plan.released {
             guard let row = made.removeValue(forKey: key) else { continue }
             row.removeFromSuperview()
