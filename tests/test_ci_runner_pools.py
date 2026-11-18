@@ -140,6 +140,9 @@ class Declared(unittest.TestCase):
         pin_line = next(line for line in (ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text().splitlines()
                         if checkout["with"]["ref"] in line)
         self.assertIn("#45861", pin_line, "the spill pin must carry the hosted-first valve")
+        # 2026-11-18: an unread queue sample kept probe-stall marks on sizes still starting jobs, and the spill could
+        # name a size below a pool's members; cmux#46392 counts recent starts and spills only to members.
+        self.assertIn("#46392", pin_line, "the spill pin must carry recent starts and members-only spill")
         self.assertEqual(checkout["with"]["persist-credentials"], False)
         self.assertEqual(set(checkout["with"]["sparse-checkout"].split()),
                          {"scripts/ci/linux_pool_spill.py", "scripts/ci/runner_pool_reconcile.py"})
