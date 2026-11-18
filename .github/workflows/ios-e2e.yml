@@ -172,6 +172,8 @@ jobs:
             workers/iroh-v2
             workers/presence
             scripts/e2e
+          # Cone mode always checks out the repository root's files, the Node pins setup-node
+          # reads below included (tests/test_ci_change_areas.py _pins_a_checkout_has).
           sparse-checkout-cone-mode: true
 
       # Bun's package cache, not node_modules, and actions/cache, not a sticky

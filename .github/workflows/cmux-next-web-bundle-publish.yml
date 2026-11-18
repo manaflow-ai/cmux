@@ -210,8 +210,11 @@ jobs:
           import runpy
           manifest = json.load(open(sys.argv[1]))
           key = runpy.run_path("scripts/cmux-next/web-bundle-key.py")
+          # A ref or base from before .node-version has a web-bundle-key.py without
+          # declared_node_version; it keyed its bundles on PRE_NODE_VERSION_FILE_NODE.
+          node = key["declared_node_version"](".") if "declared_node_version" in key else "24.22.1"
           raise SystemExit(0 if key["manifest_matches_toolchain"](
-              manifest, key["declared_bun_version"]("."), key["declared_node_version"](".")
+              manifest, key["declared_bun_version"]("."), node
           ) else 1)
           PY
           then
