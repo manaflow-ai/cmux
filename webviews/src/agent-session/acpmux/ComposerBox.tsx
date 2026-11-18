@@ -1,4 +1,4 @@
-import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
+import React, { useCallback, useImperativeHandle, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
@@ -15,6 +15,7 @@ import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
 import { acpmuxPerf } from "./perf";
+import { declareComposerGrowth } from "./composer/composerGrowthMove";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -241,6 +242,26 @@ export function ComposerBox({
     [inline, pastedChips.pastes],
   );
   const placed = inline.inText(field.value);
+  const placesInText = attachmentView === "inline";
+  const stripAttachments = placesInText ? attachments.filter((chip) => !placed.has(chip.id)) : attachments;
+  const stripPending = placesInText ? pending?.filter((chip) => !placed.has(chip.id)) : pending;
+  // The attachment row coming, going or changing its chips grows the box in that commit's frame: a
+  // declared composer growth (composer/composerGrowthMove.ts). Its chips by id, so a loading chip that
+  // turns into its attachment (the same id) declares nothing, and a box that then grows still counts.
+  const stripIds = [...stripAttachments, ...(stripPending ?? [])].map((chip) => chip.id).sort();
+  const stripKey = `${attachError ? "!" : ""}${stripIds.join(",")}`;
+  const shownStrip = useRef(stripKey);
+  const stripGrowth = useRef<() => void>(undefined);
+  useLayoutEffect(() => {
+    if (shownStrip.current === stripKey) return;
+    shownStrip.current = stripKey;
+    stripGrowth.current?.();
+    stripGrowth.current = declareComposerGrowth(
+      typeof window === "undefined" ? undefined : window,
+      "composer attachments",
+    );
+  }, [stripKey]);
+  useLayoutEffect(() => () => stripGrowth.current?.(), []);
   const { onBeforeInput, onKeyDown } = field;
   // Select All selects the attachments with the text (Leo, 2026-11-01: "i wanna be able to select
   // all in composer which also selects all the attachments as the copy as well"): those placed in
@@ -309,12 +330,8 @@ export function ComposerBox({
       >
         <ComposerListAnchor box={boxElement}>{top}</ComposerListAnchor>
         <AttachmentStrip
-          attachments={attachmentView === "inline" ? attachments.filter((chip) => !placed.has(chip.id)) : attachments}
-          {...(pending
-            ? {
-                pending: attachmentView === "inline" ? pending.filter((chip) => !placed.has(chip.id)) : pending,
-              }
-            : {})}
+          attachments={stripAttachments}
+          {...(stripPending ? { pending: stripPending } : {})}
           {...(attachError ? { error: attachError } : {})}
           codex={codex}
           onRemove={(id) => {
