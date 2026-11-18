@@ -442,28 +442,35 @@ impl Worktree {
     ) -> anyhow::Result<Self> {
         let admin = git_dir.join("worktrees").join(name);
         std::fs::create_dir_all(&admin)?;
-        std::fs::write(admin.join("commondir"), "../..\n")?;
-        std::fs::write(admin.join("gitdir"), format!("{}\n", at.join(".git").display()))?;
-        std::fs::write(admin.join("HEAD"), format!("{commit}\n"))?;
-        std::fs::write(admin.join("locked"), "a cmux-projection mount\n")?;
+        // Each file is written only when its bytes change: build scripts watch `HEAD` (cmux's
+        // build identity does), and a rewrite with the same commit would rerun them.
+        write_if_changed(&admin.join("commondir"), b"../..\n")?;
+        let gitdir = format!("{}\n", at.join(".git").display());
+        write_if_changed(&admin.join("gitdir"), gitdir.as_bytes())?;
+        write_if_changed(&admin.join("HEAD"), format!("{commit}\n").as_bytes())?;
+        write_if_changed(&admin.join("locked"), b"a cmux-projection mount\n")?;
         let exclude = admin.join("projection-exclude");
         let mut text = String::new();
         for path in excludes {
             text.push_str(&format!("/{path}\n"));
         }
-        std::fs::write(&exclude, text)?;
-        let temp = admin.join("index.projection.tmp");
-        std::fs::write(&temp, index)?;
-        std::fs::rename(&temp, admin.join("index"))?;
+        write_if_changed(&exclude, text.as_bytes())?;
+        write_if_changed(&admin.join("index"), index)?;
         // git reads a worktree's own config only with extensions.worktreeConfig (the lane mirrors
         // have it); without it the build output links show as untracked, and nothing else differs.
         let mut command = git(git_dir);
         command.args(["config", "--bool", "extensions.worktreeConfig"]);
         if output(command).is_ok_and(|out| out.starts_with(b"true")) {
             let config = admin.join("config.worktree");
-            let mut command = Command::new("git");
-            command.arg("config").arg("--file").arg(&config).arg("core.excludesFile").arg(&exclude);
-            output(command)?;
+            let mut read = Command::new("git");
+            read.arg("config").arg("--file").arg(&config).args(["--get", "core.excludesFile"]);
+            let set = output(read).unwrap_or_default();
+            if set.strip_suffix(b"\n") != Some(exclude.as_os_str().as_encoded_bytes()) {
+                let mut command = Command::new("git");
+                command.arg("config").arg("--file").arg(&config);
+                command.arg("core.excludesFile").arg(&exclude);
+                output(command)?;
+            }
         }
         Ok(Self { admin })
     }
@@ -473,6 +480,18 @@ impl Worktree {
     pub fn gitfile(admin: &Path) -> String {
         format!("gitdir: {}\n", admin.display())
     }
+}
+
+/// Writes `bytes` to `file` (through a temporary file) unless it already holds them, so its mtime
+/// moves only when its content does.
+fn write_if_changed(file: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    if std::fs::read(file).is_ok_and(|held| held == bytes) {
+        return Ok(());
+    }
+    let temp = file.with_extension("projection.tmp");
+    std::fs::write(&temp, bytes)?;
+    std::fs::rename(&temp, file)?;
+    Ok(())
 }
 
 /// Link texts of every symlink in `items`, by blob id, read in one `git cat-file --batch`.

@@ -172,6 +172,18 @@ fn a_mounted_commit_is_a_clean_worktree_and_writes_land_in_the_upper_folder() {
 }
 
 #[test]
+fn registering_the_same_checkout_again_leaves_head_untouched() {
+    let (dir, git_dir, commit) = repo();
+    let at = dir.path().join("mnt");
+    let first = Worktree::write(&git_dir, "projected", &at, &commit, b"index", &[]).unwrap();
+    let head = first.admin.join("HEAD");
+    let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000);
+    std::fs::File::options().write(true).open(&head).unwrap().set_modified(old).unwrap();
+    Worktree::write(&git_dir, "projected", &at, &commit, b"index", &[]).unwrap();
+    assert_eq!(std::fs::metadata(&head).unwrap().modified().unwrap(), old, "a build script watches HEAD");
+}
+
+#[test]
 fn git_reads_the_written_index_as_the_commit() {
     let (_dir, git_dir, commit) = repo();
     let mut book = Book::default();
