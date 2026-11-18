@@ -123,11 +123,14 @@ await requireBrowserLane("turn-end-fold-one-way-browser.test.ts", async () => {
   }
 
   // Whether the fold's slide and the reply's last lines land in the same painted frames depends on
-  // when the stream's timer fires against the frames, so the turn ends four times: on base two plays
-  // in three drew the rows down and back up.
+  // when the stream's timer fires against the frames, so the turn ends twelve times: on base two plays
+  // in three drew the rows down and back up. While the fold holds the rows, a reply's last line can
+  // be measured in one placement pass and the view's offset moved to the new end in the next, in the
+  // same frame; a fold placed only in the first painted the rows 34.7 px up and back down in about
+  // one play in four.
   test("at 760 px: the followed turn's end never turns the rows' movement round", async () => {
     const turned: string[] = [];
-    for (let play = 1; play <= 4; play++) {
+    for (let play = 1; play <= 12; play++) {
       const frames = await playFrames("eased-follow", 760);
       expect(frames.length).toBeGreaterThan(30);
       turned.push(...turnedRound(frames).map((move) => `play ${play}: ${move}`));
