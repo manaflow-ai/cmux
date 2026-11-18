@@ -3,7 +3,7 @@ import SwiftUI
 
 /// One line in the view or search list: its node name, level and text.
 /// Value snapshot and an action only (no store below the list boundary).
-struct ChiefMemoryLineRow: View {
+struct ChiefMemoryLineRow: View, Equatable {
     let name: String
     let detail: String
     let text: String
@@ -11,6 +11,12 @@ struct ChiefMemoryLineRow: View {
     let selected: Bool
     let open: () -> Void
     @Environment(\.rowDrawn) private var rowDrawn
+
+    /// Equal when what the row draws is: the inspector makes `open` again with each body.
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.name == rhs.name && lhs.detail == rhs.detail && lhs.text == rhs.text && lhs.stale == rhs.stale
+            && lhs.selected == rhs.selected
+    }
 
     var body: some View {
         rowDrawn?(name)

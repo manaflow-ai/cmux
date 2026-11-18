@@ -21,11 +21,10 @@ struct WorkspaceTodoPageView: View {
                     Text(WorkspaceChecklistStrings.empty).foregroundStyle(.secondary)
                 } else {
                     let editing = model.editing
-                    let actions = rowActions
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(items) { item in
-                                WorkspaceTodoRow(item: item, isEditing: editing == item.id, actions: actions)
+                                WorkspaceTodoRow(item: item, isEditing: editing == item.id, actions: rowActions).equatable()
                             }
                         }
                         .thinScrollers()

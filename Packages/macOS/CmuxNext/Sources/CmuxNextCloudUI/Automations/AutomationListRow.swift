@@ -2,7 +2,7 @@ import SwiftUI
 import CmuxNextDesign
 
 /// One list row: name, schedule and target, the next time, the last result's dot.
-struct AutomationListRow: View {
+struct AutomationListRow: View, Equatable {
     let row: AutomationRow
     let selected: Bool
     let palette: AutomationsPalette
@@ -10,6 +10,11 @@ struct AutomationListRow: View {
     let now: Date
     let select: @MainActor () -> Void
     @Environment(\.rowDrawn) private var rowDrawn
+
+    /// Equal when what the row draws is: the page makes `select` again with each body.
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.row == rhs.row && lhs.selected == rhs.selected && lhs.now == rhs.now && lhs.palette == rhs.palette
+    }
 
     var body: some View {
         rowDrawn?(row.id)
