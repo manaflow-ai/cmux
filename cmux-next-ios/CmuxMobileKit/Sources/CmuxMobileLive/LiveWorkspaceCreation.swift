@@ -124,6 +124,45 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         guard let (session, cwd) = taskSessions.removeValue(forKey: workspace.id) else {
             throw WorkspaceCreationError("The chat for this task isn't on the Mac.", isForPerson: true)
         }
+        try sendFirstPrompt(task.prompt, attachments: Self.taskAttachments(task), session: session, cwd: cwd, failed: failed)
+    }
+
+    /// The first message of a chat the Mac opened with no session yet (its New chat tab, `tabID`),
+    /// sent from the phone: the chat starts here as the Mac's own first send starts it. acpmux
+    /// `session/new` for the tab's agent in the tab's folder, `bind-conversation-tab-session
+    /// {surface, session, expected_session: null}` (only a tab that still has no chat; the Mac's
+    /// phone policy checks it is one of this Mac's), a fresh list so the chat opens on its session,
+    /// then the prompt as New Task sends it. Throws before anything is bound; `failed` reports a
+    /// prompt that did not go after the bind.
+    public func startUnboundChat(tabID: String, text: String, attachments: [AgentAttachment],
+                                 failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) async throws {
+        guard let client = sync.daemon, let tree = sync.tree, let surface = tree.surfaces[tabID],
+              let workspace = tree.workspaces.first(where: { $0.tabs.contains { $0.id == tabID } }),
+              canManage(on: workspace.macID) else {
+            throw WorkspaceCreationError("Connecting to the Mac… Send again once the chat loads.", isForPerson: true)
+        }
+        let start = AgentChatStart(harness: tree.agentTabs[tabID]?.harness)
+        let cwd = tree.directories[tabID] ?? workspace.tabs.lazy.compactMap({ tree.directories[$0.id] }).first
+        let (harness, session) = if let cwd, !Self.isHomeOrAbove(cwd) {
+            try await startAgentSession(start, cwd: cwd, macID: workspace.macID)
+        } else {
+            try await startAgentSession(start, in: workspace)
+        }
+        do {
+            try WorkspaceSync.check(await client.request("bind-conversation-tab-session", params: [
+                "surface": surface, "session": session, "expected_session": NSNull(), "harness": harness,
+            ]))
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+        let folder = (try? await sync.listNow())?.directories[tabID] ?? cwd ?? ""
+        try sendFirstPrompt(text, attachments: attachments, session: session, cwd: folder, failed: failed)
+    }
+
+    /// A new chat's first message: acpmux `session/prompt`, once per `promptId`, as the chat's own
+    /// Send does it, in its own task (acpmux answers only when the agent's turn ends).
+    private func sendFirstPrompt(_ text: String, attachments: [AgentAttachment], session: String, cwd: String,
+                                 failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws {
         guard let acpmux, acpmux.isReady else {
             throw WorkspaceCreationError("Agents on this Mac aren't connected.", isForPerson: true)
         }
@@ -134,7 +173,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         Task {
             let blocks: [JSONValue]
             do {
-                blocks = try await AcpmuxSessionSource.promptBlocks(text: task.prompt, attachments: Self.taskAttachments(task),
+                blocks = try await AcpmuxSessionSource.promptBlocks(text: text, attachments: attachments,
                                                                     link: acpmux.macLink, cwd: cwd, macName: macName)
             } catch {
                 // A file that couldn't be uploaded: nothing was sent, the task waits in the chat.
