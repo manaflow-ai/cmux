@@ -823,7 +823,7 @@ def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
     /Users/runner/_work/cmux and marks it with SEED_MARKER), another job holding it, or no room above
     glaeda's floor (seed_fits).
     The packages' .build stay real directories there: the job restores the seed into them."""
-    if "-glaeda" not in runner:
+    if "-glaeda" not in runner or os.path.realpath(workspace) == os.path.realpath(seed_workspace):
         return None
     parent = seed_workspace.parent
     if (not parent.is_dir() or parent.is_symlink() or not os.access(parent, os.W_OK)
@@ -857,6 +857,8 @@ def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
         build = package / ".build"
         if build.is_symlink():
             build.unlink()  # a real directory: the seed is restored into it
+        else:
+            drop_resource_bundles(build)  # the last job may have built another branch (cmux#26961)
     if verdict is not None:
         verdict.update(state="cold", reason="seed root", bytes=0)
     return seed_workspace
