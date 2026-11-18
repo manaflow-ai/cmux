@@ -74,6 +74,12 @@ final class CEFRuntime {
             guard let tab = self?.tabsByBrowser[browser] else { return }
             _ = try? await tab.devTools(method: "HeapProfiler.collectGarbage", params: [:], timeout: .seconds(10))
         })
+    /// Chromium's memory purge once hidden cmux pages freeze (`CEFHiddenPageTrim`).
+    private(set) lazy var hiddenPageTrim = CEFHiddenPageTrim(
+        hiddenPages: { [weak self] in
+            self?.tabsByBrowser.values.filter { !$0.isClosed && $0.isContentHidden && CEFPageRendererGC.isCmuxPage($0.state.url) } ?? []
+        },
+        notify: { await CEFHiddenPageTrim.notice($0) })
     /// Shown pages on their way to their first document: the next spare waits for them (`CEFArrivingPages`).
     let arriving = CEFArrivingPages()
     /// How the next tabs inserted into a window open, by window id, from the
