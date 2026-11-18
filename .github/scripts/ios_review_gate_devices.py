@@ -10,7 +10,8 @@
 image has a simulator for. While xcode-pins.txt still names the Xcode that list
 was checked on, a family the image lacks is not walked: the plan writes its
 `<family>.skipped.json` (with the reason) into DIR, and the matrix gets only the
-families to walk. It prints GITHUB_OUTPUT lines: `families` (the matrix), `skipped`
+families to walk. It prints GITHUB_OUTPUT lines: `families` (every family walked),
+`path_families` and `walk_families` (the reviewer-path and walk jobs' matrices), `skipped`
 and `devices` (the whole decision, for `check`). With an unknown pin, or --trust
 false (a fork's own repository, another image), it walks every family and the
 legs' picker decides, as before. Only duo may be skipped: a list that says the
@@ -35,6 +36,9 @@ from pathlib import Path
 FAMILIES = ("iphone", "ipad", "duo")
 # The report's --expect-device families: walked on every run, never skipped.
 REQUIRED = ("iphone", "ipad")
+# The gate's two device jobs, each with its own matrix output: reviewer-path
+# walks ipad (with the agent pass and its secret), walk the phones (no secret).
+JOB_FAMILIES = {"path_families": ("ipad",), "walk_families": ("iphone", "duo")}
 NO_SIMULATOR = 3  # app_review_pick_simulator.py's exit for "no simulator for this family"
 
 
@@ -97,6 +101,8 @@ def plan_main(args: argparse.Namespace) -> int:
         marker = {"family": family, "skipped": True, "planned": True, "reason": reason}
         (out / f"{family}.skipped.json").write_text(json.dumps(marker) + "\n")
     print(f"families={json.dumps(decision['walk'])}")
+    for output, job_families in JOB_FAMILIES.items():
+        print(f"{output}={json.dumps([f for f in decision['walk'] if f in job_families])}")
     print(f"skipped={json.dumps(sorted(decision['skip']))}")
     print(f"devices={json.dumps(decision, sort_keys=True)}")
     for family in FAMILIES:

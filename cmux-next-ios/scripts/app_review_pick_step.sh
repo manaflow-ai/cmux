@@ -2,7 +2,7 @@
 # The App Review gate's "Pick the <family> simulator" step (ios-review-gate.yml),
 # run before the device leg builds anything:
 #
-#   app_review_pick_step.sh FAMILY     (env: RESULTS, GITHUB_ENV; PICKER for tests)
+#   app_review_pick_step.sh FAMILY     (env: RESULTS, GITHUB_ENV; FRESH_SIMULATOR; PICKER for tests)
 #
 # The picker (app_review_pick_simulator.py) exits 3 when the image has no
 # simulator for FAMILY: the leg skips its build and leaves FAMILY.skipped.json,
@@ -13,7 +13,9 @@ set +e
 set -uo pipefail
 family="$1"
 picker="${PICKER:-$(dirname "$0")/app_review_pick_simulator.py}"
-udid="$(python3 -I "$picker" --family "$family" --print-udid)"
+# FRESH_SIMULATOR=1 (an owned Mac's leg): a device of its own, never one
+# an earlier job left (app_review_pick_simulator.py --fresh).
+udid="$(python3 -I "$picker" --family "$family" --print-udid ${FRESH_SIMULATOR:+--fresh})"
 code=$?
 if [ "$code" -eq 0 ]; then
   echo "UDID=$udid" >> "$GITHUB_ENV"

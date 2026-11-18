@@ -518,16 +518,65 @@ class AppReviewGateTests(unittest.TestCase):
         # report needs them all and fails closed on any family's missing
         # result, and each job's artifact has its own name.
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
-        reviewer = workflow.split("\n  reviewer-path:\n", 1)[1].split("\n  asc-validate:\n", 1)[0]
+        reviewer = workflow.split("\n  reviewer-path:\n", 1)[1].split("\n  walk:\n", 1)[0]
+        walk = workflow.split("\n  walk:\n", 1)[1].split("\n  asc-validate:\n", 1)[0]
         report = workflow.split("\n  report:\n", 1)[1]
-        self.assertIn("fail-fast: false", reviewer)
-        self.assertIn("        family: ${{ fromJSON(needs.plan.outputs.families) }}\n", reviewer)
-        self.assertIn("name: review-gate-path-${{ env.LANE }}-${{ matrix.family }}", reviewer)
-        self.assertNotIn("for family in", reviewer)
-        self.assertIn("needs: [plan, lint, reviewer-path, asc-validate]", report)
+        # The iPad leg runs the agent pass; the phones walk in their own job.
+        # Each matrix is the plan's families for that job.
+        self.assertIn("        family: ${{ fromJSON(needs.plan.outputs.path_families) }}\n", reviewer)
+        self.assertIn("        family: ${{ fromJSON(needs.plan.outputs.walk_families) }}\n", walk)
+        for job in (reviewer, walk):
+            self.assertIn("fail-fast: false", job)
+            self.assertIn("name: Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})", job)
+            self.assertIn("name: review-gate-path-${{ env.LANE }}-${{ matrix.family }}", job)
+            self.assertNotIn("for family in", job)
+        self.assertIn("needs: [plan, lint, reviewer-path, walk, asc-validate]", report)
         self.assertIn("pattern: review-gate-*", report)
         self.assertIn("--expect-device iphone --expect-device ipad --expect-device-or-skipped duo", report)
         self.assertIn("find in -name '*.skipped.json'", report)
+
+    def test_the_phone_walks_hold_no_secret_and_take_an_owned_simulator_mini(self) -> None:
+        # The iPhone and Duo walks need no credential, so they take the
+        # plan job's pick (an owned simulator mini when one is free)
+        # instead of queueing on the ephemeral macOS pool beside the iPad
+        # leg, which keeps that pool for the agent pass's token. In run
+        # 43591424745 the legs waited 34 to 65 minutes there.
+        import yaml
+        jobs = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())["jobs"]
+        walk, ipad = jobs["walk"], jobs["reviewer-path"]
+        self.assertNotIn("secrets.", yaml.safe_dump(walk))
+        self.assertNotIn("environment", walk)
+        # The pick is a step of plan, not a job of its own: the pull request
+        # job budget (ci/steps.toml) only goes down.
+        self.assertNotIn("runner", jobs)
+        self.assertEqual(walk["needs"], "plan")
+        self.assertEqual(walk["runs-on"], (
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
+            "fromJSON(github.run_attempt > 1 && needs.plan.outputs.retry_runs_on || needs.plan.outputs.runs_on) }}"))
+        # A simulator of its own only on an owned Mac: on the ephemeral pool
+        # the leg walks the image's device, as before (run 43604250455 on a
+        # fresh iPhone saw the sign-in links as dead, a blocker the walk on
+        # the image's device does not report).
+        self.assertEqual(walk["env"]["FRESH_SIMULATOR"],
+                         "${{ github.run_attempt == 1 && needs.plan.outputs.persistent == 'true' && '1' || '' }}")
+        remove = next(step for step in walk["steps"] if step.get("name") == "Remove the leg's simulator")
+        self.assertIn("always()", remove["if"])
+        self.assertIn('xcrun simctl delete "$UDID"', remove["run"])
+        # The credentialed leg keeps the ephemeral pool and its environment.
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).macos_26", ipad["runs-on"])
+        self.assertEqual(ipad["environment"]["name"], "cmux-next-development")
+        self.assertEqual(ipad["strategy"]["matrix"]["family"], "${{ fromJSON(needs.plan.outputs.path_families) }}")
+        pick = next(step for step in jobs["plan"]["steps"] if step.get("id") == "pool")
+        self.assertIn("--lane review-gate", pick["run"])
+        self.assertIn('--called "$CALLED"', pick["run"])
+        # The two legs' shared steps are copies (the pinned actionlint
+        # refuses YAML alias steps): they must not drift apart.
+        names = [step.get("name") for step in walk["steps"]]
+        for step in ipad["steps"]:
+            if step.get("name") not in ("Agent reviewer pass", "Upload results"):
+                self.assertIn(step.get("name"), names)
+                self.assertEqual(step, walk["steps"][names.index(step.get("name"))], step.get("name"))
 
     def test_a_device_with_no_tests_is_never_a_pass(self) -> None:
         empty = self.root / "iphone.json"
@@ -1069,6 +1118,48 @@ class AgentReviewerPassTests(unittest.TestCase):
             capture_output=True, text=True)
         return proc.returncode, github_env.read_text(), sorted(p.name for p in results.iterdir())
 
+    def test_a_fresh_leg_asks_the_picker_for_its_own_simulator(self) -> None:
+        # An owned mini keeps its simulators between jobs: a leg there walks
+        # a device it created, never one an earlier run signed in on.
+        picker = self.root / "picker.py"
+        picker.write_text("import sys\nprint(' '.join(sys.argv[1:]))\n")
+        for fresh, expect in (("", "UDID=--family duo --print-udid\n"),
+                              ("1", "UDID=--family duo --print-udid --fresh\n")):
+            results = self.root / f"results-fresh-{fresh}"
+            results.mkdir()
+            github_env = self.root / f"env-fresh-{fresh}"
+            github_env.write_text("")
+            subprocess.run(["bash", "-e", str(ROOT / "cmux-next-ios/scripts/app_review_pick_step.sh"), "duo"],
+                           env=dict(os.environ, RESULTS=str(results), GITHUB_ENV=str(github_env),
+                                    PICKER=str(picker), FRESH_SIMULATOR=fresh), check=True)
+            self.assertEqual(github_env.read_text(), expect)
+
+    def test_a_fresh_pick_creates_a_device_even_when_one_exists(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "app_review_pick_simulator", ROOT / "cmux-next-ios/scripts/app_review_pick_simulator.py")
+        picker = importlib.util.module_from_spec(spec)
+        assert spec.loader
+        spec.loader.exec_module(picker)
+        runtime = {"identifier": "iOS-26-1", "version": "26.1", "platform": "iOS", "isAvailable": True}
+        listings = {
+            "runtimes": {"runtimes": [runtime]},
+            "devices": {"devices": {"iOS-26-1": [{"name": "iPhone 17 Pro Max", "udid": "OLD"}]}},
+            "devicetypes": {"devicetypes": [{"name": "iPhone 17 Pro Max", "identifier": "pro-max"}]},
+        }
+        created = []
+        picker.simctl = lambda *args: listings[args[0]]
+        picker.subprocess = type("Subprocess", (), {
+            "check_output": staticmethod(lambda argv, text: created.append(argv) or "NEW\n")})
+        self.assertEqual(picker.pick("iphone"), "OLD")
+        self.assertEqual(created, [])
+        os.environ["GITHUB_RUN_ID"] = "7"
+        try:
+            self.assertEqual(picker.pick("iphone", fresh=True), "NEW")
+        finally:
+            os.environ.pop("GITHUB_RUN_ID")
+        self.assertEqual(created, [["xcrun", "simctl", "create", "cmux review gate 7 iphone",
+                                    "pro-max", "iOS-26-1"]])
+
     def test_only_the_pickers_no_simulator_exit_skips_a_device(self) -> None:
         # Exit 3 is "no simulator for this family on the image": the leg
         # skips with a marker the report reads. Any other failure fails the
@@ -1360,23 +1451,63 @@ class DevicePlanTests(unittest.TestCase):
     def test_the_matrix_walks_only_the_plans_families(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
         plan = workflow.split("\n  plan:\n", 1)[1].split("\n  lint:\n", 1)[0]
-        reviewer = workflow.split("\n  reviewer-path:\n", 1)[1].split("\n  asc-validate:\n", 1)[0]
+        reviewer = workflow.split("\n  reviewer-path:\n", 1)[1].split("\n  walk:\n", 1)[0]
+        walk = workflow.split("\n  walk:\n", 1)[1].split("\n  asc-validate:\n", 1)[0]
         report = workflow.split("\n  report:\n", 1)[1]
         self.assertIn("families: ${{ steps.devices.outputs.families }}", plan)
+        self.assertIn("path_families: ${{ steps.devices.outputs.path_families }}", plan)
+        self.assertIn("walk_families: ${{ steps.devices.outputs.walk_families }}", plan)
         self.assertIn("devices: ${{ steps.devices.outputs.devices }}", plan)
         self.assertIn(".github/scripts/ios_review_gate_devices.py plan", plan)
         self.assertIn("TRUST: ${{ github.repository_owner == 'manaflow-ai' }}", plan)
         # The planned skips reach the report through its review-gate-* download.
         self.assertIn("name: review-gate-planned-skips-${{ steps.plan.outputs.lane }}", plan)
         self.assertIn("${{ runner.temp }}/planned/*.skipped.json", plan)
-        self.assertIn("        family: ${{ fromJSON(needs.plan.outputs.families) }}\n", reviewer)
+        # The plan job holds both the pool pick and the device decision.
+        self.assertIn("python3 scripts/ci/ios_runner_pool.py", plan)
+        self.assertIn("--lane review-gate", plan)
+        self.assertIn("        family: ${{ fromJSON(needs.plan.outputs.path_families) }}\n", reviewer)
+        self.assertIn("        family: ${{ fromJSON(needs.plan.outputs.walk_families) }}\n", walk)
         # Every leg checks the plan against its image; a mismatch fails the report.
-        self.assertIn(".github/scripts/ios_review_gate_devices.py check", reviewer)
-        self.assertIn('--out "$RESULTS/device-plan-mismatch.json"', reviewer)
-        self.assertIn("            .github/scripts\n", reviewer)
+        for job in (reviewer, walk):
+            self.assertIn(".github/scripts/ios_review_gate_devices.py check", job)
+            self.assertIn('--out "$RESULTS/device-plan-mismatch.json"', job)
+            self.assertIn("            .github/scripts\n", job)
         self.assertIn("find in -name 'device-plan-mismatch.json'", report)
         # The report's rules stay: iPhone and iPad required, only Duo may skip.
         self.assertIn("--expect-device iphone --expect-device ipad --expect-device-or-skipped duo", report)
+
+    def test_the_walk_matrix_reads_the_plans_phone_families(self) -> None:
+        # The walk job (iPhone and Duo, no secret) and reviewer-path (iPad,
+        # the agent pass) each take their share of the plan's families, so a
+        # planned Duo skip queues for no Mac, owned or ephemeral.
+        import yaml
+        devices = self.device_list()
+        proc, outputs, _ = self.plan(devices, self.matching_pins(devices))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(outputs["walk_families"]), ["iphone"])
+        self.assertEqual(json.loads(outputs["path_families"]), ["ipad"])
+        # Undecided (a pin the list was not checked on): Duo walks again,
+        # in the walk job, and the leg's picker decides.
+        proc, outputs, _ = self.plan(devices, f"{devices['image']['macos']}  99.9\n")
+        self.assertEqual(json.loads(outputs["walk_families"]), ["iphone", "duo"])
+        self.assertEqual(json.loads(outputs["path_families"]), ["ipad"])
+        # Every walked family lands in exactly one job's matrix.
+        self.assertEqual(sorted(json.loads(outputs["walk_families"]) + json.loads(outputs["path_families"])),
+                         sorted(json.loads(outputs["families"])))
+        jobs = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())["jobs"]
+        for name, output in (("walk", "walk_families"), ("reviewer-path", "path_families")):
+            job = jobs[name]
+            self.assertEqual(job["strategy"]["matrix"]["family"], f"${{{{ fromJSON(needs.plan.outputs.{output}) }}}}")
+            # An empty matrix fails a run: the job skips instead, and the
+            # report (always(), needs both) names the missing device.
+            self.assertEqual(job["if"], f"needs.plan.outputs.{output} != '[]'")
+            self.assertEqual(job["needs"], "plan")
+        self.assertEqual(jobs["plan"]["outputs"]["walk_families"], "${{ steps.devices.outputs.walk_families }}")
+        self.assertIn("walk", jobs["report"]["needs"])
+        self.assertIn("reviewer-path", jobs["report"]["needs"])
+        self.assertTrue(jobs["report"]["if"].startswith("always()"))
+        self.assertNotIn("secrets.", yaml.safe_dump(jobs["walk"]))
 
 
 if __name__ == "__main__":
