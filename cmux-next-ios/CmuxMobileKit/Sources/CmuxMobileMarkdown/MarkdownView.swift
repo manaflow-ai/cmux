@@ -30,7 +30,10 @@ public struct MarkdownView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // Lazy: in a scroll view (a subagent's transcript) a long message builds the blocks on
+        // screen, not all of them. Outside one it builds every block, as a VStack does. Copy and
+        // Select Text take the whole message's text, so they do not depend on what is built.
+        LazyVStack(alignment: .leading, spacing: 12) {
             ForEach(document.blocks) { block in
                 // Equatable: a streamed token redraws the block it changed (the tail), not
                 // every block of the message above it.
