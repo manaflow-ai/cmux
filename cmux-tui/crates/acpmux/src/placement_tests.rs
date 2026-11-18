@@ -104,10 +104,11 @@ fn a_host_at_its_lane_cap_or_out_of_ram_has_no_room_yet_the_work_still_goes_some
     let v = place(&full, Some(&registry()), Work::Agent);
     assert_eq!(host(&v, "light")["refused"], "no room: lanes is the limit", "{v:#}");
     assert_eq!(host(&v, "laptop")["refused"], "no room: RAM is the limit", "{v:#}");
-    // Both have no room: the registry's rank breaks the tie, and the verdict says it is past the room.
-    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("light"), &json!(true)), "{v:#}");
+    // Both have no room: the one under its lane cap (laptop, 0/3) goes ahead of the one at it
+    // (light, 3/3), whatever the registry's rank, and the verdict says it is past the room.
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("laptop"), &json!(true)), "{v:#}");
     let placed = placed(&v).unwrap();
-    assert!(placed.starts_with("placed on light: ") && placed.contains("only warn"), "{placed}");
+    assert!(placed.starts_with("placed on laptop: ") && placed.contains("only warn"), "{placed}");
     // A host with room is still picked first, and that is no overload.
     let v = place(
         &[full[0].clone(), c("small", health(16.0, 8, 0.2, 200.0, 0))],
