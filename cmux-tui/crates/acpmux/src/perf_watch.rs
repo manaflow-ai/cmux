@@ -236,7 +236,7 @@ struct Inner {
 }
 
 impl Inner {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
             since_ms: 0,
             seq: 0,
