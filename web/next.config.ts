@@ -243,6 +243,8 @@ const nextConfig: NextConfig = {
       "./public/logo.png",
     ],
     "**/browser-opengraph-image": ["./public/logo.png"],
+    // The extension and setup social card reads the logo with fs at request time.
+    "/extensions/og.png": ["./public/logo.png"],
     // Changelog versions outside generateStaticParams render at request time
     // and read the copy that tools/sync-changelog.ts writes before the build.
     "**/docs/changelog": ["./CHANGELOG.md"],

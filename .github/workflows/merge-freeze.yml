@@ -26,7 +26,8 @@ jobs:
   check:
     # A draft cannot merge; it is checked when marked ready (ready_for_review
     # above). Mergers read the freezes again at merge time either way.
-    if: github.event_name == 'pull_request_target' && !github.event.pull_request.draft
+    # A fix-cause:* label on a closed pull request starts no job (tests/test_ci_fix_cause_labels_start_no_jobs.py).
+    if: github.event_name == 'pull_request_target' && !github.event.pull_request.draft && !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:'))
     name: merge freeze
     concurrency:
       group: merge-freeze-${{ github.event.pull_request.number }}

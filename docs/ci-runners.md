@@ -106,7 +106,7 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_26` | the macOS 26 image: compatibility jobs, `release.yml` and nightly sign/notarize, the disk-heavy `release-build` universal app, and the nightly compilation-cache warmer | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `MACOS_RUNNER_26_LARGE` | the larger macOS 26 machine: changed-revision universal Nightly app builds | `blacksmith-12vcpu-macos-26` | `blacksmith-12vcpu-macos-26` |
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests (`tests-build-and-lag`) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
-| `MACOS_RUNNER_IOS` | the iOS image: simulator tests and TestFlight upload (`test-ios.yml`, `ios-testflight.yml`); `ios-streamed-validate.yml` and `ios-e2e.yml` hold secrets and take `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
+| `MACOS_RUNNER_IOS` | the iOS image: simulator tests (`test-ios.yml`); `ios-streamed-validate.yml` and `ios-e2e.yml` hold secrets and take `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `CI_PAID_MACOS_OVERFLOW` | the repository-side switch for metered capacity; gates the four paid-overflow variables above (see "Break-glass" below) | unset (free capacity) | unset means the Blacksmith fallback wins |
 | `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: the macOS legs of `cmux-tui-artifacts` (post-merge); `build-ghosttykit` holds `GHOSTTY_RELEASE_TOKEN` and takes `blacksmith-6vcpu-macos-15`. See "Background lane" below | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 
@@ -917,7 +917,7 @@ work on the trusted worker. Main's nightly runner selection is unchanged.
 | `iroh-release-gate` version skew | Blacksmith macOS 15 | pins the macOS 15 pool's Xcode 26.3 |
 | `relay-tls` `system-keychain` | Blacksmith | edits the System keychain trust store |
 | `plain-paste-worker`, `ci-macos-compat`, `seed-swiftpm-manifests`, release and nightly Ghostty helpers | Blacksmith macOS 15 / 14 | an OS or SDK the minis lack |
-| `release.yml`, nightly sign/notarize, `ios-testflight`, `ios-app-store`, `ios-appstore-upload` | Blacksmith | signing and store secrets; signing on an owned Mac is unproven |
+| `release.yml`, nightly sign/notarize, `ios-app-store`, `ios-appstore-upload` | Blacksmith | signing and store secrets; signing on an owned Mac is unproven |
 | `nightly.yml` `build-nightly-app` | one trusted runner (`CI_SEED_TRUSTED_POOL` plus `CI_NIGHTLY_TRUSTED_RUNNER`, cmux15) on attempt 1 of main's push and schedule runs; Blacksmith 12 vCPU otherwise, for `rc/**`, dispatches and fast dogfood, and on every re-run | ci-owned-pool-rescue.yml watches it (`NIGHTLY_WORKFLOW_PATH`): stuck one queue round past `CI_OWNED_POOL_RESCUE_SECONDS`, or refused, its failed jobs re-run on Blacksmith. Its compilation cache keys its own lineage (the mini's workspace path) |
 | `seed-derived-data` trusted pool | trusted owned pool, push to main | the minis' own j14 seed |
 | `nightly.yml` `refresh-compilation-cache`, `refresh-test-compilation-cache`, `seed-derived-data` Blacksmith pools | Blacksmith | they seed Blacksmith's own lanes: the release cache the nightly fallback restores, and the pull request admission seeds for each Blacksmith pool. The two `nightly.yml` warmers do not run while `vars.CI_CLASSIC_NIGHTLY_MINI` is set (the classic one-mini nightly runs no Blacksmith job) |
@@ -994,7 +994,9 @@ nobody serves.
 
 | Pool | Members (first is preferred) |
 | --- | --- |
-| `linux` | Blacksmith 32 vCPU, Blacksmith 16 vCPU |
+| `linux` | Blacksmith 4 vCPU, Blacksmith 16 vCPU |
+| `linux_8` | Blacksmith 8, then 4, then 16 vCPU |
+| `linux_16` | Blacksmith 16, then 8, then 32 vCPU |
 | `linux_arm64` | Blacksmith 4 vCPU ARM64 |
 | `windows` | Blacksmith 4 vCPU Windows |
 | `macos_15` | Blacksmith macOS 15 |
@@ -1002,6 +1004,16 @@ nobody serves.
 | `macos_26_large` | Blacksmith macOS 26 (12, then 6 vCPU) |
 | `provenance` | GitHub-hosted `ubuntu-24.04`: npm and PyPI provenance and artifact attestations accept only GitHub's OIDC |
 | `macos_intel` | GitHub-hosted `macos-15-intel`: Blacksmith has no Intel Mac (the dispatch-only compatibility leg) |
+
+A pool may declare `min_vcpu`, the smallest size its jobs fit in (Blacksmith
+gives 4 GB per vCPU). When every member is dead the release valve offers only
+smaller sizes at or above it; with none live, the pool waits on its first
+member. `linux_16` and `linux_32` declare 8, and a pool led by 16 vCPU or more
+must declare one (`runner_pools.spec_problems()`). The tree build's raw
+variables `LINUX_BUILD_RUNNER` and `LINUX_RUNNER_DARWIN_CROSS` have the same
+floor (`RAW_LABEL_MIN_VCPU`). On 2026-11-18 the valve without a floor sent the
+fat-LTO cmux-tui build to 4 and 2 vCPU, where rustc was killed out of memory,
+and no NEXT nightly could publish.
 
 Every member outside the two hosted pools is an ephemeral Blacksmith label, so
 a job reading a pool never lands on a reused machine, whoever started the run.
@@ -1021,7 +1033,14 @@ same stall rule as `simple_pool_picker.blacksmith_stalled()`, and the
 dead-label entries once #27114 lands). It marks those labels dead, points each
 pool at its first unmarked member, and writes `RUNNER_POOLS` only on a change.
 A mark expires after 30 minutes unless seen again; a label seen starting a job
-is cleared at once. With every member marked, the pool keeps its first. A
+is cleared at once, and a label the janitor saw start a job in the last 15
+minutes (`label_started`, `RECENT_START`) is never marked, whatever its probe
+saw: Blacksmith caps the org on vCPUs at once, so under load a probe can wait
+out its minutes on a size that keeps starting jobs (on 2026-11-18 at 02:00Z
+4 vCPU was marked dead while it ran 6 jobs). A Blacksmith Linux pool lists its
+smaller sizes before its larger ones (`spec_problems()` refuses otherwise), so
+a size the cap starves moves its jobs down, not up into the sizes the cap
+starves first. With every member marked, the pool keeps its first. A
 malformed `RUNNER_POOLS` is rewritten from these declarations, never crashed
 on. Jobs already queued on a dead member keep that label (GitHub binds it when
 it creates the job); moving them is the queue janitor's dead-label re-dispatch
@@ -1107,8 +1126,10 @@ control jobs: a nightly's Linux cross-builds still wait for Blacksmith Linux
   size; never GitHub-hosted Ubuntu, and only a size whose probe started in
   that run, so with every size stalled the Linux variables are left alone),
   `MACOS_RUNNER_15`,
-  `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
+  `_26_LARGE` and `_PR` to the std owned pool of the lane's
   Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
+  never `_DUAL_XCODE` (swift-package-tests builds the Release helper with an
+  SDK 15 Xcode no owned pool carries, so its jobs wait for Blacksmith),
   `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to
   `glaeda-ios-sim`, and `CI_PAID_MACOS_OVERFLOW` to `1` so the gated ones are
   read. That is the lever pulled by hand on 2026-09-29. A variable a signing

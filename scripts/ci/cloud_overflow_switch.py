@@ -95,6 +95,13 @@ CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
 # alone queued past 5 minutes at 21:59Z, 22:13Z, 22:53Z and 23:30Z while the
 # other sizes started jobs, and each time the whole fleet failed over.
 PROBE_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
+# Every x64 Linux label a RUNNER_POOLS pool can point at (members and release valve,
+# runner_pools.allowed(); tests/test_ci_runner_pools.py), decision probes first. The others are probed for
+# CI_CLOUD_LABEL_HEALTH only and never decide overflow: on 2026-11-18 linux_16 and linux_32 sat on
+# blacksmith-32vcpu-ubuntu-2404 from about 23:12Z with nothing starting there, because no probe asked for it
+# and the janitor's snapshot (truncated at 2,500 queued runs) said nothing either.
+HEALTH_LABELS = (*PROBE_LABELS, "blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404",
+                 "blacksmith-32vcpu-ubuntu-2404")
 # Where Linux overflow goes while the probed label stalls: another Blacksmith
 # Linux size, never GitHub-hosted Ubuntu. CI_TRUSTED_RUNNER's readers accept
 # only ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
@@ -121,11 +128,19 @@ LINUX_VARIABLES = (LINUX_VARIABLE, TRUSTED_VARIABLE)
 # Any of these a signing job reads (signing_runner_variables) keeps its value: on
 # 2026-10-28 the failover pointed MACOS_RUNNER_26 at the std pool and turned
 # cmux-next-guards.yml's signing-runner-variables red on every PR.
-STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR",
-                 "MACOS_RUNNER_DUAL_XCODE")
+STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR")
+# swift-package-tests reads this one, and on a full suite that checks the
+# Release build it first builds the Release helper against an SDK 15 Xcode.
+# No owned pool carries one (the minis have the lane's Xcode alone), so the
+# std pool is no failover for it: on 2026-11-16 the switch pointed it there
+# and the job failed "No Xcode.app found under /Applications with macOS SDK
+# major 15" on every main full suite. It has no default failover: its jobs
+# wait for Blacksmith, and CI_CLOUD_FAILOVER can still name one.
+SDK15_VARIABLE = "MACOS_RUNNER_DUAL_XCODE"
 GUI_VARIABLE = "MACOS_RUNNER_DISPLAY"
 IOS_VARIABLE = "MACOS_RUNNER_IOS"
-SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, GUI_VARIABLE, IOS_VARIABLE, PAID_OVERFLOW_VARIABLE)
+SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, SDK15_VARIABLE, GUI_VARIABLE, IOS_VARIABLE,
+                      PAID_OVERFLOW_VARIABLE)
 # What CI_CLOUD_FAILOVER may name: the workflow passes each one's live value,
 # so a restore never guesses what a variable held. MACOS_RUNNER_26 is not
 # one: every value an override could give it is refused (GitHub-hosted, a
@@ -345,7 +360,8 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None],
 
 
 def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None],
-                started: Iterable[str] | None = None) -> list[Resume]:
+                started: Iterable[str] | None = None,
+                failover: Mapping[str, str] | None = None) -> list[Resume]:
     """What a stalled probe should retry after a partial failover write.
 
     A value still at the recorded ``before`` value was never switched, so it
@@ -353,7 +369,11 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None],
     at ``after`` or was edited by someone else and is left alone. A record
     written before signing variables were kept ephemeral may name one with an
     owned ``after``; that is never applied (on 2026-10-28 a retry re-applied
-    MACOS_RUNNER_26 eight minutes after it was put back by hand).
+    MACOS_RUNNER_26 eight minutes after it was put back by hand). Given
+    ``failover`` (this run's), a non-Linux variable it no longer names is
+    never applied either: on 2026-11-16 the record held
+    MACOS_RUNNER_DUAL_XCODE on the std pool, which has no SDK 15 Xcode, after
+    the failover stopped naming it. The Linux variables follow ``started``.
     """
     resumes: list[Resume] = []
     for name, change in sorted((record.get("changed") or {}).items()):
@@ -373,6 +393,10 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None],
         if name in LINUX_VARIABLES and HOSTED_LINUX_LABEL.match(after.lower()):
             # No job runs on GitHub-hosted Ubuntu (Leo, 2026-10-27), whatever an older record says.
             resumes.append(Resume(name, after, "a GitHub-hosted Ubuntu failover from an older record; left alone"))
+            continue
+        if (failover is not None and name not in LINUX_VARIABLES and name != PAID_OVERFLOW_VARIABLE
+                and name not in failover):
+            resumes.append(Resume(name, after, "no failover now; left alone (the record still restores it)"))
             continue
         if name in LINUX_VARIABLES and started is not None and after not in set(started):
             resumes.append(Resume(name, after, f"{after} did not start a probe in this run; left alone"))
@@ -650,6 +674,28 @@ def wait_for_probe(api: GitHub, run_id: int, attempt: int, minutes: int, labels:
         sleep(POLL_SECONDS)
 
 
+def wait_for_health(api: GitHub, run_id: int, attempt: int, minutes: int, labels: Sequence[str], *,
+                    deadline: dt.datetime, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
+                    log: Callable[[str], None]) -> tuple[list[str], list[str]]:
+    """(decided, stalled) for the health-only probes (HEALTH_LABELS beyond PROBE_LABELS), never past `deadline`.
+
+    They decide nothing about overflow; one that never decides is left out of the health."""
+    if not labels:
+        return [], []
+    while True:
+        try:
+            jobs = api.jobs(run_id, attempt)
+        except RuntimeError as error:
+            log(f"could not list this run's jobs ({error}); trying again")
+            jobs = []
+        by_name = {str(job.get("name")): job for job in jobs}
+        outcomes = {label: probe_outcome(by_name.get(probe_job_name(label)), now(), minutes) for label in labels}
+        decided = [label for label in labels if outcomes[label] != "waiting"]
+        if len(decided) == len(labels) or now() >= deadline:
+            return decided, [label for label in decided if outcomes[label] == "stalled"]
+        sleep(POLL_SECONDS)
+
+
 def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callable[[], dt.datetime],
                       sleep: Callable[[float], None], log: Callable[[str], None], dry_run: bool,
                       failovers: Iterable[str] = (), linux_moves: bool = True) -> list[str]:
@@ -790,14 +836,18 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     log(f"Blacksmith overflow is {state}; probing {label} (a stall is every probe queued {minutes} min with no "
         "runner)")
 
+    health_deadline = now() + dt.timedelta(minutes=minutes + 5)
     outcome, stalled = wait_for_probe(api, run_id, attempt, minutes, labels, now=now, sleep=sleep, log=log)
+    extra = () if drill else tuple(item for item in HEALTH_LABELS if item not in labels)
+    extra_decided, extra_stalled = wait_for_health(api, run_id, attempt, minutes, extra, deadline=health_deadline,
+                                                   now=now, sleep=sleep, log=log)
     stamp = iso(now())
     code = 0
     started = [item for item in labels if item not in stalled] if outcome != "unknown" else []
     failover = toward_started(failover, started)
     if outcome != "unknown" and not args.dry_run and switch is not None:
-        health = label_health(labels, stalled, checked=stamp, run=f"https://github.com/{repo}/actions/runs/{run_id}",
-                              minutes=minutes)
+        health = label_health([*labels, *extra_decided], [*stalled, *extra_stalled], checked=stamp,
+                              run=f"https://github.com/{repo}/actions/runs/{run_id}", minutes=minutes)
         try:
             switch.set_variable(HEALTH_VARIABLE, json.dumps(health, sort_keys=True))
         except RuntimeError as error:
@@ -876,7 +926,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                         log(f"- {item.name}: moved from GitHub-hosted Ubuntu to {item.value}")
                     record = migrated
                     current = {**current, **{item.name: item.value for item in moves}}
-            resumes = plan_resume(migrated if args.dry_run else record, current, started)
+            resumes = plan_resume(migrated if args.dry_run else record, current, started, failover)
             if args.dry_run:
                 for item in resumes:
                     if item.skipped:
@@ -905,6 +955,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if out:
         with open(out, "a", encoding="utf-8") as handle:
             handle.write(f"outcome={outcome}\n")
+            # Whether every probe job, health-only ones included, started: otherwise one may still be
+            # queued, and the workflow's last step force-cancels this run so it frees the concurrency group.
+            every = outcome == "started" and len(extra_decided) == len(extra) and not extra_stalled
+            handle.write(f"all_started={'true' if every else 'false'}\n")
     write_summary(env, lines)
     return code
 

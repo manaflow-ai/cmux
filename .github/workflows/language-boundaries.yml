@@ -33,7 +33,9 @@ concurrency:
 jobs:
   language-boundaries:
     name: language-boundaries
-    # Every label change re-runs it (a skipped run would read as a pass and replace a failing one).
+    # A fix-cause:* label on a closed pull request starts no job (tests/test_ci_fix_cause_labels_start_no_jobs.py).
+    if: ${{ !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) }}
+    # Every label change on an open pull request re-runs it (a skipped run would read as a pass and replace a failing one).
     # A base-revision control-plane job (cla-policy-guard.yml's runner rule): a VM destroyed after one job,
     # never a persistent or contributor-controlled machine.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
