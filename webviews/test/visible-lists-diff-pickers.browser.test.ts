@@ -17,15 +17,7 @@ await requireBrowserLane("visible-lists-diff-pickers.browser.test.ts", async () 
   let server: VisibleListsServer;
 
   beforeAll(async () => {
-    // `bun test` runs with NODE_ENV=test, and Vite then builds the JSX for React's development
-    // runtime, which the production build of React does not have: build as production.
-    const environment = process.env.NODE_ENV;
-    process.env.NODE_ENV = "production";
-    try {
-      server = await startVisibleLists();
-    } finally {
-      process.env.NODE_ENV = environment;
-    }
+    server = await startVisibleLists();
   }, 240_000);
   afterAll(async () => {
     await server?.stop();
