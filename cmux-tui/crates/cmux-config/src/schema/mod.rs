@@ -19,7 +19,10 @@ use serde_json::value::RawValue;
 
 pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
 pub use chat_roots::chat_root_is_valid;
-pub use retired::{Replaced, replaced_by_row, replaced_keys, retired_keys, retired_reason};
+pub use retired::{
+    Replaced, Retired, replaced_by_row, replaced_keys, retired_entries, retired_keys,
+    retired_reason,
+};
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;

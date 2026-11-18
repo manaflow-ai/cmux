@@ -76,13 +76,23 @@ extension SettingsSchema {
         "agents.hiddenChats.discard": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
         // Leo (2026-11-14): "obviously if something isn't drawn/is completely proven idle then dont bother taking memory"; Lawrence (#38022): no perf switch. A hidden idle chat and an archived chat always give back their page.
         "agents.hiddenChats.discardAfterMinutes": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
+        // Session Info's setting keys drop the Inspector name (#32184; Leo 2026-11-01: "WHY THE F***ING HAS IT STILL BEEN CALLED INSPECTOR").
+        "agentPane.display.inspector.placement": "the panel is Session Info now: agentPane.display.sessionInfo.placement",
+        // Minimal workspace rows, every row element a setting (2026-10-06, WorkspaceRowSetting.legacyPaths).
+        "sidebar.showWorkspaceDirectory": "every workspace row element is its own setting: sidebar.workspaceRow.directory",
+        // Minimal workspace rows, every row element a setting (2026-10-06, WorkspaceRowSetting.legacyPaths).
+        "sidebar.showCounts": "every workspace row element is its own setting: sidebar.workspaceRow.tabCount",
     ]
 
     /// Retired keys a row took the place of, by the row's path: the old key's path and what its
-    /// values read as in the row (any other value reads as the row's default). While the row is
-    /// unset Settings shows the old key's value, and every write or reset of the row removes the
-    /// old key (``RenamedSettingKeys``), as the daemon does (cmux-config `schema::retired`).
-    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue])] = [
+    /// values read as in the row (any other value reads as the row's default; `nil`: a plain
+    /// rename, every value reads as is). While the row is unset Settings shows the old key's
+    /// value, and every write or reset of the row removes the old key (``RenamedSettingKeys``), as
+    /// the daemon does (cmux-config `schema::retired`).
+    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue]?)] = [
         ["remote", "ultra"]: (old: ["remote", "ultraMode"], values: [.bool(true): .string("always")]),
+        ["agentPane", "display", "sessionInfo", "placement"]: (old: ["agentPane", "display", "inspector", "placement"], values: nil),
+        ["sidebar", "workspaceRow", "directory"]: (old: ["sidebar", "showWorkspaceDirectory"], values: nil),
+        ["sidebar", "workspaceRow", "tabCount"]: (old: ["sidebar", "showCounts"], values: nil),
     ]
 }
