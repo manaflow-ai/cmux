@@ -8,6 +8,8 @@
 mod answer_after_reattach;
 #[path = "agent_host/carried_hold.rs"]
 mod carried_hold;
+#[path = "agent_host/claude_record.rs"]
+mod claude_record;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 #[path = "agent_host/managed_suggestions.rs"]
@@ -598,6 +600,7 @@ fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace(
         protocol_max: acpmux::agent_host::PROTOCOL_MAX,
         host_build: "test".into(),
         socket,
+        claude_translator: false,
     };
     let wrong = record("wrong-socket", outside_socket.clone());
     let wrong_path = hosts.join("wrong-socket.json");
