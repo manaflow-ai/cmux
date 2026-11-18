@@ -85,8 +85,8 @@ import {
   pairingLinkRefused,
   inlineCompletion,
   needsYouCards,
+  pageChatCards,
   profileRows,
-  recentChatCards,
   screenRows,
   searchWords,
   shellEntry,
@@ -1121,8 +1121,8 @@ export function NewTabScreen(props: Props) {
   const clock = useMinuteClock();
   const at = now ?? clock;
   const cards = useMemo(
-    () => recentChatCards(snapshot.sessions, at, t, device, sections.recent, sections.chats === "list"),
-    [snapshot.sessions, at, t, device, sections.recent, sections.chats],
+    () => pageChatCards(sections, snapshot.sessions, at, t, device),
+    [sections, snapshot.sessions, at, t, device],
   );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user. Show All Chats off

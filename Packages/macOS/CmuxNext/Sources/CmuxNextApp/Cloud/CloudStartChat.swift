@@ -202,7 +202,7 @@ struct CloudStartChat {
         let name = machine.machine.title, storeAccess = await services.cloud.auth.startChatStoreAccess(account: account)
         // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again on its new link (CloudOutdatedMachine);
         // the copy's progress lines go to the clone row as they come, about 4 a second (SeedProgress.feed).
-        return try await CloudSeedRefusal.copying(machine: name, diskMb: machine.machine.size?.storageMb, declined: declined) { refusal in do {
+        return try await CloudSeedRefusal.copying(machine: name, diskMb: machine.machine.size?.storageMb, grow: { await self.growDisk(machine, for: $0) }, declined: declined) { refusal in do {
                 return try await CloudOutdatedMachine.copy(socket: { await machine.daemon.connection?.endpoint?.socketPath },
                                                            link: { CloudMachineUpdates.handshake(machine, machines: services.machines) },
                                                            notConnected: CloudMove.Failure(message: CloudMoveStrings.notConnected(name))) { socket in try await SeedProgress.feed({ [cli, refusal, key, owner = CloudStartCore().accountText(account), id = machine.machineID, root = folder.root, sub = folder.subpath, roots = services.cloud.move.workRoots, home = QuitAgents.environment(services)?.home.path, storeAccess] line in
@@ -243,7 +243,7 @@ struct CloudStartChat {
                               original: AgentPaneCloudStart? = nil) async throws -> String {
         // A chosen model connection goes with the launch only to a daemon that takes one (an image's older daemon dropped it and the provider refused the agent): a connected one that lacks it after a refused or bounded update ends the start, saying so.
         try await CloudOutdatedMachine.requireCapability(
-            holds: { services.agentTabs.holdsTabs(machine.daemon) && (origin.connection == nil || machine.daemon.supports(AgentSessionAttachClient.startCredentialsCapability)) }, lacks: { origin.connection != nil && machine.daemon.connection != nil && !machine.daemon.supports(AgentSessionAttachClient.startCredentialsCapability) },
+            holds: { services.agentTabs.holdsTabs(machine.daemon) && (origin.connection == nil || machine.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: start.harness))) }, lacks: { origin.connection != nil && machine.daemon.connection != nil && !machine.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: start.harness)) },
             update: { await CloudMachineUpdates.updateNow(machine.machineID, services: services) }, missing: CloudMove.Failure(message: CloudMachineRoute.tooOld, retry: .move(machineID: machine.machineID)))
         let context = AppActionContext(services: services), daemon = machine.daemon, failure = CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title), retry: .move(machineID: machine.machineID))
         let (seed, handOff) = AgentPaneSeedSource.handingOffDraft(start.seed(cwd: cwd)) { [services] in services.agentTabs.unsentDrafts.draft(forTab: services.agentTabs.resolve(origin.tab.id), machine: services.agentTabs.daemonListing(origin.tab)?.machineID) }

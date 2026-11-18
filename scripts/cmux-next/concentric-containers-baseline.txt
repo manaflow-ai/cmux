@@ -13,7 +13,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunRow.sw
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunSwitchCard.swift: surface.layer?.cornerRadius = HomeFirstRunRow.cornerRadius
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunSwitchCard.swift: surface.layer?.cornerRadius = HomeFirstRunRow.cornerRadius * scale
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/ChiefPanelView.swift: private let backdrop = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, interactive: true)
-Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebCard/WebCardPanel.swift: glass = Glass.makePanel(content: surface, style: .regular, cornerRadius: 14)
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteLatencyBanner.swift: let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, tone: .neutralGlass(.transient))
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteStateCard.swift: let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, tone: .neutralGlass(.transient))
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Tab/RemoteViewUnavailableView.swift: private let surface = Glass.makeOverlayPanel(cornerRadius: 16)
@@ -106,7 +105,6 @@ webviews/src/pages/home-messages/list/list.css: .hm-draft-close { border-radius:
 webviews/src/pages/keybindings/styles.css: .keys-notice { border-radius: 7px }
 webviews/src/pages/markdown/styles.css: .cmux-comment-card { border-radius: 10px }
 webviews/src/pages/passwords/styles.css: .pw-notice { border-radius: 7px }
-webviews/src/pages/server-cards/server/server.css: .sv-banner { border-radius: 6px }
 webviews/src/pages/settings/styles.css: .harness-update-card { border-radius: var(--page-size-10) }
 webviews/src/pages/shared/desktop.css: .ui-tooltip, .ui-title-tooltip { border-radius: 5px }
 webviews/src/pages/tasks/styles.css: .tasks-card { border-radius: 6px }
