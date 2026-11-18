@@ -35,7 +35,10 @@
  *   (cloud-chat-matrix.ts judges its `start` cells on that, hq#11225); the chat steps after it are skipped.
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
- * summary.md (a table for a PR comment or job summary). The machine this run made is deleted at the
+ * summary.md (a table for a PR comment or job summary). journey.json is also cmux Cloud's run in the machine
+ * lifecycle conformance suite: `cmux-machine-conformance import-journey --provider "cmux Cloud" --journey FILE`
+ * (cmux-tui/crates/cmux-machine-provider) maps its steps onto the suite's six, so a step renamed here
+ * shows there as skipped with its old name. The machine this run made is deleted at the
  * end, pass or fail, by its exact id, unless --keep. A run that was killed before its cleanup leaves its
  * machines behind, holding the test account's machine quota: so before create (not with --machine or --keep),
  * the journey deletes `cloud journey auto jr-<tag>` machines (and their gateways) whose tag says they started

@@ -3502,6 +3502,12 @@
       "title" : "Connect iMessage",
       "type" : "boolean"
     },
+    "labs.gcpMachineProvider" : {
+      "default" : false,
+      "description" : "Lets cmux create Linux machines in a Google Cloud project you own, billed to that project. Your credential stays on this Mac.",
+      "title" : "Machines in Your GCP Project",
+      "type" : "boolean"
+    },
     "labs.liveCode" : {
       "default" : false,
       "description" : "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",

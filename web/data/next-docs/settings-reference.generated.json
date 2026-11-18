@@ -6713,6 +6713,14 @@
           "group": "Developer Tools"
         },
         {
+          "key": "labs.gcpMachineProvider",
+          "title": "Machines in Your GCP Project",
+          "help": "Lets cmux create Linux machines in a Google Cloud project you own, billed to that project. Your credential stays on this Mac.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
           "key": "labs.liveCode",
           "title": "Live Code",
           "help": "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",

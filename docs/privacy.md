@@ -82,6 +82,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `api.bing.com` | connects | search suggestions as you type, when Bing is your search engine |
 | `chatgpt.com` | connects | OpenAI's Codex backend, when you use Codex with a ChatGPT sign-in; install script |
 | `api.cloudflare.com` | connects | the Cloudflare API, only when you run `cmux keys connect cloudflare` or `cmux keys mint` |
+| `compute.googleapis.com` | connects | the Compute Engine API in your own GCP project, with your own access token, only when Labs > Machines in Your GCP Project is on and you run `cmux-gcp-machine` |
 | `cdnjs.cloudflare.com` | connects | scripts and styles an agent's rendered page may load |
 | `cmux.com` | connects | cmux's website and API: sign-in callback, hang reports (when telemetry is on), billing, docs and deep links |
 | `files.cmux.com` | connects | downloads: updates, release notes, art, the cmux CLI |

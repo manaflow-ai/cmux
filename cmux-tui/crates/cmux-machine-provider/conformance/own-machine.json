@@ -1,0 +1,14 @@
+{
+  "provider": "own machine",
+  "about": "A machine of your own: its cmux server session, and one agent turn on it through its acpmux. Every step runs through {on}: `sh -c` on the machine itself, `ssh HOST` from another. Set on and cmux, the machine's cmux-tui (its `server` scope; the `cmux` front end calls the same scope `daemon`). No pause or resume. The turn runs on the machine (`--machine local`): acpmux refuses a remote chain into a machine whose sandbox canary shows no sandbox.",
+  "steps": {
+    "attach": { "run": "{on} '{cmux} server ensure --session {tag}'", "timeout_s": 120 },
+    "connect": { "run": "{on} '{cmux} server status --session {tag}'", "timeout_s": 60 },
+    "agent_turn": {
+      "run": "{on} 'acpmux run --machine local -m claude/haiku --ephemeral --on-permission fail --timeout 150 \"Reply with exactly the word PONG and nothing else.\"'",
+      "expect": "PONG",
+      "timeout_s": 180
+    },
+    "detach": { "run": "{on} '{cmux} server stop --session {tag}'", "timeout_s": 60 }
+  }
+}
