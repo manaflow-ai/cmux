@@ -919,4 +919,27 @@ mod tests {
         assert!(!root.join("deep").exists());
         assert_eq!(std::fs::read_link(root.join("mine")).unwrap(), Path::new("edited"));
     }
+
+    #[test]
+    fn ten_thousand_three_way_races_keep_the_local_edit() {
+        let top = tempfile::tempdir().unwrap();
+        let root = top.path().join("root");
+        let staging = top.path().join("staging");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(root.join("race.txt"), "planned\n").unwrap();
+        std::fs::write(staging.join("incoming"), "machine\n").unwrap();
+        let planned = Expected { sha256: sha256(b"planned\n"), permissions: 0o644 };
+        for trial in 0..10_000 {
+            std::fs::write(root.join("race.txt"), format!("local-{trial}\n")).unwrap();
+            let mut transaction = Transaction::new(&root, &staging).unwrap();
+            let error = transaction.write("race.txt", "incoming", Some(&planned)).unwrap_err();
+            assert!(error.downcast_ref::<Changed>().is_some(), "trial {trial}: {error:#}");
+            transaction.roll_back().unwrap();
+            assert_eq!(
+                std::fs::read_to_string(root.join("race.txt")).unwrap(),
+                format!("local-{trial}\n")
+            );
+        }
+    }
 }
