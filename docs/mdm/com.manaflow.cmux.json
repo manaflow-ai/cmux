@@ -12,6 +12,17 @@
       "title" : "Attachment View",
       "type" : "string"
     },
+    "agentPane.composerLook" : {
+      "default" : "auto",
+      "description" : "Where the mode, model and effort sit: under the box or inside it.",
+      "enum" : [
+        "auto",
+        "codex",
+        "claude"
+      ],
+      "title" : "Composer Look",
+      "type" : "string"
+    },
     "agentPane.composerRing" : {
       "default" : "context",
       "description" : "What the ring at the end of the composer shows.",
@@ -328,6 +339,16 @@
         "never"
       ],
       "title" : "Edited Files Card",
+      "type" : "string"
+    },
+    "agentPane.emptyChatComposerPosition" : {
+      "default" : "bottom",
+      "description" : "Where the message box sits in a chat with no messages yet.",
+      "enum" : [
+        "bottom",
+        "center"
+      ],
+      "title" : "Empty Chat Message Box",
       "type" : "string"
     },
     "agentPane.images.remote" : {
