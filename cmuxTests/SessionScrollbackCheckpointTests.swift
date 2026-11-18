@@ -839,13 +839,21 @@ struct SessionScrollbackCheckpointPersisterTests {
 
         let gate = DispatchSemaphore(value: 0)
         queue.async { gate.wait() }
-        persister.persist(.init(captures: [], removals: [removed], livePanelIds: nil))
+        // Detached so a blocking implementation fails on the return instead of
+        // deadlocking the test thread on the gate.
+        let persistReturned = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            persister.persist(.init(captures: [], removals: [removed], livePanelIds: nil))
+            persistReturned.signal()
+        }
+        let returnedWhileQueued = persistReturned.wait(timeout: .now() + 5) == .success
         let invalidatedBeforeDrain = !FileManager.default.fileExists(
             atPath: store.fileURL(panelId: removed).path
         ) && !asideNames(store, panelId: removed).isEmpty
         gate.signal()
         queue.sync {}
 
+        #expect(returnedWhileQueued)
         #expect(invalidatedBeforeDrain)
         #expect(store.loadRecords(panelIds: [removed]).isEmpty)
         #expect(asideNames(store, panelId: removed).isEmpty)
