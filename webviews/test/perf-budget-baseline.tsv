@@ -1,0 +1,11 @@
+# Perf budget hits in the browser tests from before the gate (test/support/perfBudgetGate.ts). Only moves down.
+# test file	class	site	count (documents the budget fired in)
+test/browser/gallery-control-surfaces-1.test.ts	dom-breadth	div.ProseMirror.md-prose.editor	2
+test/browser/gallery-control-surfaces-3.test.ts	dom-breadth	span.cv-shell__output	2
+test/expand-row.test.ts	dom-breadth	pre.cv-tool-output.selectable	14
+test/expand-row.test.ts	dom-breadth	span.cv-shell__output	15
+test/gallery-composer-paste.test.ts	dom-breadth	p	1
+test/session-info-expand-cost.test.ts	dom-breadth	ul.acpmux-session-info-list	2
+test/tool-fold-bottom-browser.test.ts	dom-breadth	div.cv-edit-diff__loading-lines	3
+test/tool-fold-bottom-browser.test.ts	dom-breadth	span.cv-shell__output	3
+test/transcript-fold-anchor-browser.test.ts	dom-breadth	ol.cv-list.cv-ol	1
