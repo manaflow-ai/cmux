@@ -2,13 +2,16 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
-import { EMPTY_OMNIBAR, omnibarContext, type OmnibarAction } from "../src/agent-session/acpmux/omnibar";
-import { screenRows } from "../src/agent-session/acpmux/newtab/screenModel";
-import { setHarnessSymbolHost } from "../src/agent-session/shared/harnessIcons";
+import type { OmnibarAction } from "../src/agent-session/acpmux/omnibar";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
+const { proseMirrorGlobals } = await importWithDom(() => import("../src/agent-session/acpmux/promptFieldTesting"));
+const { EMPTY_OMNIBAR, omnibarContext } = await importWithDom(() => import("../src/agent-session/acpmux/omnibar"));
+const { screenRows } = await importWithDom(() => import("../src/agent-session/acpmux/newtab/screenModel"));
+const { setHarnessSymbolHost } = await importWithDom(() => import("../src/agent-session/shared/harnessIcons"));
 
 test("every suggestion order finds create commands only when the query matches", () => {
   for (const order of ["intent", "chat", "minimal"] as const) {

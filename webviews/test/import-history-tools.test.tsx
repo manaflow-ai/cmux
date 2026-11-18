@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { settleReact } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -49,11 +50,14 @@ afterAll(async () => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const view = (await import("../src/pages/import-history/ImportHistory")) as Record<string, unknown>;
-const { ImportHistory } = await import("../src/pages/import-history/ImportHistory");
-const { ImportHistoryStore, initialRows } = await import("../src/pages/import-history/model");
-const { MockImportHistoryProvider } = await import("../src/pages/import-history/mockProvider");
-const { createStrings } = await import("../src/pages/shared/i18n");
+const view = (await importWithDom(() => import("../src/pages/import-history/ImportHistory"))) as Record<
+  string,
+  unknown
+>;
+const { ImportHistory } = await importWithDom(() => import("../src/pages/import-history/ImportHistory"));
+const { ImportHistoryStore, initialRows } = await importWithDom(() => import("../src/pages/import-history/model"));
+const { MockImportHistoryProvider } = await importWithDom(() => import("../src/pages/import-history/mockProvider"));
+const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
 const table = (await import("../src/pages/import-history/generated/strings.json")).default as Record<
   string,
   Record<string, string>

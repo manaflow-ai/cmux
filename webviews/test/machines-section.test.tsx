@@ -8,13 +8,18 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { createStrings } from "../src/pages/shared/i18n";
 import table from "../src/pages/machines/generated/strings.json";
-import { MachinesSection } from "../src/pages/machines/MachinesSection";
-import { MockMachinesProvider, joinedRows, sampleRows, sampleSnapshot } from "../src/pages/machines/mockProvider";
-import { MachinesStore } from "../src/pages/machines/store";
 import type { MachinesSnapshot } from "../src/pages/machines/types";
 import { teardownDom } from "./support/domTeardown";
+import { importWithDom } from "./support/importWithDom";
+
+type MockMachinesProvider = import("../src/pages/machines/mockProvider").MockMachinesProvider;
+const { createStrings } = await importWithDom(() => import("../src/pages/shared/i18n"));
+const { MachinesSection } = await importWithDom(() => import("../src/pages/machines/MachinesSection"));
+const { MockMachinesProvider, joinedRows, sampleRows, sampleSnapshot } = await importWithDom(
+  () => import("../src/pages/machines/mockProvider"),
+);
+const { MachinesStore } = await importWithDom(() => import("../src/pages/machines/store"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
