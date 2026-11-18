@@ -66,7 +66,7 @@ describe("device token route", () => {
         headers: {
           authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
-          "x-cmux-app-namespace": "dev.cmux.app.demo",
+          "x-cmux-app-namespace": "dev.cmux.app.classic",
         },
         body: JSON.stringify({
           deviceToken: "b".repeat(64),
@@ -187,6 +187,46 @@ describe("device token route", () => {
     expect(remaining.total).toBe(0);
   });
 
+  dbTest("a leftover cmux DEMO install can still unregister its token", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const token = "d".repeat(64);
+    await sql`
+      insert into device_tokens (
+        user_id,
+        device_token,
+        bundle_id,
+        environment,
+        platform
+      ) values (
+        'push-user-1',
+        ${token},
+        'dev.cmux.app.demo',
+        'production',
+        'ios'
+      )
+    `;
+
+    const response = await DELETE(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "DELETE",
+        headers: {
+          authorization: testAccessHeader,
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-app-namespace": "dev.cmux.app.demo",
+        },
+        body: JSON.stringify({ deviceToken: token }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const [remaining] = await sql<{ total: number }[]>`
+      select count(*)::int as total
+      from device_tokens
+      where user_id = 'push-user-1' and device_token = ${token}
+    `;
+    expect(remaining.total).toBe(0);
+  });
+
   dbTest("legacy unregister fails closed when token bytes span app namespaces", async () => {
     if (!sql) throw new Error("test database not initialized");
     const token = "c".repeat(64);
@@ -208,7 +248,7 @@ describe("device token route", () => {
         (
           'push-user-1',
           ${token},
-          'dev.cmux.app.demo',
+          'dev.cmux.app.classic',
           'production',
           'ios'
         )
@@ -419,12 +459,12 @@ describe("device token route", () => {
             "x-cmux-app-namespace": bundleId,
           },
           body: JSON.stringify({
-            deviceToken: `${bundleId === "dev.cmux.app.demo" ? "d" : "e"}${index
+            deviceToken: `${bundleId === "dev.cmux.app.classic" ? "d" : "e"}${index
               .toString(16)
               .padStart(63, "0")}`,
             bundleId,
             platform: "ios",
-            ...pushFieldsFor(`${bundleId === "dev.cmux.app.demo" ? "d" : "e"}${index
+            ...pushFieldsFor(`${bundleId === "dev.cmux.app.classic" ? "d" : "e"}${index
               .toString(16)
               .padStart(63, "0")}`),
           }),
@@ -433,7 +473,7 @@ describe("device token route", () => {
 
     const responses = await Promise.all([
       ...Array.from({ length: 10 }, (_, index) =>
-        register(index, "dev.cmux.app.demo")),
+        register(index, "dev.cmux.app.classic")),
       ...Array.from({ length: 10 }, (_, index) =>
         register(index, "dev.cmux.app.internal")),
     ]);

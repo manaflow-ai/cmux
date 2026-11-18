@@ -108,6 +108,22 @@ describe("account token eligibility", () => {
         .toMatchObject(unavailable);
     });
 
+    test("production hides products from cmux INTERNAL (the cmux-next TestFlight build)", async () => {
+      for (const environment of ["Sandbox", null] as const) {
+        expect(await appleAccountTokenResponse(user, app("dev.cmux.app.internal", environment), deps({ env: production })))
+          .toMatchObject(unavailable);
+      }
+      const named = await appleAccountTokenResponse(user, app("dev.cmux.app.internal", "Sandbox"), deps({
+        env: { ...production, APPLE_IAP_SANDBOX_ENTITLEMENTS: "dev.cmux.app.internal" },
+      }));
+      expect(named).toMatchObject({ eligible: true, reason: null });
+      expect(named.products.map((product) => product.productId)).toEqual([
+        "dev.cmux.app.internal.go.monthly",
+        "dev.cmux.app.internal.pro.monthly",
+        "dev.cmux.app.internal.max.monthly",
+      ]);
+    });
+
     test("other deployments sell to every Sandbox build", async () => {
       const response = await appleAccountTokenResponse(user, app("dev.cmux.app.beta", "Sandbox"), deps({ env: {} }));
       expect(response.eligible).toBe(true);
@@ -132,5 +148,14 @@ describe("account token eligibility", () => {
   test("unknown bundle IDs get no products; a missing header means the App Store app", () => {
     expect(requestedAppleBundleId("com.example.other")).toBeNull();
     expect(requestedAppleBundleId(null)).toBe("com.cmux.app");
+  });
+
+  test("the default bundle list accepts cmux INTERNAL and keeps the App Store app first", async () => {
+    const { appleBundleIds, isAcceptedAppleBundleId } = await import("../services/billing/apple/config");
+    expect(appleBundleIds({})).toEqual(["com.cmux.app", "dev.cmux.app.beta", "dev.cmux.app.internal"]);
+    expect(isAcceptedAppleBundleId("dev.cmux.app.internal", {})).toBe(true);
+    expect(isAcceptedAppleBundleId("dev.cmux.app.classic", {})).toBe(false);
+    // A deployment that sets the list replaces the default entirely.
+    expect(isAcceptedAppleBundleId("dev.cmux.app.internal", { APPLE_IAP_BUNDLE_IDS: "com.cmux.app,dev.cmux.app.beta" })).toBe(false);
   });
 });

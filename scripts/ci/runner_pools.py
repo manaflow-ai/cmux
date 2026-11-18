@@ -20,7 +20,8 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
 
 - reads per-label start evidence (label_evidence()):
   - the overflow probe's per-label health, CI_CLOUD_LABEL_HEALTH (`labels`: label -> "started"
-    or "stalled"; the switch probes every linux pool member), read live through the API so it is this run's and not the job's start value;
+    or "stalled"; the switch probes every x64 Linux size a pool can point at, cloud_overflow_switch.HEALTH_LABELS),
+    read live through the API so it is this run's and not the job's start value;
     used while its `checked` is at most HEALTH_MAX_AGE old;
   - the queue janitor's snapshot (macos-pool-load), only while its `generated_at` is at most
     SNAPSHOT_MAX_AGE old: a Blacksmith label in `pools` whose oldest
@@ -37,8 +38,9 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   it probes, the janitor's snapshot for the rest. Unknown stays unknown: in watch run 41279880300
   (2026-11-01 06:12-06:23Z) every read returned 403, the marks expired with no evidence at all, and
   the linux pool went from 16 back to the stalled 32 vCPU size;
-- points each pool at its first member with no mark. With every member marked, the pool keeps
-  its first member;
+- points each pool at its first member with no mark. With every member marked, an x64 Linux pool takes its
+  release valve, the next smaller declared x64 size with no mark (valve_labels(); 2026-11-18, linux_16 and
+  linux_32 sat on a dead 32 vCPU); with none, or for any other pool, it keeps its first member;
 - writes RUNNER_POOLS only when something changed. A value that does not match the schema
   (parse_value()) is replaced from the declared defaults, never crashed on.
 
@@ -165,6 +167,37 @@ def members(spec: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(spec["members"]))
 
 
+X64_SIZE = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-\d+)$")
+
+
+def valve_labels(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    """The release valve's candidates for an x64 Blacksmith Linux pool, largest first: every x64 Blacksmith Linux
+    label some pool declares that is smaller than this pool's smallest member, on the same image. Empty for any
+    other pool (macOS, Windows, arm64, hosted, or the outage override's hosted-led pools).
+
+    2026-11-18: linux_16 is [16, 32] vCPU. 16 vCPU was marked dead at 01:18Z and 32 vCPU had started nothing since
+    about 23:12Z (488 jobs queued, none running, at 01:01Z), so the pool sat on a dead label with required checks
+    (clippy, acpmux tests) queued behind it, while 8 vCPU kept starting jobs. A value outside the members was reset
+    by the next pass, so it could not be set by hand either."""
+    sizes = [X64_SIZE.match(label) for label in members(spec)]
+    if not sizes or not all(sizes):
+        return []
+    images = {match.group(2) for match in sizes}
+    floor = min(int(match.group(1)) for match in sizes)
+    found: dict[str, int] = {}
+    for other in pools.values():
+        for label in members(other):
+            match = X64_SIZE.match(label)
+            if match and match.group(2) in images and int(match.group(1)) < floor:
+                found[label] = int(match.group(1))
+    return sorted(found, key=lambda label: -found[label])
+
+
+def allowed(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    """Every label RUNNER_POOLS may hold for a pool: its members, then its release valve (valve_labels())."""
+    return [*members(spec), *(label for label in valve_labels(spec, pools) if label not in members(spec))]
+
+
 def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
     """What is wrong with the declared pools (tests/test_ci_runner_pools.py)."""
     found = []
@@ -210,10 +243,11 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
     for name, spec in pools.items():
         if name not in value:
             continue
-        if isinstance(value[name], str) and value[name] in members(spec):
+        if isinstance(value[name], str) and value[name] in allowed(spec, pools):
             clean[name] = value[name]
         else:
-            dropped.append(f"{VARIABLE}.{name}={value[name]!r} is not a member of pools.{name}; reset")
+            dropped.append(f"{VARIABLE}.{name}={value[name]!r} is not a member or release valve of "
+                           f"pools.{name}; reset")
     marks = value.get(DEAD_KEY, {})
     if isinstance(marks, dict):
         good = {label: since for label, since in marks.items()
@@ -229,15 +263,16 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
 
 
 def value_problems(value: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
-    """Why a RUNNER_POOLS value would misroute a job: a missing pool, or a label that is not its member."""
+    """Why a RUNNER_POOLS value would misroute a job: a missing pool, or a label that is neither its member nor
+    its release valve (allowed())."""
     found = []
     for name, spec in sorted(pools.items()):
         label = value.get(name)
         if not isinstance(label, str) or not label:
             found.append(f"{VARIABLE} has no {name}: every job reading fromJSON(vars.{VARIABLE}).{name} fails")
-        elif label not in members(spec):
-            found.append(f"{VARIABLE}.{name}={label!r} is not a member of pools.{name} "
-                         f"({', '.join(spec['members'])})")
+        elif label not in allowed(spec, pools):
+            found.append(f"{VARIABLE}.{name}={label!r} is not a member or release valve of pools.{name} "
+                         f"({', '.join(allowed(spec, pools))})")
     return found
 
 
@@ -300,9 +335,10 @@ def mirror_problems(live: Mapping[str, str | None], pools: Mapping[str, Mapping[
         if name in owned:
             continue
         current = (live.get(name) or "").strip()
-        allowed = members(pools[pool]) if pool in pools else []
-        if current not in allowed:
-            found.append(f"{name}={current or 'unset'} is not a member of pools.{pool} ({', '.join(allowed)}): "
+        allowed_labels = allowed(pools[pool], pools) if pool in pools else []
+        if current not in allowed_labels:
+            found.append(f"{name}={current or 'unset'} is not a member or release valve of pools.{pool} "
+                         f"({', '.join(allowed_labels)}): "
                          f"every `vars.{name} || ...` runs-on waits on it; runner_pools.py writes the live member")
     return found
 
@@ -442,7 +478,13 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     value: dict[str, Any] = {}
     for name, spec in sorted(pools.items()):
         candidates = members(spec)
-        chosen = next((label for label in candidates if label not in marks), candidates[0])
+        chosen = next((label for label in candidates if label not in marks), None)
+        if chosen is None:
+            # Every member is dead: the release valve, the next smaller x64 size with no mark, instead of
+            # leaving the pool on a label that starts nothing. With none, the first member, as before.
+            chosen = next((label for label in valve_labels(spec, pools) if label not in marks), candidates[0])
+            if chosen != candidates[0] and current.get(name) != chosen:
+                lines.append(f"pools.{name}: every member is dead ({', '.join(candidates)}); release valve to {chosen}")
         if current.get(name) != chosen:
             lines.append(f"pools.{name}: {current.get(name) or 'unset'} -> {chosen}")
         value[name] = chosen
