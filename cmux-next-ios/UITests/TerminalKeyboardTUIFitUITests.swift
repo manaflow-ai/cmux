@@ -45,7 +45,9 @@ final class TerminalKeyboardTUIFitUITests: XCTestCase {
         XCTContext.runActivity(named: "demo: \(demo)") { _ in }
         XCTAssertTrue(demo.hasPrefix("done.rz"), "the demo finished with vim on the alternate screen (\(demo))")
         XCTAssertTrue(shot.isSuperset(of: ["tui.", "show0", "hide0"]), "each keyboard state was captured (\(shot.sorted()), \(demo))")
-        let counts = demo.dropFirst("done.rz".count).split(separator: "-").compactMap { Int($0) }
+        // `done.rz<before>-<after>.steps=...`: the counts before the step log.
+        let rz = demo.dropFirst("done.rz".count).split(separator: ".").first ?? ""
+        let counts = rz.split(separator: "-").compactMap { Int($0) }
         XCTAssertEqual(counts.count, 2, "resize counts in \(demo)")
         XCTAssertGreaterThan(counts.first ?? 0, 0, "the page claimed its grid on attach (\(demo))")
         // Each settled show and hide claims the rows that fit; none means the

@@ -30,6 +30,8 @@ guard args.count >= 3 else { usage() }
 // State the main-queue callbacks change: globals, as launch-ready.swift keeps them (a case's locals captured by
 // DispatchQueue.main.async's @Sendable closure do not compile).
 var running: NSRunningApplication?, failure: String?, mainAt: Double?, row: [String: Any] = [:], child: pid_t = 0
+// Mode first's state the CuaDriver press's termination handler changes.
+var press = "none", pressed: Double?
 final class Lines { var pending = Data(), seen = Set<String>() }
 
 func now() -> Double { var tv = timeval(); gettimeofday(&tv, nil); return Double(tv.tv_sec) * 1000 + Double(tv.tv_usec) / 1000 }
@@ -253,7 +255,10 @@ case "open":
     let app = URL(fileURLWithPath: args[2]), homeRoot = URL(fileURLWithPath: args[3]), label = args[4]
     let exe = executable(app), before = resident(exe)
     let fw = codeFramework(app), fwBefore = fw.flatMap(resident)
+    // The marks after main a measured launch reports (launch-reboot.sh), as launch-ready.swift keeps them.
+    var later: [String: Double] = [:]
     let fifo = marksFIFO(homeRoot) { name, ms in
+        if name == "first_window_frame_committed" || name == "window_usable" { later[name] = ms }
         guard name == "main_start", mainAt == nil else { return }
         mainAt = ms
         if running == nil { running = runningCopy(app) }
@@ -297,10 +302,106 @@ case "open":
     let fields: [String: Any] = ["label": label, "mode": "open", "pid": Int(running?.processIdentifier ?? 0), "main_start": json(mainAt),
                                  "system_pageins": json(sysPageins), "resident_before": fraction(before),
                                  "window_on_screen": json(window.flatMap { w in start.map { round1(w - $0) } }), "run_s": runFor,
-                                 "request_to_start": json(start.map { round1($0 - requested) }), "quit": quit]
+                                 "request_to_start": json(start.map { round1($0 - requested) }), "quit": quit,
+                                 "first_window_frame_committed": json(later["first_window_frame_committed"]),
+                                 "window_usable": json(later["window_usable"])]
     row.merge(fields) { $1 }
     if fw != nil { row["fw_resident_before"] = fraction(fwBefore) }
     if let failure { row["error"] = failure } else if window == nil { row["error"] = "no window in 30 s" }
+    emit(row)
+    exit(window == nil ? 1 : 0)
+
+case "first":
+    // A new copy's first open, as a person double-clicks it (launch-fresh-install.sh). Times from the open request:
+    // the system's "downloaded from the Internet" prompt on screen (a CoreServicesUIAgent window) and gone once its
+    // Open is pressed through the console's CuaDriver (LF_CUA), the process start, the app's marks, the first window.
+    guard args.count >= 6, let runFor = Double(args[5]) else { usage() }
+    let app = URL(fileURLWithPath: args[2]), homeRoot = URL(fileURLWithPath: args[3]), label = args[4]
+    var marks: [String: Double] = [:]
+    let fifo = marksFIFO(homeRoot) { name, ms in marks[name] = ms; if name == "main_start" { mainAt = ms } }
+    let configuration = NSWorkspace.OpenConfiguration()
+    configuration.activates = true
+    configuration.addsToRecentItems = false
+    configuration.environment = environment(homeRoot, fifo: fifo)
+    configuration.arguments = ["-ApplePersistenceIgnoreState", "YES"]
+    let requested = now()
+    NSWorkspace.shared.openApplication(at: app, configuration: configuration) { app, error in
+        DispatchQueue.main.async { if let error { failure = "open: \(error.localizedDescription)" }; if running == nil { running = app } }
+    }
+    var start: Double?, window: Double?, prompt: Double?, promptGone: Double?
+    var pressing: Process?
+    func onScreen() -> [[String: Any]] {
+        CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    }
+    func owner(_ info: [String: Any]) -> String { info[kCGWindowOwnerName as String] as? String ?? "?" }
+    func agentWindow(_ list: [[String: Any]]) -> (pid: Int32, id: Int)? {
+        for info in list where owner(info) == "CoreServicesUIAgent" {
+            if let pid = info[kCGWindowOwnerPID as String] as? Int32, let id = info[kCGWindowNumber as String] as? Int { return (pid, id) }
+        }
+        return nil
+    }
+    // Every window owner that came on screen after the request, with when: the prompt, if the system shows it under
+    // another owner than CoreServicesUIAgent, is among them.
+    let ownersBefore = Set(onScreen().map(owner))
+    var newOwners: [String: Double] = [:]
+    // Presses the prompt's Open with CuaDriver (it holds the console's Accessibility grant; this probe, built per run,
+    // has none): its window state, the AXButton titled Open, a press. The status goes to `press`.
+    func pressOpen(pid: Int32, id: Int) {
+        guard let cua = ProcessInfo.processInfo.environment["LF_CUA"], FileManager.default.isExecutableFile(atPath: cua) else { press = "no CuaDriver"; return }
+        let task = Process(), pipe = Pipe()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", """
+            state="$("$0" call get_window_state "{\\"pid\\":$1,\\"window_id\\":$2,\\"include_accessibility_tree\\":true}" 2>&1)"
+            token="$(printf '%s' "$state" | /usr/bin/python3 -I -c '
+            import json, sys
+            a = json.load(sys.stdin); s = a.get("structuredContent") if isinstance(a.get("structuredContent"), dict) else a
+            for e in s.get("elements") or []:
+                if e.get("role") == "AXButton" and "Open" in (str(e.get("title")), str(e.get("label"))) and e.get("element_token"):
+                    print(e["element_token"]); break
+            ' 2>/dev/null)"
+            [ -n "$token" ] || { echo "no Open button: $(printf '%s' "$state" | head -c 300)"; exit 1; }
+            "$0" call click "{\\"pid\\":$1,\\"window_id\\":$2,\\"element_token\\":\\"$token\\",\\"action\\":\\"press\\"}" >/dev/null 2>&1 && echo pressed
+            """, cua, String(pid), String(id)]
+        task.standardOutput = pipe; task.standardError = pipe
+        task.terminationHandler = { _ in
+            let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            DispatchQueue.main.async { press = String(text.prefix(300)); pressed = now() }
+        }
+        do { try task.run(); pressing = task } catch { press = "run: \(error)" }
+    }
+    spin {
+        if running == nil { running = runningCopy(app) ?? NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == Bundle(url: app)?.bundleIdentifier && $0.processIdentifier > 0 && $0.launchDate.map { $0.timeIntervalSince1970 * 1000 >= requested - 1000 } == true } }
+        if start == nil, let pid = running?.processIdentifier, pid > 0 { start = processStart(pid) }
+        let list = onScreen()
+        for info in list where !ownersBefore.contains(owner(info)) && newOwners[owner(info)] == nil { newOwners[owner(info)] = round1(now() - requested) }
+        if let found = agentWindow(list) {
+            if prompt == nil { prompt = now(); pressOpen(pid: found.pid, id: found.id) }
+        } else if prompt != nil, promptGone == nil { promptGone = now() }
+        if window == nil, let pid = running?.processIdentifier, pid > 0, ownWindowOnScreen(pid) { window = now() }
+        return failure != nil || window != nil || now() - requested > 60_000
+    }
+    // The marks after the window (window_usable) for up to RUN_S more seconds, then SIGTERM.
+    spin { marks["window_usable"] != nil || now() - (window ?? requested) >= runFor * 1000 }
+    pressing?.waitUntilExit()
+    let path = running?.bundleURL?.path ?? ""
+    if let pid = running?.processIdentifier, pid > 0 {
+        kill(pid, SIGTERM)
+        let sent = now()
+        spin { kill(pid, 0) != 0 || now() - sent > 10_000 }
+        if kill(pid, 0) == 0 { kill(pid, SIGKILL) }
+    }
+    let since = { (t: Double?) in json(t.map { round1($0 - requested) }) }
+    // Process-relative marks, as the app writes them, moved onto the request's clock.
+    let fromRequest = { (name: String) -> Any in json(start.flatMap { s in marks[name].map { round1(s + $0 - requested) } }) }
+    let fields: [String: Any] = [
+        "label": label, "mode": "first", "pid": Int(running?.processIdentifier ?? 0),
+        "prompt": since(prompt), "prompt_gone": since(promptGone), "pressed": since(pressed), "press": press,
+        "start": since(start), "main": fromRequest("main_start"), "window": since(window), "usable": fromRequest("window_usable"),
+        "main_start": json(mainAt), "translocated": path.contains("/AppTranslocation/"), "ran_from": path,
+        "marks": marks.mapValues(round1), "new_window_owners": newOwners,
+    ]
+    row.merge(fields) { $1 }
+    if let failure { row["error"] = failure } else if window == nil { row["error"] = "no window in 60 s" }
     emit(row)
     exit(window == nil ? 1 : 0)
 

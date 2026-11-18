@@ -30,8 +30,9 @@ struct CloudSeedRefusalTests {
         #expect(CloudSeedRefusal(CloudMoveCLI.Answer(ok: true), machine: "m") == nil)
     }
 
-    /// A machine's room is its disk less what its image and work keep: 4 GiB on the old 16 GB disk, 52 GiB on a
-    /// 64 GB one; a machine whose size is not known is taken for the smallest.
+    /// A machine's room is its disk less what its image and work keep (the floor, never the half-again disk a start
+    /// asks): 4 GiB on the old 16 GB disk, 52 GiB on a 64 GB one; a machine whose size is not known is taken for the
+    /// smallest.
     @Test func aMachinesRoomFollowsItsDisk() {
         let gib: Int64 = 1_073_741_824
         #expect(CloudSeedRefusal.room(diskMb: 16_384) == 4 * gib)
@@ -83,6 +84,52 @@ struct CloudSeedRefusalTests {
         #expect(asked == [.ask], "a 23.2 GB copy to a 16 GB disk was made")
         #expect(reason.contains("cloud-chats") && reason.contains("23"))
         #expect(reason != "why", "the start ended with cmux-tui's clone reason, not that the folder does not fit")
+    }
+
+    /// A copy the machine's disk cannot hold grows the disk first (2026-11-18: "a 22 GB folder must just work on Cloud")
+    /// and is then made; a disk grown too little, or not grown, still makes no copy.
+    @Test func aCopyTheDiskCannotHoldGrowsTheDiskThenCopies() async throws {
+        let refusedAnswer = CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", fallbackCode: "not_git", copyBytes: 22_550_000_000)
+        var asked: [CloudMoveCLI.SeedRefusal] = []
+        var grownFor: [Int64?] = []
+        let copied = try await CloudSeedRefusal.copying(machine: "cloud-chats-4", diskMb: 16_384, grow: { refusal in
+            grownFor.append(refusal.copyBytes)
+            return .grown(diskMb: 36_864)
+        }, declined: { Declined(reason: $0.tooLarge) }) { refusal in
+            asked.append(refusal)
+            return refusal == .ask ? (refusedAnswer, "") : (CloudMoveCLI.Answer(ok: true), "copied")
+        }
+        #expect(copied.1 == "copied")
+        #expect(asked == [.ask, .copy])
+        #expect(grownFor == [22_550_000_000])
+        for growth: CloudSeedRefusal.Growth in [.grown(diskMb: 20_480), .notGrown] {
+            asked = []
+            do {
+                _ = try await CloudSeedRefusal.copying(machine: "cloud-chats-4", diskMb: 16_384, grow: { _ in growth },
+                                                       declined: { Declined(reason: $0.tooLarge) }) { refusal in
+                    asked.append(refusal)
+                    return (refusedAnswer, "")
+                }
+                Issue.record("a 22.55 GB copy was made after \(growth)")
+            } catch is Declined {}
+            #expect(asked == [.ask])
+        }
+    }
+
+    /// A folder no disk the plan gives can hold is not copied and the machine is not grown past the plan (2026-11-18:
+    /// "grow the Cloud machine only up to the max size the team's plan allows; if the folder still won't fit, say so
+    /// clearly"): the words name the folder and the plan's largest disk.
+    @Test func aFolderPastThePlanSaysSo() async throws {
+        var reason = ""
+        do {
+            _ = try await CloudSeedRefusal.copying(machine: "cloud-chats-4", diskMb: 16_384, grow: { _ in .pastPlan(.lg) },
+                                                   declined: { Declined(reason: $0.tooLarge) }) { _ in
+                (CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused", error: "why", fallbackCode: "not_git", copyBytes: 200_000_000_000), "")
+            }
+            Issue.record("a 200 GB copy was made past the plan")
+        } catch let declined as Declined { reason = declined.reason }
+        #expect(reason.contains("200") && reason.contains("137"), "\(reason)")
+        #expect(!reason.contains("cloud-chats-4"), "\(reason)")
     }
 
     /// Only a repository the machine can't read without the cmux GitHub App says to connect GitHub, and only it carries
@@ -140,6 +187,8 @@ struct CloudSeedRefusalTests {
         let message = try #require(CloudStartSessionStrings.sizeLocked(CloudSizeLocked(needed: .xl)))
         #expect(message.contains("xl") && message.contains("16") && message.contains("32") && message.contains("Max"))
         #expect(CloudStartSessionStrings.sizeLocked(CloudSizeLocked()) == nil)
+        let next = CloudSizeLocked(upgradePlan: "next_max", upgradeNamed: true, needed: .xl)
+        #expect(CloudStartSessionStrings.sizeLocked(next)?.contains("cmux NEXT Max") == true)
         #expect(CloudStartSessionStrings.sizeLocked(CloudSizeLocked(upgradeNamed: true, needed: .lg))?.contains("Pro") == false)
     }
 }
