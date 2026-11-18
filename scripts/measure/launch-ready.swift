@@ -234,6 +234,9 @@ let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment"
             "dfl.settings_read", "dfl.theme", "services.crash_reporting", "dfl.services", "dfl.bind", "dfl.menu", "dfl.home_history",
             "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home",
             "deferred_windows_restored",
+            // The live tree applied and the restore began: from launch_snapshot_shown to here the window shows what the
+            // snapshot drew, so a stale snapshot was visible this long before the late check (hq#12660).
+            "daemon_snapshot_loaded", "launch.no_snapshot",
             // The bare launch's marks (piece 8): Home's composer takes keys; a terminal's shell printed its first output.
             "window_usable", "first_shell_live"]
 var row: [String: Any] = [
