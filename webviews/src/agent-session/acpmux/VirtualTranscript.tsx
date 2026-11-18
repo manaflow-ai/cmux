@@ -1868,11 +1868,13 @@ function TranscriptView({
       setScroll(scrollRef.current);
     }, SCROLL_LEAD_IDLE_MS);
   };
-  const setScrollAt = (top: number, delta = top - scrollRef.current.top) => {
+  /// `rearm` false keeps the reader's lead decaying from their own last move: a move that is not theirs
+  /// (an anchor correction) carries their delta without restarting its SCROLL_LEAD_IDLE_MS.
+  const setScrollAt = (top: number, delta = top - scrollRef.current.top, rearm = true) => {
     const next = { top, delta };
     scrollRef.current = next;
     setScroll(next);
-    scheduleScrollLeadReset();
+    if (rearm) scheduleScrollLeadReset();
   };
   /// The view follows the latest row (scrolledTo.atLatest, as of the last scroll). Jump to latest shows
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
@@ -5021,9 +5023,12 @@ function TranscriptView({
           // rounded DOM offset arrives through scroll later and can briefly show Jump to latest.
           // The move is the anchor's, not the reader's, so the reader's last move stays the lead: zeroed,
           // a fling's next render dropped its lead and the warm rows caught up to the view, a deferred
-          // render of six views of rows each time an older page landed under it.
+          // render of six views of rows each time an older page landed under it. Nor does it restart the
+          // lead's idle clock: a reply streaming under a reader scrolled up corrects every frame, and a
+          // lead re-armed by each correction never decayed, so the jump's view-only rows stayed mounted
+          // and the reader slid 21 px (transcript-pinned-bottom, "scrolled up, growth leaves the reader").
           scrollPacer.current?.cancel();
-          setScrollAt(node.scrollTop, scrollRef.current.delta);
+          setScrollAt(node.scrollTop, scrollRef.current.delta, false);
         }
       }
     }
