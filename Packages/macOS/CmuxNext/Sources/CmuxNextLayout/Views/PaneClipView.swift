@@ -27,6 +27,11 @@ final class PaneClipView: NSView {
     }
     /// The content has another ground to give to the card.
     var onContentGroundChange: (() -> Void)?
+    /// A floating pane with a solid background: its card is an opaque ground under the content, and the views
+    /// inside paint their own over it (`PaneGroundOwning`). A change tells those views in the same turn.
+    var hasSolidGroundUnder = false {
+        didSet { if hasSolidGroundUnder != oldValue { tellPaneGroundFollowers() } }
+    }
 
     func setCornerRadius(_ radius: CGFloat) {
         guard let layer, layer.cornerRadius != radius else { return }

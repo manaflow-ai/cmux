@@ -20,7 +20,9 @@
 // 41076022470, 41048809560). Four parts of about 879 stages each then outgrew their 480 s limit:
 // part 3 timed out at stage 750 even when retried alone (2026-11-03, run 41586011973), so six.
 // Six parts of about 701 stages each then reached their 450 s limit: part 6 scanned every stage and
-// still ran out on a busy shard (2026-11-05, run 42061901722), so seven.
+// still ran out on a busy shard (2026-11-05, run 42061901722), so seven. The gallery then grew to 6,848
+// stages, 978 a part: part 5 timed out at stage 750 at its 450 s limit, alone on the head too (#44828, run
+// 44148246463), and parts 2 and 6 were red on the base the same way, so twelve, about 571 stages each.
 // Each part scans every `parts`-th stage of the sorted list.
 // Each part is also `// cmux-web-test-alone`: about 280 s alone, but three parts the split put on
 // one shard ran together in its dev-server pool, each hit its limit, and each paid its alone retry
