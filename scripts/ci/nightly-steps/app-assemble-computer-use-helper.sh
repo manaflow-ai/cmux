@@ -17,7 +17,7 @@
 # (ad-hoc only); Codesign apps signs it with the team identity as before. Any miss builds from source.
 # A source build uses the pinned cmux-cua git bundle (cmux-cua-source.pin.json, same stores) when the
 # runner has no clone, so an empty cache never clones cmux-cua over the internet first (run 44232805509:
-# a full clone on cmux15 timed out after 9.5 minutes). A source build leaves the unsigned helper and its
+# a full clone on a runner timed out after 9.5 minutes). A source build leaves the unsigned helper and its
 # key in $RUNNER_TEMP/cmux-cua-helper-prebuilt for the next step to upload; publish-cmux-cua-helper.sh
 # turns that artifact into the pin.
 set -euo pipefail
