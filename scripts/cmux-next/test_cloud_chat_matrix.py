@@ -65,10 +65,28 @@ class FixtureTests(unittest.TestCase):
     def test_a_first_pass_cell_must_leave_its_big_file_on_the_mac(self):
         cell = {"workspace": "huge-repo", "agent": "claude", "start_exit": 0, "hash_match": True,
                 "reply": {"form_ok": True, "word_ok": True, "canary_in_reply": False, "text": "MATRIX_OK"},
-                "create_to_reply_s": 20, "machine_killed": True, "left_on_mac": 0}
+                "create_to_reply_s": 20, "machine_killed": True, "left_on_mac": 0,
+                "estimate": {"mode": "seed", "copy_mode": "first_pass"}}
         self.assertIn("nothing left on the Mac", matrix.verdict(cell, "c"))
         cell["left_on_mac"] = 1
         self.assertEqual(matrix.verdict(cell, "c"), "pass")
+
+    def test_every_start_names_its_copy_before_the_lease(self):
+        cell = {"workspace": "huge-parent-repos", "agent": "claude", "start_exit": 0, "hash_match": None,
+                "reply": {"form_ok": True, "word_ok": True, "canary_in_reply": False, "text": "MATRIX_OK"},
+                "create_to_reply_s": 20, "machine_killed": True, "left_on_mac": 3}
+        cell["hash_match"] = True
+        self.assertIn("no copy estimate before the lease", matrix.verdict(cell, "c"))
+        cell["estimate"] = {"mode": "whole"}
+        self.assertIn("estimate said whole", matrix.verdict(cell, "c"))
+        cell["estimate"] = {"mode": "first_pass"}
+        self.assertEqual(matrix.verdict(cell, "c"), "pass")
+        # A cell under the limits that a slow link made a first pass: its partial tree is no failure.
+        slow = dict(cell, workspace="big-plain", hash_match=False, left_on_mac=4,
+                    estimate={"mode": "first_pass", "why": "time"})
+        self.assertEqual(matrix.verdict(slow, "c"), "pass")
+        whole = dict(slow, estimate={"mode": "whole"})
+        self.assertIn("tree differs", matrix.verdict(whole, "c"))
 
     def test_secrets_are_left_out_and_the_canary_is_found_where_it_is(self):
         folder, _ = matrix.build_fixture("secrets", self.root, self.args, "cmxcanarytest")

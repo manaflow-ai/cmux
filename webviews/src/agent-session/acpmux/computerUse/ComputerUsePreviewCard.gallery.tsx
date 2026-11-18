@@ -44,9 +44,11 @@ const running: ComputerUsePreview = {
 const done: ComputerUsePreview = { ...running, done: true, icon };
 
 /// The person's pointer over the display, as the host sends it (a telepointer, never in the frame).
+// motion-allow: a fixture pointer age
 const personOver = { x: 0.3, y: 0.32, visible: true, ageMs: 120, idle: false };
 const withPerson: ComputerUsePreview = {
   ...running,
+  // motion-allow: a fixture pointer age
   telepointers: { agent: { x: 0.83, y: 0.9, visible: true, ageMs: 80, idle: false }, person: personOver },
 };
 const personOnly: ComputerUsePreview = {

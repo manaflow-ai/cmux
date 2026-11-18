@@ -177,13 +177,13 @@ jobs:
           echo "hot verify plan: $(grep '^reason=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)" >> "$GITHUB_STEP_SUMMARY"
 
   # Start the look on feat-cmux-next. Data only: the run there reads the pull request again and takes nothing
-  # else from here. Before this file is on feat-cmux-next the dispatch has nothing to start, and says so.
+  # else from here. A dispatch that never starts ends this job red (below).
   hand-off:
     name: start the look on feat-cmux-next
     needs: plan
     if: ${{ needs.plan.outputs.eligible == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 5
+    timeout-minutes: 25
     # actions: write starts the run; nothing here can write pr-media or the PR.
     permissions:
       actions: write
@@ -199,12 +199,33 @@ jobs:
         run: |
           set -uo pipefail
           event_at="$(date -u -d "$EVENT_AT" +%s 2>/dev/null || date -u +%s)"
-          if gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
-              -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$event_at" -f kind="$KIND" 2> "$RUNNER_TEMP/dispatch.err"; then
-            echo "hot verify: the look ($LAYERS) runs on feat-cmux-next for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
-          else
-            echo "hot verify: could not start the look on feat-cmux-next ($(tr '\n' ' ' < "$RUNNER_TEMP/dispatch.err" | cut -c1-200)); this workflow may not be there yet" | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
+          # A dispatch that fails is a PR with no look. It used to print a line and end green, so no one saw the
+          # PRs it lost. It now retries for at most 20 minutes (a rate limit waits for its reset, read from the
+          # rate_limit endpoint, which costs no quota) and ends red if the look never started.
+          deadline=$(( $(date +%s) + 20 * 60 ))
+          pause=30
+          for attempt in 1 2 3 4 5 6; do
+            if gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
+                -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$event_at" -f kind="$KIND" 2> "$RUNNER_TEMP/dispatch.err"; then
+              echo "hot verify: the look ($LAYERS) runs on feat-cmux-next for ${HEAD_SHA:0:12} (attempt $attempt)" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            why="$(tr '\n' ' ' < "$RUNNER_TEMP/dispatch.err" | cut -c1-200)"
+            echo "hot verify: attempt $attempt could not start the look: $why"
+            wait_s=$pause
+            if grep -qi "rate limit" "$RUNNER_TEMP/dispatch.err"; then
+              # Only a spent core bucket waits for its reset; a secondary rate limit keeps the short backoff.
+              remaining=1 reset=0
+              read -r remaining reset < <(gh api rate_limit --jq '"\(.resources.core.remaining) \(.resources.core.reset)"' 2>/dev/null || echo "1 0") || true
+              [[ "$remaining" == 0 && "$reset" =~ ^[0-9]+$ ]] && (( reset > $(date +%s) )) && wait_s=$(( reset - $(date +%s) + 5 ))
+            fi
+            (( $(date +%s) + wait_s < deadline )) || break
+            sleep "$wait_s"
+            pause=$(( pause * 2 ))
+          done
+          echo "::error title=hot verify::could not start the look on feat-cmux-next for ${HEAD_SHA:0:12}: $why"
+          echo "hot verify: no look for ${HEAD_SHA:0:12}; the dispatch failed: $why" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
   # The feat-cmux-next half. The pull request, read again: open, into feat-cmux-next, from this repository,
   # still at the head the plan saw.
@@ -357,7 +378,7 @@ jobs:
     # comes (the engine's receipt then says the apply failed).
     if: ${{ !cancelled() && needs.target.outputs.ok == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' && (needs.rust.result == 'success' || needs.rust.result == 'skipped') }}
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
-    timeout-minutes: 75
+    timeout-minutes: 240
     permissions:
       contents: read
     outputs:
@@ -380,6 +401,8 @@ jobs:
           CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           PR: ${{ needs.target.outputs.pr }}
           HEAD_SHA: ${{ needs.target.outputs.head }}
+          # 1 on `look again`'s run: no retry follows it.
+          ATTEMPT: ${{ inputs.attempt }}
         run: |
           set -uo pipefail
           say() { echo "$1" | tee -a "$GITHUB_STEP_SUMMARY"; }
@@ -396,22 +419,73 @@ jobs:
             echo "result=skipped" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          nonce="hv-$PR-${HEAD_SHA:0:12}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          # Not mapfile: a fleet Mac's /bin/bash is 3.2, which has none (#43916's look on glaeda-5, 2026-11-15).
-          chunks=()
-          while IFS= read -r chunk; do chunks+=("$chunk"); done < <(python3 scripts/cmux-next/hot-verify-ci.py pack --pr "$PR" --head "$HEAD_SHA" --nonce "$nonce" --video)
-          (( ${#chunks[@]} > 0 )) || { echo "::error::the step's inputs did not pack"; exit 1; }
-          args=()
-          for chunk in "${chunks[@]}"; do args+=("--arg=$chunk"); done
+          # The client waits for a Mac as long as the controller's 24 h p90 queue wait for class light (its /v1/status),
+          # 30 min to 3 h; 30 min when unreadable. A fixed 30 min gave up on more than one look in ten: 77 looks on
+          # 2026-11-18 waited 13 s p50 but 6087 s p90 (hq docs/handbook/deadline-counts-queue-wait.md).
+          curl -fsS --retry 2 --max-time 30 "$CONTROLLER/v1/status" -o "$RUNNER_TEMP/status.json" || true
+          queue_bound="$(python3 scripts/cmux-next/hot-verify-ci.py queue-bound "$RUNNER_TEMP/status.json")"
+          say "hot verify: waiting up to ${queue_bound}s for a fleet Mac"
+          # One fleet step per PR head. A look step runs about 2.5 min but waits 18 min p50 and 2 h p90 for a Mac
+          # (297 looks, 2026-11-17), and the client stops waiting at the bound above. Under one key per head, `look again` and
+          # any later run for the head rejoin the queued step where it stands, or take its out.tar when it ran after
+          # the last client left (the controller returns the step a key made, whatever its state). A step under that
+          # key that already ended without a result answers at once; the look then runs a fresh one under this run's key.
+          head_key="hv-$PR-${HEAD_SHA:0:12}"
           log="$RUNNER_TEMP/look.log"
-          status=0
-          "$client" run --class light --repo manaflow-ai/cmuxterm-hq --ref "$hq_ref" \
-            --script build-fleet/pr_capture/fleet-step-hot-verify.sh --display --artifact out.tar --key "$nonce" \
-            --timeout 2400 --queue-timeout 1800 "${args[@]}" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
           mkdir -p "$RUNNER_TEMP/look"
-          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
-          if [[ -n "$step" ]]; then
-            "$client" artifact "$step" "$RUNNER_TEMP/look/out.tar" || "$client" artifact --failed "$step" "$RUNNER_TEMP/look/out.tar" || true
+          : > "$log"
+          look() {  # KEY REF: run the look under KEY at HQ commit REF; sets status and step, leaves out.tar when it got one
+            local chunks=() args=() chunk
+            # Not mapfile: a fleet Mac's /bin/bash is 3.2, which has none (#43916's look on glaeda-5, 2026-11-15).
+            while IFS= read -r chunk; do chunks+=("$chunk"); done < <(python3 scripts/cmux-next/hot-verify-ci.py pack --pr "$PR" --head "$HEAD_SHA" --nonce "$1" --video)
+            (( ${#chunks[@]} > 0 )) || { echo "::error::the step's inputs did not pack"; exit 1; }
+            for chunk in "${chunks[@]}"; do args+=("--arg=$chunk"); done
+            status=0
+            : > "$RUNNER_TEMP/look.part"
+            # Streamed into look.log as it comes: the cancelled-look step reads the step id from it mid-wait.
+            "$client" run --class light --repo manaflow-ai/cmuxterm-hq --ref "$2" \
+              --script build-fleet/pr_capture/fleet-step-hot-verify.sh --display --artifact out.tar --key "$1" \
+              --timeout 2400 --queue-timeout "$queue_bound" "${args[@]}" 2>&1 | tee -a "$log" "$RUNNER_TEMP/look.part" || status=${PIPESTATUS[0]}
+            step="$(grep -o -E 'step [0-9a-f]{24}' "$RUNNER_TEMP/look.part" | head -1 | cut -d' ' -f2 || true)"
+            rm -f "$RUNNER_TEMP/look/out.tar"
+            if [[ -n "$step" ]]; then
+              "$client" artifact "$step" "$RUNNER_TEMP/look/out.tar" || "$client" artifact --failed "$step" "$RUNNER_TEMP/look/out.tar" || true
+            fi
+          }
+          # This head (or the merge commit) supersedes the PR's looks at other heads. One that an earlier look left queued
+          # for its `look again` is never rejoined (that retry sees the PR moved), and would run with nobody to post it.
+          "$client" status 2>/dev/null | python3 -c '
+          import json, sys
+          pr, keep = sys.argv[1], sys.argv[2]
+          for job in json.load(sys.stdin).get("queued") or []:
+              key = job.get("step_key") or ""
+              if key.startswith(f"hv-{pr}-") and not key.startswith(keep):
+                  print(job["id"])
+          ' "$PR" "$head_key" 2>/dev/null | while read -r stale; do
+            "$client" cancel "$stale" --reason "hot verify: #$PR moved on to ${HEAD_SHA:0:12}" || true
+          done
+          started=$SECONDS
+          # The HQ commit is part of the request: the same key at a newer HQ commit is "HTTP 409: step_key already names
+          # a different step" (#45082 on 2026-11-17: its head step, queued at 23:06, ran at 00:32 for nobody while a fresh
+          # one waited). So rejoin at the HQ commit the head's step was made at; a new head step takes the controller's.
+          head_ref="$("$client" status --all 2>/dev/null | python3 -c '
+          import json, re, sys
+          jobs = json.load(sys.stdin)
+          mine = [j for j in (jobs if isinstance(jobs, list) else []) if j.get("step_key") == sys.argv[1]]
+          ref = max(mine, key=lambda j: j.get("created_at") or "").get("ref", "") if mine else ""
+          print(ref if re.fullmatch(r"[0-9a-f]{40}", ref or "") else "")
+          ' "$head_key" 2>/dev/null || true)"
+          look "$head_key" "${head_ref:-$hq_ref}"
+          key="$head_key"
+          if [[ ! -s "$RUNNER_TEMP/look/out.tar" && $status != 75 && $(( SECONDS - started )) -lt 120 ]]; then
+            # An answer within 2 min is a step that ended before this run (or a key bound to another HQ commit).
+            say "hot verify: the step under $head_key ended with no out.tar (${step:-none}, exit $status); a fresh look"
+            # A client that stopped early on a step still queued or running would leave it with nobody to read it.
+            if [[ -n "$step" ]]; then
+              "$client" cancel "$step" --reason "hot verify: a fresh look replaces it" || true
+            fi
+            key="$head_key-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+            look "$key" "$hq_ref"
           fi
           if [[ -s "$RUNNER_TEMP/look/out.tar" ]]; then
             say "hot verify: fleet step ${step:-?} returned its out.tar (exit $status)"
@@ -420,6 +494,12 @@ jobs:
           fi
           echo "::error title=hot verify::the fleet step (${step:-none}, exit $status) returned no out.tar"
           echo "result=failed" >> "$GITHUB_OUTPUT"
+          # A client that stops waiting (exit 75 after --queue-timeout) leaves its step queued. `look again` rejoins the
+          # head's step, so it stays; a step nobody rejoins would run later with nobody to post it (23 of 49 queued
+          # looks were such orphans, 2026-11-17 13:49Z): the last look's, and one under a run's own key, are cancelled.
+          if [[ -n "$step" ]] && [[ $status != 75 || "${ATTEMPT:-}" == 1 || $key != "$head_key" ]]; then
+            "$client" cancel "$step" --reason "hot verify: the look's client stopped waiting (exit $status)" || true
+          fi
           # A look with no result is never green.
           exit 1
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -429,13 +509,26 @@ jobs:
           path: ${{ runner.temp }}/look/out.tar
           if-no-files-found: error
           retention-days: 1
+      # A look cancelled while it waits (a newer run for the PR, the job's time limit) leaves its fleet step queued.
+      - name: Cancel the fleet step of a cancelled look
+        if: ${{ cancelled() }}
+        run: |
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "hot verify: $client is not installed on runner $RUNNER_NAME; no fleet step to cancel"
+            exit 0
+          fi
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$RUNNER_TEMP/look.log" 2>/dev/null | tail -1 | cut -d' ' -f2 || true)"
+          if [[ -n "$step" ]]; then
+            "$client" cancel "$step" --reason "hot verify: the look was cancelled" || true
+          fi
 
   # One more look when this one failed on the fleet. A failed `look` job returned no out.tar: the look never
   # judged the change, the fleet or its runner lost it. On 2026-11-16 that was a lent Mac's disk decline
   # (3 decliners fail a step), a worker that stopped renewing its lease, and a reserved mini whose gateway runner
   # took 8 looks in 20 minutes and refused each one. Nothing else starts a look again, so each such look was
   # lost for good. A look's own verdict (needs a build, failed shots) comes back in out.tar and is never retried.
-  # A look its 75 min timeout stopped ends `cancelled`, not `failure`, and is as lost, so it looks again too; a
+  # A look its 240 min timeout stopped ends `cancelled`, not `failure`, and is as lost, so it looks again too; a
   # person's cancel or a newer head's run cancels the whole run, which `!cancelled()` keeps out.
   # Once: the retry carries attempt=1, and a newer head's run replaces it (the concurrency group).
   again:
