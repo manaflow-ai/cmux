@@ -143,6 +143,29 @@ class Server(unittest.TestCase):
             get(self.sites.url(0, 0).rsplit("/p/", 1)[0] + "/p/x")
         self.assertEqual(refused.exception.code, 404)
 
+    def test_the_ports_are_those_of_the_addresses_in_the_order_of_the_sites(self):
+        ports = getattr(self.sites, "ports", None)
+        self.assertIsNotNone(ports, "the sites do not name their ports")
+        self.assertEqual([f"http://127.0.0.1:{port}/p/0" for port in ports()], [self.sites.url(site, 0) for site in range(3)])
+
+
+class ServerThread:
+    """A thread of the server that does not end: each `join` and its limit."""
+
+    def __init__(self):
+        self.joins = []
+
+    def join(self, timeout=None):
+        self.joins.append(timeout)
+
+
+class Close(unittest.TestCase):
+    def test_the_close_waits_5_s_at_most_for_a_server_thread_that_does_not_end(self):
+        sites, thread = M.Sites(1), ServerThread()
+        sites.thread = thread
+        sites.close()
+        self.assertEqual(thread.joins, [5])  # no wait with no limit: a thread that is held in a request must not hang the tool
+
 
 class App:
     """A small model of the app's list for one tab: a visit is in the list after `late` reads of the state, and its
@@ -246,6 +269,22 @@ class Visits(unittest.TestCase):
         result = self.visits(app, seconds=1.0)
         self.assertIn("does not have the address as its newest page (that is http://other/)", str(result["stopped"]))
 
+    def test_a_page_that_does_not_wait_for_its_next_address_stops_the_visits(self):
+        app = App()
+
+        class Deaf:
+            """Sites whose page left: no page waits for an address."""
+            wait_asked = staticmethod(app.wait_asked)
+
+            @staticmethod
+            def give(url):
+                return False
+
+        result = M.visit_all(URLS, app.open_first, Deaf, app.read, 60.0, clock=app.clock, pause=app.pause)
+        self.assertEqual(result["seen"], 1)  # the first visit was seen; the second address found no page
+        self.assertIn("visit 2 of 4", str(result["stopped"]))
+        self.assertIn("the page before it does not wait for its next address", str(result["stopped"]))
+
 
 def pages(urls, without=()):
     return [{"url": url, "icon": url not in without} for url in urls]
@@ -297,6 +336,9 @@ class FakeSites:
 
     def urls(self, count):
         return URLS[:count]
+
+    def ports(self):
+        return [9000, 9001][:self.count]
 
     def give(self, url):
         return self.app.give(url)
@@ -400,6 +442,97 @@ class Seed(unittest.TestCase):
         report, builder, made = self.seed(app, sites=3, pages=2)
         self.assertEqual((builder.calls, made), ([], []))
         self.assertIn("asked 3 sites and 2 pages", " | ".join(report["invalid"]))
+
+    def test_more_sites_than_the_apps_list_has_places_is_refused_before_a_workspace_is_made(self):
+        self.assertEqual(getattr(M, "MOST_SITES", None), 40, "the option has no limit of its sites")
+        app = App()
+        report, builder, made = self.seed(app, sites=41, pages=41)
+        self.assertEqual((builder.calls, made), ([], []))
+        self.assertIn("asked 41 sites", " | ".join(report["invalid"]))
+        self.assertIn("40 sites at most", " | ".join(report["invalid"]))
+
+    def test_no_workspace_for_the_pages_makes_the_option_invalid_and_the_ports_are_closed(self):
+        app = App()
+
+        class NoWorkspace(Builder):
+            def new_workspace(self):
+                self.calls.append("new_workspace")
+                return None
+
+        report, builder, made = self.seed(app, NoWorkspace(app))
+        self.assertEqual(report["invalid"], ["the option stopped: RuntimeError('no workspace came for the pages')"])
+        self.assertEqual(builder.calls, ["new_workspace"])  # no workspace: none to close
+        self.assertEqual((report["visits_seen"], report["after_the_close"]), (0, None))
+        self.assertTrue(made[0].closed)
+
+    def test_a_workspace_with_no_tab_makes_the_option_invalid_and_is_closed(self):
+        app = App()
+
+        class NoTab(Builder):
+            def settled_tabs(self, workspace, pane, seconds=20):
+                return []
+
+        report, builder, made = self.seed(app, NoTab(app))
+        self.assertEqual(report["invalid"], ["the option stopped: RuntimeError('the workspace for the pages has no tab to open a page beside')"])
+        self.assertEqual(builder.calls[-1], ("closeWorkspace", {"confirm": True}, "workspace:ws9", False))
+        self.assertTrue(made[0].closed)
+
+    def test_the_report_names_the_ports_of_the_sites(self):
+        report, _, _ = self.seed(App())
+        self.assertEqual(report.get("ports"), [9000, 9001])
+
+
+def seeded(**changes):
+    """The report of a `seed` whose 4 visits are in the app's list with their icons after the close."""
+    return {"asked": {"sites": 2, "pages": 4}, "ports": [9000, 9001], "visits_seen": 4, "state_reads": 5,
+            "after_the_close": {"history": 4, "icons": 4, "newest_in_order": 4}, "invalid": [], **changes}
+
+
+class AfterTheRows(unittest.TestCase):
+    """ONE more judge of the app's list after the last row: the list must have the sites' pages and icons that it had
+    after the close."""
+
+    def judge(self, report, listed_pages):
+        judge = getattr(M, "after_rows", None)
+        self.assertIsNotNone(judge, "the option has no judge of the app's list after the rows")
+        return judge(report, listed_pages)
+
+    def test_a_list_that_kept_its_pages_and_icons_gives_no_reason(self):
+        report = seeded()
+        self.assertEqual(self.judge(report, pages(reversed(URLS))), [])
+        self.assertEqual(report["after_the_rows"], {"history": 4, "icons": 4})
+        self.assertEqual((report["invalid"], report["state_reads"]), ([], 6))  # the read after the rows is a read of the option
+
+    def test_other_pages_above_the_sites_pages_are_no_reason(self):
+        report = seeded()
+        self.assertEqual(self.judge(report, pages(["http://other/", "http://127.0.0.1:9002/p/0"] + list(reversed(URLS)))), [])
+        self.assertEqual(report["after_the_rows"], {"history": 4, "icons": 4})  # another port is not a site of the option
+
+    def test_an_icon_that_the_app_lost_in_the_rows_makes_the_option_invalid(self):
+        report = seeded()
+        reasons = self.judge(report, pages(reversed(URLS), without=URLS[:1]))
+        self.assertEqual(report["after_the_rows"], {"history": 4, "icons": 3})
+        self.assertEqual(reasons, ["after the rows: the app's list has 4 pages of the sites, 3 with an icon; after the close it "
+                                   "had 4 pages, 4 with an icon"])
+        self.assertEqual(report["invalid"], reasons)
+
+    def test_pages_that_left_the_list_in_the_rows_make_the_option_invalid(self):
+        report = seeded()
+        reasons = self.judge(report, pages(["http://other/"] + list(reversed(URLS))[:2]))
+        self.assertEqual(report["after_the_rows"], {"history": 2, "icons": 2})
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("has 2 pages of the sites, 2 with an icon; after the close it had 4 pages, 4 with an icon", reasons[0])
+
+    def test_no_list_after_the_rows_makes_the_option_invalid(self):
+        report = seeded()
+        self.assertEqual(self.judge(report, None), ["after the rows: the app's state has no `omnibar_history`"])
+        self.assertEqual(report["invalid"], ["after the rows: the app's state has no `omnibar_history`"])
+
+    def test_an_option_that_stopped_before_its_close_has_no_judge_after_the_rows(self):
+        report = seeded(after_the_close=None, invalid=["the option stopped: RuntimeError('x')"])
+        self.assertEqual(self.judge(report, pages(reversed(URLS))), [])
+        self.assertEqual((report["invalid"], report["state_reads"]), (["the option stopped: RuntimeError('x')"], 6))
+        self.assertIsNone(report.get("after_the_rows"))
 
 
 if __name__ == "__main__":
