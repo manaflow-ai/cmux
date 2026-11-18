@@ -53,6 +53,8 @@ import {
   rowFrameKey,
   rowPropsWindow,
   SINCE_DIVIDER,
+  keptAfterHead,
+  type EstimateHead,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
@@ -4220,6 +4222,7 @@ function TranscriptView({
     // drawn height comes from a mounted row, so its index is looked for around the mounted range.
     let kept = 0;
     let rowsKept = 0;
+    let head: EstimateHead | undefined;
     const changedAt: number[] = [];
     if (
       last &&
@@ -4234,11 +4237,15 @@ function TranscriptView({
     ) {
       // A scroll frame's rows are the ones placed last: every row is kept, with no walk over them.
       const sameRows = rows === last.rows;
+      // A page above the rows the estimate placed again only at their head (model.ts keptAfterHead):
+      // its rows take the head of the last placement, and every row after them keeps its place there.
+      // placeRowsIndexed keeps them only over the estimate the head was kept from.
+      head = sameRows ? undefined : keptAfterHead(estimated.layout);
       // Otherwise from the rows' first change, found once for the transcript's passes (rowsDelta.ts).
-      kept = sameRows ? rows.length : rowsDelta(last.rows, rows).from;
+      kept = sameRows ? rows.length : head ? head.added : rowsDelta(last.rows, rows).from;
       // A row after the kept ones can give the last kept reply its own action row (a steer or a
       // message after it): that reply is placed again, as layoutConversation estimates it again.
-      let reply = sameRows ? -1 : kept - 1;
+      let reply = sameRows || head ? -1 : kept - 1;
       while (reply >= 0 && rows[reply]!.incoming?.kind === "hidden") reply -= 1;
       if (
         reply >= 0 &&
@@ -4249,25 +4256,32 @@ function TranscriptView({
         kept = reply;
       // The rows from here on are new or follow a new row: all placed again. Before it, only the
       // rows whose drawn height changed are (placeRowsIndexed's `from` and `changed`).
-      rowsKept = kept;
+      // Past a new head, every row is the last placement's.
+      rowsKept = head ? rows.length : kept;
       if (changed.size > 0) {
         let found = 0;
-        const from = Math.max(0, last.first - DRAWN_SEARCH_ROWS);
-        const to = Math.min(rows.length, last.last + DRAWN_SEARCH_ROWS);
+        // The mounted range was found in the last rows: a head moved it by the rows it added.
+        const moved = head ? head.added - head.removed : 0;
+        const from = Math.max(0, last.first + moved - DRAWN_SEARCH_ROWS);
+        const to = Math.min(rows.length, last.last + moved + DRAWN_SEARCH_ROWS);
+        // A changed row in a new head is placed with it.
+        const changedRow = (index: number) => {
+          found += 1;
+          if (head && index < head.added) return;
+          if (!head) kept = Math.min(kept, index);
+          if (index < rowsKept) changedAt.push(index);
+        };
         for (let index = from; index < to && found < changed.size; index += 1)
-          if (changed.has(rows[index]!.id)) {
-            kept = Math.min(kept, index);
-            if (index < rowsKept) changedAt.push(index);
-            found += 1;
-          }
+          if (changed.has(rows[index]!.id)) changedRow(index);
         // A held row (a margin drag's selection end) is mounted far from that range: looked up itself.
-        for (const index of last.held)
-          if ((index < from || index >= to) && rows[index] && changed.has(rows[index]!.id)) {
-            kept = Math.min(kept, index);
-            if (index < rowsKept) changedAt.push(index);
-            found += 1;
-          }
-        if (found < changed.size) kept = 0;
+        for (const held of last.held) {
+          const index = held + moved;
+          if ((index < from || index >= to) && rows[index] && changed.has(rows[index]!.id)) changedRow(index);
+        }
+        if (found < changed.size) {
+          kept = 0;
+          head = undefined;
+        }
       }
     }
     // Placed at the room the last pass held (conversation/olderReserve.ts), so kept rows keep their
@@ -4305,6 +4319,7 @@ function TranscriptView({
                   kept,
                   from: rowsKept,
                   changed: changedAt,
+                  ...(head ? { head } : {}),
                 }
               : undefined,
             placedOrigin,

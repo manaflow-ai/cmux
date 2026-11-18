@@ -94,7 +94,7 @@ import { subsessionCall } from "./conversation/subsessionCalls";
 import { agentMessage } from "./conversation/agentMessages";
 import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
-import { MessagePlacement } from "./conversation/messagePlacement";
+import { MessagePlacement, movedMessage } from "./conversation/messagePlacement";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
 import {
   geometryFromArrays,
@@ -1636,6 +1636,10 @@ export type ConversationLayout = {
   /// Some row keeps its height from another width (layoutConversation `near`), so the tops below it
   /// are not this width's: nothing may keep them as measured (transcriptHeights.ts keepPromptTops).
   remembered?: true;
+  /// The rows' heights and marks as a gap-aware index (placedHeightIndex.ts), in an estimate
+  /// layoutConversation made: the next estimate copies only the part it changes, and readers ask it
+  /// instead of the arrays above, which are made from it only when something reads them.
+  index?: PlacedHeightIndex;
 };
 
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
@@ -3424,49 +3428,58 @@ export function layoutConversation(
   /// again as it is rendered; here the row's drawn height replaces it once it mounts.
   near?: { from: number; to: number },
 ): ConversationLayout {
-  const gaps = new Float64Array(rows.length);
-  const marks = new Uint8Array(rows.length);
-  const tops = new Float64Array(rows.length);
-  const heights = new Float64Array(rows.length);
-  const messages = new MessagePlacement(rows, previous?.layout);
   const scale = gridScale();
   chromeScale = scale;
+  const between = (before: number, next: number) => transcriptGap(before, next) * scale;
+  // The rows to estimate are `[start, to)`; the rest keep the last estimate's heights and marks,
+  // held in its gap-aware index (placedHeightIndex.ts), which a change copies only in part.
   let start = 0;
+  let to = rows.length;
+  // A page above the rows (rowsDelta.ts: rows changed only before `end`, the last estimate's from
+  // `baseEnd` on are the same objects): those rows take the head of the last index, and the rows
+  // after them keep their leaves.
+  let head: { end: number; baseEnd: number } | undefined;
   // Kept rows keep their gaps only at the scale they were placed at.
-  if (previous && (previous.layout.scale ?? 1) === scale) {
-    // The rows' first change, found once for the transcript's passes (rowsDelta.ts).
-    start = rowsDelta(previous.rows, rows).from;
-    // A row after the kept ones can change the height of the last kept row that draws (a footer
-    // after a reply, a prompt after the last footer, past rows that draw nothing): place it again.
-    let drawn = start - 1;
-    while (drawn >= 0 && drawsNothing(rows[drawn]!)) drawn -= 1;
-    if (
-      drawn >= 0 &&
-      rowEdge(rows[drawn]!, nextDrawnRow(rows, drawn), prevDrawnRow(rows, drawn)) !==
-        rowEdge(rows[drawn]!, nextDrawnRow(previous.rows, drawn), prevDrawnRow(previous.rows, drawn))
-    )
-      start = drawn;
-    if (previous.layout.gaps) gaps.set(previous.layout.gaps.subarray(0, start));
-    if (previous.layout.marks) marks.set(previous.layout.marks.subarray(0, start));
-    tops.set(previous.layout.tops.subarray(0, start));
-    heights.set(previous.layout.heights.subarray(0, start));
+  const reused = previous && previous.layout.index && (previous.layout.scale ?? 1) === scale ? previous : undefined;
+  if (reused) {
+    // The rows' change, found once for the transcript's passes (rowsDelta.ts).
+    const delta = rowsDelta(reused.rows, rows);
+    start = delta.from;
+    if (start === 0 && delta.end < rows.length && !reused.layout.remembered && !resizing) {
+      head = { end: delta.end, baseEnd: delta.baseEnd };
+      // The first row after the page that draws takes its mark and edge from the page's last: it
+      // and the rows before it that draw nothing are estimated again. The rows after it read only
+      // rows that were there before.
+      to = delta.end;
+      while (to < rows.length && drawsNothing(rows[to]!)) to += 1;
+      to = Math.min(rows.length, to + 1);
+    } else {
+      // A row after the kept ones can change the height of the last kept row that draws (a footer
+      // after a reply, a prompt after the last footer, past rows that draw nothing): place it again.
+      let drawn = start - 1;
+      while (drawn >= 0 && drawsNothing(rows[drawn]!)) drawn -= 1;
+      if (
+        drawn >= 0 &&
+        rowEdge(rows[drawn]!, nextDrawnRow(rows, drawn), prevDrawnRow(rows, drawn)) !==
+          rowEdge(rows[drawn]!, nextDrawnRow(reused.rows, drawn), prevDrawnRow(reused.rows, drawn))
+      )
+        start = drawn;
+    }
   }
-  let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
+  const messages = head ? undefined : new MessagePlacement(rows, reused?.layout);
+  const marks = new Uint8Array(to - start);
+  const heights = new Float64Array(to - start);
   // Kept rows may hold a remembered height of their own.
-  let remembered = start > 0 && previous?.layout.remembered === true;
-  let previousContent = start - 1;
-  while (previousContent >= 0 && heights[previousContent] === 0) previousContent -= 1;
-  let beforeContent = previousContent - 1;
-  while (beforeContent >= 0 && heights[beforeContent] === 0) beforeContent -= 1;
+  let remembered = start > 0 && reused?.layout.remembered === true;
   // Hidden bookkeeping can span many rows. Keep the next drawn row for the whole
   // pass: searching anew for every hidden row makes one run quadratic.
   let nextDrawn = start;
   // The drawn row above the current one, carried along the pass for the same reason.
   let prevDrawn = prevDrawnRow(rows, start);
-  for (let index = start; index < rows.length; index += 1) {
+  for (let index = start; index < to; index += 1) {
     const row = rows[index]!;
-    marks[index] = gridMark(row, prevDrawn);
-    messages.visit(row, index, previous?.rows[index]);
+    marks[index - start] = gridMark(row, prevDrawn);
+    messages?.visit(row, index, reused?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
       while (nextDrawn < rows.length && drawsNothing(rows[nextDrawn]!)) nextDrawn += 1;
@@ -3481,11 +3494,11 @@ export function layoutConversation(
       resizing &&
       (resizing.layout.scale ?? 1) === scale &&
       (index < resizing.from || index >= resizing.to) &&
-      index < resizing.layout.heights.length &&
+      index < estimateCount(resizing.layout) &&
       resizing.rows[index] === row
     )
       // Out of view during a live resize: its height at the last width, never recorded as this width's.
-      height = resizing.layout.heights[index]!;
+      height = estimateHeightAt(resizing.layout, index);
     else {
       const customHeight = measureOverride?.(row, width);
       const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
@@ -3524,31 +3537,105 @@ export function layoutConversation(
         known?.set(row, { width, height, edge, scale });
       }
     }
-    if (height > 0) {
-      if (previousContent >= 0) gaps[index] = transcriptGap(marks[previousContent]!, marks[index]!) * scale;
-      top += gaps[index]!;
-      beforeContent = previousContent;
-      previousContent = index;
-    }
-    tops[index] = top;
-    heights[index] = height;
-    top += height;
+    heights[index - start] = height;
   }
-  const layout = {
-    tops,
-    heights,
-    gaps,
-    marks,
-    tailGap: tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0, footerAfter(marks, heights)) * scale,
-    restBand: restBand(footerAfter(marks, heights)) * scale,
+  let index: PlacedHeightIndex;
+  if (reused && start === rows.length && reused.layout.index!.count === rows.length) index = reused.layout.index!;
+  else if (head && reused) {
+    // The page's rows replace the last estimate's rows before `baseEnd`; the rows after it that were
+    // estimated again (to `to`) are written over their own.
+    index = reused.layout.index!.replaceHead(head.baseEnd, heights.subarray(0, head.end), marks.subarray(0, head.end));
+    for (let at = head.end; at < to; at += 1) index = index.update(at, heights[at]!, marks[at]!);
+  } else if (reused && start > 0) index = reused.layout.index!.splice(start, heights, marks);
+  else index = PlacedHeightIndex.fromRows(heights, marks, undefined, { between });
+  // The last two rows that draw, and a turn footer that draws nothing after them (transcriptGrid.ts
+  // footerAfter): the index's summary, and the trailing rows that draw nothing.
+  const { last, beforeLast } = index.lastMarks;
+  let footer = false;
+  for (let at = index.count - 1; at >= 0 && index.heightAt(at) === 0; at -= 1)
+    if (index.markAt(at) === MARK_FOOTER) {
+      footer = true;
+      break;
+    }
+  const layout = indexedEstimate(index, {
+    tailGap: tailGap(last, beforeLast, footer) * scale,
+    restBand: restBand(footer) * scale,
     scale,
-    totalHeight: top,
+    totalHeight: index.totalHeight,
     ...(remembered ? { remembered: true as const } : {}),
-  };
+  });
   trimPreparedRows(cache);
-  messages.finish(rows, layout);
+  if (messages) messages.finish(rows, layout);
+  else movedMessage(reused!.layout, layout, rows, head!.baseEnd, head!.end);
+  if (head)
+    headsKept.set(layout, { previous: new WeakRef(reused!.layout), removed: head.baseEnd + to - head.end, added: to });
   return layout;
 }
+
+/// The estimates that kept the last estimate's rows after a page above them (layoutConversation's
+/// head): its first `removed` rows are this one's first `added`, and every row after them is the
+/// last estimate's, moved. The last estimate is held weakly: each would keep the one before it.
+const headsKept = new WeakMap<
+  ConversationLayout,
+  { previous: WeakRef<ConversationLayout>; removed: number; added: number }
+>();
+
+/// Whether `estimate` kept every row of the estimate before it after its head (a page above them),
+/// and the rows it estimated again in their place: a placement over that estimate (`over`) keeps its
+/// rows after them too (placeRowsIndexed reads `over` against the estimate it placed last).
+export function keptAfterHead(estimate: ConversationLayout): EstimateHead | undefined {
+  const kept = headsKept.get(estimate);
+  const over = kept?.previous.deref();
+  return kept && over ? { removed: kept.removed, added: kept.added, over } : undefined;
+}
+
+/// A head an estimate placed again (keptAfterHead).
+export type EstimateHead = { removed: number; added: number; over: ConversationLayout };
+
+/// The estimate each placement was placed over, so a placement that keeps rows after a new head
+/// does so only over the estimate that head was kept from.
+const placedOver = new WeakMap<PlacedLayout, ConversationLayout>();
+
+/// An estimate over its gap-aware index: `tops`, `heights`, `gaps` and `marks` are made from it the
+/// first time something reads them (a test, a legacy reader), once; the transcript reads the index.
+function indexedEstimate(
+  index: PlacedHeightIndex,
+  fields: Omit<ConversationLayout, "tops" | "heights" | "gaps" | "marks" | "index">,
+): ConversationLayout {
+  let arrays: { tops: Float64Array; heights: Float64Array; gaps: Float64Array; marks: Uint8Array } | undefined;
+  const made = () => {
+    if (arrays) return arrays;
+    const gaps = new Float64Array(index.count);
+    const marks = new Uint8Array(index.count);
+    for (let at = 0; at < index.count; at += 1) {
+      gaps[at] = index.gapAt(at);
+      marks[at] = index.markAt(at);
+    }
+    arrays = { tops: index.materializeTops(), heights: index.materializeHeights(), gaps, marks };
+    return arrays;
+  };
+  const layout = { ...fields } as ConversationLayout;
+  for (const key of ["tops", "heights", "gaps", "marks"] as const)
+    Object.defineProperty(layout, key, { enumerable: true, get: () => made()[key] });
+  // Not enumerable: an estimate compares (and copies) as its rows' arrays, whatever index holds them.
+  Object.defineProperty(layout, "index", { enumerable: false, value: index });
+  return layout;
+}
+
+/// How many rows an estimate holds.
+export const estimateCount = (estimate: ConversationLayout): number =>
+  estimate.index ? estimate.index.count : estimate.heights.length;
+
+/// Row `at`'s estimated height.
+export const estimateHeightAt = (estimate: ConversationLayout, at: number): number =>
+  estimate.index ? estimate.index.heightAt(at) : (estimate.heights[at] ?? 0);
+
+/// Row `at`'s gap mark, undefined for an estimate placed without marks.
+const estimateMarkAt = (estimate: ConversationLayout, at: number): number | undefined =>
+  estimate.index ? estimate.index.markAt(at) : estimate.marks?.[at];
+
+/// Whether an estimate places its rows by gap marks (every layoutConversation estimate does).
+const estimateHasMarks = (estimate: ConversationLayout): boolean => Boolean(estimate.index || estimate.marks);
 
 /// Places rows again over `estimate`, taking a row's height from `heightAt` when it has one.
 /// No row is measured, so this costs one pass over the rows' heights.
@@ -3635,6 +3722,8 @@ export type PlacedLayout = {
   totalHeight: number;
   gaps?: Float64Array;
   marks?: Uint8Array;
+  /// Placed by gap marks over an estimate's index (which carries no `marks` array to say so).
+  marked?: boolean;
   tailGap?: number;
   scale?: number;
   restBand?: number;
@@ -3650,6 +3739,20 @@ export const layoutGeometry = (layout: TranscriptLayout): LayoutGeometry => geom
 /// An estimate, unplaced, as a PlacedLayout starting at `origin` (before any row draws). O(1).
 export function placedFromEstimate(estimate: ConversationLayout, origin = 0): PlacedLayout {
   const by = origin - (estimate.origin ?? 0);
+  // An estimate over its index is placed by it: its arrays are never made.
+  if (estimate.index) {
+    const placed: PlacedLayout = {
+      geometry: geometryFromIndex(estimate.index, (estimate.origin ?? 0) + by),
+      totalHeight: estimate.totalHeight + by,
+      marked: true,
+      tailGap: estimate.tailGap,
+      scale: estimate.scale,
+      restBand: estimate.restBand,
+      origin: origin || undefined,
+    };
+    placedOver.set(placed, estimate);
+    return placed;
+  }
   const { tops, heights, ...rest } = estimate;
   return {
     ...rest,
@@ -3674,12 +3777,15 @@ export function placedWithOrigin(layout: PlacedLayout, origin: number): PlacedLa
         upperBoundTop: (target) => geometry.upperBoundTop(target - by),
         scan: (from, to, visit) => geometry.scan(from, to, (at, top, height) => visit(at, top + by, height)),
       };
-  return {
+  const placed = {
     ...layout,
     geometry: moved,
     totalHeight: layout.totalHeight + by,
     origin: origin || undefined,
   };
+  const over = placedOver.get(layout);
+  if (over) placedOver.set(placed, over);
+  return placed;
 }
 
 /// How far a collapsing row looks for the drawn rows on either side of it (rows that draw nothing
@@ -3698,11 +3804,13 @@ export function collapsingHeight(
   index: number,
   height: number,
   estimate: ConversationLayout,
-  marks: Uint8Array,
+  /// The estimate's mark of a row, and how many rows it holds.
+  markOf: (index: number) => number,
+  count: number,
   drawnAt: (index: number) => number,
   between: (before: number, next: number) => number,
 ): { height: number; mark: number } {
-  const full = estimate.heights[index]!;
+  const full = estimateHeightAt(estimate, index);
   const f = full > 0 ? Math.min(1, Math.max(0, height / full)) : 1;
   let above = -1;
   for (let at = index - 1; at >= 0 && at >= index - COLLAPSE_REACH; at -= 1)
@@ -3711,33 +3819,39 @@ export function collapsingHeight(
       break;
     }
   let below = -1;
-  for (let at = index + 1; at < marks.length && at <= index + COLLAPSE_REACH; at += 1)
+  for (let at = index + 1; at < count && at <= index + COLLAPSE_REACH; at += 1)
     if (drawnAt(at) > 0) {
       below = at;
       break;
     }
-  const mark = marks[index]!;
-  const a = above >= 0 ? between(marks[above]!, mark) : 0;
-  const b = below >= 0 ? between(mark, marks[below]!) : 0;
-  const c = above >= 0 && below >= 0 ? between(marks[above]!, marks[below]!) : 0;
+  const mark = markOf(index);
+  const a = above >= 0 ? between(markOf(above), mark) : 0;
+  const b = below >= 0 ? between(mark, markOf(below)) : 0;
+  const c = above >= 0 && below >= 0 ? between(markOf(above), markOf(below)) : 0;
   return { height: Math.max(0, height + f * (a + b - c)), mark: PASS_MARK };
 }
 
 /// What a placement may skip: rows from `kept` up to `from` are the last placement's except
 /// `changed` (indices in that span whose height may differ). Rows from `from` on are placed again.
+/// `head`: the last placement's first `removed` rows are `added` new rows instead (a page of older
+/// history above the first row), placed, and the rows after them are the last placement's, moved:
+/// `kept` is then `added`. Only over the estimate the head was kept from (`over`): over another,
+/// every row is placed again.
 export type PlacedReuse = {
   layout: PlacedLayout;
   kept: number;
   from?: number;
   changed?: readonly number[];
+  head?: EstimateHead;
 };
 
 /**
  * `placeRows` through the gap-aware index (placedHeightIndex.ts): the same tops, heights, total,
  * tail gap and rest band for every input, up to float rounding of the sums. A reused placement
- * keeps its index; only `changed` rows and the rows from `from` on are read, each in O(log rows),
- * so a streamed token or a drawn height costs O(log rows + rows placed again), not O(rows).
- * With no reusable `previous` (another scale or origin, no index) every row is read once.
+ * keeps its index; only `changed` rows, the rows from `from` on and a new `head` are read, each in
+ * O(log rows), so a streamed token, a drawn height or a page above the rows costs O(log rows + rows
+ * placed again), not O(rows). With no reusable `previous` (another scale or origin, no index) every
+ * row is read once.
  */
 export function placeRowsIndexed(
   estimate: ConversationLayout,
@@ -3749,33 +3863,10 @@ export function placeRowsIndexed(
   /// holds `[data-row-collapsing]`): its gaps shrink with it (`collapsingHeight`).
   collapsingAt?: (index: number) => boolean,
 ): PlacedLayout {
-  const count = estimate.heights.length;
+  const count = estimateCount(estimate);
   const scale = gridScale();
-  const marks = estimate.marks;
+  const marked = estimateHasMarks(estimate);
   const between = (before: number, next: number) => transcriptGap(before, next) * scale;
-  const drawnAt = (index: number) => {
-    // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
-    const known = heightAt(index);
-    return known !== undefined && known >= 0 ? known : estimate.heights[index]!;
-  };
-  /// Rows collapsing now, by index, with the height and mark they are placed at.
-  const collapsing = new Map<number, { height: number; mark: number }>();
-  const resolve = (index: number) => {
-    const height = drawnAt(index);
-    if (!marks || !collapsingAt || !(height > 0) || !collapsingAt(index)) return height;
-    const placed = collapsingHeight(index, height, estimate, marks, drawnAt, between);
-    collapsing.set(index, placed);
-    return placed.height;
-  };
-  const markAt = (index: number) => collapsing.get(index)?.mark ?? marks?.[index];
-  /// `marks` from `from` to `to`, with the collapsing rows' marks among them.
-  const marksIn = (from: number, to: number) => {
-    if (!marks) return undefined;
-    let out: Uint8Array | undefined;
-    for (const [at, placed] of collapsing)
-      if (at >= from && at < to) (out ??= marks.slice(from, to))[at - from] = placed.mark;
-    return out ?? marks.subarray(from, to);
-  };
   const prior = previous?.layout.geometry;
   const reusable =
     previous &&
@@ -3783,54 +3874,101 @@ export function placeRowsIndexed(
     "index" in prior &&
     (previous.layout.scale ?? 1) === scale &&
     (previous.layout.origin ?? 0) === origin &&
-    Boolean(previous.layout.marks) === Boolean(marks)
+    (previous.layout.marked ?? Boolean(previous.layout.marks)) === marked
       ? (prior as IndexedLayoutGeometry).index
       : undefined;
-  const kept = reusable ? Math.max(0, Math.min(previous!.kept, reusable.count, count)) : 0;
+  const head = reusable ? previous!.head : undefined;
+  const headKept = !head || placedOver.get(previous!.layout) === head.over;
+  const kept = reusable && headKept ? Math.max(0, Math.min(head ? head.added : previous!.kept, count)) : 0;
+  // Every row placed again reads the estimate's arrays (an indexed estimate makes them once); a
+  // placement that keeps rows reads the few it places from the estimate's index.
+  const whole = !reusable || kept === 0;
+  const heightsList = whole || !estimate.index ? estimate.heights : undefined;
+  const marksList = marked && (whole || !estimate.index) ? estimate.marks : undefined;
+  const estimatedAt = (index: number) => (heightsList ? heightsList[index]! : estimateHeightAt(estimate, index));
+  const markOf = (index: number) => (marksList ? marksList[index]! : (estimateMarkAt(estimate, index) ?? 0));
+  const drawnAt = (index: number) => {
+    // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
+    const known = heightAt(index);
+    return known !== undefined && known >= 0 ? known : estimatedAt(index);
+  };
+  /// Rows collapsing now, by index, with the height and mark they are placed at.
+  const collapsing = new Map<number, { height: number; mark: number }>();
+  const resolve = (index: number) => {
+    const height = drawnAt(index);
+    if (!marked || !collapsingAt || !(height > 0) || !collapsingAt(index)) return height;
+    const placed = collapsingHeight(index, height, estimate, markOf, count, drawnAt, between);
+    collapsing.set(index, placed);
+    return placed.height;
+  };
+  const markAt = (index: number) => collapsing.get(index)?.mark ?? (marked ? markOf(index) : undefined);
+  /// The marks from `from` to `to`, with the collapsing rows' marks among them.
+  const marksIn = (from: number, to: number): Uint8Array | undefined => {
+    if (!marked) return undefined;
+    if (marksList) {
+      let out: Uint8Array | undefined;
+      for (const [at, placed] of collapsing)
+        if (at >= from && at < to) (out ??= marksList.slice(from, to))[at - from] = placed.mark;
+      return out ?? marksList.subarray(from, to);
+    }
+    const out = new Uint8Array(Math.max(0, to - from));
+    for (let at = from; at < to; at += 1) out[at - from] = markAt(at)!;
+    return out;
+  };
   let index: PlacedHeightIndex;
   if (!reusable || kept === 0) {
     const heights = new Float64Array(count);
     for (let at = 0; at < count; at += 1) heights[at] = resolve(at);
-    index = PlacedHeightIndex.fromRows(heights, marksIn(0, count), marks ? undefined : estimate.gaps, {
-      between: marks ? between : undefined,
+    index = PlacedHeightIndex.fromRows(heights, marksIn(0, count), marked ? undefined : estimate.gaps, {
+      between: marked ? between : undefined,
     });
   } else {
     index = reusable;
-    const from = Math.max(kept, Math.min(previous!.from ?? kept, reusable.count, count));
+    let base = reusable.count;
+    if (head) {
+      // The page's rows take the place of the rows it replaced; every row after them keeps its leaf.
+      const heights = new Float64Array(head.added);
+      for (let at = 0; at < head.added; at += 1) heights[at] = resolve(at);
+      index = index.replaceHead(head.removed, heights, marksIn(0, head.added));
+      base = index.count;
+    }
+    const from = Math.max(kept, Math.min(previous!.from ?? kept, base, count));
     for (const at of previous!.changed ?? [])
       if (at >= kept && at < from) {
         const height = resolve(at);
-        index = index.update(at, height, markAt(at), marks ? undefined : estimate.gaps?.[at]);
+        index = index.update(at, height, markAt(at), marked ? undefined : estimate.gaps?.[at]);
       }
     // Nothing past the kept rows (a scroll frame's drawn heights): the index keeps its tree, and the
     // leaves it already placed for the rows in view.
-    if (from < count || reusable.count !== count) {
+    if (from < count || base !== count) {
       const tail = new Float64Array(count - from);
       for (let at = from; at < count; at += 1) tail[at - from] = resolve(at);
-      index = index.splice(from, tail, marksIn(from, count), marks ? undefined : estimate.gaps?.subarray(from, count));
+      index = index.splice(from, tail, marksIn(from, count), marked ? undefined : estimate.gaps?.subarray(from, count));
     }
   }
   const geometry = geometryFromIndex(index, origin);
   // A turn footer that draws nothing after the last drawn row (transcriptGrid.ts footerAfter):
   // only the trailing rows that draw nothing are read.
   let footer = false;
-  if (marks)
+  if (marked)
     for (let at = count - 1; at >= 0 && index.heightAt(at) === 0; at -= 1)
       if (index.markAt(at) === MARK_FOOTER) {
         footer = true;
         break;
       }
   const { last, beforeLast } = index.lastMarks;
-  return {
+  const placed: PlacedLayout = {
     geometry,
     totalHeight: geometry.totalHeight,
-    gaps: estimate.gaps,
-    marks,
-    tailGap: marks ? tailGap(last, beforeLast, footer) * scale : estimate.tailGap,
-    restBand: marks ? restBand(footer) * scale : estimate.restBand,
+    // An indexed estimate's arrays stay unmade: the placement's own index holds what they said.
+    ...(estimate.index ? { marked } : { gaps: estimate.gaps, marks: estimate.marks }),
+    tailGap: marked ? tailGap(last, beforeLast, footer) * scale : estimate.tailGap,
+    restBand: marked ? restBand(footer) * scale : estimate.restBand,
     scale,
     ...(origin ? { origin } : {}),
   };
+  placedOver.set(placed, estimate);
+  return placed;
 }
 
 export function visibleLayoutRange(

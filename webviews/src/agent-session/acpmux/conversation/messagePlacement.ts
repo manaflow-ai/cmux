@@ -46,6 +46,24 @@ export class MessagePlacement {
   }
 }
 
+/// The latest message of `layout`, which took the rows of `previous` from `baseEnd` on, moved to
+/// `end` on (a page of older history above them, layoutConversation's head): the last one there
+/// moved with its row, else the last among the page's rows. O(page rows) at most.
+export function movedMessage(
+  previous: ConversationLayout,
+  layout: ConversationLayout,
+  rows: readonly AcpmuxRow[],
+  baseEnd: number,
+  end: number,
+): void {
+  const kept = latest.get(previous);
+  let index = kept !== undefined && kept >= baseEnd ? kept + end - baseEnd : -1;
+  // A layout that never said (none of layoutConversation's) is searched whole.
+  for (let at = kept === undefined ? rows.length - 1 : end - 1; index < 0 && at >= 0; at--)
+    if (hasMessage(rows[at]!)) index = at;
+  latest.set(layout, index);
+}
+
 export function latestMessageRow(rows: readonly AcpmuxRow[], layout: ConversationLayout): string | undefined {
   return latestMessage(rows, layout)?.id;
 }
