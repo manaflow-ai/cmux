@@ -88,7 +88,13 @@ export function PlainCodeLines({
         <div ref={lineWindow.top} className="cv-line-spacer" aria-hidden="true" style={{ height: lineWindow.before }} />
       )}
       {drawn.map((line, index) => (
-        <div key={from + index} className="cv-code-plain__line">
+        <div
+          key={from + index}
+          className="cv-code-plain__line"
+          role={lineWindow?.setsize ? "listitem" : undefined}
+          aria-posinset={lineWindow?.setsize ? from + index + 1 : undefined}
+          aria-setsize={lineWindow?.setsize}
+        >
           {line || "​"}
         </div>
       ))}

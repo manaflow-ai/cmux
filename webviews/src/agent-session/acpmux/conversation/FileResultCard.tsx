@@ -85,7 +85,7 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
   const body = useMoreBelow<HTMLDivElement>(read.code);
   // Past the highlight limits its lines draw plain: cut to the box, only those in its view are
   // mounted, the gutter's numbers with them (lineWindow.ts).
-  const lineWindow = useLineWindow(body, lines, preview.cut && !highlightsCode(read.code));
+  const lineWindow = useLineWindow(body, lines, preview.cut && !highlightsCode(read.code), pathName(read.path));
   const numbers = useMemo(
     () =>
       Array.from(

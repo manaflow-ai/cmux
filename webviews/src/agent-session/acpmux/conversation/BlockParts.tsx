@@ -43,13 +43,31 @@ type FrozenLineChunk = { offset: number; lines: readonly string[] };
 const sameLines = (left: readonly string[], right: readonly string[]) =>
   left.length === right.length && left.every((line, index) => line === right[index]);
 
-const LineChunk = memo(function LineChunk({ chunk, last }: { chunk: FrozenLineChunk; last: boolean }) {
+/// `first` and `setsize` are a windowed box's (lineWindow.ts): each line's place in the whole block,
+/// for a screen reader that meets only the lines mounted.
+const LineChunk = memo(function LineChunk({
+  chunk,
+  last,
+  first,
+  setsize,
+}: {
+  chunk: FrozenLineChunk;
+  last: boolean;
+  first?: number;
+  setsize?: number;
+}) {
   return (
     <>
       {chunk.lines.map((line, index) => {
         return (
           // oxlint-disable-next-line react/no-array-index-key -- a line's place is stable within its frozen chunk.
-          <span key={index} className="cv-line">
+          <span
+            key={index}
+            className="cv-line"
+            role={setsize && first! + index < setsize ? "listitem" : undefined}
+            aria-posinset={setsize && first! + index < setsize ? first! + index + 1 : undefined}
+            aria-setsize={setsize && first! + index < setsize ? setsize : undefined}
+          >
             {!last || index < chunk.lines.length - 1 ? `${line}\n` : line}
           </span>
         );
@@ -119,6 +137,8 @@ export const Lines = memo(function Lines({
       key={chunk.offset}
       chunk={chunk}
       last={chunk.offset + chunk.lines.length === startLine + allLines.length}
+      first={chunk.offset - startLine}
+      setsize={lineWindow?.setsize}
     />
   ));
   if (!lineWindow) return <>{drawn}</>;
