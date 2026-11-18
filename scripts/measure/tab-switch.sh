@@ -109,7 +109,8 @@ require_submodule_refs() { # SRC DIR [PREFIX]
 
 # Submodules, GhosttyKit and the pinned bun a tagged build needs (a fleet step checks out no submodules).
 prepare_build() {
-  local tmp="$1"
+  local tmp
+  tmp="$(cd "$1" && pwd)" || return 3 # absolute: the bun dir goes on PATH, and the web builders cd into webviews/
   for sub in ghostty ghostty-next; do
     [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
   done
