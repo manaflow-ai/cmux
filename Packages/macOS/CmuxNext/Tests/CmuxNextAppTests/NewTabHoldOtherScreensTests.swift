@@ -61,6 +61,7 @@ struct NewTabHoldOtherScreensTests {
         var part = "the setup"
         private(set) var calls: [Call] = []
         private var places: [Int: String] = [:]
+        private var askers: [Int: String] = [:]
         private var seen: [AgentPaneView]
         private let services: AppServices
         private let place: @MainActor (String) -> String?
@@ -79,6 +80,7 @@ struct NewTabHoldOtherScreensTests {
             let index = calls.count
             calls.append((key: key, part: part, new: new))
             places[index] = place(key)
+            if new { askers[index] = PageMoves.asker() } // who asked for a new page view, by the call stack
             Task { @MainActor [weak self] in self?.settle(index, key) }
         }
 
@@ -93,7 +95,8 @@ struct NewTabHoldOtherScreensTests {
         /// The calls in words, in their order.
         var listed: [String] {
             calls.enumerated().map { index, call in
-                "\(call.part): \(call.new ? "a new page view" : "a page view that the store had") for \(places[index] ?? "a tab that the row has no name for")"
+                let words = "\(call.part): \(call.new ? "a new page view" : "a page view that the store had") for \(places[index] ?? "a tab that the row has no name for")"
+                return words + (askers[index].map { ", asked by \($0)" } ?? "")
             }
         }
 
@@ -253,9 +256,14 @@ struct NewTabHoldOtherScreensTests {
             let tabs = services.agentTabs, store = services.daemon.store
             let controller = try #require(services.windows.active, "setup: no window")
             let views = Moves.Views()
+            let moves = PageMoves(services) // each page view event of the row, with who asked: a print only
+            defer { moves.restore() }
             let builds = Builds(services) { key in
                 if controller.content?.panes.values.contains(where: { Self.has($0, key, tabs) }) == true { return "a tab of the workspace that the window showed then" }
                 if controller.reservedContent.ready?.panes.values.contains(where: { Self.has($0, key, tabs) }) == true { return Builds.madeAhead }
+                for parked in controller.parked.values where parked.panes.values.contains(where: { Self.has($0, key, tabs) }) {
+                    return "a tab of a workspace that the window showed before"
+                }
                 return nil
             }
             let wired = tabs.onPageBuilt
@@ -269,6 +277,7 @@ struct NewTabHoldOtherScreensTests {
             @MainActor func read() -> Int {
                 let now = tabs.views.values.filter { $0.model.newTab != nil }
                 now.forEach(views.note)
+                moves.sync()
                 return now.count
             }
             // One New Workspace key and its frame. Returns whether the tab that the window shows then has a page view.
@@ -311,7 +320,7 @@ struct NewTabHoldOtherScreensTests {
                 views made in the hold, first seen after the keys \(madeAt); the store had \(atStart) page views of New Tab pages \
                 before the hold and \(most) at one time at most in it; after \(withNoPage) keys the window showed a tab with no \
                 page view; the window had no made-ahead workspace at the keys \(notAhead); the store's build hook, each call: \
-                \(listed); new page views whose tab the row has no name for: \(builds.notNamed)
+                \(listed); new page views whose tab the row has no name for: \(builds.notNamed); the page views, each event: \(moves.lines)
                 """)
             #expect(pressed == keys, "the hold stopped after key \(pressed) of \(keys): \(made) page views were made by then, want 1 at most for the whole hold")
             #expect(made <= 1, "\(made) page views were made in a hold of \(pressed) New Workspace keys (first seen after the keys \(madeAt)), want 1 at most. The store's build hook, each call: \(listed)")
