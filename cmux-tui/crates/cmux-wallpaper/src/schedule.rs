@@ -11,7 +11,8 @@
 //! the host keeps the count.
 
 /// Nothing for this long (no pointer motion over the window, no key press in
-/// it, no size or theme change) and the wallpaper holds on its frame.
+/// it, no size or theme change, and for a wallpaper with `agents` no agent
+/// event) and the wallpaper holds on its frame.
 pub const IDLE_AFTER_S: f64 = 20.0;
 /// The Settings cap when the host passes none.
 pub const DEFAULT_FPS_CAP: u32 = 30;
@@ -105,8 +106,13 @@ pub struct ScheduleInput {
     pub seconds_since_activity: f64,
     /// Seconds since the pointer last moved over the window (counts only when `interactive`).
     pub seconds_since_pointer: f64,
+    /// Seconds since an agent in the window last wrote output or changed state
+    /// (counts only when `agents`).
+    pub seconds_since_agent_event: f64,
     /// The manifest's `interactive`.
     pub interactive: bool,
+    /// The manifest's `agents`.
+    pub agents: bool,
     /// `appearance.liveWallpaperFrameRate`; 0 means the default (30).
     pub settings_fps_cap: u32,
     /// The manifest's `fps`.
@@ -134,7 +140,9 @@ impl Default for ScheduleInput {
             animations_off: false,
             seconds_since_activity: 0.0,
             seconds_since_pointer: f64::INFINITY,
+            seconds_since_agent_event: f64::INFINITY,
             interactive: true,
+            agents: false,
             settings_fps_cap: DEFAULT_FPS_CAP,
             manifest_fps: DEFAULT_FPS_CAP,
             gpu_strikes: 0,
@@ -209,7 +217,8 @@ pub fn schedule(input: &ScheduleInput) -> Decision {
 
     let quiet = |s: f64| s.is_nan() || s >= IDLE_AFTER_S;
     let pointer_quiet = !input.interactive || quiet(input.seconds_since_pointer);
-    if quiet(input.seconds_since_activity) && pointer_quiet {
+    let agents_quiet = !input.agents || quiet(input.seconds_since_agent_event);
+    if quiet(input.seconds_since_activity) && pointer_quiet && agents_quiet {
         return hold(HoldReason::Idle, scale);
     }
 
@@ -327,6 +336,25 @@ mod tests {
         // A NaN clock is no activity.
         i.seconds_since_activity = f64::NAN;
         assert_eq!(held(&i).0, HoldReason::Idle);
+    }
+
+    #[test]
+    fn agent_output_wakes_only_a_wallpaper_that_reads_it() {
+        let mut i = ScheduleInput {
+            seconds_since_activity: 60.0,
+            seconds_since_agent_event: 1.0,
+            ..Default::default()
+        };
+        // A wallpaper without `agents` stays idle while agents write.
+        assert_eq!(held(&i).0, HoldReason::Idle);
+        i.agents = true;
+        run(&i);
+        i.seconds_since_agent_event = 20.0;
+        assert_eq!(held(&i).0, HoldReason::Idle);
+        // Agent output never overrides a hold such as occlusion.
+        i.seconds_since_agent_event = 0.0;
+        i.visible = false;
+        assert_eq!(held(&i).0, HoldReason::Occluded);
     }
 
     #[test]
