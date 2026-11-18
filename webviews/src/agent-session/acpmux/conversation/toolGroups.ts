@@ -305,8 +305,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
         ? toolGroupKind(tool)
         : undefined;
     // Claude Code desktop draws each file's edit on its own line ("Edit src/a.ts +3 -1", then "Write
-    // src/b.ts +47"): an edit with a diff starts its own row instead of joining the edits before it.
-    if (kind && run?.kind === kind && !(kind === "edits" && tool?.diffs?.length)) {
+    // src/b.ts +47"): each edit or write starts its own row instead of joining the edits before it.
+    if (kind && run?.kind === kind && kind !== "edits") {
       run.items.push(...held, item);
       held = [];
       rememberMessageFiles();

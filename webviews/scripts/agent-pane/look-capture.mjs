@@ -36,6 +36,7 @@ const server = await startDevServer("vite.config.acpmux-pane.mjs");
 try {
   const browser = await launchBrowser();
   try {
+    await live(browser);
     await chat(browser);
     await newTab(browser);
     if (reference) for (const name of ["chat-live", "chat-done", "new-tab"]) await side(browser, name);
@@ -76,12 +77,25 @@ async function chat(browser) {
   try {
     await page.waitForFunction(() => window.cmuxAcpmuxActions?.["chat.send"], null, { timeout: 120000 });
     await page.evaluate((prompt) => window.cmuxAcpmuxActions["chat.send"]({ text: prompt }), fixture.prompt);
-    await page.waitForTimeout(12000);
-    await shot(page, "chat-live", errors);
     await page.waitForFunction(() => document.querySelector('.acpmux-scroll [data-row-id^="summary-"]'), null, {
       timeout: 90000,
     });
     await shot(page, "chat-done", errors);
+  } finally {
+    await context.close();
+  }
+}
+
+/// The mock's own paced turn (350 ms a step; a recorded script is delivered at once), caught mid-way
+/// for the live line.
+async function live(browser) {
+  const { context, page, errors } = await open(browser, {});
+  try {
+    await page.waitForFunction(() => window.cmuxAcpmuxActions?.["chat.send"], null, { timeout: 120000 });
+    await page.evaluate((prompt) => window.cmuxAcpmuxActions["chat.send"]({ text: prompt }), fixture.prompt);
+    await page.waitForSelector(".cv-worked--live", { timeout: 30000 }).catch(() => undefined);
+    await page.waitForTimeout(1200);
+    await shot(page, "chat-live", errors);
   } finally {
     await context.close();
   }
