@@ -23,7 +23,12 @@ use serde_json::{Value, json};
 
 /// The link's round trip: about Leo's to a Cloud machine.
 const RTT: Duration = Duration::from_millis(50);
-const KEY: &str = "0f0e0d0c-0b0a-4908-8706-050403020100";
+/// One start key per chat: the projection is named by it (`chat-<key>`), so each test has its own.
+const KEYS: [&str; 3] = [
+    "0f0e0d0c-0b0a-4908-8706-050403020100",
+    "1f0e0d0c-0b0a-4908-8706-050403020101",
+    "2f0e0d0c-0b0a-4908-8706-050403020102",
+];
 
 /// Copies `from` to `to`, each read arriving `RTT`/2 after it left.
 fn delayed(mut from: UnixStream, mut to: UnixStream) {
@@ -163,12 +168,19 @@ fn past_the_limits(at: &Path) {
 }
 
 /// `cmux link start-chat copy` of `local`, projection on or off: the machine's folder.
-fn start_chat(state: &Path, socket: &Path, local: &Path, work: &Path, projected: bool) -> PathBuf {
+fn start_chat(
+    state: &Path,
+    socket: &Path,
+    local: &Path,
+    work: &Path,
+    projected: bool,
+    key: &str,
+) -> (PathBuf, Value) {
     let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
         .env("CMUX_TUI_STATE_DIR", state)
         .env("CMUX_PROJECTED_FOLDERS", if projected { "1" } else { "0" })
         .env_remove("CMUX_SYNC_COPY_RATE")
-        .args(["link", "start-chat", "copy", "--key", KEY, "--account", "leo", "--machine", "vm-a"])
+        .args(["link", "start-chat", "copy", "--key", key, "--account", "leo", "--machine", "vm-a"])
         .arg("--socket")
         .arg(socket)
         .arg("--local")
@@ -188,7 +200,7 @@ fn start_chat(state: &Path, socket: &Path, local: &Path, work: &Path, projected:
     if projected {
         assert_eq!(answer["mode"], "projected", "{answer}");
     }
-    PathBuf::from(answer["folder"].as_str().unwrap())
+    (PathBuf::from(answer["folder"].as_str().unwrap()), answer)
 }
 
 fn last_json(text: &str) -> Value {
@@ -252,16 +264,10 @@ fn world(files: usize) -> World {
     World { _root: root, _sockets: sockets, base, local, home, socket }
 }
 
-/// The machine's projection state folder for the chat at `remote` (where this test process's
-/// daemon keeps it; the name is `cmux link project`'s, an FNV-1a of the folder).
-fn projection_state(remote: &Path) -> PathBuf {
-    let hash = remote.to_string_lossy().bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-    });
-    cmux_tui_core::platform::workspace_state_dir()
-        .unwrap()
-        .join("projections")
-        .join(format!("p{hash:016x}"))
+/// The machine's projection state folder for projection `name` (the copy answer's
+/// `projected.name`), where this test process's daemon keeps it.
+fn projection_state(name: &str) -> PathBuf {
+    cmux_tui_core::platform::workspace_state_dir().unwrap().join("projections").join(name)
 }
 
 #[test]
@@ -273,8 +279,10 @@ fn edits_on_a_projected_folder_come_back_and_nothing_else_changes() {
     let w = world(300);
     let state = w.base.join("state");
     past_the_limits(&w.local);
-    let remote = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true);
-    let upper_state = projection_state(&remote);
+    let (remote, started) =
+        start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true, KEYS[0]);
+    let name = started["projected"]["name"].as_str().expect("the copy answer names the projection");
+    let upper_state = projection_state(name);
     assert!(upper_state.is_dir(), "{} holds the upper layer", upper_state.display());
 
     // The agent's turn, on the machine.
@@ -359,7 +367,7 @@ fn a_git_conflict_brings_nothing_back_and_keeps_the_upper_layer() {
     let w = world(10);
     let state = w.base.join("state");
     past_the_limits(&w.local);
-    let remote = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true);
+    let (remote, _) = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true, KEYS[1]);
     let app = remote.join("app");
     write(&app.join("src/m00.rs"), "fn f0() { /* machine */ }\n");
     git(&app, &["commit", "-qam", "machine"]);
@@ -418,7 +426,8 @@ fn a_bench_of_bring_back() {
         if projected {
             past_the_limits(&local);
         }
-        let remote = start_chat(&state, &w.socket, &local, &work, projected);
+        let key = if projected { KEYS[2] } else { KEYS[0] };
+        let (remote, _) = start_chat(&state, &w.socket, &local, &work, projected, key);
         fifty_edits(&remote, files);
         let (answer, took) = bring_back(&state, &w.socket, &local, &remote);
         assert_eq!(answer["ok"], true, "{answer}");

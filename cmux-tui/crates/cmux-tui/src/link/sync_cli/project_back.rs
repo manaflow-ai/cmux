@@ -272,7 +272,7 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
         let (answer, _) =
             dial(socket, &json!({"cmd": "projection.drop", "name": found.name}), &[])?;
         dropped = answer["data"]["dropped"] == true;
-        let _ = super::project::stop_server(&found.name);
+        let _ = super::project::stop_server_at(&found.remote);
         forget(&found.name);
     }
     let conflicts: Vec<Value> = plan

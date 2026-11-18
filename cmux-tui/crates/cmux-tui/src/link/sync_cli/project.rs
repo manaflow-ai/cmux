@@ -215,8 +215,13 @@ fn stop(args: &[String]) -> anyhow::Result<Value> {
     Ok(json!({"ok": true, "stopped": stopped}))
 }
 
-/// Ends the server of projection `name`, when one runs; whether one was stopped.
-pub(crate) fn stop_server(name: &str) -> anyhow::Result<bool> {
+/// Ends the server this Mac runs for the mount point `remote` (Bring Back, once applied).
+pub(crate) fn stop_server_at(remote: &str) -> anyhow::Result<bool> {
+    stop_server(&name_of(remote))
+}
+
+/// Ends the server whose files are named `name`, when one runs; whether one was stopped.
+fn stop_server(name: &str) -> anyhow::Result<bool> {
     let pid_file = cmux_tui_core::platform::workspace_state_dir()
         .map(|dir| dir.join("link-sync").join("projections").join(format!("{name}.pid")))
         .context("this Mac has no state folder")?;
