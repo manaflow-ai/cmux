@@ -2702,15 +2702,6 @@ def test_every_github_file_is_placed_by_the_helper_walk() -> None:
     )
 
 
-def test_a_script_only_unrouted_workflows_or_linux_guards_run_reaches_no_macos_lane() -> None:
-    # The same walk as the scripts/ci helpers: these run only in dispatched
-    # or scheduled workflows, which a pull request's CI never runs.
-    for path in (
-        "scripts/strip-release-bundle.sh",
-    ):
-        assert module.classify_files([path]) == areas(), path
-
-
 def test_a_script_a_mac_job_the_app_or_a_native_test_runs_keeps_its_macos_route() -> None:
     for path in (
         # CLI/ names it.
@@ -2723,6 +2714,8 @@ def test_a_script_a_mac_job_the_app_or_a_native_test_runs_keeps_its_macos_route(
         "scripts/blacksmith-testbox-source-mtimes.py",
         # ci.yml's Mac jobs run it.
         "scripts/reload.sh",
+        # scripts/cmux-next/swap-binary.sh and its Mac test run it (#46110).
+        "scripts/strip-release-bundle.sh",
     ):
         actual = module.classify_files([path])
         assert actual.macos and actual.release_build, path
