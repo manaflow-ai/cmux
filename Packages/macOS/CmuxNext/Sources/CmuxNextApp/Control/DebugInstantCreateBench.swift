@@ -135,7 +135,7 @@ enum DebugInstantCreateBench {
             "committed_ms": committed.map { .number($0) } ?? .null, "key_changes": .number(Double(spans.count(where: { $0.name.hasPrefix("key.") }))), "spans_full": .bool(spans.count >= BenchSpans.capacity),
             "page_ms": page.map { .number($0) } ?? .null, "ready_ms": ready.map { .number($0) } ?? .null, "shown_ms": shown.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "github": .array(githubShown.withLock { $0 }.map(JSON.string)), "diff": diffShown.withLock { $0 } ?? .null,
             "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"), "spare_window": .string(services.cache.cef.spareWindowState),
-            "frames_to_visible": visible.map { .number(($0 / refresh).rounded(.up)) } ?? .null, "main_thread_spans_ms": .number(spans.reduce(0) { $0 + $1.milliseconds }),
+            "frames_to_visible": visible.map { .number(($0 / refresh).rounded(.up)) } ?? .null, "main_thread_spans_ms": .number(BenchSpanSum(spans.map { (name: $0.name, milliseconds: $0.milliseconds) }).mainThread),
             "spans": .array(spans.map { .object(["name": .string($0.name), "at": .number($0.start), "ms": .number($0.milliseconds)]) }),
             "frames": stats,
         ])

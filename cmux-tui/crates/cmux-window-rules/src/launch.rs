@@ -11,6 +11,11 @@
 //!
 //! A current snapshot changes nothing: the daemon's saved windows still
 //! decide what reopens.
+//!
+//! [`landing`]: where the launch's front window lands once the saved windows
+//! loaded: the workspace and tab the person was last on, Home when Home was
+//! last or on a true first launch, and Home for a saved workspace the daemon
+//! does not have (the one exception).
 
 use serde::{Deserialize, Serialize};
 
@@ -65,6 +70,98 @@ pub fn verdict(facts: &SnapshotFacts) -> Verdict {
     let shown_missing = facts.shown.as_ref().is_some_and(|shown| !has(shown));
     let listed_missing = !facts.listed.is_empty() && !facts.listed.iter().any(has);
     if shown_missing || listed_missing { Verdict::UnknownWorkspaces } else { Verdict::Current }
+}
+
+/// Where the person last was, from the daemon's saved front window (its record, not the launch snapshot). Home is
+/// its own answer, never read off a missing tab: a tab or workspace that went is the unknown case below.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum LastFront {
+    /// No saved window: a true first launch.
+    #[default]
+    Nothing,
+    /// Home: the home workspace, or classic Home's top page.
+    Home,
+    /// A workspace, its focused pane and the tab that pane showed.
+    Workspace {
+        workspace: String,
+        #[serde(default)]
+        pane: Option<String>,
+        #[serde(default)]
+        tab: Option<String>,
+    },
+}
+
+/// The saved tab in the live tree.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TabStanding {
+    /// Listed, its process running.
+    Live,
+    /// Listed, its process ended (a reboot, a killed daemon): the daemon relaunches it under the same terminal,
+    /// or shows its restart placeholder. Still the tab to land on.
+    Ended,
+    /// Not listed (closed meanwhile), or no tab was saved.
+    #[default]
+    Gone,
+}
+
+/// What the app knows once the live tree applied and the saved windows loaded.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LandingFacts {
+    pub last: LastFront,
+    /// The live tree has `last`'s workspace.
+    pub workspace_live: bool,
+    /// `last`'s tab in the live tree.
+    pub tab: TabStanding,
+}
+
+/// Why a launch lands on Home.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HomeWhy {
+    /// Nothing saved: a true first launch.
+    FirstLaunch,
+    /// The person was last on Home.
+    LastWasHome,
+    /// The saved workspace is one the daemon does not have (the known exception: nothing stands in for it).
+    UnknownWorkspace,
+}
+
+/// Where the launch's front window lands.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Landing {
+    Home {
+        why: HomeWhy,
+    },
+    /// That workspace; that tab in that pane when the tree still lists it, else the pane's current tab.
+    Workspace {
+        workspace: String,
+        pane: Option<String>,
+        tab: Option<String>,
+    },
+}
+
+/// Where a launch lands (Leo 2026-11-18: "if it's not first time and the user was on a workspace and a tab, obv
+/// just take them there"; "ofc reopening home if they were prev on home is fine"). Exactly where the person was:
+/// Home only on a true first launch, when Home was last, or when the daemon lacks the saved workspace. A tab whose
+/// process ended is still that tab (the daemon relaunches it), and neither which copy of the app runs nor a cold
+/// daemon is an input.
+pub fn landing(facts: &LandingFacts) -> Landing {
+    match &facts.last {
+        LastFront::Nothing => Landing::Home { why: HomeWhy::FirstLaunch },
+        LastFront::Home => Landing::Home { why: HomeWhy::LastWasHome },
+        LastFront::Workspace { .. } if !facts.workspace_live => {
+            Landing::Home { why: HomeWhy::UnknownWorkspace }
+        }
+        LastFront::Workspace { workspace, pane, tab } => Landing::Workspace {
+            workspace: workspace.clone(),
+            pane: pane.clone(),
+            tab: tab.clone().filter(|_| facts.tab != TabStanding::Gone),
+        },
+    }
 }
 
 #[cfg(test)]
