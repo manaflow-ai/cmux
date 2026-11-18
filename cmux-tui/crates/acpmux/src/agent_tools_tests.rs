@@ -56,7 +56,12 @@ fn a_cmux_without_mcp_serve_is_no_server_and_folds_nothing() {
     let serves = names("exit 0");
     assert_eq!(serves, ["cmux"], "the other servers fold behind it");
     let old = names(r#"echo 'cmux: unknown resource scope "mcp".' >&2; exit 2"#);
-    assert_eq!(old, [super::MEMORY_SERVER_NAME], "listed on its own, not lost");
+    // The saved MCP servers (the optchat-chief stub beside it) are listed on their own too.
+    assert_eq!(
+        old,
+        [super::MEMORY_SERVER_NAME, super::SAVED_SERVERS_NAME],
+        "listed on their own, not lost"
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
