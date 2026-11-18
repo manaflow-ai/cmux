@@ -19,9 +19,11 @@
 //! site that takes the connection with its writer's name
 //! (`RegistryConnection::get_as`); and 2 commits that are of a named writer
 //! at a site of their own: the save at the end of a roster rebuild, and the
-//! delete of a dead letter in the enqueue of a hook's retry row.
+//! delete of a dead letter in the enqueue of a hook's retry row; and 2
+//! commits with no journal row that have a name of their own: the save of a
+//! frontend's document, and the store of a closed terminal's archive.
 //!
-//! What these rows leave out: the commits of 9 of the 14 writers (each has
+//! What these rows leave out: the commits of 9 of the 16 writers (each has
 //! one line at its commit and no row here), and the bytes of a frame on a
 //! registry whose page is not 4096 bytes.
 
@@ -154,7 +156,7 @@ fn each_registry_commit_counts_under_the_name_of_its_writer() {
 }
 
 /// The reply's `writer` values: each writer of the table, in its order.
-const WRITERS: [&str; 14] = [
+const WRITERS: [&str; 16] = [
     "other",
     "journal_writer",
     "agent_report",
@@ -169,10 +171,14 @@ const WRITERS: [&str; 14] = [
     "state_mutation",
     "feed",
     "journal_maintenance",
+    "frontend_document",
+    "terminal_archive",
 ];
 /// The registry's cap on the dead letters of the hook retry table. The rows'
 /// own copy: the registry does not export its cap.
 const DEAD_LETTER_CAP: i64 = 1_024;
+/// A closed terminal that has an archive.
+const ARCHIVED: &str = "term_00000000000000000000000000000001";
 
 /// A daemon's registry in a temporary directory with one running terminal,
 /// and with no maintenance worker (it checkpoints and seals on its own
@@ -387,6 +393,110 @@ fn the_save_of_a_rebuilt_roster_counts_as_agent_roster_save() {
         owner_saves + 1,
         "the save of the rebuilt roster is 1 commit of `agent_roster_save` beside the \
          {owner_saves} of the roster's owner; the rows before the rebuild: {:?}; after it: {:?}",
+        rows(&before),
+        rows(&after)
+    );
+}
+
+/// A frontend saves a document of its own (`put-frontend-projection`): 1
+/// commit with no journal row. It is a commit of `frontend_document`, not of
+/// `other`.
+#[test]
+fn the_save_of_a_frontend_document_counts_as_frontend_document() {
+    let (root, mux, _) = mux_with_a_terminal("commits-by-writer-document");
+    settled(&mux);
+    let before = section(&mux);
+    let mutation = WorkspaceMutation::daemon("commits-by-writer-document", "test").unwrap();
+    let saved = mux
+        .put_frontend_projection(
+            &mutation,
+            "commits-by-writer",
+            "session",
+            "catalog",
+            1,
+            Some(0),
+            &json!({ "rows": [] }),
+        )
+        .map(|_| ())
+        .map_err(|error| format!("{error:#}"));
+    let after = section(&mux);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+
+    assert_eq!(saved, Ok(()), "setup: the save of a new document");
+    let by_save = |writer: &str| commits(&after, writer) - commits(&before, writer);
+    assert_eq!(
+        (by_save("frontend_document"), by_save("other")),
+        (1, 0),
+        "(frontend_document, other): the save of the document is 1 commit of \
+         `frontend_document`; the rows before the save: {:?}; after it: {:?}",
+        rows(&before),
+        rows(&after)
+    );
+    assert_rows_sum_to_the_totals(&after, "after the save");
+}
+
+/// A close stores the archive of its terminal (the screen that a reopen
+/// shows) in a commit of its own, with no journal row. It is a commit of
+/// `terminal_archive`, not of `other`.
+#[test]
+fn the_store_of_a_terminal_archive_counts_as_terminal_archive() {
+    use crate::workspace_registry::terminal_archive_store::{
+        ARCHIVE_BLOB_BUDGET_BYTES, ArchiveRow,
+    };
+    let (root, mux, _) = mux_with_a_terminal("commits-by-writer-archive");
+    settled(&mux);
+    // An archive is stored only while a closed group names its terminal.
+    let database = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+    let connection = rusqlite::Connection::open(database).unwrap();
+    let record = json!({
+        "id": "closed-1",
+        "kind": "tab",
+        "members": [{
+            "kind": "tab",
+            "screens": [{ "tabs": [{ "kind": "terminal", "terminal_id": ARCHIVED }] }],
+        }],
+    });
+    connection
+        .execute(
+            "INSERT INTO closed_groups(closed_id, kind, closed_at_ms, record_json)
+             VALUES('closed-1', 'tab', 1, ?1)",
+            [record.to_string()],
+        )
+        .unwrap();
+    let count =
+        |sql: &str| -> i64 { connection.query_row(sql, [ARCHIVED], |row| row.get(0)).unwrap() };
+    assert_eq!(
+        count("SELECT COUNT(*) FROM closed_group_terminals WHERE terminal_id = ?1"),
+        1,
+        "setup: a closed group names the terminal"
+    );
+
+    let before = section(&mux);
+    mux.put_terminal_archive_rows(
+        &[ArchiveRow {
+            terminal_id: ARCHIVED,
+            generation: "g1",
+            program: Some("sleep"),
+            cols: 80,
+            rows: 24,
+            screen: Some(b"a screen"),
+        }],
+        ARCHIVE_BLOB_BUDGET_BYTES,
+    );
+    let after = section(&mux);
+    let stored = count("SELECT COUNT(*) FROM terminal_archives WHERE terminal_id = ?1");
+    drop(connection);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+
+    assert_eq!(stored, 1, "setup: the registry holds the terminal's archive");
+    let by_store = |writer: &str| commits(&after, writer) - commits(&before, writer);
+    assert_eq!(
+        (by_store("terminal_archive"), by_store("other")),
+        (1, 0),
+        "(terminal_archive, other): the store of the archive is 1 commit of \
+         `terminal_archive`; the rows before the store: {:?}; after it: {:?}",
         rows(&before),
         rows(&after)
     );
