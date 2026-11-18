@@ -13,10 +13,11 @@
 //!
 //! Off by default: `cmux link project enable` (or `CMUX_PROJECTED_FOLDERS=1`) turns it on for
 //! chats started from a folder past the copy's limits ([`super::size_cap`]); every smaller folder
-//! is still copied. What the agent writes stays on the machine for now; bringing it back is the
-//! next slice.
+//! is still copied. What the agent writes stays on the machine until Bring Back applies it here
+//! ([`super::project_back`]).
 //!
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
+//!     cmux link project back --socket S --at REMOTE FOLDER
 //!     cmux link project enable | disable | status
 
 use std::io::{BufRead as _, BufReader, Write as _};
@@ -74,9 +75,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("disable") => set_enabled(false).map(|()| json!({"ok": true, "enabled": false})),
         Some("status") => Ok(json!({"ok": true, "enabled": enabled()})),
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
+        Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         _ => Err(anyhow::anyhow!(
             "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
-             REMOTE | enable | disable | status"
+             REMOTE | back --socket S --at REMOTE FOLDER | enable | disable | status"
         )),
     };
     match outcome {
@@ -209,20 +211,23 @@ fn stop(args: &[String]) -> anyhow::Result<Value> {
         [flag, at] if flag == "--at" => at,
         _ => bail!("usage: cmux link project stop --at REMOTE"),
     };
-    let name = name_of(at);
+    let stopped = stop_server(&name_of(at))?;
+    Ok(json!({"ok": true, "stopped": stopped}))
+}
+
+/// Ends the server of projection `name`, when one runs; whether one was stopped.
+pub(crate) fn stop_server(name: &str) -> anyhow::Result<bool> {
     let pid_file = cmux_tui_core::platform::workspace_state_dir()
         .map(|dir| dir.join("link-sync").join("projections").join(format!("{name}.pid")))
         .context("this Mac has no state folder")?;
-    let Ok(pid) = std::fs::read_to_string(&pid_file) else {
-        return Ok(json!({"ok": true, "stopped": false}));
-    };
+    let Ok(pid) = std::fs::read_to_string(&pid_file) else { return Ok(false) };
     let pid = pid.trim().parse::<u32>().context("a bad pid file")?;
     let stopped = cmux_process::Command::new("kill")
         .arg(pid.to_string())
         .status()
         .is_ok_and(|status| status.success());
     let _ = std::fs::remove_file(&pid_file);
-    Ok(json!({"ok": true, "stopped": stopped}))
+    Ok(stopped)
 }
 
 /// Whether the machine's `identify` lists `projection-v1`.
@@ -273,6 +278,10 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
         data.insert("listed_ms".into(), json!(listed_ms));
         data.insert("manifest_bytes".into(), json!(encoded.len()));
         data.insert("ready_ms".into(), json!(elapsed_ms(started)));
+    }
+    // What Bring Back plans against (project_back.rs): the manifest this session starts from.
+    if let Err(error) = super::project_back::record(&name, &at, &folder, &encoded) {
+        eprintln!("cmux link project: cannot keep the manifest for Bring Back: {error:#}");
     }
     let mut stdout = std::io::stdout();
     let _ = writeln!(stdout, "{answer}");
