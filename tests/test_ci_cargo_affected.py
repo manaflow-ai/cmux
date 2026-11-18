@@ -170,6 +170,24 @@ class CargoAffectedTest(unittest.TestCase):
     def test_crate_without_dependents_selects_itself(self) -> None:
         self.assert_crates(["cmux-tui/crates/lonely/src/lib.rs"], ["lonely"])
 
+    def test_a_root_reference_reads_what_its_comment_lists(self) -> None:
+        # "../../.." from a crate is the repository root: unannotated it reads every path, so a webviews
+        # change selected cmux-tui-core and its 13 dependents for 325 of 327 merged PRs (2026-11-17).
+        source = self.root / "cmux-tui/crates/mid/tests/root.rs"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        (self.root / "schemas/mid").mkdir(parents=True, exist_ok=True)
+        (self.root / "schemas/mid/cases.json").write_text("{}")
+        root = 'let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");\n'
+        source.write_text(root)
+        self.assert_crates(["webviews/src/a.ts"], ["mid", "top"])
+        source.write_text("// affected-reads: schemas/mid/cases.json\n" + root)
+        self.assert_crates(["webviews/src/a.ts"], [])
+        self.assert_crates(["schemas/mid/cases.json"], ["mid", "top"])
+        source.write_text("// affected-reads: none\n" + root)
+        self.assert_crates(["schemas/mid/cases.json"], [])
+        source.write_text("// affected-reads: schemas/mid/gone.json\n" + root)  # stale: every path again
+        self.assert_crates(["webviews/src/a.ts"], ["mid", "top"])
+
     def test_union_of_two_changes(self) -> None:
         self.assert_crates(["cmux-tui/crates/lonely/src/lib.rs", "cmux-tui/crates/testkit/src/lib.rs"],
                            ["lonely", "testkit", "top"])
