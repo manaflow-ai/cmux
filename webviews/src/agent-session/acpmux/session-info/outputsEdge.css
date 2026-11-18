@@ -60,11 +60,11 @@
     mask-image: none;
   }
 }
-:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-outputs-edges {
+:root[data-reduce-transparency] .acpmux-outputs-edges {
   --outputs-edge-visible: 0;
 }
-:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-outputs-edges::before,
-:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-outputs-edges::after {
+:root[data-reduce-transparency] .acpmux-outputs-edges::before,
+:root[data-reduce-transparency] .acpmux-outputs-edges::after {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   mask-image: none;

@@ -7787,7 +7787,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   }
 }
 /* Liquid Glass off (appearance.liquidGlass): the same solid surface. */
-:root[data-glass="off"] .cv-selection-reply {
+:where(:root[data-glass="off"]) .cv-selection-reply {
   background: var(--glass-surface);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;

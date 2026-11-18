@@ -31,7 +31,7 @@ const ALLOW = /glass-opaque-allow:\s*\S/;
 const REDUCE_MEDIA = /(?<!not\s*)\(\s*prefers-reduced-transparency\s*:\s*reduce\s*\)/;
 // The host's Reduce Transparency, or Liquid Glass off (appearance.liquidGlass, data-glass="off"),
 // outside a `:not(...)` list.
-const REDUCE_ATTR = /(?<!:not\(\s*)\[data-reduce-transparency\]|(?<!:not\([^)]*)\[data-glass="off"\]/;
+const REDUCE_ATTR = /(?<!:not\([^)]*)\[data-reduce-transparency\]|(?<!:not\([^)]*)\[data-glass="off"\]/;
 // Host tokens (WebTheme.swift) the CSS never defines but documents as solid.
 const HOST_SOLID = /^--cmux-(?:.*solid.*|popup-surface)$/;
 // A tooltip or hover card: `.ui-tooltip`, `.ui-title-tooltip`, `.ui-hint`, `.ui-card`, `.cu-tooltip`,

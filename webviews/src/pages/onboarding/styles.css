@@ -918,10 +918,10 @@
   }
 }
 /* Liquid Glass off (appearance.liquidGlass): the same solid cards. */
-:root[data-glass="off"] .onb-import {
+:where(:root[data-glass="off"]) .onb-import {
   --onb-card-glass: var(--ds-color-surface);
 }
-:root[data-glass="off"] .onb-import :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
+:where(:root[data-glass="off"]) .onb-import :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }

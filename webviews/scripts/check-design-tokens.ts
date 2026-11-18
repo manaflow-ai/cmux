@@ -69,7 +69,7 @@ const HEX_COLOR = /#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})\b/i;
 const REDUCE_MEDIA = /(?<!not\s*)\(\s*prefers-reduced-transparency\s*:\s*reduce\s*\)/;
 // The host's Reduce Transparency, or Liquid Glass off (appearance.liquidGlass, data-glass="off"),
 // outside a `:not(...)` list.
-const REDUCE_ATTR = /(?<!:not\(\s*)\[data-reduce-transparency\]|(?<!:not\([^)]*)\[data-glass="off"\]/;
+const REDUCE_ATTR = /(?<!:not\([^)]*)\[data-reduce-transparency\]|(?<!:not\([^)]*)\[data-glass="off"\]/;
 
 export interface Finding {
   file: string;

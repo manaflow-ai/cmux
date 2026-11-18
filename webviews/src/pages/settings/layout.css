@@ -137,7 +137,7 @@
   }
 }
 /* Liquid Glass off (appearance.liquidGlass): the same solid surface. */
-:root[data-glass="off"] .settings {
+:where(:root[data-glass="off"]) .settings {
   --surface-glass: var(--surface-popup);
 }
 
