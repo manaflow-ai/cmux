@@ -328,6 +328,23 @@ class FakeApp:
         self.work, self.limit, self.recorded, self.sent = work, None, 0, sent
         # `slid`: the reply's count of frames in which the strip is at neither picture (its rows carry no strip numbers).
         self.slid = 0.0
+        # `late`: the numbers of the frame_strip calls whose reply is the control's `timeout` while the app's call goes
+        # on (`going`: its folder). That call ends in the tool's pause number `ends_in` after the reply (None: never),
+        # with its last file. `overlaps`: the frame_strip calls that came while a call went on.
+        # `refused`: the numbers of the frame_strip calls that the app refuses before a key goes in.
+        self.late, self.going, self.ends_in, self.strips, self.paused, self.overlaps, self.folder_at_the_end = set(), None, None, 0, 0, 0, None
+        self.refused = set()
+
+    def pause(self, _seconds):
+        """The tool's pause. No clock: the app's call that goes on ends in the pause number `ends_in`."""
+        if not self.going:
+            return
+        self.paused += 1
+        if self.paused == self.ends_in:
+            self.folder_at_the_end = os.path.isdir(self.going)
+            os.makedirs(self.going, exist_ok=True)
+            Path(self.going, "strip.png").write_bytes(b"png")
+            self.going, self.paused = None, 0
 
     def terminal_tab(self):
         self.tabs += 1
@@ -360,6 +377,10 @@ class FakeApp:
         if action == "switch_and_type":
             return {"tabs": [{"id": str(n)} for n in range(self.tabs)]}
         if action == "frame_strip":
+            self.strips += 1
+            self.overlaps += 1 if self.going else 0
+            if self.strips in self.refused:
+                return {"error": "no window"}  # the app's refusal before a key goes in
             keys = params.get("repeat", 1)
             opened = keys if self.opens is None else self.opens
             for _ in range(opened):
@@ -372,6 +393,12 @@ class FakeApp:
                 self.workspaces += opened
             else:
                 self.tabs += opened
+            if self.strips in self.late:
+                # The keys went in; the app still compares and writes its frames when the control's limit ends the wait.
+                self.going, self.paused = params["dir"], 0
+                os.makedirs(params["dir"], exist_ok=True)
+                return {"error": {"code": "timeout", "message": "debug.new_tab did not finish within 14999 ms",
+                                  "data": {"deadline_ms": 14999, "method": "debug.new_tab", "not_run": False, "state": "in_progress"}}}
             # The first key's mark starts `work` before the reply's zero; the second key's timer starts at that zero.
             reply = take(self.pictures, spans=[{"name": "cmdN.start" if params["key"] == "n" else "newTab.open",
                                                 "ms": 100.0 * n - (self.sent or 0.0) if n else -self.work, "duration_ms": 1.0} for n in range(keys)])
@@ -400,7 +427,7 @@ class ScreenTests(unittest.TestCase):
         self.addCleanup(lambda: __import__("shutil").rmtree(self.folder, ignore_errors=True))
 
     def run_mode(self, app, **changed):
-        report = new_surface_screen.Screen(options(self.folder, **changed), app.rpc, app.tools(), sleep=lambda _: None,
+        report = new_surface_screen.Screen(options(self.folder, **changed), app.rpc, app.tools(), sleep=app.pause,
                                            make_session=self.maker(app)).run()
         return report, app.closed
 
@@ -440,6 +467,49 @@ class ScreenTests(unittest.TestCase):
     def test_a_page_in_another_engine_is_an_invalid_row(self):
         report, _ = self.run_mode(FakeApp(self.folder, [(NEW, ROW_NEW)] * 240, engine="webkit"), keys="t", runs=1)
         self.assertEqual(report["rows"][0]["invalid"], ["engine: the page ran in webkit, cef was asked"])
+
+    def late(self, ends_in, **changed):
+        """A run of 2 cases of 3 rows whose first frame_strip call answers `timeout` while the app's call goes on for
+        `ends_in` of the tool's pauses (None: it does not end)."""
+        app = FakeApp(self.folder, [(NEW, ROW_NEW)] * 240)
+        app.late, app.ends_in = {1}, ends_in
+        report, _ = self.run_mode(app, **{"runs": 3, **changed})
+        return app, report
+
+    def test_after_a_timeout_reply_no_key_goes_in_before_the_apps_call_is_at_its_end(self):
+        app, _ = self.late(3)
+        self.assertEqual(app.overlaps, 0)  # a key in that time shares the app's one list of marks with the old call
+
+    def test_the_folder_of_a_call_that_goes_on_stays_until_the_call_is_at_its_end(self):
+        app, _ = self.late(3)
+        self.assertIs(app.folder_at_the_end, True)  # the app still writes its frames into it
+
+    def test_a_timeout_reply_ends_its_case_and_the_next_case_has_its_rows(self):
+        app, report = self.late(3)
+        first, second = report["cases"]["cmd-n/idle"], report["cases"]["cmd-t/idle"]
+        self.assertEqual((first["n"], first["valid"], first["invalid"]), (1, 0, ["frame_strip"]))
+        self.assertEqual(first.get("ended_early"), "after 1 of 3 rows: frame_strip answered `timeout` and the app's call went on")
+        self.assertEqual(report["rows"][0].get("call_went_on"), {"ended": True, "pauses": 3})
+        self.assertEqual((second["n"], second["valid"], second.get("ended_early")), (3, 3, None))
+        self.assertEqual((app.strips, report.get("stopped")), (4, None))
+        self.assertEqual((app.tabs, app.workspaces), (1, 3))  # the late call's new workspace is closed again
+
+    def test_a_call_that_does_not_end_stops_the_run(self):
+        app, report = self.late(None)
+        self.assertEqual(app.strips, 1)  # no later key: each later row would share the marks and the processor
+        self.assertEqual(report["rows"][0].get("call_went_on"), {"ended": False, "pauses": 240})
+        self.assertEqual(list(report["cases"]), ["cmd-n/idle"])
+        self.assertEqual(report.get("stopped"), "after cmd-n-idle-0: the app's frame_strip call did not end in 240 pauses of 0.5 s: no later key")
+        self.assertEqual(json.loads(Path(self.folder, "report.json").read_text()).get("stopped"), report.get("stopped"))
+
+    def test_an_error_reply_of_a_call_that_does_not_go_on_keeps_its_case_and_closes_nothing(self):
+        app = FakeApp(self.folder, [(NEW, ROW_NEW)] * 240)
+        app.refused = {1}
+        report, closed = self.run_mode(app, keys="n", runs=3)
+        case = report["cases"]["cmd-n/idle"]
+        self.assertEqual((case["n"], case["valid"], case.get("ended_early"), app.strips), (3, 2, None, 3))
+        self.assertEqual(report["rows"][0]["invalid"], ['frame_strip: "no window"'])
+        self.assertEqual((closed, app.tabs, app.workspaces), ([1, 1], 1, 3))  # no key went in: no Cmd-W for that row
 
     def test_the_session_is_made_to_the_asked_size_and_a_smaller_one_makes_each_row_invalid(self):
         app = FakeApp(self.folder, [(NEW, ROW_NEW)] * 240)
