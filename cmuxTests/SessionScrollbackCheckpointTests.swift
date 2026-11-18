@@ -797,6 +797,12 @@ struct SessionScrollbackCheckpointPersisterTests {
         )
     }
 
+    private func asideNames(_ store: SessionScrollbackCheckpointStore, panelId: UUID) -> [String] {
+        let prefix = "\(panelId.uuidString).json.invalidated-"
+        return (try? FileManager.default.contentsOfDirectory(atPath: store.directoryURL.path))?
+            .filter { $0.hasPrefix(prefix) } ?? []
+    }
+
     /// The checkpoint queue may still hold earlier write batches when `persist`
     /// runs on the main actor. `persist` must not block the caller behind them:
     /// that wait put `FileManager.removeItem` on the main thread inside
@@ -819,19 +825,90 @@ struct SessionScrollbackCheckpointPersisterTests {
         queue.sync {}
         #expect(finishedWithoutBlocking)
         #expect(!FileManager.default.fileExists(atPath: store.fileURL(panelId: removed).path))
+        #expect(asideNames(store, panelId: removed).isEmpty)
+    }
+
+    /// A removal is durable before `persist` returns: the caller renames the
+    /// file aside, so a crash before the queue drains cannot leave it for the
+    /// next unclean restore to merge. The queued apply then reclaims the aside.
+    @Test func removalIsDurableBeforePersistReturns() {
+        let (persister, store, queue) = makePersister()
+        defer { cleanUp(store) }
+        let removed = UUID()
+        store.apply(.init(captures: [capture(removed)], removals: [], livePanelIds: nil))
+
+        let gate = DispatchSemaphore(value: 0)
+        queue.async { gate.wait() }
+        persister.persist(.init(captures: [], removals: [removed], livePanelIds: nil))
+        let invalidatedBeforeDrain = !FileManager.default.fileExists(
+            atPath: store.fileURL(panelId: removed).path
+        ) && !asideNames(store, panelId: removed).isEmpty
+        gate.signal()
+        queue.sync {}
+
+        #expect(invalidatedBeforeDrain)
+        #expect(store.loadRecords(panelIds: [removed]).isEmpty)
+        #expect(asideNames(store, panelId: removed).isEmpty)
+    }
+
+    /// An invalidated checkpoint is already unreachable: `loadRecords` only
+    /// looks for `<panel>.json`, so the aside wins no merge while it waits for
+    /// the queue's delete.
+    @Test func invalidatedCheckpointIsInvisibleToLoadRecords() {
+        let (_, store, _) = makePersister()
+        defer { cleanUp(store) }
+        let panel = UUID()
+        store.apply(.init(captures: [capture(panel)], removals: [], livePanelIds: nil))
+
+        #expect(store.invalidate(panelId: panel))
+        #expect(store.loadRecords(panelIds: [panel]).isEmpty)
+        #expect(asideNames(store, panelId: panel).count == 1)
+    }
+
+    @Test func pruneSweepsInvalidatedAsides() {
+        let (_, store, _) = makePersister()
+        defer { cleanUp(store) }
+        let panel = UUID()
+        store.apply(.init(captures: [capture(panel)], removals: [], livePanelIds: nil))
+        #expect(store.invalidate(panelId: panel))
+
+        store.apply(.init(captures: [], removals: [], livePanelIds: [panel]))
+
+        #expect(asideNames(store, panelId: panel).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: store.fileURL(panelId: panel).path))
     }
 
     /// Ordering is what keeps the async removal crash-honest: a stale file may
     /// only be deleted after the earlier queued write that created it lands.
+    /// The gate holds the write in the queue while the removal is submitted,
+    /// so an implementation that deleted on the caller would run before the
+    /// write created the file and leave it behind.
     @Test func removalStillAppliesAfterEarlierQueuedWrite() {
         let (persister, store, queue) = makePersister()
         defer { cleanUp(store) }
         let panel = UUID()
 
-        persister.persist(.init(captures: [capture(panel)], removals: [], livePanelIds: nil))
-        persister.persist(.init(captures: [], removals: [panel], livePanelIds: nil))
+        let gate = DispatchSemaphore(value: 0)
+        queue.async { gate.wait() }
+        let writeSubmitted = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            persister.persist(.init(captures: [capture(panel)], removals: [], livePanelIds: nil))
+            writeSubmitted.signal()
+        }
+        // Order the two submissions without asserting on the write's return:
+        // a blocking implementation never signals it, and the pinned failure
+        // is the removal's return, not the write's.
+        _ = writeSubmitted.wait(timeout: .now() + 5)
+        let removalReturned = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            persister.persist(.init(captures: [], removals: [panel], livePanelIds: nil))
+            removalReturned.signal()
+        }
+        let removalReturnedWhileQueued = removalReturned.wait(timeout: .now() + 5) == .success
+        gate.signal()
         queue.sync {}
 
+        #expect(removalReturnedWhileQueued)
         #expect(store.loadRecords(panelIds: [panel]).isEmpty)
         #expect(!FileManager.default.fileExists(atPath: store.fileURL(panelId: panel).path))
     }

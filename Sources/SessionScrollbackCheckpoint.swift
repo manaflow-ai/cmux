@@ -298,7 +298,7 @@ struct SessionScrollbackCheckpointStore: Sendable {
             }
         }
         for panelId in removals {
-            try? fileManager.removeItem(at: fileURL(panelId: panelId))
+            removeCheckpointFiles(panelId: panelId, fileManager: fileManager)
         }
         if let livePanelIds = batch.livePanelIds {
             prune(keeping: livePanelIds, fileManager: fileManager)
@@ -316,9 +316,35 @@ struct SessionScrollbackCheckpointStore: Sendable {
         }
     }
 
+    /// Durable caller-side invalidation for one panel: renames its checkpoint
+    /// aside so `fileURL(panelId:)` and `loadRecords` no longer reach it. One
+    /// metadata rename; the aside is garbage the checkpoint queue reclaims.
+    @discardableResult
+    func invalidate(panelId: UUID, fileManager: FileManager = .default) -> Bool {
+        let source = fileURL(panelId: panelId)
+        let aside = source.appendingPathExtension("invalidated-\(UUID().uuidString)")
+        return (try? fileManager.moveItem(at: source, to: aside)) != nil
+    }
+
+    /// Deletes the checkpoint file and every invalidated aside for `panelId`.
+    func removeCheckpointFiles(panelId: UUID, fileManager: FileManager = .default) {
+        try? fileManager.removeItem(at: fileURL(panelId: panelId))
+        let asidePrefix = "\(panelId.uuidString).json.invalidated-"
+        guard let names = try? fileManager.contentsOfDirectory(atPath: directoryURL.path) else { return }
+        for name in names where name.hasPrefix(asidePrefix) {
+            try? fileManager.removeItem(at: directoryURL.appendingPathComponent(name, isDirectory: false))
+        }
+    }
+
     func prune(keeping livePanelIds: Set<UUID>, fileManager: FileManager = .default) {
         guard let names = try? fileManager.contentsOfDirectory(atPath: directoryURL.path) else { return }
         for name in names {
+            // An invalidated aside is unreachable by `loadRecords` already, so
+            // it is reclaimable regardless of which panels are live.
+            if name.contains(".invalidated-") {
+                try? fileManager.removeItem(at: directoryURL.appendingPathComponent(name, isDirectory: false))
+                continue
+            }
             let url = directoryURL.appendingPathComponent(name, isDirectory: false)
             guard url.pathExtension == "json",
                   let panelId = UUID(uuidString: url.deletingPathExtension().lastPathComponent),
@@ -381,39 +407,27 @@ struct SessionScrollbackCheckpointPersister: Sendable {
     let queue: DispatchQueue
     let activity: TerminalScrollbackCheckpointActivity
 
-    /// Hands the batch to background I/O and returns without waiting on it.
+    /// Invalidates removals durably, then hands the batch to background I/O
+    /// and returns without waiting on it.
     ///
     /// A removal means the panel stopped being eligible (for example a command
-    /// started running). The serial queue still orders the deletion after every
-    /// earlier queued write and before this batch's captures, so a crash after
-    /// those writes cannot resurrect its file. What changes is who waits: the
-    /// caller no longer sits in `queue.sync` behind the drain while file
-    /// deletions run on its thread — `persist` runs on the main actor, where
-    /// that wait surfaced as multi-second main-thread stalls in watchdog
-    /// captures (https://github.com/manaflow-ai/cmux/issues/46042).
-    ///
-    /// The cost is that `persist` returns before the deletion executes. A
-    /// crash inside that drain window leaves a removed panel's stale file for
-    /// the next unclean restore to merge — replaying scrollback into a
-    /// terminal the plan just excluded, for example one running a command.
-    /// The window is bounded by earlier queued writes.
+    /// started running). `invalidate` renames its checkpoint aside on the
+    /// caller — one metadata operation per removal — so the file is already
+    /// unreachable to `loadRecords` when `persist` returns: a crash before the
+    /// queue drains cannot leave it for the next unclean restore to merge.
+    /// The serial queue still applies the batch after every earlier queued
+    /// write, so the delete reclaims the file and its asides only after they
+    /// land. What changes is who waits: the caller no longer sits in
+    /// `queue.sync` behind the drain while file deletions run on its thread —
+    /// `persist` runs on the main actor, where that wait surfaced as
+    /// multi-second main-thread stalls in watchdog captures
+    /// (https://github.com/manaflow-ai/cmux/issues/46042).
     func persist(_ batch: SessionScrollbackCheckpointWriteBatch) {
+        for panelId in batch.removals {
+            store.invalidate(panelId: panelId)
+        }
         queue.async {
-            if !batch.removals.isEmpty {
-                _ = store.apply(SessionScrollbackCheckpointWriteBatch(
-                    captures: [],
-                    removals: batch.removals,
-                    livePanelIds: nil
-                ))
-            }
-            store.applyMarkingFailuresPending(
-                SessionScrollbackCheckpointWriteBatch(
-                    captures: batch.captures,
-                    removals: [],
-                    livePanelIds: batch.livePanelIds
-                ),
-                activity: activity
-            )
+            store.applyMarkingFailuresPending(batch, activity: activity)
         }
     }
 }
