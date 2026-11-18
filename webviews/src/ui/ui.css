@@ -130,8 +130,9 @@
   z-index: 60;
 }
 
+/* The popup sits in its Base UI positioner (ContextMenu.tsx), which places it and keeps it inside the
+   window; a fixed popup would leave the positioner 0 by 0 and defeat that. */
 .ui-context-menu {
-  position: fixed;
   box-sizing: border-box;
   min-width: 180px;
   max-width: min(360px, calc(100vw - 8px));
