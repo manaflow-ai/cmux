@@ -1106,6 +1106,76 @@ def exception_records(bundle: str, since: float) -> str:
         return f"\n--- {path}\n{handle.read()[:4000]}"
 
 
+def diag_dump(scratch, since):
+    """DIAG (chat-own-renderer crash): the app's output, every cef.log written since `since` and every
+    crash report since then, into .build/perf-idle/diag.txt and stdout; exit 1 then shows the tail."""
+    import glob, pwd
+    real_home = pwd.getpwuid(os.getuid()).pw_dir
+    out = []
+
+    def add(path, keep_tail=80):
+        try:
+            if os.path.getmtime(path) < since - 5:
+                return
+            lines = open(path, errors="replace").read().splitlines()
+        except OSError as error:
+            out.append(f"DIAG {path}: {error}")
+            return
+        out.append(f"DIAG ==== {path} ({len(lines)} lines)")
+        hits = [l for l in lines if "FATAL" in l or "Check failed" in l or "CHECK" in l or "NOTREACHED" in l or "DUMP_WILL_BE" in l]
+        out.extend("DIAG hit: " + l[:800] for l in hits[-40:])
+        out.extend("DIAG tail: " + l[:800] for l in lines[-keep_tail:])
+
+    if scratch:
+        add(os.path.join(scratch, "app.log"))
+        for path in glob.glob(os.path.join(scratch, "home", "Library", "**", "cef*.log"), recursive=True):
+            add(path)
+    for path in glob.glob(os.path.join(real_home, "Library", "Application Support", "*", "Chromium", "cef*.log")):
+        add(path)
+    for path in glob.glob(os.path.join(real_home, "Library", "Application Support", "cmux-next", "*", "run.exception")):
+        add(path)
+    for path in sorted(glob.glob(os.path.join(real_home, "Library", "Logs", "DiagnosticReports", "*.ips"))):
+        try:
+            if os.path.getmtime(path) < since - 5:
+                continue
+            text = open(path, errors="replace").read()
+        except OSError:
+            continue
+        out.append(f"DIAG ==== {path}")
+        head, _, body = text.partition("\n")
+        out.append("DIAG ips head: " + head[:600])
+        try:
+            report = json.loads(body)
+        except ValueError:
+            out.extend("DIAG ips: " + l[:400] for l in text.splitlines()[:200])
+            continue
+        for key in ("exception", "termination", "asi", "ktriageinfo", "crashInfo"):
+            if key in report:
+                out.append(f"DIAG ips {key}: {json.dumps(report[key])[:1500]}")
+        images = report.get("usedImages") or []
+        for thread in report.get("threads", []):
+            if not thread.get("triggered"):
+                continue
+            out.append(f"DIAG ips triggered thread: {thread.get('name') or thread.get('queue')}")
+            for frame in thread.get("frames", [])[:70]:
+                index = frame.get("imageIndex", -1)
+                image = images[index] if 0 <= index < len(images) else {}
+                out.append(f"DIAG ips frame: {os.path.basename(image.get('path') or image.get('name') or '?')} "
+                           f"+{frame.get('imageOffset')} {frame.get('symbol', '')}+{frame.get('symbolLocation', '')}")
+        for image in images:
+            if "Chromium Embedded" in (image.get("path") or "") or "cmux" in (image.get("name") or ""):
+                out.append(f"DIAG ips image: {image.get('name')} uuid={image.get('uuid')} base={image.get('base')}")
+    text = "\n".join(out) or "DIAG: nothing found"
+    print(text, flush=True)
+    try:
+        os.makedirs(".build/perf-idle", exist_ok=True)
+        with open(".build/perf-idle/diag.txt", "a") as handle:
+            handle.write(text + "\n")
+    except OSError:
+        pass
+    globals()["_diag_found"] = any(" hit: " in l or "ips frame" in l for l in out)
+
+
 def downloads_dir(scratch: str) -> str:
     """The folder `launch` gives the app for its downloads (CMUX_NEXT_DOWNLOADS_DIR), in its scratch."""
     return os.path.join(scratch, "downloads")
@@ -1424,6 +1494,7 @@ def main():
         child_check = cells.child_time_check()
         print(f"== child time check: {json.dumps(child_check)}", flush=True)
         child_ns = cells.read_child_ns if child_check.get("ok") else None
+    bench_started = time.time()
     launched = scratch = None
     if args.socket:
         if not args.app_pid:
@@ -1606,10 +1677,13 @@ def main():
             with open(args.out, "w") as handle:
                 json.dump(report, handle, indent=2)
             print(f"bench-memory: wrote {args.out}")
+        diag_dump(scratch, bench_started)
         if scratch:
             shutil.rmtree(scratch, ignore_errors=True)
         if diff_scratch and diff_scratch != scratch:
             shutil.rmtree(diff_scratch, ignore_errors=True)
+    if globals().get("_diag_found"):
+        sys.exit(1)
     crash = report.get("chat_renderer_crash")
     if crash is not None and not crash.get("pass"):
         sys.exit(2 if crash.get("setup_failed") else 1)
