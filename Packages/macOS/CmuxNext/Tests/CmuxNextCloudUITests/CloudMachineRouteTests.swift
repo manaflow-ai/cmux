@@ -44,9 +44,11 @@ import Testing
             }
             #expect(await updated.count == 0)
         }
-        let holds = #"{"ok":false,"holds_credential":true,"daemon":{"running":true},"agents":{}}"#
-        await #expect(throws: CloudMoveFailure.self) {
-            try await Self.machine(printing: holds).prepare {}
+        // The rule itself, with no FFI: only an unrouted machine for a chat with no connection of its own.
+        #expect(CloudMachineRoute.needsConnection(.notEdge, carriesConnection: false))
+        #expect(!CloudMachineRoute.needsConnection(.notEdge, carriesConnection: true))
+        for verdict in [CloudMachineRoute.Verdict.ready, .unsupported, .invalid, .noDaemon, .holdsCredential] {
+            #expect(!CloudMachineRoute.needsConnection(verdict, carriesConnection: false))
         }
     }
 

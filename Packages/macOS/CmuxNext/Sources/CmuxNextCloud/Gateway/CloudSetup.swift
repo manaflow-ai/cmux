@@ -177,7 +177,26 @@ public final class CloudSetup {
     /// sends it with the agent launch; ``Choice/setup(family:model:)`` shows the card instead.
     public func choose(harness: String?, model: String?, account: String?) async -> Choice {
         guard let family = Self.family(of: harness), let read else { return .fallback }
-        return await read().choice(family: family, model: model, account: account)
+        return await routed(read()).choice(family: family, model: model, account: account)
+    }
+
+    /// The families whose organization shared key a start found unrouted (``organizationUnrouted(_:)``).
+    public private(set) var unroutedOrganization: Set<String> = []
+
+    /// A start on the organization's shared key for `family` reached a machine with no model route: the key is served
+    /// only through the Cloud service's edge, which gives machines none now (cmux-platform#1489). For the rest of this
+    /// run a start no longer chooses that key, so Set up Cloud waits for a connection of the person's own
+    /// (``waitUntilServed(family:)``) instead of starting again on the same key (cmux#45773).
+    public func organizationUnrouted(_ family: String) {
+        unroutedOrganization.insert(family)
+        connectionsChanged()
+    }
+
+    /// `snapshot` without the organization families a start found unrouted.
+    private func routed(_ snapshot: Snapshot) -> Snapshot {
+        var snapshot = snapshot
+        snapshot.organization?.subtract(unroutedOrganization)
+        return snapshot
     }
 
     /// The decision for a start on `harness` and `model` (``choose(harness:model:account:)``).
@@ -200,7 +219,7 @@ public final class CloudSetup {
         guard let read else { return true } // nothing to read: every start goes as before
         guard !Task.isCancelled else { return false }
         let seen = changes
-        if await read().serves(family) != false { return true }
+        if await routed(read()).serves(family) != false { return true }
         if changes == seen { await nextChange() } // else it changed while it read: read again now
         return await waitUntilServed(family: family)
     }

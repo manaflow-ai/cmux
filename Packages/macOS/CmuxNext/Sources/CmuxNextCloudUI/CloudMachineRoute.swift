@@ -74,7 +74,7 @@ public struct CloudMachineRoute: Sendable {
             }
             // A machine that serves the start and reports no route gets none from an update: the route is the Cloud
             // service's, not the machine software's. The chat needs its own connection; no update wait first.
-            if verdict == .notEdge {
+            if Self.needsConnection(verdict, carriesConnection: carriesConnection) {
                 logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model route and the chat carries no connection")
                 throw NeedsConnection()
             }
@@ -93,7 +93,7 @@ public struct CloudMachineRoute: Sendable {
                 logger.info("cloud start chat: \(machineID ?? "", privacy: .public) has no model route; the chat's own connection goes with its launch")
                 return
             }
-            if refused.verdict == .notEdge, !carriesConnection { throw NeedsConnection() }
+            if Self.needsConnection(refused.verdict, carriesConnection: carriesConnection) { throw NeedsConnection() }
             throw CloudMoveFailure(message: refused.message, retry: machineID.map { .move(machineID: $0) })
         }
     }
@@ -101,12 +101,19 @@ public struct CloudMachineRoute: Sendable {
     /// The machine reports no model route (``Verdict/notEdge``) and the chat carries no connection of its own (a team's
     /// shared key, or nothing chosen): its agents could reach no model. The Cloud service gives machines no route
     /// today (cmux-platform#1489: a create carrying the edge rule never binds), so this is every such start, and the
-    /// way on is the person's own connection: the start shows Set up Cloud (`cloud_setup_required`), which starts
-    /// again by itself once one serves the agent, instead of a refusal no retry could pass (cmux#45773).
+    /// way on is the person's own connection. A start on the team's shared key shows Set up Cloud (`cloud_setup_required`),
+    /// which starts again by itself once a connection of the person's own serves the agent; any other start ends with
+    /// ``message`` and no Retry, which could never pass. Both end at once, not after an update wait (cmux#45773).
     public struct NeedsConnection: Error, Sendable {
         public init() {}
         /// The card's text where Set up Cloud cannot be shown (an agent outside ``CloudSetup/families``).
         public var message: String { CloudMachineRoute.message(.notEdge) }
+    }
+
+    /// Whether a machine that answered `verdict` ends the start with ``NeedsConnection``: it reports no route and the
+    /// chat brings none of its own.
+    public nonisolated static func needsConnection(_ verdict: Verdict, carriesConnection: Bool) -> Bool {
+        verdict == .notEdge && !carriesConnection
     }
 
     /// Whether a start goes on with a machine that answered `verdict`, with no update: routed, or on software from

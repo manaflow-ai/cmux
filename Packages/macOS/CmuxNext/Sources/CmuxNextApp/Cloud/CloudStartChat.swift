@@ -51,12 +51,14 @@ struct CloudStartChat {
         if let refusal = Self.refusal(services) {
             return AgentPaneReply.failure(code: refusal, message: CloudStrings.startRefusal(refusal))
         }
+        var chosen: CloudSetup.Choice?
         do {
             if let team = start.team { try await services.cloud.auth.activeTeam.select(team) } // the plan card's Switch to <team>, then only in it:
             if let refused = CloudStartCore().refusal(cloudDisabled: false, signedIn: true, requestedTeam: start.team, activeTeam: services.cloud.auth.teamID) { return AgentPaneReply.failure(code: refused, message: refused, details: nil, retryable: true, origin: "native") }
             // Cloud first use, read in the team the start runs in: the connection the chat runs on (its credential goes
             // with the agent launch, ``open``); nothing serving the picker's model shows Set up Cloud and starts nothing.
             let choice = await services.cloud.setup.choose(harness: start.harness, model: start.model, account: start.account)
+            chosen = choice
             if case .setup(let family, let model) = choice {
                 return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": family, "model": model ?? ""], retryable: false, origin: "native")
             }
@@ -73,8 +75,11 @@ struct CloudStartChat {
             return AgentPaneReply.success(["machine": machine])
         } catch is CloudMoveFolder.Gone { // the card's own words, with no Retry: picking another folder is the way on
             return AgentPaneCloudFolderRefusal.missing.reply
-        } catch let needs as CloudMachineRoute.NeedsConnection { // an unrouted machine and no connection of the chat's own: Set up Cloud, which starts again once one serves
-            guard let family = CloudSetup.family(of: start.harness) else { return AgentPaneReply.failure(code: "cloud_start_failed", message: needs.message, details: nil, retryable: true, origin: "native") }
+        } catch let needs as CloudMachineRoute.NeedsConnection { // an unrouted machine and no connection of the chat's own (cmux#45773)
+            // The team's shared key, which only the Cloud service's edge serves: Set up Cloud, waiting for a connection of
+            // the person's own (the key is no longer chosen this run). Anything else could never pass: no Retry.
+            guard case .organization(let family) = chosen else { return AgentPaneReply.failure(code: "cloud_start_failed", message: needs.message, details: nil, retryable: false, origin: "native") }
+            services.cloud.setup.organizationUnrouted(family)
             return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": family, "model": start.model ?? ""], retryable: false, origin: "native")
         } catch is CloudMachineCap.RunHere { // the cap card's Run on This Mac: the page sends it here (cloudRun.ts)
             return AgentPaneReply.failure(code: CloudMachineCap.runHereCode, message: CloudMachineCap.runHereCode)
