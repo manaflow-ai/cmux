@@ -11,7 +11,8 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
 import { subagentStatus, subagentStatusLabel } from "../summary/subagentStatusListModel";
-import { elapsed, running, useNow } from "./subagentGroupModel";
+import { elapsed, running, ticking, useNow } from "./subagentGroupModel";
+import { sameAgentRowProps } from "./subagentLook";
 import type { Subagent } from "./subagentFold";
 import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
@@ -100,8 +101,9 @@ export const AgentsPill = memo(function AgentsPill({
 
 const NO_WAITING: ReadonlySet<string> = new Set();
 
-/// One agent of the open list. Memoized on its agent and plain values: its time is a leaf that keeps
-/// its own clock (PillElapsed), so a tick draws no row.
+/// One agent of the open list. Memoized on the fields of its agent it draws and its plain values
+/// (subagentLook.ts), so a snapshot that only brings new objects draws no row; its time is a leaf
+/// that keeps its own clock (PillElapsed), so a tick draws no row.
 const AgentsPillRow = memo(function AgentsPillRow({
   agent,
   depth,
@@ -149,10 +151,11 @@ const AgentsPillRow = memo(function AgentsPillRow({
       </button>
     </li>
   );
-});
+}, sameAgentRowProps);
 
-/// A row's time, on its own clock: it ticks while the agent runs, and nothing else draws for it.
+/// A row's time, on its own clock: it ticks while its time still moves (`elapsed`: running, or ended
+/// with background work of its own still going), and nothing else draws for it.
 function PillElapsed({ agent }: { agent: Subagent }) {
-  const now = useNow(running(agent));
+  const now = useNow(ticking(agent));
   return <span className="acpmux-agents-list__time">{formatDuration(elapsed(agent, now))}</span>;
 }

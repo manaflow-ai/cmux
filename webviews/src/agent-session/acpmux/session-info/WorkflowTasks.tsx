@@ -48,6 +48,75 @@ import { sameValue } from "./sameValue";
 
 const ROW_ICON = rowIconSize(12);
 
+type Same<T> = (a: T, b: T) => boolean;
+
+// Every snapshot acpmux sends is new objects, and a workflow's progress bumps `progressVersion` on
+// every one of its agents: rows memoized by reference, or on every field, drew again each time though
+// nothing they show changed. The rows compare what they draw instead, by these tables over every
+// field of an agent and of a workflow: a new field fails to compile here until it is classed as
+// drawn (compared) or not (null).
+
+/// A workflow agent's fields, as its row (WorkflowAgentLine) and its phase's dots and count read them.
+const AGENT_LOOK: { [K in keyof WorkflowAgent]-?: Same<WorkflowAgent[K]> | null } = {
+  id: Object.is,
+  name: Object.is,
+  state: Object.is,
+  // Its open's (summary/foldWorkflows.ts `workflowDetailRequest`).
+  agentId: Object.is,
+  doing: Object.is,
+  lastMessage: Object.is,
+  prompt: Object.is,
+  result: Object.is,
+  error: Object.is,
+  model: Object.is,
+  effort: Object.is,
+  elapsedMs: Object.is,
+  startedAt: Object.is,
+  // The workflow's progress sequence (every agent of it gets the same one) and when it last did
+  // anything: the fold's and the card's latest line (workflowView.ts `cardLine`), no row's.
+  progressVersion: null,
+  lastProgressAt: null,
+  // Its place among the finished ones (workflowView.ts `splitAgents`): the list's order, not the row.
+  index: null,
+  // Its tokens and whether they came from a cache: the workflow's total says them, no agent row.
+  tokens: null,
+  cached: null,
+  retryReason: null,
+  transcriptRowId: null,
+};
+const AGENT_FIELDS = Object.entries(AGENT_LOOK).filter(
+  (entry): entry is [keyof WorkflowAgent, Same<unknown>] => entry[1] !== null,
+);
+const sameAgentLook = (a: WorkflowAgent, b: WorkflowAgent) =>
+  a === b || AGENT_FIELDS.every(([key, same]) => same(a[key], b[key]));
+
+/// A workflow's fields, as a phase's row (WorkflowPhaseRow) reads them: only what opens its agents;
+/// its agents are compared by AGENT_LOOK, the phase's own (`samePhaseProps`).
+const PHASE_WORKFLOW_LOOK: { [K in keyof WorkflowSummary]-?: Same<WorkflowSummary[K]> | null } = {
+  sessionId: Object.is,
+  runId: Object.is,
+  agents: null,
+  // The workflow's head draws these (WorkflowTask), not its phases.
+  id: null,
+  title: null,
+  description: null,
+  state: null,
+  resumedFrom: null,
+  counts: null,
+  projectedTokens: null,
+  action: null,
+  phase: null,
+  phases: null,
+  elapsedMs: null,
+  startedAt: null,
+  tokens: null,
+  large: null,
+  selectedAgentId: null,
+};
+const PHASE_WORKFLOW_FIELDS = Object.entries(PHASE_WORKFLOW_LOOK).filter(
+  (entry): entry is [keyof WorkflowSummary, Same<unknown>] => entry[1] !== null,
+);
+
 /// How many finished agents a workflow lists before Show more (each press adds three times as many).
 const FINISHED_PAGE = 8;
 
@@ -229,17 +298,7 @@ function stateWord(t: Translate, state: WorkflowSummary["state"]): string {
   return t("inspector.unknown");
 }
 
-/// A phase's row, its own memo boundary: the clock never draws it (its agents' rows keep their own
-/// time), and a change to another workflow leaves it alone.
-const WorkflowPhaseRow = memo(function WorkflowPhaseRow({
-  workflow,
-  phase,
-  shared,
-  commandsOf,
-  onStopCommand,
-  onOpenWorkflowAgent,
-  agentRowVariant,
-}: {
+type PhaseRowProps = {
   workflow: WorkflowSummary;
   phase: WorkflowPhase;
   shared: { model?: string; effort?: string };
@@ -248,7 +307,20 @@ const WorkflowPhaseRow = memo(function WorkflowPhaseRow({
   onOpenSubagent?: (id: string) => void;
   onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   agentRowVariant: WorkflowAgentRowVariant;
-}) {
+};
+
+/// A phase's row, its own memo boundary: the clock never draws it (its agents' rows keep their own
+/// time), and a change to another workflow, to an agent of another phase, or a snapshot that only
+/// brings new objects leaves it alone (`samePhaseProps`).
+const WorkflowPhaseRow = memo(function WorkflowPhaseRow({
+  workflow,
+  phase,
+  shared,
+  commandsOf,
+  onStopCommand,
+  onOpenWorkflowAgent,
+  agentRowVariant,
+}: PhaseRowProps) {
   const t = useT();
   const agents = phaseAgents(workflow, phase);
   // Its agents that ended are under the workflow's "N finished"; the phase opens to the rest.
@@ -303,7 +375,32 @@ const WorkflowPhaseRow = memo(function WorkflowPhaseRow({
       )}
     </li>
   );
-});
+}, samePhaseProps);
+
+/// Whether a phase's row draws the same: its phase, the workflow's fields it reads, its agents and
+/// the commands they started by what they draw, and the rest of its props by identity.
+function samePhaseProps(a: PhaseRowProps, b: PhaseRowProps): boolean {
+  if (
+    a.onStopCommand !== b.onStopCommand ||
+    a.onOpenSubagent !== b.onOpenSubagent ||
+    a.onOpenWorkflowAgent !== b.onOpenWorkflowAgent ||
+    a.agentRowVariant !== b.agentRowVariant ||
+    !sameValue(a.phase, b.phase) ||
+    !sameValue(a.shared, b.shared) ||
+    !PHASE_WORKFLOW_FIELDS.every(([key, same]) => same(a.workflow[key], b.workflow[key]))
+  )
+    return false;
+  const was = phaseAgents(a.workflow, a.phase);
+  const is = phaseAgents(b.workflow, b.phase);
+  return (
+    was.length === is.length &&
+    was.every(
+      (agent, index) =>
+        sameAgentLook(agent, is[index]!) &&
+        (a.commandsOf === b.commandsOf || sameValue(a.commandsOf(agent), b.commandsOf(is[index]!))),
+    )
+  );
+}
 
 /// "N finished": the workflow's agents that ended, the latest first, open (as Claude's Finished
 /// reads), each opening to its output. Show more past eight.
@@ -470,20 +567,7 @@ export function WorkflowAgentRow({
   );
 }
 
-/// The row itself, its own memo boundary with the values it draws: a change to another agent of the
-/// workflow, or the clock, draws it again not at all. A running one's time is a leaf with its own
-/// clock (ElapsedTime; `now` pins it), and the row's accessible name takes that time from the leaf
-/// (aria-labelledby), so a tick draws the time alone.
-const WorkflowAgentLine = memo(function WorkflowAgentLine({
-  agent,
-  now: given,
-  shared,
-  openable,
-  commands = NO_COMMANDS,
-  onStopCommand,
-  onOpenWorkflowAgent,
-  variant = "detail",
-}: {
+type AgentLineProps = {
   agent: WorkflowAgent;
   now?: number;
   shared: { model?: string; effort?: string };
@@ -493,7 +577,23 @@ const WorkflowAgentLine = memo(function WorkflowAgentLine({
   onStopCommand?: (id: string) => Promise<unknown>;
   onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   variant?: WorkflowAgentRowVariant;
-}) {
+};
+
+/// The row itself, its own memo boundary with the values it draws (`sameAgentLineProps`): a change to
+/// another agent of the workflow, a snapshot that only brings new objects or bumps the workflow's
+/// progress sequence, or the clock, draws it again not at all. A running one's time is a leaf with
+/// its own clock (ElapsedTime; `now` pins it), and the row's accessible name takes that time from
+/// the leaf (aria-labelledby), so a tick draws the time alone.
+const WorkflowAgentLine = memo(function WorkflowAgentLine({
+  agent,
+  now: given,
+  shared,
+  openable,
+  commands = NO_COMMANDS,
+  onStopCommand,
+  onOpenWorkflowAgent,
+  variant = "detail",
+}: AgentLineProps) {
   const t = useT();
   const id = useId();
   const [outputOpen, setOutputOpen] = useState(false);
@@ -609,7 +709,17 @@ const WorkflowAgentLine = memo(function WorkflowAgentLine({
       {shownCommands.length > 0 && <CommandList commands={shownCommands} now={given} onStop={onStopCommand} />}
     </li>
   );
-}, sameValue);
+}, sameAgentLineProps);
+
+/// Whether an agent's row draws the same: its agent by AGENT_LOOK, the rest by value.
+function sameAgentLineProps(a: AgentLineProps, b: AgentLineProps): boolean {
+  for (const key in a) {
+    if (key === "agent") continue;
+    if (!sameValue(a[key as keyof AgentLineProps], b[key as keyof AgentLineProps])) return false;
+  }
+  for (const key in b) if (!(key in a)) return false;
+  return sameAgentLook(a.agent, b.agent);
+}
 
 /// How long a workflow or one of its agents took (`elapsedMs`), or has run since `since` while it
 /// `ticks`: the one part of its row the second's clock draws, a leaf of its own. `now` pins the time
