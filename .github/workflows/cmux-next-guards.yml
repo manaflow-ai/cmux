@@ -41,8 +41,12 @@ env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
   BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
+# feat-cmux-next pushes share one group: a started run finishes, and a newer push replaces the one
+# still pending. Per commit, at about 20 landings an hour, 53 of 60 base runs sat unstarted at once
+# (2026-11-18 06:57Z), about 15 Linux jobs each, ahead of every pull request's light jobs. The base-red
+# excuse and the feed watch read the newest base run at or before a commit, not one per commit.
 concurrency:
-  group: cmux-next-guards-${{ github.event.pull_request.number || github.sha }}
+  group: cmux-next-guards-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
