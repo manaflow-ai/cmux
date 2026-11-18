@@ -538,7 +538,7 @@ final class BrowserHibernation {
             // A command thawed it outside this planner (`WebKitTab.resumeIfSuspended`): it freezes again.
             if let tab = cache.browsers[candidate.key]?.tab, (freezer(tab) as? any BrowserFreezeReporting)?.isFrozen == false { frozen.remove(candidate.key) }
             guard !frozen.contains(candidate.key), !freezeProbing.contains(candidate.key),
-                  let tab = cache.browsers[candidate.key]?.tab, freezer(tab) != nil else { return false }
+                  let tab = cache.browsers[candidate.key]?.tab, let page = freezer(tab), !page.freezeDropsExtensionEvents else { return false }
             if let kept = freezeKeptAt[candidate.key], let threshold {
                 let left = threshold - (now - kept).seconds
                 if left > 0 { recheck = min(recheck ?? left, left); return false }

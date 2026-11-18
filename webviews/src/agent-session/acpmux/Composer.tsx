@@ -299,6 +299,10 @@ type Props = {
   /// (`projectDraft`) moves `snapshot`'s cwd but not the tab's until the chat starts, so the
   /// header's PR belongs to another folder then.
   headerCwd?: string;
+  /// The queue as acpmux has it, every entry the moment it comes. `snapshot.queue` is the queue as
+  /// drawn (queuedMessages.ts `useShownQueue`), which keeps a short-lived entry out of sight; the
+  /// turn's handover reads this one, so Stop holds across a prompt that ran at once. Unset: `snapshot.queue`.
+  turnQueue?: AcpmuxSnapshot["queue"];
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
@@ -532,6 +536,7 @@ function ComposerFrame({
   snapshot,
   guestHarnesses,
   headerCwd,
+  turnQueue,
   chips: Chips,
   onSend,
   onBindSendGesture,
@@ -678,6 +683,10 @@ function ComposerFrame({
     },
     [prompt],
   );
+  // Focus leaving the queued prompts goes back to the prompt. One function for the composer's life:
+  // ComposerFrame renders on every key (its text is its state), and the queue is memoised, so a new
+  // function here drew the queue and laid out its rows on each key.
+  const leaveQueue = useCallback(() => field.current?.focus(), []);
   // The editor can stay mounted while a turn streams. Keep the callbacks it calls stable so the
   // memoized Milkdown field does not reconcile for every inbound snapshot; the refs are refreshed
   // below after the current render has computed the live steer/queue behavior.
@@ -2200,7 +2209,11 @@ function ComposerFrame({
     snapshot.rows.some((row) => row.queued !== undefined);
   // A turn that ended with a queued prompt acpmux runs next keeps Stop until that turn starts, so
   // the slot never flickers between two turns (composer/turnHandover.ts).
-  const handingOver = useTurnHandover(snapshot.isWorking, snapshot.queue, snapshot.summary?.queuePaused === true);
+  const handingOver = useTurnHandover(
+    snapshot.isWorking,
+    turnQueue ?? snapshot.queue,
+    snapshot.summary?.queuePaused === true,
+  );
   const stop = !shell && (snapshot.isWorking || holding || handingOver) && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
   const running = !shell && (snapshot.isWorking || holding || handingOver);
@@ -2806,7 +2819,7 @@ function ComposerFrame({
         onSideChat={onQueueSideChat}
         readImage={queueImage}
         commands={commands}
-        onLeave={() => field.current?.focus()}
+        onLeave={leaveQueue}
       />
       {context}
       {dropHost && (
