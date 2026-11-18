@@ -176,17 +176,18 @@ for kind,c in (e.get('db') or {}).items():
   done
 }
 
-do_gc() {
-  local entries live
+do_gc() {  # do_gc [TAG TO SPARE]: up spares its own tag, whose branch and credentials it reuses
+  local entries live spare="${1:-}"
   entries="$(vm status)"
-  # Stacks the VM stopped (idle, expired, failed) or a down that did not finish: release, then forget.
-  for t in $(json "print(' '.join(s['tag'] for s in d['stacks'] if s['state'] in ('reaped','down','failed')))" <<<"$entries"); do
+  # Stacks the VM stopped (idle, expired) or a down that did not finish: release, then forget. A failed
+  # start is kept for an hour, for the agent's next up.
+  for t in $(json "import time; print(' '.join(s['tag'] for s in d['stacks'] if s['tag'] != '$spare' and (s['state'] in ('reaped','down') or (s['state'] == 'failed' and time.time() - (s.get('last_up_at') or 0) > 3600))))" <<<"$entries"); do
     echo "== gc $t"
     vm status --tag "$t" | json "print(json.dumps(d['stacks'][0]))" | release_db
     vm forget --tag "$t" >/dev/null
   done
   # Branches with no stack behind them (a VM that lost its registry, a crash between create and start).
-  live="$(json "print(' '.join('lane-wd-'+s['tag'] for s in d['stacks'] if s['state'] in ('running','starting','preparing')))" <<<"$entries")"
+  live="$(json "print(' '.join('lane-wd-'+s['tag'] for s in d['stacks'] if s['state'] in ('running','starting','preparing','failed') or s['tag'] == '$spare'))" <<<"$entries")"
   for db in "$PG_DB" "$MYSQL_DB"; do
     for br in $(ps branch list "$db" | json "print(' '.join(b['name'] for b in d if b['name'].startswith('lane-wd-')))"); do
       case " $live " in *" $br "*) ;; *) ps branch delete "$db" "$br" --force >/dev/null && echo "   gc: deleted orphan branch $db/$br" ;; esac
@@ -206,11 +207,11 @@ case "$cmd" in
   up)
     t0=$(date +%s)
     ensure_helper
-    do_gc
+    do_gc "$tag"
     echo "== $tag on $HOST"
     vm prepare --tag "$tag" >/dev/null
     sync_tree "$root" src "${SYNC_PATHS[@]}"
-    [ -n "$platform" ] && sync_tree "$platform" platform .
+    if [ -n "$platform" ]; then sync_tree "$platform" platform .; fi
     kinds="$(migration_kinds)"
     for kind in pg mysql; do
       mode=shared
@@ -226,15 +227,15 @@ case "$cmd" in
     sha="$(git -C "$root" rev-parse --short=12 HEAD)"
     dirty=(); [ -n "$(git -C "$root" status --porcelain -- "${SYNC_PATHS[@]}")" ] && dirty=(--dirty)
     echo "== wrangler dev (bun install, build, boot)"
-    out="$(vm start --tag "$tag" --commit "$sha" "${dirty[@]}" ${platform:+--platform} --idle "$((idle_min * 60))")"
+    out="$(vm start --tag "$tag" --commit "$sha" ${dirty[@]+"${dirty[@]}"} ${platform:+--platform} --idle "$((idle_min * 60))")"
     url="$(json "print(d['url'])" <<<"$out")"
     curl -fsS -m 30 "$url/v1/health" >/dev/null || die "$url/v1/health does not answer from this Mac (tailnet?)"
     echo "== up in $(( $(date +%s) - t0 )) s"
     echo "API:     $url   (commit $sha${dirty:+, with uncommitted changes})"
-    [ -n "$platform" ] && echo "Platform: in the same workerd session, as the API's PLATFORM binding"
+    if [ -n "$platform" ]; then echo "Platform: in the same workerd session, as the API's PLATFORM binding"; fi
     echo "Journey: scripts/cmux-next/cloud-dev-stack.sh journey --tag $tag"
     echo "Stop:    scripts/cmux-next/cloud-dev-stack.sh down --tag $tag   (else the VM stops it after $(( idle_min > 0 ? idle_min : 120 )) min without a request)"
-    [ "$journey" = 1 ] && run_journey "$url" "${journey_args[@]+"${journey_args[@]}"}"
+    if [ "$journey" = 1 ]; then run_journey "$url" "${journey_args[@]+"${journey_args[@]}"}"; fi
     ;;
   status)
     ensure_helper
