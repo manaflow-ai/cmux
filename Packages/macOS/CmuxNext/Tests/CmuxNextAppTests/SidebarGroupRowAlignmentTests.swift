@@ -34,13 +34,13 @@ import Testing
             let line = try #require(list.groupLineViews.shown[SidebarGroupLineLayoutTests.group]?.frame, "\(c): no rail")
             let members = try SidebarGroupLineLayoutTests.members.map { try #require(list.rowViews[.workspace($0)]) }
             let bar = list.convert(header.leadingMarkFrame, from: header)
-            // One left edge: the bar's and the rail's.
-            #expect(bar.minX == line.minX, "\(c): bar at \(bar.minX), rail at \(line.minX)")
+            // The rail centred in its lane, a slight padding from the bar's left edge (Lawrence 2026-11-17).
+            #expect(bar.minX + SidebarStyle.groupRailInset == line.minX, "\(c): bar at \(bar.minX), rail at \(line.minX)")
             // One right edge: the bar's and every member's.
             for member in members {
                 #expect(member.frame.maxX == header.frame.maxX, "\(c): member ends at \(member.frame.maxX), header at \(header.frame.maxX)")
-                // The rail never touches a member's fill: its own gap (`Metrics.space1`) stays.
-                #expect(line.maxX + Metrics.space1 <= member.frame.minX,
+                // The rail never touches a member's fill: the other half of its lane stays.
+                #expect(line.maxX + SidebarStyle.groupRailInset <= member.frame.minX,
                         "\(c): rail ends at \(line.maxX), member fill starts at \(member.frame.minX)")
             }
             // The rail spans its members: it starts at the first member's top, never part way down it.

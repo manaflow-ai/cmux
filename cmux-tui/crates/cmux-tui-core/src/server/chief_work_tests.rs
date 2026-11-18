@@ -202,3 +202,72 @@ fn chief_work_command_bounds_report_only_omitted_rows() {
         assert_eq!(snapshot["truncated"], count > MAX_TASKS);
     }
 }
+
+/// The Chief's chats through the v2 list against v1's whole list (row 7c part two), through one
+/// run of an agent service in this process: the same chats and subagents, but for a closed
+/// root and what is under it, which a walk of `live` cannot see (named in [`chief_kin`]).
+/// Another Chief's chat under this one's, and a chat under that, are left out on both.
+#[cfg(unix)]
+#[test]
+fn chief_work_finds_the_same_chats_through_the_v2_list_but_a_closed_root() {
+    use acpmux::test_support::list_daemon::{self, Serves, insert};
+    let home = "0a1b2c3d";
+    let fixture = |hub: &acpmux::hub::Hub| {
+        let now = acpmux::store::now_ms();
+        let at = |n: u64| now - 600_000 + n * 1_000;
+        let meta = |id: &str, status: &str, n: u64, tags: Value| {
+            list_daemon::meta(id, id, status, at(n), tags).unwrap()
+        };
+        let under = |mut meta: acpmux::store::SessionMeta, parent: &str| {
+            meta.subsession = serde_json::from_value(
+                json!({"startedBy": parent, "shortName": &meta.id, "depth": 1}),
+            )
+            .ok();
+            meta
+        };
+        let rows = [
+            meta("turn", "running", 0, json!({"cmux.chief": home})),
+            meta("child", "running", 1, json!({"mux.parent": format!("optchat-chief:{home}")})),
+            under(meta("grand", "closed", 2, json!({})), "child"),
+            under(meta("other", "ready", 3, json!({"cmux.chief": "ffffffff"})), "turn"),
+            under(meta("under-other", "ready", 4, json!({})), "other"),
+            meta("closed-root", "closed", 5, json!({"cmux.chief": home})),
+            under(meta("closed-root-child", "ready", 6, json!({})), "closed-root"),
+            meta("spawned", "ready", 7, json!({"spawnedBy": "child"})),
+            meta("person", "ready", 8, json!({})),
+        ];
+        let count = rows.len();
+        for row in rows {
+            insert(hub, row);
+        }
+        count
+    };
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+    let daemon = runtime.block_on(list_daemon::serve(Serves::List, fixture)).unwrap();
+    let link = AcpmuxLink::connect(&daemon.path, |_| {}).unwrap();
+    let all = link.call_whole_list("_acpmux/sessions", json!({}), TIMEOUT).unwrap();
+    let (v1_owned, v1_children) = family(home, all["sessions"].as_array().unwrap());
+    let ids =
+        |names: &[&str]| -> HashSet<String> { names.iter().map(|n| (*n).to_owned()).collect() };
+    assert_eq!(
+        v1_owned,
+        ids(&["turn", "child", "grand", "closed-root", "closed-root-child", "spawned"])
+    );
+    let deadline = Instant::now() + TIMEOUT;
+    let (rows, owned, children) =
+        chief_kin(home, &daemon.path, &link, deadline).unwrap().expect("the daemon serves v2");
+    let closed = ids(&["closed-root", "closed-root-child"]);
+    assert_eq!(owned, v1_owned.difference(&closed).cloned().collect());
+    assert_eq!(children, v1_children.difference(&closed).cloned().collect());
+    // The rows the work reads are v1's rows of those chats.
+    for id in &owned {
+        let row = rows.iter().find(|row| row["sessionId"] == json!(id)).unwrap();
+        let v1 = all["sessions"].as_array().unwrap().iter().find(|r| r["sessionId"] == json!(id));
+        assert_eq!(Some(row), v1, "{id}");
+    }
+    // A daemon without the list: v1's path.
+    let daemon = runtime.block_on(list_daemon::serve(Serves::NoV2, fixture)).unwrap();
+    let link = AcpmuxLink::connect(&daemon.path, |_| {}).unwrap();
+    assert!(chief_kin(home, &daemon.path, &link, deadline).unwrap().is_none());
+}

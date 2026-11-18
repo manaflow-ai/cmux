@@ -2,7 +2,8 @@
 # gh, named in the job log: one `gh-call` line (scripts/ci/gh_call_log.py), then the real gh with the
 # same argv, stdin, stdout and stderr (see env.sh). The line holds only the subcommand words, or
 # for `gh api` the method and the endpoint path with ids folded and no query string. Never a flag
-# value, a field, a header or a token. The rate-limit columns are `-`: gh shows response headers
+# value, a field, a header or a token (`tok=` is 8 hex digits of the token's SHA-256, never the token).
+# The rate-limit columns are `-`: gh shows response headers
 # only through --include or GH_DEBUG, and both change what the step sees.
 set -f
 self=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
@@ -94,10 +95,20 @@ word() { case $1 in *[!a-z-]* | "") echo "?" ;; *) echo "$1" ;; esac; }
       meth=GET
     fi
     [ "$ep" = /graphql ] && meth="GRAPHQL"
-    req="$meth $ep [gh]"
+    req="$meth $ep"
   else
-    req="GH $cmd $(word "$sub") [gh]"
+    req="GH $cmd $(word "$sub")"
   fi
+  # Which token: 8 hex digits of its SHA-256 (gh's own order: GH_TOKEN, then GITHUB_TOKEN), never the token.
+  tok=${GH_TOKEN:-${GITHUB_TOKEN:-}}
+  if [ -z "$tok" ]; then
+    fp=none
+  else
+    fp=$(printf '%s' "$tok" | { sha256sum 2>/dev/null || shasum -a 256 2>/dev/null; } | cut -c1-8)
+    case $fp in *[!0-9a-f]* | "") fp="?" ;; esac
+  fi
+  unset tok
+  req="$req [gh tok=$fp]"
   clean() { printf '%s' "$1" | tr '\t\r\n' '   '; }
   stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   out=$(printf 'gh-call\t%s\t%s\t%s\t-\t-\t-\t-\t%s' "$stamp" "$(clean "${GITHUB_WORKFLOW:-}")" "$(clean "${GITHUB_JOB:-}")" "$req")

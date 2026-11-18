@@ -115,6 +115,13 @@ keys.
 `owners` lists the participants that set a dimension, in attach order. A
 viewport is clamped to at least 2 × 1.
 
+Under every mode but `fixed` (and `held`), the grid is never narrower than an
+iPhone's portrait terminal page, 40 columns, while any counting participant is
+at least that wide: a narrower view (a split pane, another device) gets the
+40-column grid instead of narrowing every view below a phone (Leo, 2026-11-15:
+"i dont see the point of a narrower-than-iphone terminal"). When every counting
+view is narrower, the mode decides as usual. Rows are not floored.
+
 With no counting participant the grid keeps its last size (reason `held`). An
 owner detach selects the next owner in the same step. The grid never freezes
 waiting for a departed owner.
@@ -251,10 +258,10 @@ grid follows the remaining views. A disconnect by another participant
 (`detach-client`, a view detach, `detach-attached-view`) ends the hold at once.
 This is the daemon applying the engine's decision late, not an engine rule, so
 the fixtures do not change. A phone that opted into the size lease
-(`size-lease-v1`, cmux-tui/spec/commands.md "release-surface-size") refreshes
-its size every 15 s while its terminal is on screen; a size not refreshed for
-45 s is released, and a dropped phone's hold ends when its lease would have
-ended, so a phone that can no longer say anything never pins a Mac's grid for
+(`size-lease-v2`, cmux-tui/spec/commands.md "release-surface-size") refreshes
+its size every 2 s while its terminal is on screen; a size not refreshed for
+8 s is released (`size-lease-v1`: every 15 s, 45 s), and a dropped phone's
+hold ends when its lease would have ended, so a phone that can no longer say anything never pins a Mac's grid for
 longer than its lease. The phone releases its size itself
 (`release-surface-size`) when the terminal leaves the screen, and
 cmux-mobile-host releases it for a phone channel that closes on purpose, a

@@ -112,7 +112,8 @@ impl Mux {
         Self::validate_workspace_key(&key)?;
         let requested_name = name.clone();
         let ws_id = self.next_id();
-        let mut notifications = self.tree_decorations();
+        // The delta serializes the new empty workspace only: no surface of the session.
+        let mut notifications = self.tree_decorations_of_new_empty_workspace();
         let reloads_presentation = mark.shows_in_tree();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut fingerprint = serde_json::json!({

@@ -135,7 +135,7 @@ extension MacScreenHomeView {
             MacScreenStack.addFullWidth(MacScreenFill.divider(), to: content)
             MacScreenStack.addFullWidth(MacScreenHomeParts.permissionRow(
                 title: L.t("macScreen.home.screenRecording", "Screen Recording"),
-                detail: L.t("macScreen.home.screenRecordingDetail", "Lets cmux send this screen. macOS may ask you to quit and reopen cmux."),
+                detail: MacScreenGrantCopy.screenRecordingDetail(sharing.grantHolderName),
                 granted: sharing.screenRecordingGranted
             ) { [weak self] in self?.host.openSettings(screenRecording: true) }, to: content)
             MacScreenStack.addFullWidth(MacScreenHomeParts.permissionRow(
@@ -165,8 +165,13 @@ extension MacScreenHomeView {
             title: title, detail: detail, isOn: sharing.isSharing, enabled: !sharing.busy, emphasized: emphasized,
             id: "macScreen.home.allowToggle"
         ) { [weak self] on in
-            // task-owner: one sharing write; the switch follows the hub's record
-            Task { try? await hubHost?.setSharing(on) }
+            if on {
+                self?.actions.shareThisMac()
+            } else {
+                hubHost?.stopSession(immediately: true)
+                // task-owner: one sharing-off write; the switch follows the hub's record
+                Task { try? await hubHost?.setSharing(false) }
+            }
             // The switch shows the hub's record: back to it if the write does not change it.
             self?.syncSwitchesSoon()
         }
@@ -177,7 +182,7 @@ extension MacScreenHomeView {
     private func permissionRows(_ sharing: MacScreenHomeSnapshot.Sharing) -> [NSView] {
         [
             permissionRow(title: L.t("macScreen.home.screenRecording", "Screen Recording"),
-                          missing: L.t("macScreen.home.screenRecordingNeeded", "Needed to send this screen. macOS may ask you to reopen cmux."),
+                          missing: MacScreenGrantCopy.screenRecordingNeeded(sharing.grantHolderName),
                           granted: sharing.screenRecordingGranted, id: "macScreen.home.screenRecording") { [weak self] in
                 self?.host.openSettings(screenRecording: true)
             },
