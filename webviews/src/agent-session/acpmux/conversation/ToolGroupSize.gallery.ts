@@ -118,6 +118,9 @@ export default agentPaneEntry({
     n5: variant(5),
     n20: variant(20),
     n100: variant(100),
+    // A run as long as a long agent session's: opened, it mounts the same window as at 100.
+    n1000: variant(1_000),
+    n10000: variant(10_000),
     "mixed-commands": mixed("commands", mixedCommands),
     // An opened call stays open and in place when the next call regroups the run (pinnedToolRowsScenes.ts).
     ...pinnedVariants,
