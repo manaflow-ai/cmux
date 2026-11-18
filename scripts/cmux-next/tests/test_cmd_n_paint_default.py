@@ -153,6 +153,17 @@ class DefaultPathTests(unittest.TestCase):
         self.assertEqual([row["invalid"][0].split(":")[0] for row in json.loads(got["report"])["rows"]], ["capture", "capture"])
         self.assertNotIn("PASS", "".join(got["stdout"]))
 
+    def test_screen_refuses_what_it_cannot_count_before_a_call_to_the_app(self):
+        mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
+        # 11 runs of 2 keys, alone and after a key: 66 openings, and the app keeps its newest 64 opening records.
+        many = outcome(str(HERE.parent), ["--screen", "--runs", "11"], bad=False, files=mode)
+        self.assertEqual((many["exit"], many["calls"]), (2, []))
+        self.assertIn("--screen: 66 openings asked", many["stderr"][-1])
+        # A part of the flag's word is the flag to the parser, and the mode's module is read only by the whole word.
+        part = outcome(str(HERE.parent), ["--scr", "--runs", "1"], bad=False, files=mode)
+        self.assertEqual((part["exit"], part["calls"]), (2, []))
+        self.assertIn("--screen: write the flag whole", part["stderr"][-1])
+
 
 if __name__ == "__main__":
     unittest.main()

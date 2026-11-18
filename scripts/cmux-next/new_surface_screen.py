@@ -9,7 +9,8 @@ of a recording, and what they do not see: new_surface_frames.py.
 The session: `--workspaces N` makes the session that many workspaces with the repository's one session maker
 (scripts/perf-bench/session_real.py make, as scripts/measure/pane-motion-films.py does): each added workspace
 has a terminal tab and a page tab, `--live-shells` of the terminals keep a shell and each other one is parked. No
-chat is in that session.
+chat is in that session: a session with chats is not measured by this tool. A launch by the driver (`--app`) starts
+from an empty saved session for its tag (`fresh_session`), so the made session is this run's own.
 
 Before each recording a spare New Tab page is ready (a row with none in 30 s is INVALID). A Cmd-T is pressed from
 a terminal tab that Control-` opened, as the driver's own openings (the new page then changes the content area);
@@ -19,18 +20,24 @@ key.
 
 The proof of the input, in each row: the app's own opening records, the count of tabs (Cmd-T) or workspaces
 (Cmd-N) and the opening marks must each say one opening for each sent key; a row where one does not is INVALID. The
-key goes to the app's key path through `debug.key`'s sender, not through the keyboard's driver: the path from the
-keyboard to the app is not in a number.
+app keeps only its newest opening records, so the new ones are counted by the list's content, not by its length
+(new_surface_frames.py `opened_since`), and the driver refuses a run of more than 60 openings before its launch (the
+app's list has 64 places: `--runs` 10 with the default keys and gaps is 60). The key goes to the app's key path through `debug.key`'s sender, not
+through the keyboard's driver: the path from the keyboard to the app is not in a number.
 
 `--page-watch N`: the last N recordings of each case also ask the new page for its own layout watch (`debug.agent_pane
 layout_watch`: the page's composer, its chips and its header, each frame of the page): the parts that moved after
-the page's first frame, by name, from and to, in points. The ask is one more call on the app's socket while the
-frames are recorded, so those rows say `page_watch` and the other rows have none. The watch starts after the key
-(the page is in no pane before it): a move before its first frame is in the screen's frames only.
+the page's first frame, by name, from and to, in points. The ask goes on the app's socket while the frames are
+recorded, and it is made again each 33 ms until a page answers: for one key from the recording's start, when no
+page may be in the pane yet; for a second key from 30 ms after its due time. Those rows say `page_watch` and the
+other rows have none; with the defaults (`--runs 3`, `--page-watch 3`) each row has it. A watch that a page
+answered before the judged key says `before_the_key`. A move before the watch's first frame is in the screen's
+frames only.
 
 Kept pictures (`--screen-tgz FILE`, with the report): for the first `--keep-keys` recordings of each case and for
-each recording with a change after the first content, the frame before the key, the named frames and the first
-frame of each change, at the recorded scale.
+each recording with a change after the first content or an INVALID reason, the frame before the key, the named
+frames and the first frame of each change, at the recorded scale. No picture of a later recording is kept after
+160 kept pictures.
 """
 import json
 import os
@@ -48,6 +55,13 @@ import new_surface_frames as frames_of
 MAKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "perf-bench", "session_real.py")
 LEAD_MS = 120  # frame_strip sends the key this long after its recording starts (later when the first frame is late)
 MARK = "NEW-SURFACE-SCREEN"
+OPENINGS_LIMIT = 60  # the app's list of opening records has 64 places (NewTabSparePool.maximumOpenings)
+
+
+def openings(opts):
+    """The openings that one run asks for: `--runs` for each key and gap, and two in a recording with a gap."""
+    in_a_round = sum(2 if float(gap) else 1 for gap in opts.gaps.split(",") if gap)
+    return opts.runs * len([key for key in opts.keys.split(",") if key]) * in_a_round
 
 
 def add_arguments(parser):
@@ -85,6 +99,19 @@ def seed(socket_path, count, live, url, deadline, out):
     counted = re.findall(r"^made (\d+)/", said, re.M)
     return {"asked_more": count, "live_shells": live, "maker_exit": code, "maker_said_made": int(counted[-1]) if counted else 0,
             "seed_s": round(time.monotonic() - began, 1)}
+
+
+def fresh_session(tag, app=None):
+    """An empty saved session for the tag's next launch, as each BenchApp launch has (bench_launch.start_fresh_state:
+    a tag's earlier state moves aside). The mode's session of many workspaces is under the entry's one fixed tag, and
+    bench_launch.py says that a launch restores its tag's saved session. The state moves only while no process of
+    the tag runs: with `app` (its bundle), the tag's daemons that an earlier run left end first (tag_teardown.py),
+    because such a daemon keeps its session."""
+    import bench_launch  # only this mode's launch and the entry's cleanup need it
+    if app:
+        from tag_teardown import TagTeardown
+        TagTeardown(app).end()
+    bench_launch.start_fresh_state(tag)
 
 
 class Screen:
@@ -150,12 +177,14 @@ class Screen:
                 self.close(0, own_tabs)
                 return row
             self.sleep(0.2)  # tool pacing, as the driver's own wait for a ready spare
-        before_count, before_opened = self.count(key), len(self.opened())
+        before_count, before_opened = self.count(key), self.opened()
         row["tabs_before" if key == "t" else "workspaces_before"] = before_count
         self.sleep(0.5)  # the window settles (caret, hover) before the recording, as the driver's warm openings
         folder = os.path.join(opts.out, label)
-        params = {"action": "frame_strip", "key": key, "dir": folder, "above": True, "scale": opts.scale,
-                  "tolerance": opts.tolerance, "duration_ms": opts.duration_ms + gap}
+        # `capture`: the screen's frames also where the app has the Screen Recording grant (frame_strip then takes
+        # the window list by itself, and the page is not in those frames).
+        params = {"action": "frame_strip", "key": key, "dir": folder, "above": True, "capture": frames_of.CAPTURE,
+                  "scale": opts.scale, "tolerance": opts.tolerance, "duration_ms": opts.duration_ms + gap}
         if gap:
             params.update({"repeat": 2, "repeat_interval_ms": gap})
         watched, watcher = {}, None
@@ -175,11 +204,14 @@ class Screen:
         records = self.opened()
         row.update(frames_of.one_key(reply, key, gap, opts.tolerance, opts.display_hz or None))
         row["label"] = label
-        faults, starts = frames_of.input_proof(key, keys_sent, len(records) - before_opened, self.count(key) - before_count, reply.get("spans"))
+        opened = frames_of.opened_since(before_opened, records)
+        faults, starts = frames_of.input_proof(key, keys_sent, opened, self.count(key) - before_count, reply.get("spans"))
         row["invalid"] += faults + ([session_fault] if session_fault else [])
+        # The marks' times from the row's zero (the reply's own zero is `key_work_ms` after it).
+        starts = [round(start + (row.get("key_work_ms") or 0), 1) for start in starts]
         row.update({"keys_sent": keys_sent, "opening_marks_ms": starts, "lead_ms": reply.get("lead_ms"),
                     "second_key_late_ms": round(starts[1] - gap, 1) if gap and len(starts) > 1 else None,
-                    "spare": [bool(record.get("spare")) for record in records[before_opened:]],
+                    "spare": [bool(record.get("spare")) for record in records[len(records) - opened:]],
                     "frame_count": reply.get("frame_count"), "mean_interval_ms": reply.get("mean_interval_ms")})
         # Each measure says its engine: the new page's, read after the recording. A page in another engine is no number.
         row["page_engine"] = bench_page_engine.page_engine(self.rpc("debug.agent_pane", {"action": "engine"}, 20))
@@ -262,3 +294,10 @@ class Screen:
         print(f"{MARK} report only: {len(self.rows)} rows, {sum(1 for row in self.rows if row['invalid'])} INVALID, "
               f"{self.kept} pictures kept", flush=True)
         return report
+
+
+if __name__ == "__main__":
+    # The entry's cleanup, after it ended the tag's processes: `new_surface_screen.py --fresh-session TAG`.
+    if len(sys.argv) != 3 or sys.argv[1] != "--fresh-session":
+        sys.exit("use: new_surface_screen.py --fresh-session TAG (the mode itself: cmd-n-paint-e2e.py --screen)")
+    fresh_session(sys.argv[2])

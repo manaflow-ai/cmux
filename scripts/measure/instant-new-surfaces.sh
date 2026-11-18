@@ -34,9 +34,16 @@ fi
 tag="instantnew"
 out="$(mktemp -d)"
 # Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
-vdisplay_pid=""
+vdisplay_pid="" app="" screen=0
 # shellcheck disable=SC2329 # run by the trap below
 cleanup() {
+  # --screen makes a session of many workspaces under this script's one tag, and its driver ends the app only when
+  # Python ends by itself. So: end the tag's daemons and shells (as held-new-tab.sh), then move the tag's saved
+  # session aside, and no later step of this tag starts in that session.
+  if [[ "$screen" == 1 && -n "$app" ]]; then
+    python3 scripts/cmux-next/tag_teardown.py "$app" || true
+    python3 scripts/cmux-next/new_surface_screen.py --fresh-session "$tag" || true
+  fi
   if [[ -n "$vdisplay_pid" ]]; then kill "$vdisplay_pid" 2>/dev/null || true; wait "$vdisplay_pid" 2>/dev/null || true; fi  # the helper this script started
   rm -rf -- "$out"
 }
@@ -45,7 +52,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 # --config=<debug|release|bench> picks reload.sh's build configuration (bench: Release optimization with the
 # debug.* control commands kept), --vdisplay=HZ the display; every other argument goes to the bench.
-reload_config=() bench_args=() vdisplay_hz="" screen=0
+reload_config=() bench_args=() vdisplay_hz=""
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
@@ -55,6 +62,12 @@ for arg in "$@"; do
     *) bench_args+=("$arg") ;;
   esac
 done
+# --screen counts frames of the display: a display that this script was asked for and did not get is no display to
+# count on (below), and a rate that is no number stops the step here, before the build.
+if [[ "$screen" == 1 && -n "$vdisplay_hz" && ! "$vdisplay_hz" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+  echo "instant-new-surfaces: --screen: --vdisplay=$vdisplay_hz is not a rate in Hz" >&2
+  exit 2
+fi
 set -- ${bench_args[@]+"${bench_args[@]}"}
 # Before the step's own arguments, so `--arg=--page-engine=webkit` wins over it. `--bench=` runs another bench on
 # the same app, and that bench has no `--page-engine` (measure_engine_asked).
@@ -100,7 +113,12 @@ if [[ -n "$vdisplay_hz" ]]; then
     echo "instant-new-surfaces: display: $display"
     sleep 2  # WindowServer settles the new main display before the app opens on it
   else
+    display="the virtual display helper did not compile"
     echo "instant-new-surfaces: the virtual display helper did not compile; measuring on the real display"
+  fi
+  if [[ "$screen" == 1 && "$display" != ready* ]]; then
+    echo "instant-new-surfaces: --screen: no virtual display at $vdisplay_hz Hz ($display): its rows would be frames of another display" >&2
+    exit 1
   fi
 fi
 mkdir -p artifacts

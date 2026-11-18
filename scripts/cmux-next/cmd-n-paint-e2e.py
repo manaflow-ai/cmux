@@ -75,6 +75,11 @@ if "--screen" in sys.argv:
     import new_surface_screen  # noqa: E402
     new_surface_screen.add_arguments(parser)
 opts = parser.parse_args()
+if opts.screen and "--screen" not in sys.argv:
+    parser.error("--screen: write the flag whole (the mode's module and arguments are read by that word)")
+if opts.screen and new_surface_screen.openings(opts) > new_surface_screen.OPENINGS_LIMIT:
+    parser.error(f"--screen: {new_surface_screen.openings(opts)} openings asked (--runs for each key and gap, two with a gap); "
+                 f"at most {new_surface_screen.OPENINGS_LIMIT} in one run: the app keeps its newest 64 opening records")
 if opts.duration_ms is None:
     opts.duration_ms = 2000 if opts.screen else 700
 ARMS = [a for a in opts.arms.split(",") if a]
@@ -159,6 +164,8 @@ def launch(app_path, tag):
 
 
 if opts.app:
+    if opts.screen:
+        new_surface_screen.fresh_session(opts.tag, opts.app)  # the tag's saved session of an earlier run is not this run's
     launch(opts.app, opts.tag)
 failures = []
 if opts.split > 1:

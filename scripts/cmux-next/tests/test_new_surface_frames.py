@@ -36,16 +36,20 @@ def row(index, content, outside, blank=False, desync=False, strip=None, start=0.
     return out
 
 
-def take(pictures, capture="screencapturekit", spans=None, **fields):
-    """A recording: 2 frames before the key, then one frame of the display for each entry of `pictures`
-    ((content, outside) or a dict of row()'s arguments)."""
-    rows = [row(-2, OLD, ROW_OLD), row(-1, OLD, ROW_OLD)]
+# A key whose own work took no time: its opening marks start at the reply's zero. The app's reply has them before it.
+AT_ZERO = [{"name": "cmdN.start", "ms": 0.0, "duration_ms": 0.0}, {"name": "newTab.open", "ms": 0.0, "duration_ms": 0.0}]
+
+
+def take(pictures, capture="screencapturekit", spans=None, before=2, **fields):
+    """A recording: `before` frames before the reply's zero (the app's rows start at the last one), then one frame
+    of the display for each entry of `pictures` ((content, outside) or a dict of row()'s arguments)."""
+    rows = [row(-index, OLD, ROW_OLD) for index in range(before, 0, -1)]
     for index, picture in enumerate(pictures):
         if picture is None:
             continue  # a frame that the recorder did not deliver
         rows.append(row(index + 1, **picture) if isinstance(picture, dict) else row(index + 1, *picture))
-    return {"frames": rows, "capture": capture, "spans": spans or [], "frame_count": len(rows), "mean_interval_ms": STEP,
-            "strip_intermediate": 0.0, "lead_ms": 120.0, **fields}
+    return {"frames": rows, "capture": capture, "spans": AT_ZERO if spans is None else spans, "frame_count": len(rows),
+            "mean_interval_ms": STEP, "strip_intermediate": 0.0, "lead_ms": 120.0, **fields}
 
 
 class OneKeyTests(unittest.TestCase):
@@ -133,6 +137,20 @@ class OneKeyTests(unittest.TestCase):
         pictures = [(OLD, ROW_OLD), None, None, None, None, (NEW, ROW_NEW)] + [(NEW, ROW_NEW)] * 234
         got = nsf.one_key(take(pictures), "n", asked_hz=120)
         self.assertEqual((got["content_first"]["frame"], got["content_first"]["ms"], got["frames_not_delivered"]), (6, 50, 4))
+        # The 4 frames with no row are directly before the first content: the page can have come in one of them.
+        self.assertEqual((got["first_is_final"], got["frames_not_seen_from_content"], got["invalid"]), (None, 4, []))
+
+    def test_a_frame_number_counts_the_frames_before_the_first_row(self):
+        # No row for the first 5 frames of the display after the key; the first row has the page.
+        got = nsf.one_key(take([None] * 5 + [(NEW, ROW_NEW)] * 235), "n", asked_hz=120)
+        self.assertEqual((got["content_first"]["frame"], got["content_first"]["ms"], got["frames_not_delivered"]), (6, 50, 5))
+        self.assertEqual((got["tab"]["frame"], got["final"]["frame"], got["first_is_final"], got["invalid"]), (6, 6, None, []))
+
+    def test_a_frame_with_no_row_after_the_first_content_makes_first_is_final_not_known(self):
+        got = nsf.one_key(take([(NEW, ROW_NEW)] * 10 + [None] + [(NEW, ROW_NEW)] * 229), "n", asked_hz=120)
+        self.assertEqual((got["first_is_final"], got["frames_not_seen_from_content"], got["changes_after_content"]), (None, 1, 0))
+        self.assertEqual(nsf.summarize([got])["first_is_final"], 0)
+        self.assertEqual(nsf.summarize([got])["first_is_final_not_known"], 1)
 
     def test_the_refresh_is_the_rows_own_when_the_asked_rate_is_not_theirs(self):
         rows = take([(NEW, ROW_NEW)] * 240)
@@ -140,6 +158,70 @@ class OneKeyTests(unittest.TestCase):
         self.assertEqual(got["refresh_ms"], got["refresh_measured_ms"])  # the rows' own: 60 Hz was asked, 120 came
         self.assertAlmostEqual(got["refresh_ms"], STEP, delta=0.05)  # the rows' times are whole ms
         self.assertEqual((got["content_first"]["frame"], got["frames_not_delivered"]), (1, 0))
+
+    def test_rows_that_come_slower_than_the_asked_display_are_invalid(self):
+        # A recorder that gives each second frame of a 120 Hz display: its frame numbers would be half of the true ones.
+        rows = take([(NEW, ROW_NEW)] * 240)
+        for frame in rows["frames"]:
+            frame["ms"] *= 2
+        got = nsf.one_key(rows, "n", asked_hz=120)
+        self.assertEqual([reason.split(":")[0] for reason in got["invalid"]], ["refresh"])
+        self.assertEqual(nsf.one_key(rows, "n")["invalid"], [])  # no asked rate: the rows' own step, with no sign
+
+    def test_the_zero_is_the_start_of_the_keys_own_work(self):
+        # The app's reply: its zero is the END of the key's work, so `cmdN.start` began 33 ms before it, and its rows
+        # start at the last frame before that zero. The page is in the frame 42 ms after the reply's zero.
+        marks = [{"name": "cmdN.start", "ms": -33.0, "duration_ms": 33.0}, {"name": "newTab.open", "ms": -20.0, "duration_ms": 9.0}]
+        reply = take([(OLD, ROW_OLD)] * 4 + [(NEW, ROW_NEW)] * 236, spans=marks, before=1)
+        got = nsf.one_key(reply, "n", asked_hz=120)
+        self.assertEqual((got["key_work_ms"], got["zero"], got["invalid"]), (33.0, nsf.ZERO, []))
+        self.assertEqual(got["content_first"], {"frame": 9, "ms": 75.0, "file": "frame-007.png"})
+        # The app's `before` row is 25 ms after the key: frame 3. The 2 frames before it have no row.
+        self.assertEqual((got["frames_after_key"], got["frames_not_delivered"], got["first_is_final"]), (241, 3, True))
+        self.assertEqual(got["pictures"]["before"], "frame-001.png")
+        at_zero = nsf.one_key(take([(OLD, ROW_OLD)] * 4 + [(NEW, ROW_NEW)] * 236, before=1), "n", asked_hz=120)
+        self.assertEqual((at_zero["key_work_ms"], at_zero["content_first"]["frame"], at_zero["content_first"]["ms"]), (0.0, 5, 42))
+
+    def test_the_zero_of_a_new_tab_is_its_earliest_opening_mark(self):
+        marks = [{"name": "newTab.open", "ms": -3.0}, {"name": "newTab.take", "ms": -9.0}, {"name": "cmdN.start", "ms": -50.0}]
+        got = nsf.one_key(take([(NEW, STILL)] * 240, spans=marks), "t", asked_hz=120)
+        self.assertEqual((got["key_work_ms"], got["invalid"]), (9.0, []))
+
+    def test_a_second_key_is_counted_from_its_due_time_after_the_first_keys_zero(self):
+        # The first key's work took 30 ms: the second key was due 100 ms after the first key, 70 ms after the reply's zero.
+        marks = [{"name": "cmdN.start", "ms": -30.0}, {"name": "cmdN.start", "ms": 100.0}]
+        got = nsf.one_key(take([(NEW, ROW_NEW)] * 252, spans=marks), "n", gap_ms=100, asked_hz=120)
+        self.assertEqual((got["key_work_ms"], got["invalid"]), (30.0, []))
+        self.assertEqual(got["content_first"], {"frame": 1, "ms": 5.0, "file": "frame-011.png"})
+
+    def test_a_reply_with_no_opening_mark_has_no_zero(self):
+        got = nsf.one_key(take([(NEW, ROW_NEW)] * 240, spans=[{"name": "newTab.open", "ms": 0.0}]), "n", asked_hz=120)
+        self.assertEqual((got["key_work_ms"], got["zero"], [reason.split(":")[0] for reason in got["invalid"]]), (None, None, ["zero"]))
+
+    def test_a_region_that_goes_back_to_the_picture_before_the_key_is_invalid(self):
+        # Frame 2: a terminal's cursor changes 0.02 % of the content area. Frames 3 to 19: as before the key. Frame 20: the page.
+        pictures = [(OLD, ROW_OLD), ((0.0002, 0.3), ROW_OLD)] + [(OLD, ROW_OLD)] * 17 + [(NEW, ROW_NEW)] * 221
+        got = nsf.one_key(take(pictures), "n", asked_hz=120)
+        self.assertEqual((got["content_first"]["frame"], got["content_first_vs_before"]), (2, 0.0002))
+        self.assertEqual(got["invalid"], ["back: content went back to the picture before the key at frame 3, after its first "
+                                          "change at frame 2: that change was not the key's"])
+        self.assertEqual(nsf.one_key(take([(NEW, ROW_NEW)] * 240), "n", asked_hz=120)["content_first_vs_before"], 0.3)
+
+    def test_one_small_change_that_goes_away_is_a_change_and_not_a_caret(self):
+        # 3 phases: at the last picture, off it for 500 ms, at it again. A caret has 4 phases at least.
+        pictures = [(NEW, ROW_NEW)] * 100 + [((0.3, 0.0003), ROW_NEW)] * 60 + [(NEW, ROW_NEW)] * 80
+        got = nsf.one_key(take(pictures), "n", asked_hz=120)
+        self.assertEqual((got["blinks"], got["changes_after_content"], got["first_is_final"]), ([], 60, False))
+
+
+class OpenedSinceTests(unittest.TestCase):
+    def test_new_records_are_counted_also_when_the_apps_list_is_full(self):
+        full = [{"spare": True, "ms": float(n)} for n in range(64)]
+        self.assertEqual(nsf.opened_since(full[:3], full[:5]), 2)
+        self.assertEqual(nsf.opened_since(full, full), 0)
+        # The app keeps its newest 64: 2 new records push the 2 oldest out, and the list is as long as before.
+        self.assertEqual(nsf.opened_since(full, full[2:] + [{"spare": True, "ms": 64.0}, {"spare": False, "ms": 65.0}]), 2)
+        self.assertEqual(nsf.opened_since([], []), 0)
 
 
 class InputProofTests(unittest.TestCase):
@@ -157,9 +239,11 @@ class InputProofTests(unittest.TestCase):
 class FakeApp:
     """The app's answers to the tool's calls: each frame_strip opens `opens` tabs or workspaces for its keys."""
 
-    def __init__(self, folder, pictures, opens=None, engine="cef", workspaces=3):
+    def __init__(self, folder, pictures, opens=None, engine="cef", workspaces=3, work=0.0):
         self.folder, self.pictures, self.opens, self.engine = folder, pictures, opens, engine
         self.workspaces, self.tabs, self.openings, self.calls, self.closed, self.newest = workspaces, 1, [], [], [], []
+        # `work`: the ms of each key's own work (the reply's zero is its end). `limit`: the records that the app keeps.
+        self.work, self.limit, self.recorded = work, None, 0
 
     def terminal_tab(self):
         self.tabs += 1
@@ -194,14 +278,19 @@ class FakeApp:
         if action == "frame_strip":
             keys = params.get("repeat", 1)
             opened = keys if self.opens is None else self.opens
-            self.openings += [{"spare": True}] * opened
+            for _ in range(opened):
+                self.recorded += 1
+                self.openings.append({"spare": True, "ms": 1000.0 + self.recorded})
+            if self.limit:
+                self.openings = self.openings[-self.limit:]
             self.newest += [params["key"]] * opened
             if params["key"] == "n":
                 self.workspaces += opened
             else:
                 self.tabs += opened
-            reply = take(self.pictures, spans=[{"name": "cmdN.start" if params["key"] == "n" else "newTab.open", "ms": 100.0 * n,
-                                                "duration_ms": 1.0} for n in range(keys)])
+            # The first key's mark starts `work` before the reply's zero; the second key's timer starts at that zero.
+            reply = take(self.pictures, spans=[{"name": "cmdN.start" if params["key"] == "n" else "newTab.open",
+                                                "ms": 100.0 * n if n else -self.work, "duration_ms": 1.0} for n in range(keys)])
             os.makedirs(params["dir"], exist_ok=True)
             for frame in reply["frames"]:
                 Path(params["dir"], frame["file"]).write_bytes(b"png")
@@ -245,6 +334,7 @@ class ScreenTests(unittest.TestCase):
         self.assertEqual((app.tabs, app.workspaces), (1, 3))
         self.assertEqual([row.get("tabs_before") or row.get("workspaces_before") for row in report["rows"]], [3, 3, 3, 3, 2, 2, 2, 2])
         self.assertEqual((app.strip["above"], app.strip["repeat"], app.strip["repeat_interval_ms"], app.strip["duration_ms"]), (True, 2, 100.0, 2100.0))
+        self.assertEqual(app.strip["capture"], "screencapturekit")  # asked for by name: never the window list by the app's choice
         self.assertEqual([row["page_engine"] for row in report["rows"]], ["cef"] * 8)
         self.assertEqual(report["rows"][2]["second_key_late_ms"], 0.0)
         with tarfile.open(os.path.join(self.folder, "kept.tgz")) as archive:
@@ -273,6 +363,31 @@ class ScreenTests(unittest.TestCase):
         report = new_surface_screen.Screen(options(self.folder, keys="t", runs=1, workspaces=400), short.rpc, short.tools(),
                                            sleep=lambda _: None, make_session=lambda *_: {"maker_exit": 1}).run()
         self.assertEqual(report["rows"][0]["invalid"], ["session: 400 workspaces asked, the app lists 3"])
+
+    def test_a_row_counts_its_openings_when_the_apps_list_of_records_is_full(self):
+        app = FakeApp(self.folder, [(NEW, ROW_NEW)] * 240)
+        app.openings = [{"spare": True, "ms": float(n)} for n in range(64)]
+        app.limit = 64
+        report, _ = self.run_mode(app, keys="n", gaps="0,100", runs=1)
+        self.assertEqual([row["invalid"] for row in report["rows"]], [[], []])
+        self.assertEqual([row["spare"] for row in report["rows"]], [[True], [True, True]])
+        self.assertEqual(len(app.openings), 64)
+
+    def test_the_marks_of_a_row_count_from_the_rows_zero(self):
+        app = FakeApp(self.folder, [(NEW, ROW_NEW)] * 252, work=30.0)
+        report, _ = self.run_mode(app, keys="n", gaps="100", runs=1)
+        row = report["rows"][0]
+        # The second key's timer starts at the end of the first key's work: its opening begins 30 ms after its due time.
+        self.assertEqual((row["key_work_ms"], row["opening_marks_ms"], row["second_key_late_ms"], row["invalid"]), (30.0, [0.0, 130.0], 30.0, []))
+        self.assertEqual(report["cases"]["cmd-n/100 ms after a key"]["key_work_ms"], {"p50": 30.0, "max": 30.0})
+
+    def test_a_fresh_session_moves_the_tags_saved_state_aside(self):
+        root = os.path.join(self.folder, "tags", "screen-test-tag")
+        os.makedirs(os.path.join(root, "tui"))
+        os.environ["BENCH_LAUNCH_STATE_BASE"] = self.folder
+        self.addCleanup(os.environ.pop, "BENCH_LAUNCH_STATE_BASE", None)
+        new_surface_screen.fresh_session("screen-test-tag")
+        self.assertEqual((os.path.exists(root), os.path.isdir(os.path.join(root + ".bench-prev", "tui"))), (False, True))
 
 
 if __name__ == "__main__":
