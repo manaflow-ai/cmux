@@ -140,10 +140,10 @@ pub fn run() -> i32 {
             Err(e) => Some(json!({"jsonrpc": "2.0", "id": null,
                 "error": {"code": -32700, "message": format!("parse error: {e}")}})),
         };
-        if let Some(answer) = answer {
-            if writeln!(out, "{answer}").is_err() || out.flush().is_err() {
-                break;
-            }
+        if let Some(answer) = answer
+            && (writeln!(out, "{answer}").is_err() || out.flush().is_err())
+        {
+            break;
         }
     }
     hub.stop();

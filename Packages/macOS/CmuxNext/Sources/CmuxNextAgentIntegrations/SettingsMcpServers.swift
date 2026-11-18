@@ -204,10 +204,11 @@ public final class SettingsMcpServers: PageProvider {
         problem = nil
     }
 
-    /// The `servers` of a list answer (its last line).
+    /// The `servers` of a list answer: the whole output, or its last line when something printed before it.
     static func rows(_ data: Data) -> [Row]? {
-        let last = String(data: data, encoding: .utf8)?.split(separator: "\n").last.map(String.init) ?? ""
-        guard let value = try? JSONValue.parse(Data(last.utf8)), let servers = value["servers"]?.arrayValue else { return nil }
+        let last = String(data: data, encoding: .utf8)?.split(separator: "\n").last.map { Data($0.utf8) } ?? Data()
+        guard let value = (try? JSONValue.parse(data)) ?? (try? JSONValue.parse(last)),
+              let servers = value["servers"]?.arrayValue else { return nil }
         return servers.compactMap { item in
             guard let name = item["name"]?.stringValue else { return nil }
             return Row(name: name, kind: item["kind"]?.stringValue ?? "remote", address: item["address"]?.stringValue ?? "",
