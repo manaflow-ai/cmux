@@ -1401,6 +1401,9 @@ PY_LIGHT
     # The packages' attestations are verified with --deny-self-hosted-runners,
     # so they must be signed on a GitHub-hosted runner.
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
+    # The overflow watch writes RUNNER_POOLS, which marks Blacksmith labels dead: on
+    # Blacksmith it queues with the outage it records.
+    "ci-cloud-overflow-probe.yml:    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing"
   )
   # The declared hosted light jobs' exact runs-on lines (validated above).
   local light_line

@@ -84,20 +84,13 @@ jobs:
   watch:
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
-    # Its own bounded selector over CI_TRUSTED_RUNNER, the variable the other
-    # GLAEDA_ROUTE_APP_KEY control jobs read (ci-owned-pool-rescue, ci-stale-run-janitor).
-    # The expression bounds the value to one-job Blacksmith Linux VMs (2 or 8 vCPU), so no
-    # variable can move this App key to a reused machine. Unlike the shared trusted selector it
-    # never resolves to a size the probes ask for (PROBE_LABELS, 4 and 16 vCPU) or to GitHub-
-    # hosted Ubuntu: any other value, unset included (the switch's restore can unset it, and
-    # its alternate failover is 4 vCPU), takes Blacksmith 2 vCPU. So a stalled probe size never holds the watch, and with it the
-    # concurrency group, as on 2026-10-28 (tests/test_ci_cloud_overflow_switch.py).
-    # It used to name the literal blacksmith-6vcpu-macos-26, a single-label pin with no
-    # fallback: on 2026-11-03 RUNNER_POOLS marked that label dead and run 41688532704's
-    # watch queued 19 minutes (17:53Z-18:12Z), so the hosted light rescue below ran about
-    # every 20-25 minutes instead of every pass (cmuxterm-hq#6671). It needs no macOS
-    # (Python and gh only).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds the App key that writes runner variables; never a probed size
+    # GitHub-hosted Ubuntu, a literal label: this job writes RUNNER_POOLS, which marks Blacksmith
+    # labels dead, so it must start while Blacksmith starts nothing. On 2026-11-18 it sat on
+    # Blacksmith 2 vCPU with every Blacksmith Linux size, and RUNNER_POOLS stayed at its 19:02Z
+    # pass. A hosted VM runs one job and is gone, so its App key never sits on a reused machine,
+    # and no variable can move it. It is never a probed size, so a stalled probe never holds the
+    # watch and its concurrency group (2026-10-28). It needs no macOS (Python and gh only).
+    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing
     timeout-minutes: 25
     permissions:
       actions: write
