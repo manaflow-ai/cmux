@@ -22,6 +22,7 @@ import StoreKit
 /// ```
 public struct MobilePlansView: View {
     @Environment(BillingModel.self) private var billing
+    @Environment(\.openURL) private var openURL
     @State private var showingManageSubscriptions = false
     /// The subscription the open refund sheet is for, fixed at the tap so a
     /// reload while the sheet is up cannot change or drop it.
@@ -231,7 +232,12 @@ public struct MobilePlansView: View {
                 .accessibilityIdentifier("BillingRestore")
                 if account.currentPlan.source == .apple {
                     Button(L10n.string("mobile.billing.manage", defaultValue: "Manage Subscription")) {
-                        showingManageSubscriptions = true
+                        switch BillingManageSubscriptionsRoute.route(isiOSAppOnMac: ProcessInfo.processInfo.isiOSAppOnMac) {
+                        case .storeKitSheet:
+                            showingManageSubscriptions = true
+                        case .appStorePage(let url):
+                            openURL(url)
+                        }
                     }
                     .accessibilityIdentifier("BillingManage")
                     if let productID = billing.currentAppleProductID,
