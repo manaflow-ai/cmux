@@ -4,9 +4,14 @@
 # input to visible and to page pixels, cold pane, warm pane, second and third pane, links).
 # Runs alone on the worker because it launches an app:
 #   cmux-ci run --class exclusive --label measure --script scripts/measure/cef-tab.sh --ref <sha> --artifact artifacts/cef-tab.json [--arg=--rounds=6]
+# --build-at=SHA (first argument) builds the app at SHA, a pull request's head or a base, with that commit's own
+# reload.sh, and runs this checkout's bench against it (scripts/measure/app-at-commit.sh): one step per arm.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 tag="ceftab"
+build_at=""
+if [[ "${1:-}" == --build-at=* ]]; then build_at="${1#--build-at=}"; shift; fi
+. scripts/measure/app-at-commit.sh
 # A fleet step checks out no submodules (only their empty gitlink directories): the app build needs
 # Ghostty's headers and the ghostty-next tree, and GhosttyKit.xcframework (a prebuilt download).
 for sub in ghostty ghostty-next; do
@@ -35,8 +40,12 @@ done
 RUNNER_TEMP="$out" GITHUB_PATH="$out/bun-path" ./scripts/cmux-next/private-bun.sh
 PATH="$(tail -n 1 "$out/bun-path"):$PATH"
 export PATH
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log"
-app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
+if [[ -n "$build_at" ]]; then
+  app="$(measure_app_at_commit "$build_at" "$tag" "$out/at")"
+else
+  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log"
+  app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
+fi
 if [[ -z "$app" || ! -d "$app" ]]; then
   echo "cef-tab: the tagged reload printed no app path" >&2
   grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true

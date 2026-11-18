@@ -29,6 +29,8 @@
 //!   tab a verb reads, the trail walks, the SSH machine an action names, a
 //!   page fit, Picture in Picture's page, where a file or diff opens, the
 //!   appearance verbs).
+//! - [`launch`]: whether the launch snapshot drawn before the daemon answered
+//!   is that daemon's, or stale (the launch then goes on as a bare one).
 
 pub mod appearance;
 pub mod browser;
@@ -37,6 +39,7 @@ pub mod close;
 pub mod closed;
 pub mod files;
 pub mod history;
+pub mod launch;
 pub mod notifications;
 pub mod remote;
 pub mod restore;

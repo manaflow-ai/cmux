@@ -367,6 +367,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
+        services.hoverCards.windowOrderChanged() // this window came front: the card's cached top window may be under it
         reservedContent.fill { [weak self] in self?.services.windows.controllers.map(\.reservedContent) ?? [] } // follows the key main window
         let snapshots = services.sidebarSnapshots, id = state.id
         Task { await snapshots.touch(window: id) }

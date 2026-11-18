@@ -10,10 +10,13 @@
 //!
 //! A build without the capability may have rewritten the screen meanwhile (a
 //! pane closed, or moved to another screen). Load keeps a record only while
-//! its pane is still a pane of the stored layout, and applies the rules of
-//! the list again (`cmux_layout_reducer::floating_panes::normalized`), so a
-//! screen always loads with at least one tiled pane. A dropped record goes on
-//! the screen's next write.
+//! its pane is still a pane of the stored layout and has no place where a
+//! pane never floats (a stack, a docked column, a column with rows), and
+//! applies the rules of the list again
+//! (`cmux_layout_reducer::floating_panes::normalized`), so a screen always
+//! loads with at least one tiled pane. A dropped record goes on the screen's
+//! next write. Load also ends the zoom of a pane that floats: a floating pane
+//! is never zoomed.
 //!
 //! The column types of the table are affinities only: SQLite keeps a REAL, a
 //! TEXT or a BLOB where the table says `INTEGER`. This build writes integers
@@ -167,9 +170,47 @@ pub(super) fn overlay(
     for (_, screen) in screens.iter_mut().enumerate().filter(|(index, _)| touched.contains(index)) {
         let mut panes = Vec::new();
         layout_panes(&screen.layout, &mut panes);
-        screen.floating = normalized(&panes, &screen.floating);
+        let kept = screen
+            .floating
+            .iter()
+            .filter(|entry| !never_floats(screen, &entry.pane))
+            .cloned()
+            .collect::<Vec<_>>();
+        screen.floating = normalized(&panes, &kept);
+        // A floating pane is never zoomed: a build without the capability may have zoomed the pane.
+        screen.zoomed_pane = crate::model::Screen::zoom_beside_floating_panes(
+            screen.zoomed_pane.take(),
+            &screen.floating,
+        );
     }
     Ok(())
+}
+
+/// Whether `pane` never floats in the stored `screen`: a member of a stack, and a pane of a docked column or of
+/// a column with rows. The same rule as the live screen's (`Screen::settled_floating_panes`), on the stored
+/// layout with its docks and rows overlaid: a build without the capability may have given the pane such a
+/// place.
+fn never_floats(screen: &RegistryScreen, pane: &PanePublicId) -> bool {
+    in_stack(&screen.layout, pane)
+        || screen.viewport.columns.iter().any(|column| {
+            let mut panes = Vec::new();
+            layout_panes(&column.layout, &mut panes);
+            panes.contains(pane)
+                && (column.dock.is_some()
+                    || !column.rows.is_empty()
+                    || in_stack(&column.layout, pane))
+        })
+}
+
+/// Whether `pane` is a member of a stack of the stored layout `node`.
+fn in_stack(node: &RegistryLayoutNode, pane: &PanePublicId) -> bool {
+    match node {
+        RegistryLayoutNode::Leaf { .. } => false,
+        RegistryLayoutNode::Split { first, second, .. } => {
+            in_stack(first, pane) || in_stack(second, pane)
+        }
+        RegistryLayoutNode::Stack { panes, .. } => panes.contains(pane),
+    }
 }
 
 /// The frame of four stored values; `None` when one is not a `u32`.

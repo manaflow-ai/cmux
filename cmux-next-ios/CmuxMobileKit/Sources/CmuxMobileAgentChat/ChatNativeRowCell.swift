@@ -278,7 +278,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         if let table, !table.isHidden, let url = table.link(at: contentView.convert(location, to: table)) { return url }
         for label in labels where !label.isHidden {
             let point = contentView.convert(location, to: label)
-            if label.bounds.contains(point), let url = NativeMarkdownView.link(in: label, at: point) { return url }
+            if label.bounds.contains(point), let url = NativeMarkdownView.link(in: label, at: point, asDrawn: true) { return url }
         }
         return nil
     }

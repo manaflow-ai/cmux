@@ -210,14 +210,17 @@ extension ConversationStore {
     /// of a conversation New Message just opened.
     public func sendWhenConnected(_ message: ConversationComposeMessage) {
         let images = message.images.map { (data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType) }
-        if meID != nil {
+        // A kept transcript gives the store a sender before it connects: wait for the connection.
+        if meID != nil, connection == .connected {
             send(text: message.text, images: images)
             return
         }
-        var sent = false
-        addObserver { [weak self] change in
-            guard !sent, change == .connection, let self, self.meID != nil else { return }
-            sent = true
+        // One observer per waiting message, removed once it sends (it ran on every change before).
+        var token: Int?
+        token = addObserver { [weak self] change in
+            guard change == .connection, let self, self.meID != nil, self.connection == .connected, let mine = token else { return }
+            token = nil
+            self.removeObserver(mine)
             self.send(text: message.text, images: images)
         }
     }

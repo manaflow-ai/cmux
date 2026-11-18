@@ -211,6 +211,19 @@ verify_computer_use_helper() {
   "$XCRUN_TOOL" stapler validate "$standalone_helper"
   "$CODESIGN_TOOL" --verify --strict --verbose=2 "$standalone_helper"
   assess_with_gatekeeper "$standalone_helper"
+  # The Screen Sharing helper ("<app> Screen Sharing.app"), when the app
+  # carries it, shares that submission and is checked the same way.
+  local share_path standalone_share
+  for share_path in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
+    [ -d "$share_path/Contents" ] || continue
+    standalone_share="$TMP_DIR/$(basename "$share_path")"
+    "$XCRUN_TOOL" stapler validate "$share_path"
+    "$CODESIGN_TOOL" --verify --strict --verbose=2 "$share_path"
+    "$DITTO_TOOL" "$share_path" "$standalone_share"
+    "$XCRUN_TOOL" stapler validate "$standalone_share"
+    "$CODESIGN_TOOL" --verify --strict --verbose=2 "$standalone_share"
+    assess_with_gatekeeper "$standalone_share"
+  done
 }
 
 # shellcheck source=lib/notary-auth.sh
