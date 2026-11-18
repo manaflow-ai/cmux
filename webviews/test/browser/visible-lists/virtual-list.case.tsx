@@ -1,6 +1,6 @@
 // ui/VirtualList with N rows whose row component is memoized and takes the list's `style`, as the
 // Tasks, Bookmarks and All chats rows can.
-import { memo, useState, type CSSProperties } from "react";
+import { memo, useEffect, useState, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { VirtualList } from "../../../src/ui/VirtualList";
@@ -19,8 +19,14 @@ let changeOne = () => {};
 
 function CaseVirtualList({ n }: { n: number }) {
   const [items, setItems] = useState(() => caseItems(n));
-  changeOne = () =>
-    setItems((previous) => previous.map((item, index) => (index === 2 ? { ...item, label: `${item.label}!` } : item)));
+  // In an effect, not at render: a component that writes outside itself at render is one the
+  // compiler leaves uncompiled, and its callbacks would change every render.
+  useEffect(() => {
+    changeOne = () =>
+      setItems((previous) =>
+        previous.map((item, index) => (index === 2 ? { ...item, label: `${item.label}!` } : item)),
+      );
+  }, []);
   return (
     <VirtualList
       count={items.length}

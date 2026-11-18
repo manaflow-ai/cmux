@@ -46,6 +46,9 @@ export async function startVisibleLists(): Promise<VisibleListsServer> {
   const { build } = await import("vite");
   const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "visible-lists-"));
   const input = path.join(webviews, "test/browser/visible-lists.html");
+  // `bun test` runs with NODE_ENV=test, which would build dev JSX against production React.
+  const environment = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
   await build({
     configFile: path.join(webviews, "vite.config.ts"),
     mode: "production",
@@ -58,6 +61,8 @@ export async function startVisibleLists(): Promise<VisibleListsServer> {
       rolldownOptions: { input },
     } as Record<string, unknown>,
   });
+  if (environment === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = environment;
   const html = path.relative(webviews, input);
   const statics = Bun.serve({
     port: 0,

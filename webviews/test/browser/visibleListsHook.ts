@@ -65,9 +65,10 @@ export const renderCounts = {
   stop() {
     counting = false;
   },
-  /** Renders (mounts included) and mounts of the named components since `start`. */
+  /** Renders (mounts included) and mounts since `start` of the named components: the largest
+   * count among them, since a row is one render of each (a row and the content it draws). */
   read(names: readonly string[]) {
-    const sum = (map: Map<string, number>) => names.reduce((total, name) => total + (map.get(name) ?? 0), 0);
-    return { renders: sum(renders), mounts: sum(mounts) };
+    const most = (map: Map<string, number>) => Math.max(0, ...names.map((name) => map.get(name) ?? 0));
+    return { renders: most(renders), mounts: most(mounts) };
   },
 };
