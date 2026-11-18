@@ -2,8 +2,8 @@
 
 Wraps the Swift Testing suite `OptimisticOverlayBench` (Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests) through
 scripts/ci/run-swift-testing-suites.sh on a fleet Mac, with CMUX_SWIFT_TEST_SUITES=OptimisticOverlayBench (the suite
-runs only when named). Each sample is one `DaemonStore.intend` of a split, Split Left, New Column (screens of 2 and
-64 panes), a tab move (a pane of 50 tabs) or a workspace move (200 workspaces); the suite prints one line per case:
+runs only when named). Each sample is one `DaemonStore.intend` of a split, Split Left, New Column (screens of 2, 64
+and 256 panes), a tab move (a pane of 50 tabs) or a workspace move (200 workspaces); the suite prints one line per case:
 
   OVERLAY-BENCH {"scenario": "split", "panes": 64, "unit": "ns", "p50": .., "p95": .., "samples": [..]}
 

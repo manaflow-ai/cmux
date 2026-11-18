@@ -4,7 +4,7 @@ import Testing
 
 /// The `overlay` bench (`scripts/bench/benches/overlay.py`): intent to overlay, the main-thread time of
 /// `DaemonStore.intend` (the overlay's rule, its record writes and their publication) for the intents whose overlay
-/// rules are cmux-layout-reducer `optimistic` (#37429): a split, New Column and Split Left on screens of 2 and 64
+/// rules are cmux-layout-reducer `optimistic` (#37429): a split, New Column and Split Left on screens of 2, 64 and 256
 /// panes, a tab move in a pane of 50 tabs and a workspace move among 200. Each sample is one intend; the intent is
 /// rejected after it (outside the clock), so every sample starts from the same records. Prints one
 /// `OVERLAY-BENCH {json}` line per scenario with its samples in ns. It compiles and runs at a base without #37429
@@ -77,7 +77,7 @@ struct OptimisticOverlayBench {
         print("OVERLAY-BENCH {\"scenario\":\"\(scenario)\",\"panes\":\(panes),\"unit\":\"ns\",\"p50\":\(p50),\"p95\":\(p95),\"samples\":[\(list)]}")
     }
 
-    @Test(arguments: [2, 64])
+    @Test(arguments: [2, 64, 256])
     func split(panes count: Int) throws {
         let store = Self.store(panes: count)
         let target = PaneID(rawValue: UInt64(count))
@@ -86,7 +86,7 @@ struct OptimisticOverlayBench {
         Self.report("split", panes: count, samples)
     }
 
-    @Test(arguments: [2, 64])
+    @Test(arguments: [2, 64, 256])
     func splitLeft(panes count: Int) throws {
         let store = Self.store(panes: count)
         let target = PaneID(rawValue: UInt64(count))
@@ -97,7 +97,7 @@ struct OptimisticOverlayBench {
         Self.report("split_left", panes: count, samples)
     }
 
-    @Test(arguments: [2, 64])
+    @Test(arguments: [2, 64, 256])
     func newColumn(panes count: Int) throws {
         let store = Self.store(panes: count)
         let target = PaneID(rawValue: UInt64(count))
