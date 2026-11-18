@@ -11,6 +11,10 @@
 //! notice) is not a turn. Read as work, each redraw is one `working` report
 //! and one `idle` report, and the daemon takes that pair as the end of a
 //! turn.
+//!
+//! The same output rule also holds a `working` state through a read that
+//! lands between two parts of a redraw. That hold stays: the last row here
+//! guards it.
 
 use std::time::{Duration, Instant};
 
@@ -104,4 +108,64 @@ fn output_on_a_screen_with_no_rule_reads_as_working() {
     let states: Vec<AgentState> = emitted.iter().map(|(_, state)| *state).collect();
     assert_eq!(states, [AgentState::Idle, AgentState::Working, AgentState::Idle], "{emitted:?}");
     assert_eq!(emitted[1].0, OUTPUT_AT_MS, "the output reads as working at once: {emitted:?}");
+}
+
+/// Claude Code in a turn. Its spinner line redraws every 100 ms; a read
+/// between two parts of a redraw can see the frame without that line.
+fn claude_turn(frame: u64, spinner: bool) -> String {
+    let glyph = ['✻', '✶', '✳', '✢', '·', '*'][frame as usize % 6];
+    let line = if spinner {
+        format!("{glyph} Thinking… ({}s · esc to interrupt)", frame / 10)
+    } else {
+        String::new()
+    };
+    format!(
+        "⏺ Writing the essay about oak trees.\n\n{line}\n\n\
+         ────────────────────────────────\n❯ \n────────────────────────────────\n  ? for shortcuts\n"
+    )
+}
+
+/// The output's age holds a `working` state that a rule made. While a turn
+/// runs the tracker reads the screen once a second without waiting for it to
+/// be quiet, so a read can see the prompt box and no spinner. That read is
+/// not the end of the turn: the output is fresh and the state before it is
+/// `working`.
+#[test]
+fn a_read_between_two_parts_of_a_redraw_does_not_end_a_working_turn() {
+    assert_eq!(
+        read("claude", &claude_turn(0, true)),
+        (Some("live_turn_working".to_owned()), false)
+    );
+    assert_eq!(read("claude", &claude_turn(0, false)), (Some("live_prompt_box".to_owned()), true));
+    let manifest =
+        ManifestSet::bundled().manifests().find(|m| m.id() == "claude").expect("bundled manifest");
+    let mut tracker = ScreenDetectTracker::default();
+    let start = Instant::now();
+    let mut emitted = Vec::new();
+    let mut reads = 0;
+    for ms in (0..END_MS).step_by(TICK_MS as usize) {
+        let now = start + Duration::from_millis(ms);
+        tracker.observe_size(TERMINAL, 120, 40, now);
+        let frame = ms / 100;
+        if !tracker.observe_revision(TERMINAL, frame + 1, now) {
+            continue;
+        }
+        reads += 1;
+        // The third read of the turn sees the frame without its spinner line.
+        let screen = claude_turn(frame, reads != 3);
+        let mut detection =
+            manifest.detect(DetectionInput { screen: &screen, osc_title: "", osc_progress: "" });
+        tracker.apply_output_activity(TERMINAL, &mut detection, now);
+        if let Some(emission) =
+            tracker.record_detection_at(TERMINAL, Some(("claude", detection)), now, false, false)
+        {
+            emitted.push((ms, emission.state));
+        }
+    }
+    assert!(reads > 3, "the tracker read the screen {reads} times");
+    assert_eq!(
+        emitted,
+        [(0_u64, AgentState::Working)],
+        "a read of the prompt with no spinner ended a turn that still prints"
+    );
 }
