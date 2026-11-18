@@ -88,15 +88,21 @@ struct DemoDriver {
             shell.tab = .home
         case "retry-home-kept-slow":
             // A launch whose Mac's list is slow: the kept rows show on a live link, the list
-            // never comes ("Updating…" only past the quiet bound).
-            MacHomeFeed.shared.seedKeptRowsForDemo(count: 8, macID: "mac-studio")
+            // never comes ("Updating…" only past the quiet bound). The rows and the Home tab
+            // come together, well after launch: a UI test's clock starts when it sees them.
+            shell.tab = .workspaces
+            try? await Task.sleep(for: .seconds(12))
             shell.store.tracksMacData = true
             shell.store.macConnection["mac-studio"] = .connected
+            MacHomeFeed.shared.seedKeptRowsForDemo(count: 8, macID: "mac-studio")
             shell.tab = .home
         case "retry-refresh-slow":
-            // The Workspaces rows show while the team's refresh never ends.
-            shell.tab = .workspaces
+            // The Workspaces rows show while the team's refresh never ends; the refresh and
+            // the Workspaces tab start together, well after launch.
+            shell.tab = .home
+            try? await Task.sleep(for: .seconds(12))
             shell.store.teamDataState = .loading
+            shell.tab = .workspaces
         case "retry-home-unreachable-empty", "retry-home-asleep-empty":
             // Nothing kept: Workspaces' empty state ("Can't connect to …", or "… is offline").
             MacHomeFeed.shared.seedStressRows(count: 0, macID: "mac-studio")
