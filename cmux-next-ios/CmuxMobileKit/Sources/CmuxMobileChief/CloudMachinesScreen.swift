@@ -147,8 +147,12 @@ struct CloudMachineRow: View {
     }
 
     private var subtitle: String {
-        [awaitingApproval ? cloudMachineAwaitingApprovalTitle : cloudMachineStatusTitle(machine.status),
-         machine.size.summary, machine.cost(now: .now)]
+        // Held for approval: the short status takes the status's place and the cost gives up its
+        // room, so the line is never longer than it was and the row keeps its height.
+        if awaitingApproval {
+            return [String(localized: "Waiting for approval"), machine.size.summary].filter { !$0.isEmpty }.joined(separator: " · ")
+        }
+        return [cloudMachineStatusTitle(machine.status), machine.size.summary, machine.cost(now: .now)]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
