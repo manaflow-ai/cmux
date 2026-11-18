@@ -221,7 +221,7 @@ static NSString *axText(pid_t pid, AXError *errOut) {
             AXUIElementRef el = (__bridge AXUIElementRef)queue[0]; [queue removeObjectAtIndex:0];
             CFTypeRef role = NULL;
             AXUIElementCopyAttributeValue(el, kAXRoleAttribute, &role);
-            if (role && [(__bridge NSString *)role isEqualToString:(NSString *)kAXTextAreaRole]) {
+            if (role && [(__bridge NSString *)role isEqualToString:(__bridge NSString *)kAXTextAreaRole]) {
                 if (AXUIElementCopyAttributeValue(el, kAXValueAttribute, &val) == kAXErrorSuccess && val)
                     found = [(__bridge NSString *)val copy];
             }
