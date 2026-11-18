@@ -1,3 +1,5 @@
+use std::os::unix::fs::FileExt as _;
+
 use super::*;
 
 #[test]
@@ -45,4 +47,51 @@ fn each_chat_has_its_own_projection_and_its_name_is_one_the_machine_takes() {
     // The daemon's rule (cmux-tui-core projection.rs): 1-64 letters, digits, - or _.
     assert!(one.len() <= 64);
     assert!(one.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte)));
+}
+
+#[test]
+fn links_inside_the_folder_are_in_the_manifest_and_ones_that_leave_it_or_dangle_are_not() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(folder.path()).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("secret.txt"), "not shared\n").unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+    std::os::unix::fs::symlink("src/main.rs", root.join("main-link.rs")).unwrap();
+    std::os::unix::fs::symlink("src", root.join("current")).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("secret.txt"), root.join("absolute-out")).unwrap();
+    std::os::unix::fs::symlink("../../../../../../etc/passwd", root.join("src/climbs-out")).unwrap();
+    std::os::unix::fs::symlink("not-there.txt", root.join("dangling")).unwrap();
+
+    let listed = list(&root).unwrap();
+    let manifest = &listed.manifest;
+    let link = manifest.resolve("main-link.rs").expect("an in-tree link is in the manifest");
+    let entry = manifest.entry(link).unwrap();
+    assert_eq!(entry.kind, Kind::Link);
+    assert_eq!(entry.link.as_deref(), Some("src/main.rs"));
+    assert_eq!(manifest.entry(manifest.resolve("current").unwrap()).unwrap().kind, Kind::Link);
+    for refused in ["absolute-out", "src/climbs-out", "dangling"] {
+        assert_eq!(manifest.resolve(refused), None, "{refused} stays on this Mac");
+    }
+    // A link is never read for bytes.
+    assert_eq!(Source::whole(&listed, link).status, wire::REFUSED);
+}
+
+#[test]
+fn a_file_past_4_gib_is_served_by_range_and_never_whole() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(folder.path()).unwrap();
+    let size: u64 = 5 * 1024 * 1024 * 1024 + 7;
+    let image = std::fs::File::create(root.join("disk.img")).unwrap();
+    image.set_len(size).unwrap();
+    let at: u64 = 4 * 1024 * 1024 * 1024 + 4096 * 3 + 1;
+    image.write_all_at(b"past four gib", at).unwrap();
+    drop(image);
+
+    let listed = list(&root).unwrap();
+    let entry = listed.manifest.resolve("disk.img").expect("a 5 GiB file is in the manifest");
+    assert_eq!(listed.manifest.entry(entry).unwrap().size, size);
+    assert_eq!(Source::read(&listed, entry, at, 13), Part::ok(b"past four gib".to_vec()));
+    assert_eq!(Source::read(&listed, entry, size - 2, 64), Part::ok(vec![0, 0]));
+    assert_eq!(Source::whole(&listed, entry).status, wire::FAILED, "only small files go whole");
 }

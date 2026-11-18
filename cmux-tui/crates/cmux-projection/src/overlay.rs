@@ -29,6 +29,9 @@ pub const CHUNK: u64 = 4 * 1024 * 1024;
 const BATCH_FILES: usize = 256;
 /// The most bytes one directory readahead batch asks for.
 const BATCH_BYTES: u64 = 16 * 1024 * 1024;
+/// The most bytes one prefetch batch asks for: a demand read that comes in behind it waits for at
+/// most this much on the Mac's link (about 20 ms at the 47 MB/s the RFD measured).
+pub const PREFETCH_BATCH_BYTES: u64 = 1024 * 1024;
 
 /// `errno` values (Linux numbers; the mount is Linux only).
 pub mod errno {
@@ -67,6 +70,8 @@ pub struct Stats {
     pub remote_reads: u64,
     pub remote_bytes: u64,
     pub cache_hits: u64,
+    /// Bytes a prefetch brought in (not counted in `remote_bytes`).
+    pub prefetched_bytes: u64,
 }
 
 /// Where a path lives now.
@@ -100,6 +105,7 @@ pub struct Overlay {
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
+    prefetched_bytes: AtomicU64,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -203,6 +209,7 @@ impl Overlay {
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
+            prefetched_bytes: AtomicU64::new(0),
         })
     }
 
@@ -225,6 +232,7 @@ impl Overlay {
             remote_reads: self.remote_reads.load(Ordering::Relaxed),
             remote_bytes: self.remote_bytes.load(Ordering::Relaxed),
             cache_hits: self.cache_hits.load(Ordering::Relaxed),
+            prefetched_bytes: self.prefetched_bytes.load(Ordering::Relaxed),
         }
     }
 
@@ -593,6 +601,64 @@ impl Overlay {
         }
         drop(claim);
         mine
+    }
+
+    /// Brings the small files among `entries` into the cache at prefetch priority
+    /// ([`Fetch::prefetch`]), in batches of at most [`PREFETCH_BATCH_BYTES`], skipping what is
+    /// cached, being fetched, written or deleted. Returns the bytes it brought in. Big files are
+    /// left to their demand reads.
+    pub fn prefetch(&self, entries: &[u32]) -> u64 {
+        let mut brought = 0u64;
+        let mut wanted = entries.iter().copied().peekable();
+        while wanted.peek().is_some() {
+            let mut claim = Claim { overlay: self, keys: Vec::new() };
+            let mut batch = Vec::new();
+            let mut bytes = 0u64;
+            {
+                let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
+                let inner = self.lock();
+                while let Some(&index) = wanted.peek() {
+                    let Some(entry) = self.manifest.entry(index) else {
+                        wanted.next();
+                        continue;
+                    };
+                    if !batch.is_empty()
+                        && (bytes + entry.size > PREFETCH_BATCH_BYTES || batch.len() >= BATCH_FILES)
+                    {
+                        break;
+                    }
+                    wanted.next();
+                    let key = (index, WHOLE);
+                    let path = self.manifest.path_of(index);
+                    if entry.kind != Kind::File
+                        || entry.size > CHUNK
+                        || inflight.contains(&key)
+                        || Self::hidden(&inner, &path)
+                        || self.upper.join(&path).exists()
+                        || self.cache_path(key).exists()
+                    {
+                        continue;
+                    }
+                    inflight.insert(key);
+                    claim.keys.push(key);
+                    batch.push(index);
+                    bytes += entry.size;
+                }
+            }
+            if batch.is_empty() {
+                continue;
+            }
+            for (index, answer) in batch.iter().zip(self.fetch.prefetch(&batch)) {
+                let expected = self.manifest.entry(*index).map_or(0, |entry| entry.size);
+                if let Ok(bytes) = answer && bytes.len() as u64 == expected {
+                    self.store((*index, WHOLE), &bytes);
+                    brought += expected;
+                }
+            }
+            drop(claim);
+        }
+        self.prefetched_bytes.fetch_add(brought, Ordering::Relaxed);
+        brought
     }
 
     /// Chunk `chunk` of big file `index` (`total` bytes): from the cache, else fetched.

@@ -6,6 +6,7 @@
 //! machine's disk, and everything the agent writes lands in an upper folder on the machine
 //! ([`overlay`]), never on the Mac.
 
+pub mod fsmonitor;
 pub mod link;
 pub mod manifest;
 pub mod overlay;
@@ -47,4 +48,25 @@ pub trait Fetch: Send + Sync {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError>;
     /// The whole of each file in `entries`, in that order.
     fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>>;
+    /// [`Fetch::batch`] for a prefetch: nobody waits on it, so it yields to every demand read
+    /// ([`link::Link`] holds it while one is in flight).
+    fn prefetch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
+        self.batch(entries)
+    }
 }
+
+#[cfg(test)]
+#[path = "offline_tests.rs"]
+mod offline_tests;
+
+#[cfg(test)]
+#[path = "priority_tests.rs"]
+mod priority_tests;
+
+#[cfg(test)]
+#[path = "edge_tests.rs"]
+mod edge_tests;
+
+#[cfg(test)]
+#[path = "scale_tests.rs"]
+mod scale_tests;

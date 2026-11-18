@@ -118,6 +118,32 @@ struct Planned {
     step: Step,
 }
 
+/// What one path's three versions call for: the last push's (`pushed`, and `pushed_here`, this
+/// Mac's own text of a link the push rewrote), this Mac's now (`here`) and the machine's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Call {
+    /// The machine left it as pushed: this Mac's stays, whatever it is.
+    Unchanged,
+    /// Both sides have the same now: only the record moves.
+    Settle,
+    /// Only the machine changed it: the machine's replaces this Mac's.
+    Take,
+    /// Both changed it, differently: a line merge, else a named conflict.
+    Both,
+}
+
+fn call(pushed: &Side, pushed_here: &Side, here: &Side, machine: &Side) -> Call {
+    if machine == pushed {
+        Call::Unchanged
+    } else if here == machine {
+        Call::Settle
+    } else if here != pushed_here {
+        Call::Both
+    } else {
+        Call::Take
+    }
+}
+
 pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Pulled> {
     pull_kept(socket, local, remote_root, &|_| true, true)
 }
@@ -308,6 +334,7 @@ fn pull_based(
                 (side, Some(staged))
             }
         };
+        // [`call`]'s first answer, before this Mac's file is read.
         if machine == pushed_side {
             unchanged += 1;
             continue;
@@ -318,12 +345,13 @@ fn pull_based(
             continue;
         }
         let here = local_side(&root, relative)?;
-        let step = if here == machine {
+        let decided = call(&pushed_side, &pushed_here, &here, &machine);
+        let step = if decided == Call::Settle {
             match &machine {
                 Side::Link(text) => Step::SettleLink(text.clone()),
                 _ => Step::Settle(staged.map(|staged| staged.pushed())),
             }
-        } else if here != pushed_here {
+        } else if decided == Call::Both {
             // Both changed a text file: merged by line when the edits do
             // not overlap.
             let merged = match (&pushed_side, &here, &machine, &staged) {
@@ -1113,3 +1141,7 @@ pub(super) fn failure_code(error: &anyhow::Error) -> String {
     }
     remote::refusal_code(error).unwrap_or("sync_failed").to_string()
 }
+
+#[cfg(test)]
+#[path = "pull_random_tests.rs"]
+mod random_tests;

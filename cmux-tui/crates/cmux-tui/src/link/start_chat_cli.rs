@@ -1195,19 +1195,22 @@ fn push(
     subpath: &str,
     chat: &str,
 ) -> Result<Value, Value> {
-    if let Some(projected) = project_first(socket, local, remote, chat) {
-        return projected;
-    }
+    let why = match project_first(socket, local, remote, chat) {
+        Ok(projected) => return projected,
+        Err(why) => why,
+    };
     let _ = subpath;
     super::seed_cli::push_copy_only(socket, local, remote)
-        .map(|pushed| pushed_fields(&pushed.json()))
+        .map(|pushed| copied_because(pushed_fields(&pushed.json()), why))
         .map_err(|error| super::seed_cli::failure(&error))
 }
 
 /// An attached folder is projected when that is on, whatever its size or whether it is a git
 /// repository (sync_cli/project.rs); only a GitHub repository the person picked is cloned: the chat
-/// opens on all of it at once, its files read from this Mac on first use. None when it is not, and for any failure to project, so the
-/// caller seeds or copies as before. Both pushes try it first: the App's first copy asks
+/// opens on all of it at once, its files read from this Mac on first use. When it is not, and for
+/// any failure to project at any step (the machine's capability, the manifest, the dial, the
+/// mount), why not, as a code the copy's answer carries (`projection_fallback`), and the caller
+/// seeds or copies as before: the copy is projection's automatic fallback. Both pushes try it first: the App's first copy asks
 /// (`--on-seed-refusal ask`), and a folder its machine's disk cannot hold would end there,
 /// refused, before a projection that needs no room was tried.
 fn project_first(
@@ -1215,24 +1218,24 @@ fn project_first(
     local: &Path,
     remote: &str,
     chat: &str,
-) -> Option<Result<Value, Value>> {
+) -> Result<Result<Value, Value>, &'static str> {
     match super::sync_cli::project::start(socket, local, remote, chat) {
         Ok(Ok(answer)) => {
-            Some(Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()})))
+            Ok(Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()})))
         }
         Ok(Err(why)) => {
             eprintln!(
                 "cmux link start-chat: {} is not projected ({why:?}); copying it",
                 local.display()
             );
-            None
+            Err(why.code())
         }
         Err(error) => {
             eprintln!(
                 "cmux link start-chat: projecting {} failed: {error:#}; copying it",
                 local.display()
             );
-            None
+            Err("projection.failed")
         }
     }
 }
@@ -1246,13 +1249,23 @@ fn push_seed_only(
     subpath: &str,
     chat: &str,
 ) -> Result<Value, Value> {
-    if let Some(projected) = project_first(socket, local, remote, chat) {
-        return projected;
-    }
+    let why = match project_first(socket, local, remote, chat) {
+        Ok(projected) => return projected,
+        Err(why) => why,
+    };
     let _ = subpath;
     super::seed_cli::push_copy_only(socket, local, remote)
-        .map(|pushed| pushed_fields(&pushed.json()))
+        .map(|pushed| copied_because(pushed_fields(&pushed.json()), why))
         .map_err(|error| super::seed_cli::failure(&error))
+}
+
+/// A copy's `fields` with why it was not projected (`projection_fallback`: a
+/// [`super::sync_cli::project::NotProjected`] code, or `projection.failed`).
+fn copied_because(mut fields: Value, why: &'static str) -> Value {
+    if let Some(fields) = fields.as_object_mut() {
+        fields.insert("projection_fallback".into(), Value::from(why));
+    }
+    fields
 }
 
 /// What the copy's answer carries of the push's own line: how it went

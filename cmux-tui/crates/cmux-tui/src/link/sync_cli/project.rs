@@ -19,6 +19,7 @@
 //!
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
 //!     cmux link project enable | disable | status
+//!     cmux link project fsmonitor 2 TOKEN   (on the machine: git's `core.fsmonitor` hook)
 
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::fs::{FileExt as _, MetadataExt as _};
@@ -51,6 +52,21 @@ pub(crate) enum NotProjected {
     Small,
     /// The machine does not serve `projection-v1`.
     Unserved,
+    /// The folder's manifest is past what a machine takes
+    /// ([`cmux_tui_core::projection::MAX_MANIFEST_BYTES`]).
+    TooLarge,
+}
+
+impl NotProjected {
+    /// The code a copy's answer carries for why it was not projected (`projection_fallback`).
+    pub(crate) fn code(&self) -> &'static str {
+        match self {
+            Self::Off => "projection.off",
+            Self::Small => "projection.small",
+            Self::Unserved => "projection.unavailable",
+            Self::TooLarge => "projection.too_large",
+        }
+    }
 }
 
 /// The listed folder: its manifest and, by manifest entry, what each file is read from.
@@ -82,6 +98,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("disable") => set_enabled(false).map(|()| json!({"ok": true, "enabled": false})),
         Some("status") => Ok(json!({"ok": true, "enabled": enabled()})),
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
+        Some("fsmonitor") => return fsmonitor(args.get(1..).unwrap_or_default()),
         _ => Err(anyhow::anyhow!(
             "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
              REMOTE | enable | disable | status"
@@ -103,8 +120,28 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
 }
 
-/// Whether chats from big folders are projected: on unless [`ENV`] or `cmux link project disable`
-/// turned it off.
+/// `fsmonitor 2 TOKEN`: git's fsmonitor hook on the machine, run in a repository's working tree.
+/// A repository inside a projection is answered from the projection's change set
+/// ([`cmux_projection::fsmonitor`]), so `git status` checks only what the agent changed; any other
+/// is answered "everything", as with no hook. Only protocol 2 is spoken: anything else exits 1,
+/// and git falls back to its own scan.
+fn fsmonitor(args: &[String]) -> i32 {
+    let (Some("2"), Some(token)) = (args.first().map(String::as_str), args.get(1)) else {
+        eprintln!("usage: cmux link project fsmonitor 2 TOKEN");
+        return 1;
+    };
+    let (Some(state), Ok(worktree)) =
+        (cmux_tui_core::platform::workspace_state_dir(), std::env::current_dir())
+    else {
+        return 1;
+    };
+    let answer = cmux_projection::fsmonitor::hook(&state.join("projections"), &worktree, token);
+    let mut stdout = std::io::stdout().lock();
+    if stdout.write_all(&answer).and_then(|()| stdout.flush()).is_err() { 1 } else { 0 }
+}
+
+/// Whether chats from attached folders are projected: on unless [`ENV`] or `cmux link project
+/// disable` turned it off.
 pub(crate) fn enabled() -> bool {
     match std::env::var(ENV).ok().as_deref() {
         Some("1" | "true") => return true,
@@ -213,6 +250,7 @@ pub(crate) fn start(
     match code(&answer) {
         Some("projection.small") => return Ok(Err(NotProjected::Small)),
         Some("projection.unavailable") => return Ok(Err(NotProjected::Unserved)),
+        Some("projection.too_large") => return Ok(Err(NotProjected::TooLarge)),
         _ => {}
     }
     bail!(
@@ -280,6 +318,9 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // Every attached folder is projected, a small one too (`--any-size` stays for old callers).
     let _ = any_size;
     let encoded = listed.manifest.encode()?;
+    if encoded.len() as u64 > cmux_tui_core::projection::MAX_MANIFEST_BYTES {
+        return Ok(too_large(encoded.len()));
+    }
     let (stream, mut answer) = dial(&socket, &name, &at, &encoded)?;
     if !ok(&answer) {
         return Ok(answer);
@@ -294,6 +335,18 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let _ = stdout.flush();
     serve_until_gone(&socket, &name, &at, &encoded, &listed, stream);
     Ok(Value::Null)
+}
+
+/// The answer for a manifest of `bytes` past what a machine takes: the start copies instead.
+fn too_large(bytes: usize) -> Value {
+    json!({
+        "ok": false,
+        "error": format!(
+            "the folder's manifest is {bytes} bytes, past the {} a machine takes",
+            cmux_tui_core::projection::MAX_MANIFEST_BYTES
+        ),
+        "error_code": "projection.too_large",
+    })
 }
 
 fn elapsed_ms(since: Instant) -> u64 {

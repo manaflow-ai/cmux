@@ -2,6 +2,11 @@
 //! to whichever stream the Mac attached last. The Mac opens the stream (the machine never dials
 //! it) and opens a new one after a drop; until then an ask waits up to [`Link::away_wait`], then
 //! fails as [`crate::FetchError::Away`].
+//!
+//! Demand reads come first: a prefetch ([`crate::Fetch::prefetch`]) goes out only while no demand
+//! read is in flight, one at a time, so a read the agent waits on queues behind at most one small
+//! prefetch batch on the Mac's link, never behind the whole prefetch (RFD 0007, open question 7:
+//! first-turn fault p95 was 527 ms with prefetch sharing the link, 100 ms without).
 
 use std::collections::HashMap;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -43,6 +48,26 @@ pub struct Link {
     changed: Condvar,
     next: AtomicU32,
     away_wait: Duration,
+    /// Demand reads in flight; a prefetch waits while there is any.
+    demand: Mutex<usize>,
+    demand_done: Condvar,
+    /// Held by the one prefetch in flight.
+    prefetching: Mutex<()>,
+}
+
+/// A demand read in flight, for as long as it lives.
+struct Demand<'a>(&'a Link);
+
+impl Drop for Demand<'_> {
+    fn drop(&mut self) {
+        let mut demand = self.0.demand.lock().unwrap_or_else(PoisonError::into_inner);
+        *demand = demand.saturating_sub(1);
+        let idle = *demand == 0;
+        drop(demand);
+        if idle {
+            self.0.demand_done.notify_all();
+        }
+    }
 }
 
 impl Default for Link {
@@ -60,6 +85,26 @@ impl Link {
             changed: Condvar::new(),
             next: AtomicU32::new(1),
             away_wait,
+            demand: Mutex::new(0),
+            demand_done: Condvar::new(),
+            prefetching: Mutex::new(()),
+        }
+    }
+
+    fn demand(&self) -> Demand<'_> {
+        *self.demand.lock().unwrap_or_else(PoisonError::into_inner) += 1;
+        Demand(self)
+    }
+
+    /// Waits until no demand read is in flight.
+    fn demand_idle(&self) {
+        let mut demand = self.demand.lock().unwrap_or_else(PoisonError::into_inner);
+        while *demand > 0 {
+            demand = self
+                .demand_done
+                .wait_timeout(demand, Duration::from_millis(100))
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
         }
     }
 
@@ -203,13 +248,8 @@ fn part_result(part: Option<Part>) -> Result<Vec<u8>, FetchError> {
     }
 }
 
-impl Fetch for Link {
-    fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
-        let parts = self.ask(&|ask| Ask::Read { ask, entry, offset, len })?;
-        part_result(parts.into_iter().next())
-    }
-
-    fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
+impl Link {
+    fn batch_now(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
         match self.ask(&|ask| Ask::Batch { ask, entries: entries.to_vec() }) {
             Ok(parts) => {
                 let mut parts = parts.into_iter();
@@ -217,6 +257,26 @@ impl Fetch for Link {
             }
             Err(error) => entries.iter().map(|_| Err(error)).collect(),
         }
+    }
+}
+
+impl Fetch for Link {
+    fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
+        let _demand = self.demand();
+        let parts = self.ask(&|ask| Ask::Read { ask, entry, offset, len })?;
+        part_result(parts.into_iter().next())
+    }
+
+    fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
+        let _demand = self.demand();
+        self.batch_now(entries)
+    }
+
+    /// One prefetch at a time, and only while no demand read is in flight.
+    fn prefetch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
+        let _one = self.prefetching.lock().unwrap_or_else(PoisonError::into_inner);
+        self.demand_idle();
+        self.batch_now(entries)
     }
 }
 

@@ -33,8 +33,9 @@ use serde_json::{Value, json};
 pub const PROJECTION_CAPABILITY: &str = "projection-v1";
 /// The one op: a dial that serves a projection.
 pub const SERVE: &str = "projection.serve";
-/// The largest encoded manifest a dial may send (a 1.1 M-entry folder encodes to 14 MB).
-const MAX_MANIFEST_BYTES: u64 = 512 * 1024 * 1024;
+/// The largest encoded manifest a dial may send (a 1.1 M-entry folder encodes to 14 MB). The Mac
+/// checks it before it dials, so a folder past it goes as a copy without a refused dial.
+pub const MAX_MANIFEST_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Deserialize)]
 struct ServeLine {
@@ -388,6 +389,14 @@ fn mount(
     .map_err(|error| io("opening the projection", &format!("{error:#}")))?;
     let mounted = cmux_projection::mount::mount(Arc::new(overlay), at)
         .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
+    // Where it is mounted, for git's fsmonitor hook (`cmux link project fsmonitor`) to find it.
+    {
+        use std::os::unix::ffi::OsStrExt as _;
+        let _ = std::fs::write(
+            state.join(cmux_projection::fsmonitor::MOUNT_POINT_FILE),
+            at.as_os_str().as_bytes(),
+        );
+    }
     let projected = Arc::new(Projected {
         link,
         digest,

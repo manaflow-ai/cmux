@@ -47,7 +47,7 @@ pub(super) fn is_conflict_file(relative: &str) -> bool {
 }
 
 /// The merged permissions: the one side that changed them, or both alike.
-fn permissions(base: u32, here: u32, machine: u32) -> Option<u32> {
+pub(super) fn permissions(base: u32, here: u32, machine: u32) -> Option<u32> {
     if here == machine || here == base {
         Some(machine)
     } else if machine == base {
@@ -102,15 +102,21 @@ pub(super) fn merge(
     {
         return Ok(Merged::Whole);
     }
-    if [&base_bytes, &here_bytes, &machine_bytes].iter().any(|bytes| bytes.contains(&0)) {
-        return Ok(Merged::Whole);
+    Ok(lines(&base_bytes, &here_bytes, &machine_bytes, permissions))
+}
+
+/// The line merge of three checked versions, `permissions` merged already: binary (a NUL byte in
+/// any) is [`Merged::Whole`].
+pub(super) fn lines(base: &[u8], here: &[u8], machine: &[u8], permissions: u32) -> Merged {
+    if [base, here, machine].iter().any(|bytes| bytes.contains(&0)) {
+        return Merged::Whole;
     }
     let mut options = diffy::MergeOptions::new();
     options.set_conflict_style(diffy::ConflictStyle::Diff3);
-    Ok(match options.merge_bytes(&base_bytes, &here_bytes, &machine_bytes) {
+    match options.merge_bytes(base, here, machine) {
         Ok(bytes) => Merged::Clean { bytes, permissions },
         Err(bytes) => Merged::Overlap(bytes),
-    })
+    }
 }
 
 /// How many conflict file names a file gets: `NAME.cmux-sync-conflict`,
