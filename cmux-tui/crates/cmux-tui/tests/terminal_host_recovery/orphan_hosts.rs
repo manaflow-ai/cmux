@@ -101,14 +101,21 @@ fn a_live_host_of_a_lost_registry_is_recovered_not_terminated() {
     );
     assert!(wait_for_screen(&harness.socket, surface, "after-recovery").contains("after-recovery"));
     let tree = request(&harness.socket, serde_json::json!({"id":3,"cmd":"list-workspaces"}));
+    let workspaces = tree["workspaces"].as_array().unwrap();
     assert!(
-        tree["workspaces"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|workspace| workspace["name"] == "Recovered terminals"),
+        workspaces.iter().any(|workspace| workspace["name"] == "Recovered terminals"),
         "no recovery workspace: {tree}"
     );
+    // `workspace-recovered-v1`: the recovery workspace says so, in any language and under any
+    // name, and no other workspace does (the app does not count it as the person's own).
+    for workspace in workspaces {
+        let recovery = workspace["name"] == "Recovered terminals";
+        assert_eq!(
+            workspace["recovered"],
+            serde_json::json!(recovery),
+            "recovered flag: {workspace}"
+        );
+    }
 }
 
 /// A recovered terminal whose tab was closed runs detached. It has a public
