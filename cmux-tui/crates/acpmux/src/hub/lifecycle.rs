@@ -297,10 +297,10 @@ impl Hub {
         meta.workspace_id = workspace_id;
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
-        // Only Claude Code (stdio) takes it as a Stop hook (`stop_condition.rs`); the session/new
-        // answer says whether it was kept, so a caller can tell.
+        // Claude Code (stdio) takes it as a Stop hook, Codex (codex-acp) as its goal
+        // (`stop_condition.rs`); the session/new answer says whether it was kept.
         meta.stop_condition =
-            stop_condition.filter(|_| profile.kind == crate::config::HarnessKind::ClaudeStdio);
+            stop_condition.filter(|_| super::stop_condition::kept_by(&profile, &family));
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
