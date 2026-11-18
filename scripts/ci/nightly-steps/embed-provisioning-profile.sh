@@ -27,6 +27,7 @@ fi
 # approves. The check follows the channel's entitlements file so the
 # profile can never silently lag behind what the app requests.
 if /usr/libexec/PlistBuddy -c "Print :com.apple.developer.web-browser.public-key-credential" "$CHANNEL_ENTITLEMENTS" >/dev/null 2>&1; then
+  # plist-exists: security cms -D wrote $TMP_PLIST above, and the unsilenced APP_ID read already failed on a missing one
   WEBAUTHN_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.web-browser.public-key-credential" "$TMP_PLIST" 2>/dev/null || true)"
   if [ "$WEBAUTHN_ENTITLEMENT" != "true" ]; then
     echo "$CHANNEL provisioning profile is missing WebAuthn browser entitlement" >&2
@@ -37,6 +38,7 @@ else
 fi
 
 # Refuse an expired profile (an unparsable date is only reported).
+# plist-exists: security cms -D wrote $TMP_PLIST above, and the unsilenced APP_ID read already failed on a missing one
 EXPIRES="$(/usr/libexec/PlistBuddy -c "Print :ExpirationDate" "$TMP_PLIST" 2>/dev/null || true)"
 EXPIRES_EPOCH="$(date -j -f '%a %b %d %T %Z %Y' "$EXPIRES" +%s 2>/dev/null || true)"
 echo "$PROFILE_SECRET_NAME expires: ${EXPIRES:-unknown}"
