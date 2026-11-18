@@ -101,8 +101,13 @@ impl Repo {
         (out, started.elapsed())
     }
 
-    /// How many stat calls `git status` made (strace; 0 when strace is not installed).
+    /// How many stat calls `git status` made, the hook's own included (strace; 0 when strace is not
+    /// installed). A run without the hook writes the index without git's fsmonitor token, so a
+    /// hooked count first runs once to record it again.
     fn lstat_count(&self, hooked: bool) -> usize {
+        if hooked {
+            let _ = self.status(true);
+        }
         let trace = self.state_dir.join(format!("trace-{hooked}.txt"));
         let _ = std::fs::remove_file(&trace);
         let hook = format!(
@@ -178,7 +183,11 @@ fn a_bench_of_git_status_with_the_hook() {
     let _ = r.status(true);
     let _ = r.status(true);
     edits(&r);
-    let best = |hooked: bool| (0..5).map(|_| r.status(hooked).1).min().unwrap();
+    // Each side's first run settles the index for it (a run without the hook drops git's token).
+    let best = |hooked: bool| {
+        let _ = r.status(hooked);
+        (0..5).map(|_| r.status(hooked).1).min().unwrap()
+    };
     let (without, with) = (best(false), best(true));
     println!("| git status, {files} files, 4 edits | best of 5 | stat calls |\n|---|---|---|");
     println!("| git's own scan (before) | {} ms | {} |", without.as_millis(), r.lstat_count(false));

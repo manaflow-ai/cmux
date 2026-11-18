@@ -97,7 +97,7 @@ fn run(reads: usize, bulk_files: usize, prioritized: bool) -> Run {
 
     let done = Arc::new(AtomicBool::new(false));
     let prefetch = {
-        let (overlay, link, done) = (overlay.clone(), link.clone(), done.clone());
+        let (overlay, done) = (overlay.clone(), done.clone());
         std::thread::spawn(move || {
             let mut brought = 0u64;
             for part in bulk.chunks(PLAIN_BATCH_FILES) {
