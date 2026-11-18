@@ -1,0 +1,40 @@
+@testable import CmuxNextDesign
+import Foundation
+import Testing
+
+/// `appearance.liquidGlass` off (CMUX-653, Lawrence 2026-11-18: a toggle that removes all liquid
+/// glass on web views): the web theme sends `glass: "off"` whatever the lens choice, so every page
+/// sets `data-glass="off"` and draws its glass surfaces solid; the lens mode is plain, so no
+/// wallpaper still is fed; and the change repaints every open page (``WebTheme/pushInputs``).
+@MainActor @Suite(.serialized) struct LiquidGlassWebThemeTests {
+    private func glass(_ theme: WebTheme) throws -> String? {
+        let payload = try #require(JSONSerialization.jsonObject(with: Data(theme.payloadJSON.utf8)) as? [String: Any])
+        return payload["glass"] as? String
+    }
+
+    @Test func offSendsOffForEveryLensModeAndOnSendsTheMode() throws {
+        let design = DesignSettings.shared
+        let before = design.liquidGlass
+        defer { design.liquidGlass = before }
+        design.liquidGlass = true
+        for mode in GlassLensMode.allCases {
+            #expect(try glass(WebTheme(.unresolved, glass: mode)) == mode.rawValue)
+        }
+        design.liquidGlass = false
+        for mode in GlassLensMode.allCases {
+            #expect(try glass(WebTheme(.unresolved, glass: mode)) == WebTheme.glassOff)
+        }
+        #expect(try glass(WebTheme(.unresolved)) == "off")
+    }
+
+    @Test func offDrawsNoLensAndRepaintsOpenPages() {
+        let design = DesignSettings.shared
+        let before = design.liquidGlass
+        defer { design.liquidGlass = before }
+        design.liquidGlass = true
+        let onInputs = WebTheme.pushInputs
+        design.liquidGlass = false
+        #expect(GlassLensMode.current == .plain)
+        #expect(WebTheme.pushInputs != onInputs, "turning it off must repaint every open page")
+    }
+}

@@ -40,8 +40,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// (`ui.animations.web` or the master switch `ui.animations.enabled` off).
     public let motion: String
     /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
-    /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads.
+    /// Transparency and Low Power Mode), or ``glassOff`` while `appearance.liquidGlass` is off:
+    /// `data-glass` on `<html>`, which `.ui-glass` reads.
     public let glass: String
+
+    /// `glass` while `appearance.liquidGlass` is off: every web glass surface draws solid, with a
+    /// hairline rim and no blur (webviews ui/glass/glass.css, `GLASS_OFF` in glassState.ts).
+    public static let glassOff = "off"
     /// `auto`, `antialiased` or `subpixel` (`appearance.fontSmoothing`, ``FontSmoothing``):
     /// `data-cmux-font-smoothing` on `<html>`. Under `antialiased` and `subpixel` the bootstrap
     /// stylesheet sets `-webkit-font-smoothing` on every element over the page's own; `auto` leaves
@@ -206,7 +211,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
         workingLook = StatusWorkingLook.tunable.value.rawValue
         motion = Self.motionValue(Motion.web.policy)
-        self.glass = (glass ?? .current).rawValue
+        self.glass = DesignSettings.shared.liquidGlass ? (glass ?? .current).rawValue : Self.glassOff
         decorations = ThemeDecorations.current.payload
         fontSmoothing = DesignSettings.shared.fontSmoothing.rawValue
     }
@@ -466,14 +471,15 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return css(separator.withAlpha(min(1, separator.alpha * ChromeTunables.dividerStrength.value)))
     }
 
-    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`, the divider
+    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`,
+    /// `appearance.liquidGlass`, the divider
     /// strength (`--cmux-chrome-divider`), the title area's tone and contrast and the chrome shade they
     /// make (`--cmux-sidebar-surface`, `--cmux-chrome-tone`, `--cmux-folder-fill`). The app repaints
     /// every page when one changes (`AppServices.observeBorders`).
     @MainActor
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
-        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
+        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(design.liquidGlass)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
                 "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
     }
 

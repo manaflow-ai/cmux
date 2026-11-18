@@ -284,6 +284,7 @@
         "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
+        "appearance.liquidGlass",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
         "appearance.titleAreaTone",

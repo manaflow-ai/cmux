@@ -37,9 +37,11 @@ public nonisolated enum GlassLensMode: String, Sendable, CaseIterable, Codable, 
 
 extension GlassLensMode {
     /// The mode pages draw now: the `glass.lens` choice under the system's Reduce Transparency
-    /// (or its Debug override) and Low Power Mode.
+    /// (or its Debug override) and Low Power Mode; `plain` (no lens, no wallpaper feed) while
+    /// `appearance.liquidGlass` is off, where pages draw no glass at all (``WebTheme/glassOff``).
     @MainActor public static var current: GlassLensMode {
-        current(store: .shared, reduceTransparency: .shared, lowPower: .system)
+        guard DesignSettings.shared.liquidGlass else { return .plain }
+        return current(store: .shared, reduceTransparency: .shared, lowPower: .system)
     }
 
     /// The mode pages draw from these sources.
