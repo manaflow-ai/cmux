@@ -399,10 +399,10 @@ impl McpConnects {
     }
 }
 
-/// Writes `bytes` to `path` through a temporary file and a rename, with `mode`.
+/// Writes `bytes` to `path` through a temporary file and a rename, with `mode`
+/// (unix only: on Windows the file takes its folder's default access).
 fn write_file(path: &std::path::Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
     use std::io::Write as _;
-    use std::os::unix::fs::OpenOptionsExt as _;
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no folder"))?;
     std::fs::create_dir_all(dir)?;
     let tmp = dir.join(format!(
@@ -410,23 +410,30 @@ fn write_file(path: &std::path::Path, bytes: &[u8], mode: u32) -> std::io::Resul
         path.file_name().and_then(|n| n.to_str()).unwrap_or("f"),
         std::process::id()
     ));
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(mode)
-        .open(&tmp)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(mode);
+    }
+    #[cfg(not(unix))]
+    let _ = mode;
+    let mut f = options.open(&tmp)?;
     f.write_all(bytes)?;
     f.sync_all()?;
     std::fs::rename(&tmp, path)
 }
 
-/// [`write_file`] at 0600 in a 0700 folder (a secret).
+/// [`write_file`] at 0600 in a 0700 folder (a secret; unix only, Windows skips the chmod).
 fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        }
     }
     write_file(path, bytes, 0o600)
 }
