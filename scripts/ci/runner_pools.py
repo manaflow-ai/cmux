@@ -40,9 +40,7 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
   only on a pass whose evidence covers its label (evidence_covers()): the probe's health for the sizes
   it probes, the janitor's snapshot for the rest. Unknown stays unknown: in watch run 41279880300
   (2026-11-01 06:12-06:23Z) every read returned 403, the marks expired with no evidence at all, and
-  the linux pool went from 16 back to the stalled 32 vCPU size. A refused janitor snapshot read (refused())
-  ends the pass with RUNNER_POOLS unchanged: on 2026-11-18 the cmux-bot installation ran dry, the pass judged
-  on the probe alone and marked every large Linux size dead, so every x64 Linux pool took 2 vCPU;
+  the linux pool went from 16 back to the stalled 32 vCPU size;
 - points each pool at its first member with no mark. With every member marked, an x64 Linux pool takes its
   release valve, the next smaller declared x64 size with no mark (valve_labels(); 2026-11-18, linux_16 and
   linux_32 sat on a dead 32 vCPU); with none, or for any other pool, it keeps its first member. A Blacksmith
@@ -692,16 +690,6 @@ def render(value: Mapping[str, Any]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
-REFUSED_CODES = frozenset({401, 403, 429})
-REFUSAL = re.compile(r"\((?:401|403|429)\)|HTTP (?:401|403|429)\b|rate limit|too many requests", re.IGNORECASE)
-
-
-def refused(error: BaseException) -> bool:
-    """Whether a read failed because GitHub refused it (an expired, forbidden or rate-limited token), not because
-    the answer was missing. A refusal says nothing about the fleet."""
-    return getattr(error, "code", None) in REFUSED_CODES or bool(REFUSAL.search(str(error)))
-
-
 def _health(switch: Any, env: Mapping[str, str]) -> Mapping[str, Any] | None:
     """The probe's per-label health: live through the API when a client can read it, else the job's env."""
     raw = None
@@ -780,13 +768,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         try:
             snapshot = api.snapshot(now=now)
         except Exception as error:  # noqa: BLE001 - a missing snapshot only means no janitor evidence
-            if refused(error):
-                # The snapshot's `label_started` is the evidence that a size the probe waited out under the vCPU
-                # cap is still serving. Refused, the probe alone marked every large Linux size dead on 2026-11-18
-                # and moved the pools to 2 vCPU. A refusal is no answer: keep the last state.
-                print(f"::notice title=Runner pools::the janitor snapshot read was refused ({error}); "
-                      f"{VARIABLE} keeps its last value this pass and no label is judged")
-                return 0
             print(f"::warning title=Runner pools::no janitor snapshot ({error}); judging on the probe alone")
     health = _health(switch, env)
     dead, started, notes = label_evidence(health, snapshot, now=now)
