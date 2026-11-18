@@ -1,0 +1,11 @@
+{
+  "cmuxProfile": 1,
+  "name": "different-font",
+  "description": "Geist in the chats, Menlo in the terminal and the editor, a serif for Markdown pages.",
+  "settings": {
+    "agentPane.display.font.ui": "geist",
+    "terminal.fontFamily": "Menlo",
+    "editor.fontFamily": "Menlo",
+    "markdown.font.preset": "serif"
+  }
+}

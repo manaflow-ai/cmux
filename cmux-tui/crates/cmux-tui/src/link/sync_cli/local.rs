@@ -92,6 +92,9 @@ pub(super) struct LocalSet {
     pub git: bool,
     /// The copy's limits, counted as files are added ([`super::size_cap`]); none for a share.
     pub cap: Option<super::size_cap::Cap>,
+    /// What a first pass ([`first_pass`]) left on this Mac, for the note on the machine
+    /// ([`super::left_note`]); none for a copy sent whole.
+    pub left: Option<super::left_note::LeftOnMac>,
 }
 
 impl LocalSet {
@@ -103,6 +106,7 @@ impl LocalSet {
             skips,
             git: false,
             cap: None,
+            left: None,
         }
     }
 
@@ -261,9 +265,11 @@ pub(super) fn first_pass(set: &mut LocalSet, stopped: bool) {
     let (max_bytes, max_files) = super::size_cap::first_limits();
     let mut order: Vec<(u64, String)> = Vec::with_capacity(set.files.len());
     let mut left = u64::from(stopped);
+    let mut note = super::left_note::LeftOnMac::new(stopped);
     for relative in set.files.keys() {
         if in_history(relative) {
             left += 1;
+            note.left(relative, cap.size_of(relative));
         } else {
             order.push((cap.size_of(relative), relative.clone()));
         }
@@ -275,15 +281,18 @@ pub(super) fn first_pass(set: &mut LocalSet, stopped: bool) {
         if files < max_files && bytes.saturating_add(size) <= max_bytes {
             bytes = bytes.saturating_add(size);
             files += 1;
+            note.sent(size);
             kept.insert(relative);
         } else {
             left += 1;
+            note.left(&relative, size);
         }
     }
     set.files.retain(|relative, _| kept.contains(relative));
     set.links.retain(|relative, _| !in_history(relative));
     set.git = false;
     set.skips.left_on_mac(left);
+    set.left = Some(note);
 }
 
 /// [`collect`]'s listing into `set`, ended by the first error (a cap's
