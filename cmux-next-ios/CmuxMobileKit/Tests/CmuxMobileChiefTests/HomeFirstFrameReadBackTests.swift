@@ -69,8 +69,8 @@ import UIKit
         }
 
         // The first frame: one layout pass, no run loop turn in between.
-        let firstRows = feed.rows?.count
         let firstItems = frame("first-frame")
+        let firstRows = feed.rows?.count
         // The frames after it: the whole kept list lands off the main thread.
         for _ in 0 ..< 30 { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
         _ = frame("after-600ms")
