@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-18",
+  "row": "app_lines",
+  "allow": 215,
+  "why": "Palette step B (cmux#45625's 18 catalog rows): handlers for the rows of hand-built menus (downloads, back/forward entries, extension rows, update-card snooze, remote quality) and the menu routing that runs them. Each binding needs AppActionContext, BrowserDownloadList, BrowserPageRequests, the CEF extension store or the history page service, all App-only types, so no lower package can hold them; the rows, titles and arguments live in the Rust catalog. The new bindings sit in the existing toolbar, extension, remote and update handler files (no new App files or types).",
+  "author": "palette-step-b lane (claude opus)",
+  "owner": "palette-step-b lane",
+  "receipt": "Review (claude opus subagent 11f6cce5): SHIP at aa597e8467d833c333b74416ddd1f08f3ac2f680",
+  "expiry": "2026-12-18"
+}
