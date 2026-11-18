@@ -42,6 +42,9 @@ public final class LaunchReveal {
     @ObservationIgnored private let deadline: Duration
     /// The pending waits of ``whenReady(_:orAfter:_:)``, by timer; each leaves at its region's ready or its fire.
     @ObservationIgnored private var waits: [ObjectIdentifier: DemandTimer] = [:]
+    /// The launch's first window frame (the app's `FirstFrameGate`), for a region's view that holds its
+    /// own launch work until after it (``FirstFrameHold``). nil: no gate (tests), that work runs at once.
+    @ObservationIgnored public var firstFrame: FirstFrameGate?
 
     /// - Parameter deadline: How long after the first `hold` every region
     ///   shows anyway.
