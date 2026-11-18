@@ -108,8 +108,8 @@ on:
         type: boolean
 
 concurrency:
-  # One group per feat-cmux-next or nightly-next push (cx-73f2), per other pushed branch, and
-  # per commit for a manual dispatch. Pin refs are refused before preflight.
+  # One group per feat-cmux-next or nightly-next push (cx-73f2), per other
+  # pushed branch, and per commit for a manual dispatch. Pin refs are refused before preflight.
   # cancel-in-progress stays false: a started run is never cancelled, so no
   # publish of immutable objects stops mid-upload.
   # feat-cmux-next pushes do not share a workflow group (the group cannot read
