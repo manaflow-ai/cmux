@@ -243,10 +243,12 @@ jobs:
       # the cmux-tui tree owners queued there held the NEXT nightly for hours). Re-run every run
       # stuck PROBE_MINUTES on a dead label no pool names any more, so it picks a live one
       # (cloud_overflow_switch.dead_labels). Reads RUNNER_POOLS live, after the step above wrote it.
+      # Each run gets one try, and signing, deploy, promotion, rollback and nightly runs are left
+      # alone (DEAD_PROTECTED_WORKFLOW). The cancel wait (180 s) fits inside the step's limit.
       - name: Re-run runs stranded on a dead label
         if: always() && steps.switch.outcome != 'skipped'
         continue-on-error: true
-        timeout-minutes: 8
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}

@@ -95,6 +95,9 @@ class FakeActions:
     def rerun(self, run_id: int) -> None:
         self.calls.append(("rerun", run_id))
 
+    def rerun_failed(self, run_id: int) -> None:
+        self.calls.append(("rerun-failed", run_id))
+
 
 class FakeSwitch:
     """The App token side: variable writes, in order."""
@@ -893,54 +896,85 @@ class PythonDependencyTests(unittest.TestCase):
 class DeadLabelRescueTests(unittest.TestCase):
     """2026-11-18: 4, 8 and 16 vCPU marked dead, 2 and 32 vCPU serving; the tree owners stayed queued."""
 
+    # As runner_pools.py leaves it: every Linux pool moved off its dead member; macos_26 still on a
+    # dead label (no other size of its image is live), so a re-run would come back to it.
     POOLS = {"_dead": {"blacksmith-16vcpu-ubuntu-2404": "2026-09-29T11:00:00Z",
-                       "blacksmith-4vcpu-ubuntu-2404": "2026-09-29T11:00:00Z"},
+                       "blacksmith-4vcpu-ubuntu-2404": "2026-09-29T11:00:00Z",
+                       "blacksmith-6vcpu-macos-26": "2026-09-29T11:00:00Z"},
+             "_spill": {"linux": {"from": "blacksmith-4vcpu-ubuntu-2404", "running": 3}},
              "linux": "blacksmith-2vcpu-ubuntu-2404", "linux_16": "blacksmith-32vcpu-ubuntu-2404",
-             "linux_4": "blacksmith-4vcpu-ubuntu-2404", "macos_26": "blacksmith-6vcpu-macos-26"}
+             "linux_4": "blacksmith-2vcpu-ubuntu-2404", "macos_26": "blacksmith-6vcpu-macos-26"}
+    DEAD_16 = {"status": "queued", "runner_name": None, "created_at": ago(45),
+               "labels": ["blacksmith-16vcpu-ubuntu-2404"], "name": "build"}
 
     def stranded(self) -> FakeActions:
         runs = [{"id": 10, "status": "queued", "event": "push", "name": "cmux-tui artifacts",
                  "created_at": ago(90), "run_attempt": 1},
                 {"id": 11, "status": "queued", "event": "pull_request", "name": "CI", "created_at": ago(60)},
                 {"id": 12, "status": "in_progress", "event": "push", "name": "CI", "created_at": ago(50)},
-                {"id": 13, "status": "queued", "event": "push", "name": "Publish docs", "created_at": ago(40)}]
-        dead = {"status": "queued", "runner_name": None, "created_at": ago(45),
-                "labels": ["blacksmith-16vcpu-ubuntu-2404"], "name": "build"}
+                {"id": 13, "status": "queued", "event": "push", "name": "Publish docs", "created_at": ago(40)},
+                {"id": 14, "status": "queued", "event": "push", "name": "Nightly signing", "created_at": ago(40)},
+                {"id": 15, "status": "queued", "event": "push", "name": "Cloud VM image promote",
+                 "created_at": ago(40)},
+                {"id": 16, "status": "queued", "event": "push", "name": "CI", "created_at": ago(40),
+                 "run_attempt": 2}]
+        dead = self.DEAD_16
         jobs = {10: [dead],
-                # 4 vCPU is dead too, but linux_4 still names it: a re-run comes back to it.
-                11: [{**dead, "labels": ["blacksmith-4vcpu-ubuntu-2404"]}],
+                # macos_26 still names its dead label: a re-run comes back to it.
+                11: [{**dead, "labels": ["blacksmith-6vcpu-macos-26"]}],
                 # Queued on a live size: waiting its turn, not stranded.
                 12: [{**dead, "labels": ["blacksmith-2vcpu-ubuntu-2404"]}],
-                13: [dead]}
+                13: [dead], 14: [dead], 15: [dead],
+                # Already re-run once (by this step or by hand): its runs-on may name the dead label.
+                16: [dead]}
         return FakeActions(None, runs, jobs)
 
+    def rescue(self, actions: FakeActions, pools: dict | None = None, **env: str) -> str:
+        writer = FakeSwitch({"RUNNER_POOLS": json.dumps(pools or self.POOLS)})
+        code, _, summary = run_main({"GH_TOKEN": "t", **env}, actions, writer, argv=["--rescue-dead"])
+        self.assertEqual(code, 0)
+        self.assertEqual(writer.writes, [])
+        return summary
+
     def test_dead_labels_are_the_marked_ones_no_pool_names(self) -> None:
-        self.assertEqual(switch.dead_labels(self.POOLS), {"blacksmith-16vcpu-ubuntu-2404"})
+        self.assertEqual(switch.dead_labels(self.POOLS),
+                         {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"})
         self.assertEqual(switch.dead_labels({"_dead": "x"}), set())
         self.assertEqual(switch.dead_labels({}), set())
 
-    def test_reruns_runs_queued_on_a_dead_label_only(self) -> None:
+    def test_reruns_the_cancelled_jobs_of_runs_stranded_on_a_dead_label_once(self) -> None:
         actions = self.stranded()
-        code, _, summary = run_main({"GH_TOKEN": "t"}, actions,
-                                    FakeSwitch({"RUNNER_POOLS": json.dumps(self.POOLS)}), argv=["--rescue-dead"])
-        self.assertEqual(code, 0)
-        self.assertEqual(actions.calls, [("force-cancel", 10), ("rerun", 10)])
-        self.assertIn("run 13 (Publish docs): `build` stuck on blacksmith-16vcpu-ubuntu-2404; left alone", summary)
+        summary = self.rescue(actions)
+        # Only the cancelled jobs re-run: jobs that already passed keep their result.
+        self.assertEqual(actions.calls, [("force-cancel", 10), ("rerun-failed", 10)])
+        for run_id, why in ((13, "release/publish"), (14, "signing/deploy"), (15, "signing/deploy"),
+                            (16, "attempt 2")):
+            self.assertRegex(summary, rf"run {run_id} \(.*left alone \(.*{why}")
 
-    def test_a_dry_run_and_no_dead_label_touch_nothing(self) -> None:
+    def test_a_dry_run_bad_value_or_no_dead_label_touch_nothing(self) -> None:
         actions = self.stranded()
-        writer = FakeSwitch({"RUNNER_POOLS": json.dumps(self.POOLS)})
-        run_main({"GH_TOKEN": "t", "DRY_RUN": "true"}, actions, writer, argv=["--rescue-dead"])
+        self.rescue(actions, DRY_RUN="true")
+        self.rescue(actions, {**self.POOLS, "_dead": {}})
+        writer = FakeSwitch({"RUNNER_POOLS": "not json"})
+        self.assertEqual(run_main({"GH_TOKEN": "t"}, actions, writer, argv=["--rescue-dead"])[0], 0)
         self.assertEqual(actions.calls, [])
-        live = {**self.POOLS, "_dead": {}}
-        run_main({"GH_TOKEN": "t"}, actions, FakeSwitch({"RUNNER_POOLS": json.dumps(live)}), argv=["--rescue-dead"])
-        self.assertEqual(actions.calls, [])
-        self.assertEqual(writer.writes, [])
 
     def test_falls_back_to_the_job_start_value(self) -> None:
         actions = self.stranded()
         run_main({"GH_TOKEN": "t", "RUNNER_POOLS": json.dumps(self.POOLS)}, actions, None, argv=["--rescue-dead"])
-        self.assertEqual(actions.calls, [("force-cancel", 10), ("rerun", 10)])
+        self.assertEqual(actions.calls, [("force-cancel", 10), ("rerun-failed", 10)])
+
+    def test_the_overflow_rescue_keeps_oldest_first_and_whole_reruns(self) -> None:
+        # The all-stalled rescue is unchanged: no push-first order, a whole re-run, attempt 2 still moves.
+        runs = [{"id": 20, "status": "queued", "event": "push", "name": "CI", "created_at": ago(30)},
+                {"id": 21, "status": "queued", "event": "pull_request", "name": "CI", "created_at": ago(80),
+                 "run_attempt": 2}]
+        actions = FakeActions(None, runs, {20: [self.DEAD_16], 21: [self.DEAD_16]})
+        clock = Clock()
+        lines = switch.rescue_stuck_runs(actions, own_run_id=1, minutes=5, now=clock.now, sleep=clock.sleep,
+                                         log=lambda _: None, dry_run=False)
+        self.assertEqual(actions.calls, [("force-cancel", 21), ("force-cancel", 20), ("rerun", 21), ("rerun", 20)])
+        self.assertTrue(any("run 21" in line for line in lines))
 
     def test_the_workflow_runs_it_after_the_pools_step(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
