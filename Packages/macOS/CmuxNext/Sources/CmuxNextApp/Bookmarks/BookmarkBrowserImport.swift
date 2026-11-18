@@ -95,7 +95,7 @@ struct BookmarkBrowserImport {
         var buttons: [CmuxDialogButton] = [.cancel(), CmuxDialogButton(id: "file", title: BookmarkAppStrings.importChooseFile)]
         if !blocked.isEmpty { buttons.append(CmuxDialogButton(id: "privacy", title: BookmarkAppStrings.importOpenPrivacy)) }
         if !readable.isEmpty { buttons.append(CmuxDialogButton(id: "import", title: BookmarkAppStrings.importConfirm, role: .default)) }
-        let spec = CmuxDialogSpec(title: BookmarkAppStrings.importTitle, lines: lines, fields: fields, buttons: buttons,
+        let spec = CmuxDialogSpec(usesTransientMaterial: true, title: BookmarkAppStrings.importTitle, lines: lines, fields: fields, buttons: buttons,
                                   identifier: "cmux.dialog.bookmarks.importBrowser")
         CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in
             switch answer.button {

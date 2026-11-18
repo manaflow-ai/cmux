@@ -125,6 +125,13 @@ if [ -n "${CMUX_SWIFT_TEST_SUITES:-}" ]; then
     exit 2
   fi
   IFS=, read -r -a only_suites <<< "$CMUX_SWIFT_TEST_SUITES"
+  # Before the build (11-58 min on the fleet): refuse a name the package's test
+  # sources never mention, a typo or another package's suite. The scan lets
+  # through anything it is unsure of; the check after `swift test list` decides.
+  # Only its exit 2 refuses; a scan that breaks lets the names through.
+  precheck_status=0
+  python3 "$script_dir/swift_suite_names_precheck.py" "$package_path" "${only_suites[@]}" || precheck_status=$?
+  [ "$precheck_status" -ne 2 ] || exit 2
 fi
 # CMUX_SWIFT_TEST_DEBUG_INFO (dwarf|none): every swift call below passes the
 # same debug-info option, so the suites reuse the list build.

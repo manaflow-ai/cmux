@@ -287,8 +287,11 @@ public final class PaletteController {
         // window): hiding gives the keys back to the window, not the page.
         // `NSApplication.shared`: `NSApp` is nil in package-test processes.
         let app = NSApplication.shared
-        var parent = window ?? app.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? app.mainWindow
-        while let owner = parent?.parent { parent = owner }
+        var parent = topWindow(window ?? app.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 })
+        // A window off every screen (the render window of a page an agent drives in the background, whose page
+        // window took the keys) is no anchor: clamped to the screen, the palette sat in its bottom-left corner.
+        if let anchor = parent, !isOnAScreen(anchor) { parent = nil }
+        if parent == nil { parent = topWindow(app.mainWindow).flatMap { isOnAScreen($0) ? $0 : nil } }
         let panel = self.panel ?? makePanel()
         let panelDone = ContinuousClock.now
         presentationGeneration += 1
@@ -485,4 +488,17 @@ public struct PaletteOpenTiming: Sendable {
     public var total: Duration { model + panel + present + commit }
     /// Key-down to the committed first frame: ``input`` plus ``total``.
     public var keyToFrame: Duration { input + total }
+}
+
+/// `window`'s top ancestor (a Chromium page window's document window).
+@MainActor private func topWindow(_ window: NSWindow?) -> NSWindow? {
+    var top = window
+    while let owner = top?.parent { top = owner }
+    return top
+}
+
+/// Whether `window` overlaps a screen (true with no screens: nothing to check against).
+@MainActor private func isOnAScreen(_ window: NSWindow) -> Bool {
+    let screens = NSScreen.screens
+    return screens.isEmpty || screens.contains { $0.frame.intersects(window.frame) }
 }

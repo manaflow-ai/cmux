@@ -162,15 +162,24 @@ fn plan(
 
 /// Makes the attempt's worktree and records its base, unless a lost
 /// reply's run already made it in the repository whose git folder is
-/// `common_dir` ([`made`]).
+/// `common_dir` ([`made`]). A success of `git worktree add` is not enough:
+/// the folder is given only when this repository keeps it as its worktree
+/// ([`kept`]), else the create is refused with `git_failed`. The folder and
+/// the branch that git made stay, and the message names them.
 fn create(
     repository: &Repository,
     git: &UserGit<'_>,
     attempt: &Attempt,
     common_dir: &Path,
 ) -> Result<(), ResourceError> {
-    if !made(attempt, common_dir) {
+    if let Some(why) = not_made(attempt, common_dir) {
         if attempt.root.exists() {
+            // The reply names no cause; the session host's log has it.
+            eprintln!(
+                "cmux-tui: {}: not a finished worktree on {}: {why}",
+                attempt.root.display(),
+                attempt.branch
+            );
             let message = format!(
                 "{} exists and is not a finished worktree on {}",
                 attempt.root.display(),
@@ -197,6 +206,14 @@ fn create(
         let run = git.run(&arguments).map_err(|failure| run_failed(OPERATION, &failure))?;
         if !run.success && !made(attempt, common_dir) {
             let message = "git worktree add failed";
+            return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
+        }
+        if run.success && !kept(attempt, common_dir) {
+            let message = format!(
+                "git worktree add ended, and {root} is not a worktree that this repository keeps; \
+                 the folder and the branch {} stay",
+                attempt.branch
+            );
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
         }
     }
@@ -255,20 +272,51 @@ pub(super) fn admin_dir(root: &Path) -> Option<PathBuf> {
     admin.is_dir().then_some(admin)
 }
 
+/// The repository whose git folder is `common_dir` keeps the attempt's folder
+/// as its worktree, by the check that the setup of the worktree has
+/// ([`worktree_setup::keeps`]).
+fn kept(attempt: &Attempt, common_dir: &Path) -> bool {
+    admin_dir(&attempt.root)
+        .is_some_and(|admin| worktree_setup::keeps(&admin, &attempt.root, common_dir))
+}
+
 /// The attempt's worktree exists on its branch and git finished making it:
 /// its administrative folder is no longer locked (`git worktree add` locks
 /// it while it checks the files out). The worktree is of the repository
 /// whose git folder is `common_dir`, by the check that its setup has
 /// ([`worktree_setup::keeps`]): a folder that is a worktree of a different
-/// repository on the same branch is not the worktree of this create.
+/// repository on the same branch is not the worktree of this create. The
+/// check and the look for the lock are at one open of the administrative
+/// folder ([`worktree_setup::kept`]). When a create finds a folder that is
+/// not a made worktree, a line on stderr says which of these it is
+/// ([`not_made`]).
 fn made(attempt: &Attempt, common_dir: &Path) -> bool {
-    let Some(admin) = admin_dir(&attempt.root) else { return false };
-    if !worktree_setup::keeps(&admin, &attempt.root, common_dir) || admin.join("locked").exists() {
-        return false;
+    not_made(attempt, common_dir).is_none()
+}
+
+/// Why the attempt's folder is not a made worktree ([`made`]); `None` for a
+/// made worktree. The text is for a line on stderr, not for a reply.
+fn not_made(attempt: &Attempt, common_dir: &Path) -> Option<String> {
+    let Some(admin) = admin_dir(&attempt.root) else {
+        return Some("it has no `.git` file that names a git folder".to_string());
+    };
+    let named = "the folder that its `.git` file names";
+    let why = match worktree_setup::kept(&admin, &attempt.root, common_dir) {
+        worktree_setup::Kept::Yes => None,
+        worktree_setup::Kept::Locked => Some("git has its lock on the worktree".to_string()),
+        worktree_setup::Kept::No => {
+            let keeper = common_dir.display();
+            Some(format!("{named} is not the git folder that {keeper} keeps for this worktree"))
+        }
+        worktree_setup::Kept::NotOpened(kind) => Some(format!("{named} is not open ({kind})")),
+    };
+    if why.is_some() {
+        return why;
     }
     let arguments = ["symbolic-ref", "--quiet", "--short", "HEAD"];
-    run_git(&attempt.root, &[], &arguments, MAX_SMALL_OUTPUT_BYTES)
-        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == attempt.branch)
+    let on_branch = run_git(&attempt.root, &[], &arguments, MAX_SMALL_OUTPUT_BYTES)
+        .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).trim() == attempt.branch);
+    (!on_branch).then(|| "its HEAD is not on the branch".to_string())
 }
 
 fn described(attempt: &Attempt, common_dir: &Path) -> Value {
