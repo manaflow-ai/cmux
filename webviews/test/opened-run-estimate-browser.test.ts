@@ -144,7 +144,7 @@ await requireBrowserLane("opened-run-estimate-browser.test.ts", async () => {
       const estimated = await page.evaluate(
         async ([shown, width]) => {
           const model = (await import(
-            /* @vite-ignore */ "/src/agent-session/acpmux/model.ts"
+            /* @vite-ignore */ `${location.origin}/src/agent-session/acpmux/model.ts`
           )) as typeof import("../src/agent-session/acpmux/model");
           return model.layoutConversation(
             [shown as never],
