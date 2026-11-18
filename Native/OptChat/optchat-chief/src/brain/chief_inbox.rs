@@ -93,6 +93,7 @@ impl Brain {
             env: BTreeMap::from([(PARTICIPANT_ENV.to_owned(), participant)]),
             fast: false,
             peer: None,
+            stop_condition: None,
         };
         match self.agents.new_plain_session(&spec) {
             Ok(_) => (self.log)(&format!("chief inbox: made acpmux session {session}")),
