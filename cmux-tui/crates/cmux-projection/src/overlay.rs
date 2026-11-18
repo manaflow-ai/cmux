@@ -134,6 +134,25 @@ fn fnv(bytes: &[u8]) -> u64 {
     })
 }
 
+/// Opens an upper file for writing, its mode notwithstanding. The kernel already checked the
+/// caller's right at its own open (a file made read only, as git makes its objects, is written
+/// through the descriptor its create returned); each write here opens the file again, so a mode
+/// without the owner's write bit is lifted for that open and put back.
+fn open_for_write(path: &Path) -> Result<fs::File, i32> {
+    match fs::OpenOptions::new().write(true).open(path) {
+        Ok(file) => Ok(file),
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            let mode = fs::metadata(path).map_err(|error| io_errno(&error))?.mode() & 0o7777;
+            fs::set_permissions(path, fs::Permissions::from_mode(mode | 0o200))
+                .map_err(|error| io_errno(&error))?;
+            let opened = fs::OpenOptions::new().write(true).open(path);
+            let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode));
+            opened.map_err(|error| io_errno(&error))
+        }
+        Err(error) => Err(io_errno(&error)),
+    }
+}
+
 fn mtime_of(meta: &fs::Metadata) -> i64 {
     meta.mtime().saturating_mul(1_000_000_000).saturating_add(meta.mtime_nsec())
 }
@@ -682,10 +701,7 @@ impl Overlay {
     pub fn write(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
         let path = self.path_of(ino)?;
         self.ensure_upper(&path)?;
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .open(self.up(&path))
-            .map_err(|error| io_errno(&error))?;
+        let file = open_for_write(&self.up(&path))?;
         file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
         u32::try_from(data.len()).map_err(|_| EINVAL)
     }
@@ -839,10 +855,7 @@ impl Overlay {
         self.ensure_upper(&path)?;
         let target = self.up(&path);
         if let Some(size) = size {
-            let file = fs::OpenOptions::new()
-                .write(true)
-                .open(&target)
-                .map_err(|error| io_errno(&error))?;
+            let file = open_for_write(&target)?;
             file.set_len(size).map_err(|error| io_errno(&error))?;
         }
         if let Some(mode) = mode {

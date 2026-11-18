@@ -218,3 +218,14 @@ fn a_read_while_the_mac_is_away_fails_with_ehostdown() {
     assert_eq!(overlay.read(readme, 0, 10), Err(112));
     assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(112));
 }
+
+#[test]
+fn a_file_made_read_only_is_still_written_through_its_create() {
+    // git makes each loose object 0444 and writes it through the descriptor create returned.
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let made = overlay.create(overlay.root(), "object", 0o444).unwrap();
+    overlay.write(made.ino, 0, b"blob").unwrap();
+    assert_eq!(overlay.read(made.ino, 0, 10).unwrap(), b"blob");
+    assert_eq!(overlay.getattr(made.ino).unwrap().mode, 0o444);
+}
