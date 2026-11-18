@@ -60,6 +60,9 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// it grows to full size from an accent tint, one shot, under 350 ms at normal speed
     /// (`MotionGate.settleAnimation`). Snaps under Reduce Motion.
     case settle
+    /// The omnibox suggestion card fading in as it opens and out as it closes, the bar's card top with it (Helium's
+    /// `OmniboxPopupViewViews` widget fade, 82 ms; Lucas 2026-11-14).
+    case omniboxPopup
 
     /// Seconds at `MotionSpeed.fast` (`MotionTunables`; overridable in
     /// Debug Settings).

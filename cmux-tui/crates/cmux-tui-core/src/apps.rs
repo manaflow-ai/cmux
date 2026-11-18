@@ -30,6 +30,8 @@ mod catalog;
 #[cfg(unix)]
 mod chat_widgets;
 #[cfg(unix)]
+mod community;
+#[cfg(unix)]
 mod composer;
 #[cfg(unix)]
 mod deploy;
@@ -47,9 +49,13 @@ mod host_ops;
 #[cfg(unix)]
 mod hosts;
 #[cfg(unix)]
+mod http_cache;
+#[cfg(unix)]
 mod load_trial;
 #[cfg(unix)]
 mod local_reload;
+#[cfg(unix)]
+mod locale;
 #[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
@@ -57,10 +63,12 @@ mod open_tokens;
 #[cfg(unix)]
 mod openers;
 #[cfg(unix)]
-// The `render: web` page bridge (design step 5); the daemon's page-call
-// command and the Mac page host wire it in a follow-up.
+// The `render: web` page bridge: `page_calls` runs each page's calls through it
+// (`allowed_ops` and the rate-limited count are read only by tests).
 #[cfg_attr(not(test), allow(dead_code))]
 mod page_bridge;
+#[cfg(unix)]
+mod page_calls;
 #[cfg(unix)]
 mod provider;
 #[cfg(unix)]
@@ -103,6 +111,8 @@ mod terminal_links;
 mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
+#[cfg(unix)]
+mod widgets;
 
 use std::sync::{Arc, Mutex, OnceLock};
 

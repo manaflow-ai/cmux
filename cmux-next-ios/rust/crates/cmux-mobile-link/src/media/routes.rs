@@ -98,6 +98,11 @@ pub(crate) struct Table {
     pub started: bool,
     pub next_id: u64,
     last_keyframe_ask: Option<Instant>,
+    /// The current route whose loss (removed, unhealthy or stalled) already
+    /// asked for a keyframe. A loss asks at once, past the rate limit, once:
+    /// video must be back in the tunnel now, not after the interval that
+    /// the switch onto the lost route just started.
+    loss_asked: Option<u64>,
     /// When the current route last answered with feedback after a stall-free stretch began.
     answered_since: Option<Instant>,
 }
@@ -170,8 +175,23 @@ impl Table {
         due
     }
 
-    /// A switch is due: the source should make a keyframe (rate limited).
+    /// The current route was just lost: the next keyframe ask goes out at
+    /// once, whatever the rate limit.
+    fn note_loss(&mut self, now: Instant) {
+        if self.started
+            && self.current.is_some()
+            && self.loss_asked != self.current
+            && !self.current_usable(now)
+        {
+            self.loss_asked = self.current;
+            self.last_keyframe_ask = None;
+        }
+    }
+
+    /// A switch is due: the source should make a keyframe (rate limited,
+    /// except right after the current route was lost).
     pub fn switch_keyframe(&mut self, now: Instant) -> bool {
+        self.note_loss(now);
         let pending = self.started && self.target(now).is_some_and(|t| Some(t) != self.current);
         pending && self.ask_keyframe(now)
     }
@@ -182,6 +202,7 @@ impl Table {
         let Some(target) = self.target(now) else {
             return (if self.alive() { Decision::Drop } else { Decision::Closed }, false, None);
         };
+        self.note_loss(now);
         if !self.started || self.current == Some(target) || (keyframe && self.current != Some(target)) {
             let switch = (self.current != Some(target)).then(|| Switch {
                 from: self.current_kind(),
@@ -191,6 +212,7 @@ impl Table {
                 self.current = Some(target);
                 self.current_since = Some(now);
                 self.answered_since = None;
+                self.loss_asked = None;
             }
             self.started = true;
             let frames = self.route(target).map(|r| r.frames.clone()).expect("target exists");
@@ -331,6 +353,30 @@ mod tests {
             switch,
             Some(Switch { from: Some(CarrierKind::WebRtcTrack), to: CarrierKind::WireGuardUdp })
         );
+    }
+
+    /// verify/hybrid-link.md: killing the media session moves video back
+    /// into the tunnel at once. The switch onto the session asked for a
+    /// keyframe moments before; losing the session must not wait out that
+    /// ask's rate limit.
+    #[test]
+    fn losing_the_current_route_asks_for_a_keyframe_at_once() {
+        let mut f = fixture();
+        let now = Instant::now();
+        f.webrtc_health.send_replace(false);
+        f.table.decide(true, now);
+        f.webrtc_health.send_replace(true);
+        assert!(f.table.switch_keyframe(now), "the switch onto the session asks");
+        f.table.decide(true, now + Duration::from_millis(20));
+        assert_eq!(f.table.current, Some(f.webrtc));
+        // 30 ms later the session dies: asked again at once, and only once.
+        let lost = now + Duration::from_millis(50);
+        f.table.remove(f.webrtc);
+        assert!(f.table.switch_keyframe(lost));
+        assert!(!f.table.switch_keyframe(lost + Duration::from_millis(10)));
+        let (decision, _, switch) = f.table.decide(true, lost + Duration::from_millis(40));
+        assert_eq!(sent_on(&decision), Some(f.wg));
+        assert_eq!(switch.map(|s| s.to), Some(CarrierKind::WireGuardUdp));
     }
 
     #[test]

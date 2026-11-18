@@ -42,6 +42,7 @@ fn a_next_record_reads_into_the_apps_json_and_its_facts() {
     assert_eq!(code, OK);
     assert_eq!(facts["agentInfrastructure"], true);
     assert_eq!(facts["desktopViewer"], "rd");
+    assert_eq!(facts["humanName"], "fs-lane");
     assert_eq!(facts["capabilities"]["desktop"], true);
     assert_eq!(facts["allowed"].as_array().unwrap().len(), 10);
 }

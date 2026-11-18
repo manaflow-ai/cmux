@@ -155,7 +155,7 @@ enum StashHandlers {
             return try WindowMembershipHandlers.groupMembers(invocation, context)
         case "window.stash":
             // A row's menu takes the window that lists the row.
-            let owner = invocation.target.flatMap { $0.kind == .workspace ? windows.registry.value.owner(of: $0.id) : nil }
+            let owner = invocation.target.flatMap { $0.kind == .workspace ? windows.actingWindow(for: $0.id) : nil }
             return try windows.registry.members(of: owner ?? context.window(invocation).state.id)
         default:
             return try WindowMembershipHandlers.rowTargets(invocation, context).map(\.id)
