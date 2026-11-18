@@ -209,6 +209,14 @@ fn mount_point(at: &str, roots: &[PathBuf]) -> Result<PathBuf, Refusal> {
         return Err(refused("outside this machine's file roots"));
     }
     let path = parent.join(path.file_name().ok_or_else(|| refused("no name"))?);
+    if let Ok(meta) = std::fs::symlink_metadata(&path) {
+        if meta.file_type().is_symlink() {
+            return Err(refused("mount point is a symlink"));
+        }
+        if !meta.is_dir() {
+            return Err(refused("mount point is not a folder"));
+        }
+    }
     #[cfg(target_os = "linux")]
     if !projections()
         .lock()

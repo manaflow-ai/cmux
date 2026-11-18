@@ -25,6 +25,19 @@ fn a_mount_point_outside_the_roots_or_not_plain_is_refused() {
     assert!(mount_point(&dotted, &roots).is_err());
 }
 
+#[cfg(unix)]
+#[test]
+fn a_mount_point_symlink_cannot_escape_the_roots() {
+    use std::os::unix::fs::symlink;
+
+    let home = cmux_unix_socket::short_test_dir("proj-symlink");
+    let roots = vec![home.path().to_path_buf()];
+    let outside = cmux_unix_socket::short_test_dir("proj-outside");
+    let link = home.path().join("link");
+    symlink(outside.path(), &link).unwrap();
+    assert!(mount_point(link.to_str().unwrap(), &roots).is_err());
+}
+
 #[test]
 fn a_bad_name_or_an_unknown_reattach_is_refused_with_its_code() {
     let home = cmux_unix_socket::short_test_dir("proj");

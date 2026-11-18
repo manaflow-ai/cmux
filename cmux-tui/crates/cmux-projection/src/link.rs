@@ -163,17 +163,20 @@ impl Link {
     ) -> Result<Receiver<Option<Vec<Part>>>, FetchError> {
         let mut state = self.lock();
         loop {
-            if let Some(attached) = state.attached.as_mut() {
+            if state.attached.is_some() {
                 let number = self.next.fetch_add(1, Ordering::Relaxed);
-                let generation = attached.generation;
-                let sent =
-                    make(number).write(&mut attached.writer).and_then(|()| attached.writer.flush());
+                let generation = state.attached.as_ref().map_or(0, |attached| attached.generation);
+                let (sender, receiver) = channel();
+                state.waiting.insert(number, (generation, sender));
+                let sent = {
+                    let attached = state.attached.as_mut().expect("attached above");
+                    make(number).write(&mut attached.writer).and_then(|()| attached.writer.flush())
+                };
                 if sent.is_err() {
+                    state.waiting.remove(&number);
                     state.attached = None;
                     continue;
                 }
-                let (sender, receiver) = channel();
-                state.waiting.insert(number, (generation, sender));
                 return Ok(receiver);
             }
             let now = Instant::now();
