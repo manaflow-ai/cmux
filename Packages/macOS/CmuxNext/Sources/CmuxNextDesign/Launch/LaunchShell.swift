@@ -48,21 +48,28 @@ public final class LaunchShell {
     }
 
     /// Stage 0 for this launch, from the app's bundle id (its Application Support folder and
-    /// Info.plist build); nil (an agent launch, a test window, an update relaunch behind) shows nothing.
-    public static func atLaunch(bundleID: String?, mark: @escaping @Sendable (String) -> Void) -> LaunchShell {
+    /// Info.plist build) and its daemon session (`DaemonLauncher.appNames(build:).session`); nil
+    /// (an agent launch, a test window, an update relaunch behind) shows nothing.
+    public static func atLaunch(bundleID: String?, daemonSession: @autoclosure () -> String?,
+                                mark: @escaping @Sendable (String) -> Void) -> LaunchShell {
         guard let bundleID, let support = FileManager().urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return LaunchShell(prepared: nil, mark: mark)
         }
         return prepare(support: support.appending(path: bundleID, directoryHint: .isDirectory),
-                       build: LaunchShellPaths.build(info: Bundle.main.infoDictionary ?? [:]), mark: mark)
+                       build: LaunchShellPaths.build(info: Bundle.main.infoDictionary ?? [:]),
+                       registry: daemonSession().map { (applicationSupport: support, session: $0) }, mark: mark)
     }
 
-    /// Reads the plan (one ≤64 KiB file, 24 bytes of the image, and one stat for an earlier run's
-    /// state) and starts the image's decode on its own queue. In `main`, after
-    /// `NSApplication.shared`; nothing waits for it. `launch_shell.plan_start` and `plan_ready` time
-    /// the read. `support` is the app's Application Support folder (the launch record's, the image
-    /// store's, and `launch-times.jsonl`).
-    public static func prepare(support: URL, build: String, mark: @escaping @Sendable (String) -> Void) -> LaunchShell {
+    /// Reads the plan (one ≤64 KiB file, 24 bytes of the image, one stat for an earlier run's
+    /// state, and the few bytes of the registry id this home last saw live) and starts the image's
+    /// decode on its own queue. In `main`, after `NSApplication.shared`; nothing waits for it.
+    /// `launch_shell.plan_start` and `plan_ready` time the read. `support` is the app's Application
+    /// Support folder (the launch record's, the image store's, and `launch-times.jsonl`);
+    /// `registry` is the user's `Library/Application Support` and the daemon session, whose
+    /// `cmux-next/launch-snapshot-registry.<session>` tells another session's windows (reason 11).
+    /// Nil: no session check.
+    public static func prepare(support: URL, build: String, registry: (applicationSupport: URL, session: String)?,
+                               mark: @escaping @Sendable (String) -> Void) -> LaunchShell {
         let displays = NSScreen.screens.map { screen in
             CmuxLaunchShellDisplay(x: screen.frame.minX, y: screen.frame.minY, width: screen.frame.width,
                                    height: screen.frame.height, scale: screen.backingScaleFactor)
@@ -71,16 +78,25 @@ public final class LaunchShell {
         mark("launch_shell.plan_start")
         var plan = CmuxLaunchShellPlan()
         let read = build.withCString { build in support.path.withCString { supportDir in
-            displays.withUnsafeBufferPointer { displays in
-                var now = CmuxLaunchShellNow(build: build, appearance: dark ? 1 : 0, displays: displays.baseAddress, display_count: displays.count, support_dir: supportDir)
-                return cmux_launch_shell_plan(LaunchShellPaths.record(in: support).path, LaunchShellPaths.images(in: support).path, &now, &plan)
-            }
+            Self.withCString(registry?.applicationSupport.path) { appSupport in Self.withCString(registry?.session) { session in
+                displays.withUnsafeBufferPointer { displays in
+                    var now = CmuxLaunchShellNow(build: build, appearance: dark ? 1 : 0, displays: displays.baseAddress, display_count: displays.count,
+                                                 support_dir: supportDir, app_support: appSupport, daemon_session: session)
+                    return cmux_launch_shell_plan(LaunchShellPaths.record(in: support).path, LaunchShellPaths.images(in: support).path, &now, &plan)
+                }
+            } }
         } }
         mark("launch_shell.plan_ready")
         guard read, plan.shows_window else { return LaunchShell(prepared: nil, mark: mark) }
         let prepared = Prepared(plan: plan)
         if let path = prepared.imagePath { prepared.decode(path, mark: mark) }
         return LaunchShell(prepared: prepared, mark: mark)
+    }
+
+    /// `value`'s C string for the call, or null.
+    private static func withCString<R>(_ value: String?, _ body: (UnsafePointer<CChar>?) -> R) -> R {
+        guard let value else { return body(nil) }
+        return value.withCString { body($0) }
     }
 
     /// Makes the window and commits its first frame, marking `launch_shell.committed` when the
@@ -98,7 +114,7 @@ public final class LaunchShell {
         if let image = prepared.image() {
             view = LaunchShellImageView(image: image, scale: window.backingScaleFactor)
             kind = "image"
-        } else if prepared.usesDefaultFrame, let bare = content.bare?(CGRect(origin: .zero, size: frame.size), prepared.look) {
+        } else if prepared.showsBare, let bare = content.bare?(CGRect(origin: .zero, size: frame.size), prepared.look) {
             view = bare
             kind = "bare"
         } else {
@@ -258,8 +274,11 @@ public enum LaunchShellPaths {
     let frame: CGRect
     let look: LaunchShellLook
     let reason: UInt8
-    /// Nothing to restore (a fresh install, or no window at the last quit): the bare launch's content.
+    /// Nothing of the record is restored: the real window's default frame.
     let usesDefaultFrame: Bool
+    /// Nothing to restore (a fresh install, or no window at the last quit): the bare launch's content.
+    /// Another session's windows (reason 11) keep the plain shell at the default frame.
+    let showsBare: Bool
     let imagePath: String?
     private let decoded = DecodedImage()
 
@@ -278,6 +297,7 @@ public enum LaunchShellPaths {
         look = LaunchShellLook(background: color(plan.background_rgba), bar: color(plan.bar_rgba), dark: plan.appearance == 1)
         reason = plan.reason
         usesDefaultFrame = plan.uses_default_frame
+        showsBare = plan.shows_bare
         let path = withUnsafeBytes(of: &plan.image_path) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
         imagePath = plan.reason == 0 && !path.isEmpty ? path : nil
     }

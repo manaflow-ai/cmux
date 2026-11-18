@@ -31,7 +31,10 @@ public nonisolated struct LaunchRecordSnapshot: Sendable {
     public var windows: [LaunchRecordWindowSnapshot]
     public var sidebarRows: [LaunchRecordSidebarSnapshot]
     public var sessionSocketPath: String
-    public init(windows: [LaunchRecordWindowSnapshot] = [], sidebarRows: [LaunchRecordSidebarSnapshot] = [], sessionSocketPath: String = "") {
-        self.windows = windows; self.sidebarRows = sidebarRows; self.sessionSocketPath = sessionSocketPath
+    /// The daemon registry id (session) the windows are from (record v3): stage 0 draws none of them
+    /// when this home last saw another one live (plan reason 11). Empty: unknown.
+    public var sessionRegistryID: String
+    public init(windows: [LaunchRecordWindowSnapshot] = [], sidebarRows: [LaunchRecordSidebarSnapshot] = [], sessionSocketPath: String = "", sessionRegistryID: String = "") {
+        self.windows = windows; self.sidebarRows = sidebarRows; self.sessionSocketPath = sessionSocketPath; self.sessionRegistryID = sessionRegistryID
     }
 }

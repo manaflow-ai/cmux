@@ -6,7 +6,7 @@ public import Foundation
 public nonisolated struct LaunchRecordEncoding {
     public nonisolated init() {}
     public static func write(_ value: LaunchRecordSnapshot, to url: URL) -> Bool {
-        guard !url.path.utf8.contains(0), !value.sessionSocketPath.utf8.contains(0) else { return false }
+        guard !url.path.utf8.contains(0), !value.sessionSocketPath.utf8.contains(0), !value.sessionRegistryID.utf8.contains(0) else { return false }
         let arena = LaunchRecordStrings()
         let windows = value.windows.compactMap { window -> CmuxLaunchWindowInput? in
             guard let tabCount = UInt(exactly: window.tabIDs.count) else { return nil }
@@ -30,14 +30,14 @@ public nonisolated struct LaunchRecordEncoding {
         // withExtendedLifetime keeps every C string and pointer array alive through Rust's borrow.
         return withExtendedLifetime(arena) {
             url.path.withCString { path in
-                value.sessionSocketPath.withCString { socket in
+                value.sessionSocketPath.withCString { socket in value.sessionRegistryID.withCString { registry in
                     windows.withUnsafeBufferPointer { windows in
                         sidebars.withUnsafeBufferPointer { sidebars in
-                            cmux_launch_record_write(path, windows.baseAddress, windowCount,
-                                                     sidebars.baseAddress, sidebarCount, socket)
+                            cmux_launch_record_write_registry(path, windows.baseAddress, windowCount,
+                                                              sidebars.baseAddress, sidebarCount, socket, registry)
                         }
                     }
-                }
+                } }
             }
         }
     }
