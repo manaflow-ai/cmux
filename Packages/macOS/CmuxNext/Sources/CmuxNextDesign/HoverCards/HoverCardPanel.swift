@@ -383,7 +383,7 @@ final class HoverCardPanel: NSPanel {
         finishMorph()
         place()
         // The same morph a retarget to another size runs: the mask grows or folds about the fixed corner.
-        if let previous { _ = morph(from: previous) }
+        if let previous { _ = morph(from: previous, folds: true) }
     }
 
     /// Lays the card out for its anchor and size. `appliesFrame` false: the rest frame is worked out
