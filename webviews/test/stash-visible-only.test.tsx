@@ -193,3 +193,58 @@ test("the focused row stays mounted far past the window, and rows carry their pl
   expect(host.querySelector(".stash-row")?.getAttribute("aria-setsize")).toBe("1000");
   expect(rows()).toBeLessThanOrEqual(81);
 });
+
+/** Native Tab, as a test can have it: the next (or previous) element in the document's tab order.
+ *  Every tab stop on this page has the default tab index, so that order is the DOM's. */
+function tabStop(back = false): HTMLElement | undefined {
+  const stops = [
+    ...host.ownerDocument.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])",
+    ),
+  ];
+  const at = stops.indexOf(host.ownerDocument.activeElement as HTMLElement);
+  return stops[back ? at - 1 : at + 1];
+}
+const stopKey = (element: HTMLElement | undefined) => element?.closest<HTMLElement>("[data-key]")?.dataset.key;
+
+async function scrollList(list: HTMLElement, top: number) {
+  await act(async () => {
+    list.scrollTop = top;
+    list.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+/** The list scrolled near its end, the row `key` focused, and a wheel scroll back to the top (a wheel
+ *  moves the list, not the focus). */
+async function focusThenScrollAway(key: string) {
+  const { list } = await mount(1_000);
+  await scrollList(list, 31_000);
+  await act(async () => host.querySelector<HTMLElement>(`[data-key="${key}"] .stash-row-main`)!.focus());
+  await scrollList(list, 0);
+}
+
+test("Tab from a focused row the list scrolled away from reaches the next row, as with every row mounted", async () => {
+  await focusThenScrollAway("s98/m5");
+  expect(stopKey(tabStop())).toBe("s98/m6");
+});
+
+test("Shift-Tab from a focused row the list scrolled away from reaches the row before it", async () => {
+  await focusThenScrollAway("s98/m5");
+  expect(stopKey(tabStop(true))).toBe("s98/m4");
+});
+
+test("Tab from the search into a list scrolled far down reaches its first item", async () => {
+  const { list } = await mount(1_000);
+  await scrollList(list, 15_000);
+  await act(async () => host.querySelector<HTMLElement>(".stash-search")!.focus());
+  expect(stopKey(tabStop())).toBe("group:s0");
+});
+
+test("Shift-Tab into the list from past it reaches its last row, wherever it is scrolled", async () => {
+  await mount(1_000);
+  // Nothing on the page follows the list: Shift-Tab from past it (the window's chrome) lands on the
+  // page's last tab stop.
+  const stops = host.ownerDocument.querySelectorAll<HTMLElement>("button:not([disabled])");
+  expect(stopKey(stops[stops.length - 1])).toBe("s99/m9");
+});

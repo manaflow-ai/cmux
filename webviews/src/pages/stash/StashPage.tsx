@@ -5,7 +5,8 @@
 // All only, and its menu (the same right-click or keys on Restore All) holds the rest. State lives in `StashStore`; this file renders
 // it and turns plain keys and clicks into store intents. Cmd/Ctrl chords never reach it.
 // The list is windowed: only the group headers and rows near the viewport are mounted, plus the
-// focused one and the one whose menu is open. Rows are memoized on their member and offset with
+// focused one and the one whose menu is open, and the items native Tab moves to (the first, the last
+// and the focused one's neighbours). Rows are memoized on their member and offset with
 // stable handlers, so a focus, a scroll step or a reply that changes one member draws only its rows.
 import {
   memo,
@@ -127,10 +128,16 @@ export function StashPage({ store, strings }: { store: StashStore; strings: Stri
     // The list's own top and bottom space (styles.css pads only its sides).
     paddingStart: 4,
     paddingEnd: 16,
+    // Native Tab walks the DOM, so the items it moves to stay mounted too: every item holds one tab
+    // stop (a header's Restore All, a row's button), and the first and the last are where Tab and
+    // Shift-Tab enter the list, the focused one's neighbours where they leave it, however far the list
+    // scrolled. The browser then scrolls the one Tab reached into view, and the window follows.
     rangeExtractor: (range: Range) => {
       const indexes = defaultRangeExtractor(range);
-      for (const kept of [focusedItem, menuItem])
-        if (kept >= 0 && !indexes.includes(kept)) {
+      const last = range.count - 1;
+      const neighbours = focusedItem >= 0 ? [focusedItem - 1, focusedItem + 1] : [];
+      for (const kept of [focusedItem, menuItem, 0, last, ...neighbours])
+        if (kept >= 0 && kept <= last && !indexes.includes(kept)) {
           indexes.push(kept);
           indexes.sort((a, b) => a - b);
         }
