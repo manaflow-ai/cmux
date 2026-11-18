@@ -96,24 +96,6 @@ struct AgentTabRemoteStartTests {
         #expect(AgentRemoteStartRefusal.olderDaemonCodes.contains(AgentRemoteStartRefusal.folderNeededCode))
     }
 
-    /// cmux#45774: a Cloud Codex start whose ChatGPT sign-in the machine's older cmux does not take updates the
-    /// machine and starts again (``AgentRemoteStartCoordinator``), instead of failing on that machine.
-    @Test func aCredentialTheOlderCloudDaemonDoesNotTakeUpdatesTheMachineAndStartsAgain() async throws {
-        actor Calls { var starts = 0, updates = 0; func start() -> Int { starts += 1; return starts }; func update() { updates += 1 } }
-        let calls = Calls()
-        #expect(AgentRemoteStartRefusal.olderDaemonCodes.contains(AgentSessionAttachClient.credentialUpdateNeeded))
-        let started = try await AgentRemoteStartCoordinator(approvals: nil, servesKeyedReason: false, updateMachine: { await calls.update(); return true })
-            .keyedStart("/w", "codex", nil, proceed: {}) { _, _, _, _ in
-                guard await calls.start() > 1 else {
-                    throw AgentRemoteStartRefusal(code: AgentSessionAttachClient.credentialUpdateNeeded, machine: "cloud")
-                }
-                return "session"
-            }
-        #expect(started == "session")
-        #expect(await calls.updates == 1)
-        #expect(await calls.starts == 2)
-    }
-
     @Test func theFolderListIsTheWorkspacesThenTheMachinesEachOnce() {
         let folders = AgentRemoteStartFolders(listed: ["/srv/app", "/home/cmux/work"],
                                               machine: ["/home/cmux/work", "/home/cmux/work/repo"]).merged

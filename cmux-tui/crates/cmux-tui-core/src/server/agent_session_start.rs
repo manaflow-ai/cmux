@@ -67,6 +67,11 @@
 //! Durations only: no folder, harness or session value is in it.
 
 use crate::panic_free::JsonFields;
+
+#[path = "agent_session_prewarm.rs"]
+mod prewarm;
+pub use prewarm::AGENT_SESSION_PREWARM_CAPABILITY;
+pub(super) use prewarm::prewarm;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -118,18 +123,9 @@ pub const AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY: &str =
 /// alone (acpmux `agent_credentials.rs`). Advertised only where the owner-Cloud start is.
 pub const AGENT_SESSION_START_CREDENTIALS_CAPABILITY: &str = "agent-session-start-credentials-v1";
 
-/// This daemon's credential names include `CMUX_CODEX_ACCESS_TOKEN`, the access token of a ChatGPT
-/// sign-in on Codex's client (cmux#45774). A daemon before it took `CMUX_CHATGPT_ACCESS_TOKEN`
-/// instead and refuses the whole start (`agent_session.bad_request`): the app reads that refusal from
-/// a daemon without this word as one an update cures, updates the machine and starts again. Advertised beside
-/// [`AGENT_SESSION_START_CREDENTIALS_CAPABILITY`].
-pub const AGENT_SESSION_START_CODEX_LOGIN_CAPABILITY: &str = "agent-session-start-codex-login-v1";
-
-/// The names a credential may set (acpmux `agent_credentials::NAMES`): a Claude token or key, an
-/// OpenAI key, or the access token of a ChatGPT sign-in on Codex's client (Sign in with ChatGPT or
-/// the Mac's `codex login`, cmux#45774).
+/// The names a credential may set (acpmux `agent_credentials::NAMES`).
 const CREDENTIAL_NAMES: [&str; 4] =
-    ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CMUX_CODEX_ACCESS_TOKEN"];
+    ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CMUX_CHATGPT_ACCESS_TOKEN"];
 const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
 
 /// A launch credential as the caller sends it. Never printed: no `Debug`.

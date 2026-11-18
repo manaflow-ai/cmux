@@ -34,7 +34,7 @@ struct CloudAgentCredentialRefresherTests {
             // A refreshed token whenever fewer than ten minutes are left on the last one.
             if expiry - now.timeIntervalSince1970 <= 600 { expiry = now.timeIntervalSince1970 + 3_600 }
             return CloudAgentCredential(connectionID: id, family: "codex", kind: CloudAgentCredential.chatGPTPlan,
-                                        env: ["CMUX_CODEX_ACCESS_TOKEN": "token-\(reads)"], expiresAt: Date(timeIntervalSince1970: expiry))
+                                        env: ["CMUX_CHATGPT_ACCESS_TOKEN": "token-\(reads)"], expiresAt: Date(timeIntervalSince1970: expiry))
         }
     }
 
@@ -77,7 +77,7 @@ struct CloudAgentCredentialRefresherTests {
         #expect(machine.pushes.isEmpty && acpmux.reads == 1)
         clock.advance(by: .seconds(1))
         try await clock.waitForSleeper()
-        #expect(machine.pushes == [["CMUX_CODEX_ACCESS_TOKEN": "token-2"]])
+        #expect(machine.pushes == [["CMUX_CHATGPT_ACCESS_TOKEN": "token-2"]])
         // The next one 50 minutes into the new token's hour.
         #expect(clock.sleeperDeadlines == [ManualClock.Instant(offset: .seconds(3_000 + 3_000))])
     }
@@ -94,19 +94,6 @@ struct CloudAgentCredentialRefresherTests {
         #expect(acpmux.reads == 2, "one read for both")
         #expect(first.pushes.count == 1 && second.pushes.count == 1)
         #expect(first.pushes == second.pushes)
-    }
-
-    /// cmux#45774: the access token of the Mac's Codex CLI ChatGPT login expires like a ChatGPT plan
-    /// token, so a Cloud Codex on it gets the newer one the Mac's Codex renewed, pushed before its end.
-    @Test func aCodexCLILoginTokenIsPushedAgainBeforeItExpires() async throws {
-        let clock = ManualClock(), acpmux = Acpmux(clock: clock), machine = Machine()
-        let refresher = make(clock, acpmux)
-        let codexLogin = CloudAgentCredential(connectionID: "codex-login", family: "codex", kind: "codex-login",
-                                              env: ["CMUX_CODEX_ACCESS_TOKEN": "codex-token-1"],
-                                              expiresAt: Self.base.addingTimeInterval(3_600))
-        #expect(refresher.track(codexLogin, push: machine.push) != nil)
-        try await clock.waitForSleeper()
-        #expect(clock.sleeperDeadlines == [ManualClock.Instant(offset: .seconds(3_000))], "ten minutes before its end")
     }
 
     @Test func aTokenThatDoesNotExpireIsNotTracked() {

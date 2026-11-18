@@ -54,16 +54,6 @@ public actor AgentSessionAttachClient {
     /// credential for a Cloud chat's agent (cmux-tui `agent_session_start.rs`, model-connections.md Revision 2). Served
     /// only on the owner's own Cloud VM, so it is no ``DaemonCapability`` case: this Mac's bundled daemon never lists it.
     public static let startCredentialsCapability = "agent-session-start-credentials-v1"
-    /// The machine takes ``codexLoginCredential`` (cmux-tui `AGENT_SESSION_START_CODEX_LOGIN_CAPABILITY`,
-    /// cmux#45774). A daemon older than that credential (it named it `CMUX_CHATGPT_ACCESS_TOKEN`) refuses the whole
-    /// start as `agent_session.bad_request`; a daemon that took the name before it said so takes it without this word.
-    /// So the start always goes out, and a bad request from a daemon without the word, for a start carrying that
-    /// token, becomes ``credentialUpdateNeeded``: the machine is updated and the chat starts again.
-    public static let startCodexLoginCapability = "agent-session-start-codex-login-v1"
-    /// The access token of a ChatGPT sign-in on Codex's client (Sign in with ChatGPT or the Mac's `codex login`).
-    public static let codexLoginCredential = "CMUX_CODEX_ACCESS_TOKEN"
-    /// A start whose credential the machine's older daemon does not take (``startCodexLoginCapability``).
-    public static let credentialUpdateNeeded = "app.credential_update_needed"
     /// A Cloud machine's running link id while its connect answer says the caller owns it, else nil
     /// (`CloudLinkSession.ownerLink`).
     public typealias OwnerLink = @Sendable () async -> Int?
@@ -118,8 +108,6 @@ public actor AgentSessionAttachClient {
         var startMode = false
         /// `agent-session-start-credentials-v1`.
         var credentials = false
-        /// `agent-session-start-codex-login-v1`.
-        var codexLogin = false
         /// `agent-session-trust-vm-kind-v1`.
         var trustVMKind = false
         /// `agent-session-children-v1`.
@@ -242,12 +230,7 @@ public actor AgentSessionAttachClient {
         guard !transport.isClosed else {
             throw AgentSessionAttachError(code: "agent_session.closed", message: "the connection ended before the start was sent")
         }
-        let data: Data
-        do { data = try await call("agent-session-start", params, timeout: Self.startTimeout, on: transport) }
-        catch let error as AgentSessionAttachError where Self.olderCredentialRefusal(error.code, credentials: credentials,
-                                                                                      servesCodexLogin: served.codexLogin) {
-            throw AgentSessionAttachError(code: Self.credentialUpdateNeeded, message: "the machine's cmux does not take this sign-in yet")
-        }
+        let data = try await call("agent-session-start", params, timeout: Self.startTimeout, on: transport)
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let session = object["session"] as? String, !session.isEmpty else {
             throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-start answered no session")
@@ -260,6 +243,33 @@ public actor AgentSessionAttachClient {
     /// The machine-side phases of this client's last start (``machinePhases(_:)``), for the run that started it
     /// (`cloud start-session`'s `stages_ms`); nil when its daemon sent none.
     public private(set) var startPhases: [String: Int]?
+
+    /// `agent-session-prewarm` (cmux-tui `agent_session_prewarm.rs`, cmux#45953): served only on the owner's own Cloud
+    /// VM, so it is no ``DaemonCapability`` case, as ``startCredentialsCapability``.
+    public static let prewarmCapability = "agent-session-prewarm-v1"
+
+    /// Warms the agent a coming ``start(cwd:harness:homeConfirmed:personKey:ownerLink:model:permissionMode:startMode:credentials:)``
+    /// of this tab will run, on the owner's own Cloud VM, so that start takes a running agent instead of a cold one. It sends
+    /// exactly the params that start would (``startParams``), so the machine's acpmux keys the warmed agent as that start's
+    /// `session/new`; a start that differs starts cold, as before. Binds nothing and answers whether acpmux took the hint.
+    /// Only over the owner answer of the link (``ownedConnection(_:check:)``), as the start: never to a teammate's machine.
+    public func prewarm(cwd: String, harness: String?, ownerLink: @escaping OwnerLink, model: String? = nil, permissionMode: String? = nil,
+                        startMode: String? = nil, credentials: [String: String]? = nil) async throws -> Bool {
+        guard mode == .attach else { return false }
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
+            guard served.start, model == nil || served.model else {
+                throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve this start")
+            }
+        }
+        guard callerOwnsVM else { return false }
+        let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: false, personKey: nil,
+                                      servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
+                                      model: model, servesModel: served.model, servesPermissionMode: served.permissionMode, permissionMode: permissionMode,
+                                      startMode: startMode, servesStartMode: served.startMode,
+                                      servesCredentials: served.credentials, credentials: credentials)
+        let data = try await call("agent-session-prewarm", params, timeout: requestTimeout, on: transport)
+        return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["accepted"] as? Bool == true
+    }
 
     /// `timings_ms`'s known phases as whole milliseconds (``machineTimings(_:)``'s names), `acpmux_started` as 0 or 1.
     static func machinePhases(_ value: Any?) -> [String: Int]? {
@@ -370,12 +380,6 @@ public actor AgentSessionAttachClient {
         }
         let data = try await call("agent-session-credentials", ["env": env, "vm_kind": "owner"], on: transport)
         return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["restart"] as? String
-    }
-
-    /// Whether a start's refusal `code` is an older daemon's refusal of the ChatGPT sign-in's token
-    /// (``startCodexLoginCapability``): a bad request, for a start carrying that token, from a daemon without the word.
-    static func olderCredentialRefusal(_ code: String, credentials: [String: String]?, servesCodexLogin: Bool) -> Bool {
-        code == "agent_session.bad_request" && !servesCodexLogin && credentials?[codexLoginCredential] != nil
     }
 
     /// How many times ``ownedConnection(_:check:)`` reads the owner answer around a connection.
@@ -920,7 +924,6 @@ public actor AgentSessionAttachClient {
                             permissionMode: identity.supports(DaemonCapability.agentSessionStartPermissionMode.rawValue),
                             startMode: identity.supports(DaemonCapability.agentSessionStartMode.rawValue),
                             credentials: identity.supports(Self.startCredentialsCapability),
-                            codexLogin: identity.supports(Self.startCodexLoginCapability),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),

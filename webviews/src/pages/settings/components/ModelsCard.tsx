@@ -777,9 +777,6 @@ const keyChoice = (provider: ModelProvider): Choice => ({
   detail: t("settingsWindow.models.sheet.apiKey"),
 });
 
-const sameChoice = (a: Choice, b: Choice) =>
-  a.kind === b.kind && (a.kind !== "key" || (b.kind === "key" && a.provider === b.provider));
-
 function startChoice(start: SheetStart): Choice | null {
   if (start === null) return null;
   return SUBSCRIPTIONS.find((choice) => choice.kind === start) ?? keyChoice(start as ModelProvider);
@@ -791,15 +788,12 @@ export function AddConnectionSheet({
   run,
   onClose,
   start = null,
-  replaces = null,
 }: {
   models: ModelsState;
   busy: boolean;
   run: Run;
   onClose(): void;
   start?: SheetStart;
-  /** Settings > Cloud's Edit: the connection a pasted token or key replaces, removed once the new one is added. */
-  replaces?: string | null;
 }) {
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<Choice | null>(() => startChoice(start));
@@ -828,23 +822,6 @@ export function AddConnectionSheet({
       if (added) onClose();
     }
   }, [attempt, error, count, onClose]);
-  // Edit (Settings > Cloud) adds the new token or key, then removes the one it replaces: only while the sheet
-  // is still on the choice it opened on (Back and another provider adds that one beside it), and the old
-  // connection's name carries over unless a new one is typed. A refused add keeps the old one; a refused
-  // remove still closes the sheet (its error shows on the card) so a second try adds no duplicate.
-  const opened = startChoice(start);
-  const replacing =
-    replaces !== null && opened !== null && picked !== null && sameChoice(picked, opened) ? replaces : null;
-  const oldLabel = replacing ? (models.personal.connections.find((c) => c.id === replacing)?.label ?? null) : null;
-  const formRun: Run = replacing
-    ? (gesture) => {
-        if (gesture.action !== "addClaudeToken" && gesture.action !== "addKey") return run(gesture);
-        const named = gesture.label ?? oldLabel ?? undefined;
-        return run(named ? { ...gesture, label: named } : gesture).then((ok) =>
-          ok ? run({ action: "remove", id: replacing }).then(() => true) : false,
-        );
-      }
-    : run;
   const title = t("settingsWindow.models.add");
   return (
     <Dialog
@@ -933,8 +910,8 @@ export function AddConnectionSheet({
             )}
           </div>
         )}
-        {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={formRun} onDone={onClose} />}
-        {picked?.kind === "key" && <KeyForm provider={picked.provider} busy={busy} run={formRun} onDone={onClose} />}
+        {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={run} onDone={onClose} />}
+        {picked?.kind === "key" && <KeyForm provider={picked.provider} busy={busy} run={run} onDone={onClose} />}
       </div>
     </Dialog>
   );

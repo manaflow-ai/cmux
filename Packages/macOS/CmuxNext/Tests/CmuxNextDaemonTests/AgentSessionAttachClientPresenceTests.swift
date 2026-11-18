@@ -114,8 +114,7 @@ nonisolated final class PresenceDaemon: @unchecked Sendable {  // the fd is writ
         recorded.withLock { $0 }.compactMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
     }
 
-    /// `refusing`: commands this daemon answers with that `error_code` (an older daemon's refusal).
-    init(capabilities: [String], refusing: [String: String] = [:]) throws {
+    init(capabilities: [String]) throws {
         path = FileManager.default.temporaryDirectory
             .appendingPathComponent("asp-\(UUID().uuidString.prefix(8)).sock").path
         descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -136,12 +135,12 @@ nonisolated final class PresenceDaemon: @unchecked Sendable {  // the fd is writ
                 let client = accept(descriptor, nil, nil)
                 guard client >= 0 else { return }
                 self.clients.withLock { $0.append(client) }
-                Thread.detachNewThread { self.serve(client, identity: identity, refusing: refusing) }
+                Thread.detachNewThread { self.serve(client, identity: identity) }
             }
         }
     }
 
-    private func serve(_ client: Int32, identity: [String: Any], refusing: [String: String]) {
+    private func serve(_ client: Int32, identity: [String: Any]) {
         defer { close(client) }
         var buffer = Data()
         var chunk = [UInt8](repeating: 0, count: 4096)
@@ -155,9 +154,7 @@ nonisolated final class PresenceDaemon: @unchecked Sendable {  // the fd is writ
                 guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let id = object["id"] else { continue }
                 recorded.withLock { $0.append(line) }
                 let data: [String: Any] = object["cmd"] as? String == "identify" ? identity : [:]
-                let answer: [String: Any] = (object["cmd"] as? String).flatMap { refusing[$0] }
-                    .map { ["id": id, "ok": false, "error": "refused", "error_code": $0] } ?? ["id": id, "ok": true, "data": data]
-                guard var reply = try? JSONSerialization.data(withJSONObject: answer) else { continue }
+                guard var reply = try? JSONSerialization.data(withJSONObject: ["id": id, "ok": true, "data": data]) else { continue }
                 reply.append(0x0A)
                 _ = reply.withUnsafeBytes { send(client, $0.baseAddress, reply.count, 0) }
             }

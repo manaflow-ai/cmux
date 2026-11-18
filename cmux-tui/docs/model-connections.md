@@ -53,19 +53,18 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
   as `connection_order`, `spread`.
 - `_acpmux/connections/spread.set` `{ "on": bool }` -> state.
 - `_acpmux/connections/chatgpt.begin` `{ "id": "optional existing chatgpt-plan id (reauth)" }`
-  -> `{ "attempt": "opaque", "url": "https://auth.openai.com/oauth/authorize?..." }`.
-  The daemon starts a `127.0.0.1:1455/auth/callback` listener (1457 when 1455 is held) before
-  answering. The app opens
+  -> `{ "attempt": "opaque", "url": "https://auth.openai.com/api/accounts/authorize?..." }`.
+  The daemon starts a `127.0.0.1:<ephemeral>/auth/callback` listener before answering. The app opens
   `url` in the person's browser (NSWorkspace), never the daemon.
 - `_acpmux/connections/chatgpt.wait` `{ "attempt": "..." }` -> `{ "status": "pending|done|failed|cancelled",
-  "connection": Connection|null, "error": "access_denied|no_chatgpt_account|port_busy|...|null" }` (long-poll up to
+  "connection": Connection|null, "error": "access_denied|no_plan_scope|...|null" }` (long-poll up to
   25 s; the app re-calls while pending). Completion also fires `_acpmux/connections.changed`.
 - `_acpmux/connections/chatgpt.cancel` `{ "attempt": "..." }`.
 - `_acpmux/connections/chatgpt.token` `{ "id": "..." }` -> `{ "access_token": "...", "expires_at": unix }`.
   Local socket only, for the gateway. Refreshes when under 5 minutes left; refreshes for one id are
   serialized (one in flight; others await it). Never logged.
 - `_acpmux/connections/remove` `{ "id" }`: a chatgpt-plan connection revokes its refresh token
-  (`https://auth.openai.com/oauth/revoke`, Codex's JSON body) and deletes its record.
+  (revocation endpoint from the OpenID configuration), clears tokens, keeps `client_id` + host id.
   Other kinds delegate to the existing `_acpmux/route/remove`.
 - `_acpmux/connections/key.add` `{ "provider", "secret": "keychain:ITEM", "label"? }` -> state.
   The app stores the pasted key in the Keychain first (as `cmux.chief.backend.add` does) and passes
@@ -100,8 +99,8 @@ of its `oaiapp_...` client reads signed out and the person signs in again.)
   of Codex on the Mac.
 - Store one record per (client_id, sub): `<acpmux home>/chatgpt/<route id>.json`, 0600, atomic
   write. Route file kind `chatgpt-plan`, family `codex`, `openai_base_url` the Codex backend.
-- `_acpmux/connections/credential` answers it as `CMUX_CODEX_ACCESS_TOKEN` (ten minutes left at
-  least); the machine runs Codex on the `cmux_codex_login` provider (agent_credentials.rs).
+- `_acpmux/connections/credential` answers it as `CMUX_CHATGPT_ACCESS_TOKEN` (ten minutes left at
+  least); the machine runs Codex on the `openai_chatgpt_plan` provider to the ChatGPT Codex backend (agent_credentials.rs).
 - UI must say "Using ChatGPT plan" with a Manage usage link to https://chatgpt.com/settings/usage,
   and the sign-in button reads "Continue with ChatGPT".
 
@@ -112,7 +111,7 @@ of its `oaiapp_...` client reads signed out and the person signs in again.)
 - A request carries the model the machine asked for; the gateway picks the first enabled
   connection whose families serve that model, and on an out-of-quota answer (429 with a usage
   limit) moves to the next one when `spread` is on.
-- `chatgpt-plan`: `Authorization: Bearer <chatgpt.token>` to `https://api.openai.com/v1/responses`.
+- `chatgpt-plan`: `Authorization: Bearer <chatgpt.token>` to `https://chatgpt.com/backend-api/codex/responses` with `chatgpt-account-id`.
   Plan route limits (preview): force `store:false`, `stream:true`; drop `previous_response_id`,
   `background`, `conversation`, `max_output_tokens`, `max_tool_calls`, `metadata`, `moderation`,
   `prompt`, `prompt_cache_retention`, `safety_identifier`, `temperature`, `top_logprobs`, `top_p`,
@@ -195,34 +194,26 @@ Connections (all held on the Mac: acpmux routes + Keychain references):
   (`sk-ant-oat` prefix, no whitespace), stored in the Keychain, and only `keychain:ITEM` reaches
   acpmux (`_acpmux/connections/claude_token.add {secret, label?}` -> state; kind `claude-token`,
   provider anthropic, family claude). An Anthropic API key (`api-key`, anthropic) also serves Claude.
-- **Codex**: `chatgpt-plan` (Sign in with ChatGPT, lane A as built), an OpenAI API key, or the
-  Mac's Codex CLI ChatGPT login (`codex-login`, an added Codex account `subscription`) while it
-  holds an access token with at least 5 minutes left (cmux#45774, `codex_login_access.rs`).
-- The Claude Code login (`claude-login`) stays listed for local chats but does not serve Cloud
-  (`serves_cloud: false`). A Codex CLI login signed in with an API key, kept in the Keychain, or
-  with no token left does not either.
+- **Codex**: `chatgpt-plan` (Sign in with ChatGPT, lane A as built) or an OpenAI API key.
+- The existing Mac CLI logins (`codex-login`, `claude-login`) stay listed for local chats but do not
+  serve Cloud (`serves_cloud: false`) in this revision.
 
 Delivery (`_acpmux/connections/credential {id}` -> `{ "family", "kind", "env": {NAME: value},
 "expires_at": unix|null }`, local unix socket only, never logged):
 - claude-token -> `CLAUDE_CODE_OAUTH_TOKEN`; anthropic key -> `ANTHROPIC_API_KEY`;
-  openai key -> `OPENAI_API_KEY`; chatgpt-plan -> `CMUX_CODEX_ACCESS_TOKEN` (the daemon's own Codex-client login, refreshed by
-  the daemon, fresh, >= 10 min left);
-  codex-login -> `CMUX_CODEX_ACCESS_TOKEN`, the access token from the login's `auth.json` alone
-  (never its refresh or ID token, never refreshed by cmux: Codex rotates its refresh token and a
-  second refresher would sign the person out of Codex on the Mac; the Mac's own Codex renews it).
+  openai key -> `OPENAI_API_KEY`; chatgpt-plan -> `CMUX_CHATGPT_ACCESS_TOKEN` (fresh, >= 10 min left).
 - At Cloud chat start the app picks the connection (picker's account if it serves Cloud, else the
   first enabled Cloud-serving connection of that family in order), reads its credential, and sends
   it over the machine session to the machine's acpmux with the agent launch. The machine's acpmux
   keeps it in memory for that agent only (never on disk, never in the machine's model-plane env)
   and launches the agent direct to the provider: it unsets the coderouter `ANTHROPIC_BASE_URL` /
-  `OPENAI_BASE_URL` and placeholder keys for that agent. Codex with a chatgpt-plan or
-  codex-login token runs as `cmux_codex_login` on the ChatGPT Codex backend
-  (`https://chatgpt.com/backend-api/codex`, `env_key="CMUX_CODEX_ACCESS_TOKEN"`, header
-  `chatgpt-account-id` from `CMUX_CODEX_ACCOUNT_ID`, which the machine's acpmux sets from the
-  token's own `chatgpt_account_id` claim, `wire_api="responses"`, `requires_openai_auth=false`,
-  `supports_websockets=false`): `api.openai.com/v1` refuses a Codex-client token ("Missing scopes:
-  api.responses.write"), and the retired token-sharing token (`CMUX_CHATGPT_ACCESS_TOKEN`) was
-  refused there with `subscription_sharing_user_not_eligible`. The app pushes its newer token the same way as below.
+  `OPENAI_BASE_URL` and placeholder keys for that agent. Codex with chatgpt-plan runs with the
+  ChatGPT Codex backend, as Codex runs a ChatGPT sign-in (`model_provider="openai_chatgpt_plan"`,
+  base_url `https://chatgpt.com/backend-api/codex`, `env_key="CMUX_CHATGPT_ACCESS_TOKEN"`, the
+  token's `chatgpt_account_id` as `chatgpt-account-id` from `CMUX_CHATGPT_ACCOUNT_ID`,
+  `wire_api="responses"`, `requires_openai_auth=false`, `supports_websockets=false`, no
+  `tool_search`). The `-c` overrides go after `app-server`: codex 0.160 drops overrides before a
+  subcommand that has its own (cmux#45774).
 - ChatGPT refresh: the Mac holds the refresh token. While the app runs it pushes a new access token
   to each machine with a live chatgpt-plan agent about 10 minutes before expiry
   (`agent/credentials.update` on the machine's acpmux); the machine's acpmux restarts that Codex

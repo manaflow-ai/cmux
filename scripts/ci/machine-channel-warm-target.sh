@@ -15,7 +15,8 @@
 # ranged 4.28 to 7.57 min over 8 builds (2026-11-13). A sticky disk is the
 # previous build's whole target dir, mounted in seconds and never evicted.
 #
-# restore (before the build): when DISK is mounted, link cmux-tui/target and
+# restore (before the build): when DISK is mounted, bound it (the same prune,
+# no entry kept: nothing is fresh yet), link cmux-tui/target and
 # the cargo registry to it, then give every source file whose content equals
 # the one the snapshot was built from its recorded mtime back
 # (scripts/blacksmith-testbox-source-mtimes.py), so Cargo rebuilds only what
@@ -24,7 +25,9 @@
 #
 # record (after the build, before the sticky disk's post step commits it):
 # bound the disk (scripts/blacksmith-testbox-target-prune.sh), then record the
-# source mtimes and the commit next to the artifacts.
+# source mtimes and the commit next to the artifacts. The prune never removes
+# target/TRIPLE: the steps after the build read the binaries there, and that
+# dir is often the disk's least recently modified entry.
 #
 # MACHINE_CHANNEL_WARM_TOOLCHAIN (optional): what built the disk that Cargo does not
 # track, such as the macOS cross toolchain (clang, lld, zig, the SDK version label)
@@ -81,6 +84,11 @@ restore() {
       mkdir -p "$target"
     fi
   fi
+  # record's prune keeps target/TRIPLE, so that dir alone can pass the bound. Nothing on
+  # the disk is fresh before the build: bound it here by the prune's rule without a kept
+  # entry (the oldest entry goes first, and this build makes it again).
+  bash "$repo/scripts/ci/timeout.sh" 600 bash "$repo/scripts/blacksmith-testbox-target-prune.sh" "$target" "$max_bytes" \
+    || echo "warning: prune failed; building from the disk as is" >&2
   if [[ -f "$source_record" && ! -L "$source_record" ]]; then
     echo "warm target: hit, built from $(head -c 40 "$source_record" | tr -cd '0-9a-f')"
   else
@@ -103,7 +111,8 @@ record() {
     echo "warm target: $link is not linked to the sticky disk; nothing to record"
     return 0
   fi
-  bash "$repo/scripts/ci/timeout.sh" 600 bash "$repo/scripts/blacksmith-testbox-target-prune.sh" "$target" "$max_bytes" \
+  # 3 = the prune's default stale days; the fourth argument is the entry it keeps.
+  bash "$repo/scripts/ci/timeout.sh" 600 bash "$repo/scripts/blacksmith-testbox-target-prune.sh" "$target" "$max_bytes" 3 "$triple" \
     || echo "warning: prune failed; recording as is" >&2
   rm -f "$source_record"
   python3 -I "$repo/scripts/blacksmith-testbox-source-mtimes.py" record "$repo" "$manifest"
