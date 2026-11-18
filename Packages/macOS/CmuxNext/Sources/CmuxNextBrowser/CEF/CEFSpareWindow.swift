@@ -160,6 +160,7 @@ final class CEFSpareWindow {
               !key.pane.rawValue.hasPrefix(CEFPaneHost.agentPrefix),
               spare.placeholder != nil, spare.isLive || spare.isCreatingWindow else { return nil }
         host = nil
+        if offTheRecord { CEFStartSteps.shared.point("page_spare_taken") }
         #if DEBUG || CMUX_BENCH_HOOKS
         runtime.benchMarks.point("cef.spare_taken")
         #endif

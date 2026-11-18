@@ -463,6 +463,7 @@ final class CEFRuntime {
                 }
                 onReady?()
             }
+            prepareFirstPageWindow()
             self.trigger = trigger
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
@@ -739,6 +740,16 @@ final class CEFRuntime {
         let pages = CEFSpareWindow(profile: profile, offTheRecord: true)
         pages.onNeeded = { [weak self] in self?.spareWindow.onNeeded?() }
         pageSpareWindow = pages
+    }
+
+    /// Measurement arm (CMUX-571 row C arm 3): at the launch's Chromium start, once the first window frame
+    /// committed, the cmux pages' spare window is built right away (not at the next idle moment), so the
+    /// first page (Home's chat, a restored chat) takes an already started Chromium window instead of
+    /// building its own when its pane asks. Only when a cmux page already asked (`pageSpareWindow`) and no
+    /// other window exists.
+    private func prepareFirstPageWindow() {
+        guard initializeAfter?.isOpen == true, let pages = pageSpareWindow, pages.host == nil, hosts.isEmpty else { return }
+        if pages.prepare(runtime: self) { CEFStartSteps.shared.point("page_spare_window") }
     }
 
     /// The spare window of `key`'s store, if it has one: the web tabs' or the cmux pages'.
