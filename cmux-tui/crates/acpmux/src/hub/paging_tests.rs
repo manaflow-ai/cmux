@@ -1,7 +1,7 @@
 //! Pages of a chat whose tool calls re-send their whole output (`store/superseded.rs`).
 
 use super::*;
-use crate::store::{EventRecord, LocalStore, PARSED_LINES, SessionMeta, Store};
+use crate::store::{EventRecord, LocalStore, PARSED_BYTES, PARSED_LINES, SessionMeta, Store};
 use std::io::Write;
 
 /// The app's open page (webviews `direct.ts`: `limit` 400, `OPEN_PAGE_BYTES` 128 KiB).
@@ -485,6 +485,141 @@ fn a_restored_chats_log_load_reads_the_copies_not_its_log() {
         assert!(reads[0] >= log_bytes, "the first load read {} of {log_bytes} bytes", reads[0]);
         assert!(reads[1] < log_bytes / 4, "a restored load read {} of {log_bytes} bytes", reads[1]);
     }
+}
+
+/// The web pane's older page of a real chat (`direct.ts` `olderPage`: before a seq, 2,000
+/// records, 1 MiB, the transcript), at each depth, `OLDER_PAGE_REPS` times: its time, the bytes
+/// its read took from the log, and the records and bytes it parsed. Run over a copy of a chat's
+/// folder: `OLDER_PAGE_SESSIONS=<dir holding the chat's folder> OLDER_PAGE_ID=<chat id>
+/// [OLDER_PAGE_DEPTHS=0.02,0.5] cargo test -p acpmux --release -- --ignored --nocapture
+/// older_page_perf`. Evict the copy from the page cache first for a cold read.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn older_page_perf() {
+    let Ok(sessions) = std::env::var("OLDER_PAGE_SESSIONS") else { return };
+    let id = std::env::var("OLDER_PAGE_ID").expect("OLDER_PAGE_ID");
+    let reps: usize =
+        std::env::var("OLDER_PAGE_REPS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+    let depths: Vec<f64> = std::env::var("OLDER_PAGE_DEPTHS")
+        .unwrap_or_else(|_| "0.02,0.5".into())
+        .split(',')
+        .filter_map(|d| d.trim().parse().ok())
+        .collect();
+    let hub = deferred_hub(std::path::Path::new(&sessions), 8 << 20);
+    let last = hub.store.load(&id).unwrap().expect("the chat's meta").last_seq;
+    let filter = transcript(true);
+    for depth in depths {
+        let before = ((last as f64) * (1.0 - depth)).max(2.0) as u64;
+        for rep in 0..reps {
+            let (r0, l0, b0, t0) = (
+                read_bytes(),
+                PARSED_LINES.with(std::cell::Cell::get),
+                PARSED_BYTES.with(std::cell::Cell::get),
+                std::time::Instant::now(),
+            );
+            let page =
+                hub.events_page(&id, 0, Some(before), 2000, Some(1 << 20), true, &filter).unwrap();
+            let ms = t0.elapsed().as_secs_f64() * 1000.0;
+            println!(
+                "older page: before {before} (depth {depth}) rep {rep}: {ms:.1} ms, {} records, read {:.1} MB, parsed {} lines {:.1} MB",
+                page.events.len(),
+                (read_bytes() - r0) as f64 / 1e6,
+                PARSED_LINES.with(std::cell::Cell::get) - l0,
+                (PARSED_BYTES.with(std::cell::Cell::get) - b0) as f64 / 1e6,
+            );
+        }
+    }
+}
+
+/// A raw harness line as a harness adapter logs it (`<harness>.<method>`, `codex_app_server.rs`
+/// `tap_kind`, `claude_stdio` `logged_kind`), carrying `bytes` of payload.
+fn raw_line(kind: &str, bytes: usize) -> EventRecord {
+    let msg = json!({"jsonrpc": "2.0", "id": 7, "result": {"output": "r".repeat(bytes)}});
+    EventRecord { seq: 0, at: 0, dir: "in".into(), kind: kind.into(), msg, host_seq: None }
+}
+
+/// The bytes `events` take as the log writes them.
+fn page_bytes(events: &[EventRecord]) -> u64 {
+    events.iter().map(|r| serde_json::to_vec(r).unwrap().len() as u64).sum()
+}
+
+/// Leo, 2026-11-16: "how about speeding up the scrolling up of chats?". An older page of a chat's
+/// transcript passes raw harness lines unparsed, whatever harness wrote them: a real Codex chat's
+/// `codex.response` lines (about 1.5 MB each, half its log) were each parsed and then left out,
+/// and an older page took 2.7 to 7.4 s.
+#[test]
+fn an_older_page_parses_no_raw_harness_lines() {
+    let root = std::env::temp_dir().join(format!("acpmux-older-raw-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let raw = ["codex.response", "claude.assistant", "zed9.response"];
+    let mut log = Vec::new();
+    for n in 0..20_000usize {
+        if n % 100 == 0 {
+            log.push(agent(0, "agent_message_chunk", json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": format!("answer {n}")}})));
+        } else {
+            log.push(raw_line(raw[n % raw.len()], 14 << 10));
+        }
+    }
+    write_chat(&sessions, &mut log, 8 << 20);
+    let hub = deferred_hub(&sessions, 8 << 20);
+    let before = log.len() as u64 / 2;
+    let b0 = PARSED_BYTES.with(std::cell::Cell::get);
+    let page =
+        hub.events_page("c", 0, Some(before), 20, Some(1 << 20), true, &transcript(true)).unwrap();
+    let parsed = PARSED_BYTES.with(std::cell::Cell::get) - b0;
+    let older: Vec<u64> = log
+        .iter()
+        .filter(|r| r.kind == "agent_message_chunk" && r.seq < before)
+        .map(|r| r.seq)
+        .collect();
+    let want = older[older.len() - 20..].to_vec();
+    assert_eq!(page.events.iter().map(|r| r.seq).collect::<Vec<_>>(), want);
+    let own = page_bytes(&page.events);
+    assert!(parsed <= 4 * own, "the page of {own} bytes parsed {parsed} bytes");
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// Pages of `log`, written as chat `c` under `sessions`, read back from before each of `befores`:
+/// what each record says (two logs' seqs differ; their records' words need not).
+fn transcript_pages(
+    sessions: &std::path::Path,
+    log: &mut [EventRecord],
+    befores: &[u64],
+) -> Vec<Vec<(String, String, Value)>> {
+    write_chat(sessions, log, 64 << 10);
+    let hub = deferred_hub(sessions, 64 << 10);
+    befores
+        .iter()
+        .map(|before| {
+            let page = hub
+                .events_page("c", 0, Some(*before), 40, Some(OPEN_BYTES), true, &transcript(true))
+                .unwrap();
+            page.events.into_iter().map(|r| (r.dir, r.kind, r.msg)).collect()
+        })
+        .collect()
+}
+
+/// Raw harness lines among a Codex chat's records change no page: its pages read with them are
+/// the pages read without them, record for record.
+#[test]
+fn raw_harness_lines_change_no_page() {
+    let root = std::env::temp_dir().join(format!("acpmux-raw-pages-{}", uuid::Uuid::now_v7()));
+    let mut chat = codex_chat(12, 40, 64, false);
+    let mut mixed = Vec::new();
+    for (n, rec) in chat.iter().enumerate() {
+        mixed.push(rec.clone());
+        let kind = ["codex.response", "codex.turn/diff/updated", "codex.hook/started"][n % 3];
+        mixed.push(raw_line(kind, 512));
+    }
+    let n = chat.len() as u64;
+    let befores = [n + 1, n * 3 / 4, n / 2, n / 4];
+    let without = transcript_pages(&root.join("plain"), &mut chat, &befores);
+    // The mixed log holds the chat's record `k` (from 1) at seq `2k - 1`.
+    let mixed_befores: Vec<u64> = befores.iter().map(|b| 2 * b - 1).collect();
+    let with = transcript_pages(&root.join("mixed"), &mut mixed, &mixed_befores);
+    assert!(without.iter().all(|page| !page.is_empty()));
+    assert_eq!(with, without);
+    std::fs::remove_dir_all(&root).ok();
 }
 
 /// `runs` fresh hubs over one Codex-shaped log of `turns` turns, each loading the chat's log and

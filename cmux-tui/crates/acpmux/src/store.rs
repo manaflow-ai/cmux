@@ -1550,7 +1550,7 @@ mod log_line;
 pub use log_line::RecordHead;
 
 #[cfg(test)]
-pub(crate) use log_line::PARSED_LINES;
+pub(crate) use log_line::{PARSED_BYTES, PARSED_LINES};
 
 use log_line::{
     first_seq, for_each_line_rev, for_each_line_rev_between, for_each_line_rev_from, offset_of_seq,
