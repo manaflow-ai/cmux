@@ -275,27 +275,23 @@ fn a_seed_serves_its_blobs_and_nothing_else() {
         return;
     }
     write_loose(&git_dir, HELLO, b"hello\n").unwrap();
+    // Bound here and handed over, so the port is the seed's before the first request.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
-    drop(listener);
-    let seed_addr = addr.clone();
     std::thread::spawn(move || {
-        serve(&git_dir, &seed_addr, SeedLimits { load_per_core: f64::MAX, ..SeedLimits::default() })
+        serve_on(
+            &git_dir,
+            listener,
+            &SeedLimits { load_per_core: f64::MAX, ..SeedLimits::default() },
+        );
     });
     let http = Http::new().unwrap();
     let base = format!("http://{addr}");
     let wait = Duration::from_secs(2);
-    let mut answer = Answer::Failed;
-    // The listener starts on its own thread; a connection refused before it binds is retried.
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while Instant::now() < deadline {
-        answer = http.get(&format!("{base}/objects/{HELLO}"), None, wait);
-        if answer != Answer::Failed {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert_eq!(answer, Answer::Found(b"hello\n".to_vec()));
+    assert_eq!(
+        http.get(&format!("{base}/objects/{HELLO}"), None, wait),
+        Answer::Found(b"hello\n".to_vec())
+    );
     assert_eq!(http.get(&format!("{base}/objects/{EMPTY}"), None, wait), Answer::Absent);
     assert_eq!(http.get(&format!("{base}/etc/passwd"), None, wait), Answer::Absent);
     // A peer that refuses connections, over the real network: the seed behind it answers.
