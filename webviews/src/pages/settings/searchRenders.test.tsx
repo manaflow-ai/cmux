@@ -8,6 +8,7 @@ import { act } from "react";
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
+import { rowRenders } from "../../../test/support/commitRenders";
 
 const restore = installDom();
 afterAll(() => restore());
@@ -66,4 +67,24 @@ test("a change to the host's lists neither filters again nor draws a slot", asyn
   expect(propsOf(results())).toBe(resultsProps);
   expect([...slots()].filter(drewAgain).length).toBe(0);
   expect([...slots()].filter(open).map(keyOf)).toContain("terminal.fontFamily");
+});
+
+test("a keystroke draws no matched row whose title, summary and key show none of the change", async () => {
+  page = await renderPage({ path: "/settings/general" });
+  await changeValue(field(), "fon");
+  const renders = rowRenders();
+  renders.begin(page.container, "[data-search-results] .rows > .collapse");
+  await changeValue(field(), "font");
+  // Every slot React drew again changed on screen: its match or its marks (base: 4 rows matched on
+  // their help or keywords drew the same title, summary and key again).
+  const count = renders.end();
+  expect(count.rerendered).toBeGreaterThan(0);
+  expect(count.wasted).toBe(0);
+  // Such a row still shows its key, unmarked, and the rows that show the term mark it.
+  const density = [...slots()].find((slot) => keyOf(slot) === "appearance.density")!;
+  expect(open(density)).toBe(true);
+  expect(density.querySelector(".row-key")?.textContent).toBe("appearance.density");
+  expect(density.querySelector("mark")).toBeNull();
+  const family = [...slots()].find((slot) => keyOf(slot) === "terminal.fontFamily")!;
+  expect([...family.querySelectorAll("mark")].map((mark) => mark.textContent?.toLowerCase())).toContain("font");
 });
