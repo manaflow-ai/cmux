@@ -34,6 +34,7 @@ import {
   STACK,
 } from "./subagentGroupModel";
 import { Clock } from "../../../ui/Typography";
+import { STUDIO } from "../../../look/studio";
 
 /// A subagent's avatar: the subagent mark in the agent's tone (another family's harness mark,
 /// AgentIdentity.tsx `foreignHarness`), and its place in the running wave
@@ -93,6 +94,7 @@ export function SubagentGroupHeader({
   const language = usePaneLanguage();
   const agents = row.subagents ?? [];
   const now = useNow(agents.some(ticking));
+  const runningCount = agents.filter((agent) => agent.state === "running").length;
   const controls = expanded ? agents.map((agent) => `${row.id}:${agent.id}`).join(" ") : undefined;
   return (
     <button type="button" className="cv-subagents" aria-expanded={expanded} aria-controls={controls} onClick={onToggle}>
@@ -102,8 +104,17 @@ export function SubagentGroupHeader({
         ))}
         {agents.length > STACK && <span className="cv-subagents__more">+{agents.length - STACK}</span>}
       </span>
+      {/* The studio look: "4 subagents", then "4 working" in the primary colour (look/studio.ts); the
+          other states keep cmux's words. */}
       <span className="cv-subagents__text">
-        <span className="cv-subagents__title">{groupLabel(t, language, agents)}</span>
+        {runningCount > 0 ? (
+          <>
+            <span className="cv-subagents__title">{STUDIO.subagents(agents.length)}</span>{" "}
+            <span className="studio-subagents-working">{STUDIO.working(runningCount)}</span>
+          </>
+        ) : (
+          <span className="cv-subagents__title">{groupLabel(t, language, agents)}</span>
+        )}
       </span>
       <Clock className="cv-subagents__time" text={formatDuration(groupElapsed(agents, now))} />
       <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />

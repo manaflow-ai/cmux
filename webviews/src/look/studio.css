@@ -135,3 +135,21 @@
 .acpmux-newtab-box .acpmux-mic {
   display: none;
 }
+
+/* A subagent batch: "4 subagents", then "4 working" in the primary colour. */
+.cv-subagents .cv-subagents__title {
+  font-weight: 600;
+  color: var(--studio-fg);
+}
+.studio-subagents-working {
+  color: var(--studio-primary);
+}
+
+/* The running tray's folded head: "Waiting on 4 subagents", then their names, muted. */
+.studio-waiting-names {
+  margin-inline-start: 6px;
+  color: var(--studio-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -7,6 +7,7 @@
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
 // chats the agent started (`sessions`, session-info/ChildSessionRows.tsx), each opening its chat.
 import { useContext } from "react";
+import { STUDIO } from "../../../look/studio";
 
 import { formatDuration } from "../conversation/turns";
 import { AgentLine } from "../subagents/AgentLine";
@@ -95,16 +96,13 @@ export function SubagentStatusList({
   const t = useT();
   const chatHarness = useContext(SubagentHarnessContext);
   const now = useNow(agents.some(ticking));
-  const title = t("summary.subagents");
+  // The studio look: the reference app's "Lineage · 4 running" over the chat's agents (look/studio.ts).
+  const title = STUDIO.lineage;
   const live =
     agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
     subsessions.filter((session) => session.state === "working" || sessionRetry(session).kind === "retrying").length +
     sessions.filter((child) => sessionStatus(child) === "running").length;
-  const heading = counts
-    ? `${title} · ${counts}`
-    : live > 0
-      ? `${title} · ${t("summary.subagents.running", { n: live })}`
-      : title;
+  const heading = counts ? `${title} · ${counts}` : live > 0 ? STUDIO.lineageRunning(live) : title;
   return (
     <section className="acpmux-summary-section acpmux-summary-agents" aria-label={title}>
       <h3 className="acpmux-summary-title">

@@ -144,6 +144,7 @@ import type { TrayHandleSide } from "../chatDisplay";
 import { earlierPlanHead, planHead } from "./subagentTrayModel";
 import { focusRingShown } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
+import { STUDIO } from "../../../look/studio";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -573,8 +574,19 @@ export const SubagentTray = memo(function SubagentTray({
   const shownNames = named ? newest.slice(0, foldHead === "one" || oneName ? 1 : 2) : [];
   // The plan leads: its progress and the step at work, then what runs (Leo's hat, 2026-11-03).
   const planText = planned ? (planEarlier ? earlierPlanHead(t, plan) : planHead(t, plan)) : "";
+  // The studio look: folded over subagents only, the head reads as the reference app's line, "Waiting
+  // on 4 subagents", then every name, muted (look/studio.ts).
+  const waitingOn = named && commands === 0 && running > 1 ? STUDIO.waitingOn(running) : undefined;
   const workText =
-    items.length + finished.length === 0 ? "" : loneHead ? loneHead.title : named ? shownNames.join(" · ") : title;
+    items.length + finished.length === 0
+      ? ""
+      : loneHead
+        ? loneHead.title
+        : waitingOn
+          ? waitingOn
+          : named
+            ? shownNames.join(" · ")
+            : title;
   const headText = [planText, workText].filter(Boolean).join(" · ");
   // A tray with only a plan draws the Plan mode mark in its head's icon slot; with work beside the
   // plan the head keeps the work's ring.
@@ -821,7 +833,8 @@ export const SubagentTray = memo(function SubagentTray({
           )}
           {/* The rest of the names, one word space after them (subagents.css); its count rolls in place
               and its "+" sits on the figures' centre (Typography.tsx `Sign`). */}
-          {named && moreCount > 0 && (
+          {waitingOn && <Tick className="acpmux-summary-meta studio-waiting-names" text={newest.join(", ")} slide />}
+          {named && !waitingOn && moreCount > 0 && (
             <Tick
               className="acpmux-summary-meta acpmux-running-tray__more"
               text={t("tools.more", { n: moreCount })}

@@ -11,6 +11,7 @@
 // repository is there, which the pane opens in the browser as it opens a reply's link, and Changes
 // opens the diff.
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { STUDIO } from "../../../look/studio";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -319,6 +320,13 @@ export function EnvironmentSection({
           {projectLook === "branch" && branch && (
             <span className="acpmux-session-info-row__detail acpmux-session-info-row__end">{branch}</span>
           )}
+        </Row>
+      )}
+      {/* The studio look: the reference app's "Open in editor" row under the project, which opens the
+          project's folder (look/studio.ts). */}
+      {project && onOpenFolder && (
+        <Row icon="app.open.external" title={project.path} onClick={() => onOpenFolder(project.path)}>
+          <span className="acpmux-session-info-row__name">{STUDIO.openInEditor}</span>
         </Row>
       )}
       {branch && !(projectLook === "branch" && project) && (
