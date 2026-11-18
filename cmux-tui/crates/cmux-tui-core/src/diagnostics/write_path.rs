@@ -53,7 +53,7 @@ pub(crate) enum CommitWriter {
     JournalMaintenance,
 }
 
-/// The rows of [`CommitWriter`], indexed by `writer as usize`.
+/// The rows of [`CommitWriter`]: a writer's row is at [`CommitWriter::row`].
 pub(crate) const COMMIT_WRITERS: [CommitWriter; 14] = [
     CommitWriter::Other,
     CommitWriter::JournalWriter,
@@ -71,12 +71,18 @@ pub(crate) const COMMIT_WRITERS: [CommitWriter; 14] = [
     CommitWriter::JournalMaintenance,
 ];
 
-// A commit's counts are at `writer as usize` in an array of this length: the
-// last writer's index is the table's last row. A writer that goes in before
-// the last one, or a row that goes out, does not compile without the other.
-// A writer that goes in after the last one compiles with no row here: this
-// assert does not catch it, so its author moves this line to the new name.
-const _: () = assert!(CommitWriter::JournalMaintenance as usize + 1 == COMMIT_WRITERS.len());
+// A commit's counts are at `writer.row()` in an array of the table's length.
+// Each row of the table is at the index that its writer's arm gives: a row
+// or an arm that moves alone does not compile. A new writer does not compile
+// before it has an arm in `row`; its row goes into the table at that index.
+// A writer with an arm and no row compiles: its commits count as `other`.
+const _: () = {
+    let mut index = 0;
+    while index < COMMIT_WRITERS.len() {
+        assert!(COMMIT_WRITERS[index].row() == index);
+        index += 1;
+    }
+};
 
 thread_local! {
     /// The writer that this thread's commits count under.
@@ -101,6 +107,28 @@ impl CommitWriter {
             Self::StateMutation => "state_mutation",
             Self::Feed => "feed",
             Self::JournalMaintenance => "journal_maintenance",
+        }
+    }
+
+    /// The index of this writer's row in [`COMMIT_WRITERS`] and in a
+    /// registry's counts. One arm for each writer, with no wildcard arm: a
+    /// new writer does not compile before it has an arm here.
+    pub(crate) const fn row(self) -> usize {
+        match self {
+            Self::Other => 0,
+            Self::JournalWriter => 1,
+            Self::AgentReport => 2,
+            Self::AgentRosterSave => 3,
+            Self::AgentHookRetry => 4,
+            Self::EffectReceipt => 5,
+            Self::Notification => 6,
+            Self::ResourcePatch => 7,
+            Self::FrontendProjection => 8,
+            Self::RegistryIntent => 9,
+            Self::TerminalRelaunch => 10,
+            Self::StateMutation => 11,
+            Self::Feed => 12,
+            Self::JournalMaintenance => 13,
         }
     }
 
@@ -251,7 +279,7 @@ mod tests {
     #[test]
     fn the_table_of_writers_is_in_the_order_of_its_rows_and_each_name_is_one_row() {
         for (index, writer) in COMMIT_WRITERS.iter().enumerate() {
-            assert_eq!(*writer as usize, index, "{writer:?} is not at its own index");
+            assert_eq!(writer.row(), index, "{writer:?} is not at the index of its arm");
         }
         let names: std::collections::BTreeSet<_> =
             COMMIT_WRITERS.iter().map(|writer| writer.name()).collect();

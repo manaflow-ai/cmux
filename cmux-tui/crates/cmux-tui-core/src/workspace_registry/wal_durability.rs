@@ -345,14 +345,22 @@ fn note_commit(shared: &Shared, frames: std::ffi::c_int) {
         state.wal_frame_bytes.saturating_add(appended.saturating_mul(shared.frame_bytes));
     // The commit's writer is this thread's (the WAL hook runs on the committing thread): two adds under the
     // lock that this function holds already.
-    let by_writer = &mut state.by_writer[CommitWriter::current() as usize];
-    by_writer.0 += 1;
-    by_writer.1 = by_writer.1.saturating_add(appended);
+    if let Some(counts) = writer_counts(&mut state.by_writer, CommitWriter::current().row()) {
+        counts.0 += 1;
+        counts.1 = counts.1.saturating_add(appended);
+    }
     if shared.flush_each_commit {
         state.requested = state.committed;
         drop(state);
         shared.changed.notify_all();
     }
+}
+
+/// The counts of the row at `row`. An index with no row gives the row of `other`: this runs in the WAL hook,
+/// after the commit is in the file, so no path of it panics at the array.
+fn writer_counts(by_writer: &mut CommitsByWriter, row: usize) -> Option<&mut (u64, u64)> {
+    let row = if row < by_writer.len() { row } else { CommitWriter::Other.row() };
+    by_writer.get_mut(row)
 }
 
 fn request_flush(shared: &Shared) {
@@ -560,7 +568,7 @@ mod tests {
     fn each_commit_counts_under_the_writer_that_its_thread_names() {
         let (dir, connection) = database("by-writer");
         let durability = WalDurability::attach(&connection, &dir.join("r.sqlite"), None, false);
-        let row = |writer: CommitWriter| durability.write_path_commits().3[writer as usize];
+        let row = |writer: CommitWriter| durability.write_path_commits().3[writer.row()];
         connection.execute("INSERT INTO t VALUES (0)", []).unwrap();
         {
             let _report = CommitWriter::AgentReport.scope();
@@ -597,6 +605,21 @@ mod tests {
         assert_eq!(frames * (u64::try_from(page).unwrap() + WAL_FRAME_HEADER_BYTES), frame_bytes);
         drop(connection);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_row_index_past_the_table_counts_in_the_row_of_other() {
+        let mut counts = CommitsByWriter::default();
+        let past = counts.len();
+        writer_counts(&mut counts, past).unwrap().0 += 1;
+        writer_counts(&mut counts, CommitWriter::Feed.row()).unwrap().0 += 1;
+        let commits = |writer: CommitWriter| counts[writer.row()].0;
+        let all = counts.iter().map(|row| row.0).sum::<u64>();
+        assert_eq!(
+            (commits(CommitWriter::Other), commits(CommitWriter::Feed), all),
+            (1, 1, 2),
+            "(other, feed, all): {counts:?}"
+        );
     }
 
     #[test]
