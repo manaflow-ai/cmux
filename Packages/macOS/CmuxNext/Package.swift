@@ -1242,6 +1242,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextFiles",
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
             ],
             resources: [
                 .process("Resources"),

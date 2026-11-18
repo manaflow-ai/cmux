@@ -1259,7 +1259,9 @@
         "CmuxNextDesign",
         "CmuxNextFiles"
       ],
-      "packages": []
+      "packages": [
+        "CmuxVisibleRows"
+      ]
     },
     "CmuxNextFloating": {
       "kind": "regular",

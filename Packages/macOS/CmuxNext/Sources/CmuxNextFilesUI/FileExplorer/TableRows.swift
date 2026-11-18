@@ -1,4 +1,5 @@
 package import AppKit
+package import CmuxVisibleRows
 
 /// A table's rows, moved from one list to the next by each row's stable id: rows that left are
 /// removed, new rows inserted, kept rows whose value changed reloaded, and unchanged rows not
@@ -14,6 +15,9 @@ package final class TableRows<Row: Equatable, ID: Hashable> {
     package private(set) var configured = 0
     /// Whole-table reloads (a new folder, a new search: no row kept).
     package private(set) var fullReloads = 0
+    /// The table's row work for the visible-rows contract: each configure, each cell layout
+    /// (``laidOut()``), and the rows each ``show(_:in:)`` compares.
+    package let listWork = ListWorkMeter()
     private let id: (Row) -> ID
 
     // A generic main-actor class: an isolated deinit crashes the Release optimizer (#23050).
@@ -29,13 +33,19 @@ package final class TableRows<Row: Equatable, ID: Hashable> {
     /// The row a row view shows, counted.
     package func configure(_ index: Int) -> Row {
         configured += 1
+        listWork.configured()
         return all[index]
     }
+
+    /// One cell of this table laid out (a width change, a reload).
+    package func laidOut() { listWork.laidOut() }
 
     /// Shows `new` in `table`, whose data source answers from these rows.
     package func show(_ new: [Row], in table: NSTableView) {
         let old = all
         all = new
+        // Every row is compared: the model hands over a whole new list (FileExplorerModel.rebuild).
+        listWork.walked(old.count + new.count)
         let oldIDs = old.map(id), newIDs = new.map(id)
         let columns = IndexSet(integersIn: 0..<max(table.numberOfColumns, 1))
         if oldIDs == newIDs {

@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFiles
 import CmuxNextFilesUI
+import CmuxVisibleRows
 
 /// The right sidebar's Files section (classic's file explorer): the focused
 /// terminal's folder as a tree. Click selects, double-click, Return and
@@ -235,6 +236,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         let id = NSUserInterfaceItemIdentifier("fileExplorer.row")
         let cell = tableView.makeView(withIdentifier: id, owner: nil) as? FileExplorerCell ?? FileExplorerCell(identifier: id)
         cell.show(rows.configure(row))
+        if cell.onLayout == nil { cell.onLayout = { [rows] in rows.laidOut() } }
         return cell
     }
 
@@ -242,4 +244,12 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         let index = table.selectedRow
         model.selection = index >= 0 && index < rows.count ? rows[index].url : nil
     }
+}
+
+/// The Files tree under the visible-rows contract (`VisibleRowsContract`): each row configure, each cell layout and
+/// the rows each update compares count on `listWork` (``TableRows``).
+extension FileExplorerSectionView: VisibleRowsList {
+    var listWork: ListWorkMeter { rows.listWork }
+    /// The table's row views, shown and kept for reuse.
+    var rowViewsAlive: Int { table.subviews.reduce(0) { $0 + ($1 is NSTableRowView ? 1 : 0) } }
 }
