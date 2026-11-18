@@ -278,10 +278,36 @@ class Evidence(unittest.TestCase):
         self.assertEqual(runner_pools._labels("a,b+c"), {"a", "b", "c"})
 
     def test_probe_health_per_label(self) -> None:
+        fresh = dict(copy.deepcopy(RECORDED), label_started={})
         dead, started, _ = runner_pools.label_evidence(health({
-            "blacksmith-32vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "started"}), None, now=NOW)
+            "blacksmith-32vcpu-ubuntu-2404": "stalled", "blacksmith-16vcpu-ubuntu-2404": "started"}), fresh, now=NOW)
         self.assertEqual(dead, {"blacksmith-32vcpu-ubuntu-2404"})
         self.assertEqual(started, {"blacksmith-16vcpu-ubuntu-2404"})
+
+    def test_a_probe_stall_without_a_fresh_snapshot_marks_nothing_dead(self) -> None:
+        # Run 44296348389, 11:37Z on 2026-11-18: the cmux-bot App's budget was spent, the snapshot read
+        # returned 403 ("judging on the probe alone"), and the 4, 8, 16 and 32 vCPU probes, queued behind the
+        # org's vCPU cap while 2,618 jobs waited, read "stalled"; all four were marked dead and every Linux pool
+        # was squeezed onto 2 vCPU. A stall cannot tell a dead size from a full cap without the janitor's starts.
+        probe = health({"blacksmith-4vcpu-ubuntu-2404": "stalled", "blacksmith-8vcpu-ubuntu-2404": "stalled",
+                        "blacksmith-2vcpu-ubuntu-2404": "started"})
+        stale = dict(copy.deepcopy(RECORDED), label_started={},
+                     generated_at=runner_pools.iso(NOW - runner_pools.SNAPSHOT_MAX_AGE - dt.timedelta(minutes=1)))
+        for snapshot in (None, stale, dict(copy.deepcopy(RECORDED), truncated=True)):
+            with self.subTest(snapshot=bool(snapshot)):
+                dead, started, notes = runner_pools.label_evidence(probe, snapshot, now=NOW)
+                self.assertEqual(dead, set())
+                self.assertEqual(started, {"blacksmith-2vcpu-ubuntu-2404"})
+                self.assertTrue(any("no fresh janitor snapshot" in note for note in notes), notes)
+        # The marks already there keep their state: no fresh evidence, so none expires or is renewed, and a
+        # probe start still clears its label.
+        pools = runner_pools.load_pools()
+        since = runner_pools.iso(NOW - dt.timedelta(minutes=5))
+        current = {"_dead": {"blacksmith-4vcpu-ubuntu-2404": since, "blacksmith-2vcpu-ubuntu-2404": since}}
+        dead, started, _ = runner_pools.label_evidence(probe, None, now=NOW)
+        value, _ = runner_pools.reconcile(current, pools, dead_now=dead, served_now=started, now=NOW,
+                                          covered=runner_pools.evidence_covers(probe, None, pools, now=NOW))
+        self.assertEqual(value["_dead"], {"blacksmith-4vcpu-ubuntu-2404": since})
 
     def test_no_evidence_retires_nothing(self) -> None:
         # Fail closed: with CI_CLOUD_LABEL_HEALTH absent (cmux#27121 not deployed) and no snapshot,
