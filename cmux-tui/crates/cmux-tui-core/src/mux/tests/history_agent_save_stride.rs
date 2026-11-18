@@ -223,6 +223,56 @@ fn a_restart_folds_a_sealed_stretch_after_the_saved_cursor_again() {
     assert_the_restart_folded_the_journal(&run);
 }
 
+/// After the first reach of the journal's head the saves go by the stride, in
+/// one process: the turn ends below it save nothing, and the fold that is a
+/// stride past the saved cursor saves one time.
+#[test]
+fn a_stride_of_sequences_after_the_journal_head_saves_the_fold_one_time() {
+    let daemon = Daemon::start("history-save-stride-passed");
+    daemon.hook(FIRST, "SessionStart", serde_json::json!({}));
+    // The first history read folds to the head, saves, and starts the feed.
+    let _ = daemon.entries();
+    let first = saved_agent_fold(&daemon.mux).map_or(0, |(cursor, _)| cursor);
+    let saves_of_the_first_read = daemon.saves();
+
+    let mut lists_below_the_stride = 0;
+    let mut passed = None;
+    // 320 turns are more than a stride: each turn is 2 records or more.
+    for _ in 0..40 {
+        daemon.turns(8);
+        // A list folds to the journal's head of its start, or past it.
+        let head_before = daemon.mux.session_journal_head().unwrap();
+        let _ = daemon.entries();
+        let saves = daemon.saves();
+        let saved = saved_agent_fold(&daemon.mux).map_or(0, |(cursor, _)| cursor);
+        let head = daemon.mux.session_journal_head().unwrap();
+        if head - first < STRIDE {
+            assert_eq!(saves, "1", "below the stride ({first} to {head}) a list saves nothing");
+            assert_eq!(saved, first, "below the stride the saved cursor does not move");
+            lists_below_the_stride += 1;
+        } else if head_before - first >= STRIDE {
+            passed = Some((saves, saved, head));
+            break;
+        }
+    }
+    daemon.close();
+
+    assert_eq!(saves_of_the_first_read, "1", "setup: the first history read saves one time");
+    assert!(lists_below_the_stride > 0, "setup: the first turns are below the stride");
+    let (saves, saved, head) = passed.expect("setup: the turns pass the stride");
+    assert!(head - first < 2 * STRIDE, "setup: one stride passed, not 2 ({first} to {head})");
+    assert_eq!(
+        saves, "2",
+        "the fold that is a stride past the saved cursor ({first}) saves one time (the journal's \
+         head is {head})"
+    );
+    assert!(
+        (first + STRIDE..=head).contains(&saved),
+        "the save is the fold a stride or more past the old saved cursor ({first}): {saved} (the \
+         journal's head is {head})"
+    );
+}
+
 /// A fold that has not reached the journal's head yet (the first one of a
 /// process over a long journal) keeps today's rule: each page with an agent
 /// record is saved, also when it is less than the stride past the last save.
