@@ -106,9 +106,13 @@ import Testing
         return (list, window, ids)
     }
 
-    /// Each theme: the selected row with `accent` (left) and `neutral` (right).
+    /// Each theme: the selected row with `accent` (left) and `neutral` (right). Writes to
+    /// CMUX_SIDEBAR_SELECTION_GALLERY, else on the fleet's drawing opt-in (`CMUX_TEST_REQUIRE_GUI`) to
+    /// `sidebar-neutral-selection.png` in the package, for `cmux-ci run --artifact`.
     @Test func galleryOfNeutralSelection() throws {
-        guard let out = ProcessInfo.processInfo.environment["CMUX_SIDEBAR_SELECTION_GALLERY"] else { return }
+        let env = ProcessInfo.processInfo.environment
+        let packageRoot = SidebarSelectionLookTests.repoRoot.appending(path: "Packages/macOS/CmuxNext").path
+        guard let out = env["CMUX_SIDEBAR_SELECTION_GALLERY"] ?? (env["CMUX_TEST_REQUIRE_GUI"] == "1" ? packageRoot : nil) else { return }
         let store = ThemeScope.app.store
         let (original, originalSelection) = (store.input, store.selection)
         defer { store.setSelection(originalSelection); _ = store.apply(original) }
