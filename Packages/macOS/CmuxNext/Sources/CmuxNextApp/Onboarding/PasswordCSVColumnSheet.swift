@@ -18,7 +18,7 @@ enum PasswordCSVColumnSheet {
             CmuxDialogOption(label: name.isEmpty ? PasswordCSVColumnStrings.unnamed(index + 1) : name, value: String(index))
         }
         let guess = guess(header.names)
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: PasswordCSVColumnStrings.title,
             lines: [PasswordCSVColumnStrings.message(fileName, rows: header.rows)],
             fields: [

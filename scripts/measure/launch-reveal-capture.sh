@@ -63,8 +63,9 @@ current_appearance() {
   [[ "$(defaults read -g AppleInterfaceStyle 2>/dev/null)" == Dark ]] && echo dark || echo light
 }
 
-download_app() {   # NAME URL -> prints the .app path under $TMP/apps
+download_app() {   # NAME URL -> prints the .app path under $TMP/apps (its only stdout: the caller captures it)
   local name="$1" url="$2" dmg="$TMP/$1.dmg" mnt="$TMP/mnt-$1" app
+  exec 3>&1 1>&2
   log "DOWNLOAD $name $url"
   curl -fsSL --retry 3 --max-time 600 -o "$dmg" "$url" || { log "FAIL download $name"; return 1; }
   log "DOWNLOAD $name $(stat -f %z "$dmg") bytes sha256 $(shasum -a 256 "$dmg" | cut -d' ' -f1)"
@@ -76,7 +77,7 @@ download_app() {   # NAME URL -> prints the .app path under $TMP/apps
   ditto "$app" "$TMP/apps/$(basename "$app")" || { log "FAIL ditto $name"; return 1; }
   hdiutil detach "$mnt" -quiet -force; MOUNT=""
   xattr -dr com.apple.quarantine "$TMP/apps/$(basename "$app")" 2>/dev/null
-  echo "$TMP/apps/$(basename "$app")"
+  echo "$TMP/apps/$(basename "$app")" >&3
 }
 
 # The per-user state a launch makes, named by the bundle id and the app name: removed first (cold) when absent, and

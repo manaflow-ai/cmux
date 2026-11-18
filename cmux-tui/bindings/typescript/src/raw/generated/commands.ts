@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 395c64cf019d86e9b1348fc53d3c55625bc449821f6428bea0c29cb515a8cec8. */
+/* cmux-tui mux protocol 12, IR e36fafb2ce1a616e5734761cd2e6761fc809fb67e42d9cd6d9f8ee0829e4a6a7. */
 
 
 import type * as T from "./types.js";
@@ -1280,6 +1280,19 @@ export interface FeedLocalReadRequest extends CmuxRequestBase {
 }
 export type FeedLocalReadResult = T.JsonValue;
 
+/** Protocol v12; authority: control. */
+export interface FloatPaneRequest extends CmuxRequestBase {
+  cmd: "float-pane";
+  "h"?: (number) | null;
+  "mode"?: (string) | null;
+  "pane": T.Id;
+  "transaction"?: (bigint) | null;
+  "w"?: (number) | null;
+  "x"?: (number) | null;
+  "y"?: (number) | null;
+}
+export type FloatPaneResult = T.JsonValue;
+
 /** Protocol v6; authority: control. */
 export interface FocusDirectionRequest extends CmuxRequestBase {
   cmd: "focus-direction";
@@ -2131,6 +2144,7 @@ export type RemoteHostCallResult = T.JsonValue;
 /** Protocol v12; authority: local-admin. */
 export interface RemoteHostConfigRequest extends CmuxRequestBase {
   cmd: "remote-host-config";
+  "app_permissions"?: (T.RemoteHostAppPermissions) | null;
   "computer_use"?: (boolean) | null;
   "headless"?: (boolean) | null;
   "screen_sharing"?: (boolean) | null;
@@ -3185,6 +3199,7 @@ export type CmuxRequest =
   | FeedLocalHandoffDoneRequest
   | FeedLocalListRequest
   | FeedLocalReadRequest
+  | FloatPaneRequest
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
@@ -4301,6 +4316,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "feed-local-owner-v1";
+    stream: null;
+  };
+  "float-pane": {
+    request: FloatPaneRequest;
+    result: FloatPaneResult;
+    authority: "control";
+    since: 12;
+    capability: "floating-panes-v1";
     stream: null;
   };
   "focus-direction": {
