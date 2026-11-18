@@ -101,6 +101,47 @@ import Testing
         #expect(f.shadowShape == f.surface)
     }
 
+    /// The sizes the card's surface takes and the window resizes it makes while `body` runs.
+    private static func sizes(of f: Fixture, during body: () -> Void) -> (surface: [CGSize], windowResizes: Int) {
+        var surface: [CGSize] = []
+        var resizes = 0
+        f.host.card.postsFrameChangedNotifications = true
+        let center = NotificationCenter.default
+        let a = center.addObserver(forName: NSView.frameDidChangeNotification, object: f.host.card, queue: nil) { _ in
+            MainActor.assumeIsolated { if surface.last != f.host.card.frame.size { surface.append(f.host.card.frame.size) } }
+        }
+        let b = center.addObserver(forName: NSWindow.didResizeNotification, object: f.panel, queue: nil) { _ in resizes += 1 }
+        body()
+        center.removeObserver(a)
+        center.removeObserver(b)
+        return (surface, resizes)
+    }
+
+    /// Lawrence 2026-11-18 (msg 38370 follow-up): the press of Show details or Hide details was one late frame
+    /// on 36 to 37 of 40 presses (cmux-lawrence-2, 120 Hz): the press laid the card and its glass out at sizes it
+    /// never showed. Hide details set the window to the small rest frame, laid it out, then set it back to the
+    /// fold's larger frame; Show details laid the card out at the full larger size, then again at the size it grows
+    /// from. The press lays the card out once, at the size its first frame shows.
+    @Test func pressingDetailsLaysTheCardOutOnlyAtTheSizeItShows() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let f = try Self.fixture()
+        defer { f.tearDown() }
+
+        let show = Self.sizes(of: f) { f.card.detailsToggle.performClick(nil) }
+        try #require(f.panel.activeMorph != nil)
+        #expect(show.surface.allSatisfy { abs($0.height - f.shown.height) < 0.5 && abs($0.width - f.shown.width) < 0.5 },
+                "Show details laid the card out at \(show.surface) before showing it at \(f.shown)")
+        #expect(show.windowResizes <= 1, "Show details resized the card's window \(show.windowResizes) times")
+        Self.settle(f.panel)
+
+        let hide = Self.sizes(of: f) { f.card.detailsToggle.performClick(nil) }
+        try #require(f.panel.activeMorph != nil)
+        #expect(hide.surface.allSatisfy { abs($0.height - f.shown.height) < 0.5 && abs($0.width - f.shown.width) < 0.5 },
+                "Hide details laid the card out at \(hide.surface) before showing it at \(f.shown)")
+        #expect(hide.windowResizes == 0, "Hide details resized the card's window \(hide.windowResizes) times: the fold holds the frame it had")
+    }
+
     @Test func underReduceMotionDetailsChangeTheCardAtOnce() throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }

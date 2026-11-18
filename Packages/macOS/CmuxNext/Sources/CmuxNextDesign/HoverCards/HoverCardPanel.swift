@@ -381,9 +381,12 @@ final class HoverCardPanel: NSPanel {
         // What is drawn now, read before a morph in flight lays its card out at rest (as `present` does).
         let previous = animated ? presentedCardFrame : nil
         finishMorph()
-        place()
-        // The same morph a retarget to another size runs: the mask grows or folds about the fixed corner.
-        if let previous { _ = morph(from: previous, folds: true) }
+        // An animated refit leaves the window where it is: the morph sets the one frame its first frame shows. A
+        // window set to the rest frame first laid the card and its glass out at a size never shown, then the morph
+        // set it back (the press of Show or Hide details was a late frame, Lawrence 2026-11-18).
+        place(appliesFrame: previous == nil)
+        // The same morph a retarget to another size runs: the card grows or folds about the fixed corner.
+        if let previous, !morph(from: previous, folds: true) { applyRestFrame() }
     }
 
     /// Lays the card out for its anchor and size. `appliesFrame` false: the rest frame is worked out
