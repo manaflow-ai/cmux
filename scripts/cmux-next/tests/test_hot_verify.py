@@ -265,8 +265,9 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(planned["ffi_baseline"]["app_pin_source"], "a" * 40)
         with unittest.mock.patch.object(h.ffi_part, "additive", return_value=["drops ffi_old()"]):
             planned = self.plan(head)
-        self.assertTrue(planned["needs_build"])
-        self.assertEqual(planned["build"]["Rust the app links (FFI), in the commits the app lacks"], [hv.FFI_PIN_FILE])
+        # The app cannot take the fork's release: since cmuxterm-hq#13435 the change's own commits go onto the app's
+        # commit, which keeps the app's release, instead of needing a build.
+        self.assert_onto_app(planned, self.fx.base, {hv.FFI_PIN_FILE: self.PIN % ("a" * 40, "0" * 64)})
         self.assertNotIn("ffi_baseline", planned)
         self.assertTrue(any("drops ffi_old()" in note for note in planned["notes"]), planned["notes"])
 
