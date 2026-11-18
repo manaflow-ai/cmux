@@ -22,18 +22,18 @@ included baseline, with open-source models. Also Chief can start sandboxes now."
 | Plans (live, classic + cmux-next share them) | Free $0; Go $10; Pro $50/mo or $480/yr; Max $200/mo or $1,920/yr; Team $60/seat/mo; Enterprise custom. Lookup keys carry the amount. 93 subscribers grandfathered at $30 Pro. | `web/services/billing/plans.ts:20-73`; cmuxterm-hq `plans/pro-pricing-launch.md:33-40` |
 | AI usage policy | PASS-THROUGH: usage above the included amount billed at provider cost, multiplier 1.0 (Lawrence, 2026-10-13). Included per plan are test placeholders: Go 5, Pro 20, Max 100, Team 20 USD. Founders and Apple: hard stop at included. | `plans/cmux-next/usage-billing.md:7-11, 309`; `backend/apps/api/src/billing-catalog.ts:7-61` |
 | Chief credits | USD, stored as integer micro-dollars in each team's `UsageMeterDO`; price = provider cost x `CHIEF_CREDITS_MARGIN` (default 1, clamp 1-10); one-time Stripe Checkout top-ups 10/20/50/100 USD, test-mode key only; signed 7-day top-up link; `credits_exhausted` posts one notice per conversation. | `backend/apps/api/src/credits.ts:16-63`, `credits-checkout.ts:24-107`, `chief-brain/credits-gate.ts:8-124` |
-| `chief_placed` | A Chief placed on the user's own paired server is never charged by the hosted brain. Claude Code turns on a Freestyle VM via sr2 record `cost_usd: 0`. | `brain-do.ts:331,377`; `chief-brain-cc/turn.ts:198`; test `apps/api/test/chief-brain-place.test.ts` |
+| `chief_placed` | A Chief placed on the user's own paired server is never charged by the hosted brain. Claude Code turns on a provider VM via sr2 record `cost_usd: 0`. | `brain-do.ts:331,377`; `chief-brain-cc/turn.ts:198`; test `apps/api/test/chief-brain-place.test.ts` |
 | Prod credits | Lawrence's default Chief unplaced; Worker brain (Kimi) charges credits, about $49.99 left (a111, 2026-10-20). | chat a111 |
 | Open-model router | Catalog ceilings ("card", USD/1M in/out): glm-5.3-flash 0.25/0.8, deepseek-v4.1-flash 0.4/1.5, kimi-k2.7-code 1/4, glm-5.3 1.5/5, kimi-k3 3.5/16; free tier 300k tokens/device/day. There is no GLM 5.2 in the catalog; it is GLM-5.3. | `backend/apps/api/src/inference/catalog.ts:14-217`, `free-device-do.ts:116-127` |
 | Claude rates | Bedrock: Opus 5.5 4/20 (cache read 0.2, 1h write 8); Sonnet 5.5 2/10 (0.1, 4); Haiku 5.5 0.1/0.5. | `model-gateway/bedrock-price.ts:23-30` |
 | VMs | Pro/Team: 5 concurrent, pool 20 vCPU / 40 GB, max 8 vCPU / 16 GB; Max: pool 80/160, max 32/64; Go: 1 VM, 40 VM-hours. Flat, no VM-hour overage; plan budgets off (`CMUX_VM_PLAN_BUDGETS`). | `web/services/vms/entitlements.ts:209-219`, `goUsage.ts:8-11`, `planUsage.ts:53-66` |
-| Freestyle tenant VMs (a205) | One tenant = one Stack team; VM create credits (Stack items) and Cloud credits (USD) are two ledgers today; 402 now carries an upgrade link. | cmuxterm-hq `plans/freestyle-tenant-DESIGN.md` (#2610, eef94375164d) |
-| Hub VM | 4 vCPU / 8 GiB always on = $193/month, which matches Freestyle list price exactly (section 3). | a161, cmuxterm-hq `5d08849650bc` |
+| Provider tenant VMs (a205) | One tenant = one Stack team; VM create credits (Stack items) and Cloud credits (USD) are two ledgers today; 402 now carries an upgrade link. | cmuxterm-hq `plans/freestyle-tenant-DESIGN.md` (#2610, eef94375164d) |
+| Hub VM | 4 vCPU / 8 GiB always on = $193/month, which matches the VM provider's list price exactly (section 3). | a161, cmuxterm-hq `5d08849650bc` |
 
 a205 confirmed (2026-10-20): one credits unit, Cloud credits in USD in the team's existing
 `UsageMeterDO` ledger with its top-up link. Lines that convert to credits: workflow steps,
 sandbox seconds by size (its estimate $0.13/h for 2 vCPU / 4 GiB and $0.26/h for 4 vCPU / 8 GiB
-is our Freestyle cost; the list price below adds 12%), and model tokens. Classic Cloud VM create
+is our VM provider cost; the list price below adds 12%), and model tokens. Classic Cloud VM create
 credits are not extended to cmux-next. Workflow steps are priced at Cloudflare cost
 ($0.80 per 100,000 steps, `automations-billing.md` section 3), which is too small to show on the
 page; they appear as a line in Settings › Billing.
@@ -51,7 +51,7 @@ the existing Chief credits ledger, and a205 owns merging VM time into it.
    than Opus (section 3). Chief defaults to open models.
 4. **Tokens at cost above included** (keeps the 2026-10-13 pass-through decision). Bring your own
    Claude Code / Codex subscription on your Mac: free on every plan (`chief_placed`).
-5. **Sandboxes by the hour** at about 1.12x Freestyle, paused when idle (storage only).
+5. **Sandboxes by the hour** at about 1.12x the provider's price, paused when idle (storage only).
 6. **Plans differ by capability, not by cheaper tokens:** Free is a hard stop with open models
    only; paid plans add frontier models, overage, more parallel sandboxes and bigger sizes.
 
@@ -92,7 +92,7 @@ What a month of Chief costs (22 workdays unless noted):
 
 | Provider | 2 vCPU / 4 GB per hour | Source (accessed 2026-10-19) |
 | --- | --- | --- |
-| Freestyle (our cost) | $0.132 ($0.04032/vCPU-h + $0.0129/GiB-h; storage $0.000086/GiB-h) | freestyle.sh/pricing |
+| VM provider (our cost) | $0.132 ($0.04032/vCPU-h + $0.0129/GiB-h; storage $0.000086/GiB-h) | provider pricing page |
 | **cmux-next list (proposed)** | **$0.148** ($0.045/vCPU-h + $0.0145/GB-h; paused $0.08/GB-month) | this doc |
 | E2B | $0.166 ($0.000014/vCPU-s + $0.0000045/GiB-s) | e2b.dev/pricing |
 | Daytona | $0.166 ($0.0504/vCPU-h + $0.0162/GiB-h) | daytona.io/pricing |
@@ -123,7 +123,7 @@ A test enforces a 30% floor on every paid plan and billing interval
 $30 on Pro yearly would fall to 22%.
 
 Margin risk outside this table: today's flat Cloud VM entitlements. A Pro user who keeps the
-20 vCPU / 40 GB pool running 24x7 costs about $965/month at Freestyle list. In cmux-next
+20 vCPU / 40 GB pool running 24x7 costs about $965/month at the provider's list price. In cmux-next
 this risk is gone: sandbox time draws from Chief credits and classic create credits are not
 extended (a205). For classic, `CMUX_VM_PLAN_BUDGETS=on` would cap it.
 
@@ -156,7 +156,7 @@ plus $5 included can cost more than it earns (usage-billing.md:115). It stays fo
 | ChatGPT / Codex | Plus / Pro | $20 / $100-500 | shared allowance, credits | learn.chatgpt.com/docs/pricing |
 | E2B | Pro | $150/mo + usage | sandboxes only | e2b.dev/pricing |
 | Daytona | PAYG | usage, $200 free | sandboxes only | daytona.io/pricing |
-| Freestyle | Hobby / Pro | $50 / $500 (counts toward usage) | VMs only | freestyle.sh/pricing |
+| VM provider | Hobby / Pro | $50 / $500 (counts toward usage) | VMs only | provider pricing page |
 
 Read: Warp, Replit and Claude Max give included usage roughly equal to price. We give half on Pro
 and Max because our tokens are at cost with no markup and we add sandboxes, which nobody else

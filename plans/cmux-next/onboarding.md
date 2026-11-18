@@ -73,7 +73,7 @@ on the first-run page. Also kept: the furthest stage reached (`shown`, `projectP
   `debug.timings`, and a debug control method `debug.onboarding` (record + gate inputs).
 - Telemetry: none. cmux-next has no analytics and no consent setting. The same record goes out
   only after a consent setting exists (open decision 1).
-- Pass bar: p50 TTFP < 30 s over 5 scripted fresh-profile runs on cmux-lawrence-2 (signed-in
+- Pass bar: p50 TTFP < 30 s over 5 scripted fresh-profile runs on a team Mac (signed-in
   harness), < 60 s with one inline sign-in.
 
 ## 3. Principles
@@ -243,7 +243,7 @@ run and not in "Make it yours".
 - D7 Browser import leaves the first run. Objection: switchers from Arc or Chrome want bookmarks
   on day one. Answer: Lawrence ruled out account import; the cookie card asks when a page needs it.
 
-## 10. Slices (red test commit first, then fix; all builds and tests on cmux-lawrence-2 via nx-remote)
+## 10. Slices (red test commit first, then fix; all builds and tests on a team Mac via nx-remote)
 
 | Slice | Content | Frozen paths / tokens |
 | --- | --- | --- |
@@ -268,7 +268,7 @@ Red first, behavior only (no source-shape tests).
 - Settings: each "Make it yours" control changes only its own keys (byte diff of a JSONC fixture
   with comments); picking the default removes the key; Undo all restores the file byte for byte;
   a preset keeps a hand-set binding.
-- Real app on cmux-lawrence-2 (fresh `CMUX_NEXT_ONBOARDING_STATE`, `CMUX_NEXT_CONFIG_FILE`, an
+- Real app on a team Mac (fresh `CMUX_NEXT_ONBOARDING_STATE`, `CMUX_NEXT_CONFIG_FILE`, an
   empty daemon state and a HOME with only a Claude login and two repos):
   1. Fresh profile: screenshot of the first-run page, type a prompt through the debug socket,
      `debug.onboarding` shows `promptSent` and TTFP. Run 5 times for the p50.

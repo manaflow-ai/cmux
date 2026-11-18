@@ -119,7 +119,7 @@ The remaining ~1 s gap had two candidate causes: a segment lost at the very end 
 - The cap on unanswered sends rises from 8 to 64, about a second of scroll frames.
 
 **Rig**
-- The simulator moved off the laptop to mini-cmuxs-mac-mini-3 (load average 7 to 11). It is driven through an ssh shim for `axe` and `simctl`.
+- The simulator moved off the laptop to a team Mac mini (load average 7 to 11). It is driven through an ssh shim for `axe` and `simctl`.
 - The Mac stays on mini-cmux11s, the only cmux mini with a Claude Code login. The link is WireGuard over TURN.
 - One idle Claude Code process (a 400-line session) ran for the whole A/B. Only the phone build changed between rounds.
 - The earlier A/Bs relaunched Claude Code each round, and that typed the launch command into the running Claude Code as a prompt: Claude Code was working and streaming during those flicks. The stall counts in the A/B table above are confounded by that.
@@ -134,7 +134,7 @@ The remaining ~1 s gap had two candidate causes: a segment lost at the very end 
 - The probes fired 3 times in the last tail round, of 11 flicks. They are rare, and only when a send stalls.
 
 **Re-run at the review head (501fc429fb86) on a second, quieter rig**
-- Mac: the same fleet app, moved to mini-cmuxs-mac-mini-2 (load average about 3). Its Claude Code is 2.1.292 through the shared gateway.
+- Mac: the same fleet app, moved to another team Mac mini (load average about 3). Its Claude Code is 2.1.292 through the shared gateway.
 - The move was needed because on mini-cmux11s the phone folds every rig that shares the mini's machine id into one roster entry, and other agents' rigs won it. The Mac app did not pass `CMUX_MOBILE_MACHINE_ID` on to cmux-mobile-host; since #24701 a DEBUG rig app sets `CMUX_NEXT_MOBILE_MACHINE_ID` (32 hex digits) at launch and it reaches the host.
 - Simulator: still on mini-3. Path: WireGuard over TURN.
 

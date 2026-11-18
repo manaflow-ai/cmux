@@ -1,6 +1,6 @@
 # cmux NEXT nightly release train
 
-Design: leo-workspace `workstreams/cmux-next-nightly-train.md` ([leo-workspace#624](https://github.com/teamleaderleo/leo-workspace/pull/624)).
+Design: the team's private notes.
 This page covers what is built: the durable canary verdict, the train planner,
 the train workflow and the promote guard's train path (G1'/G2'). Per-car fast
 guards (design PR 3), the pulled-build banner (PR 4) and the native workflow

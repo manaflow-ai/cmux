@@ -82,12 +82,12 @@ legacy production and staging version IDs in `scripts/rollout-policy.ts` qualify
 for the first v6-preserving deployment; unknown versions fail closed. Do not add
 an ID without inspecting that immutable version's migration reader.
 
-From a clean, committed checkout, using the Bun in `webviews/package.json` devEngines (1.4.4) and the authorized Cloudflare
-account, first deploy staging through the same guards:
+From a clean, committed checkout, using the Bun in `webviews/package.json` devEngines (1.4.4) and the authorized team Cloudflare
+account (its id is in the team's private ops notes), first deploy staging through the same guards:
 
 ```sh
 bun install --frozen-lockfile
-CLOUDFLARE_ACCOUNT_ID=0c1675e0def6de1ab3a50a4e17dc5656 bun run deploy:staging
+CLOUDFLARE_ACCOUNT_ID=<team account id> bun run deploy:staging
 curl -sS https://cmux-v2-staging.debussy.workers.dev/v2/health
 ```
 
@@ -97,7 +97,7 @@ connectivity on staging, including revocation and reconnect. Then promote the
 same revision:
 
 ```sh
-CLOUDFLARE_ACCOUNT_ID=0c1675e0def6de1ab3a50a4e17dc5656 bun run deploy:production
+CLOUDFLARE_ACCOUNT_ID=<team account id> bun run deploy:production
 curl -sS https://cmux-v2.debussy.workers.dev/v2/health
 bun run drift:check
 ```
@@ -159,8 +159,8 @@ one additive `iroh-v2-account-control-1` migration (it only creates the
 `AccountControl` SQLite class), name it explicitly, staging first:
 
 ```sh
-IROH_V2_APPLY_MIGRATION=iroh-v2-account-control-1 CLOUDFLARE_ACCOUNT_ID=0c1675e0def6de1ab3a50a4e17dc5656 bun run deploy:staging
-IROH_V2_APPLY_MIGRATION=iroh-v2-account-control-1 CLOUDFLARE_ACCOUNT_ID=0c1675e0def6de1ab3a50a4e17dc5656 bun run deploy:production
+IROH_V2_APPLY_MIGRATION=iroh-v2-account-control-1 CLOUDFLARE_ACCOUNT_ID=<team account id> bun run deploy:staging
+IROH_V2_APPLY_MIGRATION=iroh-v2-account-control-1 CLOUDFLARE_ACCOUNT_ID=<team account id> bun run deploy:production
 ```
 
 `scripts/rollout-policy.ts` accepts the flag only when that tag is the single

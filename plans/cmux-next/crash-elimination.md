@@ -110,7 +110,7 @@ Fix:
 | ensure-cef.sh refuses a framework whose `archive.json` lacks `gn_args.dcheck_always_on == false` | on: the manifest sets `"require_dcheck_off": true` (warning before the pin) |
 
 All CEF builds after cmux.17 (cmux.18, any rebuild) run on the fleet CEF
-workers (`cmux-ci build cef --arch ...`), not on cmux-lawrence-2
+workers (`cmux-ci build cef --arch ...`), not on a team Mac mini
 (coordinator decision, 2026-10-04): the x86_64 half of cmux.17 took 3.7 h at
 nice 19 there and held the GUI host at load 60-90.
 

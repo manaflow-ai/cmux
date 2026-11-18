@@ -46,7 +46,7 @@ one gate, so a background create, a prewarmed page or a parked spare cannot take
 | 1 | A prewarmed or spare agent page parked offscreen (`PageOffscreenParking`, `AgentPageRetirer.park`, `AgentPaneSpareReturns`) asks for first responder by itself. `AgentPaneView.refusesSelfFocus` only refuses a page that is in a pane, so a page in no pane got the keys. Background agent creates make these pages. | G1 refuses it (`UnseenKeyboardGuardTests`). |
 | 2 | The Chief panel re-syncs on every workspace delta. `ChiefPanelView.hold` of a new Chief view dropped the old one without moving the keys, so the Chief composer lost them. | `hold` gives the keys to the new view when the old one had them, and Home takes the old view back (`ChiefPanelHoldKeysTests`). |
 
-## Reproduction (cmux-lawrence-2, 2026-11-16)
+## Reproduction (team Mac, 2026-11-16)
 
 Build `focus-audit-v4` (fleet job cf0a6bcee2e84cdc1c67482c, head 2a2995ba) with the focus log on. A
 terminal had the keys; 18 workspaces and 18 Claude agent tabs were created from the CLI in the

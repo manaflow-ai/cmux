@@ -92,7 +92,7 @@ ChiefDO is an `Agent` with a `PiHarness`. One turn at a time (pi's busy session 
    (the first 280 bytes; the chief is told to put what matters first).
 6. `spawn {name, prompt}` starts a worker, or steers it when the name is reused. Phase 1 worker:
    a pi session in a WorkerDO with a read-only `fetch_url` tool, so the loop runs end to end on
-   Cloudflare. Phase 2: a coding agent on a Freestyle VM (the cmux Cloud provider). The worker's
+   Cloudflare. Phase 2: a coding agent on a VM from the cmux Cloud provider. The worker's
    final answer comes back as a `worker <name>: ...` event and wakes the chief.
 
 Memory is shown to the model only through the cover; `recall` and `zoom` are not chief tools in
@@ -138,11 +138,11 @@ cursors stay on the Mac; search and contacts are not supported.
    the fleet build compiles it). Rule (coordinator): no Computer Use or GUI driving on Lawrence's
    laptop.
 6. Coding worker (built; real runs blocked by two decisions). `spawn` takes `tools: "code"`: WorkerDO
-   runs `src/coding/runner.ts` on a `VmDriver` (Freestyle REST over plain fetch: create from the
+   runs `src/coding/runner.ts` on a `VmDriver` (the VM provider's REST API over plain fetch: create from the
    cmux devbox snapshot with an allow-public firewall and a run budget, start the agent detached,
    poll a done file with backoff, read the answer, always DELETE). Tested on a real local shell
    (quoting, env-only credential, budget, refusals). Coordinator decisions (2026-10-03): no
-   production Freestyle key on dev or staging until the non-production Freestyle account exists
+   production VM provider key on dev or staging until the non-production provider account exists
    (the driver refuses without a key); the model credential is the CodeRouter route (R35), a
    coderouter token passed only through the exec env; no team API key in a Worker secret and no
    public token-minting route. Until both exist, a coding spawn reports why it cannot run.

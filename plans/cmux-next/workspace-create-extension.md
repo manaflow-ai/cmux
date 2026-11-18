@@ -93,7 +93,7 @@ R3, the env hash key:
   whitespace, UTF-8) under a per-daemon env hash key. The raw values are never in the fingerprint.
 - The key is 32 random bytes, generated at first use, stored in the registry, and never sent out
   (not in any result, event, export, snapshot or log). The key is NOT derived from the machine id.
-- Freestyle clones are byte-identical (memory snapshot), so cloned daemons share the key. That is
+- Provider VM clones are byte-identical (memory snapshot), so cloned daemons share the key. That is
   acceptable: the key only binds a replay to its own request on one daemon; it gives no secrecy
   between clones, and no fingerprint leaves the daemon.
 - Each stored fingerprint carries the key version. On rotation the daemon keeps the old key for as

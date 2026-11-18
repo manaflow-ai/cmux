@@ -81,7 +81,7 @@ Plan:
 - Rust changes are under `cmux-tui/` and need a cmux-tui landing window from main, a review subagent (daemon and protocol), and exact-head `cargo check --all-targets`, fmt, clippy and the touched crate tests on a Testbox.
 - New ops regenerate `resource-operations-v2.json`, the SDK bindings and the per-language count tests in the same push.
 - The app pin moves to a cmux-tui SHA that serves the new ops before the pane depends on them; the pane gates on the identify capabilities.
-- End-to-end proof on cmux-lawrence-2 with the ACP lead's `debug.agent_pane` actions: an @ mention returns results; commit and push work from the Changes pane against a scratch repository with a local bare remote.
+- End-to-end proof on a team Mac mini with the ACP lead's `debug.agent_pane` actions: an @ mention returns results; commit and push work from the Changes pane against a scratch repository with a local bare remote.
 
 ## Questions for the coordinator
 

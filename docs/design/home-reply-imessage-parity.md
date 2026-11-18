@@ -9,7 +9,7 @@ screenshots show personal messages, so they are in the private hq repo, not here
 `cmuxterm-hq/docs/design/home-reply-imessage-parity/` (`reference-imessage-dark-2x.png`,
 `before-home-dark-2x.png`, and the before/after renders from `HomeReplyQuoteCaptureTests`).
 
-Not captured: cmux-lawrence-2 refused SSH (connection reset at key exchange). The cmux-lawrence
+Not captured: one team Mac refused SSH (connection reset at key exchange). Another team Mac
 mini's Messages window returned an empty accessibility tree behind a keychain prompt. There is
 no light-mode or open-thread-view reference yet.
 

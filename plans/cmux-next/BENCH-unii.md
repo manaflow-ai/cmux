@@ -4,7 +4,7 @@ Run on 2026-10-20 by a226. Script: `Native/OptChat/optchat-chief/measure/unii_be
 
 Setup:
 - **Model and effort:** `claude-opus-5-5`, effort medium.
-- **Route:** the team sr2 gateway (`sr2-gateway.tail137216.ts.net:4016`).
+- **Route:** the team sr2 gateway (`sr2-gateway.<tailnet>.ts.net:4016`).
 - **Input:** a 100 KB synthetic view and 6 one-line user turns.
 - **Unii baseline:** UniiChat's request shape (its `prompt.txt` and 9 tools, 4-line view blocks, its marks, adaptive thinking), sent straight to the API.
 - **Chief harness:** a fresh `claude -p` per turn, with the Chief's live preset system prompt (11.6 KB), the turn isolation args, and our three 1-hour marks.

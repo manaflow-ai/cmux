@@ -32,7 +32,7 @@ moves this cloud browser onto that host. So:
 
 ### View-only check on `cmux-screen-host` (2026-10-20)
 
-One Freestyle VM (`vm-f2296c0030dd4bb0a0e6115c36bacca3`, 16 vCPU / 32 GiB, deleted after; under $1).
+One provider VM (`vm-f2296c0030dd4bb0a0e6115c36bacca3`, 16 vCPU / 32 GiB, deleted after; under $1).
 `cmux-screen-host --backend desktop --no-tailnet` from `feat-cmux-next-tailnet-media` (4fce3bda894)
 built on the VM, streaming Xvfb `:1` (1920x1080) with Chrome full screen on a page that scrolls
 text every frame. Viewer: headless Chrome on the same VM (its own WebRTC), joining the existing
@@ -62,7 +62,7 @@ a macOS client pane that decodes with VideoToolbox (`CmuxNextRemoteView`), and a
 with native menus, dialogs and Cmd-click (`cmux-remote-browser-host`, macOS only). What is missing is
 the cloud half: no Linux remote browser host (step r7 never started), no cloud VM image role, no
 non-debug way for the app to reach a cloud host, and no relay path that carries UDP. The prototype in
-section 3 closes the first gap the fast way: Chrome in a virtual display on a Freestyle VM, streamed by
+section 3 closes the first gap the fast way: Chrome in a virtual display on a provider VM, streamed by
 the existing `cmux-rd` host. In the VM, a keypress reaches a decoded frame in 13.4 ms p50 and a click
 in 24 ms p50. From this Mac over Wi-Fi and an SSH tunnel a keypress takes 30 ms p50 (under the
 50 ms target) but 95-99 ms p95, and clicks 60 ms p50: the tail is the network path, not the browser.
@@ -75,17 +75,17 @@ Evidence: git history of `origin/feat-cmux-next` (bcd6c373839) and cmuxterm-hq `
 
 | Item | What | Status | Evidence |
 | --- | --- | --- | --- |
-| Cloud VMs (`cmux vm`, web `app/api/vm/*`, Freestyle driver) | Classic cmux Cloud VMs on Vercel + PlanetScale `cmux-prod` | **Live in prod** | deployed from `main` (5b084f4fc76) |
-| Freestyle tenant VMs (a205) | The Cloud VM API as the per-team wrapper ("4 GB VM") | **Prod API live; the checkout-link fix is feat-cmux-next only** | cmuxterm-hq `plans/freestyle-tenant-DESIGN.md` (#2610); fixes b505c5d0d6b..08bd8ab1a7f not on `main`; acpmux not in the image |
+| Cloud VMs (`cmux vm`, web `app/api/vm/*`, provider driver) | Classic cmux Cloud VMs on Vercel + PlanetScale `cmux-prod` | **Live in prod** | deployed from `main` (5b084f4fc76) |
+| Provider tenant VMs (a205) | The Cloud VM API as the per-team wrapper ("4 GB VM") | **Prod API live; the checkout-link fix is feat-cmux-next only** | cmuxterm-hq `plans/freestyle-tenant-DESIGN.md` (#2610); fixes b505c5d0d6b..08bd8ab1a7f not on `main`; acpmux not in the image |
 | Org workflows (a203/a205) | Machine and agent steps in automations | **Prototype only** | `org-workflows-DESIGN.md` section 7: no run through the deployed staging Worker |
-| Cloud Chief (a184/a196/a235) | Lawrence's Chief host on Freestyle VM `vm-4d2e45630a2c4814ac3d8b1884fcd9d1` (tailnet `cloud-chief`) | **Running on prod infra, not finished** | cmuxterm-hq `tools/cloud-chief/`, `plans/cloud-chief/REPORT.md`: pairing done by a196 (M7KP-SNJC); no full chat turn proven; a235's redeploy gap fix pending |
-| Agent hub | Moved onto the Cloud Chief VM (`cloud-chief-hub`, 100.127.110.65:8790) | **Live (internal)** | cmuxterm-hq #2611 8e30537cb2f; old hub VM deleted |
-| Cloud subagents (a242) | Subagents as acpmux peers on Freestyle VMs | **Prototype on HQ infra** | `cloud-subagents-PROOF.md`, cmuxterm-hq #2623 |
+| Cloud Chief (a184/a196/a235) | Lawrence's Chief host on provider VM `vm-4d2e45630a2c4814ac3d8b1884fcd9d1` (tailnet `cloud-chief`) | **Running on prod infra, not finished** | cmuxterm-hq `tools/cloud-chief/`, `plans/cloud-chief/REPORT.md`: pairing done by a196 (M7KP-SNJC); no full chat turn proven; a235's redeploy gap fix pending |
+| Agent hub | Moved onto the Cloud Chief VM (`cloud-chief-hub`, `<tailscale-ip>:8790`) | **Live (internal)** | cmuxterm-hq #2611 8e30537cb2f; old hub VM deleted |
+| Cloud subagents (a242) | Subagents as acpmux peers on provider VMs | **Prototype on HQ infra** | `cloud-subagents-PROOF.md`, cmuxterm-hq #2623 |
 | Hosted Chief (`ChiefBrainDO`, `chief-cc`) and the other Durable Objects (TeamDO, CloudDO, TeamVmDO) | `backend/apps/api` Worker | **Staging current (347a9270354); production held** | `CMUX_NEXT_PRODUCTION_HOLD` is on; last `cmux-next-production` deploy 2026-10-03 |
 | Open Cloud as Pane (a166) | Cloud page as a pane | **Shipped to nightly-next** | test cbb869c4d1c, fix 31681277023 |
 | Pricing `/next/pricing` | Proposal page | **Preview only, noindex** | 01f72d5cbe8 |
 | Remote browser tab (`cmux.rb/1`, CEF fork) | The Mighty-style tab | **macOS host only; no Linux host; r7 (cloud image role) not started** | `cmux-remote-browser-host/src/main.rs:165` "the macOS host is the only host in r2"; last host commit d48308b38a1 (10-14) |
-| Remote desktop (`cmux.rd/1`, `cmux-rd-*`) | Low-latency desktop streaming engine | **Prototype; quiet since 10-07** | `remote-desktop.md` 15.7: in-VPC Freestyle marker G2G 9.4/11.8 ms |
+| Remote desktop (`cmux.rd/1`, `cmux-rd-*`) | Low-latency desktop streaming engine | **Prototype; quiet since 10-07** | `remote-desktop.md` 15.7: in-VPC provider marker G2G 9.4/11.8 ms |
 | Cloud browser prototype (this doc) | Chrome in Xvfb streamed by `cmux-rd host --browser` | **Prototype, measured (section 3)** | this change |
 
 Stalled, with the blocker:
@@ -145,7 +145,7 @@ Chrome; it never carries frames to a human.
 | Present (wait for refresh + scanout) | 4-8 ms at 120 Hz | not measured (bench stops at decode) |
 | Total | ≤50 ms | VM-local 13.4 ms key; from this Mac 30 ms p50 / 99 ms p95 key, 60 ms p50 click (3.3) |
 
-What it takes to hit 50 ms from a home: a region within about 15 ms RTT (Freestyle is in San Francisco;
+What it takes to hit 50 ms from a home: a region within about 15 ms RTT (the provider is in San Francisco;
 this Mac is too), UDP media (not TCP through a proxy: one lost packet costs a retransmit timeout, RD
 finding 8), and wired or good Wi-Fi. The pane must say when the path cannot be interactive
 (`remoteDesktop.interactiveMaxRttMs`, default 80 ms).
@@ -177,9 +177,9 @@ finding 8), and wired or good Wi-Fi. The pane must say when the path cannot be i
 - Sessions that survive disconnects: the browser lives on the VM, not in the stream. `cmux-rd host
   --browser` keeps Chrome running when the viewer leaves and restarts it after a crash (this change);
   a viewer that reconnects gets an IDR and the same tabs. The VM pauses after an idle timeout
-  (Freestyle pause keeps memory, so a resume restores the exact session in about 1-2 s).
+  (provider pause keeps memory, so a resume restores the exact session in about 1-2 s).
 
-### 2.5 Cost per hour (Freestyle list, freestyle.sh/pricing via `pricing-DESIGN.md`)
+### 2.5 Cost per hour (provider list price, via `pricing-DESIGN.md`)
 
 $0.04032 per vCPU-hour + $0.0129 per GiB-hour.
 
@@ -196,7 +196,7 @@ paused-when-idle CPU VM at $0.13-0.26/h is in range of a $20-50/month plan at a 
 
 ### 3.1 What runs
 
-- VM `vm-a15b441b602c4b33bf9cc5369a401793`, Freestyle (HQ account, `~/.secrets/freestyle-beta.env`),
+- VM `vm-a15b441b602c4b33bf9cc5369a401793`, the VM provider (HQ key, `~/.secrets/<provider prod key>.env`),
   San Francisco, 8 vCPU / 16 GiB, Ubuntu 24.04, gpui snapshot; created with
   `experiments/cloud-browser/vm.ts create`.
 - `experiments/cloud-browser/vm/start.sh`: Xvfb 1920x1080, then `cmux-rd host --browser URL` (Google
@@ -204,7 +204,7 @@ paused-when-idle CPU VM at $0.13-0.26/h is in range of a $20-50/month plan at a 
 - The page is `experiments/cloud-browser/vm/marker.html`: the rd marker (20 cells, 16-bit counter) that
   increments on keydown, mousedown and wheel, over 400 paragraphs of text. The bench reads the counter
   out of decoded pixels, so a sample is the full input-to-decoded-frame time through real Chrome.
-- From the Mac: the Freestyle SSH gateway (`<vm>.beta-ssh.freestyle.sh`, VM-scoped identity token)
+- From the Mac: the provider SSH gateway (`<vm>.beta-ssh.freestyle.sh`, VM-scoped identity token)
   with `ssh -L 14103:127.0.0.1:4103`, so the stream carrier is TCP inside SSH (no UDP path yet).
 - The client is `cmux-rd bench` built for macOS on the Mac minis (`cmux-tui-rust-check.sh rd-bench`).
 
@@ -230,7 +230,7 @@ raster the scrolled page in software) but cuts the stream from 14 to 3.6 Mbit/s 
 
 Network: RTT through the SSH gateway p50 17.2 ms, p95 79.7 ms, min 8.8 ms (200 TCP echoes). The same
 Wi-Fi pings 1.1.1.1 at 5.7 min / 13.9 avg / 74 max ms, so most of the tail is this Mac's Wi-Fi, not
-Freestyle.
+the provider.
 
 Bench: `cmux-rd bench` for macOS arm64 (fleet artifact, step 6d5c6b701ddbd6f569c98c19), stream
 carrier through `ssh -L`, Chrome with `--disable-smooth-scrolling`, 1920x1080, x264 baseline. The
@@ -261,7 +261,7 @@ floor they would reach.
 2. Encode cost follows damage: typing costs 5 % of a core and 0.4 Mbit/s; scrolling a full 1080p page
    costs a core and 14 Mbit/s. A 2 vCPU VM is enough for reading; scrolling wants 4.
 3. The SSH gateway is fine for a prototype and wrong for the product: TCP plus a proxy hop doubles
-   the RTT tail. The product path is UDP over WireGuard (Freestyle tunnels, transport.md), which the
+   the RTT tail. The product path is UDP over WireGuard (provider tunnels, transport.md), which the
    engine already speaks (RD4).
 
 ## 4. Order to ship (proposal)
@@ -272,7 +272,7 @@ floor they would reach.
 | CB-1b | Seen in the app: fleet Debug build `cmux DEV cloud-browser-v2` (job a3eedbb24e00020f5eaf7f65, 4fd8b20dee9) with `CMUX_NEXT_RD_DEBUG_PORT=14103` / `_TOKEN_FILE`; `debug.remote_view` open + connect streamed the cloud Chrome page into a pane (hardware decode, 0 decode errors). Gaps: the tab came up in `mode=view` (the pane does not forward input in view mode, so in-app keyboard and mouse were not tried; the bench proved input on the same wire), and text was blocky (stream scaled into the pane, bitrate backed off on the Wi-Fi tunnel). | partly done |
 | CB-2 | Cloud image role: `cmux-rd` + Chrome + Xvfb in the Cloud VM snapshot, started by `cmux host run --browser`; idle pause | 1-2 days |
 | CB-3 | App: a non-debug `remote_view` connection to a cloud VM (today only `RemoteViewDebugRdHost`, DEBUG, loopback env vars): "Open Cloud Browser" in Cmd+Shift+P, CLI and MCP, the token through the server API | 2-3 days |
-| CB-4 | UDP path: Freestyle tunnel (WireGuard) from the app's `cmux link`, so media rides datagrams with FEC | 2-4 days |
+| CB-4 | UDP path: provider tunnel (WireGuard) from the app's `cmux link`, so media rides datagrams with FEC | 2-4 days |
 | CB-5 | Viewer-sized display (RandR on the virtual display; Chrome window follows the pane), scale 2 for Retina | 1-2 days |
 | CB-6 | Clipboard, downloads, audio (sections 2.4) | 1 week |
 | CB-7 | Stage B: Linux build of `cmux-remote-browser-host` (CEF fork headless Ozone + Viz capture): native menus, damage, no X | weeks (r7) |
@@ -280,7 +280,7 @@ floor they would reach.
 
 ## 4a. Contract for cloud subagents (B10 in cloud-subagents-DESIGN.md, a306)
 
-A cloud subagent on a Freestyle VM uses the cloud browser on its own VM. The API stays usable from there:
+A cloud subagent on a provider VM uses the cloud browser on its own VM. The API stays usable from there:
 
 1. Start: `cmux-rd host --browser URL --owner OWNER --display :99 --token-fd N` (flag off by default;
    `experiments/cloud-browser/vm/start.sh` is the reference). It binds 127.0.0.1 only, so an agent on
@@ -303,7 +303,7 @@ the devbox image, shipped but not enabled; it does nothing without `CMUX_CLOUD_B
 `cmux-rd` binary is not in the image yet, so the unit exits with "cmux-rd is not installed" until
 it is; and per remote-desktop-DESIGN.md M3 the stream side moves to `cmux-screen-host`.
 
-Far users: one region (Freestyle, San Francisco) for now. Users far from the West Coast pay their
+Far users: one region (the VM provider, San Francisco) for now. Users far from the West Coast pay their
 RTT to SF on every input; above `remoteDesktop.interactiveMaxRttMs` (80 ms) the pane is view only
 until a second region exists.
 
@@ -311,10 +311,10 @@ Changes to these four points must keep a VM subagent able to start, drive and ha
 
 ## 5. Open questions for Lawrence
 
-1. Freestyle account: this prototype used the HQ key (`freestyle-beta.env`). Tenant cloud browsers
+1. Provider account: this prototype used the HQ key (the provider prod key file). Tenant cloud browsers
    must go through the tenant VM API (prod key on the server). Confirm that is the product path.
 2. H.264 licensing (D-RD1): the prototype uses x264 (GPL, patent pool). Ship x264, Cisco's OpenH264
    binary (slow screen mode), or hardware-only (GPU VMs cost more)?
-3. Region: Freestyle runs in San Francisco only as far as measured; users outside the West Coast need
+3. Region: the provider runs in San Francisco only as far as measured; users outside the West Coast need
    a second region (or GCP) to stay under 50 ms.
 4. Who owns stage B (r7)? The remote tab lead has been quiet since 10-14.

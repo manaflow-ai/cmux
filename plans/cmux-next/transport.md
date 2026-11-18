@@ -1,22 +1,22 @@
 # cmux next: transport (WireGuard overlay with Durable Object rendezvous and relay)
 
-Status: proposal, 2026-10-02 (lane 12, transport lead). Replaces iroh everywhere in cmux-next; shipping main keeps iroh until each path is replaced. Applies decisions T1, T2, D37, D38 and the identity rules (spec/identity-and-permissions.md). Builds on spec/sync-and-transport.md section 6 (overlay), spec/network-policy.md (policy, Freestyle facts), spec/team-vm.md (SSH paths), plans/cmux-next/data-model.md (sessions), plans/cmux-next/remote-localhost.md (loopback streams ride the link). Spec owner: the coordinator. Measured numbers are in section 13; each one names its method, its sample count and its two ends. Code: `cmux-tui/crates/cmux-transport` (pure core, section 15).
+Status: proposal, 2026-10-02 (lane 12, transport lead). Replaces iroh everywhere in cmux-next; shipping main keeps iroh until each path is replaced. Applies decisions T1, T2, D37, D38 and the identity rules (spec/identity-and-permissions.md). Builds on spec/sync-and-transport.md section 6 (overlay), spec/network-policy.md (policy, VM provider facts), spec/team-vm.md (SSH paths), plans/cmux-next/data-model.md (sessions), plans/cmux-next/remote-localhost.md (loopback streams ride the link). Spec owner: the coordinator. Measured numbers are in section 13; each one names its method, its sample count and its two ends. Code: `cmux-tui/crates/cmux-transport` (pure core, section 15).
 
 ## 0. Decisions in this proposal
 
-1. One overlay. Every cmux endpoint (the `cmux link` process on a Mac, Mac mini or Linux machine, the cmux server, every Cloud VM and team VM daemon, and the iOS app) runs one userspace WireGuard endpoint with one WireGuard key. A remote link between two endpoints is one end-to-end WireGuard session between them. Relays, Freestyle and Cloudflare carry ciphertext only.
+1. One overlay. Every cmux endpoint (the `cmux link` process on a Mac, Mac mini or Linux machine, the cmux server, every Cloud VM and team VM daemon, and the iOS app) runs one userspace WireGuard endpoint with one WireGuard key. A remote link between two endpoints is one end-to-end WireGuard session between them. Relays, the VM provider and Cloudflare carry ciphertext only.
 2. Paths are underlays. A session's datagrams travel on the best working path. The session, its overlay addresses and its TCP streams survive every path change. Which paths exist depends on the target:
-   - to a machine in the team VPC (Cloud VM, team VM, a cmux server hosted there): `direct_wan` over IPv6 when the device has IPv6 (the VM's public IPv6, opened by a firewall rule for the device's current /128), then `via_cloud_region` (the device's Freestyle tunnel), then `do_relay`;
+   - to a machine in the team VPC (Cloud VM, team VM, a cmux server hosted there): `direct_wan` over IPv6 when the device has IPv6 (the VM's public IPv6, opened by a firewall rule for the device's current /128), then `via_cloud_region` (the device's provider tunnel), then `do_relay`;
    - to a Mac, Mac mini or a cmux server outside the VPC: `direct_lan`, then `direct_wan` (a punched IPv4 mapping or IPv6), then `do_relay`.
-   Freestyle does not forward between two tunnels (measured, section 13.2), so there is no Mac-to-Mac path through the VPC. This is D38 as decided: same-LAN direct, else the Durable Object relay.
+   The VM provider does not forward between two tunnels (measured, section 13.2), so there is no Mac-to-Mac path through the VPC. This is D38 as decided: same-LAN direct, else the Durable Object relay.
 3. Connect fast, then improve. A dial sends the handshake on every available path at once; the first answer wins; probes then measure each path and the selector moves to the best one (direct first) without a reconnect.
 4. Durable Objects do rendezvous, relay and fallback. The target host's `HostDO` exchanges candidates, relays datagrams while nothing better answers (about 40 % of NAT pairs never get a direct path, section 13.3), and is the only path for web clients. The cmux VM API Worker owns the network policy, devices, tunnels and firewall rules; `TeamDO` pushes the compiled peer map to hosts (amended 2026-10-07). We run no relay or STUN servers.
-5. Freestyle is the cloud region path and its ACL. One Freestyle tunnel and one WireGuard key per (device, team mesh), created with our public key (`clientPublicKey`) and attached to that team's VPC only (amended 2026-10-07, section 7). The reconciler in the cmux VM API Worker compiles the team policy into Freestyle firewall rules (imperative create and delete; measured effect within 0.25 s) and into each host's peer map.
-6. The private key never leaves the device. The WireGuard private key is made on the device and stays in the Keychain (`ThisDeviceOnly`, not synced) or a 0600 file. Freestyle, the cmux VM API Worker and `TeamDO` see only the public key (verified: Freestyle never minted a key when given `clientPublicKey`).
+5. The VM provider is the cloud region path and its ACL. One provider tunnel and one WireGuard key per (device, team mesh), created with our public key (`clientPublicKey`) and attached to that team's VPC only (amended 2026-10-07, section 7). The reconciler in the cmux VM API Worker compiles the team policy into provider firewall rules (imperative create and delete; measured effect within 0.25 s) and into each host's peer map.
+6. The private key never leaves the device. The WireGuard private key is made on the device and stays in the Keychain (`ThisDeviceOnly`, not synced) or a 0600 file. The VM provider, the cmux VM API Worker and `TeamDO` see only the public key (verified: the provider never minted a key when given `clientPublicKey`).
 7. The network never grants application authority. Every link starts with `hello {token}` (a short-lived ES256 token from `UserDO`); the owner checks the principal and grant. WireGuard keys and firewall rules decide reachability only.
 8. iOS runs WireGuard inside the app process (no Network Extension, no VPN prompt, no VPN slot). A packet tunnel is a later, optional mode for system-wide access.
 9. T2: the app's own session is the local Unix socket (no network). Opening a window or workspace on another session dials that session's host through the overlay and hands the app a local socket, as `remote connect` does today.
-10. The in-process WireGuard stack must be fixed before it carries cmux-next traffic: today it cannot upload more than about 1 MiB through the Freestyle tunnel (section 13.2, section 16).
+10. The in-process WireGuard stack must be fixed before it carries cmux-next traffic: today it cannot upload more than about 1 MiB through the provider tunnel (section 13.2, section 16).
 
 ## 1. What the network must carry
 
@@ -42,14 +42,14 @@ Control for cloud-owned streams (`UserDO`, `TeamDO`, `DocDO` and the other DOs) 
 | Path upgrade relay to direct | <= 2 s after the dial | punch measured at about 1 RTT after candidates arrive |
 | Network change (Wi-Fi to cellular) | traffic flows on the relay <= 500 ms after the new interface is up; direct path back <= 1 s | relay reconnect 74 ms p50; re-STUN 8 ms + rendezvous 17 ms + punch 6 ms (section 13.3) |
 | Wake from sleep | <= 1 s to first byte | one handshake; today's stack takes 5.15 s after a 190 s sleep (a defect, section 16) |
-| Revocation | no new or existing traffic <= 1 s after the revoke op commits | measured Freestyle rule and tunnel delete: blocked within 0.25 s, open connections included |
+| Revocation | no new or existing traffic <= 1 s after the revoke op commits | measured provider rule and tunnel delete: blocked within 0.25 s, open connections included |
 | Idle cost | 0 wakeups on an idle device; a host keeps one hibernating WebSocket | measured $0.0000002 per host-day hibernated |
 
 ## 2. First principles
 
 - A link needs reachability, confidentiality and identity. The principal (user, agent, grant) is an application fact and belongs in the link `hello`. Machine identity and confidentiality belong to one session between the two machines. Reachability is a path problem and must not change the session.
-- If the session is end-to-end, every path can be dumb. Then the DO relay, the Freestyle gateway and the direct UDP path carry the same datagrams, and the selector can move between them freely. This is why the overlay runs end-to-end WireGuard even through the Freestyle VPC: WireGuard inside WireGuard on that path costs 80 bytes of MTU and a second ChaCha20 pass, which is small next to the RTT, and it gives VMs the same session as every other host (so a VM link can move to the DO relay when the tunnel fails).
-- One UDP socket per endpoint carries everything: end-to-end sessions, the Freestyle tunnel session and STUN. NAT mappings learned for one are valid for all.
+- If the session is end-to-end, every path can be dumb. Then the DO relay, the provider gateway and the direct UDP path carry the same datagrams, and the selector can move between them freely. This is why the overlay runs end-to-end WireGuard even through the provider VPC: WireGuard inside WireGuard on that path costs 80 bytes of MTU and a second ChaCha20 pass, which is small next to the RTT, and it gives VMs the same session as every other host (so a VM link can move to the DO relay when the tunnel fails).
+- One UDP socket per endpoint carries everything: end-to-end sessions, the provider tunnel session and STUN. NAT mappings learned for one are valid for all.
 - The control plane already exists: the cmux VM API Worker knows every device, tunnel and policy, `TeamDO` knows every install and host and pushes peer maps; each host keeps one hibernating WebSocket to its `HostDO`. Rendezvous and relay are two more frame kinds on sockets we already need.
 - What we do not build: relay servers, STUN servers, a system VPN, a kernel interface, port prediction for hard NATs. Durable Objects, Cloudflare STUN, the in-process stack and the relay replace each.
 
@@ -57,19 +57,19 @@ Control for cloud-owned streams (`UserDO`, `TeamDO`, `DocDO` and the other DOs) 
 
 | Component | Where | Owns |
 | --- | --- | --- |
-| Overlay endpoint (`cmux-transport` core plus the `cmux-wg` engine) | Rust, in the `cmux link` process on Macs and Linux, in the daemon on Cloud VMs and team VMs, in the iOS app through the client xcframework | the WireGuard key handle, one UDP socket, one WireGuard session per peer (boringtun), the Freestyle gateway session, the in-process TCP/IP stack (smoltcp), the path selector, STUN, the relay client |
-| cmux VM API Worker | `workers/cmux-vm` (amended 2026-10-07) | the network policy versions (spec/network-policy.md), meshes, devices with their WireGuard public keys, Freestyle tunnel and rule records, the compiled reachability per host; one `MeshDO` per mesh is the single writer of compile and apply (workers/cmux-vm/mesh/DESIGN.md) |
+| Overlay endpoint (`cmux-transport` core plus the `cmux-wg` engine) | Rust, in the `cmux link` process on Macs and Linux, in the daemon on Cloud VMs and team VMs, in the iOS app through the client xcframework | the WireGuard key handle, one UDP socket, one WireGuard session per peer (boringtun), the provider gateway session, the in-process TCP/IP stack (smoltcp), the path selector, STUN, the relay client |
+| cmux VM API Worker | `workers/cmux-vm` (amended 2026-10-07) | the network policy versions (spec/network-policy.md), meshes, devices with their WireGuard public keys, provider tunnel and rule records, the compiled reachability per host; one `MeshDO` per mesh is the single writer of compile and apply (workers/cmux-vm/mesh/DESIGN.md) |
 | `TeamDO` | API Worker | the peer map push to hosts: install id, host id, WireGuard public key, overlay address, VPC address, tags and compiled reachability, read from the cmux VM API; no policy, tunnel or rule records |
 | `UserDO` | API Worker | install keys and revocation; link tokens; relay tickets |
 | `HostDO` | API Worker, one per host | the host's hibernating link socket; rendezvous (candidates of the host and of dialing clients); the datagram relay for that host; host presence (online, offline, paused) |
-| Reconciler | `MeshDO` in the cmux VM API Worker | Freestyle tunnels, attachments and firewall rules; each step has an idempotency key and a recorded result |
-| Freestyle | platform | team VPCs, one tunnel gateway (San Francisco today), firewall enforcement for the VPC path |
+| Reconciler | `MeshDO` in the cmux VM API Worker | provider tunnels, attachments and firewall rules; each step has an idempotency key and a recorded result |
+| VM provider | platform | team VPCs, one tunnel gateway (San Francisco today), firewall enforcement for the VPC path |
 
-On a Mac the `cmux link` process (launchd, one per user) owns the endpoint, because one WireGuard key supports one live session with the Freestyle gateway: the app, the CLI and every `remote connect` sidecar dial through it (the existing `wg hub` SOCKS-over-Unix pattern, extended to overlay peers). The daemon stays free of network code (OWNERSHIP-PRINCIPLES: the session host owns PTYs, not transport).
+On a Mac the `cmux link` process (launchd, one per user) owns the endpoint, because one WireGuard key supports one live session with the provider gateway: the app, the CLI and every `remote connect` sidecar dial through it (the existing `wg hub` SOCKS-over-Unix pattern, extended to overlay peers). The daemon stays free of network code (OWNERSHIP-PRINCIPLES: the session host owns PTYs, not transport).
 
 ### 3.1 Overlay addressing
 
-Each install and host gets one overlay IPv6 address: `fd7c:6d78::/32` plus 96 bits of SHA-256 of its install or host id. It is stable across key rotation, unique without allocation, and exists only inside our userspace stacks. A link is TCP to `[overlay address]:4100`; probes use overlay UDP 4102. Loopback forwards (remote-localhost.md) stay streams inside the link. The inner MTU is 1200 when the session rides the Freestyle tunnel (tunnel MTU 1280, measured) and 1380 otherwise; the engine uses the smaller value for a session that may use both.
+Each install and host gets one overlay IPv6 address: `fd7c:6d78::/32` plus 96 bits of SHA-256 of its install or host id. It is stable across key rotation, unique without allocation, and exists only inside our userspace stacks. A link is TCP to `[overlay address]:4100`; probes use overlay UDP 4102. Loopback forwards (remote-localhost.md) stay streams inside the link. The inner MTU is 1200 when the session rides the provider tunnel (tunnel MTU 1280, measured) and 1380 otherwise; the engine uses the smaller value for a session that may use both.
 
 ## 4. Paths and selection
 
@@ -78,11 +78,11 @@ Each install and host gets one overlay IPv6 address: `fd7c:6d78::/32` plus 96 bi
 | `local` | same machine | Unix socket, no overlay | none |
 | `direct_lan` | a same-subnet candidate answers a probe | UDP | "direct" |
 | `direct_wan` | a global IPv6 candidate or a punched IPv4 mapping answers | UDP | "direct" |
-| `via_cloud_region` | the host is a member of a team VPC and the device's tunnel attaches that VPC | inner datagrams as UDP to the host's VPC address through the Freestyle tunnel | "via cloud region" |
+| `via_cloud_region` | the host is a member of a team VPC and the device's tunnel attaches that VPC | inner datagrams as UDP to the host's VPC address through the provider tunnel | "via cloud region" |
 | `do_relay` | always where HTTPS works | batched binary WebSocket frames through the host's `HostDO` | "relayed" |
 
 Dial (client to host):
-1. Look up the host in the cached peer map (public key, overlay address, VPC address, last candidates). If the host is a paused VM, `TeamVmDO.ensure_awake` first (Freestyle resume measured at about 100 ms).
+1. Look up the host in the cached peer map (public key, overlay address, VPC address, last candidates). If the host is a paused VM, `TeamVmDO.ensure_awake` first (provider resume measured at about 100 ms).
 2. At t = 0, in parallel: send the WireGuard handshake initiation to the VPC address (VPC hosts) or to every direct candidate (other hosts), and open the relay WebSocket to the host's `HostDO` with this client's fresh candidates and the same initiation.
 3. The host answers on the path that reached it first; the client starts the link there. `HostDO` forwards the client's candidates to the host, so both sides probe each other's candidates at the same time, which opens NAT mappings in both directions.
 4. Probes are tiny overlay UDP packets inside the session (authenticated by WireGuard, no second key), sent on one path and answered on the path they arrived on; each answer is that path's RTT.
@@ -91,7 +91,7 @@ Dial (client to host):
 
 Downgrade: a path that loses three probes in a row is dead (about 15 s at the 5 s cadence, so a send error or an expected answer that does not arrive within 2 s also counts as a loss); traffic moves to the next live path at once; with no live path the endpoint sends on every path until one answers. A local network change, and the first send after the link was idle long enough for NAT mappings to lapse (more than 15 s), send every path back to probing (direct mappings changed, the relay WebSocket died with the old interface, and the tunnel gateway learns the new source only from the next datagram), so the endpoint sends on every path until the first answers. The property tests in `cmux-transport` check these rules (section 15).
 
-When DO and when direct WireGuard, in one rule: direct WireGuard whenever a direct probe answers; the Freestyle tunnel for VPC hosts; the DO relay while nothing else answers yet, when UDP is blocked, when the NATs on both sides map per destination, for web clients, and when it measures faster than the VPC path (it rarely does: 7.8 ms vs 2.2 ms in one metro).
+When DO and when direct WireGuard, in one rule: direct WireGuard whenever a direct probe answers; the provider tunnel for VPC hosts; the DO relay while nothing else answers yet, when UDP is blocked, when the NATs on both sides map per destination, for web clients, and when it measures faster than the VPC path (it rarely does: 7.8 ms vs 2.2 ms in one metro).
 
 ## 5. Endpoint discovery and NAT traversal
 
@@ -112,9 +112,9 @@ When DO and when direct WireGuard, in one rule: direct WireGuard whenever a dire
 - Limits: past about 40 Mbit/s of relayed traffic for one host (unbatched) or 170 Mbit/s (batched), the host splits clients across two relay objects; the frame format already names the peer, so a split needs no protocol change.
 - Cost (Cloudflare pricing read 2026-10-02): an interactive terminal hour is $0.0013 to $0.0067, 1 GB batched about $0.0005, an idle host $0.0000002 per day. The included 1 M requests per month cover about 20 M relayed messages.
 
-## 7. Freestyle: tunnels, VPCs and firewall
+## 7. VM provider: tunnels, VPCs and firewall
 
-Measured facts (Freestyle v5, 2026-10-02, section 13.2):
+Measured facts (provider API v5, 2026-10-02, section 13.2):
 - A tunnel created with `clientPublicKey` never gets a platform-minted key. Its config is fixed; VPCs are attached and detached. Every tunnel today uses one endpoint, `208.72.218.30:51820` in San Francisco, for clients in every region; the tunnel MTU is 1280.
 - `rotate-key` keeps the tunnel id and addresses but also changes the server public key; the client must take the new `[Peer]` key from the response. The old key works for about 2.8 s after the call.
 - Firewall rules are allow-only matchers (`vmId`, `vpcId`, `tunnelId`, `cidr`, `port`, `protocol`). With no rule, traffic is dropped silently (no reset). A new rule works 0 to 250 ms after the API returns; a deleted rule or tunnel blocks new and open connections within about 0.25 s. Rules that name a tunnel, VM or VPC are deleted with it.
@@ -126,7 +126,7 @@ Model:
 - Owner (amended 2026-10-07): the cmux VM API Worker owns the network policy, devices, tunnels and firewall rules (versions in Postgres, one `MeshDO` per mesh as the single writer of compile and apply). `TeamDO` calls the cmux VM API for them and keeps only the peer-map push to hosts.
 - Cloud VMs, team VMs and cmux servers hosted in the VPC are members (no tunnel). Their overlay endpoint listens on UDP 4101 on the VPC address.
 - Compiled firewall rules per team VPC: `allow {tunnelId: T} -> {vmId: V, protocol: udp, port: 4101}` for each (device, VM) pair the policy allows, plus the VM egress rules of spec/agent-egress.md. The host's peer map carries the same pairs, so the policy is enforced twice.
-- The reconciler (in the cmux VM API Worker) runs on policy change, membership change, device join or revoke, and VM create or delete. Each Freestyle call carries an idempotency key; after each batch it re-reads effective rules and alerts on drift. A silent drop means a missing rule shows up as a dial timeout, so `cmux network status` reports "no rule" from the compiled view (read through the cmux VM API) instead of waiting for it.
+- The reconciler (in the cmux VM API Worker) runs on policy change, membership change, device join or revoke, and VM create or delete. Each provider call carries an idempotency key; after each batch it re-reads effective rules and alerts on drift. A silent drop means a missing rule shows up as a dial timeout, so `cmux network status` reports "no rule" from the compiled view (read through the cmux VM API) instead of waiting for it.
 - Device-to-device traffic never crosses the VPC; the `HostDO` relay forwards end-to-end-encrypted WireGuard packets and sees only outer addresses and sizes (section 9.1).
 
 ## 8. Keys
@@ -134,7 +134,7 @@ Model:
 | Key | Algorithm | Made where | Stored | Leaves the device? | Used for |
 | --- | --- | --- | --- | --- | --- |
 | Install identity key | P-256 | device | Secure Enclave on Apple; 0600 file on Linux | never (Secure Enclave keys cannot) | signs enrollment, token refresh and the cmux VM API device enroll and rotate calls |
-| WireGuard key | X25519 | device | Keychain `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synced; 0600 file on Linux and VMs | never; only the public key goes to the cmux VM API Worker, `TeamDO` peer maps and Freestyle; one key per (device, team mesh) | every overlay session and the Freestyle tunnel |
+| WireGuard key | X25519 | device | Keychain `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synced; 0600 file on Linux and VMs | never; only the public key goes to the cmux VM API Worker, `TeamDO` peer maps and the VM provider; one key per (device, team mesh) | every overlay session and the provider tunnel |
 | Link token | ES256 JWT, minutes | `UserDO` | memory | sent to the host in `hello` | principal and grant |
 | Relay ticket | ES256 JWT, minutes | `UserDO` | memory | sent to `HostDO` | relay admission |
 
@@ -142,15 +142,15 @@ Secure Enclave keys are P-256 only, so the WireGuard key cannot live there. It i
 
 Minting: the first sign-in on a device makes both keys, registers the identity key (identity spec), then, for each team mesh it joins, makes a WireGuard key and calls the cmux VM API `POST /v1/meshes/{meshId}/devices {wgPublicKey, installPublicKey, signature}`. The Worker checks the signature, membership and budgets, records the key, creates that mesh's tunnel with `clientPublicKey` attached to that team's VPC, and applies the device's firewall rules. `TeamDO` then pushes a peer map delta to hosts.
 
-Rotation: every 90 days and on demand (cmux VM API `POST /v1/devices/{deviceId}/rotate-key`, per tunnel). The device makes a new key; the cmux VM API Worker calls Freestyle `rotate-key` with the new public key and returns the new server public key to the device; `TeamDO` pushes the new key to peers in a peer map delta. Sessions re-handshake once. The old key is deleted on the device after the push is acknowledged.
+Rotation: every 90 days and on demand (cmux VM API `POST /v1/devices/{deviceId}/rotate-key`, per tunnel). The device makes a new key; the cmux VM API Worker calls the provider's `rotate-key` with the new public key and returns the new server public key to the device; `TeamDO` pushes the new key to peers in a peer map delta. Sessions re-handshake once. The old key is deleted on the device after the push is acknowledged.
 
-Revocation and device loss: cmux VM API `DELETE /v1/devices/{deviceId}` (by the user from any signed-in device or the dashboard, by an admin, or caused by install revocation or team removal; team removal revokes at once on the Stack team-membership webhook or token refresh, with a 60 s sweep only in the experiment) makes the cmux VM API Worker delete that mesh's Freestyle tunnel (its rules go with it; measured effect within 0.25 s); `TeamDO` removes the key from every peer map (hosts drop the peer and its sessions at once), refuses relay tickets, and lets tokens expire (minutes). A lost device keeps its key, but nothing accepts it.
+Revocation and device loss: cmux VM API `DELETE /v1/devices/{deviceId}` (by the user from any signed-in device or the dashboard, by an admin, or caused by install revocation or team removal; team removal revokes at once on the Stack team-membership webhook or token refresh, with a 60 s sweep only in the experiment) makes the cmux VM API Worker delete that mesh's provider tunnel (its rules go with it; measured effect within 0.25 s); `TeamDO` removes the key from every peer map (hosts drop the peer and its sessions at once), refuses relay tickets, and lets tokens expire (minutes). A lost device keeps its key, but nothing accepts it.
 
 ## 9. Authorization and ACL enforcement points
 
 | Point | Checks | Compiled from |
 | --- | --- | --- |
-| Freestyle firewall | which tunnel may send to which VM on the VPC path | team policy |
+| Provider firewall | which tunnel may send to which VM on the VPC path | team policy |
 | Host peer map | which WireGuard keys may complete a handshake with this host, on every path | team policy and directory |
 | `HostDO` admission | which installs may relay to this host | same |
 | Link `hello` | which principal (user, agent, grant) opens the link; the owner checks every op | identity spec |
@@ -205,20 +205,20 @@ Scheduling inside one session, strict priority: interactive datagrams and connec
 
 Terminal channels (ghostty-next.md sections 2 and 11): live output is an ordered byte stream per terminal on the interactive connection, bounded by the per-viewer credit (`terminal.viewerBacklogBytes`, 256 KiB), so one flooding terminal cannot hold more than its credit in the interactive connection and cannot delay another terminal's echo by more than that backlog. Snapshots and history pages go on the bulk connection. Each frame carries `generation` and `offset`, so a snapshot that arrives on the bulk connection ahead of or behind live bytes is ordered by the viewer (bytes below the snapshot offset are discarded). The `behind` resync is a session host decision on its own credit, not a transport drop. The terminal view reads the path badge and RTT from the path events above.
 
-Inner MTU and `max_datagram`: one session uses one MTU, the smallest over the paths it may take, so a path switch never changes it: 1200 when the host is a VPC member (the Freestyle tunnel MTU is 1280, minus IPv6, UDP and WireGuard headers), else 1380 (room for one more encapsulation on common paths). `max_datagram` is the inner MTU minus 48 bytes (IPv6 and UDP headers): 1152 or 1332. The device tunnel itself (the `wg hub` session, whose WireGuard peer is the Freestyle gateway) uses the tunnel's own MTU, 1280, so its datagram service reports `max_datagram` 1232 (measured, round 4, 2026-10-03); only a session nested inside that tunnel uses 1200 and 1152. The DO relay carries any size up to its 16 KiB frame, and frames batch several datagrams (landed in `cmux-transport`), so the relay is not the limit.
+Inner MTU and `max_datagram`: one session uses one MTU, the smallest over the paths it may take, so a path switch never changes it: 1200 when the host is a VPC member (the provider tunnel MTU is 1280, minus IPv6, UDP and WireGuard headers), else 1380 (room for one more encapsulation on common paths). `max_datagram` is the inner MTU minus 48 bytes (IPv6 and UDP headers): 1152 or 1332. The device tunnel itself (the `wg hub` session, whose WireGuard peer is the provider gateway) uses the tunnel's own MTU, 1280, so its datagram service reports `max_datagram` 1232 (measured, round 4, 2026-10-03); only a session nested inside that tunnel uses 1200 and 1152. The DO relay carries any size up to its 16 KiB frame, and frames batch several datagrams (landed in `cmux-transport`), so the relay is not the limit.
 
-Ports and policy: a host's overlay endpoint accepts only registered ports: 4100 (link), 4101 (WireGuard on VPC members, outer), 4102 (probes and the ultra-mode hello, inside the session), 4104 (a mesh peer's candidate list, inside the session; `cmux_transport::candidates`), and ports that a local service registers with `cmux link` under a catalog service name (`remote-desktop` on 4103). Everything else is dropped. The network policy names services, not raw ports, for overlay destinations (`tag:desktop:remote-desktop`); the compiler maps service names to ports for host peer maps and to Freestyle firewall rules for VPC members. A peer allowed to reach a host therefore reaches only the services the policy names.
+Ports and policy: a host's overlay endpoint accepts only registered ports: 4100 (link), 4101 (WireGuard on VPC members, outer), 4102 (probes and the ultra-mode hello, inside the session), 4104 (a mesh peer's candidate list, inside the session; `cmux_transport::candidates`), and ports that a local service registers with `cmux link` under a catalog service name (`remote-desktop` on 4103). Everything else is dropped. The network policy names services, not raw ports, for overlay destinations (`tag:desktop:remote-desktop`); the compiler maps service names to ports for host peer maps and to provider firewall rules for VPC members. A peer allowed to reach a host therefore reaches only the services the policy names.
 
 In-process TCP defaults (`cmux-wg`): Nagle off; keepalive probe after 15 s idle; link connections use a 10-minute user timeout (60 s today, being raised); a FIN lost on close is a known bug from the remote desktop prototype, with a regression test in the engine round.
 
 ### 12b. Answers to lanes 13 and 17 (round 3)
 
 - Port numbers: overlay UDP 4102 is the session's control port: path probes and the ultra-mode hello (cmux-wg `ultra_hello`), told apart by magic and length. No service can bind it. Remote desktop media, input, cursor and feedback datagrams use 4103 (service name `remote-desktop`). remote-desktop.md section 6 and its policy example (`autogroup:self:4102`) should move to 4103 and to the service name (`autogroup:self:remote-desktop`).
-- Datagram payload: `max_datagram` is 1232 bytes on the device tunnel's hub (MTU 1280, what a VPC member's remote desktop gets through `wg hub` today), 1152 bytes for an end-to-end session nested in the Freestyle path, and 1332 bytes otherwise, fixed for the session's life and reported in every `path.changed` event. remote-desktop.md's estimates (about 1150 and about 1350) match within the headers.
+- Datagram payload: `max_datagram` is 1232 bytes on the device tunnel's hub (MTU 1280, what a VPC member's remote desktop gets through `wg hub` today), 1152 bytes for an end-to-end session nested in the provider path, and 1332 bytes otherwise, fixed for the session's life and reported in every `path.changed` event. remote-desktop.md's estimates (about 1150 and about 1350) match within the headers.
 - Relay batching is landed (`cmux_transport::relay_frame`, kind `datagrams`, up to 16 KiB of length-prefixed datagrams per message): one relay message carries about 14 media datagrams, so the per-object ceiling of about 4,000 messages per second is no longer the video limit; the relay's byte rate (21 MB/s measured with 16 KiB messages) is. remote-desktop.md section 6.6 ("one WireGuard datagram per message") is out of date.
 - Session close: a lost FIN on a stream close is resent by TCP (end seen after 3.02 s in the engine test); a close lost at tunnel shutdown is now resent after shutdown (end seen after 410 ms instead of 60 s). Landed in 99ca23d8102.
 - Terminal frame fields (`kind` snapshot or bytes, `generation`, `offset`), per-viewer credit and `presence.set {visible, counts}` are `cmux.wire/1` channel and presence fields (sync-and-transport.md sections 3 and 4). The overlay carries those frames unchanged and adds nothing to them; the spec owner adds the fields there. The overlay's part is section 12a: the interactive and bulk connections, no drops, and path events for the badge and RTT.
-- First connect on a long-idle Freestyle tunnel: the engine forces one new handshake when a fresh session gets no answer within max(1 s, 2x RTT) (round 3), so a remote desktop or terminal attach after idle waits about 1 s, not 15 s.
+- First connect on a long-idle provider tunnel: the engine forces one new handshake when a fresh session gets no answer within max(1 s, 2x RTT) (round 3), so a remote desktop or terminal attach after idle waits about 1 s, not 15 s.
 
 ### 12c. Answers to lane 3 (Finder over hosts, plans/cmux-next/finder.md 3.5)
 
@@ -230,7 +230,7 @@ In-process TCP defaults (`cmux-wg`): Nagle off; keepalive probe after 15 s idle;
 
 ## 13. Measurements (2026-10-02)
 
-The local development Mac had a load of about 800 on 18 cores, so no timing was taken from it. Ends were Fly.io machines (shared-cpu-1x, 256 MB, sjc unless named), a Freestyle VM (`freestyle/ubuntu-sm`, San Francisco) and a lightly loaded fleet Mac mini behind the office NAT. Raw files and scripts are in the lane's private scratch directory.
+The local development Mac had a load of about 800 on 18 cores, so no timing was taken from it. Ends were Fly.io machines (shared-cpu-1x, 256 MB, sjc unless named), a provider VM (`freestyle/ubuntu-sm`, San Francisco) and a lightly loaded fleet Mac mini behind the office NAT. Raw files and scripts are in the lane's private scratch directory.
 
 ### 13.1 Summary
 
@@ -238,15 +238,15 @@ The local development Mac had a load of about 800 on 18 cores, so no timing was 
 | --- | --- | --- | --- |
 | Direct UDP, two cloud machines (baseline) | 1.05 / 2.27 ms | n/a | none |
 | Punched UDP, office Mac mini to cloud (two NATs) | 5.58 / 6.91 ms | n/a | punch about 1 RTT after candidates |
-| Freestyle tunnel, cloud client to VM, in-process stack | 2.18 / 2.51 ms | 228 Mbit/s down; upload fails above 1 MiB (defect) | 142 ms cold, 2.7 ms new TCP connection on a warm session |
-| Freestyle tunnel, kernel WireGuard (reference) | 2.29 / 2.63 ms | 425 up / 227 down Mbit/s | 145 ms |
+| Provider tunnel, cloud client to VM, in-process stack | 2.18 / 2.51 ms | 228 Mbit/s down; upload fails above 1 MiB (defect) | 142 ms cold, 2.7 ms new TCP connection on a warm session |
+| Provider tunnel, kernel WireGuard (reference) | 2.29 / 2.63 ms | 425 up / 227 down Mbit/s | 145 ms |
 | Tunnel to VM relay to second tunnel | 4.80 / 5.48 ms | n/a | 7.3 ms new connection |
 | DO relay, object in the host's colo (SJC) | 7.82 / 14.16 ms | 5 MB/s at 1,280 B messages; 21 MB/s at 16 KiB | 66 ms socket open (warm object), 261 ms (new object) |
 | DO relay, object in a neighbor colo (LAX) | 24.5 / 28.0 ms | same | same |
 | Far host: sjc client to fra host, direct | 138.2 / 150.0 ms | n/a | none |
 | Far host through the DO relay | 161 to 163 / 171 to 173 ms | n/a | same |
 
-### 13.2 Freestyle
+### 13.2 VM provider
 
 | Item | Value |
 | --- | --- |
@@ -293,7 +293,7 @@ The local development Mac had a load of about 800 on 18 cores, so no timing was 
 
 | Item | Value |
 | --- | --- |
-| Direct IPv6, cloud machine (sjc) to Freestyle VM public IPv6, UDP 64 B | 2.72 to 2.77 / 3.44 to 3.63 ms p50/p99 (n=1000 x2); tunnel path to the same VM 2.80 / 3.34 ms |
+| Direct IPv6, cloud machine (sjc) to provider VM public IPv6, UDP 64 B | 2.72 to 2.77 / 3.44 to 3.63 ms p50/p99 (n=1000 x2); tunnel path to the same VM 2.80 / 3.34 ms |
 | VM public IPv6 with no firewall rule | silent drop; with an allow rule for the peer's /128 it works on the first probe |
 | Cloud NAT66 to NAT66 (sjc to fra) | needs simultaneous probes (port preserved); then the first probe answers; 141.2 / 144.7 ms |
 | Far device, fra, to the San Francisco VM | tunnel 146.4 / 149.6 ms (kernel), 145.7 / 150.1 ms (in-process); direct IPv6 142.3 / 146.0 ms |
@@ -303,11 +303,11 @@ The local development Mac had a load of about 800 on 18 cores, so no timing was 
 | First connect on fresh tunnels used at once | 13 of 13 under 2 s (348 to 627 ms create to first good connection); rule to first SYN at the VM 19 to 34 ms; reused addresses behave like fresh ones |
 | First connect on a never-used tunnel idle more than ~5 min | about 15 s in 5 of 6 cases (and the round 1 outlier): the handshake completes, the gateway drops the session's data, and WireGuard re-handshakes only after 15 s; a forced second handshake connects in 156 ms. Tunnels used once and then idle 12 min were fast (4 of 4) |
 
-Consequences: the engine forces a new handshake when no authenticated packet arrives within about 1 s of sending data on a new session (instead of waiting 15 s), and this goes on the Freestyle ask list as a gateway bug with the repro. VPC hosts gain a direct IPv6 path for devices that have IPv6: same RTT as the tunnel in San Francisco, but 3 to 4 times the single-stream throughput at 100 to 150 ms RTT, where the tunnel path is slower even with kernel WireGuard (cause not known). The firewall rule for that path follows the device's current IPv6 /128 from its published candidates (rules take effect in 19 to 34 ms).
+Consequences: the engine forces a new handshake when no authenticated packet arrives within about 1 s of sending data on a new session (instead of waiting 15 s), and this goes on the VM provider ask list as a gateway bug with the repro. VPC hosts gain a direct IPv6 path for devices that have IPv6: same RTT as the tunnel in San Francisco, but 3 to 4 times the single-stream throughput at 100 to 150 ms RTT, where the tunnel path is slower even with kernel WireGuard (cause not known). The firewall rule for that path follows the device's current IPv6 /128 from its published candidates (rules take effect in 19 to 34 ms).
 
 ### 13.5 Cost of the measurements
 
-Round 1: Freestyle VM about $0.11, Fly.io about $0.03; round 2: about $0.18 (Freestyle VM $0.16, Fly $0.02) (no IP addresses allocated); Cloudflare within the included plan. Every resource was created with the `cmuxnp-dev-tp-` prefix and deleted (Fly apps, Freestyle VPC, VM, three tunnels and their rules verified 404, the Worker and its Durable Object class).
+Round 1: provider VM about $0.11, Fly.io about $0.03; round 2: about $0.18 (provider VM $0.16, Fly $0.02) (no IP addresses allocated); Cloudflare within the included plan. Every resource was created with the `cmuxnp-dev-tp-` prefix and deleted (Fly apps, provider VPC, VM, three tunnels and their rules verified 404, the Worker and its Durable Object class).
 
 ## 14. Replacing iroh
 
@@ -324,18 +324,18 @@ The overlay provider first runs under the existing Noise link (no change above t
 
 1. Done (branch feat-cmux-next-transport): `cmux-tui/crates/cmux-transport`, the pure core: datagram classifier (WireGuard, STUN), RFC 5389 binding codec (RFC 5769 vector), relay frame codec with batching and golden vectors shared with the TypeScript relay, path probes, and the path selector. Property tests (2,000 random event sequences): the current path is always alive; something is selected whenever a path is alive; a live direct path always beats relays; jitter inside the margin never switches; a challenger with fewer than three of its own winning answers never switches; a steadily faster path wins. Unit tests: a network change sends every path back to probing and the first answer carries traffic; removed path ids are never reused. Planted mutants (class rule, hysteresis margin, dead path kept, network change ignored) each fail the tests. A review subagent's findings (WireGuard data padding, streak counting, relay peer rewriting, vector coverage) are fixed.
 2. Landed (99ca23d8102): the `cmux-wg` engine: an `Underlay` seam, multipath sending through the `Selector`, probes inside the session, a proof test that moves an 8 MiB TCP stream across a path switch, a cut path and a rebind with every byte intact, `rebind`/`refresh` with an immediate handshake, CUBIC, backpressure instead of drops (ENOBUFS on macOS included, retried 1 to 50 ms), per-connection pacing at twice the flight per RTT with the shortest queue first (4 MiB through a 64-packet queue: 3.37 s before, 633 ms after; a keystroke during the upload 12 ms on a 10 ms one-way path), timer ticks only after new data (about 700 wakeups per idle hour with an open connection, from 14,400), and resets resent after shutdown (peer sees the close in 410 ms, from 60 s). Next (round 3): the first-connect watchdog for the idle-tunnel stall (section 13.6), the 10-minute link TCP user timeout, the datagram service and path events (section 12a), and the peer's overlay address in `WgConfig`.
-2b. Landed (b1e188d4e49): the first-connect watchdog in `cmux-wg` (`watchdog.rs`): a session that sends data and gets no authenticated answer within max(1 s, 2x RTT) forces one new handshake and resends its silent packets. Simulated: 31.05 s to 1.09 s. Real Freestyle tunnels idle 12 to 20 min: stalls 1.21 to 1.83 s (3 of 12) against 15.60 to 15.68 s with the old binary (3 of 6). Next round-3 items, in order: the 10-minute link TCP user timeout; the datagram service and path events (section 12a); the peer's overlay address in `WgConfig`; the Wi-Fi to cellular test with lane 14 (ready, waits for the phone slot); the per-device IPv6 firewall rule in the reconciler; then `HostDO` (step 3).
+2b. Landed (b1e188d4e49): the first-connect watchdog in `cmux-wg` (`watchdog.rs`): a session that sends data and gets no authenticated answer within max(1 s, 2x RTT) forces one new handshake and resends its silent packets. Simulated: 31.05 s to 1.09 s. Real provider tunnels idle 12 to 20 min: stalls 1.21 to 1.83 s (3 of 12) against 15.60 to 15.68 s with the old binary (3 of 6). Next round-3 items, in order: the 10-minute link TCP user timeout; the datagram service and path events (section 12a); the peer's overlay address in `WgConfig`; the Wi-Fi to cellular test with lane 14 (ready, waits for the phone slot); the per-device IPv6 firewall rule in the reconciler; then `HostDO` (step 3).
 3. Started: the relay frame codec and the routing rules of `HostDO` as pure modules in `backend/apps/api/src/host-relay/` (`frame.ts`, `route.ts`), checked against the same golden vectors as `cmux-transport` and against the routing rules of section 9.1 (peer rewrite, reachability, offline ends, malformed frames). Next: the `HostDO` class (needs a new Durable Object migration tag from the backend lead), sockets with the hibernation API, tickets from `UserDO`, placement probing at enrollment, a review subagent before it goes live. The full step: `HostDO` rendezvous and batched datagram relay in the backend (TypeScript, the backend lead's DO base), checked against the shared vectors, with placement selection at enrollment and a load test.
-4. Device enroll, rotate and revoke plus the Freestyle reconciler in the cmux VM API Worker (workers/cmux-vm/mesh/DESIGN.md); peer map push to hosts in `TeamDO`.
+4. Device enroll, rotate and revoke plus the provider reconciler in the cmux VM API Worker (workers/cmux-vm/mesh/DESIGN.md); peer map push to hosts in `TeamDO`.
 5. `overlay` provider in `cmux-remote` and `cmux link` dialing; the app session registry routes through it; then the iOS client.
 6. Delete the iroh paths (section 14).
 
-Verification beyond unit tests: a TLA+ model of dial, path switch, roaming and revocation (a revoked key never completes a handshake after the push; a session never sends only on paths both ends marked dead), and a benchmark on two Fly.io machines and a Freestyle VM that records section 13's table per release.
+Verification beyond unit tests: a TLA+ model of dial, path switch, roaming and revocation (a revoked key never completes a handshake after the push; a session never sends only on paths both ends marked dead), and a benchmark on two Fly.io machines and a provider VM that records section 13's table per release.
 
 ## 16. Risks and open questions
 
-- The in-process stack has measured defects that block shipping: uploads above about 1 MiB fail through the Freestyle tunnel (no congestion control; datagrams dropped when the UDP send queue is full), a 5 s stall after sleep, a fixed 250 ms timer when idle, no rebind, and a 60 s TCP timeout that kills suspended phones' links. smoltcp also has no SACK. If the fixed stack still falls short, bulk moves to QUIC streams inside the session (one more layer) or the host side uses kernel WireGuard on VMs.
+- The in-process stack has measured defects that block shipping: uploads above about 1 MiB fail through the provider tunnel (no congestion control; datagrams dropped when the UDP send queue is full), a 5 s stall after sleep, a fixed 250 ms timer when idle, no rebind, and a 60 s TCP timeout that kills suspended phones' links. smoltcp also has no SACK. If the fixed stack still falls short, bulk moves to QUIC streams inside the session (one more layer) or the host side uses kernel WireGuard on VMs.
 - About half of office-to-cloud pairs get no direct path; they stay on the relay (7.8 ms in one metro, 40 Mbit/s unbatched). Hole punching with many ports and router port mapping can raise the rate later.
-- Freestyle has one tunnel endpoint in San Francisco: users far from it pay that round trip to reach VMs (which are in San Francisco too, so this costs nothing extra today). Ask list for Freestyle: regional endpoints, tunnel-to-tunnel forwarding (or a documented no), firewall evaluate that matches the data plane, the gateway that drops the first session's data on a never-used tunnel idle for more than ~5 min (repro in section 13.6), lower single-stream throughput through the gateway at high RTT, limits on tunnels and rules per VPC.
+- The VM provider has one tunnel endpoint in San Francisco: users far from it pay that round trip to reach VMs (which are in San Francisco too, so this costs nothing extra today). Ask list for the VM provider: regional endpoints, tunnel-to-tunnel forwarding (or a documented no), firewall evaluate that matches the data plane, the gateway that drops the first session's data on a never-used tunnel idle for more than ~5 min (repro in section 13.6), lower single-stream throughput through the gateway at high RTT, limits on tunnels and rules per VPC.
 - TCP inside the relay WebSocket: under loss two TCP layers retransmit. Acceptable for a fallback; the selector leaves the relay as soon as UDP works.
 - Durable Object placement can drift if Cloudflare moves objects; the host re-measures its relay object RTT on start and re-picks when it is more than 10 ms worse than at enrollment.

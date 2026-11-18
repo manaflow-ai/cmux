@@ -10,7 +10,7 @@ branch or native capture answers “what did this exact revision render?”
 | --- | --- | --- | --- |
 | Local web HMR | about one second after a save | React/webview layout, copy, states, and interaction | Developer checkout; Vite on `127.0.0.1` |
 | Live gallery | while the pushed branch builds, usually 1–2 minutes | Real components and fixture states, including before/after comparison | Gallery host and remote browser |
-| Hosted matrix | after the manifest is rendered | Repeatable screenshots, themes, locales, and play-step measurements | Freestyle, Testbox, or CI; never a laptop browser |
+| Hosted matrix | after the manifest is rendered | Repeatable screenshots, themes, locales, and play-step measurements | A Cloud VM, Testbox, or CI; never a laptop browser |
 | Hosted native capture | one batched fleet run | AppKit/sidebar, native settings, and end-to-end behavior | Managed capture mini |
 
 Start with the first lane that can answer the question. Move up only when the

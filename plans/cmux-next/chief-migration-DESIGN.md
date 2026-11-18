@@ -176,7 +176,7 @@ and the report says how many. Code: `migrate_subagents.rs`.
 | `conversations.sqlite3` main conversation | ConversationDO through `conversation.import` (fill + commit, idempotent by message key) |
 | other conversations (DMs, groups) | one ConversationDO each, same import |
 | `chiefs.sqlite3`, profile, avatar, person.md, engine | the chief record (`chief.update`: name, avatar, brain options) and the brain's settings |
-| acpmux sessions and registry | not moved into a DO: subagents re-home to Freestyle acpmux peers (a242); finished transcripts go to R2 for `zoom("aN")` |
+| acpmux sessions and registry | not moved into a DO: subagents re-home to provider VM acpmux peers (a242); finished transcripts go to R2 for `zoom("aN")` |
 | agent token | not moved: the cloud mints its own chief token |
 
 ## 6. Subagents
@@ -220,7 +220,7 @@ An SSH target with no optchat-chief that knows the format gets this binary insta
 
 ## 6c. Per-target status and gaps (real chain run, 2026-10-20)
 
-One throwaway Chief (backup off) moved Mac -> Mac mini -> Freestyle Linux VM -> staging Cloud Chief,
+One throwaway Chief (backup off) moved Mac -> Mac mini -> provider Linux VM -> staging Cloud Chief,
 one turn at each stop; every stop gave the code word from memory, the hosts of all earlier stops,
 and ran `hostname; uname -sm` on its own machine.
 

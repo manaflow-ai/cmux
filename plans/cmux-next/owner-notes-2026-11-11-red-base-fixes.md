@@ -41,6 +41,6 @@ with no record is therefore a leftover descriptor (or a holder about to write it
 record appears. A lock with a record is refused at once, as before. `acquire` can now block its
 thread for up to 2 s in that one state.
 
-Test: `a_descriptor_a_forked_child_still_holds_after_the_drop_is_waited_out`. On cmux-lawrence-2
+Test: `a_descriptor_a_forked_child_still_holds_after_the_drop_is_waited_out`. On a team Mac
 it failed without the fix (and made `a_second_holder_in_this_process_is_refused_until_the_first_drops`
 fail too, through the same leaked descriptor) and passed 3 of 3 with it.

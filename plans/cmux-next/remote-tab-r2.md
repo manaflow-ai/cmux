@@ -1,6 +1,6 @@
 # cmux next: remote tab step r2 (macOS server host)
 
-Status: plan, 2026-10-06, remote tab lead. Decisions (umbrella, 2026-10-06): design approved (C++ shim behind a C ABI, Rust owns session, encoding and transport); B4 approved (own workspace); B1: build on a fleet Mac with `cmux-ci run --class isolated`, run the prebuilt binary on cmux-lawrence-2; B5: the cmux.19 release asset (sha256 ddbe20e2b475baf33d0c07a2d629cd95fea844e5e804a9d70a0f755c2f22c7be). Parent: remote-tab.md, remote-tab-r1.md, remote-tab-protocol.md. Fork side done: manaflow-ai/cef `cmux/8037-remote` (RP1-RP9 green on macOS arm64, job 529b32b2f2868c1541d4b4d3; `cmux_rp_*` API 19, renumbered at landing in cmux.19).
+Status: plan, 2026-10-06, remote tab lead. Decisions (umbrella, 2026-10-06): design approved (C++ shim behind a C ABI, Rust owns session, encoding and transport); B4 approved (own workspace); B1: build on a fleet Mac with `cmux-ci run --class isolated`, run the prebuilt binary on the team GUI Mac; B5: the cmux.19 release asset (sha256 ddbe20e2b475baf33d0c07a2d629cd95fea844e5e804a9d70a0f755c2f22c7be). Parent: remote-tab.md, remote-tab-r1.md, remote-tab-protocol.md. Fork side done: manaflow-ai/cef `cmux/8037-remote` (RP1-RP9 green on macOS arm64, job 529b32b2f2868c1541d4b4d3; `cmux_rp_*` API 19, renumbered at landing in cmux.19).
 
 ## 1. Shape
 
@@ -20,7 +20,7 @@ cmux-remote-browser-host (macOS app bundle; Rust main)            viewer (Rust l
 - Every input call from the viewer goes through `rp_input::map_input` (landed 582e9269fb9, vectors `schemas/remote-tab/input-mapping.json`) and runs on the CEF UI thread through one `CefPostTask` trampoline in the shim.
 - Native UI: the shim's menu, dialog, file and permission handlers produce rb messages; tokens follow `menu.rs` (`schemas/remote-tab/menu-token.json`); the SHIM-HANDLERS decision makes the shared handler set (browser lead v3) the source, with the remote sink in this host.
 
-## 2. Measurements (on cmux-lawrence-2, the only GUI host)
+## 2. Measurements (on the team GUI Mac, the only GUI host)
 
 - Input-to-paint: the viewer sends a key at t0 (viewer clock); the page paints a marker; the viewer decodes the frame whose pixels show the marker (marker method of remote-desktop.md 15.1). Report p50/p95 over 200 keys. Needs C8 (clock offset) for one-way splits; the round-trip total does not.
 - Idle: 0 frames and 0 encoder calls over 60 s on a static page; host CPU from `ps -o %cpu` of the host and helper PIDs (the host starts them; it kills only those PIDs). With RP3 (`--cmux-remote-begin-frames`) the viewer issues begin frames only while `cmux_rp_needs_begin_frames` says so.
@@ -29,7 +29,7 @@ cmux-remote-browser-host (macOS app bundle; Rust main)            viewer (Rust l
 
 | # | Need | Why | Owner |
 | --- | --- | --- | --- |
-| B1 | A sanctioned way to build a macOS Rust binary and run it in a GUI session | `cmux-tui-rust-check.sh` steps build and test the cmux-tui workspace on fleet Macs but have no GUI session; cmux-lawrence-2 has the GUI session but no cargo (rule); CEF needs a GUI session | CI lead: a ci-step class `gui` on cmux-lawrence-2 that builds with cargo at low priority, or a fleet artifact step (`cmux-tui-rust-check.sh build-bin <crate>` uploading the binary) plus a GUI run step |
+| B1 | A sanctioned way to build a macOS Rust binary and run it in a GUI session | `cmux-tui-rust-check.sh` steps build and test the cmux-tui workspace on fleet Macs but have no GUI session; the team GUI Mac has the GUI session but no cargo (rule); CEF needs a GUI session | CI lead: a ci-step class `gui` on the team GUI Mac that builds with cargo at low priority, or a fleet artifact step (`cmux-tui-rust-check.sh build-bin <crate>` uploading the binary) plus a GUI run step |
 | B2 | `cmux-encode` VideoToolbox encoder that takes a CVPixelBuffer/IOSurface (BGRA or NV12) and a damage hint | today's `H264Encoder` in cmux-rd-host takes I420 (CPU); converting a BGRA IOSurface to I420 on the CPU every frame is the copy remote-tab RT3 forbids | lane 17 (C7 `cmux-encode`) |
 | B3 | `cmux-rd-engine` source API: register a service source ("rb/1"), send frames per stream, receive service input events (C2) and rb control JSON (typed control C7 has `Control` for rd; rb messages ride as service control) | the host must not copy the carrier | lane 17 (C7) |
 | B4 | Window for a new crate `cmux-remote-browser-host` (macOS-only bin, own workspace like cmux-rd-host so CEF and the shim never enter the cmux-tui Cargo.lock) | new crate | coordinator |

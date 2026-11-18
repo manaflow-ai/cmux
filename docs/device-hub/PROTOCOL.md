@@ -17,7 +17,7 @@ host-signed allow lists are later work.
   `setWebSocketAutoResponse` so they never wake it).
 - **Session DO** (one per session): signaling for exactly two devices, admitted
   by single-use tickets. Hibernates while idle; deleted when the session ends.
-- All of it deploys in Lawrence's Cloudflare account. The dev deployment is the
+- All of it deploys in the team Cloudflare account. The dev deployment is the
   `cmux-device-hub-dev` Worker on workers.dev (`workers/device-hub/DEPLOY.md`).
 
 ## Identity

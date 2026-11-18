@@ -182,7 +182,7 @@ No prompt, output, header, or credential is ever written.
   `404 vm_not_found` for machines outside the team),
   `GET /api/coderouter/vm-usage/team` (same auth, one row per owned machine
   joined with `cloud_vms.display_name`), and
-  `GET /api/coderouter/vm-usage/self` (VM-bound route token via the Freestyle
+  `GET /api/coderouter/vm-usage/self` (VM-bound route token via the provider
   edge, `403 vm_bound_token_required` for CLI tokens) serve the same
   30-day totals and daily series as the team dashboard. The dashboard
   Machines card reads the per-machine query through the same service.
@@ -241,7 +241,7 @@ add, enable/disable, and remove. Rows migrated from the single-upstream table ke
 
 ## Verifying the edge model plane locally
 
-`web/scripts/coderouter/local-edge.mjs` stands in for the Freestyle TLS egress edge: a
+`web/scripts/coderouter/local-edge.mjs` stands in for the provider's TLS egress edge: a
 private CA, TLS termination on `127.0.0.1:8443`, the bearer plus the two edge headers
 overwritten on every request (the real edge does the same), and re-origination to any coderouter origin. Real
 agent CLIs then run with placeholder keys exactly as a Cloud machine does, against a local
@@ -263,4 +263,4 @@ client is overwritten and logged by the edge, `usage_events` rows in ClickHouse 
 `vm_id`, `agent`, `upstream_kind`, and cost, and `vm-usage/self` reflects them. For the real
 edge against local code, expose the dev server through a quick tunnel, set
 `CMUX_CODEROUTER_EDGE_ORIGIN` to it, and run `scripts/cloud-vm/smoke-vm-api.mjs --create
---paid --edge-check`, which creates a Freestyle VM whose inline rule points at the tunnel.
+--paid --edge-check`, which creates a provider VM whose inline rule points at the tunnel.

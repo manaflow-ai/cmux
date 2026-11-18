@@ -41,6 +41,6 @@ and pages come back with a reload.
 
 1. Measure first: how many browser-process aborts reach users (crash
    pipeline in crash-elimination.md section 4) after cmux.17.
-2. Prototype B on cmux-lawrence-2 with one pane: layer hosting, mouse,
+2. Prototype B on a team Mac with one pane: layer hosting, mouse,
    keyboard, IME, VoiceOver on one page; report each cost with numbers.
 3. Keep D as the default until B passes every check above.

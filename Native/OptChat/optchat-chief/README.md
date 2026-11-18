@@ -482,7 +482,7 @@ own memory files, with its own MCP server (`cmux-agent-memory`: `memory_search`,
 `memory_get`, `memory_remember`) that cmux registers for agent sessions when
 `agents.memory.enabled` is on. It never touches a Chief's memory, and `mcp`'s
 tool list above is unchanged (section 7.2). Setup, several machines and the
-migration from the leo-workspace script: [cmux-agent-memory](../../../skills/cmux-agent-memory/SKILL.md).
+migration from the team's earlier private script: [cmux-agent-memory](../../../skills/cmux-agent-memory/SKILL.md).
 
 Inside a turn the Chief runs `chief agents ...` (a launcher in
 `$MUX_HOME/optchat/bin`, first on the turn's PATH). A child's final reply of
@@ -795,7 +795,7 @@ one:
 
 The migration (first open) took 0.35 s, 4.5 s and 48 s at 10k, 100k and 1M.
 
-On a Mac (cmux-lawrence-2, Apple M5 Pro, macOS 27.0.1, F_FULLFSYNC), 500
+On a team Mac (Apple M5 Pro, macOS 27.0.1, F_FULLFSYNC), 500
 short notes through `optchat-chief import` (each one message commit plus its
 free node commit): 8.5 ms per append on SQLite (bd583f5eaa8), 11.5 ms on
 the line store (0af8c9ba1b5, two fsynced lines).
@@ -814,7 +814,7 @@ that profile is named. Any other Claude-family profile must also be kind
 `claude-stdio`. `claude-sr` also accepts acpmux's routed copy (a failing `sr claude
 proxy` replaced by a `claude-stdio` profile that runs `claude` with no
 arguments) only when its `ANTHROPIC_BASE_URL` is the team subrouter on
-cmux-lawrence (`harness_gate::TEAM_SUBROUTER_URLS`); a real `sr claude
+a team Mac (`harness_gate::TEAM_SUBROUTER_URLS`); a real `sr claude
 proxy` profile wins over it. A refused turn starts no session and posts `(turn refused:
 ...)` in the chat. A session that acpmux resolved or moved onto another
 profile is checked again by its own harness, at the start and at the end
@@ -842,7 +842,7 @@ decides nothing. The host stops with a host.log line when acpmux cannot
 answer (except the native engine with the API compactor, which needs no
 acpmux):
 
-| harness | turn layout | node layout | cache mechanism | measured (2026-10-04, cmux-lawrence-2) |
+| harness | turn layout | node layout | cache mechanism | measured (2026-10-04, a team Mac) |
 | --- | --- | --- | --- | --- |
 | Claude family (claude, claude-sr) | turn preset `systemPrompt` = the constant system text; prompt = the view in 4-line blocks with ONE `cache_control` mark (`optchat_core::mark_piece`, 1 hour by default), then the new messages; no CLAUDE.md | slot preset `systemPrompt` = the same system text; the context in 4-line blocks with one 5-minute mark; then the step | Claude Code's own breakpoints (its system blocks, the request end) plus ours, all of one TTL | 2026-10-08, capture proxy: a warm turn reads everything up to our mark; see Cache marks and TTL |
 | codex family | view pieces first, new messages last, no marker; instructions in the session directory's AGENTS.md; memory tools as `chief zoom` / `chief date` | system text, context pieces, step; all nodes in one shared cwd | OpenAI automatic prefix caching (1024-token blocks), routed by `prompt_cache_key`: `optchat-<home id>-turn` for turns, `optchat-<home id>-compact` for nodes (needs the cmux codex fork) | upstream key (thread id): 2nd turn read 12,032 of 56,632 (21%), 2nd node 12,032 of 48,653 (25%). Fork with the Chief's keys (2026-10-04, see Codex): 2nd turn read 56,064 of ~56,630 (99%) in 6 of 8 runs; 2nd node 44,800 of 45,662 (98%) in 3 of 5 |
@@ -973,7 +973,7 @@ never read back. The cmux codex fork (manaflow-ai/codex
 `optchat-<home id>-turn` and every compactor slot preset
 `optchat-<home id>-compact` through env only (the preset args allowlist
 is unchanged). Upstream codex ignores the env, so the layout still works
-there, without the reads. Measured on cmux-lawrence-2 (fork build
+there, without the reads. Measured on a team Mac (fork build
 d73c9c33c6, acpmux e2715f27657, subrouter, `OPTCHAT_LIVE_CODEX_PATH`;
 `OPTCHAT_LIVE_NO_CACHE_KEY=1` drops the keys): with keys the 2nd turn read
 56,064 tokens in 6 of 8 runs (the misses read 0 and 12,032), and the 2nd
@@ -1015,7 +1015,7 @@ counts and endAgents can exclude the Chief's own sessions. Children keep
 **One subrouter account per Chief role.** Each turn is a fresh `claude -p`
 with a new `X-Claude-Code-Session-Id`, so the subrouter placed turns on any
 account and a turn often read nothing of the cache the previous turn wrote
-(first-request hit 40% over 8 turns on cmux-lawrence-2, 2026-10-06; 0% in 4
+(first-request hit 40% over 8 turns on a team Mac, 2026-10-06; 0% in 4
 of them). The turn, compactor and subagent presets set
 `SUBROUTER_SESSION_KEY=optchat-<home id>-turn|compact|sub`, which `sr claude
 proxy` (subrouter v0.1.137, PR 511) sends as `X-Subrouter-Session`; the
@@ -1030,7 +1030,7 @@ a view below 50k) goes as one block per 4,096-character grid piece (the last
 line end at or before every 4,096 characters from the view's start, so an
 unchanged prefix keeps its cuts), and our one marker sits on the piece that
 ends at the last cut; the next turn has a block boundary at the same offset,
-which the API's lookback from its marker reads. Measured on cmux-lawrence-2
+which the API's lookback from its marker reads. Measured on a team Mac
 (2026-10-06, six short turns, 8 KB view, subrouter v0.1.137): turns 2-6 read
 15,630 and wrote 2,730-2,890 (84-85%), from 9,965 read and about 8,000
 written (55%) with the session key alone. The compactor keeps its
@@ -1080,7 +1080,7 @@ acpmux unless `OPTCHAT_COMPACTOR=api`:
   start ahead during a backlog; it is 0 by default (no gain measured, see
   Import time below).
 
-  Import time (cmux-lawrence-2, 2026-10-09, 2,020 messages, 16 sessions,
+  Import time (a team Mac, 2026-10-09, 2,020 messages, 16 sessions,
   Claude Code 2.1.295, Haiku 5.5): 24-28 min, against the reference
   client's 3.8 min. Per node, the model answers in about 0.9 s to the first
   token and about 2 s per prompt, but every prompt starts a new Claude Code
@@ -1113,7 +1113,7 @@ the harness not signed in, a 429, an unserved fallback model, a tool left
 on), host.log gets one `The memory compactor cannot build summaries ...`
 line and the Chief conversation gets the same text once, instead of a
 silent wait later.
-Checked live on 2026-10-04 on cmux-lawrence-2 against a private acpmux
+Checked live on 2026-10-04 on a team Mac against a private acpmux
 daemon (claude-sr, Claude Code 2.1.287, `claude-sonnet-5-5`), with
 `cargo test --release --test live the_acpmux_compactor -- --ignored`:
 
@@ -1159,7 +1159,7 @@ write, and checks its sha256 at the start). A node in the cached layout:
    Claude Code's own breakpoint covers the system prompt), then the step.
    Size-loop retries stay in the session, unchanged.
 
-Measured live on 2026-10-04 on cmux-lawrence-2 (claude-sr through the team
+Measured live on 2026-10-04 on a team Mac (claude-sr through the team
 subrouter, Claude Code 2.1.287, `claude-sonnet-5-5`, a private acpmux daemon
 built from #17283, the blocks built by `cached_prompt`): two consecutive
 nodes of a full-size view (127 KB, marks at 49,857, 79,817 and 99,977),
@@ -1351,7 +1351,7 @@ takes the floor and is refused without a question).
 ## Multiplayer rights, audit and caps
 
 Design: cmuxterm-hq `plans/multiplayer-chief/DESIGN.md` (Lawrence's rights
-table, `/audit` and `/cap`) and leo-workspace `design/multiplayer-chief.md`.
+table, `/audit` and `/cap`) and the team's private design notes.
 Code: `src/rights.rs`, `src/audit.rs`, `src/brain/rights_gate.rs`. On by
 default; `OPTCHAT_RIGHTS=0` turns it off (the floor above still holds).
 
@@ -1429,7 +1429,7 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   previous turn's long messages as the placeholder and spend a `zoom` on
   them. `PROGRESS_TICK` (2 s) is longer than the bound, so `settle.json`
   (the app's "Organizing Chief history") never shows. Measured 2026-10-14
-  (chiefux on cmux-lawrence-2, 7 turns with a 3-message burst): settle
+  (chiefux on a team Mac, 7 turns with a 3-message burst): settle
   13-22 ms, no deferred turn, no zoom call; a busy compactor (an import) is
   not measured.
 - **A slow session start.** The Chief's own sessions (its turns and the

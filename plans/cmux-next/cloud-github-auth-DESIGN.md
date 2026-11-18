@@ -124,7 +124,7 @@ GitHub; each mint is an audit record with the machine, repo, permissions and tok
    (`bun images/cmux-vm/pin-cmux-tui.ts --commit <sha> --write`), bake (`cloud-vm-image-bake.yml`),
    smoke, promote to dev.
 3. Give the development Worker a GitHub App (the staging App's id and key, or a dev App), or give
-   staging a Freestyle snapshot, so one env has both halves. Credential step: the person.
+   staging a provider VM snapshot, so one env has both halves. Credential step: the person.
 4. Connect a test team to the App; on a fresh machine: `git clone` a private repo, `git push` a
    branch, `gh pr list`, `gh pr create`; check the audit records and that no file under the work
    home or `/etc` holds a token.

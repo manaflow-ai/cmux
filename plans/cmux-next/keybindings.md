@@ -286,7 +286,7 @@ wherever its tier allows).
 - K-T5 (coordinator): in a browser popup every close action closes the popup.
 - K-T6 (coordinator): keybindings.json is parsed by the Rust `cmux-config` (one config
   owner); that slice needs a cmux-tui landing window.
-- R59 is done only after a live Ctrl-Tab proof on cmux-lawrence-2 (never the laptop).
+- R59 is done only after a live Ctrl-Tab proof on a team Mac mini (never the laptop).
   Proof recorded 2026-10-12 (cx-9ce.18) on capture minis, real keys through cua-driver; since
   Leo 2026-10-12 these keys select sidebar items, not pane tabs. Superseded for Ctrl-Tab (#20116) and
   Cmd-Shift-] / [ (Lawrence 2026-10-15): they cycle the focused pane's tabs. cmux-next (DEV build of

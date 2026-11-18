@@ -39,7 +39,7 @@ measured. Without the right `--vdisplay`, such a journey is `not run` before any
 to pass.
 
 Capture hosts come from the fleet registry (`~/.ssh/config.d/fleet-registry.json`, written by
-leo-workspace `tools/reach --install`). On a machine without it, name them:
+the team's private `tools/reach --install`). On a machine without it, name them:
 `--hosts "cmux17 cmux18 cmux19 cmux21 cmux22 cmux23 cmux24"` (sets `CAPTURE_HOST_SLOT_HOSTS`).
 `JOURNEYS_EXCLUDE_HOSTS` (default `cmux16`) are never leased.
 

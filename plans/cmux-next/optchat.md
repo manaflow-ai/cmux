@@ -4,7 +4,7 @@ Status: proposal, 2026-10-03 (chief lane, branch feat-cmux-next-chief). Source: 
 spec (his post, pasted by Lawrence 2026-10-03; not copied into this public repo).
 Lawrence's goals (2026-10-03): each agent is an OptChat; memory is decoupled from the agent and
 the UI, and the user picks where it lives: (1) on the same MacBook, (2) on a Mac mini the user owns,
-(3) hosted by us (Durable Objects, PlanetScale, maybe Freestyle).
+(3) hosted by us (Durable Objects, PlanetScale, maybe the VM provider).
 
 ## 1. What changes from today
 

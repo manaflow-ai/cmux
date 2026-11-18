@@ -18,7 +18,7 @@ document `workers/cmux-vm/upstream/openapi.json` (88 operations).
 ## 0. Top risk: IPv6-only VM egress
 
 Finding: hq `scripts/freestyle-run` (commit 83880c677a5e, 2026-10-06) records
-that Freestyle VMs are IPv6-only, so GitHub release downloads fail there (its
+that provider VMs are IPv6-only, so GitHub release downloads fail there (its
 bun install goes through npm for that reason). GitHub's web, API, git and asset
 hosts (`github.com`, `api.github.com`, `codeload.github.com`,
 `objects.githubusercontent.com`, `release-assets.githubusercontent.com`,

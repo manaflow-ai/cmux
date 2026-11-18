@@ -39,7 +39,7 @@ one classic already reads.
   (a separate repository; no shipped build reads it, and classic's `UpdateFeedResolver` keeps it as is).
   Release [rc7-b114](https://github.com/manaflow-ai/cmux-next-handoff-test/releases/tag/rc7-b114) holds
   the DMG, the appcast and the recordings.
-- End-to-end on cmux-lawrence-2 (macOS 27.0.1, arm64), through the in-app flow (sidebar "Update…" pill,
+- End-to-end on a team Mac (macOS 27.0.1, arm64), through the in-app flow (sidebar "Update…" pill,
   "Install and Relaunch"):
   - Run A, classic 0.65.2.2, Info.plist edit only: download done, install failed (4005). Fixed in the switch.
   - Run B, classic 0.65.2.2: the 297 MB update downloaded and the app relaunched as 1.0.0 in 26 s (click 14:48:04 UTC, relaunch 14:48:30 UTC); cmux-next asked "Import your

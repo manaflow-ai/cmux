@@ -3,7 +3,7 @@
 Status: design + slices 1-6, 2026-10-20 (a283); part II (surfaces, protocol, transport, skew, offline) 2026-10-21. Owner lane: "Agents & routing".
 Builds on: `remote-hosts.md` (tailnet host listener, `cmux host list|dial`),
 `server-reach.md` (paired server sections), `cloud-subagents-DESIGN.md` (acpmux peers on
-Freestyle VMs), `add-server-ui-DESIGN.md` (pairing card), `motion.md` (motion gate),
+provider VMs), `add-server-ui-DESIGN.md` (pairing card), `motion.md` (motion gate),
 `plans/cmux-next/coordination/sidebar.md` (sidebar document contract).
 
 ## 0. Summary
@@ -282,7 +282,7 @@ Code that exists (read, not all run here):
 | --- | --- |
 | SSH reach + install + upgrade + reconnect | `cmux-tui/crates/cmux-remote` (`ssh_bootstrap.rs`, `provider/ssh.rs`), app `SSHService`, `remote.connect`, `remote.install`, `remote.reconnect` |
 | tailnet reach | `cmux-host` (`cmux host enable|serve|dial|list`), owner WhoIs admission |
-| Cloud VMs | `CmuxNextCloud`, `cloud-subagents-DESIGN.md` (acpmux peers on Freestyle VMs) |
+| Cloud VMs | `CmuxNextCloud`, `cloud-subagents-DESIGN.md` (acpmux peers on provider VMs) |
 | remote group sidebar object | Part I slices 1-6 (`remote.newGroup`, header states, nesting, Move Chief To…) |
 | terminals | daemon PTYs, attach stream, resize, scrollback (`terminal-snapshot-history-v1`) |
 | files | daemon `fs.stat|list|read|write|mkdir|rename|delete|pick` (`cmux-tui-core/src/fs_ops`) |
@@ -316,10 +316,10 @@ routes on network change (T3's best idea, Part I 1.4):
 
 1. tailnet `cmux host dial` (no SSH key setup, identity from the tailnet) — Mac minis, other Macs
 2. SSH (`ssh://alias`), bootstrap installs/upgrades `cmux-tui` — any Linux server, any Mac
-3. Cloud link (`ws(s)://` with `--carrier` inside the owner's private network, or relay) — Freestyle VMs
+3. Cloud link (`ws(s)://` with `--carrier` inside the owner's private network, or relay) — provider Cloud VMs
 4. relay routes (`relay+wss://`, `iroh://`) when no direct path exists
 
-Targets map: Freestyle VM → 3 (2 as fallback); Mac mini / other MacBook → 1 then 2; Linux server → 2
+Targets map: provider Cloud VM → 3 (2 as fallback); Mac mini / other MacBook → 1 then 2; Linux server → 2
 (1 when it runs tailscaled + `cmux host serve`).
 
 Tailnet policy (cmuxterm-hq #2982, 75bc7f7, live 2026-10-21, a459): the Cloud Chief tag,
@@ -341,7 +341,7 @@ on each mini; until then SSH (route 2) is the working route. SSH keys for user `
   `Update needed`, one click runs `remote install --upgrade` (terminals survive, RPC state resets);
   (b) a missing optional capability hides only that surface's UI (e.g. no `fs-watch-v1` → file
   viewer polls on focus, never a timer); (c) never auto-upgrade a host the user did not install
-  through cmux. Seen today: the Mac mini `cmux-lawrence` has a `~/.local/bin/cmux-tui` from Aug 5,
+  through cmux. Seen today: a team Mac mini has a `~/.local/bin/cmux-tui` from Aug 5,
   so the first connect there goes through the install/upgrade offer.
 
 ## 15. Offline

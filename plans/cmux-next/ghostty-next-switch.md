@@ -449,7 +449,7 @@ Cloud SSH sample moves to this channel model.
 | S1b B1 parser fixes | ghostty-next | fork tests "a prompt after a padded partial line must stay at column 0 across resize", "133;P primary prompt ... own line", in both `zig build test` and `test-lib-vt` | Testbox; then cmux-tui gitlink bump (cmux-tui window) |
 | S1c fonts | ghostty-next | fork Hangul NFC/NFD and CJK fallback tests | Testbox |
 | S1d flavor `apple-v6` | ghostty-next | release smoke links the macOS x86_64 slice | hosted CI |
-| S2 Mac switch | feat-cmux-next | `CmuxNextTerminal` test target: snapshot attach restores the screen after a canonical resize on the same surface (today: a new surface) | fleet build `cmux-ci`, cmux-mini-6 tests, dogfood on cmux-lawrence-2 (never the laptop): live resize, 30 tabs idle GPU, Kitty image after reattach, copy mode, IME |
+| S2 Mac switch | feat-cmux-next | `CmuxNextTerminal` test target: snapshot attach restores the screen after a canonical resize on the same surface (today: a new surface) | fleet build `cmux-ci`, cmux-mini-6 tests, dogfood on a team Mac mini (never the laptop): live resize, 30 tabs idle GPU, Kitty image after reattach, copy mode, IME |
 | S3k Kitty images after snapshot | cmux-tui | reattach and resize keep an on-screen Kitty image (READY restore, then image replay) | cmux-tui window |
 | S3 traits + `local-pty` + link connector | cmux-tui | in-memory fake backend drives a terminal end to end through v12 attach | cmux-tui window |
 | S4 app bridge + interface + sample SSH app | cmux-tui, samples | manifest fixture valid/invalid; SSH sample opens, writes, resizes, revoke closes | cmux-tui window, app platform lead |
@@ -471,7 +471,7 @@ Cloud SSH sample moves to this channel model.
 6. Two interfaces, `cmux.terminal.backend/1` and
    `cmux.terminal.connector/1`, both with `options.kinds` and default deny.
 7. No window-opening tests on the laptop. S2 Mac dogfood runs on
-   cmux-lawrence-2.
+   a team Mac mini.
 8. The host owns the SSH transport for `ssh` connection handles; the
    backend gets a channel; the interface has no signing op (section 3.5).
 

@@ -31,7 +31,7 @@ receipts tool, which skips units that are already green, ran 74 times against
 | `verify-cmux-tui-hosted.sh --full` | 9 | 10.7 | Cargo.toml, Cargo.lock, toolchain or spec changes |
 | Whole CmuxNext `swift build --build-tests` (nx-remote) | 154 | 11.5 | nothing a target-scoped suite does not cover |
 | GUI gate jobs (`--needs gui`) | 79 | 5.4 | GUI-visible changes |
-| Web bundle build (Freestyle) | 86 | 3.2 | bundle input changes (safe-push rule) |
+| Web bundle build (provider VM) | 86 | 3.2 | bundle input changes (safe-push rule) |
 | `cmux-tui-rust-check.sh` (whole workspace) | about 22 | about 11 | workspace-wide Rust changes |
 
 No rule asks for the Release compile or the full Rust suite on every push.
@@ -67,7 +67,7 @@ skill. The HMR gallery is the loop for React work.
 - Webviews: the affected test files, through the receipts tool.
 - Not in the gate: the live-daemon suites (CI's daemon tier). The plan says
   when the change reaches them, and the feat-cmux-next push runs them.
-- Web bundles: the verified Freestyle build when a bundle input changed.
+- Web bundles: the verified provider-VM build when a bundle input changed.
 - Changed `tests/test_*.py` files run as short local checks.
 
 Every step and every heavy step that it leaves out comes with its reason.

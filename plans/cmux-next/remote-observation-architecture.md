@@ -196,7 +196,7 @@ Retries update delivery status under the same `receipt_id` and
 Consumers can therefore compare PRs, beads, and chats without inventing a
 lane-specific manifest or mutating the source of truth.
 
-Keep `cx-4oa.1` open until the Freestyle matrix has exact receipts for every
+Keep `cx-4oa.1` open until the VM provider matrix has exact receipts for every
 required row and the feed card exposes the corresponding stills or screencap,
 downloadable artifact metadata, and clickable hosted URL (or an explicit
 `missing-clickable-build` evidence gap). A card that only links a PR or reports

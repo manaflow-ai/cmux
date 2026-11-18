@@ -46,7 +46,7 @@ to the app connection).
 - `Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/HomeInternalIDTests.swift` (Swift Testing).
 - Shared corpus `cmux-tui/crates/cmux-tui/tests/fixtures/home-inbox-cloud-cases.json`: the
   untitled-DM case now expects no name, and a new case for an invited email address.
-- Red run on the test commit: the 5 request tests failed. Green gate (Freestyle): typecheck,
+- Red run on the test commit: the 5 request tests failed. Green gate (provider VM): typecheck,
   lint:size, catalog/client/rust codegen checks, home-core 361, protocol 9, api 51/51, webviews corpus.
 
 ## Not built (next slices)

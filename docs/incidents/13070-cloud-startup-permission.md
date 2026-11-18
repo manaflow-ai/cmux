@@ -2,7 +2,7 @@
 
 Observed on macOS 26.4.1 (25E253), main `6b4fe2303ff5afbde92aca843fd7a75cb3e29166`,
 tag `main-20260919-gcp`, 2026-09-19. The app used a private per-tag Next.js
-GCP development backend through Tailscale. The VM provider was Freestyle,
+GCP development backend through Tailscale. The VM provider was a third party,
 not GCP. The running user app, backend, machine and privacy settings were not
 changed by this investigation.
 
@@ -52,7 +52,7 @@ not 58.948 s. This measures CLI completion, not the exact first painted prompt.
 | Create | 3.409 s | HTTP create: about 3.0 s |
 | Capability/status request | 4.675 s | 4.1 s, including 3.5 s Next.js cold compilation |
 | First attach-endpoint | 8.039 s | 7.1 s, including 5.1 s Next.js cold compilation and 2.0 s application work |
-| Tunnel enrollment attempt 1 | 33.460 s | 33.4 s, including 32.3 s application work; Freestyle `/v5/tunnels` returned 503 `INTERNAL_ERROR`, mapped to HTTP 502 |
+| Tunnel enrollment attempt 1 | 33.460 s | 33.4 s, including 32.3 s application work; the provider `/v5/tunnels` returned 503 `INTERNAL_ERROR`, mapped to HTTP 502 |
 | Enrollment recovery delay | about 1.215 s | Existing hub startup recovery, not a permission wait |
 | Tunnel enrollment attempt 2 | 0.958 s | HTTP 200 in 0.502 s |
 | Hub readiness and route probe after enrollment | about 0.17 s | AF_UNIX hub connections; `cloud.link.wireguardHub` at 22:43:22.707Z |

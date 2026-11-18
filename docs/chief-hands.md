@@ -37,9 +37,9 @@ curl -fsSL https://<api>/hand/install.sh | sh -s -- --pair <code> [--profile mac
 
 ## Sandboxes and providers
 
-`hand-providers.ts` defines the provider interface: create, exec, pause, remove and list. Freestyle is the first implementation, with the hands-only key `HAND_FREESTYLE_API_KEY` and the image `cmuxnp-<env>-hand-vN` baked by `backend/apps/api/scripts/bake-hand-sandbox.ts`. E2B, Daytona, Modal, Blaxel, a Docker host, a Kubernetes pod and an SSH host are stubs that answer "no key configured". The bring-your-own path works on any machine: run the install line there with a `sandbox` code.
+`hand-providers.ts` defines the provider interface: create, exec, pause, remove and list. The VM provider is the first implementation, with the hands-only key `HAND_FREESTYLE_API_KEY` and the image `cmuxnp-<env>-hand-vN` baked by `backend/apps/api/scripts/bake-hand-sandbox.ts`. E2B, Daytona, Modal, Blaxel, a Docker host, a Kubernetes pod and an SSH host are stubs that answer "no key configured". The bring-your-own path works on any machine: run the install line there with a `sandbox` code.
 
-Hand sandboxes are separate from the cmux Cloud VM product. Cloud VMs run on Freestyle only, with no fallback provider. A hand sandbox runs on a provider that the person chooses.
+Hand sandboxes are separate from the cmux Cloud VM product. Cloud VMs run on the VM provider only, with no fallback provider. A hand sandbox runs on a provider that the person chooses.
 
 ## Known limits
 

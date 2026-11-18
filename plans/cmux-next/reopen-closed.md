@@ -20,7 +20,7 @@ catalog for every container level, and Cmd-Shift-T semantics for each bulk actio
 - The daemon does not know app-local tabs: agent tabs (`local-agent:`), internal pages
   (`local-page:`: Settings, App Store, React pages), `local-browser:` tabs, and viewers. Their close is
   recorded nowhere, so Cmd-Shift-T cannot bring them back. This is the main reason why "Cmd-Shift-T
-  does not work" for Lawrence (repro on cmux-lawrence-2 is step S4.0 below).
+  does not work" for Lawrence (repro on a team Mac is step S4.0 below).
 - The app keeps three more histories: `ClosedTabTracker` (tree diff, 25 tabs), `ClosedScreenHistory`,
   `ClosedWorkspaceTracker`, plus `WindowManager.reopenClosedWindow`. These are second owners of the
   same facts (violates single owner).
@@ -514,7 +514,7 @@ touch it.
   so a replay must not put it back. Inherited and user env is not kept. Unix only.
   Follow-ups (beads): the 2 GB byte budget across archives; reopen at the archived size (today the
   screen replays into the pane size); the agent resume offer on reopen; non-Unix archives.
-- S4 (Swift): S4.0 repro of today's Cmd-Shift-T failure on cmux-lawrence-2; `history.reopenClosed`
+- S4 (Swift): S4.0 repro of today's Cmd-Shift-T failure on a team Mac; `history.reopenClosed`
   with the alias; Reopen Closed… page; catalog presets of 5.3 on one shared path; app-local kinds
   (agent, page, viewer, local browser) push restore state and restore through the provider registry;
   delete ClosedTabTracker, ClosedScreenHistory, ClosedWorkspaceTracker, app-only window reopen; toast.

@@ -7,7 +7,7 @@ principles, some WireGuard stuff too". The same workspace is the repro bench
 for sizing bugs (section 9).
 
 Status (2026-10-21): the demo runs on a Mac mini over Tailscale and on a
-Freestyle VM with the browser on Lawrence's Mac (section 8); `terminal-ports`
+provider VM with the browser on Lawrence's Mac (section 8); `terminal-ports`
 is built (section 6). Section 5.1 (Rust and CEF fork split) and section 7 are
 design.
 
@@ -194,8 +194,8 @@ shows it.
 
 | Case | Machine | Session daemon | How the app reaches it | Page shows |
 | --- | --- | --- | --- | --- |
-| Mac mini over Tailscale | cmux-lawrence (macOS 26.5, arm64) | `cmux-tui-nightly-eeb26d8 --headless --session proxy-demo-mini` (the app's own cmux-tui build, copied next to the existing one) | app action `remote.connect` (SSH over the tailnet, `--binary` that path) | "through the workspace proxy: opened by cmux-tui-nightly-eeb26d8:75986" |
-| Freestyle VM | cmux Cloud machine proud-lilac-cobra (Ubuntu 24.04, x86_64) | `~/.cmux/bin/cmux-tui server start --session cloud` swapped to a current Linux build (CI artifact of d628b798f02; the image's 0.1.0 a9b104f had no `loopback-forward-v1`, so the tab would have shown this Mac's localhost) | the Cloud link | "through the workspace proxy: opened by cmux-tui:30510" |
+| Mac mini over Tailscale | a team Mac mini (macOS 26.5, arm64) | `cmux-tui-nightly-eeb26d8 --headless --session proxy-demo-mini` (the app's own cmux-tui build, copied next to the existing one) | app action `remote.connect` (SSH over the tailnet, `--binary` that path) | "through the workspace proxy: opened by cmux-tui-nightly-eeb26d8:75986" |
+| Provider VM | cmux Cloud machine proud-lilac-cobra (Ubuntu 24.04, x86_64) | `~/.cmux/bin/cmux-tui server start --session cloud` swapped to a current Linux build (CI artifact of d628b798f02; the image's 0.1.0 a9b104f had no `loopback-forward-v1`, so the tab would have shown this Mac's localhost) | the Cloud link | "through the workspace proxy: opened by cmux-tui:30510" |
 
 What it took, and what should change:
 
@@ -221,7 +221,7 @@ inner tmux client, and the tmux panes. `sizebench.py` runs a real cmux client
 (`cmux attach --terminal`, `--cmux` names the binary) inside a harness tmux
 of known size and resizes it. Times are until all layers agreed.
 
-| Case | This Mac, Chief session (load 140) | Mac mini | Freestyle VM |
+| Case | This Mac, Chief session (load 140) | Mac mini | Provider VM |
 | --- | --- | --- | --- |
 | attach 120x40 | ok, 40 ms | ok, 224 ms | ok, 210 ms |
 | grow 200x60 | ok, 200 ms | ok, 15 ms | ok, 17 ms |

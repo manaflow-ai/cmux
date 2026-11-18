@@ -12,7 +12,7 @@
   ``PageWebView`` hosts (idle, one build step per main-actor turn, at most two, memory-pressure
   drop, per-host non-persistent stores), shares ``PageProcessPool``, preserves engine options,
   input readiness and UI-scale observation, retargets with router cancellation, and reports
-  ``debug.page_host_pool`` claim/build spans. Pool-specific page suites passed on cmux-lawrence-2:
+  ``debug.page_host_pool`` claim/build spans. Pool-specific page suites passed on a team Mac:
   79 page tests in the routed batch, including the two pool regressions and retarget cancellation.
   Baseline remains the existing 233 ms first-open measurement above; a fresh after measurement is
   blocked because the tagged dev build failed its existing bundled-daemon capability guard:
@@ -38,7 +38,7 @@
   page. INTERIM: accounts, rooms, machines (and no main window) still open the Swift window.
   INTERIM owner: SettingsPageProvider over SettingsController until the daemon config actor
   serves settings.*. One kept page view (no reload on reopen) until the R94 PageHostPool lands.
-- Measured on cmux-lawrence-2 (scripts/cmux-next/bench-settings.py, 3 interleaved runs, median):
+- Measured on a team Mac (scripts/cmux-next/bench-settings.py, 3 interleaved runs, median):
   open 339 -> 213 ms (main-thread stall 298 -> 102 ms); reopen 353 -> 28 ms (stall 278 -> 7 ms);
   search keystroke worst stall 2,159 -> 5 ms. NOT THE SAME METHOD: the React number is 8 real
   keystrokes through the app key path (debug.key into the WKWebView). The Swift number sets the
@@ -61,7 +61,7 @@
   automation-only drawing of occluded pages; user path proven: a minimized page redraws 0.9 s after
   Show Main Window), 6c6383a7646 (page calls are origin page; page_relay connection, inactive until
   origin-claim-v1), 14085dabee5 (opid -> v2 idempotency_key), 76c31ba3bd9 (strings per locale).
-- First open after the strings split (cmux-lawrence-2, 3 interleaved runs, median; the new build
+- First open after the strings split (a team Mac, 3 interleaved runs, median; the new build
   also waits for `painted`): 365 -> 233 ms; main-thread gap ~100 ms remains (WKWebView creation),
   which the R94 PageHostPool removes. Reopen ~25-34 ms; keystroke worst gap ~2.5 ms.
 - Before commit 6: keymap import/export on the keybindings page (keybindings lead), the folder_list

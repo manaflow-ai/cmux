@@ -21,8 +21,8 @@ peer grants. The following design describes a future broker, not a shipped flow.
 
 ## The primitive that changes this
 
-Freestyle's TLS rules let the **edge** hold credentials instead of the guest
-(`freestyle.tls.rules`, see freestyle.sh/docs — "secret injection"):
+The VM provider's TLS rules let the **edge** hold credentials instead of the guest
+(`freestyle.tls.rules`, see the provider's docs — "secret injection"):
 
 ```ts
 await freestyle.tls.rules.create({
@@ -154,13 +154,13 @@ Two complementary layers, both already live at the provider:
   These identity rows and the extended sign-out flow are a proposed contract, not
   part of the currently shipped preview-lease cleanup.
 - The model plane already uses the edge-held route token: the guest carries only
-  the static placeholder env, while the inline Freestyle rule injects the
+  the static placeholder env, while the inline provider rule injects the
   bearer and VM-binding headers on the wire. There is no guest-readable route
   credential or runtime feature flag to graduate.
 
 ## What shipped: the machine principal is the route-token identity
 
-The model plane already gave every machine an edge-asserted identity: the Freestyle
+The model plane already gave every machine an edge-asserted identity: the provider
 TLS rule for the alias host (`https://coderouter.cmux.internal`) injects the VM-bound
 route token and `x-cmux-vm-id` into every guest request, and
 `authenticateRequestRouteToken` rejects a token whose binding disagrees with the

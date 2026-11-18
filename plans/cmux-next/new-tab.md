@@ -264,12 +264,12 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
 - N4: one spare per window (`NewTabSparePool`), adopted by `newTabPage()`; spares exist while the
   page is likely (`tabs.newTabKind` page, or used this session), re-warm after 750 ms of quiet
   input, dropped on memory pressure and window close. `debug.new_tab` + `scripts/cmux-next/
-  new-tab-e2e.py` measure it on cmux-lawrence-2.
+  new-tab-e2e.py` measure it on a team Mac.
 - N5: `newTab.submit` (`cmux tab new-from-text TEXT [--arg mode=search|ask] [--arg agent=ID]`), MCP tool
   from the app registry, palette with an argument prompt.
 - N6: `tabs.newTabKind` defaults to `page`; a build without the agent page falls back to a terminal.
 - R81(c) daemon spare host (landed 60dd1cc0868, 66704e32cee): one idle `__terminal-host` process
-  per daemon, adopted by the next `new-tab`. Measured 2026-10-04 on cmux-lawrence-2 with the
+  per daemon, adopted by the next `new-tab`. Measured 2026-10-04 on a team Mac with the
   fleet daemon of nt12-v1 (`scripts/cmux-next/new-tab-daemon-bench.py`): 13 of 15 tabs adopted the
   spare (the first two have none, by design), but the reply time did not change: p50 105.9 ms /
   p95 141.1 ms (login shell), 92.3 / 121.3 ms (`/bin/sh`); tabs without the spare 71-114 ms. The
@@ -286,7 +286,7 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   as is; its follow-ups (prompt reap, adoption by split/new-pane/new-workspace) are frozen until
   IX2/IX3 lands, then keep or delete it with numbers.
 - Debug marks (`CMUX_TUI_DEBUG_SPANS`, 2026-10-04, fleet daemons nt13 = marks only and nt14 =
-  marks plus barrier sync, cmux-lawrence-2, 2 rounds of 20 tabs each, login shell). Daemon time
+  marks plus barrier sync, a team Mac, 2 rounds of 20 tabs each, login shell). Daemon time
   from request to reply, p50: nt13 94.9 / 76.8 ms, nt14 55.6 / 45.1 ms. Mean per tab, nt13 then
   nt14: host Launch handling in the host process (`host.launch_ready`) 36-26 then 23-18 ms;
   publication lock 10 then 0.4 ms; `persist_workspace` 10-11 then 3 ms; 5 registry SQLite
@@ -299,7 +299,7 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   after the durable-sessions lead's audit): reply p50 -40 to -42 percent in the bench above.
   The exit record, the SQLite registry and the session journal keep F_FULLFSYNC.
 - Host Launch marks and the liveness lease barrier (nt16, 3b910a9f5d1, A/B against nt14 on
-  cmux-lawrence-2 at load 60-90, 2 x 20 tabs): inside the host's Launch step, shell child spawn
+  a team Mac at load 60-90, 2 x 20 tabs): inside the host's Launch step, shell child spawn
   20-22 ms, record write 7 ms, liveness lease 5 ms, PTY open 3 ms. The lease barrier gave no
   measurable gain: the lease step stayed at about 5 ms, so its cost is not the sync. Daemon
   reply p50 under that load: nt14 98-102 ms, nt16 107-109 ms (noise of the loaded host; the

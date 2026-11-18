@@ -1,8 +1,8 @@
 # Tenant isolation: threat model and adversarial suite
 
 Status: 2026-10-24, a640. Scope (Lawrence): stress test that there is no data, permission or execution
-leakage between different end-user accounts of cmux-next cloud, which runs sessions on Freestyle VMs
-(a205 tenant VM wrapper, a242 cloud subagents, a638 Freestyle cloud sessions, a639 Freestyle parity matrix).
+leakage between different end-user accounts of cmux-next cloud, which runs sessions on VM provider VMs
+(a205 tenant VM wrapper, a242 cloud subagents, a638 provider cloud sessions, a639 provider parity matrix).
 
 "Tenant" here is one end-user account: its Stack user, personal team, installs, conversations, machines,
 Chiefs and credits. A shared team is a tenant with several members; members of one team are not strangers to each other
@@ -18,8 +18,8 @@ screenshots, support tickets and error messages, so an id is never a secret).
 | Team data (hosts, policy, directory, SSH CA, Cloud machines, snapshots, usage) | `TeamDO`, `CloudDO`, `TeamVmDO`, `UsageMeterDO` (key: team id) | the team comes from the principal (`selectTeam` re-checks membership at `TeamDO`), not from the request |
 | Conversations, messages, attachments | `ConversationDO` (key: conversation id, caller-chosen string), R2 objects keyed `<conversation>/<object>` | membership check inside the DO; attachment routes check the same membership |
 | Chiefs, memory, runs | `/v1/chiefs/<agent>/...`, `ChiefBrainDO`, `<agent>/sandboxes` | owner check per route |
-| Machines (Cloud VM, team VM, Chief sandboxes, turn VMs) | Freestyle VMs; public ids `vm_`, `snap_` map to provider ids per tenant | tenant A can never name, start, snapshot, fork, exec on or reach tenant B's VM |
-| Provider keys (Freestyle team key, Anthropic/Bedrock, Stripe, Tailscale OAuth) | Worker secrets only | never on a VM, never in a reply, never in a log |
+| Machines (Cloud VM, team VM, Chief sandboxes, turn VMs) | Provider VMs; public ids `vm_`, `snap_` map to provider ids per tenant | tenant A can never name, start, snapshot, fork, exec on or reach tenant B's VM |
+| Provider keys (VM provider team key, Anthropic/Bedrock, Stripe, Tailscale OAuth) | Worker secrets only | never on a VM, never in a reply, never in a log |
 | Credits and spend | `UsageMeterDO`, `SpendGuardDO`, credits ledger (key: team) | a stranger cannot charge, read or cap another team |
 | Operator surfaces | `/v1/internal/*`, `/v1/admin/*`, webhooks | no tenant credential opens them |
 
@@ -43,12 +43,12 @@ R = reviewed from code or config, not run, O = open).
 
 ### 2.2 Network and tailnet
 - Attacks: VM A connects to VM B over the public IPv6/IPv4 address or a shared VPC; a turn VM that joined the operator's tailnet reaches other
-  tenants' VMs or the operator's Macs; a tenant VM reaches the metadata address or the Freestyle control plane; WireGuard keys reused across clones.
-- Controls: Freestyle drops traffic with no firewall rule; Cloud VMs join one VPC per team, one tunnel and one WireGuard key per (device, team mesh)
+  tenants' VMs or the operator's Macs; a tenant VM reaches the metadata address or the VM provider control plane; WireGuard keys reused across clones.
+- Controls: the VM provider drops traffic with no firewall rule; Cloud VMs join one VPC per team, one tunnel and one WireGuard key per (device, team mesh)
   (`transport.md` section 7); turn VMs join the tailnet with a one-use, per-VM key and a tag (`chief-brain-cc/vm.ts`, `boot.sh`), the agent
   user's network is closed by `net.ts` (nft) and `net-check.sh` proves it.
 - Tests: T `tenant-isolation-vms.sh`: A as root dials B's public IPv6 and egress IPv4 on 22, 1337, 7420, 8080, 3000, 5432 while B listens on every interface
-  (with a positive control that the probe can connect); A reaches no metadata address; the Freestyle API answers a keyless caller 401.
+  (with a positive control that the probe can connect); A reaches no metadata address; the VM provider API answers a keyless caller 401.
 - Open: O1 the Tailscale ACL for `tag:agent-cloud` is not in this repo. Every turn VM joins ONE operator tailnet with ONE shared tag; if end users ever get turn VMs, the ACL
   must deny tag-to-same-tag and tag-to-operator-Mac traffic. Test to add when the ACL file is available: from VM A (tagged) `tailscale ping`/TCP to VM B's tailnet address and
   to a Mac's port 7420 must fail. Today only operator-listed owners (`CHIEF_CC_OWNERS`) use this route.
@@ -136,9 +136,9 @@ Live staging API (two throwaway Stack users, deleted at the end; never productio
 
     bun backend/scripts/tenant-isolation-staging.ts --report /tmp/tenant-staging.json
 
-Live VMs (two small Freestyle VMs, ttl 30 min, deleted on exit; about 2 minutes, a few cents):
+Live VMs (two small provider VMs, ttl 30 min, deleted on exit; about 2 minutes, a few cents):
 
-    FREESTYLE_KEY_FILE=~/.secrets/freestyle-cmux-next-staging-....key backend/scripts/tenant-isolation-vms.sh [SNAPSHOT]
+    FREESTYLE_KEY_FILE=~/.secrets/<provider staging key file> backend/scripts/tenant-isolation-vms.sh [SNAPSHOT]
 
 ## 6. Results (2026-10-24)
 

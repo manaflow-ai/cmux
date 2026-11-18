@@ -1,12 +1,12 @@
 # cmux next: VM base image
 
-Status: proposal, 2026-10-02 (VM image lead). Spec owner: the coordinator (decision V1 and A15 in the spec decisions; spec/team-vm.md; spec/cloud-and-automations.md). Only the coordinator edits the spec repo. Every number below was measured on Freestyle on 2026-10-02 by this lane unless marked "estimate" or UNVERIFIED. Raw data, scripts and SBOMs are in the lane's scratch directory, not in this repo.
+Status: proposal, 2026-10-02 (VM image lead). Spec owner: the coordinator (decision V1 and A15 in the spec decisions; spec/team-vm.md; spec/cloud-and-automations.md). Only the coordinator edits the spec repo. Every number below was measured on the VM provider on 2026-10-02 by this lane unless marked "estimate" or UNVERIFIED. Raw data, scripts and SBOMs are in the lane's scratch directory, not in this repo.
 
 Decided input: coderouter is in every VM by default (team VM, user cloud machines, automation hosts); a curated program set is baked in, improving on today's Cloud image (reproducible, pinned, fast boot, no secrets); the team VM runs a default Postgres for apps (database or schema per app, created by chief). This document proposes the package list, the build, the boot and identity contract, updates without a rebake, and the CI bake and smoke test.
 
 ## 1. Goals
 
-- One image definition for every cmux Linux machine on Freestyle: user cloud machines, automation hosts, the team VM. Roles, not separate images, decide what runs.
+- One image definition for every cmux Linux machine on the VM provider: user cloud machines, automation hosts, the team VM. Roles, not separate images, decide what runs.
 - Reproducible: every input pinned by version and digest; an SBOM per image; two bakes from the same lock give the same package set and file hashes.
 - Fast: a new machine answers on the daemon port in under 0.5 s p50 from `vms.create`.
 - Small: no unrequested software; the root filesystem of the default image under 5 GB used; the memory image without gigabytes of stale page cache.
@@ -18,9 +18,9 @@ Decided input: coderouter is in every VM by default (team VM, user cloud machine
 
 ## 2. Non-goals
 
-- A second VM provider. The provider seam stays (`VMProvider`), but this image targets Freestyle's Ubuntu 24.04 guests.
+- A second VM provider. The provider seam stays (`VMProvider`), but this image targets the provider's Ubuntu 24.04 guests.
 - A desktop in the default image. The desktop becomes an optional role package (section 4.4).
-- Kernel changes. Freestyle owns the guest kernel (6.1.102 today).
+- Kernel changes. The provider owns the guest kernel (6.1.102 today).
 
 ## 3. Today (baseline)
 
@@ -62,7 +62,7 @@ Shipping to running machines is limited today (docs/cloud-guest-upgrades.md): on
 
 | Layer | Contents | Changes | How it reaches machines |
 | --- | --- | --- | --- |
-| L0 provider base | Freestyle's Ubuntu 24.04 guest (kernel, provider agent, network config) | provider releases | a rebake from a recorded base fingerprint (below) |
+| L0 provider base | The provider's Ubuntu 24.04 guest (kernel, provider agent, network config) | provider releases | a rebake from a recorded base fingerprint (below) |
 | L1 cmux OS | apt packages from a dated Ubuntu snapshot mirror, the work user, systemd units, the one boot unit (`cmux host`), Docker engine, PostgreSQL 17 binaries (disabled unless the role needs them), minimal tools | rarely (security updates, a new package) | rebake; machines get it at recreate |
 | L2 cmux store | content-addressed user-space packages under `/opt/cmux/store/<sha256>/`: `cmux`, coderouter, workerd, coding agents, toolchains not in L1, JuiceFS, the telemetry agent | often (agents weekly or daily) | baked into the snapshot and updated in place by a signed channel manifest (section 4.5) |
 
@@ -177,14 +177,14 @@ Budget for an idle machine (no client attached, no agent running): total under 0
 
 ### 4.11 CI bake and smoke test
 
-- Workflow `cloud-vm-image-bake.yml` runs only on dispatch, because every bake spends Freestyle resources (coordinator decision, 2026-10-04). Changes to `images/cmux-vm/**` and `web/scripts/cmux-vm-image/**` run `cloud-vm-image-lock.yml` instead: the lock and sshd policy tests, no Freestyle access, under 1 minute. Snapshots are account-scoped, so a promotion bakes on the account that serves production (`cmux-vm-<date>-<sha>`), as today; branch bakes use `cmuxnp-…` names and are deleted by id after the smoke. A separate non-production Freestyle account would isolate branch bakes (decision in the lane report). The bake derives the size ladder (about 30 s with parallel rows, as today) and takes about 1 minute (66 s for the prototype, versus about 4 minutes today).
+- Workflow `cloud-vm-image-bake.yml` runs only on dispatch, because every bake spends VM provider resources (coordinator decision, 2026-10-04). Changes to `images/cmux-vm/**` and `web/scripts/cmux-vm-image/**` run `cloud-vm-image-lock.yml` instead: the lock and sshd policy tests, no VM provider access, under 1 minute. Snapshots are account-scoped, so a promotion bakes on the account that serves production (`cmux-vm-<date>-<sha>`), as today; branch bakes use `cmuxnp-…` names and are deleted by id after the smoke. A separate non-production VM provider account would isolate branch bakes (decision in the lane report). The bake derives the size ladder (about 30 s with parallel rows, as today) and takes about 1 minute (66 s for the prototype, versus about 4 minutes today).
 - Smoke (gate before any manifest change), on two clones of each new snapshot: daemon listening under the latency budget; bound instance id equals the provider's; every identity item differs between the two clones (machine-id, SSH host keys, daemon identity, WireGuard key, first `/dev/urandom` bytes); every store package runs (`--version`); `cr capabilities --json`; the agents' first interactive launch reaches the composer (the tmux screen check today's verifier does); idle CPU over 120 s under the budget and no process creations other than the sampler's; the secret scan; the SBOM generated and signed; Postgres reachable on the team role; the updater applies and rolls back a test manifest.
 - Promotion stays a reviewed change to the image manifest; rollback is its revert (as today).
 - Operator bake (development; coordinator decision 2026-10-05): `workflow_dispatch` needs the workflow on the default branch and cmux-next never opens a PR into `main`, so development bakes run from an operator worktree of feat-cmux-next at a pushed, clean HEAD, with the cmux-next dev key passed by path (read in process, never printed). Names stay `cmuxnp-dev-vmimg-<tag>`; every VM is deleted through the run's ledger; the snapshot is kept only after a passing smoke:
 
   ```bash
   cd <cmux worktree of feat-cmux-next>/web && bun install --frozen-lockfile --ignore-scripts
-  export FREESTYLE_API_KEY_FILE="$HOME/.secrets/freestyle-cmux-next-dev-20261004.key"
+  export FREESTYLE_API_KEY_FILE="$HOME/.secrets/<provider dev key file>"
   OUT=<hq>/.cmux-scratch/<lane>/bake-<tag>          # <tag>: [a-z0-9-], at most 41 chars
   bun test tests/vm-image-cmux-vm-lock.test.ts
   bun ../images/cmux-vm/bake.ts --tag <tag> --out-dir "$OUT"            # prints IMAGE_ID sh-...
@@ -211,7 +211,7 @@ The team VM and self-hosted servers run the same "VM software" (spec SV1 to SV3;
 
 ### 6.1 What a clone inherits
 
-A Freestyle create from a snapshot resumes the memory image. Measured on clones of one snapshot: `boot_id`, `/etc/machine-id`, hostname, the eth0 MAC and its IPv6 and link addresses are identical; the monotonic and boot clocks jump forward by the snapshot's age, so every timer that expired in between fires in the first instant after resume. There is no VM generation id device (the kernel supports one; the hypervisor exposes none), so the kernel is never told it was cloned. The metadata service's `instance-id` is the only per-machine value.
+A provider create from a snapshot resumes the memory image. Measured on clones of one snapshot: `boot_id`, `/etc/machine-id`, hostname, the eth0 MAC and its IPv6 and link addresses are identical; the monotonic and boot clocks jump forward by the snapshot's age, so every timer that expired in between fires in the first instant after resume. There is no VM generation id device (the kernel supports one; the hypervisor exposes none), so the kernel is never told it was cloned. The metadata service's `instance-id` is the only per-machine value.
 
 Random state: in forks made seconds after a snapshot, the first read of `/dev/urandom` and a `getrandom()` call in a process that was running in the snapshot returned the same bytes on two of three forks. Clones made 100 s or more after the snapshot were unique (25 of 25), and all values diverged by 30 s. The explicit reseed at bind (`RNDRESEEDCRNG` with the instance id mixed in) is therefore required and must run before any key is made.
 
@@ -258,7 +258,7 @@ The session host's `--remote-ws` listener comes only from the host config `/etc/
 - Default (no file, or no `remoteWs`): `127.0.0.1:1337` with enrolled auth. Every connection presents a device enrolled with the session host (cmux-remote enrollment); revoking the device closes its live sessions at once (tested within one heartbeat).
 - A loopback or tailnet bind (100.64.0.0/10, fd7a:115c:a1e0::/48) keeps enrolled auth. Any other bind is refused.
 - cmux Cloud machines: `{"remoteWs": {"bind": "0.0.0.0:1337", "carrier": "freestyle-edge"}}` runs the exact Cloud command line (`--remote-ws 0.0.0.0:1337 --remote-ws-insecure-bind --remote-ws-trusted-carrier`, equal to `cmuxTuiDaemon.ts` and `cmux-devbox-boot`, pinned by the daemon_spec parity test). The loader accepts it only with the wildcard bind, on Linux, on a machine bound to a metadata instance id, and logs one warning line at start that names the mode and bead cx-wx2. A refused file falls back to the default and is logged.
-- **Assumption of the trusted-carrier mode:** nothing reaches port 1337 except the Freestyle edge. The listener grants carrier auth to every link without enrollment, so any packet that reaches 1337 is trusted. Before an image runs `cmux host run` in this mode, the image must enforce that (firewall or interface bind; public IPv6 on Freestyle VMs must not reach 1337). Bead cx-wx2 tracks that check and the move of Cloud clients to enrolled auth, after which this mode is removed.
+- **Assumption of the trusted-carrier mode:** nothing reaches port 1337 except the provider edge. The listener grants carrier auth to every link without enrollment, so any packet that reaches 1337 is trusted. Before an image runs `cmux host run` in this mode, the image must enforce that (firewall or interface bind; public IPv6 on provider VMs must not reach 1337). Bead cx-wx2 tracks that check and the move of Cloud clients to enrolled auth, after which this mode is removed.
 
 ### 6.4 Private network announce
 
@@ -276,7 +276,7 @@ Why the metadata service alone is not proof: the instance id is readable by ever
 
 Flow (control-plane initiated, no secret in the image):
 1. `TeamVmDO` gets a provider result for the epoch (`create` or `start` ok, `vm` = provider id) and does not have a binding for that epoch yet. It mints a single-use nonce (32 random bytes, stored with epoch, vm and an expiry of 5 minutes).
-2. `TeamVmDO` runs one provider exec on that exact VM (Freestyle `vm.exec`, authenticated by our API key): `cmux host enroll --team <team> --epoch <e> --nonce <nonce>`. Only the holder of the provider key can reach this VM's exec, so the channel authenticates the machine.
+2. `TeamVmDO` runs one provider exec on that exact VM (the provider's `vm.exec`, authenticated by our API key): `cmux host enroll --team <team> --epoch <e> --nonce <nonce>`. Only the holder of the provider key can reach this VM's exec, so the channel authenticates the machine.
 3. On the VM, `cmux host enroll`:
    - checks that the machine is bound (the bind agent has reseeded and re-keyed for this instance id), and refuses while parked;
    - reads the metadata instance id;
@@ -381,7 +381,7 @@ Rollback is one revert of the promotion commit on `main`, followed by the normal
 
 ### 13.4 Who runs it
 
-The VM image lead runs the bake, verify and derive from a clean `main` worktree, with the production Freestyle key from `~/.secrets/freestyle-beta.env` (path only; never printed). The promotion PR merges only after Lawrence gives a direct merge directive for that PR. The coordinator relays the approval.
+The VM image lead runs the bake, verify and derive from a clean `main` worktree, with the production VM provider key from `~/.secrets/<provider prod key>.env` (path only; never printed). The promotion PR merges only after Lawrence gives a direct merge directive for that PR. The coordinator relays the approval.
 
 ### 13.5 Bake and promote (commands)
 

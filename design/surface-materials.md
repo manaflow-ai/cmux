@@ -15,7 +15,7 @@ and the kind of every native file that builds glass are in
 enforces both, and it runs in the pre-push gate.
 
 The other specs, and what each one owns:
-- leo-workspace `design/glass.md`: glass levels, host glass, the lens.
+- `design/glass.md` in the team's private notes: glass levels, host glass, the lens.
 - `design/overlay-surfaces.md`: the roles and the never-opaque rule.
 - `design/menus.md`: menu rows and how menus open.
 

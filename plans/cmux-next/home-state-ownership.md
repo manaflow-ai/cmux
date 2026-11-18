@@ -131,7 +131,7 @@ A copy is never a writer: the owner's snapshots and events overwrite every cache
 | sign-out, sign-in | the Mac Chief is per macOS user (`default`) until the cloud Chief (decided 2026-10-06); cloud conversations need the session | unchanged | the cloud part of the cache stays on disk for the account and shows again at sign-in; nothing is shown signed out |
 | switching accounts | `CMUX_NEXT_CHIEF_ACCOUNT` (later the cloud user id) picks another Chief home | another home, another host | the cache is keyed by account |
 | network offline | local conversations unaffected; cloud ones show from the cache, Send is off (H17) | local brain unaffected | drafts stay; sends logged before the disconnect resend after |
-| the brain moves to cmux-lawrence | the cloud ConversationDO becomes the owner of the Chief main conversation | `memory export --seal` from the Chief home, `memory import` there | unchanged |
+| the brain moves to a team Mac mini | the cloud ConversationDO becomes the owner of the Chief main conversation | `memory export --seal` from the Chief home, `memory import` there | unchanged |
 
 ## 4. The app Home cache (client-owned, rebuildable)
 
@@ -172,7 +172,7 @@ cache under `cloud-<user id>`.
 
 Decided 2026-10-06 (coordinator): the move carries the conversation, not only the memory. The
 export reads the Chief home (`memory export --mux-home ~/.cmux/chief/default --seal`) and adds
-`conversation.jsonl`; before the brain starts on cmux-lawrence, the user's session imports it into
+`conversation.jsonl`; before the brain starts on the team Mac mini, the user's session imports it into
 the cloud chief main conversation with a `conversation.import` op on ConversationDO (same rules as
 the local owner's `conversation-import`: authors and times kept, seqs the owner's, keys skipped,
 older history refused), and `memory import` binds the brain's host state with every imported

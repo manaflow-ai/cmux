@@ -144,7 +144,7 @@ keys, so any extra list key goes through that dispatcher.
   classification table for every edge case above.
 - Benchmark test on the fleet: 20,000-row index, 2,000 random prefixes,
   p99 phase A under 8 ms; fails the gate above budget.
-- GUI proof on cmux-lawrence-2: type-ahead recording, remote rows arriving
+- GUI proof on a team Mac mini: type-ahead recording, remote rows arriving
   without reflow.
 
 ## Order of work

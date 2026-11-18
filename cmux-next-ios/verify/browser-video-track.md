@@ -696,7 +696,7 @@ The app-launched `cmux-remote-browser-host` sent no media datagrams. hostd's
 
 - **Rig on this Mac** (macOS 27.0.1): the `track` configuration showed
   0 fps.
-- **mini-cmuxs-mac-mini-2 GUI session** (macOS 27.0.1, as in
+- **Team Mac mini GUI session** (macOS 27.0.1, as in
   browser-stream.md): `track` again gave `host_datagrams=0`.
 - **Offline harness** (`cmux-mobile-link-ffi/tests/browser.rs real_host_over_the_track`,
   ignored, `CMUX_MOBILE_RB_HOST_EXE`): hostd started the host binary itself. Both

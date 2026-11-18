@@ -39,7 +39,7 @@ cmux inference gateway mode gateway --gateway-machine vm_... --json     # team g
 cmux inference route --machine vm_... --agent claude --json             # which route that machine uses now
 ```
 
-## On a Freestyle VM (a tiny machine per person or per team)
+## On a provider VM (a tiny machine per person or per team)
 
 1. Create the machine as usual, then sign your proxy in on it (CLIProxyAPI's own login flow).
 2. For a team gateway, run `cmux inference setup --machine <chat vm> --gateway-machine <gateway vm>

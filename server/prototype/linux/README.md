@@ -1,6 +1,6 @@
 # cmux server: headless Linux prototype
 
-Lane 10 step 3 (plans/cmux-next/server.md section 15). It proves the install chain, the systemd user service with the real session host, Postgres per SV2, headless Chromium and the Linux health inhibitor on a Freestyle VM. Measured on 2026-10-02.
+Lane 10 step 3 (plans/cmux-next/server.md section 15). It proves the install chain, the systemd user service with the real session host, Postgres per SV2, headless Chromium and the Linux health inhibitor on a provider VM. Measured on 2026-10-02.
 
 Everything here is a prototype. The Rust `cmux server install` and `cmux host run` do not exist yet. The shell functions marked "PROTOTYPE (binary step)" in `install.sh` do what those commands will do, so they are the executable specification for the Rust code.
 
@@ -20,8 +20,8 @@ Everything here is a prototype. The Rust `cmux server install` and `cmux host ru
 
 ## Setup
 
-- VM: one Freestyle VM from `freestyle/ubuntu-sm`: Ubuntu 24.04.5, kernel 6.1.102, 2 vCPU, 3.9 GiB, 16 GB. `vms.create` took 453 ms. The VM had `ttlSeconds` 86400 and was deleted by id after the run.
-- Test user: `srvtest`, uid 1001, created with `useradd`. It has no sudo. All user-mode steps ran as this user through the Freestyle exec API (`linuxUser`), with no login session.
+- VM: one provider VM from `freestyle/ubuntu-sm`: Ubuntu 24.04.5, kernel 6.1.102, 2 vCPU, 3.9 GiB, 16 GB. `vms.create` took 453 ms. The VM had `ttlSeconds` 86400 and was deleted by id after the run.
+- Test user: `srvtest`, uid 1001, created with `useradd`. It has no sudo. All user-mode steps ran as this user through the provider exec API (`linuxUser`), with no login session.
 - Payload: the real pinned cmux-tui `f39636c811aa` (`scripts/cmux-next/cmux-tui.pin`). The pin file names only the macOS asset. The same commit's `manifest.json` on files.cmux.com lists `cmux-tui-x86_64-unknown-linux-musl` (sha256 `a327d257…`, 44,497,856 bytes, static), and the manifest's `cmux` package uses that public URL. v2 also adds the real `cmux-tui-hook` for the same commit.
 - Channel: served by `python3 -m http.server --bind 127.0.0.1 8765` inside the VM. The installer accepts `http://127.0.0.1` URLs only when the GENERATED block sets `CMUX_TEST_CHANNEL=1`. Otherwise it requires `https://` and curl `--proto =https`.
 - shellcheck 0.9.0 ran on the VM: `shellcheck -s sh -x -P SCRIPTDIR` over every `.sh` file and both stand-ins. The result is clean.
@@ -55,12 +55,12 @@ Linger:
 
 | Base | `loginctl enable-linger <user>` as the user |
 | --- | --- |
-| Freestyle `ubuntu-sm` (no `polkitd`) | refused: `Could not enable linger: Access denied`. The installer prints `sudo loginctl enable-linger srvtest`, stops, and never runs it itself. After root ran it, `user@1001` was active in 147 ms. |
+| Provider `ubuntu-sm` (no `polkitd`) | refused: `Could not enable linger: Access denied`. The installer prints `sudo loginctl enable-linger srvtest`, stops, and never runs it itself. After root ran it, `user@1001` was active in 147 ms. |
 | with stock `polkitd` 124 (Ubuntu Server ships it) | allowed without sudo (`org.freedesktop.login1.set-self-linger`: implicit any = yes) |
 
 `loginctl enable-linger` with no user name fails with ENXIO when there is no session. Pass the name.
 
-Reboot: `systemctl reboot` in the guest. The guest shutdown took 0.6 s. Freestyle booted the VM again by itself after about 8 s (stopped, then running). Then, measured as monotonic time since the kernel started:
+Reboot: `systemctl reboot` in the guest. The guest shutdown took 0.6 s. The VM provider booted the VM again by itself after about 8 s (stopped, then running). Then, measured as monotonic time since the kernel started:
 
 | Unit | Ready at |
 | --- | --- |
@@ -147,7 +147,7 @@ Results:
   - local page with JavaScript: 290 to 310 ms, `js ran 42`;
   - `https://example.com`: 275 to 292 ms, "Example Domain".
 - With `--remote-debugging-pipe`, a renderer had seccomp mode 2 (filter), its own user namespace, its own PID namespace and its own network namespace. **PASS**
-- Kernel facts on Freestyle 6.1.102:
+- Kernel facts on the provider kernel 6.1.102:
   - `kernel.apparmor_restrict_unprivileged_userns` does not exist;
   - AppArmor is off (LSMs: `capability,selinux`);
   - `user.max_user_namespaces` = 15641;
@@ -187,10 +187,10 @@ One live idle terminal; `tests/idle-cost.sh`, cgroup `cpu.stat` and `memory.curr
 ## UNVERIFIED
 
 - `--system` install end to end. The binary has no `server install --system` yet, so the polkit rule, the system unit and the store under `/opt/cmux` were done by hand only for Postgres and the inhibitor.
-- The AppArmor fix for Chromium (no AppArmor in the Freestyle kernel).
+- The AppArmor fix for Chromium (no AppArmor in the provider kernel).
 - `install.ps1` (never executed).
 - aarch64 and macOS.
 - The relocatable `postgresql-17` store package (this run used PGDG apt).
 - The final base backup before `--purge`.
-- Freestyle `poweroff` behavior (only `reboot` was tested).
+- Provider `poweroff` behavior (only `reboot` was tested).
 - Idle cost over more than 120 s, and with a client attached.

@@ -81,7 +81,7 @@ Later patches from remote-tab.md section 4 (media devices, WebAuthn relay, notif
 
 ## 5. Fork tests
 
-The fork has an embedder harness for the local app (`tests/cmux_embedder`, macOS, needs a GUI login session). r1 adds `tests/cmux_remote/`, a separate small harness that starts CEF with `--cmux-remote-presentation` and drives `cmux_rp_*`. It writes every captured frame as PNG into an artifact dir (the loopback viewer of step r1). It runs on the fork build host cmux-lawrence-2 for macOS (no window may appear; the test proves it) and, when the Linux fork artifact exists, on a Linux Testbox with no `DISPLAY` and no `WAYLAND_DISPLAY`.
+The fork has an embedder harness for the local app (`tests/cmux_embedder`, macOS, needs a GUI login session). r1 adds `tests/cmux_remote/`, a separate small harness that starts CEF with `--cmux-remote-presentation` and drives `cmux_rp_*`. It writes every captured frame as PNG into an artifact dir (the loopback viewer of step r1). It runs on the fork build host (a team Mac mini) for macOS (no window may appear; the test proves it) and, when the Linux fork artifact exists, on a Linux Testbox with no `DISPLAY` and no `WAYLAND_DISPLAY`.
 
 | Test | Proves | Patch |
 | --- | --- | --- |
@@ -100,8 +100,8 @@ Chromium-level unit tests where cheap: `ui/display/mac` (screen selection under 
 
 ## 6. Build and release path
 
-- Branch `cmux/8037-remote` in manaflow-ai/cef off `cmux/8037-ext`; PR into `cmux/8037-ext` after the CEF crash lead reviews it. It rides cmux.18 or later (cmux.17 is the DCHECK-only build now running on cmux-lawrence-2).
-- macOS: `scripts/build-cmux-cef.sh build` on the warm tree `~/cef-build` of cmux-lawrence-2, which needs a fork build slot from the coordinator. RP1 touches `ui/display/mac` and RP3 touches `ui/compositor`, so expect a larger rebuild than the 15-30 min libcef-only case (not measured).
+- Branch `cmux/8037-remote` in manaflow-ai/cef off `cmux/8037-ext`; PR into `cmux/8037-ext` after the CEF crash lead reviews it. It rides cmux.18 or later (cmux.17 is the DCHECK-only build now running on the fork build host).
+- macOS: `scripts/build-cmux-cef.sh build` on the warm tree `~/cef-build` of the fork build host, which needs a fork build slot from the coordinator. RP1 touches `ui/display/mac` and RP3 touches `ui/compositor`, so expect a larger rebuild than the 15-30 min libcef-only case (not measured).
 - Linux: blocked. No Linux fork artifact exists; lane 19 backlog (a) waits for the cost and disk approval of a Linux build host (Testbox ≥250 GB, 3-5 h first build). r1 on Linux starts when that exists. RP6 changes a GN arg for Linux, so it needs a full Linux build.
 - The remote build is the same artifact as the local one (the switch selects the mode), except RP6's Linux GN arg. If RP6 stays Linux-only and compiles, one Linux artifact serves both.
 

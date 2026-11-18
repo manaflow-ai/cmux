@@ -140,7 +140,7 @@ Supported placeholders:
 - `{windowToken}`: the first 8 characters of the persisted window UUID.
 - `{activeWorkspace}`: the active workspace title, falling back to the default title when the workspace title is blank.
 - `{activeDirectory}`: the active workspace's current directory.
-- `{defaultTitle}`: the title cmux would have used without a template. For `cmux ssh` and Cloud workspaces it ends with the host, as in `build · big-red`.
+- `{defaultTitle}`: the title cmux would have used without a template. For `cmux ssh` and Cloud workspaces it ends with the host, as in `build · build-box`.
 - `{appName}`: `cmux`.
 
 For tiling window managers such as AeroSpace or yabai, match on the stable token in the title. For example, the template above gives each restored macOS window a title containing `[cmux:abcd1234]`, so a rule can match `\\[cmux:abcd1234\\]`. The token is stable across relaunches for restored windows because it comes from the persisted window UUID.
@@ -1205,7 +1205,7 @@ edits it.
 ```
 
 ```json
-{ "home": { "server": { "selfHosted": "http://mini.tail1234.ts.net:7320" } } }
+{ "home": { "server": { "selfHosted": "http://mini.<tailnet>.ts.net:7320" } } }
 ```
 
 The address is an origin: `http://` or `https://`, a host and an optional port, with no path,

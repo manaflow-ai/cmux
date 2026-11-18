@@ -13,7 +13,7 @@ adds a peer, and `session/new` with `_meta.acpmux.peer = NAME` creates the
 session there (the CLI's `acpmux new --host`). The local daemon relays the
 peer's session, so everything the Chief host does with a session (prompt,
 events, tell/steer, cancel, the chat tab in its cmux workspace) works without
-new protocol. A second transport (SSH exec, the Freestyle exec API, a hub
+new protocol. A second transport (SSH exec, the provider exec API, a hub
 queue) would duplicate that relay.
 
 So:
@@ -32,7 +32,7 @@ So:
 
 ## VM pool (cmuxterm-hq `tools/cloud-subagents`)
 
-`deploy.sh up` makes one Freestyle VM `chief-subagents-N` on the HQ Freestyle
+`deploy.sh up` makes one provider VM `chief-subagents-N` on the HQ provider
 key (infrastructure, like `cloud-chief`; tenant workloads use the cmux Cloud VM
 API instead, see `plans/freestyle-tenant-DESIGN.md`):
 
@@ -54,7 +54,7 @@ variable; a list with least-loaded choice is the next step (below).
 
 ## Cost
 
-Freestyle's smallest persistent size is 4 vCPU / 8 GiB at about 0.26 USD per
+The VM provider's smallest persistent size is 4 vCPU / 8 GiB at about 0.26 USD per
 running hour (a161's hub bill, 193 USD/month). Shared by N subagents, one
 agent-hour costs about 0.26/N USD of VM time plus its model tokens (sr2). A
 paused VM bills storage only; `deploy.sh pause` pauses a pool VM with no live
@@ -67,7 +67,7 @@ right credential is a repo-scoped one held only by the VM (a deploy key with
 write access made on the VM, or a GitHub App installation token). Making one is
 a credential step: the Chief asks the user. Until then the proof pushes the
 subagent's commit through the Mac (`deploy.sh land`: `git bundle` on the VM,
-read over the Freestyle API, `git push` from the Mac), which uses no new
+read over the provider API, `git push` from the Mac), which uses no new
 credential.
 
 ## Sandbox keys (2026-10-21)
@@ -108,7 +108,7 @@ other agents' API calls, not against a co-tenant on the same VM.
 
 ## Blockers to "subagents run in the cloud" (end-to-end owner, 2026-10-20 01:50 PDT)
 
-Goal: a Chief `spawn` runs a subagent on a cloud VM (Freestyle first) in its
+Goal: a Chief `spawn` runs a subagent on a cloud VM (the VM provider first) in its
 own repo worktree; it reports back like a local one, and its workspace and chat
 show in cmux-next. a242 built and proved the core path (above): one real Claude
 session on `chief-subagents-1` committed 2bd6fc35df2. The user still sees no
@@ -161,7 +161,7 @@ change, and its credential question (B3) had no default.
   `~/.config/cloud-subagents/vm-cmd`, which `deploy.sh up` writes. No file:
   the host leaves VMs alone. Everything stays behind the same opt-in: with
   `control cloud` off and no `OPTCHAT_SUBAGENT_PEER`, subagents run local.
-- B11: `deploy.sh up` grows the VM disk to 64 GB (Freestyle resize is
+- B11: `deploy.sh up` grows the VM disk to 64 GB (provider resize is
   grow-only, needs a running VM) and grows the guest file system.
 - Tests: two new tests in `tests/cloud_subagents.rs` (least busy peer and
   resume; idle pause once, then resume).
@@ -173,7 +173,7 @@ behavior."
 
 - `cloud.autoPause` (Chief settings, default false): the host pauses cloud
   VMs on its own only when this is true. Leo, 2026-10-30: "we're saying no
-  auto pausing of the freestyle vms for now"; so by default no pool VM, own
+  auto pausing of the [provider] vms for now"; so by default no pool VM, own
   VM at its final report, or idle VM at host shutdown is paused by the host
   (`optchat-chief settings set cloud.autoPause true` opts in). Pausing by
   hand (`deploy.sh pause`) is unchanged. The rules below hold when it is on.
@@ -189,12 +189,12 @@ behavior."
 - The host stopping (SIGTERM, update) pauses its idle VMs at once. A VM with
   a subagent mid-turn keeps running; its report waits in acpmux. A host that
   crashes pauses idle VMs within 65 s of its next start. A VM-side watchdog
-  for a Chief that never comes back is not built (it needs a Freestyle key
+  for a Chief that never comes back is not built (it needs a provider key
   on the VM).
 - Wake: spawn and tell resume the VM first; the host logs each resume time.
 
-Measured on a temporary 4 vCPU / 8 GiB Freestyle VM with 2 GiB of memory
-in use, 3 runs (Freestyle API): pause 258-549 ms, resume until a command
+Measured on a temporary 4 vCPU / 8 GiB provider VM with 2 GiB of memory
+in use, 3 runs (provider API): pause 258-549 ms, resume until a command
 runs 209-241 ms. `deploy.sh pause` with its busy check took 1.2 s on
 chief-subagents-1. The acpmux peer reconnect after a resume is not measured.
 
@@ -202,11 +202,11 @@ Idle cost per VM (about 0.26 USD per running hour): before, a VM ran 10-11
 minutes after its last subagent (about 0.045 USD per idle period), and never
 paused when its host was gone. After: 60-65 s (about 0.0045 USD), 10 times
 less; a host that stops pauses its idle VMs at once. The paused price is
-storage only (64 GB); Freestyle's storage price was not checked.
+storage only (64 GB); the provider's storage price was not checked.
 
 ## One VM per subagent (a464, 2026-10-22)
 
-Ask (user, Oct 21-22): every Chief subagent in its own Freestyle VM, local
+Ask (user, Oct 21-22): every Chief subagent in its own provider VM, local
 only when it needs the Mac GUI; right-sized; disk efficient; idle VMs
 paused; a VM deleted after its work is pushed; ask before more than 20 USD/day.
 
@@ -240,7 +240,7 @@ resume before a tell, never mid-turn).
 
 Swift, Rust and app builds go to the Mac-mini fleet (`cmux-ci`), never to a
 big VM. `small` is the base snapshot's own size (`freestyle/ubuntu-sm`);
-bigger sizes grow from it (Freestyle resize is grow-only).
+bigger sizes grow from it (provider resize is grow-only).
 
 ### Disk
 
@@ -255,7 +255,7 @@ bigger sizes grow from it (Freestyle resize is grow-only).
 - Delete: 30 min (`REAP_AFTER_DONE`) after its subagent is done, the Chief
   host runs `deploy.sh destroy`; it refuses (and pauses the VM) while a
   worktree there has commits not on origin or uncommitted edits, and is
-  tried again later. A tell after the delete says so. Freestyle's
+  tried again later. A tell after the delete says so. The provider's
   `autoDeleteSeconds` (7 days not running) is the leak guard.
 - `deploy.sh disk NAME` reports used, own (above the base) and work GB.
 
@@ -301,7 +301,7 @@ delete waits for that push.
 ## v2: every subagent in its own VM, by default (a489, 2026-10-22)
 
 Ask (user, Oct 22, through the Chief): every Chief subagent runs in its own
-new Freestyle VM and the VM pauses when its task is done. Replaces a242;
+new provider VM and the VM pauses when its task is done. Replaces a242;
 builds on the one-VM-per-subagent slice above (a466) and on the Worker VM
 verbs (a475). Seven parts; for each, what exists and what is still to do.
 
@@ -310,19 +310,19 @@ verbs (a475). Seven parts; for each, what exists and what is still to do.
 | 1 | One base image: cmux and cmuxterm-hq, toolchains, build caches, acpmux, Claude Code; each VM starts from it | `deploy.sh base`: cmux clone (no checkout, hq #2989), acpmux, cmux-tui, Claude Code, bun. No cmuxterm-hq, no Rust/Go/Node, no `cmux-ci`, no caches. | V2-1 |
 | 2 | Cloud by default; the Mac only for the app window, screenshots, the user's machine | Off until `control cloud freestyle`; `needs_mac` keeps GUI tasks here. | V2-2 |
 | 3 | Swift/macOS builds go to the Mac minis through `cmux-ci` over Tailscale, with a short-lived tailnet key limited to what the VM needs | Fork joins with a 1 h, single-use, preauthorized `tag:agent-cloud` key. ACL lets the tag reach the controller :18765 and sr2 :4016, and also mini/macbuilder SSH and VNC (Lawrence, Oct 22). `cmux-ci` is not on the VM. | V2-1 (client), V2-3 (key) |
-| 4 | Auth through client sessions only: the team key stays on the Worker; Claude through the sr2 gateway; a short-lived scoped git token | The Mac runs `deploy.sh` with the HQ Freestyle key in `~/.secrets`. Claude goes through sr2 already. No git credential on the VM: `deploy.sh land` pushes through the Mac. | V2-4, V2-5 |
+| 4 | Auth through client sessions only: the team key stays on the Worker; Claude through the sr2 gateway; a short-lived scoped git token | The Mac runs `deploy.sh` with the HQ provider key in `~/.secrets`. Claude goes through sr2 already. No git credential on the VM: `deploy.sh land` pushes through the Mac. | V2-4, V2-5 |
 | 5 | Pause on the final report; resume on a tell; pause while waiting on fleet jobs and wake on the result; remove after N days paused | Pause 60 s after the last live subagent; resume before a tell; delete 30 min after done (once pushed). No fleet wait. | V2-2 |
 | 6 | The app shows cloud agents like local ones: link, chat, terminal | Link and chat: the cmux workspace's chat tab relays the peer session. No terminal on the VM. | V2-6 |
 | 7 | Cost per hour at 1, 50 and 200 agents | Below. | - |
 
 ### Auth: what each side holds
 
-No long-lived secret is on a subagent VM, and the Freestyle team key is only
+No long-lived secret is on a subagent VM, and the provider team key is only
 on the cmux VM Worker (`vm.cmux.dev`, `workers/cmux-vm`).
 
 | Who | Holds | For |
 |---|---|---|
-| cmux VM Worker | the Freestyle team key | every provider call |
+| cmux VM Worker | the provider team key | every provider call |
 | Chief host (Mac) | a cmux VM API key (`cmuxvm_sk_`, `vm:read vm:write vm:exec`, labels `role=chief-sub`), in `~/.config/cloud-subagents/cmux-vm.json` (0600) | create from the base snapshot, pause, resume, resize, delete, exec, client sessions, of its own labelled VMs only |
 | Chief host | `tsadmin` (Tailscale API) | one tailnet auth key per VM join |
 | Chief host | a GitHub App private key (path in `~/.config/cloud-subagents/git.json`) | one installation token per VM, 1 h |
@@ -338,7 +338,7 @@ on the cmux VM Worker (`vm.cmux.dev`, `workers/cmux-vm`).
   VM's token expires on its own. Until the user picks the App (a credential
   step), the host writes no token and the subagent lands with `deploy.sh
   land` through the Mac, as today.
-- Freestyle through the Worker (V2-4): `deploy.ts` gets a backend switch.
+- The provider through the Worker (V2-4): `deploy.ts` gets a backend switch.
   `CLOUD_SUBAGENTS_BACKEND=cmux-vm` makes every call through the Worker
   (`POST /v1/vms {snapshotId, resources, labels, autoDeleteSeconds}`, `/pause`,
   `/resume`, `/resize`, `DELETE`, `/exec`, `/snapshots`); `freestyle` (the
@@ -366,7 +366,7 @@ so.
 | final report (the subagent's turn ends with its report and nothing of it runs) | pause at once (was: after `cloud.autoPauseIdleSeconds`, which still covers a VM whose report was not seen) |
 | tell | resume, then send |
 | `cmux-ci wait` on the VM | the wrapper (`~/.local/bin/cmux-ci`) does not block: it records the job id in `~/.cmux-park/JOB` and tells the subagent to end its turn. The host reads the park file before it pauses, pauses the VM, polls the controller (`GET /jobs/ID`) every 30 s, and on a final state resumes the VM and sends the subagent `fleet job ID finished: STATE` with the job's receipt URL. |
-| paused N days (`cloud.deleteAfterPausedDays`, default 7) | delete (the unpushed-work check still refuses and the VM stays paused; a refusal is logged and retried daily). Freestyle `autoDeleteSeconds` = N + 1 days is the leak guard. Replaces the 30 min `REAP_AFTER_DONE`. |
+| paused N days (`cloud.deleteAfterPausedDays`, default 7) | delete (the unpushed-work check still refuses and the VM stays paused; a refusal is logged and retried daily). Provider `autoDeleteSeconds` = N + 1 days is the leak guard. Replaces the 30 min `REAP_AFTER_DONE`. |
 | host stops | pause idle VMs (unchanged) |
 
 The fleet wait wakes on the result, not on a timer: a subagent that waits on a
@@ -399,7 +399,7 @@ cloud badge and the VM state (running, paused, deleted).
 
 ### Cost (V2, 2026-10-22)
 
-Freestyle VM time, priced as the Worker's budget check does (0.05 USD per
+Provider VM time, priced as the Worker's budget check does (0.05 USD per
 vCPU-hour + 0.0075 USD per GiB-hour): small (2 vCPU / 4 GiB) 0.13 USD per
 running hour, medium (4 / 8) 0.26. Mix: 70% small, 30% medium (`size_for`
 gives medium to test and type-check tasks), 0.169 USD per agent-hour running.
@@ -412,10 +412,10 @@ gives medium to test and type-check tasks), 0.169 USD per agent-hour running.
 
 Not in the table: model tokens through sr2 (the largest cost; a444 measures
 it per agent), paused storage (about 1 GB own bytes per VM above the shared
-base; Freestyle's storage price is not checked), and the fleet minis (owned).
+base; the provider's storage price is not checked), and the fleet minis (owned).
 Limits to check before 200: the `deploy.sh` daily budget guard is 20 USD/day,
 which 50 running agents use in about 2.4 h (then new subagents run on the
-Mac); Freestyle's concurrent-VM limit on the Pro plan; Tailscale's device
+Mac); the provider's concurrent-VM limit on the Pro plan; Tailscale's device
 count for 200 more nodes. Raising any of them is a money decision for the user.
 
 ### Base without a working tree (2026-10-22, cmuxterm-hq #2989)
@@ -453,9 +453,9 @@ runs each:
 
 - In the VMs: no use. The VM disk is ext4 without reflink (`base.sh` logs
   `fs=ext2/ext3 reflink=no`), so rift cannot copy on write there, and a
-  Freestyle fork already copies on write at the block level: one subagent per
+  provider fork already copies on write at the block level: one subagent per
   VM needs one worktree, made in 10 s from the base clone. Pairing rift with
-  Freestyle fork adds nothing until a VM holds several agents.
+  provider fork adds nothing until a VM holds several agents.
 - On the Mac: `--copy-all` is about 13 times faster than `git worktree add`
   and its `git status` is 4 times faster (its own index, no linked worktree).
   Limits: it refuses a linked worktree as the source; it copies the source's
@@ -468,19 +468,19 @@ runs each:
 
 ## Pool box chief-subagents-2 and VM pushes (2026-10-23)
 
-Ask (Lawrence, Oct 23): a 64 GB RAM Freestyle box with the most CPU and a 200 GB
+Ask (Lawrence, Oct 23): a 64 GB RAM provider box with the most CPU and a 200 GB
 disk, as the acpmux cloud peer for Chief subagents.
 
 - `deploy.sh resume chief-subagents-2 --size xl` (cmuxterm-hq
   `tools/cloud-subagents`): 32 vCPU / 64 GiB / 200 GB, made from the base
-  snapshot. 32 vCPU is the most Freestyle gives at 64 GiB
+  snapshot. 32 vCPU is the most the provider gives at 64 GiB
   (`freestyle/ubuntu-2xl`, the largest size any plan can create). 2.08 USD per
   running hour (0.05 per vCPU-hour + 0.0075 per GiB-hour), about 1,520 USD a
   month if it never pauses. A pool VM has no 7-day auto-delete. The Chief host
   pauses it 60 s after its last live cloud subagent, never mid-turn.
 - acpmux on the box is built there from the NIGHTLY's sha (e80d1f65e), the same
   build as the Mac. Claude Code goes through sr2, Codex (0.164.0) through the
-  cmux-lawrence subrouter (the tag:agent-cloud ACL now grants 100.89.225.106:31415).
+  team Mac subrouter (the tag:agent-cloud ACL now grants `<tailscale-ip>:31415`).
 
 ### Why new peers failed with ssh exit 255
 
@@ -512,7 +512,7 @@ feat-cmux-next itself with the VM's App token. Nothing was pushed through the Ma
 
 ### Open: a tailnet VM does not stay paused (2026-10-23)
 
-`deploy.sh pause chief-subagents-2` returns `paused`, but Freestyle shows the VM
+`deploy.sh pause chief-subagents-2` returns `paused`, but the provider shows the VM
 `running` again 2-60 s later. It woke with tailscaled stopped and also with the
 Mac's acpmux peer removed (that held it about 5 s longer). A fresh VM off the
 tailnet stayed paused for 20 s. So inbound tailnet traffic probably wakes it.

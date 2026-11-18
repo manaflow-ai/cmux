@@ -1,11 +1,11 @@
-# cmux-next machine to coderouter, through the Freestyle edge (development first)
+# cmux-next machine to coderouter, through the VM provider edge (development first)
 
 Status: design, 2026-10-07. Owner: hq-6d (cmux-next Chief/backend).
 
 ## Gap
 
 The image bakes `/etc/cmux/model-plane.env` (`ANTHROPIC_BASE_URL=https://coderouter.cmux.internal`,
-placeholder key). Old cmux Cloud makes that name work with an inline Freestyle TLS rule at create
+placeholder key). Old cmux Cloud makes that name work with an inline provider TLS rule at create
 (`web/services/coderouter/vmModelPlane.ts`). `backend/apps/api` (CloudDO, `cloud-driver.ts`) sends no
 `tls` block, so the name has no `/etc/hosts` entry and Claude Code fails with ENOTFOUND.
 
@@ -13,12 +13,12 @@ placeholder key). Old cmux Cloud makes that name work with an inline Freestyle T
 
 CloudDO's create body gets an inline `tls.rules` entry: `domain: coderouter.cmux.internal`,
 `source: {}` (this VM only), `destination: { host: <coderouter host>, port: 443 }`, one header
-transform. Freestyle writes the hosts block and installs its egress CA at create (rules added after
+transform. The provider writes the hosts block and installs its egress CA at create (rules added after
 boot never reach the guest). Rules cascade-delete with the VM.
 
 ## Credential (no personal credential on the VM)
 
-The VM never holds a credential; the edge injects it (header values are write-only at Freestyle).
+The VM never holds a credential; the edge injects it (header values are write-only at the provider).
 The backend signs a per-machine ES256 JWT with its existing `JWT_PRIVATE_JWK` (public at
 `/.well-known/jwks.json`): `iss https://cmux-api/<env>`, `aud coderouter`, `sub vm:<provider vm id>`,
 `team_id` and `owner_id` = the creator's Stack user id (coderouter personal scope), `role dev`,
@@ -109,7 +109,7 @@ worktree). Machines `vm_791758b99fd67c901c6e` (provider `vm-eb1c3bfaf48b4e678db9
 
 - Provider rule: one rule, `coderouter.cmux.internal` -> `cmux-staging.vercel.app:443`, header name
   `x-chatmux-vm-authorization`, value redacted.
-- In the VM: `getent hosts coderouter.cmux.internal` -> `2602:f470:1::28` (the Freestyle edge).
+- In the VM: `getent hosts coderouter.cmux.internal` -> `2602:f470:1::28` (the provider edge).
 - Through the edge: `POST /v1/messages` -> 403 permission_error "No Claude upstream account is
   configured for this team or shared with this caller" (machine authenticated, no account).
   `claude -p` as user cmux -> "API Error: 403 No Claude upstream account ..." (was ENOTFOUND).

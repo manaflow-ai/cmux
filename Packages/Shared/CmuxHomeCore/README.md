@@ -69,7 +69,7 @@ shows in the other Home at once, and no front end must poll or refetch.
 
 ## Behavior check
 
-`scripts/cmux-next/home-api-live.py --tag <tag>` (runs on cmux-lawrence-2)
+`scripts/cmux-next/home-api-live.py --tag <tag>` (runs on a team Mac)
 starts the tagged app. It calls the socket command `debug.home.api` (`inbox`,
 `snapshot`, `submit`) to run each op above through `homeRouter` against the
 real local owner. The calls `watch_start` and `watch_read` open a second

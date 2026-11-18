@@ -10,12 +10,12 @@ Builds on (read before changing this):
 [state-placement.md](state-placement.md) (a fact lives where its single writer is),
 [remote-groups-DESIGN.md](remote-groups-DESIGN.md) (a283: machine sections, nested groups, `cross_machine`),
 [durable-links-DESIGN.md](durable-links-DESIGN.md) (`cmux://tab/<id>` that always resolves),
-[cloud-subagents-DESIGN.md](cloud-subagents-DESIGN.md) (a242: subagents as acpmux peers on Freestyle VMs),
+[cloud-subagents-DESIGN.md](cloud-subagents-DESIGN.md) (a242: subagents as acpmux peers on provider VMs),
 [teammate-access-DESIGN.md](teammate-access-DESIGN.md) (consent, scopes, audit),
 [chief-group-chats-DESIGN.md](chief-group-chats-DESIGN.md) and `home-dm-group-chats/` (a132/a287),
 [agent-cursor.md](agent-cursor.md) and the a201 glass cursor, [pricing-DESIGN.md](pricing-DESIGN.md)
 (one credits ledger, a205), cmuxterm-hq `plans/agent-cloud/DESIGN.md` and `plans/cloud-chief/REPORT.md`
-(the agent hub, now `cloud-chief-hub` on 100.127.110.65:8790), cmuxterm-hq
+(the agent hub, now `cloud-chief-hub` on `<tailscale-ip>:8790`), cmuxterm-hq
 `plans/multiplayer-chief/DESIGN.md` (owner/member/guest on one Linux box).
 
 ## 0. Summary
@@ -56,7 +56,7 @@ machine kind there.
 
 ### Default picked: the authority is `TeamDO`, not the agent hub
 
-The task named the agent hub (`cloud-chief-hub`, 100.127.110.65:8790) as the source of truth. I
+The task named the agent hub (`cloud-chief-hub`, `<tailscale-ip>:8790`) as the source of truth. I
 picked `TeamDO` in cmux Cloud instead, and the hub becomes a client. Reasons, each checked:
 
 | Need | Agent hub (`hub.py`, SQLite on the Cloud Chief VM) | `TeamDO` (cmux Cloud Worker) |
@@ -71,7 +71,7 @@ picked `TeamDO` in cmux Cloud instead, and the hub becomes a client. Reasons, ea
 
 The hub stays what it is good at: the agent message bus. Each cloud group gets a hub box
 `group:<grp_id>` for agent-to-agent chatter in that group (section 6.5), so Cloud Chief and
-subagents on Freestyle VMs keep using `hub.py post/read` with a token attenuated to that box.
+subagents on provider VMs keep using `hub.py post/read` with a token attenuated to that box.
 
 Flagged as a possible bad decision: this makes slice 1 a backend change (Worker + DO migration,
 staging then prod) rather than a 50-line `hub.py` table. I accept that because a hub-only
@@ -162,7 +162,7 @@ not carry a socket per viewer. If it restarts, clients resend presence in 2 s.
 |---|---|---|---|
 | `local` | this Mac's daemon (`host_…` of this Mac) | 0 | New Workspace in a cloud group (default when this Mac is online) |
 | `mini` | an enrolled host: a Mac mini, a Linux box, a teammate's Mac with a consented grant | 0 new | "Move to > cmux15" |
-| `cloud_vm` | a Freestyle VM through the cmux Cloud VM API wrapper (a205), one VM per workspace or a shared pool VM | about $0.13 per running hour for the 4 GB VM, about $0.26 for the 4 vCPU / 8 GiB pool VM; paused = storage only | "Move to > Cloud", or New Workspace with "Run in Cloud" |
+| `cloud_vm` | a provider VM through the cmux Cloud VM API wrapper (a205), one VM per workspace or a shared pool VM | about $0.13 per running hour for the 4 GB VM, about $0.26 for the 4 vCPU / 8 GiB pool VM; paused = storage only | "Move to > Cloud", or New Workspace with "Run in Cloud" |
 
 Rules:
 
@@ -261,7 +261,7 @@ links to cloud work had no stable form.
 - A cloud group has one ConversationDO conversation (a132 group chats, a287's Chiefs Reply
   policy), created with the group, members kept in sync with the group members. It is the place
   where "Lawrence moved Fix login to Cloud" and agent finish notes land.
-- The hub box `group:<grp_id>` carries agent-to-agent messages (subagents on Freestyle VMs,
+- The hub box `group:<grp_id>` carries agent-to-agent messages (subagents on provider VMs,
   Cloud Chief). Tokens are attenuated per group box (`hub.py attenuate TOKEN box=group:<id>
   can=read,post`). The hub is not the authority for membership: a nightly job revokes hub tokens
   of agents removed from the group.
@@ -376,8 +376,8 @@ Left for slice 1b (named so nobody thinks they shipped):
 
 | Agent | Work it owns | What this design asks of it |
 |---|---|---|
-| a242 (cloud subagents, done) | subagents as acpmux peers on Freestyle VMs | Slice 4: a cloud subagent's workspace joins the spawning Chief's cloud group with `placement: cloud_vm`; peer choice stays a242's |
-| a205 (Freestyle wrapper, done) | Cloud VM API, credits ledger | `cloud_vm` placement uses the wrapper; VM time billed to the group owner's team; acpmux in the tenant image (cloud-subagents B9) is a slice 2 prerequisite for tenant VMs |
+| a242 (cloud subagents, done) | subagents as acpmux peers on provider VMs | Slice 4: a cloud subagent's workspace joins the spawning Chief's cloud group with `placement: cloud_vm`; peer choice stays a242's |
+| a205 (provider wrapper, done) | Cloud VM API, credits ledger | `cloud_vm` placement uses the wrapper; VM time billed to the group owner's team; acpmux in the tenant image (cloud-subagents B9) is a slice 2 prerequisite for tenant VMs |
 | a235 (Cloud Chief tools, done) | Cloud Chief relay of app tools | The `group.*` tools reach Cloud Chief through the same catalog; no new relay |
 | a448 (Chief talks to Cloud Chief), a459 (Cloud Chief reaches all Macs), a450 (iPhone talks to Chief) | live | Told by a461 on 2026-10-22: links to shared work should be `cmux://group/` read-backs; iPhone must handle `https://cmux.com/g/` Universal Links |
 | a283/a284 (remote groups, Chief move) | machine sections, nested groups | `cloud` is a new section kind; `cross_machine` stays for machine sections |

@@ -1,6 +1,6 @@
 # Results, 2026-11-05
 
-Run on a GCP lane VM (AMD EPYC 9B45, 32 vCPU, Linux 7.0), one bench process at a time, at
+Run on a Linux VM (AMD EPYC 9B45, 32 vCPU, Linux 7.0), one bench process at a time, at
 feat-cmux-next a6d444aad865. Pane: 120x40 cells, DejaVu Sans Mono 26 px (13 pt at 2x),
 1920x1240 px. Link for the network stage: 20 Mbps unless named. Traces recorded on the same VM with
 `scripts/record.py` (`flood`: `cat` of a 538 KB Rust file in a loop; `vim-idle` and `vim-typing`:

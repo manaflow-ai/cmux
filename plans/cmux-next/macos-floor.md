@@ -128,12 +128,12 @@ Method (`scripts/measure/macos-floor.sh`, branch `feat-cmux-next-mfloor`):
 set every local package to `.macOS(.v13)`, lower `iroh-ffi` in the checkout,
 build CmuxNext with `-disable-availability-checking` (pass 1, so modules
 exist), then re-typecheck each first-party module with checking on (pass 2) and
-count unique errors. Host: cmux-lawrence-2, Xcode 27, nx-remote job
+count unique errors. Host: a team Mac mini, Xcode 27, nx-remote job
 1009-180706-91a11c. Pass 1 stopped at one SwiftUI expression in
 `CmuxNextHistory/HistoryPageView.swift:137`, which exceeds the solver limit
 when the two-parameter `onChange` is unavailable. As a result, 49 modules
 (203k of 346k lines) were measured. The script now types that closure for
-measurement, but the rerun was refused: cmux-lawrence-2 now admits only GUI,
+measurement, but the rerun was refused: that Mac mini now admits only GUI,
 simulator or Xcode-27-only jobs. Also, `scripts/measure/` is not on the
 cmux-ci allowlist yet ("script is not on the ci-step allowlist"). The 18
 unmeasured modules (CmuxNextApp, Apps, AgentPane, Accounts, CodeRouter,

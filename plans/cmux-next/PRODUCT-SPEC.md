@@ -228,7 +228,7 @@ Open question:
 | Requirement | Decision | Status |
 |---|---|---|
 | Cloud Chief | Chief runs in the cloud; Chief pairs it itself ("do it for me") | Paired (a196); app tools and redeploy gap in progress (a235) |
-| Freestyle VMs | Chief makes VMs and runs cloud sessions; org automation | In progress (a205, [org-workflows-DESIGN.md](org-workflows-DESIGN.md)) |
+| Provider VMs | Chief makes VMs and runs cloud sessions; org automation | In progress (a205, [org-workflows-DESIGN.md](org-workflows-DESIGN.md)) |
 | Remote groups | Host-bound sidebar groups, nested groups, better than T3 Code and Rex | In progress (a283) |
 | Chief moves hosts | Move Chief between this Mac, a Mac mini, a GCP VM, cmux cloud | In progress (a284, chief-migration-DESIGN.md planned) |
 | Add Server UI | Floating glass pairing card, Approve/Deny, no focus steal | In progress (a202) |

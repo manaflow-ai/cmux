@@ -17,7 +17,7 @@ scripts/setup-team-dev.sh --refresh        # personal dogfood
 scripts/setup-team-dev.sh --refresh-agent  # simulator/test
 ```
 
-Setup also offers optional production credentials for developers who may want to verify against production. Press Enter or answer `no` to skip. Before opting in, set your own production account password through the Hexclave account portal for cmux production. Verified credentials go in `~/.secrets/cmuxterm-prod.env`; use `--refresh-production` to configure or replace them later. Production verification requires a launcher configured for production and an explicit `--credentials-file` selection. See [credential verification](contributor-verification.md#4-exercise-an-isolated-runtime) for profile and legacy-file details.
+Setup also offers optional production credentials for developers who may want to verify against production. Press Enter or answer `no` to skip. Before opting in, set your own production account password through the Hexclave account portal for cmux production. Verified credentials go in the production credentials file under `~/.secrets/`; use `--refresh-production` to configure or replace them later. Production verification requires a launcher configured for production and an explicit `--credentials-file` selection. See [credential verification](contributor-verification.md#4-exercise-an-isolated-runtime) for profile and legacy-file details.
 
 After development setup, launch a tagged build:
 

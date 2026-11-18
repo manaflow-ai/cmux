@@ -50,7 +50,7 @@ whether it's active, lapsed or malformed.
 
 ## What this replaces
 
-Freezes used to be `FREEZE:` lines in `~/agent-mailbox/WINDOW` on cmux-lawrence, which
+Freezes used to be `FREEZE:` lines in `~/agent-mailbox/WINDOW` on one team Mac mini, which
 gh-merge-green read over ssh. Every token there had lapsed by 2026-10-10, but the tools kept
-refusing on them. A host that couldn't ssh to cmux-lawrence, such as Huge Blue, couldn't merge at
+refusing on them. A host that couldn't ssh to that Mac, such as another team Mac, couldn't merge at
 all, and nobody else could see the file.

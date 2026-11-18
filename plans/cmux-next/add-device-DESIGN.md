@@ -108,7 +108,7 @@ nodes, and (in the app) phones, servers and cloud machines. A row has:
 
 ```json
 {"id":"peer:mini-7","name":"mini-7","kind":"computer","os":"macOS","role":"runs-agents",
- "network":{"kind":"tailscale","address":"mini-7.tail1234.ts.net","online":true},
+ "network":{"kind":"tailscale","address":"mini-7.<tailnet>.ts.net","online":true},
  "via":["peer"],"state":"connected","added_at":"2026-10-22T07:12:00Z"}
 ```
 
@@ -168,7 +168,7 @@ devices in your Tailscale access controls"), never a silent change.
 |---|---|
 | acpmux / cmux-tui | the enroll (way 1) and peers are the device's agent link; `cmux-tui device` runs on any machine with no app |
 | Daemon (`cmux host`) | remote hosting grants show as devices that can use this Mac; remove revokes them |
-| Server, Cloud Chief, Freestyle VMs | way 2 (PairingDO code and words); Leo's network enrollment PRs (#22066, #21928) add their WireGuard keys after approval with no change to the flow |
+| Server, Cloud Chief, provider VMs | way 2 (PairingDO code and words); Leo's network enrollment PRs (#22066, #21928) add their WireGuard keys after approval with no change to the flow |
 | iPhone (Aziz) | phones are devices; the Mac's "Allow iPhone?" dialog becomes the same approval card; remove calls `revokePhone` and the TeamHub `DELETE /v1/devices/:id` |
 | Screen sharing | a device row gets "Share Screen" when its host role is on; consent stays per session |
 | Weft (a527) | section 3 |

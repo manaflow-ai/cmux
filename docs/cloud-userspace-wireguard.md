@@ -1,6 +1,6 @@
 # Cloud private network access
 
-Cloud VMs live in the account's Freestyle private network. They do not expose
+Cloud VMs live in the account's VM provider private network. They do not expose
 the cmux-tui daemon or browser ports to the public Internet.
 
 Userspace WireGuard is the only way cmux reaches that network. `cmux-wg`
@@ -46,7 +46,7 @@ cmux-tui connections need no device invitation and no approval. The VM's
 daemon serves a trusted-carrier listener that is reachable only inside the
 private network, so the Mac dials `remote connect <route> --carrier` and is
 admitted by the network itself. Every connection uses the private route, with
-no connection ticket and no Freestyle call.
+no connection ticket and no VM provider call.
 
 ## Ports and Desktop path
 
@@ -137,21 +137,21 @@ cmux.com. `POST /api/vm/tunnel` still accepts a `browser` tunnel purpose; the
 app only enrolls `terminal` peers.
 
 Sign-out stops the hub, drops the in-memory key, and asks the server to revoke
-the physical Mac. Remote revoke on cmux.com deletes every Freestyle peer under
+the physical Mac. Remote revoke on cmux.com deletes every provider peer under
 the grant and revokes every recorded Stack login session. The server also
 stores each login's issue time. A channel that signed in before the physical Mac
 revoke cannot make its first peer after the revoke. Signing in again can create
 a new access grant. This is account access revoke, not a permanent hardware ban.
 
 The iOS Iroh pairing registry remains separate. It describes phone-to-Mac
-discovery and does not grant access to the Freestyle private network.
+discovery and does not grant access to the VM provider private network.
 
 ## Minimum provider and control-plane calls
 
 Normal terminal traffic, terminal metadata, and browser traffic do not pass
-through Vercel or Freestyle APIs.
+through Vercel or VM provider APIs.
 
-Freestyle calls required by this design are:
+VM provider calls required by this design are:
 
 1. Create or find the account private network during VM provisioning.
 2. Create or rotate one channel's terminal WireGuard peer each time the hub
@@ -163,7 +163,7 @@ Freestyle calls required by this design are:
 The first attach to a machine whose daemon predates the trusted listener costs
 one control-plane request that brings the daemon to the pinned build and
 restarts it with the trusted drop-in. Nothing is approved and the Mac does not
-poll Vercel or Freestyle. Machine list refresh can use the Cloud API, but live
+poll Vercel or the VM provider. Machine list refresh can use the Cloud API, but live
 workspace, terminal, pane, display, and agent metadata comes from cmux-tui
 through the hub.
 
@@ -189,7 +189,7 @@ cmux-tui wg dial --hub <Unix socket> <host> <port>
   -> one TCP stream on stdin and stdout, for an ssh ProxyCommand
 ```
 
-The user-space stack applies the MTU from the WireGuard configuration (Freestyle
+The user-space stack applies the MTU from the WireGuard configuration (the provider
 currently supplies 1200; 1420 when none is set), so its TCP maximum segment
 size stays within the tunnel packet size.
 

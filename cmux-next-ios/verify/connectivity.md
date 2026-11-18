@@ -212,7 +212,7 @@ the relay. WebRTC has no TURN to fall back on.
 
 ### Distant run: not done
 
-- No Freestyle API key on this Mac: `~/.secrets/freestyle-beta.env` is
+- No VM provider API key on this Mac: `~/.secrets/<provider prod key>.env` is
   missing, and no other `.env` holds one.
 - The Blacksmith CLI is not installed.
 - Every reachable fallback host shares the same public IP (104.184.154.177):

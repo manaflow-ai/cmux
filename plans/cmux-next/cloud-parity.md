@@ -1,6 +1,6 @@
-# cmux-next Cloud and Freestyle parity inventory
+# cmux-next Cloud and VM provider parity inventory
 
-Inventory captured 2026-10-02 from `origin/main`, `origin/feat-cmux-next` (`4eacb7d418f`), Freestyle npm `freestyle@0.2.16`, and `cmux-next-spec` draft 2. This is a proposal and implementation plan. It does not modify the spec repository.
+Inventory captured 2026-10-02 from `origin/main`, `origin/feat-cmux-next` (`4eacb7d418f`), the VM provider's npm package `freestyle@0.2.16`, and `cmux-next-spec` draft 2. This is a proposal and implementation plan. It does not modify the spec repository.
 
 ## Main Cloud surface
 
@@ -20,7 +20,7 @@ Gaps are substantial: no CloudAPI start/pause/resume/update/idle-policy or snaps
 cmux-next does not have a right sidebar. Do not port main's right-sidebar Cloud panel. The parity design uses cmux-next's existing surfaces:
 
 1. A built-in **Machines** section in the left sidebar shows the machine list, status dot, inline pause/resume, and a `+` create action.
-2. Every Freestyle operation is an action-catalog entry, so it is reachable from the palette, CLI, MCP, and keyboard surfaces.
+2. Every VM provider operation is an action-catalog entry, so it is reachable from the palette, CLI, MCP, and keyboard surfaces.
 3. Opening a machine shows a Settings-style page/tab with overview, snapshots, tunnels, firewall, domains, and usage.
 4. Machine terminals and file operations are ordinary panes tagged with their machine.
 5. Team-level identities, tokens, VPC/network policy, and billing live under **Settings > Cloud**.
@@ -32,7 +32,7 @@ The one-sidebar model has two compatible Cloud navigation options to prototype:
 
 The implementation should keep the Machines section as the baseline and make the space projection a navigation mode over the same `MachineRegistry`, catalog actions, and machine-tagged panes. Both modes must expose the same operations and permissions.
 
-## Freestyle 0.2.16 command inventory
+## VM provider CLI 0.2.16 command inventory
 
 Global flags: `--api-key`, `--team`, `--proxy`, `--output pretty|json`, `-h`, `-v`. The package bin is `freestyle: dist/cli/index.js`.
 
@@ -48,18 +48,18 @@ Global flags: `--api-key`, `--team`, `--proxy`, `--output pretty|json`, `-h`, `-
 
 ## Parity table
 
-| Freestyle command | cmux main equivalent | cmux-next equivalent | Gap |
+| Provider command | cmux main equivalent | cmux-next equivalent | Gap |
 | --- | --- | --- | --- |
-| vm create/list/get/update/start/pause/resize/delete | `cmux vm new/list/status/rename/start/pause/resize/delete`; provider in `drivers/freestyle.ts` | CloudAPI create/list/get/delete/rename/resize; CloudService/sidebar; catalog create/kill/resize | Add Machines left-sidebar section, update/start/pause/idle policy, and catalog `resume` (the typed alias for Freestyle `start`); delete confirmation; preserve idempotency |
+| vm create/list/get/update/start/pause/resize/delete | `cmux vm new/list/status/rename/start/pause/resize/delete`; provider in `drivers/freestyle.ts` | CloudAPI create/list/get/delete/rename/resize; CloudService/sidebar; catalog create/kill/resize | Add Machines left-sidebar section, update/start/pause/idle policy, and catalog `resume` (the typed alias for the provider's `start`); delete confirmation; preserve idempotency |
 | vm snapshot + snapshot group | `vm snapshot`, `snapshot_list/delete`, restore/fork backend | CloudAPI snapshot/list/restore/fork and catalog snapshot/restore/fork | Add snapshot delete and complete top-level snapshot API/catalog |
 | vm exec/ssh | `vm exec`, `vm ssh`/`ssh-attach`, `FreestyleInteractiveShellScript` | CloudAPI exec; CloudMachineLink daemon terminal | Add backend-wrapped ssh/pty attach as ordinary machine-tagged panes and catalog/CLI/MCP actions |
 | vm scp/fs | `VMTransfer`, `VMSCP`, `file_put/pull` and tree/workspace helpers | none beyond daemon panes | Add backend file read/write/list/mkdir/rm/stat and scp, exposed as ordinary panes and file actions |
 | vpc | `privateNetwork.ts` and provider private networking | device tunnel enrollment only | Add VPC CRUD and Settings > Cloud team policy binding |
 | tunnels | `privateNetwork.ts`, `cloud_vm_tunnels`, `cmux-wg` | `CloudTunnelHub` enroll/revoke | Add tunnel CRUD/attach/detach/rotate and policy reconciliation |
-| firewall | Freestyle provider firewall/private-network policy routes | none | Add network-policy compiler/reconciler and Settings > Cloud read/write UI/CLI |
+| firewall | VM provider firewall/private-network policy routes | none | Add network-policy compiler/reconciler and Settings > Cloud read/write UI/CLI |
 | domain + verify/wildcard | `CMUXCLI+CloudDomains.swift`, backend domain/publication routes | none | Add API, catalog and read/write views |
 | tls | main Cloud publication/TLS backend and domain CLI | none | Add backend-wrapped TLS rules/certificates |
-| identity + permission | main auth/access-grant control plane; no Freestyle group | auth/team only | Add identities, token mint/revoke, per-VM grants in Settings > Cloud |
+| identity + permission | main auth/access-grant control plane; no provider group | auth/team only | Add identities, token mint/revoke, per-VM grants in Settings > Cloud |
 | tokens | main auth/token control plane | auth/team only | Add team API-token read/write views in Settings > Cloud with secrets never in client |
 | account/team/billing | Cloud auth/sidebar/mobile/account routes | sign-in/out/team picker/mobile | Add read-only account, team membership and billing views in Settings > Cloud |
 | skill/auth | `vm prompt/skill`, bundled Cloud skill and interactive shell bootstrap | no full skill installer; auth actions exist | Add backend-served skill install and auth/account parity |
@@ -67,19 +67,19 @@ Global flags: `--api-key`, `--team`, `--proxy`, `--output pretty|json`, `-h`, `-
 ## Slice plan
 
 1. Machine lifecycle: backend adapters plus CloudAPI/handlers/catalog/CLI for create/list/get/update/start/pause/resize/delete, idle policy, and snapshots. Every create uses an idempotency key and reconciles indeterminate provider results.
-2. Exec/ssh/scp/fs: wrap through the cmux backend. Open ssh/exec as ordinary machine panes and expose file operations through pane/file actions. Do not shell out to a user's `freestyle` binary; the Freestyle API key stays server-side.
+2. Exec/ssh/scp/fs: wrap through the cmux backend. Open ssh/exec as ordinary machine panes and expose file operations through pane/file actions. Do not shell out to a user's `freestyle` binary; the VM provider API key stays server-side.
 3. VPC/tunnels/firewall: compile `spec/network-policy.md` into provider VPC, WireGuard tunnel, and firewall operations with idempotent reconciliation, default-deny inbound, and revocation.
 4. Domains/TLS, then identities/tokens, then read-only account/team/billing views and skill/auth parity.
 
-Spec constraints carried forward: cloud D21 maps `idle_policy` to Freestyle `idleTimeoutSeconds` (automation/pool 300 seconds; interactive 3600 seconds when link keepalives do not count, otherwise explicit pause); network policy is one team document compiled to provider rules; agent egress uses the gateway/proxy with short-lived credentials and no secret in a guest. Any spec change belongs as a proposal here for Lawrence to apply.
+Spec constraints carried forward: cloud D21 maps `idle_policy` to the provider's `idleTimeoutSeconds` (automation/pool 300 seconds; interactive 3600 seconds when link keepalives do not count, otherwise explicit pause); network policy is one team document compiled to provider rules; agent egress uses the gateway/proxy with short-lived credentials and no secret in a guest. Any spec change belongs as a proposal here for Lawrence to apply.
 
 ## Code-mode typed Cloud relay
 
-The code-mode execute path must consume Cloud through the same typed catalog and host router as the palette, CLI, and MCP. It must not open a second Cloud socket or receive a Freestyle bearer token inside bwrap. The owner relay obtains credentials outside the sandbox, calls the backend's typed Cloud client, and returns the catalog's typed result envelope. `backend/catalog/cloud-operations.json` is the Cloud operation source; generated code-mode declarations and `cmux_docs` entries are derived from it alongside the cmux-tui catalog extension.
+The code-mode execute path must consume Cloud through the same typed catalog and host router as the palette, CLI, and MCP. It must not open a second Cloud socket or receive a VM provider bearer token inside bwrap. The owner relay obtains credentials outside the sandbox, calls the backend's typed Cloud client, and returns the catalog's typed result envelope. `backend/catalog/cloud-operations.json` is the Cloud operation source; generated code-mode declarations and `cmux_docs` entries are derived from it alongside the cmux-tui catalog extension.
 
 The relay slice order is:
 
-1. Add the catalog and host-broker envelope for machine reads and lifecycle mutations, including create/list/get/update/start/resume/pause/resize/delete and snapshots. `resume` is the canonical catalog verb for starting a paused machine; `start` remains the Freestyle-compatible alias. The backend VM/Cloud owner performs the idle-policy and permission checks; both app handlers and this relay invoke that owner. The backend uses a fake Freestyle driver and recorded fixtures in local mode for tests.
+1. Add the catalog and host-broker envelope for machine reads and lifecycle mutations, including create/list/get/update/start/resume/pause/resize/delete and snapshots. `resume` is the canonical catalog verb for starting a paused machine; `start` remains the provider-compatible alias. The backend VM/Cloud owner performs the idle-policy and permission checks; both app handlers and this relay invoke that owner. The backend uses a fake provider driver and recorded fixtures in local mode for tests.
 2. Add `vm.exec` and `vm.attach` routing. Exec returns the typed exit/stdout/stderr result; attach opens the normal machine-tagged terminal pane through the existing daemon link. CLI, MCP, palette, and code mode invoke the same router action and argument schema.
 3. Add SCP and filesystem operations through backend routes and typed results. Generate ephemeral transfer keys server-side or through the approved host broker, enforce host-key and expiry checks, and keep all file operations in ordinary machine-tagged panes/file actions.
 4. Add VPC, WireGuard tunnel, and firewall operations from `spec/network-policy.md`, then domains/TLS, identities/tokens, and read-only account/team/billing views. Each group gets catalog entries before UI surfaces.
@@ -87,7 +87,7 @@ The relay slice order is:
 
 ### Relay implementation status and merge gate
 
-The first relay slices are implemented in separate PRs so each can be tested with the fake Freestyle driver and recorded fixtures:
+The first relay slices are implemented in separate PRs so each can be tested with the fake provider driver and recorded fixtures:
 
 - #16956: host-owned typed relay, lifecycle (including pause/resume), snapshots, exec, and filesystem operations.
 - #16948: private network, tunnel, and firewall operations.
@@ -98,4 +98,4 @@ The host broker admits only operations in the dedicated relay catalog, plus full
 
 Cloud merges are gated on #16944's action-catalog repair and its green Swift test. Until that lands, new Cloud work should remain in reviewable PRs and must not merge into `feat-cmux-next`. Any PR that adds an action updates the protocol catalog, action surfaces, and inventory together and waits for Swift test green. The next relay slices are SSH/SCP transport, TLS rules/certificates, identities and tokens, and read-only account/team/billing views.
 
-Tests use the fake Freestyle driver and recorded fixtures behind the backend in local mode. No live credentials or production machines are required; a live test team is only needed if a backend integration check cannot be represented by those fixtures.
+Tests use the fake provider driver and recorded fixtures behind the backend in local mode. No live credentials or production machines are required; a live test team is only needed if a backend integration check cannot be represented by those fixtures.
