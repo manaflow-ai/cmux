@@ -100,6 +100,7 @@ import { noteTranscriptMount, noteMounted, noteUnmounted } from "./flickerLog";
 import { useEndedReplyCheck } from "./conversation/replyJudge";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { FrameGuard } from "./conversation/frameGuard";
+import { STAND_IN_VIEWPORTS, standInRanges } from "./conversation/standIns";
 import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll, readerScroll } from "./summary/heldWhileScrolling";
@@ -859,6 +860,31 @@ type RowFramesView = {
   rowRepositories: ((index: number) => string | undefined) | undefined;
   scopeAt: (index: number) => ReferenceScope | undefined;
 };
+
+/// The stand-ins' elements (conversation/standIns.ts): no class and no children, only the row's box.
+function standInElements(
+  rows: readonly AcpmuxRow[],
+  ranges: readonly { first: number; last: number }[],
+  geometry: { topAt(index: number): number; heightAt(index: number): number },
+  frameKey: string,
+): React.ReactElement[] {
+  const out: React.ReactElement[] = [];
+  for (const { first, last } of ranges)
+    for (let index = first; index < last && index < rows.length; index += 1)
+      out.push(
+        <div
+          key={`${frameKey}:${rows[index]!.id}`}
+          style={{
+            position: "absolute",
+            left: "var(--cv-inset)",
+            right: "var(--cv-inset-end, var(--cv-inset))",
+            top: geometry.topAt(index),
+            height: geometry.heightAt(index),
+          }}
+        />,
+      );
+  return out;
+}
 
 /// Each mounted row's frame, its props worked out again only when its rows or inputs changed
 /// (conversation/rowFrameCache.ts): a streamed token redoes the live row's alone, and React skips
@@ -4545,6 +4571,16 @@ function TranscriptView({
     heldIndices.length === 0
       ? scrolledRanges
       : mergeRowRanges([...scrolledRanges, ...heldIndices.map((index) => ({ first: index, last: index + 1 }))]);
+  // A viewport either side of the view is never bare spacer: a row there that is not mounted in full
+  // is a stand-in at its placed box (conversation/standIns.ts). Not while a drag flows the rows (they
+  // leave their placed tops) nor as another chat loads.
+  const standIns =
+    flowing || sessionChanged
+      ? []
+      : standInRanges(
+          visibleLayoutRange(layout, shownTop - height * STAND_IN_VIEWPORTS, height * (1 + 2 * STAND_IN_VIEWPORTS), 0),
+          mountedRanges,
+        );
   // Find highlights only need repainting when the query/target, row content, or mounted DOM
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
@@ -7325,6 +7361,10 @@ function TranscriptView({
                 width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
               }}
             >
+              {/* Under the rows, at the thread's place: one empty element per stand-in. */}
+              <div className="acpmux-stand-ins" aria-hidden style={{ top: lift + topInset }}>
+                {standInElements(rows, standIns, layout.geometry, frameKey)}
+              </div>
               <div
                 ref={thread}
                 className="acpmux-thread"
