@@ -29,11 +29,14 @@ final class FeedListControl {
 
 /// The Feed's list (verify/feed-perf-20261022.md): a `UITableView` whose
 /// rows are UIKit views only (`FeedRowCell`), with a diffable data source
-/// keyed by event id. Each row's layout (`FeedRowLayout`) is computed off
-/// the main thread, kept until its event or row state changes, and gives the
-/// table exact heights, so scrolling a row in costs placing reused views and
-/// nothing else. A table (not a collection view with its own layout) so the
-/// rows get UIKit's own trailing swipe actions (`UIContextualAction`): the
+/// keyed by event id. Work follows the screen, not the list: the table holds an
+/// estimate for every row and asks the height of the rows it shows; a row's
+/// layout (`FeedRowLayout`) is computed when the row comes near the screen
+/// (UIKit's prefetch, about a screen ahead, off the main thread), kept until its
+/// event, row state or width changes, and gives that row its exact height, so
+/// scrolling a row in costs placing reused views and nothing else. A width
+/// change lays out the rows on screen again, once; the rest when they come in.
+/// A table (not a collection view with its own layout) so the rows get UIKit's own trailing swipe actions (`UIContextualAction`): the
 /// system slide, full swipe, haptic and VoiceOver actions, as in Mail. The SwiftUI rows it replaced
 /// built and measured a full view tree for each row that scrolled in, 14 to
 /// 20 ms of main-thread work each.
@@ -104,11 +107,14 @@ final class FeedCollectionView: UITableView {
 }
 
 @MainActor
-final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelegate {
+final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSourcePrefetching, FeedRowCellDelegate {
     enum Section: Hashable { case header, events }
     static let headerID = "feed.header"
     /// How many rows before the end the next page of spilled events is read.
     static let loadOlderLead = 30
+    /// A row's height before it is laid out (a one- or two-line event): the table sums estimates
+    /// for the rows it has not shown instead of asking every row's height up front.
+    static let estimatedRowHeight: CGFloat = 140
 
     let context: FeedRowContext
     let swipe: FeedSwipeCoordinator
@@ -187,13 +193,15 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         view.allowsSelection = false
         view.cellLayoutMarginsFollowReadableWidth = false
         view.sectionHeaderTopPadding = 0
-        // Exact heights from the row layouts, never estimates: the table sums them as the old layout did.
-        view.estimatedRowHeight = 0
+        // An estimate for rows not shown yet; a shown row's height is its layout's (heightForRowAt).
+        // With no estimate (0) the table asked every row's height on each load and height change.
+        view.estimatedRowHeight = Self.estimatedRowHeight
         view.estimatedSectionHeaderHeight = 0
         view.estimatedSectionFooterHeight = 0
         view.sectionHeaderHeight = 0
         view.sectionFooterHeight = 0
         view.delegate = self
+        view.prefetchDataSource = self
         view.register(UITableViewCell.self, forCellReuseIdentifier: Self.headerID)
         view.register(FeedRowCell.self, forCellReuseIdentifier: FeedRowCell.reuseID)
         let refresh = UIRefreshControl()
@@ -373,30 +381,43 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             }
             return (item.id, key(for: item))
         }
-        let missing = keys.filter { !unchanged.contains($0.0) && layouts.cached($0.1) == nil }.map(\.1)
         if relayingOut {
-            // A width or text size change: wait until every row is laid out again, then reconfigure them all.
-            if !missing.isEmpty { computeInBackground(missing); return }
+            // A width or text size change: the rows on screen are laid out again here, once, and
+            // reconfigured; every other row when it scrolls in (heightForRowAt, prefetch).
             relayingOut = false
-            commit(next, keys: keys, reconfigureAll: true)
+            let mounted = mountedIDs()
+            for (id, key) in keys where mounted.contains(id) && layouts.cached(key) == nil { layouts.store(makeLayout(key), for: key) }
+            commit(next, keys: keys, relayout: mounted)
             return
         }
-        // Rows are laid out off the main thread; the list shows the change once its rows are ready.
-        // Only the first screen of a new Feed is laid out here.
-        if !missing.isEmpty {
-            if shownOrder.isEmpty {
-                // The first screen at once; the rest follow.
-                for key in missing.prefix(10) { layouts.store(makeLayout(key), for: key) }
-            }
-            let still = keys.filter { !unchanged.contains($0.0) && layouts.cached($0.1) == nil }.map(\.1)
-            if !still.isEmpty { computeInBackground(still) }
-            // Show what is ready only when nothing is shown yet; otherwise wait for the batch.
-            guard shownOrder.isEmpty || still.isEmpty else { return }
-            let ready = Set(keys.filter { unchanged.contains($0.0) || layouts.cached($0.1) != nil }.map(\.0))
-            commit(next.filter { ready.contains($0.id) }, keys: keys.filter { ready.contains($0.0) }, unchanged: unchanged)
-            return
+        // Changed rows near the screen (one screen above and below) are laid out off the main thread
+        // before the change shows; rows further away when they come in. A first load shows at once:
+        // the table asks the heights of the rows it shows, and those are laid out then.
+        if !shownOrder.isEmpty {
+            let near = nearIDs(next)
+            let missing = keys.filter { !unchanged.contains($0.0) && near.contains($0.0) && layouts.cached($0.1) == nil }.map(\.1)
+            if !missing.isEmpty { computeInBackground(missing); return }
         }
         commit(next, keys: keys, unchanged: unchanged)
+    }
+
+    /// The event rows the table shows now (it keeps cells for these only).
+    private func mountedIDs() -> Set<String> {
+        guard let collectionView, let dataSource else { return [] }
+        return Set((collectionView.indexPathsForVisibleRows ?? []).filter { $0.section == 1 }.compactMap { dataSource.itemIdentifier(for: $0) })
+    }
+
+    /// The rows on screen and one screen above and below them, read at their places in `next` and in
+    /// the shown order (a row inserted above shifts the places; the shown order still names the rows on screen).
+    private func nearIDs(_ next: [FeedItem]) -> Set<String> {
+        let rows = (collectionView?.indexPathsForVisibleRows ?? []).filter { $0.section == 1 }.map(\.row)
+        guard let first = rows.min(), let last = rows.max() else { return [] }
+        let span = last - first + 1
+        let low = max(0, first - span), high = last + span
+        var near = Set<String>()
+        if low < next.count { for item in next[low ..< min(next.count, high + 1)] { near.insert(item.id) } }
+        if low < shownOrder.count { near.formUnion(shownOrder[low ..< min(shownOrder.count, high + 1)]) }
+        return near
     }
 
     private func computeInBackground(_ keys: [FeedRowKey]) {
@@ -424,14 +445,15 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     /// Applies `next` to the list: a new snapshot when the order changed, else a reconfigure of
     /// the rows whose layout key changed, keeping the row under the reader's eyes in place.
-    private func commit(_ next: [FeedItem], keys: [(String, FeedRowKey)], reconfigureAll: Bool = false, unchanged: Set<String> = []) {
+    /// `mounted`: a relayout (width or text size); only these rows (on screen) are reconfigured.
+    private func commit(_ next: [FeedItem], keys: [(String, FeedRowKey)], relayout mounted: Set<String>? = nil, unchanged: Set<String> = []) {
         #if DEBUG
         let t0 = CACurrentMediaTime()
         defer { FeedCellTiming.log("commit n=\(next.count)", t0) }
         #endif
         guard let dataSource, let collectionView else { return }
         var plan = FeedListPlan(oldOrder: shownOrder, shown: shownKeys, new: keys, unchanged: unchanged)
-        if reconfigureAll { plan.reconfigure = keys.map(\.0).filter { shownKeys[$0] != nil } }
+        if let mounted { plan.reconfigure = plan.reconfigure.filter { mounted.contains($0) } }
         for item in next where !unchanged.contains(item.id) { items[item.id] = item }
         // Read flags change no layout: those rows redraw their dot and actions in place.
         let reconfiguring = Set(plan.reconfigure)
@@ -441,7 +463,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             previousRead[item.id] = item.isRead
         }
         defer { for id in redraw { if let item = items[id] { cell(id)?.redraw(item) } } }
-        guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 else { return }
+        guard !plan.isEmpty || mounted != nil || dataSource.snapshot().numberOfSections == 0 else { return }
         // A jump to the top in flight keeps no anchor: restoring one would set the offset and cut the
         // jump's animation short wherever it was (the pill then left the person mid-list).
         let anchor = syncAtTop() || jumpingToTop ? nil : visibleAnchor()
@@ -449,16 +471,22 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         let previousSet = shownSet
         shownOrder = next.map(\.id)
         if plan.orderChanged { shownSet = Set(shownOrder) }
-        if plan.orderChanged || reconfigureAll {
+        if plan.orderChanged || mounted != nil {
             shownKeys = Dictionary(keys, uniquingKeysWith: { first, _ in first })
         }
-        // Each changed row's height, from the layout of the key it is shown with.
-        var heightChanged = false
-        for (id, key) in keys where !unchanged.contains(id) || shownHeights[id] == nil {
+        // Each changed row's height, from the layout of the key it is shown with. A row with no layout
+        // yet keeps no height: the table holds its estimate and asks when the row comes in. A relayout
+        // forgets every height but the rows on screen (laid out again in applyPending).
+        if mounted != nil { shownHeights.removeAll(keepingCapacity: true) }
+        var heightChanged = mounted != nil
+        for (id, key) in keys where !unchanged.contains(id) {
             shownKeys[id] = key
-            let height = layouts.cached(key)?.height ?? 1
-            if let old = shownHeights[id], abs(old - height) > 0.25 { heightChanged = true }
-            shownHeights[id] = height
+            guard mounted?.contains(id) ?? true, let layout = layouts.cached(key) else {
+                if shownHeights.removeValue(forKey: id) != nil { heightChanged = true }
+                continue
+            }
+            if let old = shownHeights[id], abs(old - layout.height) > 0.25 { heightChanged = true }
+            shownHeights[id] = layout.height
         }
         var snapshot = dataSource.snapshot()
         if snapshot.numberOfSections == 0 {
@@ -622,17 +650,11 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     }
 
     /// The width or the text size changed: every layout is stale. The list keeps showing what it
-    /// shows (order, row state) while the rows are laid out again: the visible ones here, the rest off
-    /// the main thread; then every row is reconfigured at once, and nothing counts as new.
+    /// shows (order, row state); the rows on screen are laid out again once and reconfigured
+    /// (applyPending), the rest when they scroll in; the top row stays put and nothing counts as new.
     private func relayoutAll() {
         guard width > 0 else { return }
-        let pendingItems = pending ?? shownOrder.compactMap { items[$0] }
-        pending = pendingItems
-        let keys = pendingItems.map { key(for: $0) }
-        let visible = Set(collectionView?.indexPathsForVisibleRows?.compactMap { dataSource?.itemIdentifier(for: $0) } ?? [])
-        for key in keys where visible.contains(key.item.id) || (visible.isEmpty && keys.firstIndex(of: key).map { $0 < 10 } == true) {
-            layouts.store(makeLayout(key), for: key)
-        }
+        pending = pending ?? shownOrder.compactMap { items[$0] }
         relayingOut = !shownOrder.isEmpty
         // Off the layout pass (this runs from layoutSubviews and trait changes).
         guard !applyScheduled else { return }
@@ -840,12 +862,50 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     // MARK: Cells
 
-    /// Exact heights: the header's measured height, each row's from its layout.
+    /// Exact heights for the rows the table shows: the header's measured height, each row's from
+    /// its layout (laid out here if prefetch did not get to it). Other rows hold the estimate.
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         guard indexPath.section != 0 else { return headerHeight }
         heightQueries += 1
         guard let id = dataSource?.itemIdentifier(for: indexPath) else { return 1 }
-        return shownHeights[id] ?? 1
+        if let height = shownHeights[id] { return height }
+        guard let layout = layout(for: id) else { return Self.estimatedRowHeight }
+        shownHeights[id] = layout.height
+        return layout.height
+    }
+
+    // MARK: Prefetch
+
+    /// Rows a prefetch is laying out now.
+    private var prefetching: Set<String> = []
+
+    /// UIKit's prefetch (about a screen ahead in the scroll direction) is the list's overscan: those
+    /// rows are laid out off the main thread, so they scroll in with their layout ready.
+    func tableView(_ tableView: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
+        guard let dataSource else { return }
+        let keys = indexPaths.filter { $0.section != 0 }.compactMap { dataSource.itemIdentifier(for: $0) }
+            .filter { !prefetching.contains($0) && shownHeights[$0] == nil }
+            .compactMap { id in items[id].map { key(for: $0) } }
+            .filter { layouts.cached($0) == nil }
+        guard !keys.isEmpty else { return }
+        prefetching.formUnion(keys.map(\.item.id))
+        rowsLaidOut += keys.count
+        let styles = styles, scale = scale
+        queue.async { [weak self] in
+            let built = keys.map { FeedRowLayout.make($0, styles: styles, scale: scale) }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    for layout in built {
+                        let id = layout.key.item.id
+                        self.prefetching.remove(id)
+                        // A row that changed meanwhile is laid out when it shows.
+                        guard let item = self.items[id], self.key(for: item) == layout.key else { continue }
+                        self.layouts.store(layout, for: layout.key)
+                    }
+                }
+            }
+        }
     }
 
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
