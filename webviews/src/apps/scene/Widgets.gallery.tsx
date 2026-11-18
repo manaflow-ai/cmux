@@ -1,10 +1,10 @@
 // l10n-allow-file: gallery fixture text, not shipped UI.
-// The widget extensions (examples/extensions/widget-clock, widget-weather, widget-calendar,
-// widget-todo), each cmux.section/1 in its three sizes, drawn by the web scene renderer from the
-// ops their render exports emit. fixtures/widget-scenes.json is written by
-// cmux-tui/crates/cmux-app-host/js/test/widgets.test.ts (WIDGET_SCENES=write), which fails when the
-// file no longer matches what the widgets draw. The look variants compare the card surface the
-// widgets could sit on; the widgets ship on `card`.
+// The sample widgets (clock, weather, calendar, to-do; now in the sample widget repos,
+// manaflow-ai/cmux-widget-*), each cmux.section/1 in its three sizes, drawn by the web scene
+// renderer. fixtures/widget-scenes.json is their recorded scene output: generated data in the scene
+// op format, not widget source, so it stays here as renderer input. The app host's
+// js/test/widgets.test.ts checks every recorded scene is still a whole batch. The look variants
+// compare the card surface the widgets could sit on; the widgets ship on `card`.
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import scenes from "./fixtures/widget-scenes.json";
@@ -54,7 +54,7 @@ const one = (widget: Widget, size: Size, note: string) => ({
 
 export default componentEntry<Props>({
   id: "apps.widgets",
-  title: "Widgets: clock, weather, calendar, to-do (example extensions)",
+  title: "Widgets: clock, weather, calendar, to-do (sample widgets)",
   area: "Apps",
   pane: true,
   height: 720,
