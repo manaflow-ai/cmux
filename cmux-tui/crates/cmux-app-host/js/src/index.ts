@@ -6,12 +6,14 @@ import { cmux, CmuxError, createCmux, deliverEvent, fireTimer, log, resolveCall,
 import { installCompat } from "./compat-sidebar-data.ts"
 import { menuHandler, mount, mountExists, nodeRecord, sendPendingOps, setSceneSink, unmount } from "./materialize.ts"
 import { act, palette, paletteCancel, paletteDetail, paletteOpen, setPaletteScopes } from "./palette.ts"
-import { batch, computed, effect, flush, onCleanup, signal, untrack } from "./reactive.ts"
+import { batch, computed, effect, flush, onCleanup, signal, untrack, type Write } from "./reactive.ts"
 import * as views from "./view.ts"
 import { watch } from "./watch.ts"
 
 const g = globalThis as Record<string, unknown>
-export const RUNTIME_VERSION = "1.2.0"
+/** Each widget mount's now() clock, set by `__cmuxAppTick`. */
+const widgetClocks = new Map<string, Write<number>>()
+export const RUNTIME_VERSION = "1.3.0"
 
 const exportsOf = (): Record<string, unknown> => (g.__cmuxAppExports as Record<string, unknown> | undefined) ?? {}
 
@@ -83,6 +85,13 @@ function install() {
         const render = exportsOf()[exportName]
         if (typeof render !== "function") throw new Error(`the app does not export a function named ${exportName}`)
         const ctx = JSON.parse(ctxJSON || "{}")
+        widgetClocks.delete(mountId)
+        if (ctx && ctx.surface === "widget") {
+          // `cmux.widget/1`: the host owns the clock (`__cmuxAppTick`); a render that reads now() redraws on each tick.
+          const [now, setNow] = signal<number>(Date.now())
+          widgetClocks.set(mountId, setNow)
+          ctx.now = now
+        }
         state.context = ctx
         mount(mountId, () => render(ctx), ctx)
         state.context = null
@@ -90,6 +99,7 @@ function install() {
       return ""
     } catch (e) {
       state.context = null
+      widgetClocks.delete(mountId)
       unmount(mountId)
       const message = describe(e)
       log("error", `mount ${exportName}: ${message}`)
@@ -99,7 +109,16 @@ function install() {
     }
   }
 
-  g.__cmuxAppUnmount = (mountId: string) => entry("unmount", () => unmount(mountId), undefined)
+  g.__cmuxAppUnmount = (mountId: string) =>
+    entry("unmount", () => {
+      widgetClocks.delete(mountId)
+      unmount(mountId)
+    }, undefined)
+  /** A widget mount's host-owned tick (`cmux.widget/1`): its now() clock moves to `nowMs`; an unknown mount is ignored. */
+  g.__cmuxAppTick = (mountId: string, nowMs: number) =>
+    entry("tick", () => {
+      if (Number.isFinite(nowMs)) widgetClocks.get(mountId)?.(nowMs)
+    }, undefined)
 
   g.__cmuxAppDispatch = (mountId: string, nodeId: string, event: string, payloadJSON: string) =>
     entry("dispatch", () => {
