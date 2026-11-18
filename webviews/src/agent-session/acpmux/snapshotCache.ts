@@ -3,7 +3,7 @@
 // exports only components (a component module with other exports can't take a hot update).
 import type { AcpmuxSnapshot } from "./model";
 import type { AcpmuxSessionEntry } from "./sessionList";
-import { acpmuxPerf } from "./perf";
+import { acpmuxPerf, markStorageRefused } from "./perf";
 
 export function emptySnapshot(): AcpmuxSnapshot {
   return {
@@ -20,25 +20,27 @@ export function emptySnapshot(): AcpmuxSnapshot {
 }
 
 /// The latest snapshot, kept for a reload of the page (`cachedSnapshot`). A streaming reply sends
-/// one a display frame, and serializing the whole transcript each frame took main-thread time that
-/// grew with the chat: it is written at most every SNAPSHOT_SAVE_MS, and at once as the page hides
-/// or unloads, so a reload still finds the latest one.
-const SNAPSHOT_SAVE_MS = 250;
+/// one a display frame, and serializing the whole transcript took main-thread time that grew with
+/// the chat; a 250 ms timer still wrote every held row and up to 200 chats four times a second for
+/// no reader. It is written only as the page hides or unloads, when a reload can next need it. Only
+/// the bridge's `receive` (App.tsx: the gallery, the preview) saves one; the app's own pages read
+/// acpmux through the direct client and never did.
+const SNAPSHOT_KEY = "cmux.acpmux.snapshot";
 const snapshotSave: {
   next?: AcpmuxSnapshot;
-  timer?: ReturnType<typeof setTimeout>;
-  hooked?: boolean;
+  hooked?: Window;
 } = {};
 function writeSnapshot(): void {
-  clearTimeout(snapshotSave.timer);
-  snapshotSave.timer = undefined;
   const next = snapshotSave.next;
   snapshotSave.next = undefined;
   if (!next) return;
+  let text = "";
   try {
-    sessionStorage.setItem("cmux.acpmux.snapshot", JSON.stringify({ ...next, sessions: savedSessions(next) }));
+    text = JSON.stringify({ ...next, sessions: savedSessions(next) });
+    sessionStorage.setItem(SNAPSHOT_KEY, text);
   } catch {
-    // Painting remains live when storage is unavailable or full.
+    // Painting remains live when storage is unavailable or full; the trace says the copy was lost.
+    markStorageRefused(SNAPSHOT_KEY, text.length);
   }
 }
 
@@ -98,17 +100,21 @@ export function savedSessions(snapshot: AcpmuxSnapshot): AcpmuxSessionEntry[] {
 }
 export function saveSnapshot(next: AcpmuxSnapshot): void {
   snapshotSave.next = next;
-  if (!snapshotSave.hooked && typeof window !== "undefined") {
-    snapshotSave.hooked = true;
+  // With no timer, the hide is the only write: hooked on the page's own window, which a test that
+  // brings its own document replaces under this module.
+  if (typeof window !== "undefined" && snapshotSave.hooked !== window) {
+    snapshotSave.hooked = window;
     window.addEventListener("pagehide", writeSnapshot);
-    document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && writeSnapshot());
+    document.addEventListener("visibilitychange", writeIfHidden);
   }
-  snapshotSave.timer ??= setTimeout(writeSnapshot, SNAPSHOT_SAVE_MS);
+}
+function writeIfHidden(): void {
+  if (document.visibilityState === "hidden") writeSnapshot();
 }
 
 export function cachedSnapshot(): AcpmuxSnapshot {
   try {
-    const value = JSON.parse(sessionStorage.getItem("cmux.acpmux.snapshot") ?? "null");
+    const value = JSON.parse(sessionStorage.getItem(SNAPSHOT_KEY) ?? "null");
     if (value?.type === "snapshot" && Array.isArray(value.rows) && Array.isArray(value.sessions)) {
       acpmuxPerf.markAgent("snapshotPaint");
       // `connection`, `drewKeptTail`, `chatRead` and `turnsEnded` are facts about a live client, and this one is

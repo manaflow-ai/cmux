@@ -1,7 +1,7 @@
 // A streaming reply sends a snapshot every display frame. The copy kept for a reload of the page
 // (sessionStorage "cmux.acpmux.snapshot") is the whole transcript as JSON, so writing it on every
-// one took main-thread time that grew with the chat: it is written at most every 250 ms, with the
-// latest snapshot, and at once when the page hides or unloads.
+// one took main-thread time that grew with the chat: it is written only when the page hides or
+// unloads, with the latest snapshot.
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
@@ -56,19 +56,22 @@ const snapshot = (text: string) =>
     sessions: [],
   }) as unknown as AcpmuxSnapshot;
 
-test("a frame's snapshots write the page's copy once, with the latest", () => {
+// A shown page that streams for minutes wrote its copy every 250 ms for no reader: only a reload
+// reads it, and a reload comes after the page hides or unloads.
+test("a streaming page writes no copy until it hides, then the latest once", () => {
   writes.length = 0;
   jest.useFakeTimers();
   try {
-    // Sixty frames of a streaming reply.
+    // Sixty frames of a streaming reply, then a minute of nothing.
     for (let frame = 1; frame <= 60; frame += 1) saveSnapshot(snapshot("word ".repeat(frame)));
+    jest.advanceTimersByTime(60_000);
     expect(writes.length).toBe(0);
-    jest.advanceTimersByTime(249);
-    expect(writes.length).toBe(0);
-    jest.advanceTimersByTime(1);
   } finally {
     jest.useRealTimers();
   }
+  Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "hidden" });
+  dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+  Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "visible" });
   expect(writes.length).toBe(1);
   expect(JSON.parse(writes[0]!).rows[0].text).toBe("word ".repeat(60));
 });

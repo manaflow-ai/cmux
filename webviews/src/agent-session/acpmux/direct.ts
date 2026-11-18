@@ -77,7 +77,7 @@ import { carryInline, inlinePrompt, recordedPromptParts, restoreInline, stripFil
 import { fitPromptBudget, promptBudgetFor, uploadsToFit } from "./promptBudget";
 import type { SendPrompt, SendUploadResult } from "./sendUploads";
 import { liftInlineImages } from "./inlineImages";
-import { primeSentImages, withSentShapes } from "./conversation/imageEntries";
+import { primeSentImages, sentImageEntry, withSentShapes } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
 import { frameTextOf, imageNames, withoutFrames } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
@@ -92,7 +92,15 @@ import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
 import { noteReplaced } from "./sessionIndex";
-import { hostKind, sessionEntry, sessionTitle, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
+import {
+  hostKind,
+  listed as listedEntry,
+  sessionEntry,
+  sessionTitle,
+  summaryActivityAt,
+  text,
+  type AcpmuxSessionEntry,
+} from "./sessionList";
 import { sameUsageStats, type SessionUsageStats } from "./usageStats";
 import { usageLimitsOf } from "./usageLimits";
 import { clampRunning, subsessionLimits } from "./subsessionLimits";
@@ -6138,6 +6146,8 @@ export class AcpmuxDirectClient {
     if (pageShown()) this.wake();
     // Showing the page is the reader's own move, made outside it (a tab, a workspace).
     if (pageShown()) pageAttention()?.touch();
+    // The recent chats a hidden page did not read ahead: one pass now it shows (`scheduleReadAhead`).
+    if (pageShown() && this.hasConnected) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     const sessionId = this.selectedSessionId;
     if (!sessionId) return;
     this.syncView();
@@ -12525,16 +12535,15 @@ export class AcpmuxDirectClient {
     return read;
   }
   /// The image `id` a prompt of the open chat sent, as a data URL; undefined when acpmux has none.
-  /// An id names the image's bytes, so one read serves every bubble that shows it.
+  /// An id names the image's bytes, so one read serves every bubble that shows it: the bounded sent
+  /// image cache (conversation/imageEntries.ts) keeps and dedupes it. A map here kept every image's
+  /// whole data URL for the pane's life underneath it.
   async promptImage(id: string): Promise<string | undefined> {
-    const shown = this.promptImageUrls.get(id);
-    if (shown) return shown;
+    const kept = sentImageEntry(id);
+    if (kept) return kept.src;
     const data = await this.promptImageData(id);
-    const url = data && `data:${data.mimeType};base64,${data.data}`;
-    if (url) this.promptImageUrls.set(id, url);
-    return url;
+    return data && `data:${data.mimeType};base64,${data.data}`;
   }
-  private readonly promptImageUrls = new Map<string, string>();
   private async promptImageData(id: string): Promise<{ mimeType: string; data: string } | undefined> {
     const sessionId = this.selectedSession;
     if (!sessionId) return undefined;
@@ -13963,13 +13972,26 @@ export class AcpmuxDirectClient {
       this.readAheadQueue = this.readAheadQueue.filter((queued) => queued !== sessionId);
   }
 
-  /// Reads the list's most recent chats ahead once the pane is idle for `delayMs`.
+  /// Reads the list's most recent chats ahead once the pane is idle for `delayMs`, while the page
+  /// shows: a hidden page (the spare, a background tab) has no switch to make fast, and its pass
+  /// sorted every chat and read 12 pages for nobody. Showing the page schedules one (`showChanged`).
+  /// Only chats a switch lands on count: listed, top-level ones, never a sub-session, a chat another
+  /// agent started, an archived, side or cold one.
   private scheduleReadAhead(delayMs: number): void {
-    if (this.closed || this.readAheadTimer !== undefined) return;
+    if (this.closed || this.readAheadTimer !== undefined || !pageShown()) return;
     this.readAheadTimer = setTimeout(() => {
       this.readAheadTimer = undefined;
-      const recent = [...this.sessions]
-        .filter((session) => session.sessionId && session.sessionId !== this.selectedSessionId && !session.coldArchive)
+      if (this.closed || !pageShown()) return;
+      const recent = this.sessionEntryList()
+        .filter(
+          (entry) =>
+            entry.sessionId &&
+            entry.sessionId !== this.selectedSessionId &&
+            listedEntry(entry) &&
+            !entry.coldArchive &&
+            !entry.spawnedBy &&
+            !entry.startedBy,
+        )
         .sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))
         .slice(0, READ_AHEAD_RECENT)
         .map((session) => session.sessionId);

@@ -17,6 +17,6 @@ export function keepListsForNewTab(
   post: Parameters<typeof publishWarmNewTab>[1],
 ): void {
   rememberRecentFolders(next);
-  publishSessions(next);
+  publishSessions(next, undefined, showsNewTab);
   publishWarmNewTab(next, post, showsNewTab);
 }
