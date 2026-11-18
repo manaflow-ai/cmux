@@ -70,7 +70,8 @@ class IosPagedList(Bench):
         args = ["test", f"ui={suite}/{only}" if only else f"ui={suite}"]
         if ctx.arg("video") == "1":
             args.append("video")
-        res = ctx.fleet_step(SCRIPT, args, ARTIFACT, step_class="simulator", labels=("bench",),
+        # No extra label: the simulator minis advertise `simulator` only (a `bench` label matches no worker).
+        res = ctx.fleet_step(SCRIPT, args, ARTIFACT, step_class="simulator", labels=(),
                              timeout=int(ctx.arg("timeout") or 5400), ref=ctx.arg("ref") or ctx.build.get("sha"))
         self.ingest(ctx, res.artifact_path or res.log_path)
 
