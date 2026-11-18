@@ -453,5 +453,10 @@ path = "tests/test_cmux_tui_tree_handoff.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_tree_yield.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that an unstarted feat-cmux-next tree build yields when no tip or nightly cut has its key (TREE_YIELD_SUPERSEDED=0 turns it off) and that pin-cmux-tui.sh fetch then asks cmux-tui-tree-request.yml instead of failing; run python3 -m unittest tests/test_cmux_tui_tree_yield.py yourself after changing scripts/ci/cmux_tui_superseded_push.py or pin-cmux-tui.sh's wait (about a minute, no network)."
+
+[[test]]
 path = "tests/test_cmux_tui_tree_takeover.py"
 lane = "linux-guard"
