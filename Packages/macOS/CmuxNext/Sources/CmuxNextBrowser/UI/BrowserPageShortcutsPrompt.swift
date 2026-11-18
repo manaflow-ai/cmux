@@ -29,7 +29,7 @@ public nonisolated struct BrowserPageShortcutsPrompt: Equatable, Sendable {
         let lines = [Strings.PageShortcuts.siteScope(host: host) + "\n"]  // an empty line above the check box (Lucas 2026-11-18)
         return CmuxDialogSpec(title: Strings.PageShortcuts.title(host: host, key: key), lines: lines,
                               // The tip under the check box (Lucas 2026-11-18).
-                              fields: [.check(id: Self.allSites, title: Strings.PageShortcuts.allSites, on: false), .note(tip)],
+                              fields: [.check(id: Self.allSites, title: Strings.PageShortcuts.allSites, on: false), .note(tip, danger: false)],
                               // No Return or Escape: the person reads it and clicks one (Lucas 2026-11-18); Tab and Space still work.
                               buttons: [CmuxDialogButton(id: Self.cmuxFirst, title: Strings.PageShortcuts.cmuxFirst, role: .normal),
                                         CmuxDialogButton(id: Self.pageFirst, title: Strings.PageShortcuts.pageFirst, role: .normal)],

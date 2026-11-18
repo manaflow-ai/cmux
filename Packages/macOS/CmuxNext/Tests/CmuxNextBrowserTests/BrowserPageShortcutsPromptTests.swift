@@ -24,6 +24,6 @@ struct BrowserPageShortcutsPromptTests {
         #expect(!prompt.appliesToAllSites(pageAnswer))
         #expect(prompt.appliesToAllSites(CmuxDialogAnswer(button: "page", role: .default, values: [BrowserPageShortcutsPrompt.allSites: .bool(true)])))
         #expect(spec.lines.count == 1, "the dialog grew past one short line")
-        #expect(spec.fields.last == .note("Tip: press ⌘⌥↩ to give a page every key."), "the tip is not under the check box")
+        #expect(spec.fields.last == .note("Tip: press ⌘⌥↩ to give a page every key.", danger: false), "the tip is not under the check box")
     }
 }
