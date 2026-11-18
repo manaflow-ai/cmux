@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44303074873",
+  "recorded_at": "2026-11-18T13:22:46Z",
+  "reason": "cmux-tui 325ccecb4faf changes the image's cmux-tui (pinned c0d76c17160c)",
+  "dry_run": false,
+  "cmux_tui": "325ccecb4faf286dfca9eed992f28a97fe07b27e",
+  "fixes": [
+    {
+      "sha": "75975de3c49276a8c86190f4a561e4380a030179",
+      "mergedAt": "2026-11-18T01:53:29-08:00",
+      "subject": "cmux NEXT: screen sharing and computer use ask for permissions as one app, cmux Computer Use (#45534)"
+    },
+    {
+      "sha": "728b3265e3d79eac55a774c29dd54c4a6daeb07a",
+      "mergedAt": "2026-11-18T01:48:50-08:00",
+      "subject": "acpmux: a resend reads its chat's prompt state without opening every segment (#46010)"
+    },
+    {
+      "sha": "61c3768f4bbb99de366bdd6708f714e6f0c6582c",
+      "mergedAt": "2026-11-18T01:46:31-08:00",
+      "subject": "feat(action catalog): rows for Float Pane, New Floating Pane and Toggle Quick Terminal (#45197)"
+    },
+    {
+      "sha": "4fb503e6c8313220905e1984fee152c5a1d99350",
+      "mergedAt": "2026-11-18T03:43:01-06:00",
+      "subject": "Cloud: ChatGPT only through Sign in with ChatGPT; change a connected row in place (#46076)"
+    },
+    {
+      "sha": "9f84b268549fe5c73e6385475ccb820a399f4793",
+      "mergedAt": "2026-11-18T01:41:29-08:00",
+      "subject": "cmux NEXT: one commit for a turn-end hook's notification and report (#45855)"
+    },
+    {
+      "sha": "dd32b293fc57c3684692fa5173957067114f9f48",
+      "mergedAt": "2026-11-18T01:29:22-08:00",
+      "subject": "acpmux: DEV builds read the person's harness folder again, still never write it (#46025) (#46078)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-18T13:22:46Z",
+    "snapshot_id": "sh-98e5d09f097b4817a8a78ec429b1933f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44303074873): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f76c1fbdd091ab43cf6d134c02328c39e6c1a0c1",
+    "image": "cloud-native-auto-325ccecb-44303074873-1",
+    "revision": "ci-44303074873-1",
+    "at": "2026-11-18T13:22:46Z"
+  },
+  "rolled_back": false
+}
