@@ -3,6 +3,15 @@
 // 10,000-line file visited every node twice. These do the same work over only the top-level blocks
 // the edit changed, when the document before it was in sync; otherwise they walk all of it, as
 // Milkdown's do.
+//
+// On an @milkdown upgrade (written against @milkdown/kit and @milkdown/preset-commonmark 7.22.2),
+// re-check against preset-commonmark's src/plugin/sync-heading-id-plugin.ts (`updateId`: which
+// headings get an id, the `-#n` suffix, the `view.composing` skip, the `doc.eq` early return) and
+// src/plugin/sync-list-order-plugin.ts (`syncOrderLabel`: the skip on `addToHistory: false` or a
+// non-generic transaction, the bullet-to-ordered conversion, `label` and `listType`), that
+// src/composed/plugins.ts still holds both (`boundedCommonmark` filters them out by identity), and
+// that `headingIdGenerator` is still the ctx key for ids. markdown-commonmark-sync.test.ts runs
+// Milkdown's plugins beside these over the same edits.
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import { Plugin, PluginKey, type Transaction } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
