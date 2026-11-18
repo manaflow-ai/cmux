@@ -117,7 +117,10 @@ enum AgentPaneHandshakeReply {
             model.transport.acpmuxSocket = handshake.connection?.remote == nil ? handshake.connection?.socketPath : nil
             model.transport.acpmuxExecutable = handshake.connection?.remote == nil ? handshake.connection?.executable : nil
             handshake.connection = nil
-            return AgentPaneReply.handshake(handshake)
+            // A reconnect's page keeps its screen and reads no New Tab context (webviews App.tsx), so its reply
+            // carries none: a send here would mark its document with a shared text that the page did not keep.
+            if request == .reconnect { handshake.newTab = nil }
+            return AgentPaneReply.handshake(handshake, newTab: handshake.newTab.flatMap { model.newTabReply($0) })
         } catch {
             let message = AgentPaneHostError.userMessage(for: error)
             var reply = AgentPaneReply.failure(code: "host_unavailable", message: message)

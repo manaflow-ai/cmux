@@ -42,6 +42,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufRea
 #[cfg(unix)]
 use tokio::net::UnixStream;
 
+pub mod awake;
 mod liveness;
 pub mod wait_for;
 
@@ -318,6 +319,8 @@ where
 {
     let mut lines = input.lines();
     let mut helper: Option<Helper<S>> = None;
+    // Every tool call keeps the display from dimming into a lock for a while ([`awake`]).
+    let mut display = awake::DisplayAwake::default();
     while let Some(line) = lines.next_line().await? {
         if line.trim().is_empty() {
             continue;
@@ -344,6 +347,7 @@ where
                 .await
                 .map(|inventory| wait_for::with_definition(tools_list_result(inventory))),
             "tools/call" => {
+                display.touch();
                 let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
                 let arguments =
                     message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
