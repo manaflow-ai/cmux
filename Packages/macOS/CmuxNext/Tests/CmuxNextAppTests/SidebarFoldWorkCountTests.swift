@@ -65,6 +65,8 @@ import Testing
     /// One phase's work.
     struct Work: CustomStringConvertible {
         var reloads = 0, folds = 0, rowConfigures = 0, rowViewsMade = 0, itemViewsMade = 0, itemConfigures = 0
+        /// Rows `SidebarLayout.make` laid out (every listed row per full layout).
+        var layoutRows = 0
         /// Realized rows before the phase whose key now has another view (removed and re-added).
         var swapped = 0
         /// Realized rows before and after.
@@ -73,7 +75,7 @@ import Testing
         var blockItemsBefore = 0, blockItemsAfter = 0
         var blockFrameHeight: CGFloat = 0, blockContentHeight: CGFloat = 0
         var description: String {
-            "(reloads: \(reloads), groupFolds: \(folds), rowConfigures: \(rowConfigures)/\(realizedBefore) realized, rowViewsMade: \(rowViewsMade), "
+            "(reloads: \(reloads), layoutRows: \(layoutRows), groupFolds: \(folds), rowConfigures: \(rowConfigures)/\(realizedBefore) realized, rowViewsMade: \(rowViewsMade), "
                 + "swapped: \(swapped), realizedAfter: \(realizedAfter), itemViewsMade: \(itemViewsMade), itemConfigures: \(itemConfigures), "
                 + "blockItems: \(blockItemsBefore)->\(blockItemsAfter), blockFrame: \(blockFrameHeight) content: \(blockContentHeight))"
         }
@@ -92,6 +94,7 @@ import Testing
         h.sidebar.layoutSubtreeIfNeeded()
         let r = SidebarPerfCounters.report(reset: true)
         (work.reloads, work.folds, work.rowConfigures) = (r["list_reloads"] ?? 0, r["group_folds"] ?? 0, r["row_configures"] ?? 0)
+        work.layoutRows = r["layout_rows"] ?? 0
         (work.rowViewsMade, work.itemViewsMade, work.itemConfigures) = (r["row_views_made"] ?? 0, r["item_views_made"] ?? 0, r["item_configures"] ?? 0)
         work.swapped = before.filter { key, id in h.list.rowViews[key].map { ObjectIdentifier($0) != id } ?? false }.count
         work.realizedAfter = h.list.rowViews.count
