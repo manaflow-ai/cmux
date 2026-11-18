@@ -379,8 +379,10 @@ class Reconcile(unittest.TestCase):
         # The writer resets a value outside a pool's members, and --check refuses it.
         current, dropped = runner_pools.parse_value(json.dumps({**value, "linux_16": "blacksmith-2vcpu-ubuntu-2404"}),
                                                     pools)
-        self.assertEqual(current["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+        self.assertNotIn("linux_16", current)
         self.assertTrue(any("linux_16" in line for line in dropped), dropped)
+        again, _ = runner_pools.reconcile(current, pools, dead_now=(), served_now=(), now=NOW)
+        self.assertEqual(again["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
         self.assertTrue(runner_pools.value_problems({**value, "linux_16": "blacksmith-2vcpu-ubuntu-2404"}, pools))
         for spec in pools.values():
             self.assertEqual(runner_pools.allowed(spec, pools), runner_pools.members(spec))
