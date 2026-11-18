@@ -79,12 +79,42 @@ import Testing
         await readiness.settled("vm_spare")
         #expect(world.keys == ["vm_spare"])
         #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
+        // No link ahead outlives the reset either, whether it was made before it or would be after.
+        #expect(!readiness.holdsLink("vm_spare"))
         // And a miss across a reset holds nothing back: the next prime keys at once.
         world.during = {}
         readiness.prime("vm_spare", team: "team_a")
         await readiness.settled("vm_spare")
         #expect(world.keys == ["vm_spare", "vm_spare"])
         #expect(readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
+    }
+
+    /// Cloud is turned off after a prime was asked and before it ran: the account is the same, so only the reset says
+    /// the prime is stale. It keys nothing and links nothing.
+    @Test func aPrimeAskedBeforeAResetDoesNothingAfterIt() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        readiness.prime("vm_spare", team: "team_a")
+        readiness.reset()
+        await readiness.settled("vm_spare")
+        #expect(world.keys.isEmpty && world.links.isEmpty)
+        #expect(!readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1") && !readiness.holdsLink("vm_spare"))
+    }
+
+    /// A prime that comes after a reset while the one from before it still runs is its own run: the spare is keyed
+    /// and linked for the next start, not left to the old run, which writes nothing.
+    @Test func aPrimeAfterAResetRunsWhileTheOldOneStillDoes() async {
+        let world = World(), readiness = CloudSpareReadiness(world.dependencies())
+        world.during = {
+            world.during = {}
+            readiness.reset()
+            readiness.prime("vm_spare", team: "team_a")
+        }
+        readiness.prime("vm_spare", team: "team_a")
+        await readiness.settled("vm_spare") // the run from before the reset
+        await readiness.settled("vm_spare") // the one asked after it
+        #expect(world.keys == ["vm_spare", "vm_spare"])
+        #expect(readiness.isKeyed("vm_spare", scope: ["user_a", "team_a"], instance: "run-1"))
+        #expect(readiness.holdsLink("vm_spare"))
     }
 
     @Test func anotherScopeOrSignedOutReadsAsNotKeyed() async {
