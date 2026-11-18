@@ -322,7 +322,7 @@ test("another repos.list failure shows one line with Retry, which reads again", 
   }
 });
 
-test("before the status answers, nothing GitHub shows", async () => {
+test("before the status answers, the Connect to GitHub row is there and says it is checking", async () => {
   let answer: (value: unknown) => void = () => undefined;
   const calls: string[] = [];
   const store = createGitHubPicker((method) => {
@@ -333,10 +333,10 @@ test("before the status answers, nothing GitHub shows", async () => {
   try {
     await openFolderMenu();
     expect(calls).toEqual(["github.status"]);
-    expect(doc().querySelector("[data-github]")).toBeNull();
+    expect(detail(option(CONNECT))).toBe("Checking GitHub…");
     await act(async () => answer({ state: "unavailable", repos_scope: null, reason: "unreachable" }));
     await settle();
-    expect(option(CONNECT)).toBeDefined();
+    expect(detail(option(CONNECT))).toBeUndefined();
   } finally {
     await act(async () => root.unmount());
   }
