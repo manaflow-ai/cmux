@@ -51,7 +51,9 @@ import Testing
     /// Lucas 2026-11-17: "maybe make the search icon 1px taller too for default", and Compact's stays exactly as it is
     /// ("its perfect"). Measured from the search glyph's own pixels at 2x (an empty tab; a loaded page draws its
     /// page-info glyph): Default's ink is 2 rows (1 pt) taller than Compact's, and Compact's glyph keeps its 17 pt box.
-    @Test func defaultsSearchGlyphIsAPointTaller() throws {
+    /// Then Lucas 2026-11-18: "the search glyph on default density can be 0.5px shorter in height". The box snaps to half
+    /// points: an 18 pt box draws 1.5 rows over Compact's (0.36 pt under the 18.5 box), the nearest to 0.5 pt under it.
+    @Test func defaultsSearchGlyphIsALittleTaller() throws {
         func ink(_ preset: DensityPreset) throws -> (rows: Double, side: CGFloat) {
             let design = DesignSettings.shared
             let saved = design.densityTokens
@@ -75,8 +77,9 @@ import Testing
         }
         let compact = try ink(.compact), cozy = try ink(.cozy)
         #expect(compact.side == 17, "Compact's search glyph keeps its 17 pt box: \(compact.side)")
-        #expect(abs(cozy.rows - compact.rows - 2) <= 0.4,
-                "Default's search glyph is \(cozy.rows) rows at 2x, Compact's \(compact.rows): want 2 rows (1 pt) more")
+        #expect(cozy.side == 18, "Default's search glyph has an 18 pt box: \(cozy.side)")
+        #expect(abs(cozy.rows - compact.rows - 1.5) <= 0.25,
+                "Default's search glyph is \(cozy.rows) rows at 2x, Compact's \(compact.rows): want 1.5 rows more")
     }
 
     @Test(arguments: DensityPreset.allCases)

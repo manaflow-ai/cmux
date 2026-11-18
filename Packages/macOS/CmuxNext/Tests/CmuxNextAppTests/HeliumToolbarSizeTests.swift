@@ -33,7 +33,7 @@ import Testing
         let caps = font.capHeight + 0.31 // what the eye measures: font smoothing grows the capitals about 0.31 pt
         let tolerance: CGFloat = preset.omnibarScaleFactor == DensityPreset.compact.scaleFactor ? 0.5 : 1
         #expect(abs(reload.height - 14 * scale) <= tolerance, "\(preset): the reload glyph is \(reload.height) tall, want \(14 * scale)")
-        let searchWant: CGFloat = preset == .cozy ? 13 : 12 * scale // Default's is a point taller (Lucas 2026-11-17)
+        let searchWant: CGFloat = preset == .cozy ? 12 * 18 / 17 : 12 * scale // Default's 18 pt box (Lucas 2026-11-18)
         #expect(abs(search.height - searchWant) <= tolerance, "\(preset): the search glyph is \(search.height) tall, want \(searchWant)")
         let capsWant: CGFloat = preset == .cozy ? 11 : 10 * scale // Default's are a point taller (Lucas 2026-11-17)
         #expect(abs(caps - capsWant) <= 0.25, "\(preset): the URL's capitals are \(caps) tall, want \(capsWant)")

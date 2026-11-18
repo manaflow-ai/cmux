@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// Omnibar and toolbar geometry and colors. The bar, its text, the toolbar
 /// buttons and their icons follow density and `browser.omnibar.height` /
@@ -75,10 +76,21 @@ enum OmnibarStyle {
     /// The star and other trailing address-bar icons, Helium's `kLocationBarTrailingIconSize`
     /// (18 at Standard; Chrome's 20 at Comfortable).
     static var trailingIconSize: CGFloat { metrics.trailingIconSize }
-    /// The bookmark star's drawing side: the toolbar glyph side, so its ink box is the back arrow's
-    /// and the Extensions puzzle's, but never larger than its button (`trailingIconSize + 2`), which a
-    /// short `browser.omnibar.height` shrinks.
+    /// The bookmark star's drawing side (`OmnibarMetrics.starIconSize`): 13.5 pt of ink at Compact, never more ink than its
+    /// plate, which a short `browser.omnibar.height` shrinks.
     static var starIconSize: CGFloat { metrics.starIconSize }
+    /// The star's button and hover plate (`OmnibarMetrics.starPlateSize`): Helium's 24 pt at Compact.
+    static var starPlateSize: CGFloat { metrics.starPlateSize }
+    /// The trailing badges' (the star's) gap to the bar's end: as wide as the star plate's gap to the bar's top and
+    /// bottom, Helium's 2 pt at Compact.
+    static var badgesTrailingInset: CGFloat { max(0, (barHeight - starPlateSize) / 2) }
+    /// The plate's corners: Helium's 6 pt on 24, a quarter of its side, circular.
+    static func starPlateCornerRadius(side: CGFloat) -> CGFloat { side / 4 }
+    /// The plate's hover fill: Helium's over its dark bar, white at 12.8% (the bar's 68 to the plate's 92 of 255, measured
+    /// from Lucas's screenshot 2026-11-18); over a light bar black at 6%, Chrome's light hover tone (not measured in Helium).
+    static func starHoverFill(isDark: Bool) -> NSColor { isDark ? NSColor(white: 1, alpha: 0.128) : NSColor(white: 0, alpha: 0.06) }
+    /// The Extensions puzzle's drawing side (`OmnibarMetrics.extensionsIconSize`): 16 pt of ink at Compact.
+    static var extensionsIconSize: CGFloat { metrics.extensionsIconSize }
     /// Between neighboring toolbar buttons (navigation, extensions, trailing
     /// buttons): Helium's `kToolbarIconDefaultMargin`, the base padding, which
     /// the toolbar's FlexLayout collapses to one gap.

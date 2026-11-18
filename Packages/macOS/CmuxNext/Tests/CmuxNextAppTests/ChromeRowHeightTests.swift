@@ -114,8 +114,11 @@ import Testing
         let omnibar = OmnibarMetrics.current.barHeight
         let label = "\(preset) / sidebar \(sidebar): row \(row), tab \(Metrics.tabHeight), omnibar \(omnibar)"
         #expect(abs(pill.height - Metrics.tabHeight) <= 0.5, "\(label), pill \(pill.height)")
-        #expect(abs(back.height - omnibar) <= 0.5, "\(label), back button \(back.height)")
-        #expect(abs(back.width - omnibar) <= 0.5, "\(label), back button is square: \(back.width)")
+        // The buttons are the bar's height, Compact's 28 at Default (Lucas 2026-11-18: Compact's padding).
+        let button = OmnibarMetrics.current.buttonSize
+        #expect(button == (preset == .cozy ? 28 : omnibar), "\(label), buttons \(button)")
+        #expect(abs(back.height - button) <= 0.5, "\(label), back button \(back.height)")
+        #expect(abs(back.width - button) <= 0.5, "\(label), back button is square: \(back.width)")
         #expect(abs(bar.height - omnibar) <= 0.5, "\(label), omnibar \(bar.height)")
         #expect(abs(pill.height - row) <= 0.5, "\(label): the tab follows the visible row")
         let expectedBar: CGFloat = preset == .cozy ? 34 : (28 / 0.9 * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2
@@ -136,8 +139,9 @@ import Testing
         let (window, chrome) = chrome()
         defer { window.close() }
         let back = chrome.backButton
-        // The button draws its glyph image centered in its square (`imagePosition = .imageOnly`).
-        let glyph = try #require(back.image, "\(preset): the back button has no glyph")
+        // The button draws its glyph image centered in its square: the box's size, its ink centered (`InkCenteredGlyphView`).
+        back.layoutSubtreeIfNeeded()
+        let glyph = try #require(back.drawnImage, "\(preset): the back button has no glyph")
         let arrowInk = try #require(inkSpan(glyph), "\(preset): the back arrow draws no ink")
         let glyphLeft = (back.bounds.width - glyph.size.width) / 2
         // Both rows start at their pane's leading edge (PaneContentView lays the strip and the

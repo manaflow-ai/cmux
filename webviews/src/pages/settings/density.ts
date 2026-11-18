@@ -67,6 +67,9 @@ const REFERENCE_TOKENS: Record<string, number> = {
   omnibarTrailingIconSize: 18,
   omnibarIconViewSize: 25,
   omnibarIconSize: 12 / 0.9 / 0.697,
+  // Swift `DensityPreset.referenceTokens`: Compact's puzzle draws 16 pt of ink, its star 12 pt.
+  omnibarExtensionsGlyphSize: 27 / 0.9,
+  omnibarMoreGlyphSize: 20 / 0.9,
   omnibarIconLeading: 2,
   omnibarTextGap: 5,
   omnibarPopupTopOutset: 3,
@@ -77,6 +80,15 @@ const REFERENCE_TOKENS: Record<string, number> = {
 
 const CHROME_OMNIBAR_HEIGHT = 34;
 const DEFAULT_OMNIBAR_CAP_HEIGHT = 11;
+const DEFAULT_STAR_PLATE_SIZE = 28;
+/** Swift `DensityPreset.starGlyphSides`: the half-point star sides that draw whole rows at 2x. */
+const STAR_GLYPH_SIDES: Record<string, number> = {
+  ultraCompact: 21,
+  compact: 23.5,
+  cozy: 28,
+  comfortable: 29.5,
+  spacious: 32,
+};
 
 /** Swift `DensityPreset.isOmnibarToken`: every `omnibar*` size and the toolbar glyphs beside the bar. */
 const omnibarTokens = (tokens: Record<string, number>) =>
@@ -101,13 +113,18 @@ function preset(id: string, name: string, nameKey: string, factor: number, row: 
   // (Swift `DensityPreset.chromeOmnibarHeight`) rounded at Helium's 8 on 28.
   if (id === "cozy") {
     Object.assign(tokens, omnibarTokens(preset("compact", "", "", 0.9, 28).tokens!));
+    // Its toolbar buttons and star plate keep Compact's padding (Swift `DensityPreset`): Compact's 28 pt buttons, a 28 pt plate.
+    tokens.omnibarButtonSize = tokens.omnibarHeight!;
+    tokens.omnibarStarPlateSize = DEFAULT_STAR_PLATE_SIZE;
     tokens.omnibarHeight = CHROME_OMNIBAR_HEIGHT;
     tokens.omnibarCornerRadius = half((CHROME_OMNIBAR_HEIGHT * 8) / 28);
     // Its URL capitals are 11 pt, a point over Compact's (Swift `DensityPreset.defaultOmnibarCapHeight`).
     tokens.omnibarFontSize = (DEFAULT_OMNIBAR_CAP_HEIGHT - 0.31) / 0.70459;
-    // Its search glyph is a point taller than Compact's 12 pt: Compact's box times 13 / 12.
-    tokens.omnibarIconSize = half((tokens.omnibarIconSize! * 13) / 12);
+    // Its search glyph is a little taller than Compact's: Compact's box plus a point (Swift `DensityPreset`).
+    tokens.omnibarIconSize = tokens.omnibarIconSize! + 1;
   }
+  // Each built-in's bookmark star side (Swift `DensityPreset.starGlyphSides`).
+  if (STAR_GLYPH_SIDES[id] !== undefined) tokens.omnibarStarGlyphSize = STAR_GLYPH_SIDES[id]!;
   return {
     id,
     name,

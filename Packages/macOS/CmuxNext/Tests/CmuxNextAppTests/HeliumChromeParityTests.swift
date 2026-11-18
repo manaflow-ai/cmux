@@ -26,7 +26,8 @@ import Testing
         return chrome
     }
 
-    /// Toolbar buttons are the bar's height (Helium's 28 pt at Compact, Chrome's 34 at Default) and keep the tab's hover shape.
+    /// Toolbar buttons are the bar's height (Helium's 28 pt at Compact), Compact's 28 at Default (its glyphs are Compact's;
+    /// Lucas 2026-11-18: Compact's padding), and keep the tab's hover shape.
     @Test(arguments: DensityPreset.allCases)
     func toolbarButtonsScaleDefaultsSquareAndHover(preset: DensityPreset) {
         DensityTokens.$scoped.withValue(preset.tokens) {
@@ -34,7 +35,7 @@ import Testing
             defer { window.close() }
             let chrome = chrome(in: window)
             let reload = chrome.reloadButton.convert(chrome.reloadButton.bounds, to: nil)
-            let row: CGFloat = preset == .cozy ? 34 : (28 / 0.9 * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2
+            let row: CGFloat = (28 / 0.9 * CGFloat(preset.omnibarScaleFactor) * 2).rounded() / 2
             #expect(reload.width == row && reload.height == row, "the reload button is \(reload.size), the bar \(row)")
             // The hover corner is the buttons' one corner, a tab's (`Metrics.buttonCornerRadius`), and the glyph's ink a
             // point under the small icon (Helium's 13 pt at Default; Lucas 2026-11-13).
