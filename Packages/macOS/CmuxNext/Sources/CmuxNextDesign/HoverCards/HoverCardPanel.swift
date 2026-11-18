@@ -392,10 +392,14 @@ final class HoverCardPanel: NSPanel {
     /// Lays the card out for its anchor and size. `appliesFrame` false: the rest frame is worked out
     /// (`restCardFrame`) and the window stays where it is, for a morph that sets it next.
     func place(appliesFrame: Bool = true) {
-        glass.layoutSubtreeIfNeeded()
+        // A morph lays the card out once, at the size its first frame shows (`morph`): a layout here would be at the
+        // size the window has now, never shown. The measure updates the content's constraints itself.
+        if appliesFrame { glass.layoutSubtreeIfNeeded() }
         let scale = max(parentWindowRef?.backingScaleFactor ?? 2, 1)
-        // Whole device pixels, so the edge `origin(for:)` puts on the target stays there.
-        let fitting = glass.fittingSize
+        // Whole device pixels, so the edge `origin(for:)` puts on the target stays there. The content's own size: the
+        // glass adds nothing around it, and its panel's views in the measure's temporary layout engine cost a fresh
+        // solve of their constraints on every refit (a Show details press, Lawrence 2026-11-18).
+        let fitting = glass.contentView.fittingSize
         let size = CGSize(width: (fitting.width * scale).rounded(.up) / scale, height: (fitting.height * scale).rounded(.up) / scale)
         let screen = parentWindowRef?.screen ?? NSScreen.main
         let rest = Self.rest(for: placement, anchor: anchor, size: size, screen: screen?.frame,

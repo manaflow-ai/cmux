@@ -593,9 +593,11 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private func applyEdgeInsets() {
         guard let rowsStack else { return }
         let shown = rowsStack.arrangedSubviews.filter { !$0.isHidden }
+        // Read once: the tokens are worked out from the density settings on each read.
+        let padding = Self.padding
         func inset(_ edge: NSView?) -> CGFloat {
             let fills = edge === tabList || edge === detailsToggle
-            return Self.padding - (fills ? WorkspaceTabHoverCardRow.fillOutset : 0)
+            return padding - (fills ? WorkspaceTabHoverCardRow.fillOutset : 0)
         }
         topInset?.constant = inset(shown.first)
         bottomInset?.constant = inset(shown.last)
