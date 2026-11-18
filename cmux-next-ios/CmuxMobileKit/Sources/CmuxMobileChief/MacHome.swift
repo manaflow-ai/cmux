@@ -503,6 +503,13 @@ public final class MacHomeFeed {
         self.macID = macID
     }
 
+    /// The `retry-home-kept-slow` demo: `count` stress rows shown as the rows kept from an
+    /// earlier read (a launch), while the Mac's own list never comes.
+    public func seedKeptRowsForDemo(count: Int, macID: String) {
+        seedStressRows(count: count, macID: macID)
+        isShowingKeptRows = true
+    }
+
     /// The `retry-home-failed` demo: the last read failed on a live link.
     public func setProblemForDemo(_ text: String) { problem = text }
 

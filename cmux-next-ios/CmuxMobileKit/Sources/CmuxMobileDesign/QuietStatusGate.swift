@@ -26,6 +26,18 @@ public final class QuietStatusGate {
         self.clock = clock
     }
 
+    /// What is down (a Mac's id, say), or nil when nothing is. A different key
+    /// restarts the wait: one Mac's elapsed outage never carries over to the next
+    /// (switching between two Macs that both show kept rows waits the bound anew).
+    public func update(downFor key: String?) {
+        if key != downKey {
+            downKey = key
+            update(down: false)
+        }
+        if key != nil { update(down: true) }
+    }
+    @ObservationIgnored private var downKey: String?
+
     /// The connection is down (true) or back (false). Repeating `true` keeps
     /// the first instant: a reattach that retries does not restart the wait.
     public func update(down: Bool) {

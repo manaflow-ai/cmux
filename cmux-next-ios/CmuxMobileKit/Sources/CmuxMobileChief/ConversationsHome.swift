@@ -396,8 +396,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .background(theme.colors.bg.color.ignoresSafeArea())
         // Kept rows show while the Mac's list loads: say they are being updated, over the
         // list (no row moves when it goes), once the read has taken longer than the quiet bound.
-        .onChange(of: feed.isShowingKeptRows, initial: true) { _, kept in
-            keptGate.update(down: kept)
+        // Keyed by the Mac whose kept rows show: moving to another Mac's kept rows waits anew.
+        .onChange(of: feed.isShowingKeptRows ? (homeMacID ?? "") : nil, initial: true) { _, kept in
+            keptGate.update(downFor: kept)
         }
         .overlay(alignment: .bottom) {
             if listNote(searching: searching) == .updating {

@@ -11,7 +11,7 @@ import UIKit
 /// "i also want all our connectivity stuff to shut the f*** up and load faster"): `WorkspacesList`
 /// in a window over rows the phone has, while the team's refresh never ends. At 3 s the subtitle
 /// says nothing about it; past the quiet bound (10 s, on the real clock the screen uses) it says
-/// "Updating…". Each state is saved as a screenshot attachment.
+/// "Updating…" (screenshots: HomeKeptUpdatingUITests, in the real app).
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(2))) struct WorkspacesUpdatingReadBackTests {
     @Test func readBackRefreshAt3sAndPast10s() async throws {
@@ -31,13 +31,11 @@ import UIKit
         await pump(until: shown.advanced(by: .seconds(3)))
         let early = updating(in: window)
         log.append(line("1-refresh-3s-silent", since: shown, updating: early))
-        record(window, named: "workspaces-1-refresh-3s.png")
         #expect(!early, "no Updating subtitle at 3 s of a refresh: \(subtitles(in: window))")
 
         await pump(until: shown.advanced(by: QuietStatusGate.threshold + .seconds(1)))
         let late = updating(in: window)
         log.append(line("2-refresh-past-10s-updating", since: shown, updating: late))
-        record(window, named: "workspaces-2-refresh-past-10s.png")
         #expect(late, "past the quiet bound the subtitle says Updating: \(subtitles(in: window))")
 
         Attachment.record(log.joined(separator: "\n") + "\n", named: "workspaces-readback.txt")
@@ -72,15 +70,6 @@ import UIKit
         let parts = (ContinuousClock.now - start).components
         let ms = parts.seconds * 1000 + parts.attoseconds / 1_000_000_000_000_000
         return "\(name.padding(toLength: 28, withPad: " ", startingAt: 0)) t=\(ms)ms  updating=\(updating)"
-    }
-
-    private func record(_ window: UIWindow, named name: String) {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 2
-        let shot = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
-        }
-        if let png = shot.pngData() { Attachment.record(png, named: name) }
     }
 }
 #endif
