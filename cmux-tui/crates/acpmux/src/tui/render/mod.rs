@@ -688,9 +688,13 @@ impl Selection {
         }
     }
     pub fn text(&self, rows: &[String]) -> String {
+        self.text_by(|r| rows.get(r).map(String::as_str))
+    }
+    /// The selected text, reading row `r`'s text from `row(r)` (None past the end).
+    pub fn text_by<'a>(&self, row: impl Fn(usize) -> Option<&'a str>) -> String {
         let ((r0, _), (r1, _)) = self.range();
         let mut out = Vec::new();
-        for (r, line) in rows.iter().enumerate().take(r1 + 1).skip(r0) {
+        for (r, line) in (r0..=r1).map_while(|r| Some((r, row(r)?))) {
             let chars: Vec<char> = line.chars().collect();
             let piece = match self.cols_on_row(r, line) {
                 Some((s, e)) if e > s => {

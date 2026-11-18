@@ -134,6 +134,7 @@ async fn a_one_item_change_wraps_only_its_turn() {
         let shown = items / TURN - 2;
         app.transcripts.get_mut(ID).unwrap().apply_update(&update(shown));
         let n = frame(&mut app, &mut term);
+        eprintln!("items wrapped by a one-item change on screen, N={items}: {n}");
         assert!(n <= TURN, "N={items}: a change on screen wrapped {n} items, its turn has {TURN}");
         // The first turn is far above the screen: nothing is wrapped until it is scrolled to.
         app.transcripts.get_mut(ID).unwrap().apply_update(&update(0));
@@ -157,7 +158,36 @@ async fn a_scroll_step_wraps_only_turns_coming_into_view() {
             assert!(n <= TURN, "N={items}: a one-row scroll wrapped {n} items");
             total += n;
         }
+        eprintln!("items wrapped by {rows} one-row scrolls, N={items}: {total}");
         assert!(total <= rows, "N={items}: {rows} one-row scrolls wrapped {total} items");
+    }
+}
+
+/// A chunk streamed into the live turn lays out that turn only, pinned to the bottom or
+/// scrolled away from it.
+#[tokio::test]
+async fn a_streamed_chunk_wraps_only_the_live_turn() {
+    for items in [1_000, 10_000] {
+        let mut app = app_with(items).await;
+        let mut term = terminal(140);
+        frame(&mut app, &mut term);
+        let chunk = serde_json::json!({"sessionId": ID, "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": " and one more sentence of the reply."},
+        }});
+        let mut most = 0;
+        for k in 0..20 {
+            if k == 10 {
+                let vp = app.viewport.get_mut(ID).unwrap();
+                let middle = vp.total / 2;
+                vp.scroll_by(-(middle as isize));
+                frame(&mut app, &mut term);
+            }
+            app.transcripts.get_mut(ID).unwrap().apply_update(&chunk);
+            most = most.max(frame(&mut app, &mut term));
+        }
+        eprintln!("items wrapped per streamed chunk, N={items}: at most {most}");
+        assert!(most <= TURN, "N={items}: a streamed chunk wrapped {most} items");
     }
 }
 
@@ -189,4 +219,133 @@ async fn width_change_frame_cost() {
             wrapped / FRAMES
         );
     }
+}
+
+/// Rows of the whole document at the frame's width, as one full layout draws them.
+fn full_layout(app: &App) -> Vec<Row> {
+    let t = &app.transcripts[ID];
+    let empty = std::collections::HashSet::new();
+    let toggled = app.toggled.get(ID).unwrap_or(&empty);
+    let w = app.transcript_inner().width as usize;
+    transcript_rows(t, w, app.show_thoughts, app.show_system, toggled, &app.chrome)
+}
+
+fn same(a: &[Row], b: &[Row]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(x, y)| {
+            x.text == y.text && x.item == y.item && x.toggle == y.toggle && x.line == y.line
+        })
+}
+
+/// Turn by turn, laid out lazily, the rows are the ones a full layout draws: a first turn with
+/// no prompt, folds flipped, thoughts shown, a running turn with a queued prompt.
+#[tokio::test]
+async fn lazy_rows_are_the_full_layout() {
+    let mut app = app_with(200).await;
+    let t = app.transcripts.get_mut(ID).unwrap();
+    t.items.insert(0, Item::Status { text: "resumed".into() });
+    t.items.push(Item::User { text: "next".into(), steer: false, queued: false });
+    t.items.push(Item::Assistant { text: "partial".into() });
+    t.items.push(Item::User { text: "later".into(), steer: false, queued: true });
+    t.status = "running".into();
+    app.toggled.insert(
+        ID.into(),
+        [Toggle::Turn(1), Toggle::Turn(9), Toggle::Item(2), Toggle::Group(42)].into(),
+    );
+    let mut term = terminal(140);
+    for (w, thoughts) in [(140, false), (120, true), (100, false)] {
+        app.show_thoughts = thoughts;
+        term.backend_mut().resize(w, HEIGHT);
+        frame(&mut app, &mut term);
+        let full = full_layout(&app);
+        let t = &app.transcripts[ID];
+        let lazy = app.transcript_cache.all_rows(t);
+        assert!(same(&lazy, &full), "width {w}: {} lazy rows vs {} full", lazy.len(), full.len());
+        assert_eq!(app.transcript_cache.total(), full.len());
+    }
+}
+
+/// A copy across turns that were never laid out at this width lays them out and copies the
+/// same text a full layout holds.
+#[tokio::test]
+async fn copy_across_turns_lays_them_out() {
+    let mut app = app_with(1_000).await;
+    let mut term = terminal(140);
+    frame(&mut app, &mut term);
+    resized(&mut app, &mut term, 120);
+    app.viewport.get_mut(ID).unwrap().to_top();
+    frame(&mut app, &mut term);
+    let last = 5 * app.transcript_inner().height as usize;
+    let sel =
+        Selection { session: ID.into(), anchor: (0, 0), head: (last, 999), mode: SelectMode::Cell };
+    app.selection = Some(sel.clone());
+    let copied = app.selection_text(&sel);
+    let moved = app.selection.clone().unwrap();
+    let full: Vec<String> = full_layout(&app).into_iter().map(|r| r.text).collect();
+    assert_eq!(copied, moved.text(&full));
+    assert!(copied.lines().count() > last / 2, "the copy spans the rows selected");
+}
+
+/// A click on a fold mid-transcript lays out only that turn and keeps its header under the
+/// pointer.
+#[tokio::test]
+async fn a_fold_keeps_its_header_in_place() {
+    let mut app = app_with(10_000).await;
+    let mut term = terminal(140);
+    frame(&mut app, &mut term);
+    resized(&mut app, &mut term, 120);
+    let vp = app.viewport.get_mut(ID).unwrap();
+    let middle = vp.total / 2;
+    vp.scroll_by(-(middle as isize));
+    frame(&mut app, &mut term);
+    let inner = app.transcript_inner();
+    let offset = app.viewport[ID].offset;
+    let (row, toggle) = (offset..offset + inner.height as usize / 2)
+        .find_map(|r| match app.transcript_cache.meta(r) {
+            Some((_, Some(tg @ Toggle::Turn(_)))) => Some((r, tg)),
+            _ => None,
+        })
+        .expect("a turn's fold on screen");
+    let y = inner.y + (row - offset) as u16;
+    assert!(!app.is_open(toggle));
+    app.press(inner.x + 1, y, crossterm::event::KeyModifiers::NONE);
+    assert!(app.is_open(toggle), "the click opens the turn");
+    let n = frame(&mut app, &mut term);
+    assert!(n <= TURN, "the fold laid out {n} items");
+    let offset = app.viewport[ID].offset;
+    let at = offset + (y - inner.y) as usize;
+    assert_eq!(app.transcript_cache.meta(at).and_then(|m| m.1), Some(toggle), "header stays");
+}
+
+/// An older page put in front keeps the rows on screen where they were, and lays out only the
+/// turns in view.
+#[tokio::test]
+async fn an_older_page_keeps_the_rows_on_screen() {
+    let mut app = app_with(1_000).await;
+    let mut term = terminal(140);
+    frame(&mut app, &mut term);
+    let vp = app.viewport.get_mut(ID).unwrap();
+    let middle = vp.total / 2;
+    vp.scroll_by(-(middle as isize));
+    frame(&mut app, &mut term);
+    let shown = |app: &App| {
+        let offset = app.viewport[ID].offset;
+        (offset..offset + HEIGHT as usize / 2)
+            .map(|r| app.transcript_cache.text(r).to_owned())
+            .collect::<Vec<_>>()
+    };
+    let before = shown(&app);
+    // What `Transcript::prepend_events` and `AppMsg::Older` leave: items in front, every kept
+    // item moved, and the rows below the offset to keep.
+    let page = transcript(400);
+    let t = app.transcripts.get_mut(ID).unwrap();
+    let added = page.items.len();
+    t.items.splice(0..0, page.items);
+    t.layout_shift = added;
+    t.layout_dirty_from = 0;
+    let vp = app.viewport.get_mut(ID).unwrap();
+    vp.keep_below = Some(vp.total - vp.offset);
+    let n = frame(&mut app, &mut term);
+    assert!(n <= bound(&app), "the page laid out {n} items");
+    assert_eq!(shown(&app), before, "the rows on screen stay");
 }

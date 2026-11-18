@@ -181,7 +181,7 @@ impl App {
         {
             return None;
         }
-        if self.rows_cache.is_empty() {
+        if self.transcript_cache.total() == 0 {
             return None;
         }
         let (rect, row) = self
@@ -189,7 +189,7 @@ impl App {
             .iter()
             .find(|(rect, _)| x >= rect.x && x < rect.x + rect.width && y == rect.y)
             .copied()?;
-        let col = ((x - rect.x) as usize).min(self.rows_cache[row].chars().count());
+        let col = ((x - rect.x) as usize).min(self.transcript_cache.text(row).chars().count());
         Some((row, col))
     }
 
@@ -372,7 +372,7 @@ impl App {
         if mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
             && let Some((row, col)) = self.transcript_cell_lenient(x, y)
         {
-            let text = self.rows_cache.get(row).cloned().unwrap_or_default();
+            let text = self.transcript_cache.text(row).to_owned();
             if let Some(link) =
                 crate::tui::links::find(&text).into_iter().find(|l| col >= l.start && col < l.end)
             {
@@ -388,7 +388,8 @@ impl App {
         }
         // Transcript: a click on a collapsible header opens or closes it.
         if let Some((row, _)) = self.transcript_cell_lenient(x, y)
-            && let (Some(&(_, Some(t))), Some(id)) = (self.row_meta.get(row), self.selected_id())
+            && let (Some((_, Some(t))), Some(id)) =
+                (self.transcript_cache.meta(row), self.selected_id())
         {
             let a = self.areas.transcript;
             let exact_row = y > a.y
@@ -425,7 +426,7 @@ impl App {
         };
         self.last_click = Some((now, x, y, count));
         let _ = mods;
-        let line = self.rows_cache.get(row).cloned().unwrap_or_default();
+        let line = self.transcript_cache.text(row).to_owned();
         self.selection = Some(match count {
             2 => {
                 let (s, e) = word_bounds(&line, col);
@@ -499,7 +500,7 @@ impl App {
         }
         let yy = y.clamp(inner_top, inner_bottom.saturating_sub(1));
         let Some((row, col)) = self.transcript_cell_lenient(x.max(a.x), yy) else { return };
-        let line = self.rows_cache.get(row).cloned().unwrap_or_default();
+        let line = self.transcript_cache.text(row).to_owned();
         let Some(sel) = self.selection.as_mut() else { return };
         match sel.mode {
             SelectMode::Cell => sel.head = (row, col),
@@ -525,7 +526,7 @@ impl App {
         let a = self.areas.transcript;
         let y = if d < 0 { a.y + 1 } else { a.y + a.height - 1 };
         let Some((row, col)) = self.transcript_cell_lenient(a.x + 1, y) else { return };
-        let line = self.rows_cache.get(row).cloned().unwrap_or_default();
+        let line = self.transcript_cache.text(row).to_owned();
         if let Some(sel) = self.selection.as_mut() {
             sel.head = match sel.mode {
                 SelectMode::Cell => (row, if d < 0 { 0 } else { line.chars().count() }),
@@ -566,7 +567,7 @@ impl App {
             self.selection = None;
             return;
         }
-        let text = sel.text(&self.rows_cache);
+        let text = self.selection_text(&sel);
         self.copy_to_clipboard(&text);
     }
 }

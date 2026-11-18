@@ -197,11 +197,9 @@ pub struct App {
     /// picks like a native menu. A release over no item leaves the menu open.
     pub menu_pressed: bool,
     pub selection: Option<Selection>,
-    /// Plain text of the rows drawn last frame, for copy.
-    pub rows_cache: Vec<String>,
+    /// The transcript's rows, laid out as they come into view; row text and
+    /// (item, collapsible) for copy and hit tests.
     pub(crate) transcript_cache: render::TranscriptCache,
-    /// Per row: (item index, is a collapsible header). Parallel to `rows_cache`.
-    pub row_meta: Vec<(usize, Option<Toggle>)>,
     pub transcript_hitboxes: Vec<(Rect, usize)>,
     /// (session, absolute row, screen row) keeps an accordion header fixed
     /// while its children are inserted or removed.

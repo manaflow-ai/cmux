@@ -9,10 +9,8 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         .map(|t| t.items.is_empty() && t.status != "running")
         .unwrap_or(true);
     if empty {
-        app.rows_cache.clear();
-        app.row_meta.clear();
         app.transcript_hitboxes.clear();
-        app.transcript_cache = TranscriptCache::default();
+        app.transcript_cache.clear();
     }
     let c = app.chrome;
     let buf = f.buffer_mut();
@@ -300,30 +298,32 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     }
     let empty = std::collections::HashSet::new();
     let toggled = app.toggled.get(&id).unwrap_or(&empty);
-    if let Some(changed) = app.transcript_cache.update(
-        &id,
-        t,
-        inner.width as usize,
-        app.show_thoughts,
-        app.show_system,
-        toggled,
-        &c,
-    ) {
-        app.rows_cache.truncate(changed);
-        app.row_meta.truncate(changed);
-        app.rows_cache.extend(app.transcript_cache.rows[changed..].iter().map(|r| r.text.clone()));
-        app.row_meta
-            .extend(app.transcript_cache.rows[changed..].iter().map(|r| (r.item, r.toggle)));
-    }
-    let rows = &app.transcript_cache.rows;
+    let cache = &mut app.transcript_cache;
+    cache.update(&id, t, inner.width as usize, app.show_thoughts, app.show_system, toggled, &c);
+    let visible = inner.height as usize;
     let track = Rect { x: area.x + area.width - 1, y: inner.y, width: 1, height: inner.height };
     let mut link_runs: Vec<crate::tui::links::LinkCell> = Vec::new();
-    let anchor = app.transcript_anchor.clone();
     let vp = app.viewport.entry(id.clone()).or_default();
-    vp.layout(rows.len(), inner.height as usize, track);
-    if let Some((anchor_id, anchor_row, screen_row)) = anchor
-        && anchor_id == id
+    // An older page went in front: the rows from the offset to the end keep their place.
+    if let Some(below) = vp.keep_below.take()
+        && !vp.follow
     {
+        vp.offset = cache.total().saturating_sub(below);
+    }
+    let anchor = app.transcript_anchor.as_ref().filter(|a| a.0 == id).map(|a| (a.1, a.2));
+    let top = match anchor {
+        Some((row, screen_row)) => Some(row.saturating_sub(screen_row)),
+        None if vp.follow => None,
+        None => Some(vp.offset),
+    };
+    // Only the turns in view (and a viewport each side) are laid out; row
+    // state follows the heights that changed so the text on screen stays.
+    cache.prepare(t, top, visible);
+    follow_moved(&cache.take_moved(), &id, vp, &mut app.transcript_anchor, &mut app.selection);
+    let anchor = app.transcript_anchor.as_ref().filter(|a| a.0 == id).map(|a| (a.1, a.2));
+    let total = cache.total();
+    vp.layout(total, visible, track);
+    if let Some((anchor_row, screen_row)) = anchor {
         // Preserve the clicked row even when a collapse leaves blank space
         // below the final item; moving the text under the pointer is worse.
         vp.offset = anchor_row.saturating_sub(screen_row);
@@ -333,7 +333,8 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     let offset = vp.offset;
     let sel = app.selection.as_ref().filter(|s| s.session == id).cloned();
     app.transcript_hitboxes.clear();
-    for (i, row) in rows.iter().enumerate().skip(offset).take(inner.height as usize) {
+    for i in offset..offset.saturating_add(visible).min(total) {
+        let Some(row) = cache.row(i) else { continue };
         let y = inner.y + (i - offset) as u16;
         let row_width = row.line.width().min(inner.width as usize) as u16;
         if row_width > 0 {
@@ -412,6 +413,60 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             w as usize,
             c.status_active(),
         );
+    }
+}
+
+/// Keeps session `id`'s row-indexed state on the same text after laid-out
+/// turns changed height: the scroll offset, a thumb drag, the fold anchor and
+/// the selection.
+fn follow_moved(
+    moved: &[super::cache::Moved],
+    id: &str,
+    vp: &mut crate::tui::scroll::Viewport,
+    anchor: &mut Option<(String, usize, usize)>,
+    selection: &mut Option<Selection>,
+) {
+    if moved.is_empty() {
+        return;
+    }
+    let at = |row: usize| moved.iter().fold(row, |r, m| m.apply(r));
+    vp.offset = at(vp.offset);
+    if let Some((_, press_offset)) = vp.drag.as_mut() {
+        *press_offset = at(*press_offset);
+    }
+    if let Some(a) = anchor.as_mut().filter(|a| a.0 == id) {
+        a.1 = at(a.1);
+    }
+    if let Some(s) = selection.as_mut().filter(|s| s.session == id) {
+        s.anchor.0 = at(s.anchor.0);
+        s.head.0 = at(s.head.0);
+    }
+}
+
+impl App {
+    /// The selected text. Rows of it not laid out at this width (a turn
+    /// scrolled away before a resize) are laid out first.
+    pub(crate) fn selection_text(&mut self, sel: &Selection) -> String {
+        let mut sel = sel.clone();
+        if self.selected_id().as_deref() == Some(sel.session.as_str())
+            && let Some(t) = self.transcripts.get(&sel.session)
+        {
+            let ((first, _), (last, _)) = sel.range();
+            self.transcript_cache.ensure(t, first, last);
+            let moved = self.transcript_cache.take_moved();
+            let vp = self.viewport.entry(sel.session.clone()).or_default();
+            follow_moved(
+                &moved,
+                &sel.session,
+                vp,
+                &mut self.transcript_anchor,
+                &mut self.selection,
+            );
+            let at = |row: usize| moved.iter().fold(row, |r, m| m.apply(r));
+            sel.anchor.0 = at(sel.anchor.0);
+            sel.head.0 = at(sel.head.0);
+        }
+        sel.text_by(|r| self.transcript_cache.line(r))
     }
 }
 
