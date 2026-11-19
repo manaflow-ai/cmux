@@ -44,6 +44,14 @@ blob scripts/ci/stage-agent-detector.sh
 # crate outside cmux-tui/ (macos-cross.sh, cmux-tui-build-package.yml). Its
 # cmux-tui path dependencies are covered by `tree cmux-tui`.
 tree first-party-apps/cloud/server
+# The macOS bin/cmux runs the Home Chief by argv[0] (`optchat-chief`, CMUX-570):
+# it links Native/OptChat/optchat-chief and its OptChat crates (optchat-core,
+# optchat-host, chief-kernel, chief-turn) and compiles in the inspector page.
+tree Native/OptChat/optchat-chief
+tree Native/OptChat/optchat-core
+tree Native/OptChat/optchat-host
+tree Native/OptChat/chief-kernel
+tree Native/OptChat/chief-turn
 # `cmux vm` links the cmux VM API CLI crates (workers/cmux-vm/cli) in process.
 tree workers/cmux-vm/cli
 # Files cmux-tui crates compile in with include_str!/include_bytes! (cx-t3e5,

@@ -47,10 +47,15 @@ const NATIVE_MODEL: &str = "claude-opus-5-5";
 const BASH_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// The commit this binary was built from (`OPTCHAT_BUILD_COMMIT` at build
-/// time), so host.log shows which code a dogfood run is.
+/// time), so host.log shows which code a dogfood run is. Folded into the
+/// multicall bin/cmux (CMUX-570), cmux-tui's build stamps the commit instead
+/// (`CMUX_TUI_BUILD_COMMIT`, the same tree).
 const BUILD: &str = match option_env!("OPTCHAT_BUILD_COMMIT") {
     Some(commit) => commit,
-    None => "unknown",
+    None => match option_env!("CMUX_TUI_BUILD_COMMIT") {
+        Some(commit) => commit,
+        None => "unknown",
+    },
 };
 
 /// The turn harness and the compactor harness: `OPTCHAT_CHIEF_HARNESS`, else

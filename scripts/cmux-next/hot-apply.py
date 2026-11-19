@@ -1011,6 +1011,29 @@ def _place_companions(app: Path, companions: dict[str, tuple[Path, str] | None],
     return prior
 
 
+# The app's own helpers bin/cmux may run by argv[0] (scripts/cmux-next/link-optchat-chief.sh): built from the
+# app's tree, they keep the app's build across a hot apply, not SHA's (whose cmux may not carry them).
+APP_HELPER_LINKS = ("optchat-chief",)
+
+
+def keep_app_helpers(app: Path, current: Path) -> list[str]:
+    """Before bin/cmux becomes SHA's: each app helper that is a link to it becomes a copy of CURRENT (the app's
+    bin/cmux, kept), so it goes on running the app's build. Returns the names copied. A put back leaves the copy:
+    its bytes are the bin/cmux the rollback restores."""
+    copied = []
+    for file in APP_HELPER_LINKS:
+        target = app / BIN / file
+        if not (target.is_symlink() and os.readlink(target) == "cmux"):
+            continue
+        # Renamed into place, as every file here: never written through.
+        staged = target.with_name(f".{file}.hot-apply")
+        shutil.copy2(current, staged)
+        staged.chmod(0o755)
+        os.replace(staged, target)
+        copied.append(file)
+    return copied
+
+
 def restore_companions(app: Path, prior: dict) -> None:
     for file, was in prior.items():
         target = app / BIN / file
@@ -1801,6 +1824,10 @@ def command_apply(args) -> int:
             # Before the handoff, so the new daemon starts the companions of its own build.
             undo["rust"]["companions"] = place_companions(app, companions, state)
             receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
+            with PHASES("swap"):
+                kept = keep_app_helpers(app, prior)
+            if kept:
+                receipt["steps"]["app_helpers_kept"] = kept
             # Before the swap: a session restart that fails part way is put back by the rollback.
             undo["rust"]["sessions"] = bool(args.restart_sessions)
             receipt["steps"]["rust"] = swap_cmux(app, new, want, args.socket, state, args.restart_sessions)

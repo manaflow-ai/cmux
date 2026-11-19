@@ -442,6 +442,21 @@ class HotApplyRust(unittest.TestCase):
         self.assertFalse((self.app / "Contents/Resources/bin/cmux-cloud").exists())
         self.assertEqual(self.sha(), self.old)
 
+    def test_a_folded_chief_keeps_the_app_s_build(self):
+        # bin/optchat-chief a link to bin/cmux (link-optchat-chief.sh, CMUX-570): SHA's cmux may not carry
+        # the Chief, so the link becomes a copy of the app's bin/cmux before the swap; rollback leaves it.
+        chief = self.app / "Contents/Resources/bin/optchat-chief"
+        chief.symlink_to("cmux")
+        code, receipt, err = self.hot("apply", FIX, "--app", str(self.app))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.sha(), self.new)
+        self.assertFalse(chief.is_symlink())
+        self.assertEqual(hashlib.sha256(chief.read_bytes()).hexdigest(), self.old)
+        self.assertEqual(receipt["steps"]["app_helpers_kept"], ["optchat-chief"])
+        code, receipt, err = self.hot("rollback")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(hashlib.sha256(chief.read_bytes()).hexdigest(), self.old)
+
     def test_a_binary_brings_the_companions_beside_it(self):
         built = self.tmp / "dev/bin"
         built.mkdir(parents=True)

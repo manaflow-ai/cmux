@@ -679,6 +679,8 @@ jobs:
           # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
           # The cmux-next helpers bundled after the build (see "Bundle the OptChat Chief ...").
           for helper in optchat-chief cmux-mobile-host; do
+            # A helper may be a link to cmux (link-optchat-chief.sh): its slices are the CLI's, checked above.
+            [[ "$(readlink "build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/$helper" || true)" == cmux ]] && continue
             helper_archs="$(lipo -archs "build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/$helper")"
             echo "bin/$helper architectures: $helper_archs"
             [[ "$helper_archs" == *arm64* && "$helper_archs" == *x86_64* ]]
