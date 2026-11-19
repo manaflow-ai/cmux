@@ -157,6 +157,10 @@ pub enum DomainKind {
     /// `tabs.newTabApp`: an id an app manifest may have
     /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
     AppId,
+    /// `sidebar.sections.hidden` / `order`: distinct section ids of 1 to 128
+    /// characters, at most 256 (cmux-layout-reducer `sidebar_section_customization`;
+    /// Swift `SidebarSectionIDsSetting.accepts`).
+    SidebarSectionIds,
 }
 
 /// One descriptor row.
@@ -415,6 +419,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
         "domain:command_labels" => Validation::Domain(DomainKind::CommandLabels),
         "domain:app_id" => Validation::Domain(DomainKind::AppId),
+        "domain:sidebar_section_ids" => Validation::Domain(DomainKind::SidebarSectionIds),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {

@@ -347,6 +347,8 @@
         "terminal.fontSize",
         "terminal.term",
         "sidebar.sectionLook",
+        "sidebar.sections.hidden",
+        "sidebar.sections.order",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll",

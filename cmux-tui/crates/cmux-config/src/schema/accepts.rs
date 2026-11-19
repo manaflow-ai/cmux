@@ -92,6 +92,8 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         )
     } else if row.validation == super::Validation::Domain(DomainKind::AppId) {
         Accepted::Shape("an app id, publisher/name in lowercase letters, digits and -")
+    } else if row.validation == super::Validation::Domain(DomainKind::SidebarSectionIds) {
+        Accepted::Shape("an array of at most 256 distinct section ids of 1 to 128 characters")
     } else {
         accepted(&row.kind, domains)
     };
@@ -151,6 +153,9 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         }
         super::Validation::Domain(DomainKind::AppId) => {
             return value.as_str().is_some_and(super::app_id::is_valid_app_id);
+        }
+        super::Validation::Domain(DomainKind::SidebarSectionIds) => {
+            return is_sidebar_section_ids(value);
         }
         _ => {}
     }
@@ -304,6 +309,24 @@ fn is_command_label(value: &Value) -> bool {
         && (members.contains_key("program") || members.contains_key("match"))
 }
 
+/// The most ids a sidebar section list holds, and the longest id
+/// (cmux-layout-reducer `sidebar_section_customization`).
+pub const MAX_SECTION_IDS: usize = 256;
+pub const MAX_SECTION_ID_CHARS: usize = 128;
+
+/// Swift `SidebarSectionIDsSetting.accepts`: at most 256 distinct ids of 1
+/// to 128 characters, the lists the sidebar planner reads with no problem.
+fn is_sidebar_section_ids(value: &Value) -> bool {
+    let Some(items) = value.as_array() else { return false };
+    let mut seen = BTreeSet::new();
+    items.len() <= MAX_SECTION_IDS
+        && items.iter().all(|item| {
+            item.as_str().is_some_and(|id| {
+                !id.is_empty() && id.chars().count() <= MAX_SECTION_ID_CHARS && seen.insert(id)
+            })
+        })
+}
+
 /// Swift `BrowserOmnibarSetting.isSearchTemplate`: empty, or an address
 /// with a `%s` or `{searchTerms}` placeholder that is valid once filled.
 fn is_search_template(text: &str) -> bool {
@@ -409,5 +432,6 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::CustomDensities => "custom_densities",
         DomainKind::CommandLabels => "command_labels",
         DomainKind::AppId => "app_id",
+        DomainKind::SidebarSectionIds => "sidebar_section_ids",
     }
 }
