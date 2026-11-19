@@ -156,6 +156,17 @@ package nonisolated struct SidebarWorkspaceSnapshot: Codable, Hashable, Sendable
         return row
     }
 
+    /// The row with only what places it: identity, title, icon, color, kind and Done fold. The second line's
+    /// facts, the status block and the progress bar go; the restored row draws one line until the live tree
+    /// arrives. What a snapshot over its file's size limit keeps (`SidebarSnapshotDocument.fitted`).
+    package var compacted: SidebarWorkspaceSnapshot {
+        var row = SidebarWorkspaceSnapshot(id: id, machineID: machineID, title: title, kind: kind, kindBrand: kindBrand,
+                                           icon: icon, iconTint: iconTint, color: color)
+        row.rowKind = rowKind
+        row.taskStatus = taskStatus
+        return row
+    }
+
     /// `text` cut to `textLimit` characters; nil when empty.
     static func cut(_ text: String?) -> String? {
         guard let text, !text.isEmpty else { return nil }

@@ -656,7 +656,9 @@ public final class MacHomeFeed {
     /// The open session when there is one; nil when nothing can be kept (no account or Mac),
     /// unless `orEmpty`: then an empty one (its title and composer) for a conversation whose
     /// first open failed, so its screen never falls back to a full-screen error.
-    /// Its screen shows it only once it has a message (``ChiefSession/lastMessage``).
+    /// Its screen shows it only once it has a message (``ChiefSession/lastMessage``), with no bar:
+    /// a normal reconnect says nothing, and its loader marks it only past the quiet bound
+    /// (``MacConversationLoader``; Leo, 2026-11-16).
     public func keptSession(for route: MacConversationRoute, orEmpty: Bool = false) -> ChiefSession? {
         if let session = sessions[route.conversationID] ?? keptSessions[route.conversationID] { return session }
         let key = transcripts == nil ? nil : transcriptKey(route.conversationID)
@@ -666,15 +668,12 @@ public final class MacHomeFeed {
                                     participants: [identity.me, identity.chief])
         let session = ChiefSession(backend: ChiefOfflineBackend(reason: Self.keptReason, info: info), identity: identity,
                                    transcripts: key == nil ? nil : transcripts, transcriptKey: key)
-        session.unavailableTitle = Self.keptTitle
-        session.status = Self.keptReason
         session.macID = macID
         keptSessions[route.conversationID] = session
         return session
     }
 
-    /// The bar over a conversation shown from what the phone kept while its channel opens.
-    static var keptTitle: String { String(localized: "Connecting to your Mac…") }
+    /// Why a conversation shown from what the phone kept is not live (its offline backend's reason).
     static var keptReason: String { String(localized: "Showing the last messages. New ones load when it connects.") }
 
     /// Bumped each time the opened conversations close (a new link or another Mac):
@@ -729,11 +728,18 @@ public final class MacHomeFeed {
             isShowingKeptRows = true
             return
         }
+        // The first screen of kept rows in this turn (one small head file), so the first frame
+        // draws them, not "Connecting to <Mac>…"; the rest of the kept list follows off the main thread.
+        let head = rowsCache.firstScreen(key)
+        if let head {
+            setRows(head, complete: false)
+            isShowingKeptRows = true
+        }
         let macID = macID
         // task-owner: one disk read of the kept rows; ends with it, and its rows land only if nothing newer did
         Task { [weak self] in
             guard let kept = await rowsCache.load(key), let self,
-                  self.macID == macID, self.rows == nil, self.rowsKey() == key else { return }
+                  self.macID == macID, self.rows == head, self.rowsKey() == key, kept != head else { return }
             self.setRows(kept, complete: false)
             self.isShowingKeptRows = true
         }

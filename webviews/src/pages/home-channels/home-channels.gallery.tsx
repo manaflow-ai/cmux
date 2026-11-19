@@ -56,6 +56,8 @@ type Props = {
   hostBridge?: boolean;
   /** A cmux link the page opens (as the Messages view's switch does through the hash). */
   link?: string;
+  /** The Cloud inbox read fails with this reason: the rows stay and the list says why. */
+  cloudError?: string;
   /** Where the list shows New Cloud Machine (needs `hostBridge`: only the app host runs it). */
   cloudEntry?: CloudEntryLook;
   /** The app does not run the action (turned off): its `cmux.app.action.run` answers `ran: false`. */
@@ -135,12 +137,14 @@ function HomeChannelsGallery({
   link,
   cloudEntry,
   cloudNotRun = false,
+  cloudError,
 }: Props) {
   const [store] = useState(() => {
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media, teammates);
     if (provider) provider.hostGrants = hostGrants;
     if (provider && video) provider.videoUrl = `data:video/mp4;base64,${LOGIN_TESTS_MP4}`;
     if (provider && extraChief) provider.addChief("Release Chief");
+    if (provider && cloudError) provider.cloudError = cloudError;
     let host: BridgePageClient | MockHomeProvider | null = hostGrants ? provider : null;
     if (hostBridge) {
       const bridge = new GalleryBridgeHost();
@@ -568,6 +572,17 @@ export default componentEntry<Props>({
             ctx.document.querySelector(".hc-error") !== null &&
             ctx.document.querySelector(".lg-list-section") === null &&
             !ctx.document.querySelector('[data-list-row="c-design"]')?.hasAttribute("data-pinned"),
+        );
+      },
+    },
+    "cloud-unreachable": {
+      note: "A Cloud inbox read failed: the rows stay (the last good list) and the list says why while the page retries.",
+      props: { select: "c-chief", cloudError: "timed out after 10 s" },
+      play: async (ctx) => {
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector("[data-cloud-error]") !== null &&
+            ctx.document.querySelector('[data-list-row="c-design"]') !== null,
         );
       },
     },

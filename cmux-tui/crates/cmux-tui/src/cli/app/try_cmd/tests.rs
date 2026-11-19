@@ -7,6 +7,7 @@ use base64::Engine as _;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
+use super::copy::{self, Action as CopyAction};
 use super::live::{self, Daemon, Phases, Store};
 use super::resolve::{self, Spec, Unresolved};
 use super::{Command, Live, Plan, choose, parse, try_live, undo_live};
@@ -180,8 +181,190 @@ fn app_try_parse_reads_try_undo_status_and_dry_run() {
     assert!(parse(&words(&[])).is_err());
     assert!(parse(&words(&["a", "b"])).is_err());
     assert!(parse(&words(&["--bogus", "abc1234"])).is_err());
-    assert!(parse(&words(&["../x"])).is_err());
+    assert!(parse(&words(&["a..b"])).is_err());
     assert!(parse(&words(&["status", "--dry-run"])).is_err());
+}
+
+fn copy_of(tree: &str, from: Option<&str>, action: CopyAction, dry_run: bool) -> Command {
+    Command::Copy { tree: tree.into(), from: from.map(PathBuf::from), action, dry_run }
+}
+
+#[test]
+fn app_try_dot_is_the_working_tree_in_a_copy() {
+    assert_eq!(parse(&words(&["."])).unwrap(), copy_of(".", None, CopyAction::Run, false));
+    assert_eq!(
+        parse(&words(&["dir:/src/cmux", "--from", "/A.app", "--dry-run"])).unwrap(),
+        copy_of("/src/cmux", Some("/A.app"), CopyAction::Run, true)
+    );
+    // --app names the golden copy too, as for a PR.
+    assert_eq!(
+        parse(&words(&["./cmux", "--app=/A.app"])).unwrap(),
+        copy_of("./cmux", Some("/A.app"), CopyAction::Run, false)
+    );
+    assert_eq!(parse(&words(&["../x"])).unwrap(), copy_of("../x", None, CopyAction::Run, false));
+    assert_eq!(
+        parse(&words(&[".", "--extract"])).unwrap(),
+        copy_of(".", None, CopyAction::Extract, false)
+    );
+    assert_eq!(
+        parse(&words(&[".", "--stop"])).unwrap(),
+        copy_of(".", None, CopyAction::Stop, false)
+    );
+    assert_eq!(
+        parse(&words(&["--delete", "."])).unwrap(),
+        copy_of(".", None, CopyAction::Stop, false)
+    );
+}
+
+#[test]
+fn app_try_copy_flags_are_refused_where_they_mean_nothing() {
+    // A PR, branch or commit keeps its own behavior: the copy's flags are not its.
+    assert!(parse(&words(&["43455", "--stop"])).is_err());
+    assert!(parse(&words(&["main", "--extract"])).is_err());
+    assert!(parse(&words(&["main", "--from", "/A.app"])).is_err());
+    assert!(parse(&words(&[".", "--stop", "--extract"])).is_err());
+    assert!(parse(&words(&[".", "--stop", "--dry-run"])).is_err());
+    assert!(parse(&words(&[".", "--extract", "--from", "/A.app"])).is_err());
+    assert!(parse(&words(&[".", "--from", "/A.app", "--app", "/B.app"])).is_err());
+    assert!(parse(&words(&[".", "--from"])).is_err());
+    assert!(parse(&words(&["dir:"])).is_err());
+}
+
+#[test]
+fn app_try_dir_targets_never_take_a_branch_name() {
+    let home = Path::new("/Users/me");
+    assert_eq!(copy::dir_target(".", Some(home)), Some(PathBuf::from(".")));
+    assert_eq!(
+        copy::dir_target("~/src/cmux", Some(home)),
+        Some(PathBuf::from("/Users/me/src/cmux"))
+    );
+    assert_eq!(copy::dir_target("~/x", None), None);
+    assert_eq!(copy::dir_target("dir:rel/path", Some(home)), Some(PathBuf::from("rel/path")));
+    for word in ["main", "lane/app-try", "43455", "#43455", "abc1234", ".hidden"] {
+        assert_eq!(copy::dir_target(word, Some(home)), None, "{word}");
+    }
+    // Every word a dir target takes is one the PR/branch/sha form refuses, so no meaning moved.
+    for word in [".", "..", "./a", "../a", "/a"] {
+        assert!(resolve::classify(word).is_none(), "{word}");
+    }
+}
+
+#[test]
+fn app_try_copy_names_a_stable_side_per_checkout() {
+    let name = copy::side_name(Path::new("/Users/me/Projects/checkouts/cmux/lane--App_Try.copy"));
+    assert!(name.starts_with("try-lane-app-try-copy-"), "{name}");
+    assert_eq!(
+        name,
+        copy::side_name(Path::new("/Users/me/Projects/checkouts/cmux/lane--App_Try.copy"))
+    );
+    assert_ne!(name, copy::side_name(Path::new("/Users/me/other/lane--App_Try.copy")));
+    let long = copy::side_name(Path::new(&format!("/x/{}", "a".repeat(80))));
+    let weird = copy::side_name(Path::new("/x/日本"));
+    for name in [&name, &long, &weird] {
+        // side-instance.sh's NAME: [a-z0-9][a-z0-9-]{0,39}.
+        assert!(name.len() <= 40, "{name}");
+        assert!(
+            name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'),
+            "{name}"
+        );
+        assert!(!name.contains("--"), "{name}");
+    }
+    assert!(weird.starts_with("try-tree-"), "{weird}");
+}
+
+#[test]
+fn app_try_copy_routes_each_action_to_the_checkout_s_engine() {
+    let tree = Path::new("/src/cmux");
+    let from = Path::new("/Applications/cmux NIGHTLY.app");
+    let argv = |action, dry_run| -> Vec<String> {
+        copy::engine_args(action, tree, from, "try-cmux-abc123", dry_run)
+            .iter()
+            .map(|word| word.to_string_lossy().into_owned())
+            .collect()
+    };
+    let engine = "/src/cmux/scripts/cmux-next/hot-verify.py";
+    assert_eq!(
+        argv(CopyAction::Run, false),
+        [
+            engine,
+            "run",
+            "--source",
+            "dir:/src/cmux",
+            "--app",
+            "/Applications/cmux NIGHTLY.app",
+            "--repo",
+            "/src/cmux",
+            "--side",
+            "try-cmux-abc123",
+            "--label",
+            "cmux try-cmux-abc123",
+        ]
+    );
+    assert_eq!(
+        argv(CopyAction::Run, true),
+        [
+            engine,
+            "plan",
+            "--source",
+            "dir:/src/cmux",
+            "--app",
+            "/Applications/cmux NIGHTLY.app",
+            "--repo",
+            "/src/cmux"
+        ]
+    );
+    assert_eq!(argv(CopyAction::Extract, false), [engine, "extract", "--side", "try-cmux-abc123"]);
+    assert_eq!(
+        argv(CopyAction::Stop, false),
+        [engine, "stop", "--side", "try-cmux-abc123", "--remove"]
+    );
+    assert_eq!(copy::DEFAULT_FROM, "/Applications/cmux NIGHTLY.app");
+}
+
+#[test]
+fn app_try_copy_says_why_a_build_is_needed_and_offers_the_dev_build() {
+    let result = json!({ "plan": { "needs_build": true, "build": {
+        "Swift": ["a.swift", "b.swift", "c.swift", "d.swift", "e.swift", "f.swift"],
+    } } });
+    let text = copy::needs_build_text(&result, COMMIT, "try-cmux-abc123", "/src/cmux");
+    assert!(text.contains("/src/cmux needs a build"), "{text}");
+    assert!(text.contains("  - Swift: a.swift, b.swift, c.swift, d.swift, e.swift, ..."), "{text}");
+    assert!(text.contains("cmux live start --swift"), "{text}");
+    assert!(
+        text.contains(&format!("cmux-ci build cmux --ref {COMMIT} --tag try-cmux-abc123")),
+        "{text}"
+    );
+    // No Swift, no live code line; the dev build is still offered.
+    let ffi = json!({ "plan": { "build": { "Rust the app links (FFI)": ["x.rs"] } } });
+    let text = copy::needs_build_text(&ffi, COMMIT, "s", "/t");
+    assert!(!text.contains("live start --swift"), "{text}");
+    assert!(text.contains("cmux-ci build cmux"), "{text}");
+}
+
+#[test]
+fn app_try_copy_summary_names_the_socket_and_the_way_out() {
+    let result = json!({
+        "copy": "/side/cmux try.app", "socket": "/tmp/side sock", "edit_to_live_s": 12.34,
+        "applied": { "web": { "how": "dev server" }, "rust": { "how": "published tree build" } },
+    });
+    let text = copy::running(&result, Path::new("/Applications/cmux NIGHTLY.app"), "/src/cmux");
+    assert!(text.contains("cmux --app-socket '/tmp/side sock' <command>"), "{text}");
+    assert!(text.contains("cmux app try /src/cmux --stop"), "{text}");
+    assert!(text.contains("cmux app try /src/cmux --extract"), "{text}");
+    assert!(text.contains("(12.3 s)"), "{text}");
+    assert!(text.contains("daemon Rust"), "{text}");
+    let nothing = copy::running(&json!({ "applied": {} }), Path::new("/A.app"), ".");
+    assert!(nothing.contains("nothing in the app changes"), "{nothing}");
+}
+
+#[test]
+fn app_try_copy_elsewhere_says_to_push_first_only_when_needed() {
+    assert!(copy::unpushed(true, Some(0)).is_some());
+    assert!(copy::unpushed(false, None).is_some());
+    assert!(copy::unpushed(false, Some(2)).is_some());
+    assert_eq!(copy::unpushed(false, Some(0)), None);
+    assert_eq!(copy::shell_word("/a/b"), "/a/b");
+    assert_eq!(copy::shell_word("/a b/it's"), r"'/a b/it'\''s'");
 }
 
 #[test]
