@@ -18,8 +18,9 @@ public final class AppStatusStripView: NSView {
     private var views: [(app: String, mount: String, view: AppSceneHostingView)] = []
     private var lastWidth: CGFloat = 0
 
-    public init(items: AppStatusItems) {
+    public init(items: AppStatusItems, onWidthChange: (() -> Void)? = nil) {
         self.items = items
+        self.onWidthChange = onWidthChange
         super.init(frame: .zero)
         identifier = Self.identifier
         isHidden = true

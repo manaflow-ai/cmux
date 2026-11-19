@@ -21,9 +21,6 @@ final class AppsService {
     unowned let services: AppServices
     let transport: DaemonAppsTransport
     let client: AppsClient
-    /// The extensions' status items (`cmux.status/1`): each window's titlebar strip and the menu bar
-    /// item's menu draw them; nothing shows unless an installed app contributes one.
-    private(set) lazy var statusItems = AppStatusItems(client: client)
     /// The control router once the socket starts (the CodeRouter page's ops run on it).
     private(set) var controlRouter: ControlRouter?
     /// The React CodeRouter page tab (Debug Settings `coderouter.surface = web`), registered on first open.
@@ -60,7 +57,6 @@ final class AppsService {
 
     func start() {
         client.start()
-        statusItems.start()
         // task-owner: one off-main load of the bundled package directories and the scope table at launch
         Task { [client] in client.useBundledDirectories(await AppPlatformResources.bundledDirectories()) }
     }

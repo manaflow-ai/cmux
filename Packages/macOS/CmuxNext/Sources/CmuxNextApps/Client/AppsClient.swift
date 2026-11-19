@@ -54,6 +54,13 @@ public final class AppsClient {
     /// Apps whose log is followed (followed again after a reconnect).
     @ObservationIgnored var followed: Set<String> = []
     @ObservationIgnored let keyPrefix = UUID().uuidString.prefix(8).lowercased()
+    /// The extensions' status items (`cmux.status/1`), listed from the first read on: every titlebar
+    /// strip and the menu bar item's menu draw them; nothing shows unless an installed app contributes one.
+    @ObservationIgnored public private(set) lazy var statusItems: AppStatusItems = {
+        let items = AppStatusItems(client: self)
+        items.start()
+        return items
+    }()
     static let logLimit = 500
 
     public init(transport: any AppsTransport) {
