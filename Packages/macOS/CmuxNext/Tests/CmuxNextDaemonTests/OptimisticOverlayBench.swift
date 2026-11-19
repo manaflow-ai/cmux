@@ -5,7 +5,7 @@ import Testing
 /// The `overlay` bench (`scripts/bench/benches/overlay.py`): intent to overlay, the main-thread time of
 /// `DaemonStore.intend` (the overlay's rule, its record writes and their publication) for the intents whose overlay
 /// rules are cmux-layout-reducer `optimistic` (#37429): a split, New Column and Split Left on screens of 2, 64 and 256
-/// panes, a tab move in a pane of 50 tabs and a workspace move among 200. Each sample is one intend; the intent is
+/// panes (a right-leaning chain, whose target is its deepest pane, and a balanced tree: scenarios `*_balanced`), a tab move in a pane of 50 tabs and a workspace move among 200. Each sample is one intend; the intent is
 /// rejected after it (outside the clock), so every sample starts from the same records. Prints one
 /// `OVERLAY-BENCH {json}` line per scenario with its samples in ns. It compiles and runs at a base without #37429
 /// too, so the bench's before and after are the same code.
@@ -28,6 +28,16 @@ struct OptimisticOverlayBench {
         return node
     }
 
+    /// A balanced tree of panes `range` (depth log2 of the count), as a realistic layout is: each split halves its
+    /// panes, alternating direction by depth.
+    private static func balanced(_ range: ClosedRange<Int>, depth: Int = 0) -> LayoutNode {
+        guard range.count > 1 else { return .leaf(PaneID(rawValue: UInt64(range.lowerBound))) }
+        let mid = range.lowerBound + range.count / 2 - 1
+        return .split(id: SplitID(rawValue: UInt64(1000 + mid)), resourceID: nil, direction: depth % 2 == 0 ? .right : .down,
+                      ratio: 0.5, a: balanced(range.lowerBound...mid, depth: depth + 1),
+                      b: balanced((mid + 1)...range.upperBound, depth: depth + 1))
+    }
+
     private static func panes(_ count: Int, tabs: Int = 1) -> [PaneSnapshot] {
         (1...count).map { pane in
             PaneSnapshot(id: PaneID(rawValue: UInt64(pane)),
@@ -35,10 +45,11 @@ struct OptimisticOverlayBench {
         }
     }
 
-    private static func store(panes count: Int, tabs: Int = 1, workspaces extra: Int = 0) -> DaemonStore {
+    /// One screen of `count` panes: a ``chain(_:)`` (the target the deepest pane), or ``balanced(_:depth:)``.
+    private static func store(panes count: Int, tabs: Int = 1, workspaces extra: Int = 0, balanced isBalanced: Bool = false) -> DaemonStore {
         let store = DaemonStore()
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 2), active: true, activePane: PaneID(rawValue: UInt64(count)),
-                                    layout: chain(count), panes: panes(count, tabs: tabs))
+                                    layout: isBalanced ? balanced(1...count) : chain(count), panes: panes(count, tabs: tabs))
         var workspaces = [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: key, name: "1", screens: [screen])]
         for index in 0..<extra {
             let id = UInt64(10_000 + index)
@@ -122,35 +133,35 @@ struct OptimisticOverlayBench {
         print("OVERLAY-BENCH {\"scenario\":\"\(scenario)\",\"panes\":\(panes),\"unit\":\"ns\",\"p50\":\(p50),\"p95\":\(p95),\"samples\":[\(list)]}")
     }
 
-    @Test(arguments: [2, 64, 256])
-    func split(panes count: Int) throws {
-        let store = Self.store(panes: count)
+    @Test(arguments: [false, true], [2, 64, 256])
+    func split(balanced: Bool, panes count: Int) throws {
+        let store = Self.store(panes: count, balanced: balanced)
         let target = PaneID(rawValue: UInt64(count))
         let samples = Self.measurePatch(store, panes: count) { .splitPane(pane: target, direction: .right, ratio: 0.5, provisional: ProvisionalPane()) }
         #expect(store.mirrorViolations.isEmpty)
-        Self.report("split", panes: count, samples)
+        Self.report("split" + (balanced ? "_balanced" : ""), panes: count, samples)
     }
 
-    @Test(arguments: [2, 64, 256])
-    func splitLeft(panes count: Int) throws {
-        let store = Self.store(panes: count)
+    @Test(arguments: [false, true], [2, 64, 256])
+    func splitLeft(balanced: Bool, panes count: Int) throws {
+        let store = Self.store(panes: count, balanced: balanced)
         let target = PaneID(rawValue: UInt64(count))
         let samples = Self.measurePatch(store, panes: count) {
             .splitPane(pane: target, direction: .right, ratio: 0.5, provisional: ProvisionalPane().placed(before: true))
         }
         #expect(store.mirrorViolations.isEmpty)
-        Self.report("split_left", panes: count, samples)
+        Self.report("split_left" + (balanced ? "_balanced" : ""), panes: count, samples)
     }
 
-    @Test(arguments: [2, 64, 256])
-    func newColumn(panes count: Int) throws {
-        let store = Self.store(panes: count)
+    @Test(arguments: [false, true], [2, 64, 256])
+    func newColumn(balanced: Bool, panes count: Int) throws {
+        let store = Self.store(panes: count, balanced: balanced)
         let target = PaneID(rawValue: UInt64(count))
         let samples = Self.measurePatch(store, panes: count) {
             .splitPane(pane: target, direction: .right, ratio: 0.5, provisional: ProvisionalPane(columnWidth: 0.5))
         }
         #expect(store.mirrorViolations.isEmpty)
-        Self.report("new_column", panes: count, samples)
+        Self.report("new_column" + (balanced ? "_balanced" : ""), panes: count, samples)
     }
 
     @Test func moveTab() throws {
