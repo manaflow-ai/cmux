@@ -134,6 +134,35 @@ impl OpRouter for MuxRouter {
             mux.close_backend_terminal(surface);
         }
     }
+
+    fn setting_get(&self, key: &str) -> Option<Value> {
+        let mux = self.mux.upgrade()?;
+        let root = mux.settings_effective_root();
+        let mut value = &root;
+        for part in cmux_config::Target::Key(key.to_string()).path() {
+            value = value.get(&part)?;
+        }
+        Some(value.clone())
+    }
+
+    fn setting_set(&self, key: &str, value: Value) -> Result<(), super::supervisor::ApiError> {
+        let mux = self.mux.upgrade().ok_or_else(|| {
+            super::supervisor::ApiError::new("apps.setting.unavailable", "the daemon is stopping")
+        })?;
+        // The person's own switch in the App Store: the store admitted only origin user.
+        let meta = cmux_config::WriteMeta {
+            origin: cmux_config::Origin::User,
+            idempotency_key: None,
+            if_revision: None,
+        };
+        mux.settings_apply(cmux_config::Op::Set {
+            target: cmux_config::Target::Key(key.to_string()),
+            value,
+            meta,
+        })
+        .map(|_| ())
+        .map_err(|refusal| super::supervisor::ApiError::new("apps.setting", refusal.to_string()))
+    }
 }
 
 /// The first App Store chat read (scope `agent_chat:read`), kept for the apps and templates

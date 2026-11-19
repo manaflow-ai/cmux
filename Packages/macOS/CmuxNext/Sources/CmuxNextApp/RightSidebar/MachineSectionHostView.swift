@@ -28,7 +28,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
             style: { ServerTunables.machinesStyle.value }, joined: { joined },
             newWorkspace: { registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string($0)])) },
             addMachine: { registry.perform("device.add") }, present: { _, _ in },
-            menu: { kind, row in Self.menu(kind, row: row, registry: registry) }, cloudTeam: { [weak cloud = services.cloud] in cloud.flatMap { TeamRowText.machinesTeam($0.auth) } },
+            menu: { kind, row in row.menu(kind, registry: registry) }, cloudTeam: { [weak cloud = services.cloud] in cloud.flatMap { TeamRowText.machinesTeam($0.auth) } },
             openJoined: { [weak services] machine in
                 guard let services else { return .unavailable("app") }
                 return await Self.signedInDial(services).open(machine)
@@ -80,20 +80,6 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
             })
     }
 
-    /// A row's native menu: New Workspace on This Machine (`row`, disabled while the link is down), or a
-    /// joined machine's Check, Rotate Credential and Revoke… (`joined`), run on the row it opened on.
-    static func menu(_ kind: String, row: MachineSectionRow, registry: ActionRegistry) -> NSMenu? {
-        if kind == "joined", let machine = row.joined { return joinedMenu(machine, rowID: row.id, registry: registry) }
-        guard kind == "row", let item = registry.makeContextMenuItem(for: "workspace.newOnMachine", in: .machineSection,
-                                                                     arguments: ["machine": .string(row.id)]) else { return nil }
-        item.title = MachineSectionRow.newWorkspaceTitle
-        item.isEnabled = row.isConnected
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        menu.addItem(item)
-        return menu
-    }
-
     /// A joined machine's menu item. Revoke asks first; Rotate and Revoke read the list again after.
     static func perform(_ action: JoinedMachineAction, _ machine: JoinedMachine, rowID: String, services: AppServices) {
         let window = services.windows.active?.window
@@ -116,13 +102,6 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
 
     /// The registered action of a joined machine's menu row (`JoinedMachineActionCatalog`).
     static func actionID(_ action: JoinedMachineAction) -> ActionID { ActionID(rawValue: "machine.joined.\(action.rawValue)") }
-
-    /// A joined machine's "…" menu: the registry's rows for it, run on its id with the row it opened
-    /// on (`row`, where Check records its result).
-    static func joinedMenu(_ machine: JoinedMachine, rowID: String, registry: ActionRegistry) -> NSMenu {
-        registry.makeContextMenu(for: .joinedMachine, target: ActionTargetRef(kind: .machine, id: machine.id),
-                                 arguments: ["row": .string(rowID)])
-    }
 
     static func bindJoinedActions(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
