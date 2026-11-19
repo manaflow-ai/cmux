@@ -160,7 +160,7 @@ Or ask: "make cmux look and work like the Codex app"
 | New thread | Shift-Command-O: New Agent Chat with Codex (`palette.newAgentChat`, `harness: codex`) | It opens as a tab in this workspace, not as its own sidebar row. Shift-Command-O was Restore Previous App Launch |
 | Composer: Return sends, attachments | Return sends already; `agentPane.attachmentView` `strip` | |
 | Model and reasoning picker | Control-Shift-M: Switch Model; effort with Set Agent Chat Effort in the palette | No effort picker in the composer |
-| Approval modes | The mode menu (Set Agent Chat Mode) per chat | A recipe can't set `agents.defaultPermissionMode`: only you can |
+| Approval modes | The mode menu (Set Agent Chat Mode) per chat | A recipe can't set `agents.defaultPermissionMode` (only you can), nor the Codex approval mode in its own config |
 | Local, worktree or cloud thread | Local by default; New Git Worktree and New Cloud Chat in the palette | No "new chat in its own worktree" choice |
 | Review pane | Control-Shift-G and a tab bar button open the diff (`tabs.toolbarButtons`), `diff.layout` `unified`; commit and push from the palette | No staged and unstaged scopes, no per-hunk stage or revert, no review comments sent to the agent |
 | Terminal | Control-backtick opens a terminal tab already | No terminal panel that one key shows and hides |
@@ -193,11 +193,11 @@ Or ask: "make cmux true black with a dense sidebar of chats by project"
 | Worktree per thread | New Git Worktree in the palette, then a chat in it | No setting starts every new chat in its own worktree |
 | Git panel | A tab bar button opens the diff; commit and push from the palette | No one step that commits, pushes and opens a pull request |
 | Model picker | Shift-Command-M: Switch Model (was Copy Mode) | |
-| Full access or supervised | The mode menu per chat | A recipe can't set `agents.defaultPermissionMode`: only you can |
+| Full access or supervised | The mode menu per chat | A recipe can't set `agents.defaultPermissionMode` (only you can), nor the agent's own mode in its config |
 | Terminal drawer | Control-backtick opens a terminal tab | No drawer that one key shows and hides (Command-J starts cmux's key sequences) |
 | Split terminal | Command-D and Shift-Command-D already | |
 | Switch threads | Shift-Command-[ and ] step through the sidebar; Command-1 to 9 already | |
-| Default model for new threads | | No setting picks the agent or model of a new chat |
+| Default model for new threads | | No cmux setting picks the agent or model of a new chat, and a recipe does not edit the agent's own config |
 
 ### Like the Claude Code desktop app
 
@@ -216,7 +216,7 @@ Or ask: "make cmux look and work like the Claude Code desktop app"
 | --- | --- | --- |
 | Sessions by project | `sidebar.groupBy` `folder`, `sidebar.workspaceRow.branch`, `sidebar.workspaceRow.pullRequest` | |
 | New session | Command-N: New Agent Chat with Claude (`harness: claude`) | It opens as a tab in this workspace. Command-N was New Workspace |
-| Permission modes, plan mode | Shift-Command-M: the mode menu, with plan mode (was Copy Mode) | A recipe can't set `agents.defaultPermissionMode`: only you can. No Accept edits or Auto mode of cmux's own |
+| Permission modes, plan mode | Shift-Command-M: the mode menu, with plan mode (was Copy Mode) | A recipe can't set `agents.defaultPermissionMode` (only you can), nor the default mode in Claude Code's own settings. No Accept edits or Auto mode of cmux's own |
 | Model and effort | Shift-Command-I: Switch Model; Shift-Command-E: Set Effort | |
 | Type / for commands | The composer's / menu already | |
 | Return sends, Shift-Return a new line | Already | |
