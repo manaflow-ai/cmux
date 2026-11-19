@@ -3,8 +3,9 @@
 
 No app, no display, no fleet: the app is test_close_tab_screen.py's function with one pane's tabs, and here it also
 takes the script actions that make a tab beside a named tab, lists a new tab under a provisional id for some reads,
-and has a window that can become the key window. So this proves what the tool asks, in which order, how it counts
-and what its report says, not that an app makes those tabs, nor what a key costs in a workspace of that many tabs.
+and shows another workspace when a script asks (its list of tabs is one list: the workspaces here have no tabs of
+their own). So this proves what the tool asks, in which order, how it counts and what its report says, not that an
+app makes those tabs or shows that workspace, nor what a key costs in a workspace of that many tabs.
 
     python3 -I scripts/cmux-next/tests/test_key_tabs_screen.py
 """
@@ -32,8 +33,9 @@ class KeyTabsApp(close.CloseApp):
 
     def __init__(self, folder, **more):
         super().__init__(folder, **more)
-        self.actions, self.window_calls, self.order = [], [], []  # each action, each window call, the calls' order
-        self.is_key, self.takes_key = False, True  # the shell window is the key window; it becomes it when asked
+        self.actions, self.order = [], []  # each action that makes a tab, and the order of the calls by kind
+        # The workspace that the app shows, each `goToWorkspace` action, and whether the app goes there when asked.
+        self.shows, self.went, self.goes = "ws-0", [], True
         # `refuse_from`: the app refuses each action from this number on. `unlisted`: the numbers of the actions that
         # the app takes and whose tab it never lists. `provisional_reads`: the reads of the list in which a new tab
         # has its provisional id (`pending`: the reads that are left for a tab).
@@ -50,13 +52,19 @@ class KeyTabsApp(close.CloseApp):
                     "tabs": [f"{self.listed(name)}:{self.kinds[name]}" for name in self.ids]}
             other = {"pane": "pane-0", "selected": "far-0", "tabs": ["far-0:terminal"]}
             self.pending = {name: left - 1 for name, left in self.pending.items() if left > 1}
-            window = {"id": "window-1", "is_key": self.is_key, "model": {"pane": "pane-1"}, "topology": [other, mine]}
-            return {"windows": [window] if self.focus else []}
+            return self.focus_fact(model={"pane": "pane-1"}, topology=[other, mine])
         if method == "debug.window.focus":
-            self.window_calls.append(params)
             self.order.append("window")
-            self.is_key = self.takes_key
-            return {"key": "window-1" if self.is_key else None, "front": "window-1"}
+            return self.window_focus(params)
+        if method == "snapshot.get":
+            listed = [{"id": f"ws-{n}", "name": f"workspace {n}"} for n in range(self.workspaces)]
+            return {"topology": {"workspaces": listed, "focus": {"workspace": self.shows}}}
+        if method == "action.run" and action == "goToWorkspace":
+            self.went.append(params)
+            self.order.append("workspace")
+            if self.goes:
+                self.shows = params["args"]["workspace"]
+            return {}
         if method == "action.run":
             self.actions.append(params)
             self.order.append("action")
@@ -88,7 +96,8 @@ class KeyTabsApp(close.CloseApp):
 
 
 def options(folder, **changed):
-    return close.options(folder, **{**dict(keys="t,w", gaps="0", close_cases="idle,hold", key_tabs=[6, 84]), **changed})
+    # 5 workspaces asked: the app has 3 at its launch, so the session's maker makes `ws-3` and `ws-4`.
+    return close.options(folder, **{**dict(keys="t,w", gaps="0", close_cases="idle,hold", key_tabs=[6, 84], workspaces=5), **changed})
 
 
 class KeyTabsTests(unittest.TestCase):
@@ -98,13 +107,15 @@ class KeyTabsTests(unittest.TestCase):
 
     def run_mode(self, app, **changed):
         def make(socket_path, count, live, url, deadline, out):
+            app.workspaces += count
             return {"asked_more": count, "live_shells": live, "maker_exit": 0, "maker_said_made": count, "seed_s": 0.0}
         screen = new_surface_screen.Screen(options(self.folder, **changed), app.rpc, app.tools(), sleep=app.pause, make_session=make,
                                            clock=app.clock, start=app.start)
         said = io.StringIO()
         with contextlib.redirect_stdout(said):
             report = screen.run()
-        self.assertIn("key_tabs", report, "new_surface_screen.py has no `--key-tabs`: the report says no count of the key's workspace's tabs")
+        if not report.get("stopped"):
+            self.assertIn("key_tabs", report, "new_surface_screen.py has no `--key-tabs`: the report says no count of the key's workspace's tabs")
         return report, said.getvalue()
 
     def test_the_tool_makes_the_keys_workspace_each_asked_count_of_tabs_and_half_of_them_are_pages(self):
@@ -132,8 +143,11 @@ class KeyTabsTests(unittest.TestCase):
         # At the key the workspace also has the case's own tabs: Control-`'s terminal tab, and the idle close's New Tab page.
         self.assertEqual([row["workspace_tabs_before"] for row in rows], [7, 8, 7, 85, 86, 85])
         self.assertEqual(rows[1]["workspace_kinds_before"], {"terminal": 4, "browser": 3, "newTab": 1})
-        self.assertEqual(report["cases"][f"cmd-w/idle, 84 tabs in the key's workspace before the case"]["key_tabs"],
-                         {"asked": 84, "had": 84, "workspace_tabs_before": {"min": 86, "max": 86}, "shell_window_is_key": {"yes": 1, "of": 1}})
+        case = report["cases"]["cmd-w/idle, 84 tabs in the key's workspace before the case"]
+        self.assertEqual(case["key_tabs"], {"asked": 84, "had": 84, "workspace_tabs_before": {"min": 86, "max": 86}})
+        self.assertEqual(case["active"], {"app_active": {"yes": 1, "of": 1}, "shell_window_is_key": {"yes": 1, "of": 1}})
+        # The report's own limit: the 2 counts are of one launch, the larger one second.
+        self.assertIn("the larger count comes second in the same launch", report["key_tabs"]["limit"])
         # Each case's own tabs are closed again, and no made tab: the key's pane has 83 of the 84 tabs.
         self.assertEqual(len(app.ids), 83)
 
@@ -171,39 +185,58 @@ class KeyTabsTests(unittest.TestCase):
         size = report["key_tabs"]["sizes"][0]
         self.assertEqual((size["tabs"], size["fault"], report["rows"][0]["invalid"]), (6, None, []))
 
-    def test_the_shell_window_is_made_the_key_window_before_the_first_tab_and_each_row_says_what_it_was(self):
+    def test_the_tool_first_shows_a_workspace_of_the_made_session_then_asks_for_the_active_app_then_makes_the_tabs(self):
         app = KeyTabsApp(self.folder)
-        report, _ = self.run_mode(app, key_tabs=[6], close_cases="idle")
-        self.assertEqual((app.window_calls, app.order[0], app.order.count("window")), ([{"window": "window-1"}], "window", 1))
-        self.assertEqual(report["key_tabs"]["key_window"], {"by": "debug.window.focus", "window": "window-1",
-                                                            "reply": {"key": "window-1", "front": "window-1"}})
-        self.assertEqual([row["shell_window_is_key"] for row in report["rows"]], [True, True])
-        # A window that did not become the key window is a fact of each row, and no fault of it.
-        other = KeyTabsApp(self.folder)
-        other.takes_key = False
-        report, _ = self.run_mode(other, key_tabs=[6], close_cases="idle")
-        self.assertEqual([(row["shell_window_is_key"], row["invalid"]) for row in report["rows"]], [(False, []), (False, [])])
-        self.assertEqual(report["cases"]["cmd-w/idle, 6 tabs in the key's workspace before the case"]["key_tabs"]["shell_window_is_key"],
-                         {"yes": 0, "of": 1})
+        report, said = self.run_mode(app, key_tabs=[6], close_cases="idle")
+        # The first workspace that the session's maker made, by the app's own action, as a script.
+        self.assertEqual(app.went, [{"action": "goToWorkspace", "args": {"workspace": "ws-3"}, "focus": True, "origin": "script"}])
+        self.assertEqual((app.order[:3], app.order.count("workspace"), app.order.count("window")), (["workspace", "window", "action"], 1, 1))
+        self.assertEqual(app.window_calls, [{"window": "window-1", "activate": True}])
+        self.assertEqual(report["key_workspace"], {"is": "a workspace of the made session", "id": "ws-3", "name": "workspace 3",
+                                                   "shown_by_the_app": True, "by": "action.run goToWorkspace, then snapshot.get's focus"})
+        self.assertEqual(report["head"], ["the app was active: yes", "the key's workspace: a workspace of the made session (workspace 3)"])
+        self.assertIn("NEW-SURFACE-SCREEN-HEAD the app was active: yes; the key's workspace: a workspace of the made session (workspace 3)",
+                      said.splitlines())
+        self.assertEqual([(row["app_active"], row["shell_window_is_key"], row["invalid"]) for row in report["rows"]], [(True, True, [])] * 2)
+
+    def test_a_made_workspace_that_the_app_does_not_show_ends_the_run_before_the_ask_a_tab_or_a_case(self):
+        app = KeyTabsApp(self.folder)
+        app.goes = False
+        report, said = self.run_mode(app, key_tabs=[6])
+        self.assertTrue(report["stopped"].startswith("the key's workspace: the app does not show the made workspace `workspace 3` "), report["stopped"])
+        self.assertIn("it shows ws-0", report["stopped"])
+        self.assertEqual((len(app.went), app.window_calls, app.actions, app.strips, report["rows"], report["cases"]), (1, [], [], 0, [], {}))
+        self.assertEqual(report["exit_code"], new_surface_screen.STOPPED_EXIT)
+        self.assertIn("; STOPPED the key's workspace: ", said.splitlines()[-1])
+
+    def test_with_no_made_workspace_the_keys_workspace_is_the_launchs_and_the_report_says_it(self):
+        app = KeyTabsApp(self.folder)
+        report, _ = self.run_mode(app, key_tabs=[6], keys="t", workspaces=0)
+        self.assertEqual((app.went, report["key_workspace"]), ([], {"is": "the workspace that the app showed at its launch (no workspace was made)"}))
+        self.assertEqual(report["head"][1], "the key's workspace: the workspace that the app showed at its launch (no workspace was made)")
+        self.assertEqual([row["invalid"] for row in report["rows"]], [[]])
 
     def test_a_rows_line_and_a_counts_line_say_the_tabs(self):
         _, said = self.run_mode(KeyTabsApp(self.folder), keys="t", key_tabs=[6])
         row = next(line for line in said.splitlines() if "-ROW cmd-t-idle-tabs6-0" in line)
-        self.assertIn(" workspace_tabs_before=7 shell_window_is_key=True", row)
+        self.assertIn(" workspace_tabs_before=7 app_active=True shell_window_is_key=True", row)
         size = next(line for line in said.splitlines() if line.startswith("NEW-SURFACE-SCREEN-KEY-TABS "))
         self.assertIn('"asked": 6', size)
         self.assertIn('"tabs": 6', size)
 
-    def test_without_the_argument_the_tool_makes_no_tab_and_asks_for_no_key_window(self):
+    def test_without_the_argument_the_tool_makes_no_tab_and_shows_no_other_workspace(self):
         app = KeyTabsApp(self.folder)
         screen = new_surface_screen.Screen(options(self.folder, key_tabs=[], close_cases="idle"), app.rpc, app.tools(), sleep=app.pause,
                                            make_session=lambda *asked: {}, clock=app.clock, start=app.start)
         with contextlib.redirect_stdout(io.StringIO()):
             report = screen.run()
-        self.assertEqual((app.actions, app.window_calls), ([], []))
+        self.assertEqual((app.actions, app.went), ([], []))
         self.assertEqual((list(report["cases"]), [row["label"] for row in report["rows"]]), (["cmd-t/idle", "cmd-w/idle"], ["cmd-t-idle-0", "cmd-w-idle-0"]))
         self.assertNotIn("key_tabs", report)
-        self.assertEqual([name for row in report["rows"] for name in row if name in ("key_tabs", "workspace_tabs_before", "shell_window_is_key")], [])
+        self.assertEqual([name for row in report["rows"] for name in row if name in ("key_tabs", "workspace_tabs_before", "workspace_kinds_before")], [])
+        # The ask for the active app is each take's: the tabs' argument does not change it.
+        self.assertEqual(app.window_calls, [{"window": "window-1", "activate": True}])
+        self.assertEqual(report.get("key_workspace"), {"is": "the workspace that the app showed at its launch (the tool asked for no other)"})
 
     def test_the_argument_is_counts_that_rise(self):
         self.assertTrue(hasattr(new_surface_screen, "key_tabs"), "new_surface_screen.py has no `key_tabs`: the mode has no `--key-tabs`")

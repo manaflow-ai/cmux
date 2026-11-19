@@ -383,6 +383,20 @@ class FakeApp:
         # `records`: the spare flags of the opening records that each frame_strip makes (None: one, of a spare, for
         # each opening). The app's records and its openings are not one count: a Cmd-N of a reserved workspace makes none.
         self.records = None
+        # The app at its launch is not active and has no key window. `takes_focus`: False for an app that does not
+        # become active when it is asked. `window_calls`: each `debug.window.focus` call's params.
+        self.active, self.is_key, self.takes_focus, self.window_calls = False, False, True, []
+
+    def focus_fact(self, **window):
+        """The app's `debug.focus` answer: whether the app is active, and its one window (a test's own fields in `window`)."""
+        return {"app_active": self.active, "windows": [{"id": "window-1", "is_key": self.is_key, **window}]}
+
+    def window_focus(self, params):
+        """`debug.window.focus`: the app becomes active, and its window the key window, only with `activate`."""
+        self.window_calls.append(params)
+        if params.get("activate") is True and self.takes_focus:
+            self.active = self.is_key = True
+        return {"key": "window-1" if self.is_key else None, "front": "window-1"}
 
     def pause(self, _seconds):
         """The tool's pause. No clock: the app's call that goes on ends in the pause number `ends_in`."""
@@ -422,6 +436,10 @@ class FakeApp:
             return {"topology": {"workspaces": [{"id": str(n)} for n in range(self.workspaces)]}}
         if method == "debug.cef":
             return {"state": "ready", "unavailable": None, "default_engine": "cef"}
+        if method == "debug.focus":
+            return self.focus_fact()
+        if method == "debug.window.focus":
+            return self.window_focus(params)
         if method == "debug.agent_pane":
             return {"engine": self.engine} if action == "engine" else {"error": "the focused pane shows no agent page"}
         if action == "state":

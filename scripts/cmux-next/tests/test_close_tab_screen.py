@@ -209,7 +209,8 @@ class CloseApp(base.FakeApp):
         if method == "debug.focus":
             mine = {"pane": "pane-1", "selected": self.shown, "tab_count": len(self.ids), "tabs": [f"{name}:{self.kinds[name]}" for name in self.ids]}
             other = {"pane": "pane-0", "selected": "far-0", "tab_count": 1, "tabs": ["far-0:terminal"]}
-            return {"windows": [{"model": {"pane": "pane-1", "resolved_tab": self.shown}, "consistent": True, "topology": [other, mine]}] if self.focus else []}
+            # `focus` False: the app lists its window with no pane.
+            return self.focus_fact(model={"pane": "pane-1", "resolved_tab": self.shown}, consistent=True, topology=[other, mine] if self.focus else [])
         if method == "debug.key" and "sequence" in params:
             self.sequences.append(params)
             if self.refuse_sequence:

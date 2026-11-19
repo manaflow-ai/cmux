@@ -42,10 +42,12 @@ def frame(index, **bad):
 
 class App:
     """The app's side of the socket. `bad` is the case with bad frames: its 2nd recording has a frame between the two
-    pictures and took no spare, its 5th fails, its 8th has a blank frame."""
+    pictures and took no spare, its 5th fails, its 8th has a blank frame. `window`: the app lists one window (with no
+    pane), and it becomes active, with that window as its key window, when `debug.window.focus` asks with `activate`."""
 
-    def __init__(self, path, bad):
+    def __init__(self, path, bad, window=False):
         self.bad, self.calls, self.openings, self.strips = bad, [], [], 0
+        self.window, self.active = window, False
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server.bind(path)
         self.server.listen(8)
@@ -72,6 +74,11 @@ class App:
         method, params = request["method"], request.get("params") or {}
         self.calls.append([method, params])
         action = params.get("action")
+        if self.window and method == "debug.focus":
+            return {"ok": True, "result": {"app_active": self.active, "windows": [{"id": "window-1", "is_key": self.active}]}}
+        if self.window and method == "debug.window.focus":
+            self.active = params.get("activate") is True
+            return {"ok": True, "result": {"key": "window-1" if self.active else None, "front": "window-1"}}
         if method == "debug.new_tab" and action == "state":
             return {"ok": True, "result": {"spares": [{"ready": True}], "openings": list(self.openings)}}
         if method == "debug.new_tab" and action == "frame_strip":
@@ -94,16 +101,16 @@ class App:
         self.server.close()
 
 
-def outcome(driver_folder, arguments, bad, files=NEEDED):
+def outcome(driver_folder, arguments, bad, files=NEEDED, window=False):
     """What one run of `driver_folder`'s driver asked the app, printed and returned, in a scratch folder that holds
-    only `files` of it."""
+    only `files` of it. `window`: the app lists a window that can become the key window of an active app (`App`)."""
     scratch = tempfile.mkdtemp(prefix="cmd-n-paint-default-")
     try:
         only = os.path.join(scratch, "driver")
         os.mkdir(only)
         for name in files:
             shutil.copy(os.path.join(driver_folder, name), only)
-        app = App(os.path.join(scratch, "app.sock"), bad)
+        app = App(os.path.join(scratch, "app.sock"), bad, window)
         try:
             done = subprocess.run([sys.executable, "-I", "-c", RUN, os.path.join("driver", NEEDED[0]), "--socket", "app.sock",
                                    "--out", "out", "--json", "report.json", *arguments],
@@ -144,8 +151,12 @@ class DefaultPathTests(unittest.TestCase):
     def test_screen_runs_its_own_mode_and_judges_nothing(self):
         # This app's frames are one window's, with no word of their capture: each row is INVALID, and the exit is 0.
         mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
-        got = outcome(str(HERE.parent), ["--screen", "--runs", "1", "--keys", "n", "--page-watch", "0"], bad=False, files=mode)
+        got = outcome(str(HERE.parent), ["--screen", "--runs", "1", "--keys", "n", "--page-watch", "0"], bad=False, files=mode, window=True)
         self.assertEqual((got["exit"], got["stderr"]), (0, []))
+        # One ask for the active app, before the first recording.
+        asked = [index for index, call in enumerate(got["calls"]) if '"debug.window.focus"' in call]
+        self.assertEqual([json.loads(got["calls"][index])[1] for index in asked], [{"window": "window-1", "activate": True}])
+        self.assertLess(asked[0], next(index for index, call in enumerate(got["calls"]) if '"frame_strip"' in call))
         self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 2 rows, 2 INVALID, 0 pictures kept")
         strips = [json.loads(call)[1] for call in got["calls"] if '"frame_strip"' in call]
         self.assertEqual([(s["above"], s["duration_ms"], s.get("repeat"), s.get("repeat_interval_ms")) for s in strips],
@@ -157,7 +168,7 @@ class DefaultPathTests(unittest.TestCase):
         # 12 runs of 2 keys, alone and after a key, are 72 openings in the run and 2 at most in one recording. The
         # tool counts the app's new opening records for each recording alone, so the run's own count is no limit.
         mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
-        got = outcome(str(HERE.parent), ["--screen", "--runs", "12", "--page-watch", "0"], bad=False, files=mode)
+        got = outcome(str(HERE.parent), ["--screen", "--runs", "12", "--page-watch", "0"], bad=False, files=mode, window=True)
         self.assertEqual((got["exit"], got["stderr"]), (0, []))
         self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 48 rows, 48 INVALID, 0 pictures kept")
 
@@ -166,7 +177,7 @@ class DefaultPathTests(unittest.TestCase):
         # frames are one window's and it lists no tabs, so each row is INVALID. The keys that went to the app are
         # counted, and not their order: the order is by the clock.
         mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
-        got = outcome(str(HERE.parent), ["--screen", "--runs", "1", "--keys", "w", "--page-watch", "0"], bad=False, files=mode)
+        got = outcome(str(HERE.parent), ["--screen", "--runs", "1", "--keys", "w", "--page-watch", "0"], bad=False, files=mode, window=True)
         self.assertEqual((got["exit"], got["stderr"]), (0, []))
         self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 4 rows, 4 INVALID, 0 pictures kept")
         calls = [json.loads(call) for call in got["calls"]]
@@ -181,11 +192,11 @@ class DefaultPathTests(unittest.TestCase):
         self.assertEqual(labels, ["cmd-w-idle-0", "cmd-w-key100-0", "cmd-w-downs100-0", "cmd-w-hold100-0"])
 
     def test_screen_takes_the_counts_of_the_keys_workspaces_tabs_through_the_driver(self):
-        # This app lists no window, so the tool can make no tab and no key window: each row says the count asked and
-        # that the app listed none, and the tool asks the app for no tab.
+        # This app's window has no pane, so the tool can make no tab: each row says the count asked and that the app
+        # listed none, and the tool asks the app for no tab. It made no workspace, so it asks for no other workspace.
         mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
         asked = ["--screen", "--runs", "1", "--keys", "t", "--gaps", "0", "--page-watch", "0", "--key-tabs", "6,84"]
-        got = outcome(str(HERE.parent), asked, bad=False, files=mode)
+        got = outcome(str(HERE.parent), asked, bad=False, files=mode, window=True)
         self.assertEqual((got["exit"], got["stderr"]), (0, []))
         self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 2 rows, 2 INVALID, 0 pictures kept")
         report = json.loads(got["report"])
@@ -193,11 +204,22 @@ class DefaultPathTests(unittest.TestCase):
         self.assertEqual([row["label"] for row in report["rows"]], ["cmd-t-idle-tabsnolistof6-0", "cmd-t-idle-tabsnolistof84-0"])
         for row in report["rows"]:
             self.assertTrue(any(reason.startswith("key-tabs: ") for reason in row["invalid"]), row["invalid"])
-        self.assertEqual([call for call in got["calls"] if '"action.run"' in call or '"debug.window.focus"' in call], [])
+        self.assertEqual([call for call in got["calls"] if '"action.run"' in call], [])
+        self.assertEqual(report["head"][0], "the app was active: yes")
         # Counts that do not rise are refused before a call to the app.
         falls = outcome(str(HERE.parent), ["--screen", "--key-tabs", "84,6"], bad=False, files=mode)
         self.assertEqual((falls["exit"], falls["calls"]), (2, []))
         self.assertIn("--key-tabs", falls["stderr"][-1])
+
+    def test_screen_ends_at_once_with_its_own_exit_code_in_an_app_that_lists_no_window(self):
+        # No window: no app to make active. The driver ends with the stopped run's code, and it records no case.
+        mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
+        got = outcome(str(HERE.parent), ["--screen", "--runs", "12", "--page-watch", "0", "--key-tabs", "6,84"], bad=False, files=mode)
+        self.assertEqual((got["exit"], got["stderr"]), (3, []))
+        self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 0 rows, 0 INVALID, 0 pictures kept; STOPPED active: the app lists "
+                                            "no window (debug.focus): no tab made, no case recorded")
+        self.assertEqual([call for call in got["calls"] if '"frame_strip"' in call or '"action.run"' in call or '"debug.key"' in call], [])
+        self.assertEqual(json.loads(got["report"])["rows"], [])
 
     def test_screen_refuses_what_it_cannot_count_before_a_call_to_the_app(self):
         mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
