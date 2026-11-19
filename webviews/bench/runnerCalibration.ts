@@ -13,7 +13,7 @@
 // which holds across runners where the raw ms does not; the raw ms row stays as it was beside it.
 
 /// The arms of round `round` (pure): the arms rotated by the round, so over any `arms.length` rounds each arm takes
-/// each place once and no arm always runs first, last or after the same neighbour. Two arms alternate (a, b then
+/// each place once and no arm always runs first or last. Two arms alternate (a, b then
 /// b, a), as chat-open's ARMS did.
 export function roundOrder<T>(arms: readonly T[], round: number): T[] {
   if (!arms.length) return [];

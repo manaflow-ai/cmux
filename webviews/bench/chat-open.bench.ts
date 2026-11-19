@@ -56,6 +56,8 @@ const PAIRED = process.env.PAIRED === "1";
 if (PAIRED && FIXTURE !== "god")
   throw new Error("PAIRED=1 opens the small chat beside the god one; run it with FIXTURE=god");
 const CALIBRATION_PATH = "/__calibration.html";
+/// The stage rows marked with nextFrame (in the page script below), whose measure changed in version 3.
+const NEXT_FRAME_STAGES: ReadonlySet<string> = new Set(["first_row", "latest", "attach_to_latest"]);
 /// LATENCY=ms delays every answer, as a busy daemon or the app's bridge does (chat-switch.bench.ts):
 /// the open's serial round trips before its newest message show as multiples of it.
 const LATENCY = Number(process.env.LATENCY ?? 0);
@@ -433,6 +435,12 @@ try {
         };
         (window as unknown as { __open: typeof state }).__open = state;
         const afterPaint = (done: () => void) => requestAnimationFrame(() => setTimeout(done, 0));
+        // The first row and the newest message are marked when the next frame starts, which is after the frame that
+        // drew them painted. afterPaint's setTimeout queued behind whatever task the page ran next: on the god chat
+        // that is the ~120 ms render of 64 rows once the highlighter's chunks load, so about half the loads marked
+        // the newest message after it (attach_to_latest 250 ms against 127 ms, the same frame painted at the same time;
+        // TRACE=1 shows both). The page's work after the paint still counts in settled, long_ms and long tasks.
+        const nextFrame = (done: () => void) => requestAnimationFrame(() => done());
         new PerformanceObserver((list) => {
           for (const entry of list.getEntries()) {
             state.longTasks += 1;
@@ -454,7 +462,7 @@ try {
         const tick = () => {
           const now = performance.now();
           if (!state.firstRow && document.querySelector("[data-row-id]"))
-            afterPaint(() => (state.firstRow ||= performance.now()));
+            nextFrame(() => (state.firstRow ||= performance.now()));
           if (!state.latest && document.body.textContent?.includes(latestText)) {
             // TRACE=1: how much the first frame with the newest message drew.
             if (instrument === "trace") {
@@ -463,7 +471,7 @@ try {
                 `${now.toFixed(0)} drawn: ${count("[data-row-id]")} rows, ${count(".acpmux-minimap__entry")} rail entries, ${count("*")} elements, ${count(".acpmux-composer *, .acpmux-header *")} in composer and header`,
               );
             }
-            afterPaint(() => {
+            nextFrame(() => {
               if (state.latest) return;
               state.latest = performance.now();
               const scroll = document.querySelector<HTMLElement>(".acpmux-scroll");
@@ -808,14 +816,12 @@ try {
   );
   // The calibration under FIXTURE's prefix (chat_open.god.calibration_ms with FIXTURE=god), so the perf cron's part that
   // runs this bench keeps it.
-  chats
-    .at(-1)!
-    .perfRow({
-      name: "chat_open.calibration_ms",
-      p50: calibrationMs,
-      p95: calibrationMs,
-      version: CALIBRATION_VERSION,
-    });
+  chats.at(-1)!.perfRow({
+    name: "chat_open.calibration_ms",
+    p50: calibrationMs,
+    p95: calibrationMs,
+    version: CALIBRATION_VERSION,
+  });
   for (const chat of chats)
     for (const arm of arms) {
       use(chat);
@@ -932,9 +938,20 @@ try {
       ] as const)
         // Version 2: the pane's build loads English plus the page's language, as the app does
         // (scripts/agent-pane/paneLocales.mjs), no longer all 21 locales before the socket opens.
-        perfRow({ name: `chat_open.${arm}.${stage}`, p50: median(pick), p95: median(pick), target, version: 2 });
+        // Version 3 (first_row, latest, attach_to_latest): marked when the next frame starts (nextFrame), not after a
+        // task that could queue behind the page's next long task.
+        perfRow({
+          name: `chat_open.${arm}.${stage}`,
+          p50: median(pick),
+          p95: median(pick),
+          target,
+          version: NEXT_FRAME_STAGES.has(stage) ? 3 : 2,
+        });
       // The page's own work in units of this runner's speed: each round's attach_to_latest over that round's calibration
       // (runnerCalibration.ts), the median of them. It holds across runners where the ms row above tracks the runner.
+      console.log(
+        `per round: attach_to_latest ms ${rounds.map((r) => (r.latest - r.attach).toFixed(0)).join(" ")}; attach ms ${rounds.map((r) => r.attach.toFixed(0)).join(" ")}; first row ms ${rounds.map((r) => r.firstRow.toFixed(0)).join(" ")}; long tasks ${rounds.map((r) => r.longTasks).join(" ")}; long ms ${rounds.map((r) => r.longMs.toFixed(0)).join(" ")}`,
+      );
       const perRunner = perCalibration(
         rounds.map((r) => r.latest - r.attach),
         calibrations,

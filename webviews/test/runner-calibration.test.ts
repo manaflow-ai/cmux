@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { median, perCalibration, roundOrder } from "../bench/runnerCalibration";
 
 describe("roundOrder", () => {
-  test("three arms take every place once over three rounds, and no arm always follows the same one", () => {
+  test("three arms take every place once over three rounds", () => {
     const arms = ["small", "god", "calibration"];
     const rounds = [0, 1, 2].map((round) => roundOrder(arms, round));
     for (const arm of arms) expect(new Set(rounds.map((order) => order.indexOf(arm)))).toEqual(new Set([0, 1, 2]));
