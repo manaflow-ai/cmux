@@ -12,7 +12,7 @@ import Testing
     struct Offline: Error {}
 
     private func session() -> ChiefSession {
-        ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil), clock: ImmediateClock())
+        ChiefSession(backend: ChiefOfflineBackend(), clock: ImmediateClock())
     }
 
     @Test func aNormalReconnectNeverPutsABarOverTheOpenConversation() async {
