@@ -3253,6 +3253,24 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Tool row type, set by a transcript look (transcriptLook.ts toolTypeVariables; Leo, 2026-11-18:
+   "you guys need to be tuning font sizes for tool calls and such too"). Each rule applies only while
+   its token is set (`data-transcript-tool-*` on the root, transcriptLookAttributes), so the cmux look
+   draws today's rows. The words' size is a share of the text size, at most all of it, and every row
+   keeps its 20px line, so no size moves a row (test/transcript-look-no-shift.test.ts). Unset, the
+   command's face follows the title's. */
+:root[data-transcript-tool-size] .cv-tool {
+  font-size: calc(var(--cv-font-size) * var(--cv-tool-text-scale, 1));
+}
+:root[data-transcript-tool-weight] .cv-tool {
+  font-weight: var(--cv-tool-weight, 400);
+}
+:root[data-transcript-tool-font] .cv-tool {
+  font-family: var(--cv-tool-font, var(--cv-font));
+}
+:root[data-transcript-tool-command-font] .cv-tool :is(.cv-command__line, .cv-tool-label__subject, .cv-tool__file) {
+  font-family: var(--cv-tool-command-font, inherit);
+}
 /* A tool run's or group's summary line (ToolRun.tsx, ToolGroupRow.tsx) lights its words to the
    primary tone on hover only, as Worked for does. Open or focused (a click leaves the focus on it),
    its glyph, words and chevron keep their rest tones; keyboard focus still draws the ring. The inner
@@ -5012,6 +5030,20 @@ a.cv-sha:focus-visible {
      `8lh`: the Markdown viewport sets no line-height of its own, so its `lh` is the inherited normal. */
   max-height: calc(var(--cv-font-size, 14px) * 8 * 18 / 14 + 16px);
   overscroll-behavior: auto;
+}
+/* A look's output type (`toolOutput.textSize`, `toolOutput.font`; Tool row type, above), for a
+   call's output and an opened shell's command and output alike: its lines
+   stay 1.5 times its size, as 18 is to 12, and the cut viewport stays eight of them. Only an opened
+   call's body changes height, and the row estimator never estimates it (it is measured once drawn). */
+:root[data-transcript-tool-output-size] :is(.cv-tool-output, .cv-shell__command, .cv-shell__body) {
+  font-size: calc(var(--cv-font-size) * var(--cv-tool-output-scale, 12 / 14));
+  line-height: calc(var(--cv-font-size) * var(--cv-tool-output-scale, 12 / 14) * 1.5);
+}
+:root[data-transcript-tool-output-size] .cv-tool-output[data-output-viewport]:not([data-preview="all"]) {
+  max-height: calc(var(--cv-font-size, 14px) * var(--cv-tool-output-scale, 12 / 14) * 1.5 * 8 + 16px);
+}
+:root[data-transcript-tool-output-font] :is(.cv-tool-output, .cv-shell__command, .cv-shell__body) {
+  font-family: var(--cv-tool-output-font, var(--cv-mono));
 }
 :is(.cv-tool-output, .cv-tool-output__markdown)[data-output-viewport][data-preview="all"] {
   max-height: min(70vh, 640px);

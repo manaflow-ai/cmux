@@ -33,6 +33,12 @@ const LOOK_VARIABLES = [
   "--cv-user-align",
   "--cv-card-radius",
   "--cv-code-radius",
+  "--cv-tool-text-scale",
+  "--cv-tool-weight",
+  "--cv-tool-font",
+  "--cv-tool-command-font",
+  "--cv-tool-output-scale",
+  "--cv-tool-output-font",
 ];
 
 describe("transcript looks", () => {
@@ -147,7 +153,57 @@ describe("transcript looks", () => {
       "data-transcript-timestamps": null,
       "data-transcript-tool-cards": null,
       "data-transcript-card-border": null,
+      "data-transcript-tool-size": null,
+      "data-transcript-tool-weight": null,
+      "data-transcript-tool-font": null,
+      "data-transcript-tool-command-font": null,
+      "data-transcript-tool-output-size": null,
+      "data-transcript-tool-output-font": null,
     });
+  });
+
+  test("tool row type: each token sets its variable and the attribute its rule waits on", () => {
+    const typed = resolveTranscriptLook({
+      [TRANSCRIPT_TOKENS_KEY]: {
+        "toolRow.textSize": 0.93,
+        "toolRow.weight": 500,
+        "toolRow.font": "mono",
+        "toolRow.commandFont": "text",
+        "toolOutput.textSize": 0.92,
+        "toolOutput.font": "text",
+        "toolOutput.unknown": 1,
+      },
+    });
+    expect(transcriptLookVariables(typed)).toMatchObject({
+      "--cv-tool-text-scale": "0.93",
+      "--cv-tool-weight": "500",
+      "--cv-tool-font": "var(--cv-mono)",
+      "--cv-tool-command-font": "var(--cv-font)",
+      "--cv-tool-output-scale": "0.92",
+      "--cv-tool-output-font": "var(--cv-font)",
+    });
+    expect(transcriptLookAttributes(typed)).toMatchObject({
+      "data-transcript-tool-size": "",
+      "data-transcript-tool-weight": "",
+      "data-transcript-tool-font": "",
+      "data-transcript-tool-command-font": "",
+      "data-transcript-tool-output-size": "",
+      "data-transcript-tool-output-font": "",
+    });
+    // A row's words never outgrow the text (the row's 20 pt line), and a weight stays a weight.
+    for (const [name, value] of [
+      ["toolRow.textSize", 1.2],
+      ["toolRow.textSize", 0.5],
+      ["toolRow.weight", 900],
+      ["toolRow.font", "serif"],
+      ["toolOutput.textSize", 1.1],
+    ] as const)
+      expect(validTokenValue(name, value)).toBeUndefined();
+    // One token set leaves the other rules off.
+    const one = transcriptLookAttributes(resolveTranscriptLook({ [TRANSCRIPT_TOKENS_KEY]: { "toolRow.weight": 500 } }));
+    expect(one["data-transcript-tool-weight"]).toBe("");
+    expect(one["data-transcript-tool-size"]).toBeNull();
+    expect(one["data-transcript-tool-output-font"]).toBeNull();
   });
 
   test("the person's own width, font and sizes win over the look's", () => {
