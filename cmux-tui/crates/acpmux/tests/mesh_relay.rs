@@ -1209,6 +1209,64 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
     assert_eq!(from.session_id.as_deref(), Some(lane.as_str()), "{from:?}");
 }
 
+/// The sender of a direct `HOST/NAME` send through the hub reads its own status, though the hub
+/// stamps `startWork` on every receipt and team messaging is off; another session does not
+/// (2026-11-19: `acpmux send --status mesh:msg_…` answered "team message is not addressed to
+/// this session" to the session that sent it).
+#[tokio::test]
+async fn the_sender_of_a_direct_send_through_the_hub_reads_its_status_and_no_other_session_does() {
+    let a = hub();
+    let lane = Client::local(&a).new_session("lane-a").await;
+    let other = Client::local(&a).new_session("lane-c").await;
+    let fake = Arc::new(FakeHub::default());
+    let row = SessionRow {
+        name: "dep-land".into(),
+        session_id: "s-b".into(),
+        harness: "fake".into(),
+        state: "ready".into(),
+        stuck_reason: None,
+        team_address: None,
+    };
+    fake.with(|s| {
+        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+    });
+    let _ = a.mesh.set(fake.clone());
+    let proven = |session: &str| {
+        let token = acpmux::hub::person::caller_token(session);
+        json!({"protocolVersion": 1,
+               "_meta": {"acpmux": {"callerSession": {"sessionId": session, "token": token}}}})
+    };
+    // As the hub answers every receipt: with its start-work decision.
+    let stamp = |delivery: &str| {
+        let message = delivery.trim_start_matches("mesh:").to_owned();
+        fake.with(|s| {
+            s.receipts.get_mut(&message).unwrap().start_work =
+                Some(acpmux::mesh::StartWork::Information)
+        });
+    };
+    let mut as_lane = Client::local(&a);
+    as_lane.call("initialize", proven(&lane)).await;
+    let queued = as_lane.call("_acpmux/send_queue", send_queue("b/dep-land", "prompt-own-1")).await;
+    let delivery = queued.pointer("/result/deliveryId").and_then(Value::as_str).unwrap().to_owned();
+    stamp(&delivery);
+    let status = as_lane.call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
+    assert_eq!(status.pointer("/result/status"), Some(&json!("queued")), "{status}");
+    assert_eq!(status.pointer("/result/target"), Some(&json!("b/dep-land")), "{status}");
+    let mut as_other = Client::local(&a);
+    as_other.call("initialize", proven(&other)).await;
+    let refused = as_other.call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
+    assert!(refused.get("error").is_some(), "another session read it: {refused}");
+
+    // A send from the person's own terminal, no session proven: its status reads the same.
+    let mut terminal = Client::local(&a);
+    let queued =
+        terminal.call("_acpmux/send_queue", send_queue("b/dep-land", "prompt-own-2")).await;
+    let delivery = queued.pointer("/result/deliveryId").and_then(Value::as_str).unwrap().to_owned();
+    stamp(&delivery);
+    let status = terminal.call("_acpmux/send_status", json!({"deliveryId": delivery})).await;
+    assert_eq!(status.pointer("/result/status"), Some(&json!("queued")), "{status}");
+}
+
 /// A send through the hub carries its sender claim on the wire, so the receiving machine can
 /// show where it came from.
 #[tokio::test]

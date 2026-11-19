@@ -356,3 +356,70 @@ fn prompt_target_is_listed(hub: &Arc<Hub>, key: &str) -> Option<()> {
     let (host, _) = key.split_once('/')?;
     hub.mesh_book_has_host(host).then_some(())
 }
+
+/// `acpmux history HOST/NAME` for a session only the hub reaches reads its turns there, as
+/// `acpmux last` reads its page; a session read the hub does not carry says so and is never
+/// answered `no session` (2026-11-19: `acpmux history cosmic-gray/claude-desktop-…` answered
+/// no_session while `acpmux last` of it worked).
+#[tokio::test]
+async fn history_reads_through_the_hub_and_other_session_reads_never_answer_no_session() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    call(
+        &b,
+        method::SESSION_PROMPT,
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "turn on b"}]}),
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let mesh: Arc<dyn MeshHub> = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let _ = a.mesh.set(mesh);
+
+    let history =
+        call(&a, method::MUX_HISTORY, json!({"sessionId": "machine-b/own-e2e", "limit": 5})).await;
+    assert_eq!(history["sessionId"].as_str(), Some(session.as_str()), "{history}");
+    assert_eq!(history["turns"].as_array().map(Vec::len), Some(1), "{history}");
+    assert_eq!(
+        (history["peer"].as_str(), history["via"].as_str()),
+        (Some("machine-b"), Some("hub"))
+    );
+
+    for m in [
+        method::MUX_SESSION_SEARCH,
+        method::MUX_QUEUE_TEXT,
+        method::MUX_ATTACHMENT,
+        method::MUX_WAIT,
+    ] {
+        let refused = call_error(&a, m, json!({"sessionId": "machine-b/own-e2e"})).await;
+        assert_eq!(
+            refused.pointer("/data/reason"),
+            Some(&json!("mesh.read_unsupported")),
+            "{m}: {refused}"
+        );
+        let said = refused["message"].as_str().unwrap_or_default();
+        assert!(!said.contains("no session"), "{m}: {refused}");
+    }
+}
+
+/// [`call`]'s error, for a request that must fail.
+async fn call_error(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
+    let (tx, in_rx) = mpsc::channel(16);
+    let (out_tx, mut rx) = mpsc::channel(4096);
+    tokio::spawn(crate::server::serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    tx.send(crate::rpc::Message::request(1, m, params).to_line()).await.unwrap();
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), rx.recv()).await.unwrap().unwrap();
+        let value: Value = serde_json::from_str(&line).unwrap();
+        if value.get("id") == Some(&json!(1)) {
+            return value.get("error").cloned().unwrap_or_else(|| panic!("no error: {value}"));
+        }
+    }
+}
