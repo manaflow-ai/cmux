@@ -699,6 +699,21 @@ async fn wait_control_result(
     .flatten()
 }
 
+/// A start's params with `_meta.acpmux.cmuxTools` (the answer of the Mac that sends the start,
+/// `hub/cmux_tools_answer.rs`) only when the hub stamped the sending daemon
+/// (`message.from.daemon_id`): a start from no daemon carries no daemon's answer, whatever the
+/// relay's own sender rules say.
+fn without_unsent_answer(mut params: serde_json::Value, message: &InMessage) -> serde_json::Value {
+    let from_daemon = message.from.daemon_id.as_deref().is_some_and(|id| !id.is_empty());
+    if !from_daemon
+        && let Some(meta) =
+            params.pointer_mut("/_meta/acpmux").and_then(serde_json::Value::as_object_mut)
+    {
+        meta.remove(crate::hub::cmux_tools_answer::FIELD);
+    }
+    params
+}
+
 async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
     let Some(op) = message.op.as_deref() else {
         return Some(Ack::refused("control message has no operation"));
@@ -725,7 +740,7 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
             {
                 return Some(Ack::refused("mesh control start cannot forward to another daemon"));
             }
-            params
+            without_unsent_answer(params, message)
         }
         "resume" | "stop" => serde_json::json!({}),
         _ => return Some(Ack::refused(format!("unsupported control operation {op:?}"))),
@@ -1032,6 +1047,20 @@ mod tests {
             start_work: Some(StartWork::Information),
             state: Some("queued".into()),
             subject: None,
+        }
+    }
+
+    #[test]
+    fn only_a_start_from_a_daemon_keeps_its_answer() {
+        let params = || serde_json::json!({"cwd": "/w", "_meta": {"acpmux": {"cmuxTools": "on", "harness": "codex"}}});
+        let mut message = from("h", "n");
+        message.from.daemon_id = Some("inst_a".into());
+        assert_eq!(without_unsent_answer(params(), &message)["_meta"]["acpmux"]["cmuxTools"], "on");
+        for none in [None, Some(String::new())] {
+            message.from.daemon_id = none;
+            let kept = without_unsent_answer(params(), &message);
+            assert!(kept.pointer("/_meta/acpmux/cmuxTools").is_none(), "{kept}");
+            assert_eq!(kept["_meta"]["acpmux"]["harness"], "codex");
         }
     }
 
