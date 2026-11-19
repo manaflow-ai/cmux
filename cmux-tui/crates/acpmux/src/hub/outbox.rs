@@ -899,7 +899,7 @@ impl Book {
     /// drops what settled long ago; returns the change's number.
     fn changed(&mut self) -> u64 {
         let now = crate::store::now_ms();
-        if self.swept_at != 0 && now < self.swept_at.saturating_add(SWEEP_EVERY_MS) {
+        if self.swept_at != 0 && now.abs_diff(self.swept_at) < SWEEP_EVERY_MS {
             self.changes += 1;
             return self.changes;
         }
