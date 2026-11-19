@@ -500,14 +500,14 @@ public final class MacHomeFeed {
     }
 
     /// The list rig's live Mac (`CMUX_MOBILE_LIST_LIVE_HZ` on `home`, verify/listperf/): `changes`
-    /// Chief rows change as a busy Mac's do, through what the main actor runs for each event: the
+    /// rows of the first `chiefs` Chiefs (25, the user's busy Mac) change as a busy Mac's do, through what the main actor runs for each event: the
     /// event line is parsed (as ``note(_:)`` does), and the `ids` read's rows go through
     /// ``applyRows(_:asked:)``. Most changes start or stop a Chief typing (a row changed in place);
     /// the first change of every other tick is a new message (a new preview, the activity now, and
     /// an unpinned row moves to the top of the unpinned rows, as the owner orders them).
-    public func stressLiveTick(_ tick: Int, changes: Int) {
+    public func stressLiveTick(_ tick: Int, changes: Int, chiefs live: Int = 25) {
         guard let rows, !rows.isEmpty else { return }
-        let chiefs = rows.indices.filter { rows[$0].chief != nil }
+        let chiefs = Array(rows.indices.lazy.filter { rows[$0].chief != nil }.prefix(max(1, live)))
         guard !chiefs.isEmpty else { return }
         let pinnedCount = rows.prefix { $0.isPinned }.count
         var found: [MacHomeRows.Found] = []

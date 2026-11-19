@@ -12,12 +12,12 @@ final class AllUIStatesHomeCaptureUITests: UIStateCaptureCase {
         capture([
             Scene(group: g, id: "home-mock-chief", args: ["-cmux-mobile-tab", "home"]),
             Scene(group: g, id: "home-rows-and-pins", args: ["-cmux-mobile-tab", "home"], env: Self.homeRows, settle: 4),
-            // A busy Mac: 25 Chiefs typing and posting while Home shows (the listperf home-live case).
+            // A busy Mac: 25 Chiefs typing and posting while Home shows (the listperf home-25-live case).
             Scene(group: g, id: "home-live-typing", args: ["-cmux-mobile-tab", "home"],
-                  env: ["CMUX_MOBILE_LIST_SCREEN": "home", "CMUX_MOBILE_LIST_COUNT": "150", "CMUX_MOBILE_LIST_PASSES": "0",
+                  env: ["CMUX_MOBILE_LIST_SCREEN": "home", "CMUX_MOBILE_LIST_COUNT": "300", "CMUX_MOBILE_LIST_PASSES": "0",
                         "CMUX_MOBILE_LIST_LIVE_HZ": "20"], settle: 4),
             Scene(group: g, id: "home-live-scrolled", args: ["-cmux-mobile-tab", "home"],
-                  env: ["CMUX_MOBILE_LIST_SCREEN": "home", "CMUX_MOBILE_LIST_COUNT": "150", "CMUX_MOBILE_LIST_PASSES": "0",
+                  env: ["CMUX_MOBILE_LIST_SCREEN": "home", "CMUX_MOBILE_LIST_COUNT": "300", "CMUX_MOBILE_LIST_PASSES": "0",
                         "CMUX_MOBILE_LIST_LIVE_HZ": "20"], settle: 4) { app in
                 C.scrollDown(app, times: 2)
             },
