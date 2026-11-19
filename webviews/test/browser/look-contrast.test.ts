@@ -137,11 +137,7 @@ await requireBrowserLane("look-contrast.test.ts", async () => {
     // Hover and focus fades finish before the read: once the pointer has left, every finite
     // animation and transition is run to its end, then two frames paint the settled colors.
     await page.mouse.move(1, 1);
-    await settle(page);
-    await page.evaluate(() => {
-      for (const animation of document.getAnimations())
-        if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
-    });
+    await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))));
     await settle(page);
   }
 
