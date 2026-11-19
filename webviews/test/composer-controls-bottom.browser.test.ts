@@ -42,7 +42,7 @@ await requireBrowserLane("composer-controls-bottom.browser.test.ts", async () =>
     /** The box must be taller than its one-line height (the state grows it). */
     taller?: boolean;
     /** The controls the state must draw. */
-    controls: ("plus" | "send" | "mic")[];
+    controls: ("plus" | "send" | "stop" | "mic")[];
   };
   /** One surface: its states, the first of which is its one-line reference. */
   const SURFACES: { name: string; states: State[] }[] = [
@@ -93,7 +93,13 @@ await requireBrowserLane("composer-controls-bottom.browser.test.ts", async () =>
           taller: true,
           controls: ["plus", "send", "mic"],
         },
-        { name: "streaming-stop", entry: "agent-pane.composer", variant: "working-stop", controls: ["plus", "mic"] },
+        // Mid-turn with an empty prompt the send slot is Stop (.acpmux-send.acpmux-cancel).
+        {
+          name: "streaming-stop",
+          entry: "agent-pane.composer",
+          variant: "working-stopping",
+          controls: ["plus", "stop", "mic"],
+        },
         { name: "queued", entry: "agent-pane.composer", variant: "queued", controls: ["plus"] },
       ],
     },
@@ -168,7 +174,7 @@ await requireBrowserLane("composer-controls-bottom.browser.test.ts", async () =>
   type Box = { left: number; top: number; right: number; bottom: number };
   type Measured = {
     box: Box | null;
-    controls: Partial<Record<"plus" | "send" | "mic", Box>>;
+    controls: Partial<Record<"plus" | "send" | "stop" | "mic", Box>>;
     clip: { x: number; y: number; width: number; height: number } | null;
   };
   const measure = (page: Page) =>
@@ -186,7 +192,8 @@ await requireBrowserLane("composer-controls-bottom.browser.test.ts", async () =>
         const controls: Measured["controls"] = {};
         for (const [name, selector] of [
           ["plus", PLUS_PICKER],
-          ["send", ".acpmux-send"],
+          ["send", ".acpmux-send:not(.acpmux-cancel)"],
+          ["stop", ".acpmux-cancel"],
           ["mic", ".acpmux-mic"],
         ] as const) {
           const button = [...(card?.querySelectorAll(selector) ?? [])].find((element) => {
