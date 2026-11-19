@@ -226,6 +226,15 @@ fn read_into(key: &Key, read: &Read) -> Result<Arc<Cached>, ResourceError> {
     Ok(value)
 }
 
+/// One read behind an answer: counted out and landed when it ends.
+struct Behind(#[allow(dead_code, reason = "lands the key when dropped")] Flight);
+
+impl Drop for Behind {
+    fn drop(&mut self) {
+        cache().behind.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// Reads `key` again behind the answer, unless its read runs or the daemon
 /// runs [`MAX_BEHIND`] already.
 fn read_behind(key: &Key, read: &Read) {
@@ -240,13 +249,6 @@ fn read_behind(key: &Key, read: &Read) {
             return;
         }
         flights.insert(key.clone());
-    }
-    /// One read behind an answer: counted out and landed when it ends.
-    struct Behind(Flight);
-    impl Drop for Behind {
-        fn drop(&mut self) {
-            cache().behind.fetch_sub(1, Ordering::SeqCst);
-        }
     }
     let behind = Behind(Flight(key.clone()));
     let read = Arc::clone(read);
@@ -294,7 +296,8 @@ impl Paths {
 
     /// The names, relative to the folder, sorted.
     pub(super) fn iter(&self) -> impl Iterator<Item = &str> {
-        self.all()[self.start..self.end].iter().map(|path| &path[self.strip..])
+        let strip = self.strip;
+        self.all()[self.start..self.end].iter().map(move |path| &path[strip..])
     }
 
     /// Whether the listing was cut.
