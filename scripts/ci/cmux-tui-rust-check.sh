@@ -413,6 +413,8 @@ ensure_nextest() {
     case "$(uname -s)-$(uname -m)" in
       Darwin-*) asset=universal-apple-darwin sha=6c23b7fb4ca82c571fc8dfedbab45bfa773d45918f933170c85d21cd7f4b852b ;;
       Linux-x86_64) asset=x86_64-unknown-linux-gnu sha=223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc ;;
+      # The arm64 Linux VMs on the fleet Macs (Lima, cmux-ci workers) take Linux steps too.
+      Linux-aarch64) asset=aarch64-unknown-linux-gnu sha=81469eb963ef883fd590e60189e77d6aba3d91b418591d3391f50fe3e9480d2b ;;
       *) echo "error: no pinned cargo-nextest for $(uname -sm)" >&2; return 3 ;;
     esac
     dir="$root/.build/tools/cargo-nextest-$nextest_version"

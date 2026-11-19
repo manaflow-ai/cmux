@@ -43,6 +43,9 @@ test("the categories are the approved ones, in order", () => {
     "browser",
     "chat",
     "agents",
+    "computerUse",
+    // Settings > MCP Servers: the services agents use for the person (user 2026-11-18).
+    "mcpServers",
     // Settings > Models: which subscription or key each Cloud thread runs on (model-connections.md).
     "models",
     // Settings > Cloud: what Cloud chats run on, Cloud Environments and Cloud Workspaces.
