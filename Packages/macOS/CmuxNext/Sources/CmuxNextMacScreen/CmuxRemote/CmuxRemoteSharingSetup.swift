@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 public import CmuxNextSettings
+public import Foundation
 
 /// A window-scoped permission guide for the process that actually captures the screen: this app.
 /// The same guide serves the visible Share action and the CLI's person-confirmed share request.
