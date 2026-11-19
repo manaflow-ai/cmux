@@ -24,7 +24,7 @@ fn main() {
         // their exports: `dx` hot-patching (cmux-tui-hotpatch, a separate binary) and
         // debuggers there resolve through them.
         if std::env::var("PROFILE").as_deref() == Ok("release") {
-            println!("cargo:rustc-link-arg-bin=cmux-tui=-Wl,-no_exported_symbols");
+            // measurement control: flag off
         }
     }
     browser_names();
