@@ -572,14 +572,45 @@ fn request_publish(source: &Published, commit: Option<&str>) -> Option<String> {
         args.extend(["-f".to_owned(), format!("base={commit}")]);
     }
     let shown = format!("gh {}", args.join(" "));
-    let ran = cmux_process::Command::new("gh")
-        .args(&args)
+    Some(match dispatch(&args) {
+        Ok(()) => format!("asked CI to publish it ({shown})"),
+        Err(why) => format!("could not ask CI ({why}); run `{shown}`"),
+    })
+}
+
+/// How long `use` and `refresh` wait for `gh workflow run`: it only queues.
+const DISPATCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Runs `gh` with `args`, bounded: why it failed, in gh's own last line.
+fn dispatch(args: &[String]) -> Result<(), String> {
+    let mut child = cmux_process::Command::new("gh")
+        .args(args)
         .stdin(cmux_process::Stdio::null())
         .stdout(cmux_process::Stdio::null())
-        .stderr(cmux_process::Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success());
-    Some(if ran { format!("asked CI to publish it ({shown})") } else { format!("run `{shown}`") })
+        .stderr(cmux_process::Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("gh: {error}"))?;
+    let status = match child.wait_timeout(DISPATCH_TIMEOUT) {
+        Ok(Some(status)) => status,
+        _ => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("gh did not answer in {}s", DISPATCH_TIMEOUT.as_secs()));
+        }
+    };
+    if status.success() {
+        return Ok(());
+    }
+    let mut said = String::new();
+    if let Some(mut stderr) = child.stderr.take() {
+        let _ = std::io::Read::read_to_string(&mut stderr, &mut said);
+    }
+    Err(said
+        .lines()
+        .map(str::trim)
+        .rfind(|line| !line.is_empty())
+        .map(|line| line.chars().take(200).collect())
+        .unwrap_or_else(|| format!("gh exited {status}")))
 }
 
 /// `cmux customize use SOURCE` for every source but a folder.
@@ -773,6 +804,8 @@ enum Step {
     Wait(String),
     /// Install the newer layer in the entry's place.
     Take,
+    /// Up to date, but built on another commit than this app's (named).
+    Behind(String),
     Same,
 }
 
@@ -784,6 +817,7 @@ fn refresh_step(
     layer: &CodeLayer,
     published: &Published,
     tip: Option<&str>,
+    app_commit: Option<&str>,
 ) -> Step {
     if let Some(tip) = tip.filter(|tip| *tip != layer.head) {
         return Step::Ask(tip.to_owned());
@@ -797,7 +831,15 @@ fn refresh_step(
     }
     let changed = !layer.same(code) || layer.base != code.base || layer.web != code.web;
     if !changed {
-        return Step::Same;
+        // The newest layer is built on another commit than this app's: the
+        // web changes merged since are missing from it, so CI is asked for
+        // one on this app (a fork builds its own).
+        return match app_commit {
+            Some(app) if layer.base != app && !matches!(published, Published::Fork { .. }) => {
+                Step::Behind(app.to_owned())
+            }
+            _ => Step::Same,
+        };
     }
     match fork_update_waits(published, layer) {
         Some(waits) => Step::Wait(waits),
@@ -854,7 +896,7 @@ pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Resul
                 Published::Ref { kind: CodeKind::Branch, name } => branch_tip(&http, name),
                 _ => None,
             };
-            match refresh_step(&code, &layer, &published, tip.as_deref()) {
+            match refresh_step(&code, &layer, &published, tip.as_deref(), app.commit.as_deref()) {
                 Step::Ask(tip) => {
                     let asked =
                         request_publish(&published, app.commit.as_deref()).unwrap_or_default();
@@ -866,6 +908,17 @@ pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Resul
                     install(customize, &http, &layer)?;
                     customize.library_update_code(layer.clone(), origin, now_ms)?;
                     (format!("now at {} on {}", short(&layer.head), short(&layer.base)), None)
+                }
+                Step::Behind(app) => {
+                    let asked = request_publish(&published, Some(&app)).unwrap_or_default();
+                    (
+                        format!(
+                            "built on {}, not this app's {}: web changes since are missing; {asked}",
+                            short(&layer.base),
+                            short(&app)
+                        ),
+                        None,
+                    )
                 }
                 Step::Same => (String::new(), None),
             }
@@ -967,24 +1020,49 @@ mod tests {
         layer_of(&pointer_json(true, 3), &App { abi: Some(3), ..App::default() }).unwrap()
     }
 
+    /// `refresh_step` on an app whose commit is not known.
+    fn step(code: &CodeLayer, layer: &CodeLayer, published: &Published, tip: Option<&str>) -> Step {
+        refresh_step(code, layer, published, tip, None)
+    }
+
+    #[test]
+    fn refresh_asks_for_a_layer_on_this_app_when_the_newest_is_behind() {
+        let code = entry();
+        let app = "c".repeat(40);
+        for published in
+            [Published::Pr(7), Published::Ref { kind: CodeKind::Branch, name: "feat-x".into() }]
+        {
+            assert_eq!(
+                refresh_step(&code, &code, &published, None, Some(&app)),
+                Step::Behind(app.clone()),
+                "{published:?}"
+            );
+            // Built on this app's commit: up to date.
+            assert_eq!(refresh_step(&code, &code, &published, None, Some(&code.base)), Step::Same);
+        }
+        // Our CI never builds a fork: nothing to ask for.
+        let fork = Published::Fork { repo: "someone/cmux".into(), reference: "theme".into() };
+        assert_eq!(refresh_step(&code, &code, &fork, None, Some(&app)), Step::Same);
+    }
+
     #[test]
     fn refresh_follows_the_design_table() {
         let pr = Published::Pr(7);
         let code = entry();
-        assert_eq!(refresh_step(&code, &code, &pr, None), Step::Same);
+        assert_eq!(step(&code, &code, &pr, None), Step::Same);
         // A newer head, or the same head on a newer base: taken in place.
         let newer = CodeLayer { head: "e".repeat(40), ..code.clone() };
-        assert_eq!(refresh_step(&code, &newer, &pr, None), Step::Take);
+        assert_eq!(step(&code, &newer, &pr, None), Step::Take);
         let rebased = CodeLayer { base: "f".repeat(40), ..code.clone() };
-        assert_eq!(refresh_step(&code, &rebased, &pr, None), Step::Take);
+        assert_eq!(step(&code, &rebased, &pr, None), Step::Take);
         // A branch whose tip moved past the layer: CI is asked.
         let branch = Published::Ref { kind: CodeKind::Branch, name: "feat-x".into() };
         let tip = "9".repeat(40);
-        assert_eq!(refresh_step(&code, &code, &branch, Some(&tip)), Step::Ask(tip.clone()));
-        assert_eq!(refresh_step(&code, &code, &branch, Some(&code.head)), Step::Same);
+        assert_eq!(step(&code, &code, &branch, Some(&tip)), Step::Ask(tip.clone()));
+        assert_eq!(step(&code, &code, &branch, Some(&code.head)), Step::Same);
         // A fork's newer layer waits for `use`.
         let fork = Published::Fork { repo: "someone/cmux".into(), reference: "theme".into() };
-        assert!(matches!(refresh_step(&code, &newer, &fork, None), Step::Wait(_)));
+        assert!(matches!(step(&code, &newer, &fork, None), Step::Wait(_)));
     }
 
     #[test]
@@ -1002,7 +1080,7 @@ mod tests {
                 Published::Fork { repo: "someone/cmux".into(), reference: "theme".into() },
             ] {
                 assert_eq!(
-                    refresh_step(&code, &layer, &published, None),
+                    step(&code, &layer, &published, None),
                     Step::Off(
                         "no longer applies: its web part needs web ABI 3; this app has 4".into()
                     ),
@@ -1019,7 +1097,7 @@ mod tests {
         pointer["head"] = json!("e".repeat(40));
         let layer = layer_of(&pointer, &App { abi: Some(3), ..App::default() }).unwrap();
         assert_eq!(
-            refresh_step(&code, &layer, &Published::Pr(7), None),
+            step(&code, &layer, &Published::Pr(7), None),
             Step::Off("no longer applies: eeeeeeeeeeee has no web change".into())
         );
     }
