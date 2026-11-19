@@ -59,9 +59,12 @@ public final class LinkController {
     /// Beyond a probe's own timeout, how long the bound around it waits.
     nonisolated static let probeGrace: Duration = .milliseconds(500)
     @ObservationIgnored private var quickProbe = false
-    /// What the timers did, for tests that move a test clock: how many times the heartbeat went
-    /// to sleep and for how long the last time, and how many probes started and the last one's
-    /// timeout. Counters only; nothing reads them to decide.
+    /// What the timers did, for tests that move a test clock: how many heartbeat tasks were
+    /// started and how many have begun running, how many times the heartbeat went to sleep and for
+    /// how long the last time, and how many probes started and the last one's timeout. Counters
+    /// only; nothing reads them to decide.
+    @ObservationIgnored private(set) var heartbeatStarts = 0
+    @ObservationIgnored private(set) var heartbeatsBegun = 0
     @ObservationIgnored private(set) var heartbeatSleeps = 0
     @ObservationIgnored private(set) var lastHeartbeatWait: Duration = .zero
     @ObservationIgnored private(set) var probeStarts = 0
@@ -399,7 +402,9 @@ public final class LinkController {
         let interval = machine.isBackgrounded
             ? (beat.isOn ? KeepaliveBeat.period : Self.backgroundHeartbeat)
             : Self.heartbeat
+        heartbeatStarts += 1
         heartbeatTask = Task { [weak self] in
+            self?.heartbeatsBegun += 1
             var wait = beat.delay(toNextBeatOf: interval) ?? interval
             while !Task.isCancelled {
                 self?.heartbeatSleeps += 1

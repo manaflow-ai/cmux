@@ -56,6 +56,9 @@ final class LinkClockDriver {
 
     private func caughtUp() -> Bool {
         let now = clock.now
+        // A heartbeat task that was started (link up, a background or foreground) and has not run
+        // yet: its first sleep is still to come.
+        guard controller.heartbeatsBegun == controller.heartbeatStarts else { return false }
         // A new heartbeat sleep (link up, a beat that re-armed, a restart) is due at now + its wait.
         let sleeps = controller.heartbeatSleeps
         if sleeps != heartbeatSleeps {
