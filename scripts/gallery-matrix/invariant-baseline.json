@@ -491,15 +491,6 @@
     "agent-pane.composer-context#folder-pinned-search": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
-    "agent-pane.composer-context#folder-short-note": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.composer-context#folder-short-note-de": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
-    "agent-pane.composer-context#folder-short-note-fr": [
-      "menu-fit:div[aria-label=\"Folder\"]"
-    ],
     "agent-pane.composer-context#framework-marks": [
       "menu-fit:div[aria-label=\"Folder\"]"
     ],
@@ -1890,8 +1881,7 @@
       "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
     ],
     "agent-pane.new-tab#typed-hover": [
-      "menu-fit:div[aria-label=\"Suggestions\"]",
-      "menu-label:div[aria-label=\"Suggestions\"] div[aria-label=\"New terminal\"]"
+      "menu-fit:div[aria-label=\"Suggestions\"]"
     ],
     "agent-pane.new-tab#typed-hover-return": [],
     "agent-pane.new-tab#typed-keywords": [

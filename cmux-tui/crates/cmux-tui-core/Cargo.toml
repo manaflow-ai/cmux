@@ -48,6 +48,8 @@ cmux-browser-import.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-theme-tokens.workspace = true
 cmux-config.workspace = true
+# The Computer Use policy and wire types (the engine only; the worker is the cmux-tui binary).
+cmux-computer-use.workspace = true
 cmux-usage-patterns.workspace = true
 cmux-feed-core.workspace = true
 cmux-history.workspace = true
@@ -106,10 +108,14 @@ cmux-tui-remote-access = { workspace = true, features = ["test-support"] }
 cmux-tui-util = { workspace = true, features = ["test-support"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
+# The worker's control channel in-process, for the Computer Use supervisor's tests.
+cmux-computer-use = { workspace = true, features = ["server"] }
 
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
+# Projected folders (projection.rs): the manifest, the stream to the Mac and the mount.
+cmux-projection.workspace = true
 # The agent service's v2 list: the list callers' one source (server/agent_session_list_source.rs).
 acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
 acpmux-list-types = { path = "../acpmux-list-types" }
@@ -149,5 +155,6 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Kernel",
     "Win32_System_Pipes",
     "Win32_System_ProcessStatus",
+    "Win32_System_RemoteDesktop",
     "Win32_System_Threading",
 ] }

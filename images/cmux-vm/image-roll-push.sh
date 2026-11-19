@@ -72,7 +72,16 @@ for push_try in 1 2 3 4 5; do
   git reset -q --hard FETCH_HEAD
   case "$action" in
     roll)
-      if [ -n "$pin" ]; then bun images/cmux-vm/pin-cmux-tui.ts --commit "$pin" --write > /dev/null; fi
+      if [ -n "$pin" ]; then
+        # Never back: a roll that landed while this one baked may pin a newer cmux-tui (auto-roll.ts behindTip).
+        set +e
+        bun images/cmux-vm/auto-roll.ts behind --pin "$pin" > "$RUNNER_TEMP/behind.json"
+        rc=$?
+        set -e
+        if [ "$rc" = 3 ]; then report nothing "$(jq -r .reason "$RUNNER_TEMP/behind.json")" ""; exit 0; fi
+        [ "$rc" = 0 ] || exit "$rc"
+        bun images/cmux-vm/pin-cmux-tui.ts --commit "$pin" --write > /dev/null
+      fi
       if [ "$platform_done" = 0 ]; then
         if [ "$platform_mode" = 1 ]; then
           if [ "$(git -C "$platform_checkout" rev-parse --is-shallow-repository)" = true ]; then

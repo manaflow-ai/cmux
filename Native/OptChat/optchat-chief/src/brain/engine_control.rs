@@ -266,6 +266,9 @@ impl Brain {
             "last_turn": recent.first().cloned().unwrap_or(Value::Null),
             "recent": recent,
             "offered": {"models": models, "efforts": EFFORTS, "speeds": speeds, "harnesses": harnesses, "skills": skills},
+            // The open-source brains (brain_home.rs): `{family: {state, reason?, harness?,
+            // base_url?, fallback?}}`, so a picker shows which one runs and why one does not.
+            "brains": self.settings.brains.root.as_deref().map(crate::brain_home::load_states).unwrap_or_default(),
         })
     }
 

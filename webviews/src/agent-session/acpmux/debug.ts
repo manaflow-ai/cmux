@@ -11,6 +11,7 @@ import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
 import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
 import { tickWatch } from "./tickWatch";
+import { wantAllSessions } from "./sessionPages";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 import type { IdleProbeOptions } from "./idleProbe";
@@ -63,6 +64,9 @@ export type AcpmuxDebug = {
    * child elements), then ends it as a drag does (pointerup), so the selection and its Reply chip show as a
    * person's would: captures of the chat's selection (no drag reaches a Chromium page in a capture slot). */
   selectText(selector: string, from: number, to: number): Record<string, unknown>;
+  /** Has the pane read every chat, not only the first page's, as the composer's @ chat search asks
+   *  (sessionPages.ts `wantAllSessions`). */
+  wantAllSessions(): void;
   /** Automation (automation.ts): the chat state a script reads, and the verbs it drives. */
   chatState(): Record<string, unknown>;
   sendPrompt(text: string): Promise<Record<string, unknown>>;
@@ -85,8 +89,9 @@ export type AcpmuxDebug = {
   idleProbe(options?: IdleProbeOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
-  /** Opens a mock session of `turns` heavy turns (or `light` ones, two rows each, opened whole) through the real client (loadDebug.ts). */
-  loadSeed(turns?: number, options?: { light?: boolean }): Promise<Record<string, unknown>>;
+  /** Opens a mock session of `turns` heavy turns (or `light` ones, two rows each, opened whole), with `queued` prompts
+   * waiting in its queue, through the real client (loadDebug.ts). */
+  loadSeed(turns?: number, options?: { light?: boolean; queued?: number }): Promise<Record<string, unknown>>;
   /** Streams a turn at full speed into it while scrolling, and reports every frame (loadDebug.ts). */
   loadRun(options?: LoadRunOptions): Promise<Record<string, unknown>>;
   /** Scrolls it while a tool call runs and another chat changes, and counts row renders (loadDebug.ts). */
@@ -417,6 +422,10 @@ export function createAcpmuxDebug(
       if (typeof text !== "string" || !text.trim()) return { shown: false, text: "", error: "toast needs text" };
       host.toast?.(text);
       return { shown: host.toast != null, text };
+    },
+
+    wantAllSessions() {
+      wantAllSessions();
     },
 
     chatState() {
