@@ -64,6 +64,8 @@ import {
   type HarnessesState,
   type HostLists,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
   type McpServersRun,
   type McpServersState,
@@ -762,6 +764,13 @@ export class SettingsStore {
   /** Settings > Agents > Agent integrations; null when the host has none. */
   async integrationsState(): Promise<IntegrationsState | null> {
     const reply = await this.request("cmux.settings.integrations.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Agents > Agents on This Mac: one gesture (a refresh reads), and the card as it is
+   * after it; null when the host has none. */
+  async runAgentTools(run: AgentToolsCardRun): Promise<AgentToolsCardState | null> {
+    const reply = await this.request("cmux.settings.agentTools.run", run);
     return reply.ok ? reply.value : null;
   }
 
