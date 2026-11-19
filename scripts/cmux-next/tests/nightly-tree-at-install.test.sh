@@ -196,6 +196,28 @@ reset_cdn; set_runs "$no_runs"; own_run "$own" 11 3; jobs_file 11 "$preflight_fa
 client "$own" "$app"
 check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a terminal preflight failure fails fast with its state and run (took $took s)"
 
+# A completed workflow must retain the preflight error, not only an active workflow.
+completed_run() {
+  own_run "$1" "$2" "${3:-3}"
+  python3 - "$runs_dir/runs-$1" <<'JSON'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["workflow_runs"][0].update(status="completed", conclusion="failure")
+with open(p, "w") as f:
+    json.dump(d, f)
+JSON
+}
+reset_cdn; set_runs "$no_runs"; completed_run "$own" 11; jobs_file 11 "$preflight_failed"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a completed publisher retains its terminal preflight failure (took $took s)"
+
+# Let the automatic retry become active between the two idle observations.
+reset_cdn; set_runs "$no_runs"; completed_run "$own" 12 1; jobs_file 12 "$preflight_failed"
+fake_clock_at 60 "printf '%s' '{\"workflow_runs\":[{\"id\":12,\"status\":\"in_progress\",\"run_attempt\":2,\"head_sha\":\"$own\"}]}' > '$runs_dir/runs-$own'"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "an active retry clears a completed preflight failure during grace (took $took s)"
+
 for attempt in 1 2; do
   reset_cdn; set_runs "$no_runs"; own_run "$own" 12 "$attempt"; jobs_file 12 "$preflight_failed"
   client "$own" "$app"
@@ -214,6 +236,19 @@ own_run "$app" 6
 client "$own"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "run of ${app:0:12} is building tree" "$TMP/err"' "a failed owner is passed over for a same-key run that builds (took $took s)"
 rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app"; rm -rf "$TMP/api/repos/o/r/actions/runs"
+
+# A stalled first alternate must not hide a second publisher that is building.
+echo another-app > "$TMP/src/app.swift"
+git_q -C "$TMP/src" add app.swift; git_q -C "$TMP/src" commit -m app-again
+app_again=$(git -C "$TMP/src" rev-parse HEAD)
+reset_cdn; own_run "$app" 10; own_run "$app_again" 14
+jobs_file 10 '{"jobs":[{"name":"cmux-tui tree preflight","status":"queued","runner_name":null,"created_at":"'"$(ago 1000)"'"}]}'
+jobs_file 14 '{"jobs":[{"name":"cmux-tui tree preflight","status":"in_progress","runner_name":"linux-2"}]}'
+set_runs "{\"workflow_runs\":[{\"id\":10,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"},{\"id\":14,\"status\":\"in_progress\",\"head_sha\":\"$app_again\",\"head_branch\":\"feat-cmux-next\"}]}"
+client "$own"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "run of ${app_again:0:12} is building tree" "$TMP/err"' "a stalled alternate is passed over for a progressing same-key publisher (took $took s)"
+rm -f "$runs_dir/runs-$app" "$runs_dir/runs-$app_again"; rm -rf "$TMP/api/repos/o/r/actions/runs"
+set_runs "$no_runs"
 
 # 6. Bad usage.
 status=0; (cd "$TMP/src" && bash scripts/cmux-next/await-tree-client.sh nope "$own" 2>/dev/null) || status=$?
