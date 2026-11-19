@@ -41,15 +41,34 @@
 # the daemon and terminal-workspace runs, e.g.:
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/perf-10x-idle.sh \
 #     --ref SHA --arg=counts=none --arg=axes=all --arg=measure=45
-# The app run also takes settings=JSON (the launch's cmux.json settings, e.g. settings={"appearance":{"agentGlow":true}}),
-# gpu=1 (the GPU's utilization per window, PERF-IDLE-GPU lines), agent_state=working|blocked (the launch workspace's
-# terminal reports an agent in that state before the first window; the daemon's list-agents after each window is a
-# PERF-IDLE-NOTE line) and snapshot=1 (the main window after each window, .build/perf-idle/snapshots/window-LABEL.png).
-# runs=NAME;SETTINGS;STATE|NAME;SETTINGS;STATE: one fresh app run per entry on the same build and Mac (SETTINGS and STATE
-# may be empty), its sample labels NAME/LABEL, e.g. runs='off;;|calm;{"appearance":{"agentGlow":true}};|glow;{"appearance":{"agentGlow":true}};blocked'.
+# The app run also takes settings=PATH=VALUE[:PATH=VALUE] (the launch's cmux.json settings, VALUE as JSON else a string,
+# e.g. settings=appearance.agentGlow=true), gpu=1 (the GPU's utilization per window, PERF-IDLE-GPU lines),
+# agent_state=working|blocked (the launch workspace's terminal reports an agent in that state before the first window;
+# the daemon's list-agents after each window is a PERF-IDLE-NOTE line) and snapshot=1 (the main window after each
+# window, .build/perf-idle/snapshots/[RUN/]window-LABEL.png). runs=NAME/SETTINGS/STATE,...: one fresh app run per entry
+# on the same build and Mac (SETTINGS and STATE may be empty), its sample labels NAME/LABEL, e.g.
+# runs=off,calm/appearance.agentGlow=true,glow/appearance.agentGlow=true/blocked (the controller allows no JSON in an arg).
 # Output: PERF-IDLE lines (PERF-IDLE-PROC: the app's top processes with their commands, and VMMAP lines); JSON under
 # .build/perf-idle.
 set -euo pipefail
+# PATH=VALUE[:PATH=VALUE] to the nested cmux.json object bench_memory.py --config takes.
+settings_json() {
+  python3 -c '
+import json, sys
+out = {}
+for pair in filter(None, sys.argv[1].split(":")):
+    path, _, raw = pair.partition("=")
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        value = raw
+    *parents, leaf = path.split(".")
+    node = out
+    for key in parents:
+        node = node.setdefault(key, {})
+    node[leaf] = value
+print(json.dumps(out))' "$1"
+}
 counts="1,10,50"
 measure=60
 agents=""
@@ -76,7 +95,7 @@ for arg in "$@"; do
     items=*) items="${arg#items=}" ;;
     visible_items=*) visible_items="${arg#visible_items=}" ;;
     settled=*) settled="${arg#settled=}" ;;
-    settings=*) app_config=(--config "${arg#settings=}") ;;
+    settings=*) app_config=(--config "$(settings_json "${arg#settings=}")") ;;
     gpu=1) gpu=(--gpu) ;;
     agent_state=*) agent_report=(--agent-report "${arg#agent_state=}") ;;
     snapshot=1) snapshot=(1) ;;
@@ -136,14 +155,14 @@ for path in sys.argv[1:]:
   print(f"PERF-IDLE-STOP daemon {path} {data.get('stopped')} teardown={json.dumps(data.get('teardown') or {})[:300]}")
 PY
 
-# One app run, or one per runs= entry (NAME;SETTINGS_JSON;AGENT_STATE, |-separated), each a fresh launch of the
+# One app run, or one per runs= entry (NAME/SETTINGS/AGENT_STATE, comma-separated), each a fresh launch of the
 # same build on the same Mac; a run's sample labels are NAME/LABEL.
-if [[ -n "$runs" ]]; then IFS='|' read -r -a run_list <<< "$runs"; else run_list=(""); fi
+if [[ -n "$runs" ]]; then IFS=, read -r -a run_list <<< "$runs"; else run_list=(""); fi
 for run in "${run_list[@]}"; do
   run_name="" run_args=()
   if [[ -n "$run" ]]; then
-    IFS=';' read -r run_name run_settings run_state <<< "$run"
-    [[ -n "${run_settings:-}" ]] && run_args+=(--config "$run_settings")
+    IFS=/ read -r run_name run_settings run_state <<< "$run"
+    [[ -n "${run_settings:-}" ]] && run_args+=(--config "$(settings_json "$run_settings")")
     [[ -n "${run_state:-}" ]] && run_args+=(--agent-report "$run_state")
   else
     run_args=(${app_config[@]+"${app_config[@]}"} ${agent_report[@]+"${agent_report[@]}"})
