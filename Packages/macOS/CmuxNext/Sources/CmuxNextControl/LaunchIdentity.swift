@@ -1,5 +1,6 @@
 import CMUXAuthCore
 public import CmuxNextCompat
+import CmuxNextDaemon
 public import CmuxNextProcessEnvironment
 public import CmuxNextSettings
 public import Foundation
@@ -35,14 +36,28 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// gets the same pair through `CMUX_BUNDLE_ID` and `CMUX_TAG`
     /// (``terminalEnvironment``), so both resolve one build.
     public var build: BuildIdentity
+    /// The settings file this launch reads and writes when it is not the
+    /// shared `~/.config/cmux/cmux-next.json`: ``configFileKey`` from the
+    /// process (the bundle's `LSEnvironment`, a launch's `--env`, or the DEBUG
+    /// `--config-file`), as an absolute path. Its terminals, its daemon and
+    /// the acpmux daemon its agents run under get the same value
+    /// (``terminalEnvironment``), so the `cmux` CLI, the `claude` and `codex`
+    /// shims and the `cmux mcp serve` an agent starts read the file the app
+    /// wrote, not the shared one. Nil on the shared file.
+    public var configFile: String?
+
+    /// The settings-file override (`CmuxConfigFile.overrideKey`; cmux-tui
+    /// `user_settings::CONFIG_OVERRIDE`).
+    public static let configFileKey = "CMUX_NEXT_CONFIG_FILE"
 
     public init(bundleID: String?, tag: String?, socketPath: String, compatibilityLink: String? = nil,
-                build: BuildIdentity? = nil) {
+                build: BuildIdentity? = nil, configFile: String? = nil) {
         self.bundleID = bundleID
         self.tag = tag
         self.socketPath = socketPath
         self.compatibilityLink = compatibilityLink
         self.build = build ?? BuildIdentity(bundleID: bundleID, bundledTag: tag)
+        self.configFile = configFile
     }
 
     /// Variables every terminal of this app gets, so the `cmux` CLI inside
@@ -54,6 +69,10 @@ public struct LaunchIdentity: Sendable, Equatable {
         // this app's even for a copy that ships another tag than its id.
         if let tag = build.tag ?? tag { environment["CMUX_TAG"] = tag }
         if let space = buildSpaceValue { environment[Self.buildSpaceKey] = space }
+        // The app's own settings file, so what runs in its terminals reads
+        // what the app wrote (`TerminalEnvironment` forwards no `CMUX_NEXT_*`
+        // knob from the app's environment on its own).
+        if let configFile { environment[Self.configFileKey] = configFile }
         return environment
     }
 
@@ -69,9 +88,18 @@ public struct LaunchIdentity: Sendable, Equatable {
         CMUXBuildSpaceState(devBuild: build.needsBuildSpace, devTag: build.devTag).childEnvironmentValue
     }
 
+    /// ``configFileKey`` in `processEnvironment` as the absolute path of the
+    /// file the app itself opens (`CmuxConfigFile.defaultURL`: unset or empty
+    /// is the shared file; `~` expanded; a relative path against this
+    /// process's directory), so terminals and the app name one file. `~/` is
+    /// `home`; nil on the shared file.
+    static func configFile(processEnvironment: [String: String], home: URL) -> String? {
+        SettingsFileOverride(environment: processEnvironment, home: home).path
+    }
+
     /// Pure resolution. `bundledEnvironment` is the bundle's own
     /// `Info.plist` `LSEnvironment`; `processEnvironment` is consulted only
-    /// for ``socketOverrideKey``.
+    /// for ``socketOverrideKey`` and ``configFileKey``.
     public static func resolve(
         bundleID: String?,
         bundledEnvironment: [String: String],
@@ -87,8 +115,9 @@ public struct LaunchIdentity: Sendable, Equatable {
         let shipped = bundledEnvironment["CMUX_TAG"].flatMap(ControlSocketPath.shared.sanitize) ?? taggedAppName(bundleName)
         let tag = ControlSocketPath.shared.bundleTag(bundle) ?? shipped
         let build = BuildIdentity(bundleID: bundle, bundledTag: shipped)
+        let configFile = configFile(processEnvironment: processEnvironment, home: home)
         if let explicit = processEnvironment[socketOverrideKey]?.trimmingCharacters(in: .whitespaces), !explicit.isEmpty {
-            return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: explicit, build: build)
+            return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: explicit, build: build, configFile: configFile)
         }
         let paths = ControlSocketPath.shared
         // The build's own socket name (per-build isolation S3), in the state
@@ -98,7 +127,8 @@ public struct LaunchIdentity: Sendable, Equatable {
         let socket = named.map { paths.moved($0, home: home) }
             ?? (path: paths.resolve(bundleID: nil, tag: nil, isDebugBuild: isDebugBuild, home: home),
                 link: paths.compatibilityLink(bundleID: nil, tag: nil, isDebugBuild: isDebugBuild, home: home))
-        return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: socket.path, compatibilityLink: socket.link, build: build)
+        return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: socket.path, compatibilityLink: socket.link, build: build,
+                              configFile: configFile)
     }
 
     /// A fleet artifact is sometimes launched directly from its staged
