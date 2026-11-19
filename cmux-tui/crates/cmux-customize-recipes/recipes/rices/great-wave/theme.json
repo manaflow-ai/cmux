@@ -35,9 +35,10 @@
   "appearance.accent": "theme",
   "appearance.highlightColor": "#7e9cd8",
 
-  // The wave, clear around the panes.
+  // The wave shows through: the window and the panes let the painting in, and the terminal keeps
+  // enough sumi ink under its text to read (checked on a real-app capture, 2026-11-19).
   "appearance.background": "hokusai-great-wave",
-  "appearance.backgroundOpacity": 0.95,
+  "appearance.backgroundOpacity": 0.6,
   "appearance.backgroundBlur": "glass-clear",
   "appearance.wallpaperTint": false,
   "appearance.glassTransparency": 0.6,
@@ -47,12 +48,12 @@
   "appearance.borders": "default",
   "appearance.sidebarSurface": "separate",
   "appearance.surfaces.sidebar.color": "#16161d",
-  "appearance.surfaces.sidebar.opacity": 0.74,
+  "appearance.surfaces.sidebar.opacity": 0.6,
   "sidebar.border": true,
   "sidebar.borderWidth": 1,
   "sidebar.sectionLook": "tray",
   "appearance.surfaces.terminal.color": "#1f1f28",
-  "appearance.surfaces.terminal.opacity": 0.9,
+  "appearance.surfaces.terminal.opacity": 0.78,
   "appearance.surfaces.agentPane.color": "#1f1f28",
   "appearance.surfaces.agentPane.opacity": 0.92,
   "appearance.surfaces.newTabPage.color": "#1f1f28",
