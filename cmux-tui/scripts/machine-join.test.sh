@@ -726,6 +726,41 @@ suite() {
   check "rd symlink: kept" test -L "$d/home/.local/bin/cmux-rd"
   check "rd symlink: nothing fetched" eval '! fetched_rd'
 
+  # The channel's cmux-rd in place but not executable (the daemon refuses it): made
+  # executable, not downloaded again.
+  new_case linux-cmux-rd-not-executable
+  mkdir -p "$d/home/.local/bin"
+  cp "$d/serve/cmux-rd" "$d/home/.local/bin/cmux-rd"
+  chmod 644 "$d/home/.local/bin/cmux-rd"
+  run_join env
+  check "rd not executable: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "rd not executable: now mode 755, the channel's" rd_is_channels
+  check "rd not executable: nothing fetched" eval '! fetched_rd'
+  check "rd not executable: no failure state" test ! -e "$(rd_state)"
+
+  # A symlink to nothing, or to a directory, is no cmux-rd: replaced by the channel's.
+  for to in nothing dir; do
+    new_case "linux-cmux-rd-symlink-to-$to"
+    mkdir -p "$d/home/.local/bin"
+    [ "$to" = dir ] && mkdir -p "$d/own"
+    ln -s "$d/own" "$d/home/.local/bin/cmux-rd"
+    run_join env
+    check "rd symlink to $to: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+    check "rd symlink to $to: replaced by the channel's" rd_is_channels
+    check "rd symlink to $to: nothing put inside its target" test ! -e "$d/own/cmux-rd"
+  done
+
+  # A directory where cmux-rd goes: one clear line, left as it is, nothing fetched.
+  new_case linux-cmux-rd-directory
+  mkdir -p "$d/home/.local/bin/cmux-rd"
+  run_join env
+  check "rd directory: the join still exits 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "rd directory: one line" eval '[ "$(rd_lines)" = 1 ]'
+  check "rd directory: says so" out_has "cmux-rd did not install ($d/home/.local/bin/cmux-rd is not a file: remove it, then run the line again)"
+  check "rd directory: left as it is, nothing inside" eval '[ -d "$d/home/.local/bin/cmux-rd" ] && [ -z "$(ls -A "$d/home/.local/bin/cmux-rd")" ]'
+  check "rd directory: nothing fetched" eval '! fetched_rd'
+  check "rd directory: the state file holds the reason" grep -q "is not a file" "$(rd_state)"
+
   # No cmux-rd before the join finished, nor on a machine that is not joined.
   new_case linux-cmux-rd-not-joined
   JT_JOIN_EXIT=3
