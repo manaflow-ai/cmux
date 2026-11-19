@@ -7,25 +7,33 @@ import QuartzCore
 /// the mark's color until it is seen. The selected tab never glows (it is being looked at), so a tab that
 /// still waits once seen shows its mark again; the mark keeps its room throughout, so nothing moves.
 ///
-/// One layer per waiting tab, made on first need and removed when it stops (architecture.md 3). The breath
-/// runs on the render server (`MotionGate.breathAnimation`), never per frame on the main thread, and holds
-/// still while the window is covered or the strip hidden, and when loops are off (Reduce Motion, speed off).
+/// One layer per waiting tab, made on first need and removed when it stops (architecture.md 3): a wash and a
+/// hairline edge in the mark's color, no shadow (a shadow without a path is an offscreen pass per frame, and a
+/// path would not follow a moving width). The breath runs on the render server (`MotionGate.breathAnimation`),
+/// never per frame on the main thread, and holds still while the window is covered or the strip hidden, and
+/// when loops are off (Reduce Motion, speed off; `TabStripView` passes on each motion change).
 extension TabCell {
     static let needsYouGlowKey = "tab.needsYouGlow"
     /// The halo's lowest opacity in a breath: it never fully goes, so a glance always finds it.
     static let needsYouGlowLow: Float = 0.35
 
-    /// The tab glows in place of its mark: the look is on, it has a mark to replace, and it is not the
-    /// selected (seen) or a lifted tab.
+    /// The tab glows in place of its mark: the look is on, it has a mark to replace, and it is not the selected
+    /// (seen) tab. A lifted or closing tab keeps what it showed.
     var showsNeedsYouGlow: Bool {
-        DesignSettings.shared.attention.mark == .glow && !fillsSelection && !isClosing && badgeColor != nil
+        DesignSettings.shared.attention.mark == .glow && !isSelected && badgeColor != nil
     }
 
     /// Places the halo on the pill `pill`, or removes it when the tab does not glow (`onPath`: hides it, as
-    /// every part on a moving width's sample does; the rest layout at the path's end removes it).
+    /// every part on a moving width's sample does, breath included; the rest layout at the path's end removes it).
     func layoutNeedsYouGlow(pill: CGRect, onPath: Bool) {
         guard showsNeedsYouGlow else {
-            if onPath { needsYouGlowLayer?.opacity = 0 } else { removeNeedsYouGlow() }
+            guard let glow = needsYouGlowLayer else { return }
+            if onPath {
+                glow.removeAnimation(forKey: Self.needsYouGlowKey)
+                glow.opacity = 0
+            } else {
+                removeNeedsYouGlow()
+            }
             return
         }
         let glow = needsYouGlowLayer ?? makeNeedsYouGlow()
@@ -33,17 +41,13 @@ extension TabCell {
         glow.frame = pill
         glow.cornerRadius = metrics.cornerRadius
         glow.cornerCurve = Metrics.tabCornerCurve
-        glow.shadowPath = CGPath(roundedRect: CGRect(origin: .zero, size: pill.size), cornerWidth: metrics.cornerRadius,
-                                 cornerHeight: metrics.cornerRadius, transform: nil)
         updateNeedsYouGlowMotion()
     }
 
     private func makeNeedsYouGlow() -> CALayer {
         let glow = CALayer()
         glow.actions = Self.noActions
-        glow.shadowOffset = .zero
-        glow.shadowRadius = Metrics.space1 * 1.5
-        glow.shadowOpacity = 0.6
+        glow.borderWidth = Metrics.dividerThickness
         layer.insertSublayer(glow, below: backgroundLayer)
         needsYouGlowLayer = glow
         applyNeedsYouGlowColor()
@@ -61,7 +65,7 @@ extension TabCell {
         themeScope.perform {
             let color = badgeColor ?? Palette.statusAttention
             needsYouGlowLayer.backgroundColor = color.withAlphaComponent(0.16).cgColor
-            needsYouGlowLayer.shadowColor = color.cgColor
+            needsYouGlowLayer.borderColor = color.withAlphaComponent(0.45).cgColor
         }
     }
 
