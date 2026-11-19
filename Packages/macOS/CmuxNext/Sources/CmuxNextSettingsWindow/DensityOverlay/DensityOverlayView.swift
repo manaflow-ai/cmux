@@ -67,6 +67,8 @@ final class DensityOverlayView: NSView {
         reference.font = Typography.body
         reference.setAccessibilityIdentifier("cmux.densityOverlay.reference")
         reference.setContentHuggingPriority(.required, for: .horizontal)
+        reference.target = self
+        reference.action = #selector(referencePicked)
 
         modePicker.segmentCount = DensityOverlayModel.Mode.allCases.count
         for (index, mode) in DensityOverlayModel.Mode.allCases.enumerated() {
@@ -309,7 +311,14 @@ final class DensityOverlayView: NSView {
         status.stringValue = statusLine
     }
 
-    /// The pull-down's title item and the references, rebuilt only when they change.
+    /// What a reference pull-down row picks; the pull-down's own action (referencePicked) runs it.
+    private enum ReferenceRow {
+        case builtIn(URL)
+        case choose
+    }
+
+    /// The pull-down's title item and the references, rebuilt only when they change. The rows carry what they
+    /// pick and no action of their own, so a pick sends the pull-down's action.
     private func renderReferenceMenu() {
         let title = model.referenceName ?? DensityOverlayStrings.reference
         let references = model.builtInReferences
@@ -318,16 +327,13 @@ final class DensityOverlayView: NSView {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: title, action: nil, keyEquivalent: ""))
         for url in references {
-            let item = NSMenuItem(title: url.deletingPathExtension().lastPathComponent, action: #selector(loadReference(_:)),
-                                  keyEquivalent: "")
-            item.target = self
-            item.representedObject = url
+            let item = NSMenuItem(title: url.deletingPathExtension().lastPathComponent, action: nil, keyEquivalent: "")
+            item.representedObject = ReferenceRow.builtIn(url)
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let choose = NSMenuItem(title: DensityOverlayStrings.chooseReference, action: #selector(chooseReference),
-                                keyEquivalent: "")
-        choose.target = self
+        let choose = NSMenuItem(title: DensityOverlayStrings.chooseReference, action: nil, keyEquivalent: "")
+        choose.representedObject = ReferenceRow.choose
         menu.addItem(choose)
         reference.menu = menu
     }
@@ -344,12 +350,13 @@ final class DensityOverlayView: NSView {
 
     // MARK: Actions
 
-    @objc private func loadReference(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? URL else { return }
-        model.loadReference(url)
+    @objc private func referencePicked() {
+        switch reference.selectedItem?.representedObject as? ReferenceRow {
+        case .builtIn(let url): model.loadReference(url)
+        case .choose: model.chooseReference()
+        case nil: break
+        }
     }
-
-    @objc private func chooseReference() { model.chooseReference() }
 
     @objc private func modeChanged() {
         let modes = DensityOverlayModel.Mode.allCases
