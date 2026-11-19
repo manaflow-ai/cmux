@@ -122,7 +122,7 @@ final class SidebarSubagentsView: NSView {
 
 /// One subagent's line: a small state mark (spinner while it runs, a check when done, a cross when it
 /// failed, a quiet dot when it stopped) and its title, one font weight whatever its state.
-final class SidebarSubagentLineView: NSControl {
+final class SidebarSubagentLineView: NSView {
     var onPress: (() -> Void)?
     private let mark: StatusIndicatorView = { let view = StatusIndicatorView(); view.usesStatusColors = true; return view }()
     private let stoppedDot = NSView()
@@ -194,14 +194,13 @@ final class SidebarSubagentLineView: NSControl {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }
 
     override func mouseEntered(with event: NSEvent) { hovered = true; tint() }
     override func mouseExited(with event: NSEvent) { hovered = false; tint() }
-    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) {
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onPress?() }
@@ -211,7 +210,7 @@ final class SidebarSubagentLineView: NSControl {
 
 /// The stacked line (Claude's sidebar-subagent-stack-status-row): the subagents' marks overlapping, then
 /// what they do ("3 running", "8 done", "1 failed"), quiet like a second line.
-final class SidebarSubagentStackView: NSControl {
+final class SidebarSubagentStackView: NSView {
     var onPress: (() -> Void)?
     private var marks: [DecorativeImageView] = []
     private var states: [SidebarSubagent.State] = []
@@ -275,7 +274,6 @@ final class SidebarSubagentStackView: NSControl {
         label.frame = NSRect(x: x, y: SidebarStyle.textY(label, centerY: cy), width: max(0, bounds.width - x), height: height)
     }
 
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) {
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onPress?() }
