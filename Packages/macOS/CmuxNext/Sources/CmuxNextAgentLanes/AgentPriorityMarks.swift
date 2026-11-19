@@ -95,10 +95,14 @@ public final class AgentPriorityMarks {
     public func setFilter(_ filter: SidebarPriorityFilter) { state.filter = filter }
 
     /// The person dragged `id` in the Priority view, which now shows `order`: it keeps that place,
-    /// and each chat dragged before keeps the place it shows at now.
-    public func place(_ id: String, in order: [String]) {
+    /// and each chat dragged before keeps the place it shows at now. `moved` are other chats whose
+    /// places the drag changed (the rows a filter showed, which trade the slots they held): they keep
+    /// theirs too, so the ranking puts them back where the drag left them.
+    public func place(_ id: String, in order: [String], moved: Set<String> = []) {
         var placed = state.placed
-        for (index, other) in order.enumerated() where other == id || placed[other] != nil { placed[other] = index }
+        for (index, other) in order.enumerated() where other == id || moved.contains(other) || placed[other] != nil {
+            placed[other] = index
+        }
         state.placed = placed
     }
 

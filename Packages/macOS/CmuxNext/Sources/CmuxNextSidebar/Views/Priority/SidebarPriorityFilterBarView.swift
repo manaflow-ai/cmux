@@ -15,10 +15,12 @@ final class SidebarPriorityFilterBarView: NSView {
         super.init(frame: frame)
         for chip in chips {
             chip.onPress = { [weak self] filter in self?.onAction?(.setFilter(filter)) }
+            chip.onStep = { [weak self] chip, step in self?.step(from: chip, by: step) }
             addSubview(chip)
         }
         setAccessibilityElement(true)
         setAccessibilityRole(.radioGroup)
+        setAccessibilityLabel(Strings.priorityTitle)
     }
 
     @available(*, unavailable)
@@ -34,6 +36,15 @@ final class SidebarPriorityFilterBarView: NSView {
         self.bar = bar
         for chip in chips { chip.configure(count: bar.count(chip.filter), selected: bar.selected == chip.filter) }
         needsLayout = true
+    }
+
+    /// An arrow key on a focused chip: the next chip that way (wrapping, as a radio group does)
+    /// takes the focus and is picked.
+    func step(from chip: Chip, by step: Int) {
+        guard let index = chips.firstIndex(where: { $0 === chip }) else { return }
+        let next = chips[(index + step + chips.count) % chips.count]
+        _ = FocusRoute(.person, "the person pressed an arrow key on a Priority filter chip").moveKeyboard(in: window, to: next)
+        onAction?(.setFilter(next.filter))
     }
 
     override func layout() {
@@ -53,14 +64,20 @@ final class SidebarPriorityFilterBarView: NSView {
         }
     }
 
-    /// One filter: its name and count, a click picks it.
+    /// One filter: its name and count, a click picks it. With keyboard access on (the system's
+    /// Keyboard Navigation, as the sidebar's other buttons), Tab focuses it, Space or Return picks
+    /// it, and the arrow keys move the pick to the chip beside it.
     final class Chip: NSView {
         let filter: SidebarPriorityFilter
         var onPress: ((SidebarPriorityFilter) -> Void)?
+        /// An arrow key: -1 for the chip before, 1 for the one after.
+        var onStep: ((Chip, Int) -> Void)?
         private let name = ChromeLabel(labelWithString: "")
         private let count = ChromeLabel(labelWithString: "")
         private(set) var selected = false
         private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
+        private(set) var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
+        private lazy var keyRepaint = KeyWindowRepaint(self)
         private var pointerHover: PointerHover?
 
         init(_ filter: SidebarPriorityFilter) {
@@ -97,7 +114,8 @@ final class SidebarPriorityFilterBarView: NSView {
             count.stringValue = String(value)
             self.selected = selected
             setAccessibilityLabel([Self.title(filter), String(value)].joined(separator: ", "))
-            setAccessibilityValue(selected)
+            setAccessibilityValue(NSNumber(value: selected))
+            setAccessibilitySelected(selected)
             needsLayout = true
             needsDisplay = true
         }
@@ -130,7 +148,54 @@ final class SidebarPriorityFilterBarView: NSView {
                 if let layer {
                     layer.cornerRadius = bounds.height / 2
                     ChromeHover.paint(layer, selected ? Palette.selectionFill : isHovered ? Palette.hoverFill : nil, animated: window != nil)
+                    layer.borderColor = Palette.focusRing.cgColor
+                    layer.borderWidth = KeyWindowRepaint.showsFocus(self, focused: isKeyFocused) ? Metrics.lineWidth(1.5) : 0
                 }
+            }
+        }
+
+        override var acceptsFirstResponder: Bool {
+            guard NSApp.isFullKeyboardAccessEnabled else { return false }
+            let mouse: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp]
+            return !(NSApp.currentEvent.map { mouse.contains($0.type) } ?? false)
+        }
+
+        override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            keyRepaint.track()
+        }
+
+        override func becomeFirstResponder() -> Bool {
+            isKeyFocused = true
+            return true
+        }
+
+        override func resignFirstResponder() -> Bool {
+            isKeyFocused = false
+            return true
+        }
+
+        override func keyDown(with event: NSEvent) {
+            if SidebarUpdateToggle.isActivationKey(event) {
+                onPress?(filter)
+                return
+            }
+            switch Self.step(for: event) {
+            case let step?: onStep?(self, step)
+            case nil: super.keyDown(with: event)
+            }
+        }
+
+        /// -1 for Left or Up, 1 for Right or Down, with no modifier but the arrow keys' own.
+        static func step(for event: NSEvent) -> Int? {
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .numericPad])
+            guard modifiers.isEmpty else { return nil }
+            switch event.specialKey {
+            case .leftArrow?, .upArrow?: return -1
+            case .rightArrow?, .downArrow?: return 1
+            default: return nil
             }
         }
 

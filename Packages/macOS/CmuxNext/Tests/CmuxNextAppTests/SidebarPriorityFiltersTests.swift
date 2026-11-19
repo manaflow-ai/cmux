@@ -25,14 +25,15 @@ struct SidebarPriorityFiltersTests {
     }
 
     /// Two waiting, two unread (one failed), two running and one idle chat.
-    private static func feed(_ keys: Keys, marked: @escaping @MainActor (SidebarPriorityAction) -> Void = { _ in })
+    private static func feed(_ keys: Keys, lanes: [String: AgentActivityLane]? = nil,
+                             marked: @escaping @MainActor (SidebarPriorityAction) -> Void = { _ in })
         throws -> (SidebarPriorityFeed, AgentPriorityChats) {
         let store = AgentLaneStore()
-        store.lanes = [
-            "ask-1": try lane("ask-1", "input", ago: 10), "ask-2": try lane("ask-2", "input", ago: 20),
-            "done-1": try lane("done-1", "idle", unread: true, ago: 30), "fail-1": try lane("fail-1", "failed", unread: true, ago: 40),
-            "run-1": try lane("run-1", "working", ago: 50), "run-2": try lane("run-2", "working", ago: 60),
-            "quiet": try lane("quiet", "idle", ago: 70),
+        store.lanes = try lanes ?? [
+            "ask-1": lane("ask-1", "input", ago: 10), "ask-2": lane("ask-2", "input", ago: 20),
+            "done-1": lane("done-1", "idle", unread: true, ago: 30), "fail-1": lane("fail-1", "failed", unread: true, ago: 40),
+            "run-1": lane("run-1", "working", ago: 50), "run-2": lane("run-2", "working", ago: 60),
+            "quiet": lane("quiet", "idle", ago: 70),
         ]
         let chats = AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [store], checksFailing: { _ in false }) { _, _ in }
         let feed = SidebarPriorityFeed(settings: .init(enabled: { true }, shown: { true }, filters: { keys.filters },
@@ -98,6 +99,27 @@ struct SidebarPriorityFiltersTests {
         let all = ["ask-1", "ask-2", "done-1", "fail-1", "run-1", "run-2"]
         #expect(SidebarPriorityFeed.merged(["run-2", "run-1"], into: all) == ["ask-1", "ask-2", "done-1", "fail-1", "run-2", "run-1"])
         #expect(SidebarPriorityFeed.merged(all.reversed(), into: all) == all.reversed(), "under All the order is the whole list")
+    }
+
+    /// All shows [a, b, c] (a and c waiting, c dragged to the bottom, b an unseen result). Under
+    /// Waiting the person drags c above a: the whole list becomes [c, b, a], b keeping its slot.
+    @Test func aDragUnderAFilterGivesTheMergedFeedOrder() throws {
+        let keys = Keys()
+        keys.filters = true
+        let (feed, chats) = try Self.feed(keys, lanes: [
+            "a": Self.lane("a", "input", ago: 10), "c": Self.lane("c", "input", ago: 20),
+            "b": Self.lane("b", "idle", unread: true, ago: 30),
+        ])
+        #expect(feed.panel()?.entries.map(\.id) == ["a", "c", "b"])
+        feed.perform(.place("c", order: ["a", "b", "c"]))
+        #expect(feed.panel()?.entries.map(\.id) == ["a", "b", "c"])
+        feed.perform(.setFilter(.waiting))
+        #expect(feed.panel()?.entries.map(\.id) == ["a", "c"])
+        feed.perform(.place("c", order: ["c", "a"]))
+        #expect(feed.panel()?.entries.map(\.id) == ["c", "a"])
+        feed.perform(.setFilter(.all))
+        #expect(feed.panel()?.entries.map(\.id) == ["c", "b", "a"], "b keeps the slot it held")
+        #expect(chats.marks.state.placed == ["c": 0, "a": 2])
     }
 
     @Test func filtersPickTheirTiers() {

@@ -177,7 +177,11 @@ public final class SidebarPriorityFeed {
         case .markRead, .togglePin, .snooze, .archive: hooks.rowAction(action)
         case .answer(let id, let request, let allow): approvals?.answer(session: id, request: request, allow: allow)
         case .setCollapsed(let collapsed): marks.setCollapsed(collapsed)
-        case .place(let id, let order): marks.place(id, in: Self.merged(order, into: listed.map(\.id)))
+        case .place(let id, let order):
+            // Under a filter the shown rows trade the slots they held in the whole list, so each
+            // keeps its new slot; under All only the dragged row moved.
+            let all = listed.map(\.id)
+            marks.place(id, in: Self.merged(order, into: all), moved: order.count < all.count ? Set(order) : [])
         case .toggleShown: hooks.toggleShown()
         case .setFilter(let filter): marks.setFilter(filter)
         case .markAllRead:
