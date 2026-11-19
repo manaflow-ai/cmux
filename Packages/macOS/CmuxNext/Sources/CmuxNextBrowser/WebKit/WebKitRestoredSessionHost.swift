@@ -23,7 +23,7 @@ struct WebKitRestoredSessionHost: BrowserRestoredSessionHost {
     }
 
     func goToNativeEntry(offset: Int) -> Bool {
-        guard let item = tab.webView.backForwardList.item(at: offset) else { return false }
+        guard let item = tab.webView.backForwardList.item(at: offset), tab.resumeIfSuspended() else { return false }
         tab.webView.go(to: item)
         return true
     }

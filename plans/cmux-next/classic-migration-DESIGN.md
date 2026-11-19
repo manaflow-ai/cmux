@@ -154,10 +154,12 @@ Gate before that release:
    publishes `appcast-arm64.xml` and `appcast-x86_64.xml` as copies of the universal
    `appcast.xml` (GitHub release assets and `files.cmux.com/stable/`, per-arch first,
    `appcast.xml` last). cmux-next's own resolver keeps reading `appcast.xml`.
-3. Staging check: publish the candidate appcast to a staging key (`files.cmux.com/staging-handoff/`),
-   point a classic stable build at it with the `SUFeedURL` default override
-   (`defaults write com.cmuxterm.app SUFeedURL …`), update, and confirm: app relaunches as cmux-next,
-   migration toast, windows/groups present, a second launch makes nothing.
+3. Staging check: publish the candidate appcast to a test feed, point one classic stable install at it,
+   update, and confirm: app relaunches as cmux-next, migration toast, windows/groups present, a second
+   launch makes nothing. A `defaults write com.cmuxterm.app SUFeedURL …` override does NOT work: shipped
+   classic answers Sparkle's `feedURLString(for:)` with its Info.plist URL. Use
+   `scripts/cmux-next/classic-handoff-rc.sh on|off|back` (2026-11-16 dry run; runbook
+   `plans/cmux-next/classic-handoff-go-live-RUNBOOK.md`, test guide `docs/cmux-next/classic-handoff-test.md`).
 4. Then the production release as usual (`/release`), approved by the user's standing deploy rule.
 
 ### Nightly
@@ -189,8 +191,11 @@ cmux-next nightly under their bundle ID. The legacy-identity jobs (`nightly.yml`
 - UserDefaults: same domain per bundle ID; cmux-next reads classic's keys (shortcuts, prefs) and
   writes its own. Classic after a downgrade reads the same domain: keys cmux-next writes must not
   break classic's readers (see risks).
-- WebKit website data (cookies) is per bundle ID: same ID keeps WebKit cookies; the Chromium
-  engine's profile is separate (browser import flow).
+- Browser sign-ins do NOT come over (corrected 2026-11-16): classic used `WKWebsiteDataStore.default()`
+  and per-profile UUID stores; cmux-next defaults to Chromium and its WebKit profiles use their own
+  identified stores, never `.default()`, and nothing imports classic's. Runbook blocker B5.
+- Socket mode: classic kept the Settings choice in UserDefaults `socketControlMode`; cmux-next now falls
+  back to it when `cmux-next.json` names none (`ControlService.classicStoredMode`).
 
 ## 6. Open risks
 

@@ -48,6 +48,17 @@ PR_17470 = [
 ]
 
 
+# A shell `case` arm whose body is empty (`images/*|art/*) ;;`): the paths it lists are named to be ignored.
+EMPTY_CASE_ARM = re.compile(r"^[ \t]*[^\n#()]+\)[ \t]*;;[^\n]*$", re.MULTILINE)
+
+
+def names_path(text: str, pattern: str) -> bool:
+    """Whether TEXT names a NO_APP_INPUT PATTERN's path anywhere but an empty `case` arm."""
+    prefix = pattern.removesuffix("*")
+    named = re.compile(r"(^|[^A-Za-z0-9_.-])" + re.escape(prefix) + ("" if prefix.endswith("/") else r"\b"))
+    return named.search(EMPTY_CASE_ARM.sub("", text)) is not None
+
+
 def call_arguments(text: str, index: int) -> str:
     """The top-level arguments of the call open at INDEX (just inside its parenthesis), up to the parenthesis
     that closes it. String literals ("...", \"\"\"...\"\"\", raw #"..."#) are kept whole at the top level;
@@ -478,11 +489,19 @@ class PullRequestTiers(unittest.TestCase):
         inputs += [p for p in ROOT.glob("Packages/macOS/CmuxNext/**/*.sh") if ".build" not in p.parts]
         self.assertGreater(len(inputs), 50)
         for pattern in route_module.NO_APP_INPUT:
-            prefix = pattern.removesuffix("*")
-            named = re.compile(r"(^|[^A-Za-z0-9_.-])" + re.escape(prefix) + ("" if prefix.endswith("/") else r"\b"))
             for path in inputs:
                 with self.subTest(pattern=pattern, input=str(path.relative_to(ROOT))):
-                    self.assertIsNone(named.search(path.read_text(encoding="utf-8", errors="replace")))
+                    self.assertFalse(names_path(path.read_text(encoding="utf-8", errors="replace"), pattern))
+
+    def test_a_path_only_an_empty_case_arm_names_is_not_read(self):
+        """swap-binary.sh (#46110) lists paths a swap ignores as empty `case` arms (`images/*) ;;`): naming a path to
+        do nothing with it is not reading it. A non-empty arm, or any other mention, still is."""
+        ignored = 'case "$p" in\n  .agents/*|tests_v2/*) ;;\n  art/*|images/*) ;;       # not in the app\nesac\n'
+        self.assertFalse(names_path(ignored, "images/*"))
+        self.assertFalse(names_path(ignored, ".agents/*"))
+        self.assertTrue(names_path('case "$p" in\n  images/*) cp -R "$p" "$out" ;;\nesac\n', "images/*"))
+        self.assertTrue(names_path("cp -R images/ \"$out\"\n", "images/*"))
+        self.assertTrue(names_path('"images/*"\n', "images/*"))
 
     def test_cmux_tui_a_dev_build_still_bundles_it(self):
         result = tiers(["cmux-tui/crates/acpmux/src/peer.rs"], labels=frozenset({"dev-build"}))
@@ -1734,7 +1753,11 @@ class RouteLabels(unittest.TestCase):
             subprocess.run([*git, "add", "-A"], check=True)
             subprocess.run([*git, "commit", "-qm", "head"], check=True)
             out = Path(tmp) / "out"
-            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "EVENT_NAME": "pull_request",
+            # Every variable the step's env block sets exists on a runner, so the fixture sets each one
+            # (empty unless named below): a new env line under `set -u` no longer fails this test
+            # (#44253 added SAME_REPO_PR and the step stopped at "unbound variable").
+            step_env = {name: "" for name in step.get("env", {})}
+            env = {**step_env, **os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "EVENT_NAME": "pull_request",
                    "PR_NUMBER": "7", "GITHUB_REPOSITORY": "o/r", "GITHUB_RUN_ATTEMPT": attempt,
                    "EVENT_LABELS": "full-ci,risk:low", "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(out),
                    "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary"), "DEV_DAILY": "false",
@@ -1974,6 +1997,144 @@ class HotOnlyRoute(unittest.TestCase):
         # The reason never explains a dropped daemon tier.
         after = dict(outputs(result), daemon="false")
         self.assertEqual(replay.explain(before, after, list(result.reasons)).kind, "unexplained")
+
+    def test_the_hot_only_flag_writes_only_the_hot_outputs(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as scratch:
+            changed, output = Path(scratch) / "changed.txt", Path(scratch) / "output"
+            for files, hot, layers in ((["webviews/src/agent-session/pane.tsx"], "true", "web"),
+                                       ([f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"], "false", "")):
+                with self.subTest(files=files):
+                    changed.write_text("\n".join(files) + "\n", encoding="utf-8")
+                    output.write_text("", encoding="utf-8")
+                    with mock.patch("builtins.print"):
+                        cmux_next_route.main(["--hot-only", "--event", "pull_request", "--changed-files", str(changed),
+                                              "--github-output", str(output)])
+                    self.assertEqual(output.read_text(encoding="utf-8").splitlines(),
+                                     [f"hot_only={hot}", f"hot_layers={layers}"])
+
+
+def workflow_step(workflow: str, job: str, step: str) -> dict:
+    import yaml
+    document = yaml.safe_load((ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8"))
+    return next(s for s in document["jobs"][job]["steps"] if s.get("name") == step)
+
+
+class HotAwareWorkflows(unittest.TestCase):
+    """Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
+    can get it to do". The two feat-cmux-next pull request workflows outside cmux-next.yml that spent Mac time on
+    hot-only pull requests (2026-11-08..14: tooling-tests 0.9 min, fleet-test-compile 0.4 min a PR) read the
+    router's `--hot-only` verdict on the same merge-commit diff: tooling-tests stays on Linux, the test compile plan
+    is empty. Anything else keeps its route, and a router failure reads as not hot."""
+
+    HOT = ["webviews/src/agent-session/pane.tsx", "cmux-tui/crates/acpmux/src/lib.rs"]
+    APP = ["webviews/src/agent-session/pane.tsx", f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"]
+
+    def run_step(self, script: str, cwd: Path, changed: list[str], labels: str = "") -> tuple[object, dict, str]:
+        """Run a workflow step's script in `cwd` with a git whose merge-commit diff is `changed`."""
+        import os
+        import shutil
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as scratch:
+            scratch_path = Path(scratch)
+            (scratch_path / "bin").mkdir()
+            files = scratch_path / "files.txt"
+            files.write_text("".join(f"{path}\n" for path in changed), encoding="utf-8")
+            fake = scratch_path / "bin" / "git"
+            fake.write_text("#!/usr/bin/env bash\n"
+                            'if [ "$1" = rev-parse ] && [ "$2" = HEAD^1 ]; then echo ' + "b" * 40 + "; exit 0; fi\n"
+                            f'if [ "$1" = diff ] && [ "$2" = --no-renames ]; then cat {files}; exit 0; fi\n'
+                            f'exec {shutil.which("git")} "$@"\n', encoding="utf-8")
+            fake.chmod(0o755)
+            output, summary = scratch_path / "output", scratch_path / "summary"
+            env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
+            env.update(PATH=f"{scratch_path / 'bin'}:{env.get('PATH', '')}", RUNNER_TEMP=scratch,
+                       GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary), EVENT_LABELS=labels)
+            done = subprocess.run(["bash", "-c", script], cwd=cwd, env=env, capture_output=True, text=True,
+                                  timeout=120)
+            values = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines()
+                          if "=" in line) if output.exists() else {}
+            return done, values, summary.read_text(encoding="utf-8") if summary.exists() else ""
+
+    # cmux-next-guards.yml: hot-route, then tooling-tests' runs-on.
+
+    def guards_route(self, changed: list[str], labels: str = "") -> dict:
+        step = workflow_step("cmux-next-guards.yml", "hot-route", "Route the pull request (cmux_next_route.py --hot-only)")
+        done, values, _ = self.run_step(step["run"], ROOT, changed, labels)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        return values
+
+    def test_guards_hot_route_reads_the_router(self):
+        self.assertEqual(self.guards_route(self.HOT)["hot_only"], "true")
+        self.assertEqual(self.guards_route(self.APP)["hot_only"], "false")
+        self.assertEqual(self.guards_route(self.HOT, labels="full-ci")["hot_only"], "false")
+        self.assertEqual(self.guards_route(self.HOT, labels="dev-build")["hot_only"], "false")
+
+    def test_tooling_tests_skips_the_mini_only_when_hot(self):
+        import yaml
+        guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8"))
+        job = guards["jobs"]["tooling-tests"]
+        self.assertIn("hot-route", job["needs"])
+        self.assertEqual(job["if"], "${{ !cancelled() }}")  # a skipped or failed hot-route still runs the tests
+        legs = job["runs-on"].split(" || ")
+        mini = [leg for leg in legs if "outputs.mini_runner" in leg]
+        linux = [leg for leg in legs if "outputs.linux_runner" in leg]
+        self.assertEqual(len(mini), 1, legs)
+        self.assertTrue(mini[0].startswith("needs.hot-route.outputs.hot_only != 'true' && "), mini[0])
+        # Fleet Linux and the Blacksmith fallbacks stay for a hot-only pull request.
+        self.assertEqual(len(linux), 1, legs)
+        self.assertNotIn("hot_only", linux[0])
+        self.assertTrue(legs[-1].strip().startswith("fromJSON(vars.RUNNER_POOLS)"), legs[-1])
+        route = guards["jobs"]["hot-route"]
+        self.assertIn("github.event_name == 'pull_request'", route["if"])
+        self.assertNotIn("macos", route["runs-on"])
+
+    # fleet-test-compile.yml: the plan step.
+
+    def plan(self, changed: list[str], labels: str = "", fake_plan: str | None = "Packages/macOS/CmuxNext",
+             router: str | None = None) -> tuple[object, dict, str]:
+        """The plan step over `changed`, with a stand-in compile_test_plan.py printing `fake_plan` (None: the real
+        one) and the real router (or `router`'s text in its place)."""
+        import tempfile
+        step = workflow_step("fleet-test-compile.yml", "plan", "Plan the test targets this change reaches")
+        with tempfile.TemporaryDirectory() as work:
+            ci = Path(work) / "scripts" / "ci"
+            ci.mkdir(parents=True)
+            planner = ci / "compile_test_plan.py"
+            if fake_plan is None:
+                planner.symlink_to(ROOT / "scripts" / "ci" / "compile_test_plan.py")
+            else:
+                planner.write_text(f"print({fake_plan!r})\n", encoding="utf-8")
+            if router is None:
+                (ci / "cmux_next_route.py").symlink_to(ROOT / "scripts" / "ci" / "cmux_next_route.py")
+            else:
+                (ci / "cmux_next_route.py").write_text(router, encoding="utf-8")
+            done, values, summary = self.run_step(step["run"], Path(work), changed, labels)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        return done, values, summary
+
+    def test_a_hot_only_pull_request_compiles_nothing(self):
+        _, values, summary = self.plan(self.HOT)
+        self.assertEqual(values["needed"], "false")
+        self.assertEqual(values["packages"], "")
+        self.assertIn("Hot-only pull request", summary)
+        self.assertIn("Packages/macOS/CmuxNext", summary)  # what the path plan would have compiled
+        # With the real planner a hot-only diff plans nothing either (its CmuxNext targets come from the router).
+        self.assertEqual(self.plan(self.HOT, fake_plan=None)[1]["needed"], "false")
+
+    def test_any_other_pull_request_keeps_its_plan(self):
+        for changed, labels in ((self.APP, ""), (self.HOT, "full-ci"), (self.HOT, "dev-build")):
+            with self.subTest(changed=changed, labels=labels):
+                _, values, summary = self.plan(changed, labels)
+                self.assertEqual(values["needed"], "true")
+                self.assertEqual(values["packages"], "CmuxNext")
+                self.assertNotIn("Hot-only", summary)
+
+    def test_a_router_failure_keeps_the_plan(self):
+        done, values, _ = self.plan(self.HOT, router="import sys\nsys.exit(3)\n")
+        self.assertEqual(values["needed"], "true")
+        self.assertIn("::warning", done.stdout)
 
 
 if __name__ == "__main__":

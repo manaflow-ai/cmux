@@ -88,7 +88,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_live_code_variant.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_live_code_variant.py"
 
 [[test]]
 path = "tests/test_nightly_mini_gate_timeouts.py"
@@ -122,8 +123,9 @@ path = "tests/test_nightly_next_cancelled_tip.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_nightly_next_computer_use_helper.py"
-lane = "linux-guard"
+path = "tests/test_nightly_next_delta_check.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that nightly_next_delta_check.py prunes deltas R2 does not serve, fails a nightly-next feed whose newest item offers no delta, and that republish-nightly-deltas runs it after the feed write; run python3 tests/test_nightly_next_delta_check.py after changing either (about 1 s, no Mac, no network)."
 
 [[test]]
 path = "tests/test_nightly_next_dev_ring.py"
@@ -163,6 +165,11 @@ path = "tests/test_nightly_next_live_feed_check.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_network_bounds.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_nightly_next_network_bounds.py yourself after changing the workflow steps it reads."
+
+[[test]]
 path = "tests/test_nightly_next_notary_full_import.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Runs decide's browser-import block from nightly.yml in node and checks the outputs the build and publish jobs read; run python3 tests/test_nightly_next_notary_full_import.py yourself after changing that block or NIGHTLY_NEXT_BROWSER_DATA_IMPORT."
@@ -173,7 +180,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_notary_receipt.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_next_notary_receipt.py"
 
 [[test]]
 path = "tests/test_nightly_next_one_feed_readers.py"
@@ -341,7 +349,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_spm_artifact_preflight.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_nightly_spm_artifact_preflight.py"
 
 [[test]]
 path = "tests/test_nightly_step_coverage.py"
