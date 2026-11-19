@@ -17,6 +17,8 @@ const START_BPS: u64 = 2_000_000;
 fn session(profile: EncodeProfile) -> MediaSession {
     let cfg = SessionCfg {
         display: String::new(),
+        display_pick: None,
+        window: None,
         max_fps: 60,
         encode_profile: profile,
         start_kbps: (START_BPS / 1000) as u32,

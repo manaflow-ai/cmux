@@ -76,6 +76,10 @@ pub struct MacFrames {
 /// Starts the display's capture and opens both halves of the session's desktop.
 /// `cursor_metadata`: capture without the cursor and report it through `Desktop::cursor`.
 pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
+    // One-window sharing exists on Linux X11 only; never stream the whole display instead.
+    if let Some(id) = cfg.window {
+        return Err(format!("window {id}: sharing one window is not available on macOS yet").into());
+    }
     if cfg.codec != "videotoolbox" {
         return Err(format!(
             "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
