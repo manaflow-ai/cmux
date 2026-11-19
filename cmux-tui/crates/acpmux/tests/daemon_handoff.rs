@@ -249,10 +249,76 @@ fn bench_config(home: &Path) {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
 }
 
-/// `shape`'s home, its store on disk, restarted in place `runs` times: each pause in ms, timed as
-/// `three_restarts_in_a_row_are_each_an_exec_in_place` times it (the request sent to the new
-/// image's first status).
-fn pauses(shape: &Shape, runs: u64) -> Vec<f64> {
+/// One restart's pause in ms, timed as `three_restarts_in_a_row_are_each_an_exec_in_place` times
+/// it (the request sent to the new image's first status), and its parts, which add up to it.
+#[derive(Clone, Copy, Default)]
+struct Pause {
+    total: f64,
+    /// The request sent to its answer: the installed build's `daemon handoff-check`.
+    request: f64,
+    /// The answer to the exec: the old image's stop.
+    stop: f64,
+    /// The exec to `daemon::run` (the new image's gauges are born there).
+    init: f64,
+    /// `daemon::run` to its `requests ready` mark: the new image's start until it serves.
+    start: f64,
+    /// That mark to the first status the bench read.
+    status: f64,
+}
+
+impl Pause {
+    const PARTS: [&str; 5] = ["request", "stop", "init", "start", "status"];
+
+    fn part(&self, name: &str) -> f64 {
+        match name {
+            "request" => self.request,
+            "stop" => self.stop,
+            "init" => self.init,
+            "start" => self.start,
+            _ => self.status,
+        }
+    }
+}
+
+/// The instant the pid's command line names handoff count `n` (the exec of restart `n`), read
+/// every half millisecond from a thread; None past [`BENCH_WITHIN`].
+fn exec_seen(pid: u64, n: u64) -> std::thread::JoinHandle<Option<Instant>> {
+    let want = format!("--handoff-count\0{n}\0").into_bytes();
+    std::thread::spawn(move || {
+        let deadline = Instant::now() + BENCH_WITHIN;
+        while Instant::now() < deadline {
+            if let Ok(argv) = std::fs::read(format!("/proc/{pid}/cmdline"))
+                && argv.windows(want.len()).any(|w| w == want)
+            {
+                return Some(Instant::now());
+            }
+            std::thread::sleep(Duration::from_micros(500));
+        }
+        None
+    })
+}
+
+/// The new image's `daemon::run` start and its `requests ready` mark, from a status it answered
+/// at `got`: its gauges' uptime and that mark's offset.
+fn born_and_ready(status: &Value, got: Instant) -> Option<(Instant, Instant)> {
+    let gauges = &status["gauges"];
+    let born = got.checked_sub(Duration::from_millis(gauges["uptimeMs"].as_u64()?))?;
+    let ready =
+        gauges["startup"].as_array()?.iter().find(|p| p["name"] == "requests ready")?["atMs"]
+            .as_u64()?;
+    Some((born, born + Duration::from_millis(ready)))
+}
+
+/// Whether the startup `status` reports has ended: its last phases began, and none runs.
+fn settled(status: &Value) -> bool {
+    let Some(phases) = status["gauges"]["startup"].as_array() else { return false };
+    let named = |name: &str| phases.iter().any(|p| p["name"] == name);
+    named("finish startup") && named("all chat logs") && phases.iter().all(|p| !p["ms"].is_null())
+}
+
+/// `shape`'s home, its store on disk, restarted in place `runs` times right after it serves, then
+/// `runs` times more once its startup ended ([`settled`]): each series' pauses.
+fn pauses(shape: &Shape, runs: u64) -> [Vec<Pause>; 2] {
     let scratch = daemon_env::Scratch::new(&format!("hof-{}", shape.name));
     let home = scratch.join("acpmux");
     let claude = daemon_env::home(&scratch).join(".claude");
@@ -268,15 +334,42 @@ fn pauses(shape: &Shape, runs: u64) -> Vec<f64> {
     assert_eq!(ready["pid"].as_u64(), Some(pid));
     let first = status_after(&socket, BENCH_WITHIN, |_| true);
     assert_eq!(first["handoffs"], 0, "{}: {first}", shape.name);
-    let mut ms = Vec::new();
-    for n in 1..=runs {
+    let mut series = [Vec::new(), Vec::new()];
+    let ms = |from: Instant, to: Instant| {
+        let (later, sign) = if to >= from { (to - from, 1.0) } else { (from - to, -1.0) };
+        sign * later.as_secs_f64() * 1000.0
+    };
+    for n in 1..=runs * 2 {
+        let after_startup = n > runs;
+        if after_startup {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while !settled(&status_after(&socket, BENCH_WITHIN, |_| true)) {
+                if Instant::now() > deadline {
+                    println!("HANDOFF-SETTLE-TIMEOUT home={} restart={n}", shape.name);
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        let exec = exec_seen(pid, n);
         let asked = Instant::now();
         let answer = call(dial(&socket), "_acpmux/shutdown", restart_request())
             .expect("the restart request was answered")
             .unwrap_or_else(|e| panic!("{} restart {n} refused: {e}", shape.name));
+        let answered = Instant::now();
         assert_eq!(answer["handoff"], true, "{} restart {n}: {answer}", shape.name);
         let status = status_after(&socket, BENCH_WITHIN, |s| s["handoffs"] == n);
-        ms.push(asked.elapsed().as_secs_f64() * 1000.0);
+        let got = Instant::now();
+        let exec = exec.join().unwrap().unwrap_or(answered);
+        let (born, ready) = born_and_ready(&status, got).unwrap_or((exec, got));
+        series[usize::from(after_startup)].push(Pause {
+            total: ms(asked, got),
+            request: ms(asked, answered),
+            stop: ms(answered, exec),
+            init: ms(exec, born),
+            start: ms(born, ready),
+            status: ms(ready, got),
+        });
         assert_eq!(status["pid"].as_u64(), Some(pid), "{} restart {n}: {status}", shape.name);
         assert!(
             child.try_wait().unwrap().is_none(),
@@ -285,7 +378,7 @@ fn pauses(shape: &Shape, runs: u64) -> Vec<f64> {
         );
     }
     stop(child);
-    ms
+    series
 }
 
 #[test]
@@ -296,12 +389,27 @@ fn a_restart_in_place_pauses_a_god_home_no_longer_than_a_small_one() {
     let scale = env_or("ACPMUX_HANDOFF_GOD_SCALE", 0.02f64).clamp(0.001, 1.0);
     let mut p95s = Vec::new();
     for shape in shapes(scale) {
-        let (p50, p95, max) = spread(&pauses(&shape, runs));
-        println!(
-            "HANDOFF-PAUSE-SPREAD home={} n={runs} p50={p50:.0} p95={p95:.0} max={max:.0}",
-            shape.name
-        );
-        p95s.push(p95);
+        let [first, settled] = pauses(&shape, runs);
+        // `when=served`: each restart as soon as the image before it served; `when=settled`: each
+        // once that image's startup ended (every chat log read).
+        for (when, series) in [("served", &first), ("settled", &settled)] {
+            let total: Vec<f64> = series.iter().map(|p| p.total).collect();
+            let (p50, p95, max) = spread(&total);
+            let line = if when == "served" { "SPREAD" } else { "SPREAD-SETTLED" };
+            println!(
+                "HANDOFF-PAUSE-{line} home={} n={runs} p50={p50:.0} p95={p95:.0} max={max:.0}",
+                shape.name
+            );
+            for part in Pause::PARTS {
+                let ms: Vec<f64> = series.iter().map(|p| p.part(part)).collect();
+                let (p50, p95, max) = spread(&ms);
+                println!(
+                    "HANDOFF-PAUSE-SPLIT home={} when={when} part={part} p50={p50:.1} p95={p95:.1} max={max:.1}",
+                    shape.name
+                );
+            }
+        }
+        p95s.push(spread(&first.iter().map(|p| p.total).collect::<Vec<_>>()).1);
     }
     let god = &shapes(scale)[1];
     println!(
