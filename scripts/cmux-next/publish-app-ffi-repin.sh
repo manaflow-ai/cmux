@@ -224,20 +224,36 @@ tip="$(git rev-parse HEAD)"
 # 2026-11-16 the open-PR read hit the App's rate limit and moved #44074 from
 # 8f7f9e7d to 1b93c4a6 (run 43937628010).
 hold_min="${REPIN_HOLD_MIN:-90}"
+hold_max_min="${REPIN_HOLD_MAX_MIN:-360}"
 # The head's commit, check runs and statuses are read with the job's
 # GITHUB_TOKEN (contents, checks and statuses: read): the pull-request token
 # has none of these, and a failed read would quietly turn the hold off.
 read_api() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" gh api "$@"; }
 held_pr() {
-  local number state head age failed status
+  local number state head mergeable age failed status same_pin=""
   number="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" --jq '.[0].number // empty')" || return 2
   [[ "$number" =~ ^[0-9]+$ ]] || return 1
-  read -r state head < <(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha)"') || return 2
+  read -r state head mergeable < <(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha) \(.mergeable)"') || return 2
   [[ "$state" == open && "$head" == "$previous" ]] || return 1
   age="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous" --jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor')" || return 2
   [[ "$age" =~ ^[0-9]+$ ]] || return 2
-  if (( age >= hold_min )); then
-    echo "#$number's head ${previous:0:12} is $age min old (hold $hold_min min): moving it" >&2
+  # A head that already pins the release this run would pin has nothing to gain from a move: the new head carries
+  # the same pin, and the move only cancels its CI and starts it over. 2026-11-19: #46990's head 82647df8 pinned
+  # cmux-app-ffi-db4a10c2, its CI queued 10 h on starved pools, and run 44466053157 moved it past the hold to
+  # 55a8bbd3 with that same pin while the base's pin stayed about 26 h behind. A stale base is not a reason either:
+  # next-autoland compiles the combined tip. So such a head is held at any age, unless GitHub calls it conflicting
+  # (mergeable false; null is still computing) or a check of its own failed (below).
+  if [[ -n "$pr_pin" && "$pr_pin" == "$pin_sha" && "$mergeable" != false ]]; then
+    same_pin=1
+  fi
+  # Past the hold, a head is still kept while its CI runs: a check run at the head with no conclusion yet (queued or
+  # in progress) and none of its own failed. The re-pin PR's CI takes 2 h and more under load, longer than the hold
+  # and than the gap between FFI releases, so moving a head for its age alone meant no head finished its CI: #46990
+  # was moved at 16:16Z on 2026-11-19 after 633 min with its Mac jobs still queued. A held head lands first and its
+  # merge re-pins the newest release at once (app-ffi-repin.yml). REPIN_HOLD_MAX_MIN caps that, so a check run that
+  # never starts does not hold a head forever.
+  if (( age >= hold_max_min )) && [[ -z "$same_pin" ]]; then
+    echo "#$number's head ${previous:0:12} is $age min old (cap $hold_max_min min): moving it" >&2
     return 1
   fi
   # Every page of check runs, at the head and at the base commit it was staged on: a check that fails the same way
@@ -251,15 +267,20 @@ held_pr() {
   # after its push, and at 08:53Z re-pin run 44042861860 moved it for "8 failed check(s) of its own" while its Mac jobs
   # had been queued 47 minutes. The move cancelled those, the CI started over, and feat-cmux-next stayed red on "Check
   # the app FFI pin". A head whose cancelled check never runs again is still moved once it is older than the hold.
-  failed_names() {
-    local runs
-    runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
-      python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$1/check-runs")" || return 1
-    jq -r '.[] | select(.conclusion as $c
-      | ["failure", "timed_out", "action_required", "startup_failure", "stale"] | index($c)) | .name' <<<"$runs"
+  check_runs() {
+    GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
+      python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$1/check-runs"
   }
-  local head_failed base_failed="" staged_on
-  head_failed="$(failed_names "$previous")" || return 2
+  failed_of() {
+    jq -r '.[] | select(.conclusion as $c
+      | ["failure", "timed_out", "action_required", "startup_failure", "stale"] | index($c)) | .name'
+  }
+  failed_names() { local runs; runs="$(check_runs "$1")" || return 1; failed_of <<<"$runs"; }
+  local head_runs head_failed base_failed="" staged_on running
+  head_runs="$(check_runs "$previous")" || return 2
+  head_failed="$(failed_of <<<"$head_runs")" || return 2
+  running="$(jq '[.[] | select(.conclusion == null)] | length' <<<"$head_runs")" || return 2
+  [[ "$running" =~ ^[0-9]+$ ]] || return 2
   if staged_on="$(git merge-base "$previous" "$tip" 2>/dev/null)" && [[ "$staged_on" =~ ^[0-9a-f]{40}$ ]]; then
     base_failed="$(failed_names "$staged_on")" || base_failed=""
   fi
@@ -272,6 +293,18 @@ held_pr() {
   if (( failed > 0 )); then
     echo "#$number's head ${previous:0:12} has $failed failed check(s) of its own: moving it" >&2
     return 1
+  fi
+  if [[ -n "$same_pin" ]] && (( age >= hold_min )); then
+    echo "kept #$number at ${previous:0:12}: pushed $age min ago (past the $hold_min min hold), but it already pins $TAG and no check of its own failed; a move would only restart its CI"
+    return 0
+  fi
+  if (( age >= hold_min )); then
+    if (( running == 0 )); then
+      echo "#$number's head ${previous:0:12} is $age min old (hold $hold_min min) with no check still running: moving it" >&2
+      return 1
+    fi
+    echo "kept #$number at ${previous:0:12}: pushed $age min ago (past the $hold_min min hold, cap $hold_max_min), $running check(s) still running and none of its own failed; it lands first and its merge re-pins $TAG (app-ffi-repin.yml)"
+    return 0
   fi
   echo "kept #$number at ${previous:0:12}: pushed $age min ago (hold $hold_min min), no check failed; it lands first and its merge re-pins $TAG (app-ffi-repin.yml)"
 }
