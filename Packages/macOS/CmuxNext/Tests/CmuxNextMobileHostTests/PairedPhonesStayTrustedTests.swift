@@ -286,4 +286,34 @@ import Testing
             try await store.change(for: "u") { $0.approve(Self.newPhone, at: Date()) }
         }
     }
+
+    /// Two dev builds on one Cloud backend keep their state under one storage namespace folder
+    /// (`<bundle>/<namespace>/cmux-mobile-host`). Their lists were sealed under the folder above the
+    /// state folder, the namespace, so both builds shared one login-Keychain item: the build that made it
+    /// owned it, the other's saves got `errSecInvalidOwnerEdit` (-25244), and its paired phones were gone
+    /// after a relaunch (2026-11-18, review.sh on a real iPhone: the tagged Mac listed no phone after it
+    /// restarted). Each build's list is sealed under its own bundle id; a build with no namespace keeps the
+    /// name it always had.
+    @Test func twoBuildsOnOneBackendSealTheirListsApart() throws {
+        final class Names: @unchecked Sendable {
+            let lock = NSLock()
+            var all: [String] = []
+            func add(_ name: String) { lock.withLock { all.append(name) } }
+        }
+        let namespace = "68747470733a2f2f6578616d706c65-0"
+        let root = FileManager.default.temporaryDirectory.appending(path: "cmux-seal-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let names = Names()
+        for bundle in ["com.cmuxterm.app.debug.one", "com.cmuxterm.app.debug.two"] {
+            let store = MobileHostPairedStore(named: { names.add($0); return MobileHostMemoryPairingSeal() })
+            let directory = root.appending(path: "\(bundle)/\(namespace)/cmux-mobile-host")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            store.configure(directory: directory,
+                            sealName: MobileHostPairedStore.sealName(bundleID: bundle, storageNamespace: namespace))
+        }
+        #expect(names.all == ["com.cmuxterm.app.debug.one.\(namespace)", "com.cmuxterm.app.debug.two.\(namespace)"])
+        // A build with no namespace (NIGHTLY, release) keeps its bundle id, so its stored list still counts.
+        #expect(MobileHostPairedStore.sealName(bundleID: "com.cmuxterm.app.nightly", storageNamespace: nil) == "com.cmuxterm.app.nightly")
+        #expect(MobileHostPairedStore.sealName(bundleID: "com.cmuxterm.app.nightly", storageNamespace: "") == "com.cmuxterm.app.nightly")
+    }
 }
