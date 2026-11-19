@@ -1651,7 +1651,15 @@ fn steps(
     }
     let started = match step_result(&ran) {
         Ok(started) => started,
-        Err(error) => return start_refused(error, &listed, request),
+        Err(error) => {
+            let refused = start_refused(error, &listed, request);
+            return fresh::release_refused(
+                runner,
+                fresh.as_deref(),
+                progress.made.as_deref(),
+                refused,
+            );
+        }
     };
     if at(&started, "pending").as_bool() == Some(true) {
         return start_pending(runner, request, &machine, &started, &listed, deadline);
