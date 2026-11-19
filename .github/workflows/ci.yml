@@ -44,6 +44,7 @@ on:
       - "docs/chief-setup-prompts.md"
       - "docs/configuration.md"
       - "docs/ci/node-product-cache-maintenance.md"
+      - "plans/cmux-next/actions.md"
       - "docs/remote-agents-and-cloud.md"
       - "docs/cmux-next/customize-recipes.md"
       - "cmux-tui/crates/acpmux/README.md"

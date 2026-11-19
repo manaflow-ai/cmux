@@ -17,7 +17,9 @@ any path filter.
 """
 from __future__ import annotations
 
+import fnmatch
 import functools
+import importlib.util
 import os
 import re
 import subprocess
@@ -116,7 +118,6 @@ SAMPLES: dict[str, list[str]] = {
     "a docs note": ["docs/cmux-next/a-new-note.md"],
     "a docs image": ["docs/images/a-new-diagram.png"],
     "a root doc": ["CONTRIBUTING.md"],
-    "a crate's design note": ["cmux-tui/crates/cmux-tui/DESIGN.md"],
 }
 BASES = ("feat-cmux-next", "main")
 DEFAULT_TYPES = {"opened", "synchronize", "reopened"}
@@ -270,6 +271,21 @@ class DocsOnlyPullRequests(unittest.TestCase):
         self.assertIn("docs/cmux-next/customize-recipes.md", found, "the include_str! scan reads the Rust tree")
         skipped = sorted(f"{path} ({where})" for path, where in found.items() if docs.is_docs(path))
         self.assertEqual(skipped, [], "put each back in scripts/ci/docs_only_paths.py DOCS_ONLY_PATHS")
+
+    def test_no_generated_output_is_docs(self):
+        """cmux-next-pr-autofix's generated-drift job catches a hand edit of a generated file; a docs-only pull
+        request does not start it, so no generated output may be docs."""
+        spec = importlib.util.spec_from_file_location("generated_outputs",
+                                                      ROOT / "scripts" / "cmux-next" / "generated_outputs.py")
+        generated = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generated)
+        patterns = [pattern for outputs, _inputs, _how in generated.OUTPUTS for pattern in outputs]
+        self.assertIn("plans/cmux-next/actions.md", patterns)
+        tracked = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True,
+                                 check=True).stdout.decode("utf-8", "replace").split("\0")
+        outputs = [p for p in tracked if p and any(fnmatch.fnmatch(p, pattern) for pattern in patterns)]
+        self.assertEqual([p for p in outputs if docs.is_docs(p)], [],
+                         "put each back in scripts/ci/docs_only_paths.py DOCS_ONLY_PATHS")
 
     def test_unrouted_plan_docs_skip_cmux_next(self):
         """cmux-next.yml's pull_request list takes plans/cmux-next/** but leaves its Markdown out, putting back by

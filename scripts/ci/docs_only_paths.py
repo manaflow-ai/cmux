@@ -60,6 +60,8 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
     "docs/chief-setup-prompts.md",
     "docs/configuration.md",
     "docs/ci/node-product-cache-maintenance.md",
+    # Generated (scripts/cmux-next/generated_outputs.py OUTPUTS): cmux-next-pr-autofix's drift check reads a hand edit.
+    "plans/cmux-next/actions.md",
     # Compiled in by include_str! (the detector lists any new one).
     "docs/remote-agents-and-cloud.md",
     "docs/cmux-next/customize-recipes.md",
