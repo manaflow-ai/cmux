@@ -86,6 +86,16 @@ class WindowLook(unittest.TestCase):
         # A value of more than one word (a theme's name) is one text.
         self.assertEqual(M.window_look(" appearance.theme = Test Theme 2 ,opacity=0.5"), {"appearance.theme": "Test Theme 2", "opacity": 0.5})
 
+    def test_a_plus_between_2_words_of_a_value_is_a_space(self):
+        # An argument of a measure step can have no space: the same look is written with a `+` there.
+        look = M.window_look("appearance.theme=Test+Theme+2,opacity=0.5,name=test-look")
+        self.assertEqual(look, {"appearance.theme": "Test Theme 2", "opacity": 0.5, "name": "test-look"})
+        self.assertEqual(M.look_config({}, look), {"appearance": {"theme": "Test Theme 2", "backgroundOpacity": 0.5}})
+        self.assertEqual(M.window_look("ui.x=a+1"), {"ui.x": "a 1"})
+        for value in ("ui.x=+a", "ui.x=a+", "ui.x=a++b", "ui.x=a +b", "ui.x=+", "opacity=0.5,name=test+look", "background=test+picture"):
+            with self.assertRaises(ValueError, msg=value):
+                M.window_look(value)
+
     def test_the_app_config_gets_each_path_and_keeps_the_rest(self):
         config = {"layout": {"minimumPaneWidth": 80}, "appearance": {"theme": "dark", "metrics": {"columnGap": 2}}}
         made = M.look_config(config, M.window_look(self.PATHS + ",name=test-look"))

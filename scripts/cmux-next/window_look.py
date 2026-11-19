@@ -13,7 +13,8 @@ does not name is not written:
                          makes the panel; a tool that makes none refuses the word)
   SETTINGS.PATH=VALUE    any other key of the app config, by its path (a key with a dot: `ui.animationSpeed=off`,
                          `appearance.metrics.titlebarHeight=40`): a number, `true` or `false` is that value, each
-                         other text is a text (letters, digits, `.`, `_`, `-` and spaces between its words)
+                         other text is a text (letters, digits, `.`, `_`, `-` and spaces between its words; a `+`
+                         between 2 words is a space, for an argument that can have no space)
   name=WORD              the look's name (small letters, digits, `-`): then each row's or film's name has the name
                          and no value of the look
 
@@ -50,6 +51,11 @@ def window_look(value):
         key, equals, text = (piece.strip() for piece in part.partition("="))
         if "." in key:  # a path of the app's settings
             words = key.split(".")
+            if "+" in text:  # a `+` between 2 words of a value is a space (an argument that can have no space)
+                pieces = text.split("+")
+                if any(not piece or piece != piece.strip() for piece in pieces):
+                    raise refused
+                text = " ".join(pieces)
             if not equals or key in look or not text or text.strip(LETTERS + LETTERS.upper() + DIGITS + "._- ") or ".." in text:
                 raise refused
             if any(not word or not word[0].isalpha() or word.strip(LETTERS + LETTERS.upper() + DIGITS) for word in words):
