@@ -328,7 +328,7 @@ impl Filesystem for Fs {
     }
 
     fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
-        if flags & libc::O_ACCMODE == libc::O_WRONLY {
+        if flags & libc::O_ACCMODE == libc::O_WRONLY || self.overlay.open_fault(ino).is_none() {
             reply.opened(0, 0);
             return;
         }

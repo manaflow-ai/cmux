@@ -746,20 +746,9 @@ impl Overlay {
     /// the opener can `fstat` it. True when it was re-listed. A file already on the machine is the
     /// session's base and is not asked about.
     pub fn open_lower(&self, ino: u64) -> bool {
-        if !self.fetch.cache() {
-            return false;
-        }
-        let Ok(path) = self.path_of(ino) else { return false };
-        let Some(Node::Lower(index)) = self.node(&path) else { return false };
-        if self.manifest.entry(index).map(|entry| entry.kind) != Some(Kind::File) {
-            return false;
-        }
+        let Some(index) = self.open_fault(ino) else { return false };
         let Some((stat, generation)) = self.stat_of(index) else { return false };
         if stat.size == 0 {
-            // No bytes to cache: one ask, remembered, says whether it is still empty.
-            if self.checked_empty.lock().unwrap_or_else(PoisonError::into_inner).contains(&index) {
-                return false;
-            }
             match self.fetch.read_fresh(index, 0, 0) {
                 Ok(Fetched::Restated(stat, _)) => return self.restat(index, stat),
                 Ok(Fetched::Same(_)) => {
@@ -769,12 +758,31 @@ impl Overlay {
             }
             return false;
         }
-        let key = if stat.size <= CHUNK { (index, WHOLE) } else { (index, 0) };
-        if self.cache_path(key).exists() {
-            return false;
-        }
         let _ = self.read_lower(index, 0, 1);
         self.generation_of(index) != generation
+    }
+
+    /// Whether opening `ino` is a fault ([`Overlay::open_lower`]): a lower file whose first bytes
+    /// are not on the machine (an empty one not yet checked). Asks nothing, so the mount answers
+    /// every other open on its own thread at once. The lower entry when it is.
+    pub fn open_fault(&self, ino: u64) -> Option<u32> {
+        if !self.fetch.cache() {
+            return None;
+        }
+        let path = self.path_of(ino).ok()?;
+        let Some(Node::Lower(index)) = self.node(&path) else { return None };
+        if self.manifest.entry(index)?.kind != Kind::File {
+            return None;
+        }
+        let (stat, _) = self.stat_of(index)?;
+        let on_machine = if stat.size == 0 {
+            // No bytes to cache: one ask, remembered, says whether it is still empty.
+            self.checked_empty.lock().unwrap_or_else(PoisonError::into_inner).contains(&index)
+        } else {
+            let key = if stat.size <= CHUNK { (index, WHOLE) } else { (index, 0) };
+            self.cache_path(key).exists()
+        };
+        (!on_machine).then_some(index)
     }
 
     fn cache_path(&self, (index, part): Key) -> PathBuf {
