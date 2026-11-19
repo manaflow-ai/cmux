@@ -18,6 +18,9 @@ extension SettingsSchema {
     /// by the row's exported kind, else `defaultValidation`.
     static let validationByKey: [String: String] = [
         "agents.chats.roots": "domain:chat_roots", "appearance.background": "domain:backdrop_selection",
+        "appearance.backgroundLight": "domain:backdrop_picture", "appearance.backgroundDark": "domain:backdrop_picture",
+        "appearance.backgroundSchedule": "domain:backdrop_schedule",
+        "appearance.backgroundLocation": "domain:backdrop_location",
         "appearance.customDensities": "domain:custom_densities",
         "agentPane.display.commandLabels": "domain:command_labels",
         "browser.customSearchEngine.search": "domain:search_template",
@@ -41,8 +44,7 @@ extension SettingsSchema {
         "appearance.chromeStyle": [.string("default"), .string("flat-sidebar-line")],
         "appearance.focusIndicator": [.string("both")], "browser.hibernation": [.string("moderate")],
         "browser.links.cmdClick": [.string("backgroundTab")], "browser.omnibar.glass": [.string("transparent")],
-        "computerUse.driver": [.string("legacy")], "diff.layout": [.string("unified")],
-        "diff.wordDiffs": [.bool(false)], "focusRing.enabled": [.bool(true)],
+        "diff.layout": [.string("unified")], "diff.wordDiffs": [.bool(false)], "focusRing.enabled": [.bool(true)],
         "layout.defaultColumnWidth": [.number(0.5)], "layout.newColumnWidth": [.string("matchCurrent")],
         "notifications.attention.moveToTop": [.bool(true)], "notifications.attention.style": [.string("blink")],
         "notifications.dismissal": [.string("keystroke"), .string("click")],

@@ -257,8 +257,8 @@ mod layout_types;
 mod layout_undo;
 mod lifecycle;
 pub use layout_types::{
-    AppliedLayout, AppliedPane, Direction, LayoutLeafSpec, LayoutSpec, LayoutUndoError,
-    LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
+    AppliedLayout, AppliedPane, Direction, FloatPaneError, FloatPaneOutcome, LayoutLeafSpec,
+    LayoutSpec, LayoutUndoError, LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
 pub use events::{

@@ -143,27 +143,20 @@ fn any_other_join_makes_the_requirement_the_one_it_always_was() {
 fn after_a_sign_in_join_a_local_computer_use_call_passes_and_one_from_elsewhere_does_not() {
     let (_dir, a, b) = fixture();
     a.enroll_as(true).unwrap();
-    // The Mac's own Computer Use (the app's helper): a screenshot and a click pass the bridge's
-    // check and the helper's, on every tag.
+    // The Mac's own Computer Use: nothing is required of it, on every tag.
     for authority in [&a, &b] {
         let local = authority.status_for(true);
         assert_eq!(local["consentRequired"], false, "{local}");
         assert_eq!(local["localComputerUse"], "keptBySignIn");
-        assert!(crate::cua_v2::require_tool_consent(true, &local).is_ok());
-        assert!(crate::cua_v2::require_tool_consent(false, &local).is_ok());
     }
     // What reaches this Mac from elsewhere (a hand, the hub) still needs the consent.
     let elsewhere = a.status_for(false);
     assert_eq!(elsewhere, a.status());
     assert_eq!(elsewhere["consentRequired"], true);
-    let refused = crate::cua_v2::require_tool_consent(true, &elsewhere).unwrap_err();
-    assert_eq!(refused.to_string(), crate::cli::cloud_join::CONSENT_REQUIRED);
     // A consent the person set is theirs: the local use is gated by it, as it always was.
     a.set("screen", true).unwrap();
     let local = a.status_for(true);
     assert_eq!(local["consentRequired"], true);
-    assert!(crate::cua_v2::require_tool_consent(true, &local).is_ok());
-    assert!(crate::cua_v2::require_tool_consent(false, &local).is_err());
 }
 
 #[test]
@@ -173,7 +166,6 @@ fn a_join_the_person_made_gates_the_macs_own_computer_use_as_before() {
     let local = a.status_for(true);
     assert_eq!(local["consentRequired"], true);
     assert!(local.get("localComputerUse").is_none());
-    assert!(crate::cua_v2::require_tool_consent(true, &local).is_err());
     // Never joined: nothing is required either way.
     let (_dir, fresh, _) = fixture();
     assert_eq!(fresh.status_for(true), fresh.status());
@@ -187,7 +179,7 @@ fn signed_in_machines_is_off_by_default_and_answered_once() {
     let status = b.status();
     assert_eq!(status["consent"]["signedInMachines"], "none", "signing in grants nothing");
     assert!(status["consent"]["signedInMachinesAnsweredAt"].is_null(), "not asked yet");
-    a.refused_from(super::super::cloud_join::SIGNED_IN_MACHINES, Some("studio")).unwrap();
+    a.refused_from(crate::machine_record::SIGNED_IN_MACHINES, Some("studio")).unwrap();
     let status = b.status();
     assert_eq!(status["lastRefusal"]["surface"], "signedInMachines");
     assert_eq!(status["lastRefusal"]["from"], "studio");

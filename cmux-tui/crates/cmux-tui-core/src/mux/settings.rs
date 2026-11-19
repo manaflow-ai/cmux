@@ -4,7 +4,7 @@
 //! every reload runs under the store lock and emits its changes before the
 //! lock is released, so events leave in revision order.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use cmux_config::{Change, ConfigStore, ManagedReader, Op, Outcome, Refusal, State, Watcher};
@@ -17,10 +17,12 @@ use super::{Mux, MuxEvent};
 /// The daemon serves `settings.*` and emits `settings-changed`.
 pub const SETTINGS_CAPABILITY: &str = "settings-v1";
 
-/// The daemon serves `settings.edit`: several edits in one publish, and the
+/// The daemon serves `settings.edit`: several edits in one publish, the
 /// conditional `set_unset` and `reset_unchanged` edits
-/// (plans/cmux-next/settings-react.md section 7, items 2 and 3).
-pub const SETTINGS_EDIT_CAPABILITY: &str = "settings-edit-v1";
+/// (plans/cmux-next/settings-react.md section 7, items 2 and 3), the
+/// `set_exact` edit (a default stays) and the `file` check
+/// (`settings.file_mismatch`). v2: v1 had neither.
+pub const SETTINGS_EDIT_CAPABILITY: &str = "settings-edit-v2";
 
 #[derive(Default)]
 pub(crate) struct SettingsSlot(OnceLock<SettingsOwner>);
@@ -98,19 +100,35 @@ impl Mux {
         let mut store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         let applied = store.apply(op);
         let host_policy = host_policy_after(&store, &applied.changes);
+        let computer_use = touches_computer_use(&applied.changes);
         adopt_freeing(self, &store, &applied.changes);
         emit_changes(self, applied.changes);
         drop(store);
+        if computer_use {
+            self.computer_use_policy_changed();
+        }
         if let Some((policy, revision)) = host_policy {
             self.adopt_host_size_policy(policy, revision);
         }
         applied.result
     }
 
+    /// The effective settings (every layer merged), as JSON.
+    pub(crate) fn settings_effective_root(self: &Arc<Self>) -> serde_json::Value {
+        self.with_settings(|state| state.effective().root.clone())
+    }
+
     /// Reads the owner's state.
     pub(crate) fn with_settings<T>(self: &Arc<Self>, read: impl FnOnce(&State) -> T) -> T {
         let store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         read(store.state())
+    }
+
+    /// The owner's settings file path when it is not `file` (`settings.edit`'s
+    /// `file`, `ConfigStore::serves`), else None.
+    pub(crate) fn settings_file_mismatch(self: &Arc<Self>, file: &Path) -> Option<PathBuf> {
+        let store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
+        (!store.serves(file)).then(|| store.config_path().to_path_buf())
     }
 
     /// The `settings.snapshot` answer, with the owner's settings file path.
@@ -126,6 +144,15 @@ fn host_policy_after(store: &ConfigStore, changes: &[Change]) -> Option<(HostSiz
         .iter()
         .any(|change| touches_host_policy(&change.keys))
         .then(|| (host_policy_from_state(store.state()), store.state().revision()))
+}
+
+/// Whether `changes` touched a `computerUse.*` key (read after the store
+/// lock is released: the Computer Use host reads the settings again).
+fn touches_computer_use(changes: &[Change]) -> bool {
+    changes
+        .iter()
+        .flat_map(|change| &change.keys)
+        .any(|key| key == "computerUse" || key.starts_with("computerUse."))
 }
 
 /// The app setting that frees idle terminals; while on, each terminal keeps
@@ -198,9 +225,13 @@ fn start_watcher(mux: Weak<Mux>, store: &Arc<Mutex<ConfigStore>>) -> Option<Watc
         let mut store = store.lock().unwrap_or_else(|poison| poison.into_inner());
         let change: Vec<Change> = store.reload().into_iter().collect();
         let host_policy = host_policy_after(&store, &change);
+        let computer_use = touches_computer_use(&change);
         adopt_freeing(&mux, &store, &change);
         emit_changes(&mux, change);
         drop(store);
+        if computer_use {
+            mux.computer_use_policy_changed();
+        }
         if let Some((policy, revision)) = host_policy {
             mux.adopt_host_size_policy(policy, revision);
         }
