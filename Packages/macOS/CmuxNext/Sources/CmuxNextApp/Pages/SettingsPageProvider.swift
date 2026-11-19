@@ -311,7 +311,7 @@ final class SettingsPageProvider: PageProvider {
             let descriptor = try descriptor(params)
             let value = params["value"].flatMap { $0 == .null ? nil : $0 }
             if let source = settings.managedSource(for: descriptor) {
-                throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: Self.managedInfo(source))
+                throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: source.pageInfo)
             }
             guard Self.writer(context).mayWrite(descriptor) else {
                 throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
@@ -409,12 +409,12 @@ final class SettingsPageProvider: PageProvider {
     // MARK: Reads
 
     private func list(section: String?) -> JSONValue {
-        settings.pageRows(section: section, managedInfo: Self.managedInfo)
+        settings.pageRows(section: section, managedInfo: \.pageInfo)
     }
 
     private func snapshot() -> JSONValue {
         var managed: [String: JSONValue] = [:]
-        for (key, source) in settings.managedKeys { managed[key] = Self.managedInfo(source) }
+        for (key, source) in settings.managedKeys { managed[key] = source.pageInfo }
         var published: [String: JSONValue] = [:]
         for (name, values) in domains() { published[name] = .array(values.map(JSONValue.string)) }
         return [
@@ -424,6 +424,7 @@ final class SettingsPageProvider: PageProvider {
             "effective": settings.snapshot.root,
             "managed": .object(managed),
             "diagnostics": .array(settings.pageDiagnostics.map { ["path": .string($0.path), "message": .string($0.pageMessage)] }),
+            "notes": settings.pageNotesWire,
             "domains": .object(published),
         ]
     }
@@ -478,7 +479,7 @@ final class SettingsPageProvider: PageProvider {
         do {
             try await settings.setSetting(descriptor, to: value, by: writer)
         } catch let managed as SettingManaged {
-            throw PageError(code: "cmux.settings.managed", message: String(describing: managed), details: Self.managedInfo(managed.source))
+            throw PageError(code: "cmux.settings.managed", message: String(describing: managed), details: managed.source.pageInfo)
         } catch let refused as SettingRefused {
             let reasons = descriptor.path == ChatSettings.rootsPath
                 ? (refused.value.arrayValue ?? []).compactMap { $0.stringValue.flatMap { ChatRootValidator().refusal($0) } } : []
@@ -488,13 +489,6 @@ final class SettingsPageProvider: PageProvider {
         }
         // setSetting returns once its own load applied the write (reloadAfterWrite), so the
         // page's next read is current without a second full load and apply.
-    }
-
-    static func managedInfo(_ source: ManagedSource) -> JSONValue {
-        switch source {
-        case .device: ["source": "device", "reason": "device", "team": .null]
-        case .team(let name): ["source": "team", "reason": "team", "team": name.isEmpty ? .null : .string(name)]
-        }
     }
 }
 

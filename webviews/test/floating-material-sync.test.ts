@@ -42,9 +42,14 @@ test("the native menu is the menu glass level", () => {
   expect(swift).toContain("static let level: GlassLevel = .menu");
 });
 
-test("the page lays the same veil on the App's glass", () => {
+// The App's host surface carries the menu veil (Glass.makeHostSurface: the native menu panel), so the page
+// lays none on it and a web menu is the native one to the pixel (Liquid Glass Parity, 2026-11-18).
+test("the App's menu panel carries the veil; the page lays none on the App's glass", () => {
   const glass = repo("webviews/src/ui/glass/glass.css");
-  expect(glass).toContain("calc(var(--ds-transient-host-veil) * 100%)");
+  expect(glass).toContain("--host-glass-fill: transparent;");
+  expect(repo("Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/HostGlassSurface.swift")).toContain(
+    "return makeMenuPanel(interactive: false)",
+  );
   expect(repo("webviews/src/pages/shared/desktop.css")).toContain(
     `--ds-transient-host-veil: ${designScale.transientMaterial.hostVeil};`,
   );

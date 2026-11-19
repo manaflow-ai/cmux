@@ -282,6 +282,11 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             let facts: launch::LandingFacts = read(request)?;
             value(launch::landing(&facts))?
         }
+        // What a launch opens fresh: Home, a New Tab workspace, nothing until Home is ensured, or the saved windows.
+        b"window_launch_fresh_landing" => {
+            let facts: launch::FreshFacts = read(request)?;
+            value(launch::fresh_landing(&facts))?
+        }
         _ => return Err(ERR_INVALID),
     };
     serde_json::to_vec(&answer).map_err(|_| ERR_INVALID)
