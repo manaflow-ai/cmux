@@ -74,6 +74,9 @@ struct Setup {
     /// Linux: `x11` or `portal` (else `--capture`, else the session type decides).
     #[serde(default)]
     capture: Option<String>,
+    /// The person sharing turned clipboard text sync on for this session (default off).
+    #[serde(default)]
+    clipboard: bool,
 }
 
 #[derive(Deserialize)]
@@ -444,9 +447,10 @@ fn serve_session(
     if crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
     }
-    // Clipboard text where this host has a clipboard it can watch (macOS). A `view` scope
-    // session still never applies or sends one: it never holds control (clipboard.rs).
-    if crate::clipboard::available() {
+    // Clipboard text only when the app's setup turned it on and this host has a clipboard it
+    // can watch (macOS). A `view` scope session still never applies or sends one: it never
+    // holds control (clipboard.rs).
+    if crate::clipboard::offered(setup.clipboard) {
         host_caps.push(cmux_rd_core::service::caps::CLIPBOARD_TEXT);
     }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
@@ -538,6 +542,16 @@ fn serve_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipboard_sync_is_off_unless_the_setup_turns_it_on() {
+        let base = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control"}"#;
+        let off: Setup = serde_json::from_str(base).expect("setup");
+        assert!(!off.clipboard);
+        let on = r#"{"session":"s","peer_key":"00","viewer":{"user":"u","install":"i"},"scope":"control","clipboard":true}"#;
+        let on: Setup = serde_json::from_str(on).expect("setup");
+        assert!(on.clipboard);
+    }
 
     /// A writer that keeps what reached it only at a flush, as a pipe's reader sees it.
     #[derive(Default)]

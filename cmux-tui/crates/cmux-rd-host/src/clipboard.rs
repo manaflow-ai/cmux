@@ -42,8 +42,15 @@ pub trait Pasteboard {
     fn write_text(&mut self, text: &str) -> Result<(), String>;
 }
 
-/// Whether this host can sync the clipboard, so it offers `clipboard.text`.
-pub fn available() -> bool {
+/// Whether this host offers `clipboard.text`: only when the person sharing turned clipboard
+/// sync on for this session (`serve`'s setup `"clipboard": true`; `host` never offers it), and
+/// only where the host has a clipboard it can watch (macOS). Off by default: a new way for
+/// the shared machine's clipboard to leave it is opt-in until a person decides otherwise.
+pub fn offered(opted_in: bool) -> bool {
+    opted_in && available()
+}
+
+fn available() -> bool {
     #[cfg(target_os = "macos")]
     {
         crate::mac::pasteboard::available()
@@ -243,6 +250,15 @@ mod tests {
 
     fn sent_text(c: Option<Control>) -> Option<String> {
         c.and_then(Control::into_clipboard_part).map(|p| p.text)
+    }
+
+    #[test]
+    fn the_cap_is_never_offered_unless_the_person_sharing_turned_it_on() {
+        assert!(!offered(false));
+        // Off macOS there is no clipboard to watch, opt-in or not.
+        if !cfg!(target_os = "macos") {
+            assert!(!offered(true));
+        }
     }
 
     #[test]

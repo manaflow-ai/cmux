@@ -511,11 +511,8 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
     }
-    // Clipboard text where this host has a clipboard it can watch (macOS); a view session
-    // still never applies or sends one (clipboard.rs).
-    if crate::clipboard::available() {
-        host_caps.push(caps::CLIPBOARD_TEXT);
-    }
+    // No clipboard.text here: clipboard sync is opt-in per session, and only `serve` (the
+    // app's share, whose setup carries the person's choice) offers it (clipboard.rs).
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
