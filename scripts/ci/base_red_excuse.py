@@ -1064,7 +1064,9 @@ BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
 # list is the record, so every host shares one dedupe and nothing waits here. A host whose gh cannot dispatch (a lane
 # VM's broker) refuses with the reason; the next check from a host that can starts it. Keep this list to workflows
 # whose base verdict cannot come from a push: each dispatch is a Mac job.
-BASE_DISPATCH = frozenset({("feat-cmux-next", "nightly-next-cua-signed-host.yml")})
+# cmux#37003 (b6fff4f6f105) deleted nightly-next-cua-signed-host.yml, so no workflow needs a base dispatch now; the
+# mechanism stays for the next one (BaseDispatchForPullRequestOnlyWorkflows runs it with that entry).
+BASE_DISPATCH: frozenset[tuple[str, str]] = frozenset()
 BASE_DISPATCH_EVERY = timedelta(minutes=60)
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
@@ -6671,27 +6673,33 @@ def unittest_failures(section: list[str]) -> list[tuple[str, list[str]]]:
 # judges and posts the ws-check status from that log, linking the cancelled run, and keeps it beside the run's record
 # in its state folder (ci/JID.json, ci/JID.fleet-log). Read only as GitHub's job, every fleet-route ws-check was "no
 # result", never excusable. A broker land's merge_hold runs on the broker host, so this reads the kept log there:
-# the record must name this run as the one it moved (fleet.from_run), be settled done with the status's verdict, and
-# the log's receipt must name the run again (ws_check_verdict). Elsewhere, or once the record is pruned (the broker
+# the record must name this run as the one it moved (fleet.from_run) and this head (cmux#46667, leo-workspace#5376 at
+# b2b09e79: a record of another head's run is never read), be settled done with the status's verdict, and the log's
+# receipt must name the run again (ws_check_verdict). The standby broker's state is read too, after the primary's. Elsewhere, or once the record is pruned (the broker
 # keeps settled records CI_RECORD_RETENTION_S, 6 h), it is "no result" as before: run ws-check again.
 FLEET_RECORDS_ENV = "BASE_RED_FLEET_RECORDS"  # the broker's ci records folder; default its state's (cfg "state")
 FLEET_RECORDS_DEFAULT = Path(".local") / "state" / "lane-gh-broker" / "ci"
+FLEET_RECORDS_STANDBY = Path(".local") / "state" / "lane-gh-broker-standby" / "ci"
 FLEET_VERDICTS = {"failure": "failure", "success": "success"}  # status state: the record's conclusion
 
 
-def fleet_records_dir(env=os.environ) -> Path:
+def fleet_records_dirs(env=os.environ) -> list[Path]:
     named = env.get(FLEET_RECORDS_ENV)
-    return Path(named) if named else Path(env.get("HOME") or Path.home()) / FLEET_RECORDS_DEFAULT
+    if named:
+        return [Path(named)]
+    home = Path(env.get("HOME") or Path.home())
+    return [home / FLEET_RECORDS_DEFAULT, home / FLEET_RECORDS_STANDBY]
 
 
-def fleet_kept_log(repo: str, host: str, run: str, state: str, env=os.environ) -> str | None:
-    """The build-fleet log this host's lane-gh broker kept for REPO's ws-check run RUN (in HOST), the run it cancelled
-    and moved to the fleet, when its record is settled done with the verdict STATE names; else None."""
-    folder = fleet_records_dir(env)
-    try:
-        records = sorted(folder.glob("*.json"))
-    except OSError:
-        return None
+def fleet_kept_log(repo: str, host: str, run: str, sha: str, state: str, env=os.environ) -> str | None:
+    """The build-fleet log this host's lane-gh broker kept for REPO's ws-check run RUN (in HOST) of head SHA, the run
+    it cancelled and moved to the fleet, when its record is settled done with the verdict STATE names; else None."""
+    records = []
+    for folder in fleet_records_dirs(env):
+        try:
+            records += sorted(folder.glob("*.json"))
+        except OSError:
+            continue
     for path in records:
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
@@ -6701,8 +6709,8 @@ def fleet_kept_log(repo: str, host: str, run: str, state: str, env=os.environ) -
         if not isinstance(fleet, dict) or str(fleet.get("from_run")) != str(run):
             continue
         if (fleet.get("state") != "done" or record.get("repo") != repo or record.get("dispatch") != host
-                or str(record.get("run_id")) != str(run) or record.get("conclusion") != FLEET_VERDICTS.get(state)
-                or record.get("mismatch")):
+                or str(record.get("run_id")) != str(run) or record.get("head") != sha
+                or record.get("conclusion") != FLEET_VERDICTS.get(state) or record.get("mismatch")):
             return None
         try:
             text = path.with_name(f"{path.stem}.fleet-log").read_text(encoding="utf-8", errors="replace")
@@ -6747,7 +6755,7 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     fleet = None
     if job.get("status") == "completed" and job.get("conclusion") == "cancelled":
         # The broker cancelled it and the build fleet ran its snapshot (fleet_kept_log): that log is the run's.
-        fleet = fleet_kept_log(repo, host, link[1], state)
+        fleet = fleet_kept_log(repo, host, link[1], sha, state)
     if fleet is None and (job.get("status") != "completed" or job.get("conclusion") not in ("success", "failure")):
         # No verdict (startup_failure, cancelled, still running): no result, skipped on the base (cmux#36219 F2).
         return "none", dict(found, why=f"job '{job.get('name')}' in run {link[1]} is {job.get('status')}/"
