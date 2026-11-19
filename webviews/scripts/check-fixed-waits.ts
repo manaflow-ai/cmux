@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
  * `new Promise` after a delay other than 0 (0 only yields to the next macrotask). Each one counts,
  * and so does each use of a local helper built on one (a call, or the helper passed as a value),
  * inside other helpers too, so a new wait anywhere raises the count. One that must stay says why in
- * a `// fixed-wait: <reason>` comment within its statement or on a comment line just above it.
+ * a `// fixed-wait: <reason>` comment within its statement or in the comment lines just above it.
  *
  * Files from before the rule have a count in fixed-waits-baseline.tsv. A file fails with more
  * unmarked waits than its row, and with fewer until the row is lowered (`--update-baseline`), so
@@ -141,8 +141,9 @@ export function findFixedWaits(file: string, text: string): string[] {
   const marked = (node: ts.Node) => {
     const statement = statementOf(node);
     const first = line(statement.getStart(source));
-    const above = lines[first - 1] ?? "";
-    if (/^\s*\/\//.test(above) && MARKER.test(above)) return true;
+    // The comment block just above may wrap: its marker can open any of its lines.
+    for (let at = first - 1; at >= 0 && /^\s*\/\//.test(lines[at] ?? ""); at--)
+      if (MARKER.test(lines[at]!)) return true;
     for (let at = first; at <= line(node.getEnd()); at++) if (MARKER.test(lines[at] ?? "")) return true;
     return false;
   };
