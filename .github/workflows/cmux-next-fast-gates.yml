@@ -88,12 +88,12 @@ jobs:
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          JOBS: resolve post
+          JOBS: resolve receipt post
           # Never a mini: an owned Mac's ephemeral runner spends 20-60 s setting up and tearing down
           # ("Set up runner", "Complete runner") around these jobs' ~5 s of work. resolve placed on a mini
           # ran 41 s at p50 and 67 s at p90 against 5 s and 7 s on hosted Ubuntu (2026-11-11 timing
           # records, 27 and 224 jobs), on the fast gate's critical path. Fleet Linux, when free, still takes them.
-          LINUX_ONLY: resolve post
+          LINUX_ONLY: resolve receipt post
           # Only the owned-pool rescue bot's third attempt may re-place these
           # light jobs. Other workflows and manual retries stay fail-closed.
           PORTABLE_ATTEMPT3_RESCUE: '1'
@@ -126,6 +126,8 @@ jobs:
       head_sha: ${{ steps.resolve.outputs.head_sha }}
       base: ${{ steps.resolve.outputs.base }}
       post: ${{ steps.resolve.outputs.post }}
+      head_tree: ${{ steps.resolve.outputs.head_tree }}
+      merge_tree: ${{ steps.resolve.outputs.merge_tree }}
     steps:
       # A pull request's merge commit and both parents; only git reads it here.
       - name: Checkout the merge ref
@@ -233,6 +235,8 @@ jobs:
             [[ "$(git rev-parse HEAD^2)" == "$PR_HEAD" ]] || { echo "::error::the merge ref is not on the pull request head $PR_HEAD; push again or dispatch"; exit 1; }
             head=$PR_HEAD
             base=$(git rev-parse HEAD^1)
+            # The receipt job (a local test receipt) compares these trees.
+            { echo "head_tree=$(git rev-parse 'HEAD^2^{tree}')"; echo "merge_tree=$(git rev-parse 'HEAD^{tree}')"; } >> "$GITHUB_OUTPUT"
             # A fork pull request's token cannot write statuses.
             post=false
             if [[ "$PR_REPO" == "$GITHUB_REPOSITORY" ]]; then post=true; fi
@@ -241,9 +245,81 @@ jobs:
           { echo "head_sha=$head"; echo "base=$base"; echo "post=$post"; } >> "$GITHUB_OUTPUT"
           echo "head $head, base $base"
 
+  # A local test receipt (scripts/ci/ci_receipt.py). Leo: "if you test a change locally and it works or whatever,
+  # like we can just count that as a pass, as a skip in CI." Only for a same-repository pull request whose body names
+  # one (`CI-Receipt: fast-gates <Fast checks run URL>`), so every other run spends no runner and no API call here.
+  # The receipt is a Fast checks run of the canonical `python3 scripts/ci/ci_receipt.py produce fast-gates` on this
+  # head (`cmux-ci test`), which GitHub attests: no key. The verifier comes from the base commit, never the pull
+  # request. A valid receipt posts cmux-next/fast-gates success here at once, naming the receipt's base, and the
+  # fast-gates job is skipped before it takes a runner; CI_RECEIPT_AUDIT_PERCENT (default 10) of them still run in
+  # full, and a red there posts failure naming the receipt and its producer. A rejected receipt runs everything.
+  receipt:
+    name: local test receipt
+    needs: [resolve, portable-placement]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.body, 'CI-Receipt:') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' receipt ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' receipt ') && needs.portable-placement.outputs.mini_runner || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      statuses: write
+    outputs:
+      valid: ${{ steps.verify.outputs.valid }}
+      audit: ${{ steps.verify.outputs.audit }}
+      run_url: ${{ steps.verify.outputs.run_url }}
+      producer: ${{ steps.verify.outputs.producer }}
+    steps:
+      - name: Check out the trusted receipt verifier
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/ci/ci_receipt.py
+
+      - name: Verify the local test receipt
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          BASE: ${{ needs.resolve.outputs.base }}
+          HEAD_TREE: ${{ needs.resolve.outputs.head_tree }}
+          MERGE_TREE: ${{ needs.resolve.outputs.merge_tree }}
+          AUDIT_PERCENT: ${{ vars.CI_RECEIPT_AUDIT_PERCENT }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f scripts/ci/ci_receipt.py ]]; then
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=CI receipt::the base has no receipt verifier yet; the gates run"
+            exit 0
+          fi
+          python3 scripts/ci/ci_receipt.py verify fast-gates --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" \
+            --base "$BASE" --head-tree "$HEAD_TREE" --merge-tree "$MERGE_TREE" --audit-percent "$AUDIT_PERCENT" \
+            --output "$GITHUB_OUTPUT"
+
+      - name: Post the cmux-next/fast-gates status from the receipt
+        if: ${{ steps.verify.outputs.valid == 'true' && needs.resolve.outputs.post == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          RECEIPT_BASE: ${{ steps.verify.outputs.base }}
+          RUN_URL: ${{ steps.verify.outputs.run_url }}
+          PRODUCER: ${{ steps.verify.outputs.producer }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$RECEIPT_BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or receipt base"; exit 1; }
+          description="base $RECEIPT_BASE; local receipt run ${RUN_URL##*/} by $PRODUCER"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state=success \
+            -f context=cmux-next/fast-gates -f target_url="$RUN_URL" -f description="${description:0:140}" >/dev/null
+          echo "cmux-next/fast-gates: success on $HEAD_SHA from $RUN_URL (base $RECEIPT_BASE)"
+
   fast-gates:
     name: fast gates
-    needs: resolve
+    needs: [resolve, receipt]
+    # Skipped before it takes a runner when a valid local test receipt covers it (receipt job), unless audited.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
     outputs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
@@ -408,8 +484,9 @@ jobs:
   # panic-ratchet (nothing to rejudge) does not fail it.
   post:
     name: post cmux-next/fast-gates
-    needs: [resolve, fast-gates, panic-ratchet, portable-placement]
-    if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' }}
+    needs: [resolve, receipt, fast-gates, panic-ratchet, portable-placement]
+    # A valid receipt posted the status itself; an audited one is judged here again by the gates.
+    if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
     # A light job: the reconciled Linux pool on every attempt (it holds no secret), never GitHub-hosted
     # Ubuntu (it left light jobs queued for hours, cmux#45735). On 2026-11-02 this queued on RUNNER_POOLS.linux's
     # saturated blacksmith-4vcpu-ubuntu-2404 (hundreds of jobs deep) for a few seconds of work.
@@ -426,6 +503,9 @@ jobs:
           BASE: ${{ needs.resolve.outputs.base }}
           GATES: ${{ needs.fast-gates.result }}
           RATCHET: ${{ needs.panic-ratchet.result }}
+          RECEIPT_AUDIT: ${{ needs.receipt.outputs.audit }}
+          RECEIPT_RUN: ${{ needs.receipt.outputs.run_url }}
+          RECEIPT_PRODUCER: ${{ needs.receipt.outputs.producer }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -449,6 +529,12 @@ jobs:
           if [[ "$stopped" == true ]]; then
             state=pending
             description="base $BASE; stopped (gates ${GATES:-none}, ratchet ${RATCHET:-none}), no verdict"
+          fi
+          # A receipt audit (scripts/ci/ci_receipt.py): the gates disagree with a receipt that already posted success.
+          if [[ "${RECEIPT_AUDIT:-}" == true && "$state" == failure ]]; then
+            echo "::error title=CI receipt audit::the gates failed on a head whose local test receipt $RECEIPT_RUN (by $RECEIPT_PRODUCER) passed them"
+            description="base $BASE; receipt audit: gates red, receipt run ${RECEIPT_RUN##*/} by $RECEIPT_PRODUCER"
+            description=${description:0:140}
           fi
           # A rate-limit refusal is status-posting infrastructure, not a gate verdict. Keep the
           # run green with a named warning; a missing status is never treated as a pass by the
