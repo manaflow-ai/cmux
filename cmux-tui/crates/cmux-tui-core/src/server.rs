@@ -3216,6 +3216,10 @@ mod personal_tests;
 mod attach_output_coalesce_tests;
 
 #[cfg(test)]
+#[path = "server/attach_frames_tests.rs"]
+mod attach_frames_tests;
+
+#[cfg(test)]
 #[path = "server/agent_cli_hybrid_tests.rs"]
 mod agent_cli_hybrid_tests;
 
