@@ -2,7 +2,7 @@
 
 > **Retired.** `ios/` is the classic cmux iPhone app and is no longer developed or installed. The
 > iPhone app is `cmux-next-ios/` ([cmux-next-iOS notes](../cmux-next-ios/CLAUDE.md)); its hand-off
-> is `cmux-next-ios/scripts/review.sh` (root [CLAUDE.md](../CLAUDE.md#finishing-a-task)). Don't
+> is `cmux-next-ios/scripts/review.sh` ([finishing a task](../skills/cmux-dev-workflow/references/finishing-a-task.md)). Don't
 > change code here, build it, or install it on a phone. The text below is kept only as history.
 
 iOS app-target work in this directory follows `Packages/iOS/AGENTS.md`,
@@ -80,7 +80,7 @@ A phone is always connected. No connected phone, a locked phone, a queued instal
 gate is a blocker: report its `FAIL:` line and the retry command. Do not skip the phone, fall back
 to `--simulator-only` or pass `--no-sign-in`/`--no-attach`/`--no-setup`. Rerunning the same command
 resumes the saved fleet jobs without resubmitting. Copy the `Review ready` block into the report
-(format in the root [AGENTS.md](../AGENTS.md#finishing-a-task)).
+(format in [finishing a task](../skills/cmux-dev-workflow/references/finishing-a-task.md)).
 
 ## Keep cheap iOS-only regressions in `ios/tests/`
 

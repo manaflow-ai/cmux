@@ -93,7 +93,8 @@ does not re-publish it while it is still the newest nightly. Pulling the only st
 needs `allow_empty`.
 
 No job uses an M6 mini. Owned macOS jobs take `CI_SIDE_LANE_RUNNER` (std class, M4 Pro) and fail
-on any other chip. Signing stays on Blacksmith, like the nightly's.
+on any other chip. Stable's signing job runs on a hosted macOS runner; the nightly's never does (see
+[landing](landing.md#ci-runners-and-nightlies)).
 
 The repository rule against new CI gates (CLAUDE.md, Lawrence 2026-10-23) is about push, pull
 request and nightly paths. This workflow adds nothing to them: it runs only on its schedule, a
