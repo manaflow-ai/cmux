@@ -816,6 +816,9 @@ impl Driver {
                         self.endpoint.on_network_change();
                     }
                     Command::Close => {
+                        // Records queued in this same batch (a last `stop`) go out
+                        // before the close: `send_control` then drop delivers it.
+                        self.flush(now)?;
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {
                                 self.send(t.route, &t.packet, now);
