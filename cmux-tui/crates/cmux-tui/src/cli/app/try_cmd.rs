@@ -22,6 +22,9 @@
 //!    newest build says which builds contain it, and the oldest of those that
 //!    is not older than the app's own build is installed. An app whose build
 //!    already contains the commit is left alone.
+//!    A commit with a build of its own outside the feed (`nightly-next/commits/<sha>/`, the DEV
+//!    tip publisher's cmux NIGHTLY copy; try_cmd/commit_build.rs) installs that build instead of
+//!    a later nightly that contains it, through the same `updates.switch_build` with `commit`.
 //! 3. Otherwise it says which build is missing and exits 1: it never builds.
 //!
 //! Every run writes a receipt (`last.json`, `history.jsonl`) with its phases
@@ -43,6 +46,7 @@ use super::nightly::{self, Switched, Target};
 use crate::localization::TryMessages;
 use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 
+mod commit_build;
 mod copy;
 mod live;
 mod resolve;
@@ -291,6 +295,41 @@ fn choose(
     Plan::None { why }
 }
 
+/// Whether a commit build is worth a read: no build at all, or only a later nightly.
+fn wants_commit_build(plan: &Plan) -> bool {
+    matches!(plan, Plan::None { .. } | Plan::Full { nearest: true, .. })
+}
+
+/// `plan` with the commit's own build (`found`) in place of no build or a later nightly; a
+/// missing or refused one adds its reason to a plan that has none.
+fn with_commit_build(plan: Plan, found: commit_build::Found, commit: &str, from: &str) -> Plan {
+    let messages = messages();
+    match (found, plan) {
+        (commit_build::Found::Build(build), _) => Plan::Full {
+            build: json!({
+                "build": build.build, "commit": commit, "source": "commit",
+                "dmg": build.dmg, "sha256": build.sha256, "length": build.length,
+            }),
+            from: from.to_owned(),
+            nearest: false,
+        },
+        (commit_build::Found::Missing, Plan::None { mut why }) => {
+            why.push(messages.why_no_commit_build.replace("{commit}", short(commit)));
+            Plan::None { why }
+        }
+        (commit_build::Found::Refused(error), Plan::None { mut why }) => {
+            why.push(messages.why_commit_build_refused.replace("{error}", &error));
+            Plan::None { why }
+        }
+        (_, plan) => plan,
+    }
+}
+
+/// Whether `build` is a commit build (installed from its commit folder, not the feed).
+fn is_commit_build(build: &Value) -> bool {
+    build.get_str("source") == Some("commit")
+}
+
 /// The feed's newest build that names a commit: what `resolve::descent` compares with.
 fn newest_built(listing: &Value) -> Option<&str> {
     listing
@@ -428,7 +467,13 @@ fn plan_human(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) -
             .replace("{app}", &app.to_string_lossy())
             .replace("{app_commit}", app_commit.unwrap_or_default()),
         Plan::Full { build, from, nearest } => {
-            let text = if *nearest { messages.plan_full_nearest } else { messages.plan_full };
+            let text = if is_commit_build(build) {
+                messages.plan_full_commit
+            } else if *nearest {
+                messages.plan_full_nearest
+            } else {
+                messages.plan_full
+            };
             text.replace("{build}", build.get_str("build").unwrap_or_default())
                 .replace("{built}", short(build.get_str("commit").unwrap_or_default()))
                 .replace("{commit}", short(commit))
@@ -581,6 +626,18 @@ fn run_try(global: &GlobalArgs, target: &str, dry_run: bool, named: Option<&Path
                 resolve::Unresolved::Other(error) => error,
             });
             plan = nearest(&commit, listing, descent.as_ref().map_err(String::as_str), why.clone());
+        }
+        // The commit's own build, outside the feed, before a later nightly that contains it.
+        if wants_commit_build(&plan) && commit_build::for_this_mac() {
+            let key = commit_build::app_public_key(&app);
+            let found = commit_build::read(&commit, &commit_build::base(), key.as_deref());
+            let from = builds
+                .as_ref()
+                .ok()
+                .and_then(|listing| listing.get_str("installed"))
+                .unwrap_or_default()
+                .to_owned();
+            plan = with_commit_build(plan, found, &commit, &from);
         }
         phases.add("plan", t);
     }
@@ -756,7 +813,12 @@ fn finish(
 
 fn switch(global: &GlobalArgs, stream: &mut std::os::unix::net::UnixStream, build: &Value) -> i32 {
     let number = build.get("build").cloned().unwrap_or(Value::Null);
-    match nightly::switch_build(stream, json!({ "build": number })) {
+    let mut params = json!({ "build": number });
+    // A commit build downloads from its commit's folder, which the app derives from `commit`.
+    if is_commit_build(build) {
+        set(&mut params, "commit", build.get("commit").cloned().unwrap_or(Value::Null));
+    }
+    match nightly::switch_build(stream, params) {
         Switched::Answer(Ok(value)) => match global.output {
             OutputMode::Human => 0,
             _ => super::super::wire::print_local_success(&value, global.output),

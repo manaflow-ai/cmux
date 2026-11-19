@@ -38,28 +38,30 @@ struct BuildSwitchDownloadTests {
         }
     }
 
-    private static func app(in folder: URL, build: String, bundleID: String = bundleID) throws {
+    private static func app(in folder: URL, build: String, bundleID: String = bundleID, commit: String? = nil) throws {
         let contents = folder.appending(path: "cmux NEXT.app/Contents", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
-        let info: [String: Any] = ["CFBundleIdentifier": bundleID, "CFBundleVersion": build, "CFBundleShortVersionString": "1.0.0-nightly.\(build)"]
+        var info: [String: Any] = ["CFBundleIdentifier": bundleID, "CFBundleVersion": build, "CFBundleShortVersionString": "1.0.0-nightly.\(build)"]
+        if let commit { info["CMUXCommit"] = commit }
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
             .write(to: contents.appending(path: "Info.plist"))
     }
 
     private static func run(build: String, imageBuild: String, imageID: String = bundleID, team: String = "TEAM",
                             keptAlready: [String] = [], signature: ArchiveSignature? = nil,
-                            publicEDKey: String? = publicKey) async throws -> (String?, [String]) {
+                            publicEDKey: String? = publicKey, commit: String? = nil,
+                            imageCommit: String? = nil) async throws -> (String?, [String]) {
         let root = FileManager.default.temporaryDirectory.appending(path: "build-switch-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
         let volume = root.appending(path: "volume", directoryHint: .isDirectory)
-        try app(in: volume, build: imageBuild, bundleID: imageID)
+        try app(in: volume, build: imageBuild, bundleID: imageID, commit: imageCommit)
         let store = KeptVersionStore(root: root.appending(path: "versions", directoryHint: .isDirectory), teamID: { _ in "TEAM" })
         for kept in keptAlready {
             let source = root.appending(path: "kept-\(kept)", directoryHint: .isDirectory)
             try app(in: source, build: kept)
             try store.keep(bundle: source.appending(path: "cmux NEXT.app"), build: kept, limit: keptAlready.count)
         }
-        let download = BuildSwitchDownload(store: store, bundleIdentifier: bundleID, teamID: "TEAM", publicEDKey: publicEDKey,
+        let download = BuildSwitchDownload(store: store, bundleIdentifier: bundleID, teamID: "TEAM", publicEDKey: publicEDKey, commit: commit,
                                            downloader: Volume(folder: volume), mounter: Volume(folder: volume),
                                            inspector: Inspector(team: team), temporaryDirectory: root)
         let failure = await download.keep(build: build, from: URL(string: "https://files-next.cmux.com/nightly-next/next/x.dmg")!,
@@ -104,6 +106,39 @@ struct BuildSwitchDownloadTests {
         let (noKey, keptD) = try await Self.run(build: "100", imageBuild: "100", publicEDKey: nil)
         #expect(noKey?.contains("no update signing key") == true)
         #expect(keptD.isEmpty)
+    }
+
+    /// `cmux app try <sha>` with a commit build (cmuxterm-hq docs/design/nightly-per-commit-builds.md):
+    /// the app must name the commit asked for, so one commit's folder never hands over another's build.
+    @Test func aCommitBuildIsKeptOnlyWhenItsAppNamesThatCommit() async throws {
+        let commit = "0123456789abcdef0123456789abcdef01234567"
+        let (short, keptA) = try await Self.run(build: "100", imageBuild: "100", commit: commit, imageCommit: "0123456789")
+        #expect(short == nil)
+        #expect(keptA == ["100"])
+        let (other, keptB) = try await Self.run(build: "100", imageBuild: "100", commit: commit, imageCommit: "89abcdef01")
+        #expect(other?.contains("holds commit 89abcdef01") == true)
+        #expect(keptB.isEmpty)
+        let (none, keptC) = try await Self.run(build: "100", imageBuild: "100", commit: commit)
+        #expect(none?.contains("holds commit ?") == true)
+        #expect(keptC.isEmpty)
+        // A feed build is not asked for a commit.
+        let (feed, keptD) = try await Self.run(build: "100", imageBuild: "100", imageCommit: "89abcdef01")
+        #expect(feed == nil)
+        #expect(keptD == ["100"])
+    }
+
+    @Test func aCommitBuildDownloadsFromItsCommitsFolderBesideTheFeed() {
+        let folder = URL(string: "https://files-next.cmux.com/nightly-next/")!
+        let commit = "0123456789abcdef0123456789abcdef01234567"
+        #expect(UpdaterService.nightlyCommitDiskImageURL(build: "4447747433201", commit: commit, in: folder, architecture: .arm64)?
+            .absoluteString == "https://files-next.cmux.com/nightly-next/commits/\(commit)/cmux-nightly-commit-macos-arm64-4447747433201.dmg")
+        #expect(UpdaterService.nightlyCommitDiskImageURL(build: "1", commit: commit, in: folder, architecture: .x86_64) == nil)
+        #expect(UpdaterService.nightlyCommitDiskImageURL(build: "1", commit: "0123456", in: folder, architecture: .arm64) == nil)
+        #expect(UpdaterService.nightlyCommitDiskImageURL(build: "1", commit: commit.uppercased(), in: folder, architecture: .arm64) == nil)
+        #expect(UpdaterService.nightlyCommitDiskImageURL(build: "1", commit: "../" + commit.dropFirst(3), in: folder, architecture: .arm64) == nil)
+        #expect(UpdaterService.nightlyCommitDiskImageURL(build: "../1", commit: commit, in: folder, architecture: .arm64) == nil)
+        #expect(UpdaterService.nightlyCommitDiskImageURL(build: "1", commit: commit, in: URL(string: "http://files-next.cmux.com/nightly-next/")!,
+                                                         architecture: .arm64) == nil)
     }
 
     @Test func theSignatureFileBesideTheDiskImageIsReadByItsName() async throws {
