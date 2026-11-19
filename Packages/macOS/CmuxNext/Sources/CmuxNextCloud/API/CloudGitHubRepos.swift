@@ -169,6 +169,9 @@ public final class CloudGitHubConnects {
         case page(URL)
         /// A definitive refusal or a reply this client will not use: the next click asks with a new key.
         case refused
+        /// A refusal of the params themselves (`validation.invalid`): what an API from before the completion link answers
+        /// `return_to`. Only this one asks again without the link (``connect(key:ask:)``); otherwise as ``refused``.
+        case invalidParams
         /// No answer, a timeout, throttling or a server failure: the connect may have happened, so the key stays.
         case noAnswer
     }
@@ -191,9 +194,19 @@ public final class CloudGitHubConnects {
         guard flows[team]?.key == key else { if case .page(let url) = answer { return url }; return nil } // another click asked meanwhile
         switch answer {
         case .page(let url): flows[team] = (key, url); return url
-        case .refused: flows[team] = nil; return nil
+        case .refused, .invalidParams: flows[team] = nil; return nil
         case .noAnswer: return nil
         }
+    }
+
+    /// One connect under `key`, with the completion link first (`ask(key, true)`). Only an API from before the link,
+    /// which refuses its params (``Answer/invalidParams``), is asked again without it: under its own key, derived so a
+    /// retry of it is the same ask (the API keeps the first key, and the same key with other params is an
+    /// `idempotency.conflict`). Any other refusal (`auth.forbidden`, `policy.denied`, ...) is the answer.
+    static func connect(key: String, ask: (_ key: String, _ returning: Bool) async -> Answer) async -> Answer {
+        let answer = await ask(key, true)
+        guard answer == .invalidParams else { return answer }
+        return await ask(key + ":plain", false)
     }
 
     /// Whether this launch's picker holds a flow for `team` it can resume (its page, or a key whose answer may be lost).
@@ -215,7 +228,9 @@ public final class CloudGitHubConnects {
         let reply = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
         guard (200..<300).contains(status), let reply, reply["error"] == nil || reply["error"] is NSNull, reply["ok"] as? Bool != false,
               let value = reply["value"] as? [String: Any], let raw = value["authorize_url"] as? String, let url = CloudGitHubApp.installationURL(raw),
-              let id = (value["connection"] as? [String: Any])?["id"] as? String, !id.isEmpty else { return .refused }
+              let id = (value["connection"] as? [String: Any])?["id"] as? String, !id.isEmpty else {
+            return (reply?["error"] as? [String: Any])?["code"] as? String == "validation.invalid" ? .invalidParams : .refused
+        }
         return .page(url)
     }
 }
@@ -358,12 +373,11 @@ public struct CloudGitHubPicker {
         }
         let returnTo = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
         // An API from before the completion link refuses its params (`validation.invalid`): ask again without it, and the
-        // console finishes the connection as before. Under its own key, derived so a retry of it is the same ask: the API
-        // keeps the first key, and the same key with other params is an `idempotency.conflict`.
+        // console finishes the connection as before. Any other refusal is final.
         guard let page = await connects.page(team: owner.team, now: Date(), ask: { key in
-            let answer = await client.gitHubConnect(key: key, returnTo: returnTo)
-            guard case .refused = answer else { return answer }
-            return await client.gitHubConnect(key: key + ":plain")
+            await CloudGitHubConnects.connect(key: key) { key, returning in
+                await client.gitHubConnect(key: key, returnTo: returning ? returnTo : nil)
+            }
         }) else { return .failed }
         return .open(page)
     }

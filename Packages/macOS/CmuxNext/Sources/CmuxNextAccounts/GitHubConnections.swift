@@ -101,10 +101,11 @@ public final class GitHubConnections {
                     open(authorization.url)
                 } else {
                     if connectKeys[bound] == nil { connectKeys[bound] = UUID().uuidString }
-                    // An API from before the completion link refuses its params: the console finishes it. The retry has its
-                    // own key, derived so its own retry is the same ask (the same key with other params is a conflict).
+                    // An API from before the completion link refuses its params (`validation.invalid`): the console finishes
+                    // it. Only that refusal asks again; any other is final. The retry has its own key, derived so its own
+                    // retry is the same ask (the same key with other params is a conflict).
                     let value: JSONValue
-                    do { value = try await call(bound, "integration.connect", connectParams(returning: true), connectKeys[bound]) } catch GitHubFailure.refused where completionLink != nil {
+                    do { value = try await call(bound, "integration.connect", connectParams(returning: true), connectKeys[bound]) } catch GitHubFailure.invalidParams where completionLink != nil {
                         value = try await call(bound, "integration.connect", connectParams(returning: false), connectKeys[bound].map { $0 + ":plain" })
                     }
                     guard scope() == bound, generation == ticket else { return }
@@ -139,7 +140,7 @@ public final class GitHubConnections {
             }
         } catch {
             if action == "githubConnect", generation == ticket, scope() == bound,
-               let failure = error as? GitHubFailure, case .refused = failure {
+               let failure = error as? GitHubFailure, failure == .refused || failure == .invalidParams {
                 // A definitive API refusal is replayed under its mutation key.
                 // Transport failures keep the key because the mutation may have succeeded.
                 connectKeys[bound] = nil
@@ -173,5 +174,7 @@ public final class GitHubConnections {
         return "user_" + digest.prefix(10).map { String(format: "%02x", $0) }.joined()
     }
 
-    public enum GitHubFailure: Error { case changedAccount, invalidReply, refused }
+    /// `invalidParams` is the API's `validation.invalid`, what an API from before the completion link answers
+    /// `return_to`; `refused` is every other refusal.
+    public enum GitHubFailure: Error { case changedAccount, invalidReply, refused, invalidParams }
 }

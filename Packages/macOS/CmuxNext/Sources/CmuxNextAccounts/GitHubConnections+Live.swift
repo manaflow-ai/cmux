@@ -34,9 +34,14 @@ extension GitHubConnections {
             // A timeout, throttling response or server failure does not prove that
             // the mutation was refused. Keep its key for a safe retry.
             guard response.status < 500, response.status != 408, response.status != 429 else { throw URLError(.badServerResponse) }
-            guard (200..<300).contains(response.status) else { throw GitHubFailure.refused }
+            // Only `validation.invalid` (an API from before the completion link) is `invalidParams`: the one refusal the
+            // connect asks again for.
+            func refusal(_ reply: JSONValue?) -> GitHubFailure {
+                reply?["error"]?["code"]?.stringValue == "validation.invalid" ? .invalidParams : .refused
+            }
+            guard (200..<300).contains(response.status) else { throw refusal(try? JSONValue.parse(response.body)) }
             let reply = try JSONValue.parse(response.body)
-            guard (reply["error"] == nil || reply["error"] == .null), reply["ok"] != .bool(false), let value = reply["value"] else { throw GitHubFailure.refused }
+            guard (reply["error"] == nil || reply["error"] == .null), reply["ok"] != .bool(false), let value = reply["value"] else { throw refusal(reply) }
             return value
         }, open: { url in LinkRouter.shared.open(url) })
         model.completionLink = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)

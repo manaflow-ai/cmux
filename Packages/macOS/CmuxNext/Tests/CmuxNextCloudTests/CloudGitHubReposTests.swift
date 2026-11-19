@@ -154,6 +154,8 @@ struct CloudGitHubReposTests {
         let noConnection = Self.body(#"{"ok":true,"value":{"authorize_url":"\#(Self.page)"}}"#)
         #expect(CloudGitHubConnects.answer(status: 200, body: noConnection) == .refused)
         #expect(CloudGitHubConnects.answer(status: 403, body: Self.body(#"{"ok":false,"error":{"code":"policy.denied"}}"#)) == .refused)
+        #expect(CloudGitHubConnects.answer(status: 403, body: Self.body(#"{"ok":false,"error":{"code":"auth.forbidden"}}"#)) == .refused)
+        #expect(CloudGitHubConnects.answer(status: 400, body: Self.body(#"{"ok":false,"error":{"code":"validation.invalid"}}"#)) == .invalidParams)
         for status in [408, 429, 500, 503] { #expect(CloudGitHubConnects.answer(status: status, body: Data()) == .noAnswer, "\(status)") }
         #expect(CloudGitHubApp.authorizationExpiry(URL(string: Self.page)!) == Date(timeIntervalSince1970: 4_102_444_800))
     }
@@ -180,6 +182,27 @@ struct CloudGitHubReposTests {
         #expect(fresh == page)
         #expect(otherTeam == page)
         #expect(asked == ["key-1", "key-1", "key-2", "key-3", "key-4"])
+    }
+
+    /// cmuxterm-hq#13941: only an old API's `validation.invalid` asks again without the completion link (`:plain`);
+    /// a `forbidden` first answer is final and sends no retry.
+    @MainActor @Test func onlyAnOldAPIsInvalidParamsAsksAgainWithoutTheLink() async {
+        let page = URL(string: Self.page)!
+        var asked: [(String, Bool)] = []
+        let forbidden = await CloudGitHubConnects.connect(key: "k") { key, returning in
+            asked.append((key, returning))
+            return CloudGitHubConnects.answer(status: 403, body: Self.body(#"{"ok":false,"error":{"code":"auth.forbidden"}}"#))
+        }
+        #expect(forbidden == .refused)
+        #expect(asked.map(\.0) == ["k"])
+        asked = []
+        let old = await CloudGitHubConnects.connect(key: "k") { key, returning in
+            asked.append((key, returning))
+            return returning ? .invalidParams : .page(page)
+        }
+        #expect(old == .page(page))
+        #expect(asked.map(\.0) == ["k", "k:plain"])
+        #expect(asked.map(\.1) == [true, false])
     }
 
     /// A row's size (`size_kb`, GitHub's KB) sizes a Cloud start in it; a row without one, or a bad one, has none.

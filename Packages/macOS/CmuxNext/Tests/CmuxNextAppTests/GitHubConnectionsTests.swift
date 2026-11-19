@@ -76,7 +76,7 @@ import Testing
         let model = GitHubConnections(scope: { self.scope }, call: { _, op, params, key in
             if op == "integration.connect" {
                 asked.append((params, key))
-                if params["return_to"] != nil { throw GitHubConnections.GitHubFailure.refused }
+                if params["return_to"] != nil { throw GitHubConnections.GitHubFailure.invalidParams }
                 return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
             }
             return self.listing
