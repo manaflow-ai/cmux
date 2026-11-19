@@ -77,7 +77,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeFeedInChief = HomeFeedRowsSetting.fallback
     /// `home.chiefDock.edge`: the window edge the Chief docks to (``ChiefDockSetting``); `left` when unset.
     public var chiefDockEdge = ChiefDockSetting.edgeDefault
-    /// `home.chiefDock.openBeside`: a link clicked in the Chief opens its workspace with the Chief floating over it; on when unset.
+    /// `home.chiefDock.openBeside`: a link clicked in the Chief opens its workspace with the Chief floating over it; off when unset (cmux#45889).
     public var chiefDockOpenBeside = ChiefDockSetting.openBesideDefault
     /// `home.chiefPanel.style`: how the floating Chief looks (``ChiefDockSetting``); `composeBar` when unset.
     public var chiefPanelStyle = ChiefDockSetting.styleDefault
@@ -94,6 +94,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var machineJoin = CmuxConfigSnapshot.machineJoinDefault
     /// `labs.liveCode`: a live code build applies Swift patches from ~/Library/Caches/cmux-next/live-code (read at launch); off when unset.
     public var liveCode = CmuxConfigSnapshot.liveCodeDefault
+    /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
+    public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -186,6 +188,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var inactiveWindowDim = 0.0
     /// `appearance.wallpaperTint`: on unless set to false.
     public var wallpaperTint = WallpaperTintSetting.fallback
+    /// `appearance.liveWallpaperFrameRate`: a live wallpaper's frame cap, 15, 30 (the default) or 60.
+    public var liveWallpaperFrameRate = 30
     /// `appearance.surfaces.<surface>.color|opacity` (R55); no override
     /// (every surface shows the window's backdrop) when unset or invalid.
     public var surfaceBackgrounds = SurfaceBackgrounds.none
@@ -374,6 +378,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
         snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
         snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)
+        snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
@@ -414,6 +419,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.inactiveWindowDim = WindowBackgroundSetting.parseInactiveDim(root, diagnostics: &snapshot.diagnostics)
         snapshot.wallpaperTint = WallpaperTintSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.liveWallpaperFrameRate = LiveWallpaperFrameRateSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }

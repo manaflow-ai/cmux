@@ -536,6 +536,14 @@ pub extern "C" fn cmux_wallpaper_gpu_strikes(strikes: u32, gpu_ms: f32) -> u32 {
     cmux_wallpaper::gpu_strikes(strikes, gpu_ms)
 }
 
+/// The floats in the Frame uniform (`cmux_wallpaper_frame_pack` writes this
+/// many, `CMUX_WALLPAPER_FRAME_FLOATS`): the host sizes its buffer from this,
+/// never from a number of its own, so a Frame that grows cannot overrun it.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_wallpaper_frame_floats() -> usize {
+    FRAME_FLOATS
+}
+
 /// Writes the `CMUX_WALLPAPER_FRAME_FLOATS` floats (4 bytes each) of the
 /// Frame uniform for `input` to `out`. False, and nothing written, when
 /// either is null.

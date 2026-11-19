@@ -191,6 +191,12 @@ export interface Env {
   readonly PAIR_BEGIN_LIMIT?: RateLimit
   /** Where provider redirects land (the dashboard's /integrations/callback). */
   readonly DASHBOARD_ORIGIN?: string
+  /**
+   * The console that finishes integration connects, when it is not DASHBOARD_ORIGIN: development has no hosted
+   * console, so its connects come back to the staging console, which finishes them on this Worker
+   * (dashboard lib/integration-callback.ts). Pairing and SSO keep DASHBOARD_ORIGIN.
+   */
+  readonly INTEGRATIONS_CALLBACK_ORIGIN?: string
   /** Secret: 32-byte base64 key that wraps credential data keys. Integrations refuse to connect without it. */
   readonly INTEGRATIONS_KEK?: string
   /**

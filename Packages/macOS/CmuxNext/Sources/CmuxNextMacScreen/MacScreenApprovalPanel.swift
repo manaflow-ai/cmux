@@ -6,9 +6,9 @@ import CmuxNextWakeups
 public import Observation
 
 /// The host's approval prompt for a device hub request (permission Ask):
-/// the viewer device's name and key fingerprint and the scope it asks for,
-/// with Deny, Allow Once, Always Allow View Only and Always Allow Full
-/// Control. A floating, non-activating panel at the top right of the main
+/// who asks and what it could do, with Allow (remembered for that Mac: the
+/// hub's Always at the scope asked for), Allow Only This Time and Not Now,
+/// and the asking device's key to compare. A floating, non-activating panel at the top right of the main
 /// screen: it shows over every app (full-screen ones too) and never takes
 /// the keyboard or the frontmost app from the person. One request at a
 /// time, in arrival order; a request the hub ends (revoked, timed out)
@@ -83,9 +83,10 @@ public final class MacScreenApprovalPrompt {
         present(next != nil)
     }
 
-    /// One of the prompt's buttons.
-    public func answer(_ choice: MacScreenApprovalChoice) {
-        guard let request = current, let hub = hub(), !answering else { return }
+    /// One of the prompt's buttons, for the request it was drawn for: an answer that lands after the
+    /// next request took its place answers nothing (`requestID` names the request on the card).
+    public func answer(_ choice: MacScreenApprovalChoice, for requestID: String? = nil) {
+        guard let request = current, requestID == nil || requestID == request.id, let hub = hub(), !answering else { return }
         answering = true
         let (decision, scope, thenPermission) = choice.answer(requested: request.scope)
         // task-owner: one decision for the request on screen; the next request shows when it settles
@@ -166,25 +167,28 @@ public final class MacScreenApprovalPrompt {
         panel.dialogView?.setButtonsEnabled(!shown.answering)
     }
 
-    /// The prompt as a cmux dialog: who asks and for what, the asking device's key fingerprint to compare, a failed
-    /// answer, and the four answers stacked the card's width (``CmuxDialogSpec/Layout/stacked``): Allow Once first,
-    /// the two Always Allow choices under it, and Deny last as quiet red text (Escape). SECURITY: the three Allows
-    /// are person-only (no key, no keycap): only the person's own click answers them (``MacScreenApprovalPanel``).
+    /// The prompt as a cmux dialog. Leo, 2026-11-16: "super ugly", and "i dont want to have to click share this
+    /// mac allow every single time". So: who asks and what it can do, in plain words, and what Allow keeps; the
+    /// asking device's key to compare; a failed answer; then three answers stacked the card's width
+    /// (``CmuxDialogSpec/Layout/stacked``): Allow first, which remembers this Mac (the hub's Always at the scope
+    /// asked for), Allow Only This Time under it, and Not Now last as quiet text (Escape). The card has no Details
+    /// disclosure, so Allow Only This Time is a further stacked button. SECURITY: both Allows are person-only (no
+    /// key, no keycap): only the person's own click answers them (``MacScreenApprovalPanel``).
     static func spec(_ request: SessionRequest, error: String?) -> CmuxDialogSpec {
-        let title = String(format: request.scope == .full
-            ? L.t("macScreen.approval.titleFull", "%@ wants to control this Mac")
-            : L.t("macScreen.approval.titleView", "%@ wants to see this Mac"), request.viewerName)
+        let words = MacScreenApprovalWords(request)
         let fields: [CmuxDialogField] = request.viewerKeyFingerprint.map {
-            [.code(label: L.t("macScreen.approval.fingerprint", "Device key fingerprint"), text: fingerprintLines($0))]
+            [.code(label: MacScreenApprovalWords.deviceKey, text: fingerprintLines($0))]
         } ?? []
-        func button(_ choice: MacScreenApprovalChoice, _ role: CmuxDialogButton.Role) -> CmuxDialogButton {
-            CmuxDialogButton(id: choice.rawValue, title: choice.title, role: role, personOnly: choice != .deny)
+        func button(_ choice: MacScreenApprovalChoice, _ title: String, _ role: CmuxDialogButton.Role) -> CmuxDialogButton {
+            CmuxDialogButton(id: choice.rawValue, title: title, role: role, personOnly: choice != .deny)
         }
         return CmuxDialogSpec(
-            title: title,
-            lines: [String(format: L.t("macScreen.approval.scope", "Asks for %@."), request.scope.title)],
+            title: words.title,
+            lines: [words.body, words.remembers],
             fields: fields,
-            buttons: [button(.once, .default), button(.alwaysView, .normal), button(.alwaysFull, .normal), button(.deny, .cancel)],
+            buttons: [button(words.allowChoice, MacScreenApprovalWords.allow, .default),
+                      button(.once, MacScreenApprovalWords.onlyThisTime, .normal),
+                      button(.deny, MacScreenApprovalWords.notNow, .cancel)],
             identifier: "macScreen.approval", layout: .stacked, error: error)
     }
 
@@ -228,4 +232,34 @@ final class MacScreenApprovalPanel: CmuxFloatingDialogPanel {
         guard let control, let choice = allows.first(where: { card?.buttonView($0.rawValue) === control }) else { return }
         prompt?.answerChoice(choice)
     }
+}
+
+/// The approval prompt's words for one request, plain: who asks, what it can do, and what Allow
+/// keeps (the app's card and cmux Remote's banner say the same).
+nonisolated struct MacScreenApprovalWords: Equatable {
+    let title: String
+    let body: String
+    let remembers: String
+    /// Allow: the hub's Always at the scope asked for, so the next request of this Mac is not asked.
+    let allowChoice: MacScreenApprovalChoice
+    /// The asking device's key, grouped to compare (nil when the hub sent none).
+    let key: String?
+
+    init(_ request: SessionRequest) {
+        let full = request.scope == .full
+        title = String(format: full ? L.t("macScreen.approval.titleFull", "%@ wants to control this Mac")
+            : L.t("macScreen.approval.titleView", "%@ wants to see this Mac"), request.viewerName)
+        body = full ? L.t("macScreen.approval.bodyFull", "It can see your screen and use your mouse and keyboard.")
+            : L.t("macScreen.approval.bodyView", "It can see your screen but can’t control it.")
+        remembers = String(format: full
+            ? L.t("macScreen.approval.remembersFull", "Allow lets %@ control this Mac from now on. Change it in Devices.")
+            : L.t("macScreen.approval.remembersView", "Allow lets %@ see this Mac from now on. Change it in Devices."), request.viewerName)
+        allowChoice = full ? .alwaysFull : .alwaysView
+        key = request.viewerKeyFingerprint.map(DeviceIdentity.displayFingerprint)
+    }
+
+    static var allow: String { L.t("macScreen.approval.allow", "Allow") }
+    static var notNow: String { L.t("macScreen.approval.notNow", "Not Now") }
+    static var deviceKey: String { L.t("macScreen.approval.deviceKey", "Device key") }
+    static var onlyThisTime: String { L.t("macScreen.approval.onlyThisTime", "Allow Only This Time") }
 }
