@@ -248,3 +248,10 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
 success-output = "final"
+
+# The fleet-only VideoToolbox loss-recovery bench (cmux-encode/tests/encode.rs) prints the IDR and
+# first-loss-byte rows of the forced-IDR and acknowledged-LTR profiles; a step shows them only when
+# a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-encode::encode) & test(videotoolbox_loss_recovery_bench_idr_vs_ltr)'
+success-output = "final"

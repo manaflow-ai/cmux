@@ -56,6 +56,10 @@ pub struct SessionCfg {
     /// After injected input, frames skip the frame-rate cap for a short window
     /// (`--input-frame-now 1`; the engine's `input_frame_now`).
     pub input_frame_now: bool,
+    /// Offer LTR recovery (`--ltr 1`, default off): on a VideoToolbox host, a viewer that
+    /// negotiates it gets a refresh P-frame from a reference it acknowledged after a loss,
+    /// instead of a keyframe (reference frame invalidation).
+    pub ltr: bool,
     /// macOS: stream at most this many pixels wide (`--max-width`; the display's aspect is
     /// kept). Encode time grows with the pixel count (remote-desktop-mac-host.md section 6).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
@@ -266,6 +270,7 @@ impl MediaSession {
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
                 input_frame_now: cfg.input_frame_now,
+                ltr_enabled: negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::LTR),
                 ..EngineConfig::default()
             },
             now_us(),
@@ -509,6 +514,7 @@ impl MediaSession {
             access_unit: frame.access_unit,
             idr: frame.idr,
             t_capture_us: frame.t_capture_us,
+            ltr_token: frame.ltr_token,
         };
         let out =
             self.engine.encoded(&req, Some(encoded), now_us()).map_err(|e| format!("{e:?}"))?;
@@ -889,6 +895,7 @@ mod encode_off_loop_tests {
             upstream_record_max_bytes: 0,
             frames_in_flight: 2,
             input_frame_now: false,
+            ltr: false,
             max_width: None,
             capture: crate::capture_backend::CaptureBackend::default(),
         }

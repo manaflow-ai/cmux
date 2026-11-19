@@ -159,6 +159,7 @@ fn outage_with_queue(unstarted: usize) -> Outage {
         upstream_record_max_bytes: 0,
         frames_in_flight: 3,
         input_frame_now: false,
+        ltr: false,
         max_width: None,
         capture: crate::capture_backend::CaptureBackend::default(),
     };

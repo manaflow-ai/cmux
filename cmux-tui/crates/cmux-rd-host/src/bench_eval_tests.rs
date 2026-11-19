@@ -87,6 +87,7 @@ fn deliver_frame(viewer: &mut Viewer) {
     let body = FrameBody {
         t_capture_us: RELEASE_US,
         ref_frame: REF_NONE,
+        ltr_token: None,
         access_unit: ACCESS_UNIT.to_vec(),
     };
     let packets = Packetizer::new(0, 256)

@@ -14,6 +14,7 @@ fn frames(p: &mut Packetizer, frame: u32, len: usize, parity: usize) -> Vec<Vec<
     let body = FrameBody {
         t_capture_us: u64::from(frame),
         ref_frame: REF_NONE,
+        ltr_token: None,
         access_unit: vec![frame as u8; len],
     };
     p.packetize(frame, 0, &body, parity).expect("packetize").datagrams

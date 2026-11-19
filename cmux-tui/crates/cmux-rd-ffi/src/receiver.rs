@@ -66,6 +66,9 @@ pub struct Receiver {
     reassembler: Reassembler,
     deframer: StreamDeframer,
     ready: VecDeque<CompleteFrame>,
+    acknowledged_ltr_tokens: VecDeque<u64>,
+    inflight_ltr_token: Option<u64>,
+    inflight_keyframe: bool,
     messages: VecDeque<Message>,
     message_bytes: usize,
     arrivals: VecDeque<Arrival>,
@@ -104,6 +107,9 @@ impl Receiver {
             reassembler: Reassembler::new(deadline_us),
             deframer: StreamDeframer::default(),
             ready: VecDeque::new(),
+            acknowledged_ltr_tokens: VecDeque::new(),
+            inflight_ltr_token: None,
+            inflight_keyframe: false,
             messages: VecDeque::new(),
             message_bytes: 0,
             arrivals: VecDeque::new(),
@@ -167,7 +173,10 @@ impl Receiver {
 
     /// The oldest frame ready to decode.
     pub fn pop_frame(&mut self) -> Option<CompleteFrame> {
-        self.ready.pop_front()
+        let frame = self.ready.pop_front()?;
+        self.inflight_ltr_token = frame.body.ltr_token;
+        self.inflight_keyframe = frame.flags & flags::KEYFRAME != 0;
+        Some(frame)
     }
 
     /// Frames ready to decode.
@@ -184,6 +193,18 @@ impl Receiver {
 
     /// Records one decode time for the feedback median.
     pub fn note_decode(&mut self, decode_us: u32) {
+        if self.inflight_keyframe {
+            self.acknowledged_ltr_tokens.clear();
+        }
+        if let Some(token) = self.inflight_ltr_token.take()
+            && !self.acknowledged_ltr_tokens.contains(&token)
+        {
+            self.acknowledged_ltr_tokens.push_back(token);
+            while self.acknowledged_ltr_tokens.len() > 16 {
+                self.acknowledged_ltr_tokens.pop_front();
+            }
+        }
+        self.inflight_keyframe = false;
         if self.decode_us.len() >= DECODE_SAMPLES {
             self.decode_us.pop_front();
         }
@@ -194,6 +215,9 @@ impl Receiver {
     /// request rides every feedback until a keyframe is released.
     pub fn request_keyframe(&mut self) {
         self.keyframe_requested = true;
+        self.inflight_ltr_token = None;
+        self.inflight_keyframe = false;
+        self.acknowledged_ltr_tokens.clear();
     }
 
     /// Whether the next feedback asks the host to recover.
@@ -265,7 +289,12 @@ impl Receiver {
         let fb = if overflow {
             // Arrivals beyond one message go out first, without the rest.
             Feedback {
-                acked_frame: self.reassembler.last_released(),
+                acked_frame: if self.keyframe_requested {
+                    0
+                } else {
+                    self.reassembler.last_released()
+                },
+                acked_ltr_tokens: self.acknowledged_ltr_tokens(),
                 arrivals,
                 ..Feedback::default()
             }
@@ -273,14 +302,23 @@ impl Receiver {
             self.last_feedback_us = Some(now_us);
             self.released_since_feedback = false;
             Feedback {
-                acked_frame: self.reassembler.last_released(),
+                acked_frame: if self.keyframe_requested {
+                    0
+                } else {
+                    self.reassembler.last_released()
+                },
                 decode_us: self.median_decode_us(),
                 need_recovery: self.need_recovery(),
+                acked_ltr_tokens: self.acknowledged_ltr_tokens(),
                 arrivals,
                 nacks: self.nacks(now_us),
             }
         };
         Some(self.frame_datagram(&fb.encode()))
+    }
+
+    fn acknowledged_ltr_tokens(&self) -> Vec<u64> {
+        self.acknowledged_ltr_tokens.iter().copied().collect()
     }
 
     fn median_decode_us(&self) -> u32 {

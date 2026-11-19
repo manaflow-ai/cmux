@@ -12,6 +12,7 @@ fn body(frame: u32, len: usize, keyframe: bool) -> FrameBody {
     FrameBody {
         t_capture_us: u64::from(frame) * 16_667,
         ref_frame: if keyframe { REF_NONE } else { frame - 1 },
+        ltr_token: None,
         access_unit: (0..len).map(|i| (i as u32 ^ frame) as u8).collect(),
     }
 }
