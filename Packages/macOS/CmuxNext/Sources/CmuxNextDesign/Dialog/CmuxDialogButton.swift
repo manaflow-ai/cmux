@@ -19,12 +19,19 @@ public nonisolated struct CmuxDialogButton: Equatable, Sendable {
     public var role: Role
     /// A lowercase character pressed with Command ("d" for Don't Save).
     public var key: Character?
+    /// SECURITY: only the person's own click answers it (a consent's Allow, ``CmuxDialogPersonClick``): no key
+    /// presses it, so it shows no keycap, and its host ignores the button's action and reads the click itself.
+    public var personOnly: Bool
+    /// False draws it dimmed and nothing presses it, no click and no key (Confirm before the machine's words show).
+    public var isEnabled: Bool
 
-    public init(id: String, title: String, role: Role = .normal, key: Character? = nil) {
+    public init(id: String, title: String, role: Role = .normal, key: Character? = nil, personOnly: Bool = false, isEnabled: Bool = true) {
         self.id = id
         self.title = title
         self.role = role
         self.key = key
+        self.personOnly = personOnly
+        self.isEnabled = isEnabled
     }
 
     public static func ok(_ title: String = CmuxDialogStrings.ok) -> CmuxDialogButton {

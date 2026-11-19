@@ -483,12 +483,11 @@ struct ScreenSwitchFollowUpTests {
         let layout = Layout([a, b], focused: "a-p1")
         defer { layout.tearDown() }
         let shown = try layout.view("a")
-        // A split on the shown screen, mid-spring.
-        layout.model.apply(screens: [Self.screen("a", .splits(.split("a1", axis: .horizontal, ratio: 0.5, a: .leaf("a-p1"),
-                                                                     b: .split("a2", axis: .horizontal, ratio: 0.5, a: .leaf("a-p2"), b: .leaf("a-p3"))))), b])
+        // Another ratio for the shown screen's split (the same two panes): its panes and its divider spring. One frame in.
+        layout.model.apply(screens: [Self.screen("a", Self.pair("a").settingRatio(0.3, for: "a1")), b])
         layout.root.syncWithModel()
         _ = layout.root.advanceFrame(1.0 / 120)
-        try #require(shown.hasMotion, "the split on the shown screen did not spring")
+        try #require(shown.hasMotion, "the ratio change on the shown screen did not spring")
 
         layout.root.showScreen(nil)
         let allHidden = layout.root.screenViews.values.allSatisfy { $0.isHidden }

@@ -81,6 +81,22 @@ public struct ClassicFolderItemsMove: Sendable {
         return log(StateFolderMove.move(old: old, new: support.computerUseRuntime(bundleID: bundleID)), old: old)
     }
 
+    /// Moves the bundle's Computer Use helper copies (`next-<scope>`, `next-v2-<scope>`) from classic's
+    /// `cmux/cmux-cua/helper` to `cmux-next/cmux-cua/helper`, once each, with no link left: an older build
+    /// refuses a staging folder behind a link and would never stage again, while with none it stages a new
+    /// copy. Classic's own copies and other scopes' stay.
+    @discardableResult
+    public func moveComputerUseCopies(bundleID: String) -> [StateFolderMove.Outcome] {
+        let support = NextSupport(applicationSupport: applicationSupport)
+        let scope = NextSupport.computerUseScope(bundleID)
+        return ["next-\(scope)", "next-v2-\(scope)"].map { name in
+            let old = applicationSupport.appending(path: "cmux/cmux-cua/helper/\(name)", directoryHint: .isDirectory)
+            guard Self.isFolder(old) else { return .nothing }
+            let new = support.folder.appending(path: "cmux-cua/helper/\(name)", directoryHint: .isDirectory)
+            return log(StateFolderMove.move(old: old, new: new, link: false), old: old)
+        }
+    }
+
     private static func isFolder(_ url: URL) -> Bool {
         var info = stat()
         return lstat(url.path, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR

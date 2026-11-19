@@ -134,6 +134,7 @@ impl ResourceOperation {
                 | Self::CloudOwnerHandoffs
                 | Self::CloudOwnerHarnessLoginCopy
                 | Self::CloudOwnerGithubApp
+                | Self::CloudOwnerGithubRepos
                 | Self::CloudMachineChatAccess
                 | Self::CloudOwnerTurns
                 | Self::RoomList
