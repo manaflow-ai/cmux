@@ -7,6 +7,7 @@
 //!   {"session":"<hub session id>","peer_key":"<viewer session key, 64 hex>",
 //!    "viewer":{"user":"..","install":".."},"scope":"view"|"control",
 //!    "stun":["host:port",..],"display":"main","max_fps":60,"max_width":null,
+//!    "window":null (or a window id from the `windows` line: share that one window),
 //!    "capture":"x11"|"portal" (Linux, optional)}
 //! On Linux the display is the session's X display (`--display`, else `$DISPLAY`, else
 //! `:0`; `--xauthority` or `XAUTHORITY` for its cookie) and the capture backend is
@@ -68,6 +69,9 @@ struct Setup {
     max_fps: Option<u32>,
     #[serde(default)]
     max_width: Option<u32>,
+    /// Share this one window (an id from the `windows` app line) instead of a display.
+    #[serde(default)]
+    window: Option<u32>,
     /// This side reaches the viewer through TURN alone.
     #[serde(default)]
     relay_only: bool,
@@ -144,17 +148,31 @@ fn linux_displays(capture: CaptureBackend, display: &str, pick: Option<&str>) ->
                 let root = &x11rb::connection::Connection::setup(&conn).roots[screen];
                 let size = (u32::from(root.width_in_pixels), u32::from(root.height_in_pixels));
                 let monitors = crate::x11_view::monitors(&conn, root.root, size);
-                crate::x11_view::listing(size, &monitors).iter().map(|r| (r.w, r.h)).collect()
+                let sizes =
+                    crate::x11_view::listing(size, &monitors).iter().map(|r| (r.w, r.h)).collect();
+                // The windows the viewer may share one of (the setup line's `window`).
+                let windows = crate::x11_window::list(&conn, root.root, size)
+                    .into_iter()
+                    .map(|w| cmux_rd_proto::app_line::LineWindow {
+                        id: w.id,
+                        title: w.title,
+                        width: w.rect.w,
+                        height: w.rect.h,
+                    })
+                    .collect();
+                (sizes, windows)
             }),
-        CaptureBackend::Portal => capture.available().map(|()| Vec::new()),
+        // The portal shares what the person picks in its own dialog.
+        CaptureBackend::Portal => capture.available().map(|()| (Vec::new(), Vec::new())),
     };
     match listed {
-        Ok(sizes) => {
+        Ok((sizes, windows)) => {
             // The viewer's pick is current when it is on the list (else the share refuses it).
             let current =
                 pick.and_then(|w| w.trim().parse::<usize>().ok()).filter(|&i| i < sizes.len());
             AppLine {
                 displays: Some(sizes),
+                windows: Some(windows),
                 current: Some(current.unwrap_or(0)),
                 ..AppLine::default()
             }
@@ -498,6 +516,7 @@ fn serve_session(
     let cfg = SessionCfg {
         display,
         display_pick: setup.display.clone(),
+        window: setup.window,
         max_fps,
         start_kbps,
         max_kbps,

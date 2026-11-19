@@ -145,6 +145,7 @@ fn outage_with_queue(unstarted: usize) -> Outage {
     let cfg = SessionCfg {
         display: String::new(),
         display_pick: None,
+        window: None,
         max_fps: 60,
         start_kbps: 2_000,
         max_kbps: 4_000,
