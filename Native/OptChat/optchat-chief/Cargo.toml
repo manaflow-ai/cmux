@@ -66,8 +66,13 @@ cmux-unix-socket = { path = "../../../cmux-tui/crates/cmux-unix-socket" }
 # The settings file's path and JSONC dialect (src/agent_memory/settings.rs),
 # the daemon's own reader.
 cmux-config = { path = "../../../cmux-tui/crates/cmux-config" }
+# The panic log the cmux-next app sends to Sentry under the telemetry choice
+# (`<optchat root>/panics.jsonl`, RustPanicSource.chief).
+cmux-panic-log = { path = "../../../cmux-tui/crates/cmux-panic-log" }
 # The MCP hub (src/mcp_hub): URL, command and OAuth rules, tool screening.
 cmux-mcp-connect = { path = "../../../cmux-tui/crates/cmux-mcp-connect" }
+# Image downscales in linear light (model copies, link preview pictures).
+cmux-image-linear = { path = "../../../cmux-tui/crates/cmux-image-linear" }
 
 [features]
 # Only the tests' in-process fake acpmux daemons: a socket peer that is this
@@ -86,6 +91,10 @@ regex = "1"
 [profile.release]
 lto = "fat"
 codegen-units = 1
+# Size over the last bit of speed (CMUX-570, bundle size): -23% of the stripped binary against
+# opt-level 3; the store bench (optchat-host tests/bench.rs, 100k messages) appends at 0.430 ms p50
+# against 0.398 ms. "z" was -31% for +31% append time. Nothing in Chief runs per frame.
+opt-level = "s"
 
 # optchat-wasm's release build for the hosted placement (experiments/chief-optmem/
 # scripts/build-optchat-wasm.sh: --profile wasm-release): the settings it had as

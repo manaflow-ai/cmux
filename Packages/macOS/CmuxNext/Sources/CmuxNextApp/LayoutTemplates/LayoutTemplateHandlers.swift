@@ -52,7 +52,7 @@ enum LayoutTemplateHandlers {
         let requested = invocation["template"]?.stringValue ?? ""
         let row = invocation.target.flatMap { $0.kind == .workspace ? services.workspace(id: $0.id) : nil }
         let daemon = row.flatMap { services.machines.daemon(forWorkspace: $0.id) } ?? services.activeDaemon
-        let target = windows.targetWindow(preferring: row.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id)
+        let target = windows.targetWindow(preferring: row.flatMap { windows.actingWindow(for: $0.id) } ?? context.activeWindow?.state.id)
         services.registry.track(Task { @MainActor in
             await library.load()
             guard let template = library.template(named: requested) else {

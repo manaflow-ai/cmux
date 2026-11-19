@@ -145,6 +145,12 @@ nonisolated public final class ChromeTextLayer: CALayer {
         }
     }
 
+    /// ``ProcessFontSmoothing/chrome`` changed: the glyphs show the new smoothing's image, kept or
+    /// drawn (``ChromeTextRefresh``). Its stem weight names the smoothing, so this is a color check.
+    func smoothingDidChange() {
+        applyColor()
+    }
+
     private func invalidate() {
         cachedLine = nil
         redraw()

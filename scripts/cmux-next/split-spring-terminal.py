@@ -57,6 +57,11 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=memory-agents" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory-agents-cron.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=memory-agents"])
+# `--suite=renderer-rest`: each Chromium renderer's footprint, pages and V8 heap every 5 s while the empty app rests,
+# then after a GC and a memory-pressure purge (scripts/cmux-next/renderer-rest.py, CMUX-571 ram-baseline).
+if "--suite=renderer-rest" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "renderer-rest.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=renderer-rest"])
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
@@ -79,6 +84,11 @@ if "--suite=command-pan" in sys.argv:
 if "--suite=open-panel" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "open-panel-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=open-panel"])
+# `--suite=overlay-open`: icon picker and group editor opens, warm, cold and after a sign of intent, and their memory
+# (scripts/cmux-next/overlay-open-bench.py).
+if "--suite=overlay-open" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overlay-open-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=overlay-open"])
 # `--suite=first-click`: one click on native controls acts while a Chromium page holds the key (first-click-live.py).
 if "--suite=first-click" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-click-live.py")
@@ -99,6 +109,12 @@ if "--suite=split-scale" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-scale-bench.py")
     os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=split-scale"])
+# `--suite=sidebar-stress`: sidebar scroll, switch, theme switch during a scroll and custom sidebar sections at 20 and
+# 500 workspaces (scripts/cmux-next/sidebar-stress-profiles.py, which runs sidebar-stress-bench.py per profile).
+if "--suite=sidebar-stress" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-stress-profiles.py")
+    os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=sidebar-stress"])
 # `--suite=hover-instant`: a sidebar row's hover card, pointer arrival to card, at 10 and 200 workspaces
 # (scripts/cmux-next/hover-instant-bench.py; the sidebar-hover-instant goal).
 if "--suite=hover-instant" in sys.argv:
@@ -240,6 +256,29 @@ if "--suite=idle-budget" in sys.argv:
 if "--suite=script-storm" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "script-storm-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=script-storm"])
+
+def pane_bench_report(proc, config):
+    """Passes the lane's output through and writes --json (the step's report.json artifact): one row per PANE-BENCH
+    line (action, panes, frames, p50/p95/max ms, frames over 8 ms) and each suite's lane result. Before, the pane bench
+    wrote no report, so `--artifact artifacts/split-spring/report.json` failed a step whose suites passed."""
+    rows, suites = [], {}
+    for line in proc.stdout:
+        sys.stdout.write(line)
+        if line.startswith("PANE-BENCH "):
+            row = dict(kv.split("=", 1) for kv in line.split()[1:] if "=" in kv)
+            rows.append({k: (v if k == "action" else float(v) if "." in v else int(v)) for k, v in row.items()})
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] in ("PaneMotionWorkTests", "PaneMotionBench") and parts[1] in ("passed", "failed", "skipped", "no"):
+            suites[parts[0]] = " ".join(parts[1:-1]) if parts[-1].endswith("s") else " ".join(parts[1:])
+    status = proc.wait()
+    path = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--json=")), None)
+    if path is None and "--json" in sys.argv[:-1]:
+        path = sys.argv[sys.argv.index("--json") + 1]
+    if path:
+        with open(path, "w") as f:
+            json.dump({"suite": "pane-bench", "config": config, "exit": status, "suites": suites, "rows": rows}, f, indent=1)
+    return status
+
 # `--suite=pane-bench`: the layout's own pane motion benches, no app window (PaneMotionBench: frame time of
 # split/close/New Column/zoom at 2, 8 and 30 panes; PaneMotionWorkTests: panes touched per frame). Run
 # yourself (perf lead, not a CI gate); --config=release|debug picks the build (default release).
@@ -247,8 +286,10 @@ if "--suite=pane-bench" in sys.argv:
     root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or "."
     config = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--config=")), "release")
     env = dict(os.environ, CMUX_PANE_BENCH="1", CMUX_SWIFT_SUITE_CONFIGURATION=config)
-    sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
-                             "PaneMotionWorkTests,PaneMotionBench"], cwd=root, env=env).returncode)
+    sys.exit(pane_bench_report(subprocess.Popen(
+        [os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
+         "PaneMotionWorkTests,PaneMotionBench"], cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, errors="replace"), config))
 # `--suite=action-budget-bench`: the per-action budget monitor's always-on cost in ns per run and per batch
 # (ActionBudgetMonitorBench, CmuxNextActionsTests), no app window; --config=release|debug (default release). Run
 # it on each macOS major (perf lead, not a CI gate) and quote its `action-budget bench:` lines.

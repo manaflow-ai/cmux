@@ -105,6 +105,10 @@ package struct HibernationPlanner {
         case agentDriving = "agent_driving"
         /// Beside a pane's shown tab, or hovered (`browser.keepNeighborTabsAwake`).
         case neighbor
+        /// The chat face of a session whose terminal face its pane draws now (Toggle Terminal and Chat): the
+        /// swap back shows it at once and never rebuilds it (Leo, 2026-11-12: two live views of one session,
+        /// instant both ways). At most one page per pane that shows such a terminal.
+        case pairedFace = "paired_face"
         /// The page did not answer the probe: kept for `PageProbeHistory.unansweredLimit`
         /// probes in a row, then until memory pressure (its form edits are unknown). A page whose
         /// last answer kept it stays for as long as it does not answer.

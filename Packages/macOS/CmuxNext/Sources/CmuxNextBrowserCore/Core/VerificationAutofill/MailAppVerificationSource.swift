@@ -5,7 +5,8 @@ public import Foundation
 /// shows macOS's "cmux wants to control Mail" prompt; nothing else needs a credential.
 ///
 /// It never launches Mail: when Mail is not running it returns no messages. It asks Mail only
-/// for inbox messages received since the wait started, at most 20, and keeps nothing. Each
+/// for inbox messages of the opted-in accounts received since the wait started, at most 20 per
+/// account, and keeps nothing. Each
 /// email's sender is the bare From address; its ``VerificationEmail/senderAuthenticated`` comes
 /// from the topmost `Authentication-Results` header (the receiving server's), aligned with the
 /// From domain. HTML link targets are not read (only links in the text body).
@@ -36,34 +37,70 @@ public nonisolated struct MailAppVerificationSource: VerificationEmailSource {
     package static let script = """
     function run(argv) {
       const since = new Date(Number(argv[0]));
+      const wanted = JSON.parse(argv[1] || '[]').map((a) => a.toLowerCase());
       const mail = Application('Mail');
       if (!mail.running()) return '[]';
-      const found = mail.inbox.messages.whose({ dateReceived: { _greaterThan: since } })();
       const out = [];
-      for (const m of found.slice(0, 20)) {
-        try {
-          out.push({ id: m.messageId(), sender: m.sender(), subject: m.subject(),
-                     content: (m.content() || '').slice(0, 20000), received: m.dateReceived().getTime(),
-                     headers: (m.allHeaders() || '').slice(0, 20000) });
-        } catch (e) {}
+      for (const account of mail.accounts()) {
+        let addresses = [];
+        try { addresses = account.emailAddresses().map((a) => String(a).toLowerCase()); } catch (e) { continue; }
+        const address = addresses.find((a) => wanted.includes(a));
+        if (!address) continue;
+        let inbox;
+        try { inbox = account.mailboxes.byName('INBOX'); inbox.name(); } catch (e) { try { inbox = account.mailboxes.byName('Inbox'); inbox.name(); } catch (e2) { continue; } }
+        const found = inbox.messages.whose({ dateReceived: { _greaterThan: since } })();
+        for (const m of found.slice(0, 20)) {
+          try {
+            out.push({ id: m.messageId(), sender: m.sender(), subject: m.subject(), account: address,
+                       content: (m.content() || '').slice(0, 20000), received: m.dateReceived().getTime(),
+                       headers: (m.allHeaders() || '').slice(0, 20000) });
+          } catch (e) {}
+        }
       }
       return JSON.stringify(out);
     }
     """
 
-    public func emails(receivedSince since: Date) async throws -> [VerificationEmail] {
+    /// Lists the addresses of Mail's accounts; reads no message.
+    package static let accountsScript = """
+    function run() {
+      const mail = Application('Mail');
+      if (!mail.running()) return '[]';
+      const out = [];
+      for (const account of mail.accounts()) {
+        try { for (const a of account.emailAddresses()) out.push(String(a).toLowerCase()); } catch (e) {}
+      }
+      return JSON.stringify(out);
+    }
+    """
+
+    public func emails(receivedSince since: Date, accounts: Set<String>) async throws -> [VerificationEmail] {
+        guard !accounts.isEmpty else { return [] }
         let milliseconds = String(Int64((since.timeIntervalSince1970 * 1000).rounded(.down)))
-        let output: String
+        let wanted = String(decoding: (try? JSONSerialization.data(withJSONObject: accounts.sorted())) ?? Data("[]".utf8), as: UTF8.self)
+        let output = try await run(["-l", "JavaScript", "-e", Self.script, milliseconds, wanted])
+        guard let rows = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [[String: Any]] else {
+            throw Failure.unreadableOutput
+        }
+        // The script already skips other accounts; this keeps that true whatever Mail answers.
+        return rows.compactMap(Self.email).filter { $0.account.map(accounts.contains) == true }
+    }
+
+    public func availableAccounts() async throws -> [String] {
+        let output = try await run(["-l", "JavaScript", "-e", Self.accountsScript])
+        guard let addresses = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String] else { throw Failure.unreadableOutput }
+        var unique: [String] = []
+        for address in addresses where !unique.contains(address) { unique.append(address) }
+        return unique
+    }
+
+    private func run(_ arguments: [String]) async throws -> String {
         do {
-            output = try await runner.run(["-l", "JavaScript", "-e", Self.script, milliseconds])
+            return try await runner.run(arguments)
         } catch let failure as VerificationScriptFailure {
             throw failure.message.contains("-1743") || failure.message.localizedCaseInsensitiveContains("not authorized")
                 ? Failure.notAuthorized : Failure.scriptFailed(failure.message)
         }
-        guard let rows = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [[String: Any]] else {
-            throw Failure.unreadableOutput
-        }
-        return rows.compactMap(Self.email)
     }
 
     private static func email(_ row: [String: Any]) -> VerificationEmail? {
@@ -75,7 +112,7 @@ public nonisolated struct MailAppVerificationSource: VerificationEmailSource {
             id: "mail:\(id)", senderAddress: address,
             senderAuthenticated: Self.authenticated(headers: headers, fromDomain: address.split(separator: "@").last.map { $0.lowercased() } ?? ""),
             subject: row["subject"] as? String ?? "", body: row["content"] as? String ?? "", links: [],
-            receivedAt: Date(timeIntervalSince1970: received / 1000)
+            receivedAt: Date(timeIntervalSince1970: received / 1000), account: row["account"] as? String
         )
     }
 

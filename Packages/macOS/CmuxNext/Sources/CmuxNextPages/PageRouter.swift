@@ -9,6 +9,9 @@ import os
 ///
 /// Rules every page gets here, so no provider repeats them:
 /// - only ops and streams the descriptor admits reach a provider; the rest is `unknown_op`;
+/// - the router's own host ops and streams run only for a page it serves them
+///   (``PageDescriptor/servesHostOps``) or whose descriptor admits them: an app page's messages
+///   all pass its admission first;
 /// - params must be an object; an `origin` or a confirmation the page sends is refused (the host
 ///   stamps `page`; only a native confirmation sheet makes a call the user's);
 /// - events of one subscription are numbered from 1; an unsubscribe or ``close()`` cancels.
@@ -48,6 +51,7 @@ public final class PageRouter {
     /// Rebinds a pooled router to a new document and ends every operation owned by the old page.
     func rebind(descriptor: PageDescriptor, routes: [PageRoute]) {
         reset()
+        heldCommand = nil  // meant for the old document
         self.descriptor = descriptor
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
     }
@@ -155,6 +159,9 @@ public final class PageRouter {
     public var contextMenu: (@MainActor ([String: Any]) async -> JSONValue)?
 
     private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
+        // Admission first: a page the router serves no host ops (an app page) reaches only what its
+        // descriptor admits, so its messages go straight to ``admit(_:params:)``.
+        guard descriptor.admitsHostOp(op) else { return try await routed(op, params: params, opid: opid) }
         if let reply = try hostCall(op, params: params) { return reply }
         if op == PageNativeOp.popupShow || op == PageNativeOp.popupUpdate || op == PageNativeOp.popupHide {
             guard !closed else { throw PageError.closed }
@@ -170,6 +177,11 @@ public final class PageRouter {
             }
             return await contextMenu?(fields) ?? .object(["picked": .null])
         }
+        return try await routed(op, params: params, opid: opid)
+    }
+
+    /// A call to the provider whose route serves `op`, once the descriptor admits it.
+    private func routed(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
         let (provider, params) = try admit(op, params: params)
         let gesture = userGestureEvent?() ?? nil
         return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id, opid: opid,
@@ -188,11 +200,12 @@ public final class PageRouter {
     }
 
     private func subscribe(_ stream: String, filter: JSONValue) async throws -> UInt64 {
-        if PageNativeOp.builtInStreams.contains(stream) {
+        if PageNativeOp.builtInStreams.contains(stream), descriptor.admitsHostOp(stream) {
             guard !closed else { throw PageError.closed }
             let sub = nextSubscription
             nextSubscription += 1
             builtIn[sub] = stream
+            if stream == PageNativeOp.pageCommand { deliverHeldCommand() }
             if stream == PageNativeOp.pageConnection {
                 // The current state, after the subscribe reply that names `sub` reaches the page.
                 let connected = connected
@@ -283,15 +296,44 @@ public final class PageRouter {
     // MARK: Built-in streams
 
     /// Sends a dispatcher command to the page's command subscribers. False when the command is
-    /// not a page command or no subscriber listens.
+    /// not a page command, or no subscriber listens and the command is not one of
+    /// ``heldUntilReady``: those (Cmd-F's `find`) wait for a page that still loads, the newest
+    /// one only, and reach it when it subscribes to its command stream (true).
     @discardableResult
-    public func publishCommand(_ command: String, arguments: [String: JSONValue] = [:]) -> Bool {
+    public func publishCommand(_ command: String, arguments: [String: JSONValue] = [:],
+                               now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
         guard descriptor.commands.contains(command) else { return false }
         var data = arguments
         data["command"] = .string(command)
         let subs = builtIn.filter { $0.value == PageNativeOp.pageCommand }.keys.sorted()
         for sub in subs { deliver(sub: sub, .object(data)) }
-        return !subs.isEmpty
+        if !subs.isEmpty { heldCommand = nil; return true }
+        // CMD-F FIRST PRESS (user 2026-11-15): the first Cmd-F after a launch or a tab switch came
+        // while the page loaded and was lost; the second worked.
+        guard Self.heldUntilReady.contains(command), !closed else { return false }
+        heldCommand = (.object(data), now)
+        return true
+    }
+
+    /// The commands a page that still loads gets once it listens (``publishCommand(_:arguments:now:)``).
+    nonisolated static let heldUntilReady: Set<String> = ["find", "focusSearch"]
+    /// How long a held command waits for its page: past it, a page that never loaded in time
+    /// (a crash, a hang) does not open Find long after the press.
+    public nonisolated static let heldCommandLifetime: TimeInterval = 10
+    /// The command waiting for the page's first command subscription, and when it was sent.
+    private var heldCommand: (data: JSONValue, sent: TimeInterval)?
+
+    /// Delivers the held command to the command subscribers after the subscribe reply reaches the page.
+    private func deliverHeldCommand() {
+        guard let held = heldCommand else { return }
+        heldCommand = nil
+        guard ProcessInfo.processInfo.systemUptime - held.sent <= Self.heldCommandLifetime else { return }
+        // task-owner: one event delivery after the reply; ends with the router
+        // main-hop-allow: the event must follow the subscribe reply that names its sub, which the bridge sends after subscribe returns (as the connection stream's first event above); one delivery of one held command
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for sub in builtIn.filter({ $0.value == PageNativeOp.pageCommand }).keys.sorted() { deliver(sub: sub, held.data) }
+        }
     }
 
     /// Sends a popup event (`{type, id?}`) to the page's popup subscribers.

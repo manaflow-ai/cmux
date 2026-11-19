@@ -7,7 +7,7 @@ Long comments moved out of `.github/workflows/nightly.yml` to keep it under GitH
 
 build-sign-notarize-nightly, the notarize step's timeout:
 
-Main and RC wait at most 40m (usually a few minutes). Published nightly-next waits 20m: an Accepted build is stapled and published by this run, and one still in Apple's queue is handed to a later nightly-next run through the recovery artifact below, which publishes the newest Accepted build. Nightly-next runs one at a time, so a longer wait held every newer build behind one stalled submission (submission 5912557e stayed In Progress for over 90m on 2026-10-14). The helper submitted before Codesign apps finishes first: at most 15m more in Apple's queue plus 20m of Gatekeeper propagation polling (notarize-computer-use-helper.sh), so the step budget covers both waits and the DMG's pending state is always written before a timeout. A helper Apple still holds after 15m is not a failure: the DMG ticket covers it, and that is checked (cx-urd.68), and a slow DMG is handed off. Outside notary tests, the DMG that ships is a second DMG built around the app stapled from the first ticket, with its own submission and the same wait (CMUX_STAPLE_APP_IN_DMG); a slow second DMG is handed off the same way (the next run continues the accepted first one).
+Main and RC wait at most 40m (usually a few minutes). Published nightly-next waits 20m: an Accepted build is stapled and published by this run, and one still in Apple's queue is handed to a later nightly-next run through the recovery artifact below, which publishes the newest Accepted build. Nightly-next runs one at a time, so a longer wait held every newer build behind one stalled submission (submission 5912557e stayed In Progress for over 90m on 2026-10-14). The step budget is far above the wait, so the DMG's pending state is always written before a timeout, and a slow DMG is handed off. Outside notary tests, the DMG that ships is a second DMG built around the app stapled from the first ticket, with its own submission and the same wait (CMUX_STAPLE_APP_IN_DMG); a slow second DMG is handed off the same way (the next run continues the accepted first one).
 
 ## note-2
 
@@ -25,7 +25,7 @@ The nightly-next track writes only its own bucket prefix with its own scoped tok
 
 build-sign-notarize-nightly, the job's timeout:
 
-Start the standalone Computer Use helper submission before Codesign apps so Apple's first wait overlaps useful work; finish it before the final DMG. The job budget covers both waits (see the notarize step). Sparkle delta generation runs after the full publication in a separate best-effort lane, so it cannot delay the first update users can install. A cx-f58x notary test waits up to 160 minutes for Apple (52c6c12d took over 90) because it has no recovery hand-off.
+Sparkle delta generation runs after the full publication in a separate best-effort lane, so it cannot delay the first update users can install. A cx-f58x notary test waits up to 160 minutes for Apple (52c6c12d took over 90) because it has no recovery hand-off.
 
 ## note-5
 
@@ -181,3 +181,25 @@ The nightly-next loop's retry (Leo, 2026-11-06: one nightly at a time, the newes
 keep-published-dsyms:
 
 A published nightly-next build's dSYMs, kept on R2. Nothing needs it and it continues on error, so it never delays a publication. The dSYMs come from the run that compiled the published binary (its build number is that run's id and attempt). A rerun repairs a missing object; an existing one (exit 75 from --write-once) counts as kept. A loop run keeps it in the run that published, as the GitHub release; a sign run (the record's sign_stage) leaves it to its tail run, so the sign group frees once the feed and the GitHub release are written: in sign run 43282010692 it held the group 6.3 min past the release, 4.3 of them waiting for the whole signing Mac. The release stays in the sign run: the next decide reads its body and tag (published_sha, the span of that build's notes and PR comments). It takes the trusted signing runner (the whole Mac, after the signing is done), never GitHub-hosted Ubuntu, whose queue (39 min for the oldest job on 2026-11-08) held the next push run for as long.
+
+## note-26
+
+nightly-next-one, Ask main's nightly-next tick at notarization (and the job's actions: write):
+
+The next run sets up while this one notarizes and publishes. Push runs 43634178843, 43642011551 and 43644053566 waited 19.6-26.8 min from landing to run created while the previous nightly-next-one held nightly-next-one-push, then 4.7 min more after it ended (21:38:45 to 21:43:25) for wake-nightly-next-tick, the tick, the promotion, runner-preflight, decide and resolve-nightly-cmux-tui-client. This step asks main's tick right before the notarize step. Main's rolling rule (nightly_next_rolling.FINISH_STEPS, finishing) counts a run from this step on as finishing while it is the only open loop run, and promotes ONE run: its set-up runs now, and its nightly-next-one waits pending on nightly-next-one-push until this job ends. Once that run is open the holder holds again, so no second promotion replaces the pending job (nothing is cancelled), and the feed watch's starvation guard still counts this run as building (run_holds_group is unchanged). wake-nightly-next-tick still asks at the end, for a landing that came later.
+
+github.token, as wake-nightly-next-tick's (the release App holds no actions permission), so the job needs actions: write. The ask never waits through a rate limit (GH_BUDGET_WAIT_MAX_SECONDS 0, `timeout 60`) and continues on error: a missed ask costs at most the tick's 5-minute cron, never the notarization.
+
+The post-feed uploads (variant artifacts, DMG digests, SSH daemon assets, source archive, dSYMs) and the cleanup (Rust target bound, helper stop, keychain, wipe) stay in this job: the next nightly-next-one reuses this kept workspace (final-dmg/, tested/, remote-daemon-assets/, build-universal's dSYMs), this Mac's build.keychain and its Rust target dirs, so a job after the slot would upload, delete or prune what the next build writes, and on the same whole-Mac claim it would only queue behind it. tests/test_nightly_next_push_slot_at_build.py.
+
+## note-27
+
+dispatch-nightly-next-sign:
+
+The push run's half of the nightly-next pipeline (decide's pipeline): once the unsigned app and what the resume restores beside it are uploaded, ask for this build's sign run. It is the unsigned resume of this run (resume-unsigned-nightly.py, which reads this live run only as a sign stage) in the sign group, so this run and the push group end here and the next build starts while this one signs. GitHub keeps one pending run in the sign group and replaces it with a newer dispatch: nothing started is cancelled, and a build that waited behind a newer one is never signed. A dispatch refused for the API rate limit waits for the reset and tries again (gh_budget_wait.sh; a refused request did nothing, so this never starts two runs): run 42726398544's dispatch failed on "API rate limit exceeded for installation" and nothing published for two hours. Any other failure fails this job, retry-nightly-next retries the build and report-nightly-failure lists it.
+
+## note-28
+
+sentry-dsyms-nightly:
+
+nightly-next's dSYMs to Sentry, off the build's path (Sentry held it 10.8 and 19.7 min in runs 41471126151, 41466468306). Nothing needs it; it continues on error. It runs with the rest of the tail (run_tail: on nightly-next the dispatched tail run), outside the push group: in the loop run it held the push group until its hosted queue (39 min for the oldest job on 2026-11-08) and its upload were done, and in a pipelined push run (decide's pipeline) it held the group after dispatch-nightly-next-sign. It stays on GitHub-hosted Ubuntu (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS): the Sentry token keeps it off the nightly mini's shared light runners, and on the trusted signing runner its 11-20 min upload would hold the whole Mac while the next run builds and signs there. The dSYMs come from the run that compiled the published binary, as keep-published-dsyms finds them.

@@ -20,6 +20,8 @@ public final class RemoteDesktopPaneView: NSView {
     /// The connecting reason the card shows (``RemoteViewStatus/connectingReason``).
     private var shownReason: String?
     private var isHovering = false
+    /// One cursor: the overlay and the local pointer's shape (cap `cursor`).
+    private(set) lazy var cursor = RemoteCursorCoordinator(video: video, capture: capture)
 
     static let toolbarInset: CGFloat = 8
 
@@ -37,6 +39,7 @@ public final class RemoteDesktopPaneView: NSView {
         card.isHidden = true
         upstreamIndicator.isHidden = true
         capture.geometry = { [weak self] in self?.video.geometry }
+        _ = cursor
         setAccessibilityRole(.group)
     }
 
@@ -51,7 +54,7 @@ public final class RemoteDesktopPaneView: NSView {
         self.settings = settings
         capture.controller.settings = settings
         capture.controlMode = state.effectiveMode == .control
-        video.showsRemoteCursor = state.effectiveMode == .view
+        cursor.update()
         toolbar.update(state: state, settings: settings, colors: colors)
         banner.isHidden = !state.showsLatencyBanner
         if state.showsLatencyBanner { banner.update(state: state, colors: colors) }
@@ -118,7 +121,7 @@ public final class RemoteDesktopPaneView: NSView {
         // A transparent toolbar must not take clicks meant for the host, but it is never hidden:
         // a hidden view leaves the Accessibility tree, and VoiceOver could not reach Take over.
         // A faded toolbar's controls refuse focus; one that holds it (a Take over click) hands it to the capture view.
-        if !visible, toolbar.holdsFocus { window?.makeFirstResponder(capture) }
+        if !visible, toolbar.holdsFocus { FocusRoute(.system, "the remote desktop toolbar hid").moveKeyboard(in: window, to: capture) }
         toolbar.isRevealed = visible
         guard toolbar.alphaValue != target else { return }
         guard animated else {
@@ -134,6 +137,7 @@ public final class RemoteDesktopPaneView: NSView {
         super.layout()
         video.frame = bounds
         capture.frame = bounds
+        cursor.update()
         let inset = Self.toolbarInset
         let toolbarWidth = min(toolbar.fittingWidth, bounds.width - inset * 2)
         toolbar.frame = CGRect(

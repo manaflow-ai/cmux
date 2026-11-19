@@ -262,7 +262,7 @@ struct WorkspaceHoverCardContent: Equatable {
             // that is not connected says how, in its color, under it.
             let tone = connectionTone(remote.status)
             facts.append(Fact(icon: hostIcon(remote), text: remote.kind == .cloud ? Strings.hoverCloud : remote.name,
-                              mark: remote.kind == .cloud ? nil : "globe", kind: "machine",
+                              mark: remote.kind == .cloud ? nil : Self.machineSymbol(remote) ?? "globe", kind: "machine",
                               accessory: .dot(tone), machine: remote.name))
             if let word = connectionWord(remote.status) {
                 facts.append(Fact(icon: .statusDisconnected, text: word, kind: "machineStatus", ink: tone))
@@ -499,6 +499,13 @@ struct WorkspaceHoverCardContent: Equatable {
         case .conflict, .draft: .attention
         case .closed: .tertiary
         }
+    }
+
+    /// The SF Symbol a machine's header draws when it has one (its own icon, else the device kind its daemon
+    /// reported; `MachineRegistry.withMachineIcons`), so the card's machine line matches the sidebar header.
+    private static func machineSymbol(_ machine: SidebarMachine) -> String? {
+        if case .symbol(let name, _)? = machine.icon { return name }
+        return nil
     }
 
     /// The title's existing kind glyph; the remote identity row uses a globe.

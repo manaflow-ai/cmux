@@ -35,6 +35,7 @@ import type { SendGesture } from "./heldPrompt";
 import { canResumeFromComposer } from "./composer/resumeControl";
 import { useTranscriptReadOnly } from "./conversation/readOnly";
 import { useTurnHandover } from "./composer/turnHandover";
+import { glideComposerFromHeld } from "./composer/composerHandover";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
@@ -188,6 +189,7 @@ import {
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS } from "./composerModel";
 import { attachmentViewMenu } from "./composer/attachmentViewMenu";
+import { focusRoute } from "../../ui/focusRoute";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -297,6 +299,10 @@ type Props = {
   /// (`projectDraft`) moves `snapshot`'s cwd but not the tab's until the chat starts, so the
   /// header's PR belongs to another folder then.
   headerCwd?: string;
+  /// The queue as acpmux has it, every entry the moment it comes. `snapshot.queue` is the queue as
+  /// drawn (queuedMessages.ts `useShownQueue`), which keeps a short-lived entry out of sight; the
+  /// turn's handover reads this one, so Stop holds across a prompt that ran at once. Unset: `snapshot.queue`.
+  turnQueue?: AcpmuxSnapshot["queue"];
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
@@ -461,8 +467,6 @@ type Props = {
   offloadReasons?: OffloadReasons;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
-  /// The folder menu's quiet line while a new chat has no folder (ComposerContext `folderNote`).
-  folderNote?: string;
   /// A new chat's Run as rows in the environment picker (Persistent or Sandboxed, hq#3367).
   runMode?: RunModeRows;
   /// This Mac's name for the location row.
@@ -530,6 +534,7 @@ function ComposerFrame({
   snapshot,
   guestHarnesses,
   headerCwd,
+  turnQueue,
   chips: Chips,
   onSend,
   onBindSendGesture,
@@ -585,7 +590,6 @@ function ComposerFrame({
   offloads,
   offloadReasons,
   onRefreshMachines,
-  folderNote,
   runMode,
   localName,
   environments,
@@ -638,6 +642,9 @@ function ComposerFrame({
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
+  // A chat New Tab just started: the box glides down from New Tab's place instead of jumping
+  // (composer/composerHandover.ts).
+  useLayoutEffect(() => glideComposerFromHeld(form.current), []);
   const importInput = useRef<HTMLInputElement>(null);
   // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
   // arrive in the same render; preferring the host value keeps it visible through initialization.
@@ -673,6 +680,10 @@ function ComposerFrame({
     },
     [prompt],
   );
+  // Focus leaving the queued prompts goes back to the prompt. One function for the composer's life:
+  // ComposerFrame renders on every key (its text is its state), and the queue is memoised, so a new
+  // function here drew the queue and laid out its rows on each key.
+  const leaveQueue = useCallback(() => field.current?.focus(), []);
   // The editor can stay mounted while a turn streams. Keep the callbacks it calls stable so the
   // memoized Milkdown field does not reconcile for every inbound snapshot; the refs are refreshed
   // below after the current render has computed the live steer/queue behavior.
@@ -889,7 +900,8 @@ function ComposerFrame({
   useLayoutEffect(() => {
     if (refocusField.current && !snapshot.isWorking) {
       refocusField.current = false;
-      if (!document.activeElement || document.activeElement === document.body) field.current?.focus();
+      if (!document.activeElement || document.activeElement === document.body)
+        focusRoute(field.current, "system", "the turn ended: the composer");
     }
     if (!refocusSend.current) return;
     const focused = document.activeElement;
@@ -1251,7 +1263,7 @@ function ComposerFrame({
       // caret after the text as it was (pages/shared/webSwap.ts).
       if (takeWebSwapFocus("composer"))
         requestAnimationFrame(() => {
-          field.current?.focus();
+          focusRoute(field.current, "system", "the composer mounted");
           field.current?.setCaret(Number.MAX_SAFE_INTEGER);
         });
     });
@@ -2194,7 +2206,11 @@ function ComposerFrame({
     snapshot.rows.some((row) => row.queued !== undefined);
   // A turn that ended with a queued prompt acpmux runs next keeps Stop until that turn starts, so
   // the slot never flickers between two turns (composer/turnHandover.ts).
-  const handingOver = useTurnHandover(snapshot.isWorking, snapshot.queue, snapshot.summary?.queuePaused === true);
+  const handingOver = useTurnHandover(
+    snapshot.isWorking,
+    turnQueue ?? snapshot.queue,
+    snapshot.summary?.queuePaused === true,
+  );
   const stop = !shell && (snapshot.isWorking || holding || handingOver) && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
   const running = !shell && (snapshot.isWorking || holding || handingOver);
@@ -2511,7 +2527,6 @@ function ComposerFrame({
       {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
       {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
-      {...(folderNote ? { folderNote } : {})}
       {...(runMode ? { runMode } : {})}
       environments={environments}
       {...(onComputer ? { onComputer } : {})}
@@ -2528,6 +2543,7 @@ function ComposerFrame({
       route={route}
       onNewChat={onNewChat}
       closeOnTrustAsk={closeOnTrustAsk}
+      cloudStartOut={cloudStarting}
     />
   ) : keepLocationSlot ? (
     <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
@@ -2686,6 +2702,45 @@ function ComposerFrame({
     ) : (
       sendOrStop
     );
+  // The + menu's rows, the same array until what they list changes. ComposerFrame is left
+  // uncompiled by the React Compiler, so an inline array was new on each keystroke and drew the menu again.
+  const plusCanCapture = Boolean(capture && allowImages);
+  const plusCanRecord = Boolean(capture && canRecord);
+  const plusCanChooseProject = locationVisible && Boolean(projectChoices || onBrowseProject);
+  const plusPlanId = planChoice && plan ? plan.id : undefined;
+  const plusPlanName = planChoice?.name;
+  const plusSearchesFiles = Boolean(searchFiles);
+  const plusEntries = useMemo(
+    () =>
+      composerPlusRegistry({
+        commands,
+        recentCommands: recentCommands(recentCommandNames, commands),
+        translate: t,
+        extensions: plusExtensions,
+        canCapture: plusCanCapture,
+        canRecord: plusCanRecord,
+        canChooseProject: plusCanChooseProject,
+        ...(plusPlanId !== undefined && plusPlanName !== undefined
+          ? { planMode: { id: plusPlanId, name: plusPlanName, description: t("picker.planHint") } }
+          : {}),
+      }).filter((entry) => {
+        if (entry.id === "files.search") return plusSearchesFiles;
+        if (entry.id === "add.commands") return Boolean(commands?.length);
+        return true;
+      }),
+    [
+      commands,
+      recentCommandNames,
+      t,
+      plusExtensions,
+      plusCanCapture,
+      plusCanRecord,
+      plusCanChooseProject,
+      plusPlanId,
+      plusPlanName,
+      plusSearchesFiles,
+    ],
+  );
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
   return (
@@ -2760,7 +2815,7 @@ function ComposerFrame({
         onSideChat={onQueueSideChat}
         readImage={queueImage}
         commands={commands}
-        onLeave={() => field.current?.focus()}
+        onLeave={leaveQueue}
       />
       {context}
       {dropHost && (
@@ -2957,22 +3012,7 @@ function ComposerFrame({
             ) : (
               <ComposerPlusMenu
                 planning={planning}
-                entries={composerPlusRegistry({
-                  commands,
-                  recentCommands: recentCommands(recentCommandNames, commands),
-                  translate: t,
-                  extensions: plusExtensions,
-                  canCapture: Boolean(capture && allowImages),
-                  canRecord: Boolean(capture && canRecord),
-                  canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
-                  ...(planChoice && plan
-                    ? { planMode: { id: plan.id, name: planChoice.name, description: t("picker.planHint") } }
-                    : {}),
-                }).filter((entry) => {
-                  if (entry.id === "files.search") return Boolean(searchFiles);
-                  if (entry.id === "add.commands") return Boolean(commands?.length);
-                  return true;
-                })}
+                entries={plusEntries}
                 onCommand={(action, modeId) => {
                   if (action === "composer.attachFiles") chooser.current?.click();
                   else if (CAPTURE_MODES[action]) {

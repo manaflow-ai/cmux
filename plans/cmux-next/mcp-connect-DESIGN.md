@@ -274,7 +274,7 @@ Status (a974, 2026-11-03):
 | Step | State |
 |---|---|
 | 1. Doc + `cmux-mcp-connect` core (resolve, URL/command rules, pin, screen, classify, PKCE, discovery, redact) with 34 tests | built; fleet-tested |
-| 2a. acpmux `mcp_connect_request` / `mcp_connect_answer` (person only), `connect_mcp_server` tool on `cmux-secrets` (listed only with `CMUX_MCP_CONNECT_PREVIEW=1` until 2b-ii lands, since an approved server is not yet kept or proxied), 5 integration tests | built |
+| 2a. acpmux `mcp_connect_request` / `mcp_connect_answer` (person only), `connect_mcp_server` tool on `cmux-secrets` (listed by default since 2026-11-18: an approved server is kept in the machine's store with its scope and owner, and every chat uses it through `mcp_servers`, docs/chief-mcp-hub.md 2h), 5 integration tests | built |
 | 2b-i. First connect after approval (`hub/mcp_probe.rs`, `cmux-mcp-connect::wire`): `initialize` + `tools/list` over Streamable HTTP (JSON or event stream, session id kept, redirects off, size and page caps); the tools go to the card and the agent screened and classed, without the server's text; a 401 answers `signInNeeded` with the RFC 9728 metadata URL and scopes; a key comes only with the person's answer and goes only into its header. Live-checked against Context7 (2 read tools) and Linear (401 + metadata), recorded as fixtures | built |
 | 2b-ii. Connection store, Keychain item with an acpmux-only access list, OAuth run (loopback listener, DCR, token exchange), `acpmux mcp-proxy`, tool pin and policy at call time, audit records | next |
 | 3a. Swift card (model, flow, key that never prints, six styles), Debug > MCP Connect Card Playground, flow tests | built |

@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextControl
 import CmuxNextCrashReporting
 import Foundation
 
