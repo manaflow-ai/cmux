@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextSettings
 public import Foundation
 
 /// The kinds the new tab page offers in its Terminal | Browser | Agent switch.
@@ -132,6 +133,13 @@ extension AgentPaneNewTab {
         var page = self
         page.clock = clock
         return page
+    }
+
+    /// The page with the clock `setting` asks for (`tabs.newTabClock.*`); nil (off, the default) draws none.
+    public func showingClock(_ setting: NewTabClockSetting?) -> AgentPaneNewTab {
+        showingClock(setting.map {
+            AgentPaneNewTabClock(font: $0.font.rawValue, weight: $0.weight.rawValue, color: $0.color.rawValue, date: $0.date)
+        })
     }
 
     /// The page with the open tabs and other workspaces of `lists` in its bar; nil keeps the page's own. A page
