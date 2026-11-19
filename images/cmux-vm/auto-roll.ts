@@ -214,8 +214,8 @@ export function withFallback(images: BootImage[], env: Env, fallback = fallbackI
 /**
  * The approved entry for a baked candidate: production first, staging last (its order is append-only).
  *
- * The entry's large image is listed only in LARGE_ENVS, and only on the entry that environment boots: the older
- * entries lose theirs, so the list carries at most one (each is about 106 bytes of a 5,120 byte binding). It is never
+ * The entry's large image is listed only in LARGE_ENVS. Older entries keep theirs while the list fits (each is about
+ * 106 bytes of a 5,120 byte binding) and lose them first when it does not. It is never
  * a gate: when the list would not fit with it, the entry is listed without it and creates grow as before. `large`
  * says whether it was listed.
  */
@@ -225,18 +225,23 @@ export function approve(text: string, entry: BootImage): { text: string; previou
   if (prod.some((i) => i.id === entry.id) || staging.some((i) => i.id === entry.id)) throw new Error(`${entry.id} is already approved`);
   const fallback = fallbackImage();
   const { large, ...plain } = entry;
-  const lists = (withLarge: boolean) => {
+  const lists = (withLarge: boolean, keepOlder: boolean) => {
     const listed = (env: Env): BootImage => ({ ...(withLarge && LARGE_ENVS.includes(env) ? entry : plain), services: [...SERVICES[env]] });
-    const older = (env: Env, images: BootImage[]) => (LARGE_ENVS.includes(env) ? images.map(({ large: _dropped, ...i }) => i) : images);
+    const older = (env: Env, images: BootImage[]) => (LARGE_ENVS.includes(env) && !keepOlder ? images.map(({ large: _dropped, ...i }) => i) : images);
     return {
       production: withFallback(trimAuto([listed("production"), ...older("production", prod)], true), "production", fallback),
       staging: withFallback(trimAuto([...older("staging", staging), listed("staging")], false), "staging", fallback),
     };
   };
   const fits = (images: BootImage[]) => Buffer.byteLength(JSON.stringify(images), "utf8") <= MAX_BYTES;
-  const wanted = lists(large !== undefined);
-  const listLarge = large !== undefined && LARGE_ENVS.every((env) => fits(wanted[env]));
-  const next = listLarge ? wanted : lists(false);
+  // An entry that stays listed keeps its large image while the list fits: a create journaled on it and retried after
+  // this roll's deploy must find the same snapshot (the Worker refuses to boot another one). The older ones go first
+  // when the list is too long, then this entry's.
+  const wants = large !== undefined;
+  const tries = [lists(wants, true), lists(wants, false), lists(false, false)];
+  const at = tries.findIndex((t) => LARGE_ENVS.every((env) => fits(t[env])));
+  const next = tries[at < 0 ? 2 : at]!;
+  const listLarge = wants && at >= 0 && at < 2;
   let out = replaceList(text, "production", next.production);
   out = replaceList(out, "staging", next.staging);
   return { text: out, previousFirst: prod[0]?.id ?? "", large: listLarge };

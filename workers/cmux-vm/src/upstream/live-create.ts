@@ -204,9 +204,12 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
         Effect.flatMap(decode), Effect.flatMap(checkedSent),
       )).pipe(
         // A rejection counts only once the exact slug also answers 404: a 409 may mean the slug already exists.
-        Effect.catchAll((error) => timedPhase(phases, "recoverAfterMs", recover).pipe(Effect.flatMap((found) => {
+        // A failed create that recovered no VM, the read after it failing too, forgets the image's verdict: the next
+        // create with this image asks the provider for it again before it sends anything.
+        Effect.catchAll((error) => timedPhase(phases, "recoverAfterMs", recover).pipe(
+          Effect.tapError(() => Effect.sync(() => { if (imageId !== null) verifiedImages.delete(imageId); })),
+          Effect.flatMap((found) => {
           if (Option.isSome(found)) return Effect.sync(() => { if (phases !== undefined) phases["recovered"] = true; return found.value; });
-          // The create failed and made nothing: the next create with this image asks the provider for it again first.
           if (imageId !== null) verifiedImages.delete(imageId);
           return definitelyRejected(error.status) ? journal.rejected(token).pipe(Effect.zipRight(Effect.fail(error))) : Effect.fail(error);
         }))),
