@@ -62,6 +62,11 @@ nonisolated final class MacScreenRdProcess: Sendable {
         /// The Screen Sharing helper's pid, while it serves (``SignedHelperLaunch`` reaps it).
         var helperPID: pid_t?
         var stdin: FileHandle?
+        /// A spawned helper's stdout and stderr pipes, kept for this object's life. A `Process`
+        /// keeps its own pipes; a spawned helper has nothing else holding them, and a released
+        /// `Pipe` closes its read end under its readabilityHandler: the helper's lines then went
+        /// nowhere and no end of file came, so the session never sent its answer (cmuxterm-hq#13721).
+        var pipes: [Pipe] = []
         var stderrTail = Data()
     }
 
@@ -91,7 +96,8 @@ nonisolated final class MacScreenRdProcess: Sendable {
     }
 
     /// Starts a process `spawn` launches on these stdin, stdout and stderr pipes (the Screen
-    /// Sharing helper; tests pass a shell) and reads it like ``start(_:)``.
+    /// Sharing helper; tests pass a shell) and reads it like ``start(_:)``. The pipes stay with
+    /// this object, so its readers outlive the caller's scope.
     func startSpawned(_ spawn: (_ stdin: Pipe, _ stdout: Pipe, _ stderr: Pipe) throws -> pid_t) throws -> pid_t {
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         try follow(stdout: stdout, stderr: stderr)
@@ -105,6 +111,7 @@ nonisolated final class MacScreenRdProcess: Sendable {
         state.withLock { state in
             state.helperPID = pid
             state.stdin = stdin.fileHandleForWriting
+            state.pipes = [stdout, stderr]
         }
         return pid
     }
@@ -137,11 +144,13 @@ nonisolated final class MacScreenRdProcess: Sendable {
         // The Rust line reader (cmux_rd_line_reader_*): one per process, used only on the pipe's queue.
         guard let reader = RemoteRdLineReader() else { throw CocoaError(.fileReadUnknown) }
         let lines = MacScreenRdLineSink(reader: reader)
+        let logger = logger
         stdout.fileHandleForReading.readabilityHandler = { handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
             let data = handle.blockingAvailableData()
             guard !data.isEmpty else {
                 handle.readabilityHandler = nil
+                logger.info("cmux rd: stdout ended")
                 continuation.finish()
                 return
             }
@@ -150,7 +159,6 @@ nonisolated final class MacScreenRdProcess: Sendable {
                 continuation.yield(line)
             }
         }
-        let logger = logger
         stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
             let data = handle.blockingAvailableData()
