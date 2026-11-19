@@ -20,6 +20,9 @@ struct CmuxRemoteSharingSetupTests {
         var screenRequests = 0
         var controlRequests = 0
         var enables = 0
+        /// `macScreen.shareWithoutAsking`, and how often the guide wrote it.
+        var consent = false
+        var remembers = 0
 
         init(permissions: (Bool, Bool), answers: [String]) {
             self.permissions = permissions
@@ -37,6 +40,11 @@ struct CmuxRemoteSharingSetupTests {
             setup.requestScreen = { [weak self] in self?.screenRequests += 1 }
             setup.requestControl = { [weak self] in self?.controlRequests += 1 }
             setup.enable = { [weak self] in self?.enables += 1 }
+            setup.consented = { [weak self] in self?.consent ?? false }
+            setup.rememberConsent = { [weak self] in
+                self?.remembers += 1
+                self?.consent = true
+            }
             return setup
         }
 
@@ -362,6 +370,56 @@ struct CmuxRemoteSharingSetupTests {
         #expect(fixture.enables == 1)
         #expect(fixture.presented.isEmpty)
         #expect(fixture.screenRequests == 0 && fixture.controlRequests == 0)
+    }
+
+    /// Leo, 2026-11-19: "The permissions, just removing them, getting rid of the ceremony". After the
+    /// person's one yes, the owner's CLI or agent turns sharing on with no sheet at all (no window needed).
+    @Test func ownerRequestAfterTheOneYesSharesWithNoSheet() async throws {
+        let fixture = Fixture(permissions: (true, false), answers: [])
+        fixture.consent = true
+        let setup = fixture.setup()
+
+        let shared = try await setup.ownerRequest(in: nil)
+        #expect(shared)
+        #expect(fixture.enables == 1)
+        #expect(fixture.presented.isEmpty)
+        #expect(fixture.remembers == 0)
+    }
+
+    /// Without the person's yes an owner request never turns sharing on by itself: it needs the guide.
+    @Test func ownerRequestWithoutTheYesNeverSharesOnItsOwn() async throws {
+        let fixture = Fixture(permissions: (true, true), answers: [])
+        let setup = fixture.setup()
+
+        let shared = try await setup.ownerRequest(in: nil)
+        #expect(!shared)
+        #expect(fixture.enables == 0)
+    }
+
+    /// The yes does not stand in for macOS's Screen Recording grant.
+    @Test func ownerRequestAfterTheYesStillNeedsScreenRecording() async throws {
+        let fixture = Fixture(permissions: (false, true), answers: [])
+        fixture.consent = true
+        let setup = fixture.setup()
+
+        let shared = try await setup.ownerRequest(in: nil)
+        #expect(!shared)
+        #expect(fixture.enables == 0)
+    }
+
+    /// Finishing the guide is the one yes, kept; declining it keeps nothing.
+    @Test func finishingTheGuideRemembersTheYesOnceAndDecliningDoesNot() async throws {
+        let declined = Fixture(permissions: (true, true), answers: [])
+        let notShared = try await declined.setup().proceed(after: "cancel", present: declined.present)
+        #expect(!notShared)
+        #expect(declined.remembers == 0)
+
+        let fixture = Fixture(permissions: (true, true), answers: [])
+        let setup = fixture.setup()
+        #expect(try await setup.proceed(after: "continue", present: fixture.present))
+        #expect(try await setup.proceed(after: "continue", present: fixture.present))
+        #expect(fixture.remembers == 1)
+        #expect(fixture.consent)
     }
 
     @Test func eachGuideStepHasAStableIdentifierAndCancel() {

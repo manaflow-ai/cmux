@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+public import CmuxNextSettings
 
 /// A window-scoped permission guide for the process that actually captures the screen: this app.
 /// The same guide serves the visible Share action and the CLI's person-confirmed share request.
@@ -10,8 +11,11 @@ struct CmuxRemoteSharingSetup {
     var requestScreen: () -> Void
     var requestControl: () -> Void
     var enable: () async throws -> Void
+    /// Whether the person has said yes to Share This Mac on this Mac (`macScreen.shareWithoutAsking`).
+    var consented: @MainActor () -> Bool
+    var rememberConsent: @MainActor () -> Void
 
-    init(host: MacScreenHubHost) {
+    init(host: MacScreenHubHost, consent: CmuxRemoteShareConsent = CmuxRemoteShareConsent(given: { false }, remember: {})) {
         refresh = {
             await host.share.refreshPermissions()
             return (host.share.screenRecordingGranted, host.share.accessibilityGranted)
@@ -19,10 +23,28 @@ struct CmuxRemoteSharingSetup {
         requestScreen = { host.share.requestScreenRecording() }
         requestControl = { host.share.requestAccessibility() }
         enable = { try await host.setSharing(true, requestPermissions: false) }
+        consented = consent.given
+        rememberConsent = consent.remember
     }
 
-    /// A native Share click is consent when both grants are ready. Automation still commits its
-    /// confirmation sheet on the action's own turn, regardless of the origin it claims.
+    /// `remote.confirm {action: share}` for this Mac. With the person's earlier yes and Screen
+    /// Recording granted it turns sharing on at once (Accessibility stays optional, as in the
+    /// guide); otherwise it shows the guide, whose completion is that yes.
+    func ownerRequest(in window: NSWindow?) async throws -> Bool {
+        if consented() {
+            let permissions = await refresh()
+            if permissions.screen, !Task.isCancelled {
+                try await enable()
+                return true
+            }
+        }
+        guard let window else { return false }
+        return try await confirm(in: window)
+    }
+
+    /// A native Share click is consent when both grants are ready. Automation commits its
+    /// confirmation sheet on the action's own turn, regardless of the origin it claims, unless the
+    /// person already said yes on this Mac (`ShareConsent`) and Screen Recording is granted.
     func begin(in window: NSWindow, invocation: ActionInvocation = .init()) -> ActionEffect {
         if invocation.isPersonsOwnRun && ActionRunScope.isPersonsAction() {
             return .applied(result: {
@@ -40,6 +62,12 @@ struct CmuxRemoteSharingSetup {
                     }
                     return .success(["shared": .bool(shared)])
                 } catch { return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))) }
+            })
+        }
+        if consented() {
+            return .applied(result: {
+                do { return .success(["shared": .bool(try await ownerRequest(in: window))]) }
+                catch { return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))) }
             })
         }
         let center = CmuxDialogCenter.shared
@@ -100,6 +128,8 @@ struct CmuxRemoteSharingSetup {
         }
         guard !Task.isCancelled else { return false }
         try await enable()
+        // Every path here followed the person's own answer or click: that is the one yes.
+        if !consented() { rememberConsent() }
         return true
     }
 
@@ -133,5 +163,36 @@ struct CmuxRemoteSharingSetup {
         check
             ? [.init(id: "check", title: L.t("macScreen.setup.check", "Check Again"), role: .default)]
             : [.init(id: "allow", title: L.t("macScreen.setup.allow", "Allow in macOS"), role: .default)]
+    }
+}
+
+/// The person's yes to Share This Mac, asked once per Mac and kept: the user-only setting
+/// `macScreen.shareWithoutAsking` (Leo, 2026-11-19: "The permissions, just removing them,
+/// getting rid of the ceremony"). After it, a share request from the signed-in owner's own
+/// CLI, agent or device turns sharing on with no sheet while Screen Recording is granted; who
+/// may view or control is still each device's access (`cmux remote-host access`). A fleet Mac
+/// gets it forced by its MDM profile (`com.manaflow.cmux`), so nobody there sees the sheet.
+public struct CmuxRemoteShareConsent: Sendable {
+    public var given: @MainActor @Sendable () -> Bool
+    /// Writes the setting as the person: only called after the person's own answer or click.
+    public var remember: @MainActor @Sendable () -> Void
+
+    public init(given: @escaping @MainActor @Sendable () -> Bool, remember: @escaping @MainActor @Sendable () -> Void) {
+        self.given = given
+        self.remember = remember
+    }
+}
+
+extension CmuxRemoteShareConsent {
+    /// `macScreen.shareWithoutAsking` from the app's settings: read from the snapshot (MDM forced
+    /// values included) and written as the person once they finish the Share This Mac sheet.
+    public static func setting(_ settings: @escaping @MainActor @Sendable () -> SettingsController?) -> Self {
+        Self(given: { settings()?.snapshot.macScreen.shareWithoutAsking ?? false },
+             remember: {
+                 guard let settings = settings(),
+                       let descriptor = SettingsSchema.descriptor(for: MacScreenSettings.shareWithoutAskingPath) else { return }
+                 // task-owner: one settings write after the person finished the Share This Mac sheet
+                 Task { try? await settings.setSetting(descriptor, to: .bool(true), by: .user) }
+             })
     }
 }
