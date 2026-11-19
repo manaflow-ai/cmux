@@ -6435,6 +6435,10 @@
             "string",
             "null"
           ]
+        },
+        "workingBelow": {
+          "description": "Work runs below it with no turn open: a background subagent, a harness background process,\nor a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app\nupdate that installs when idle waits for it. Absent otherwise, and from a peer on an older\nacpmux.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -7135,6 +7139,10 @@
             "string",
             "null"
           ]
+        },
+        "workingBelow": {
+          "description": "Work runs below it with no turn open: a background subagent, a harness background process,\nor a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app\nupdate that installs when idle waits for it. Absent otherwise, and from a peer on an older\nacpmux.",
+          "type": "boolean"
         }
       },
       "required": [

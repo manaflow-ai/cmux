@@ -1500,6 +1500,13 @@ export type SessionDetail = {
    * a peer on an older acpmux.
    */
   hasDraft?: boolean;
+  /**
+   * Work runs below it with no turn open: a background subagent, a harness background process,
+   * or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+   * update that installs when idle waits for it. Absent otherwise, and from a peer on an older
+   * acpmux.
+   */
+  workingBelow?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1833,6 +1840,13 @@ export type SessionSummary = {
    * a peer on an older acpmux.
    */
   hasDraft?: boolean;
+  /**
+   * Work runs below it with no turn open: a background subagent, a harness background process,
+   * or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+   * update that installs when idle waits for it. Absent otherwise, and from a peer on an older
+   * acpmux.
+   */
+  workingBelow?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
