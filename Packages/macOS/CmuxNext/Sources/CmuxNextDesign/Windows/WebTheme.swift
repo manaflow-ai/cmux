@@ -175,6 +175,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // window's own color, parted only by its line (`SidebarSurface.same`).
             "--cmux-sidebar-surface": Self.sidebarSurface(tokens, backgrounds: backgrounds, windowTint: windowTint),
             "--cmux-hover": Self.css(tokens.hoverFill),
+            // A pressed row's fill (`Palette.pressedFill`, `PopupRowView`'s press), so a web menu row
+            // pressed is the native one's.
+            "--cmux-pressed": Self.css(tokens.pressedFill),
             "--cmux-selection": Self.css(tokens.selectionFill),
             // Selected text and the caret in the Ghostty config's colors (`selection-background`,
             // with `appearance.highlightColor` over it, and `cursor-color`). Without a readable
