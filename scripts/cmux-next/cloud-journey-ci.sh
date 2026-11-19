@@ -55,6 +55,12 @@ run() { # label, extra args...
   # by the guest chat (the staging smoke uses the local model stub, never a real credential).
   if [ -n "${CMUX_PATH:-}" ]; then args+=(--cmux "$CMUX_PATH"); else args+=(--skip sync); fi
   if [ -n "${JOURNEY_MODEL:-}" ]; then args+=(--model "$JOURNEY_MODEL"); fi
+  # JOURNEY_LIVE: the live window (cloud-journey.ts --live-until), e.g. "image-roll 780": a chat kept turning until the
+  # backend's boot image changes, at most that many seconds. Unset: no live window, as before.
+  if [ -n "${JOURNEY_LIVE:-}" ]; then
+    read -r live_until live_max <<< "$JOURNEY_LIVE"
+    args+=(--live-until "$live_until" --live-max "${live_max:-780}")
+  fi
   if ! bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then
     { printf '### %s%s (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
     echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label failed once; running it again (first run's steps in the job summary)"
