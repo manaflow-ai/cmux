@@ -115,8 +115,9 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
               awake.add(s.machine)
             }
             const input = s.input_from === undefined ? null : (outputs.get(s.input_from) ?? null)
-            const r: StepOutcome = await step.do(`cmux:${s.type}-${i}`, { retries: { limit: 0, delay: 1000, backoff: "constant" }, timeout: (s.timeout_seconds + 60) * 1000 }, () =>
-              runMachineStep(machineExecFor(this.env, p.owner, p.charged_user ?? null), s, { run: p.run, index: i }, input)
+            const r: StepOutcome = await step.do(`cmux:${s.type}-${i}`, { retries: { limit: 0, delay: 1000, backoff: "constant" }, timeout: (s.timeout_seconds + 60) * 1000 }, async () =>
+              // The automation's secrets are opened here, inside the step, and go on its stdin: never in the journal.
+              runMachineStep(machineExecFor(this.env, p.owner, p.charged_user ?? null), s, { run: p.run, index: i }, input, await runSecretsFor(this.env, p.owner, p.run))
             )
             if (!r.ok) {
               const end = stepFailureReport(r)
@@ -144,6 +145,10 @@ const machineExecFor = (env: Env, team: string, user: string | null): MachineExe
   const stub = platformCloud(env.CLOUD_DO, team)
   return { exec: (machine, command, stdin, timeoutMs) => stub.automationExec(team, user, machine, command, stdin, timeoutMs) }
 }
+
+/** The opened secrets of the run's automation (SchedulerDO.runSecrets; empty when it has none or the run ended). */
+const runSecretsFor = (env: Env, team: string, run: string): Promise<Record<string, string>> =>
+  (env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(team)) as unknown as { runSecrets(entity: string, run: string): Promise<Record<string, string>> }).runSecrets(team, run)
 
 /**
  * The team's CloudDO as the machine's power switch, as the automation's creator (a person: cloud.machine.start

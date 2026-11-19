@@ -1,5 +1,6 @@
 import type { Step as StepSchema } from "@cmux/protocol"
 import { asDaemonUser, layoutSelector, shellQuote } from "./cloud-acpmux-guest.ts"
+import { SECRETS_READER, secretsLine } from "./automation-secrets-wire.ts"
 
 /**
  * Machine and agent steps of an automation run (org workflows,
@@ -41,24 +42,28 @@ export type StepOutcome =
 export const isMachineLikeStep = (s: Step): s is MachineLikeStep => s.type === "machine" || s.type === "agent"
 
 /** The guest command of step `index` of `run`: as the machine's work user, with the run, step and idempotency key. */
-export const machineStepCommand = (step: MachineLikeStep, ctx: { readonly run: string; readonly index: number }): string => {
+export const machineStepCommand = (step: MachineLikeStep, ctx: { readonly run: string; readonly index: number }, secrets = false): string => {
   const ids = `CMUX_RUN=${shellQuote(ctx.run)} CMUX_STEP=${ctx.index} CMUX_STEP_KEY=${shellQuote(`step:${ctx.run}:${ctx.index}`)}`
   // The harness is one of three literals, so it is safe in the command; the prompt never is.
-  const body = step.type === "machine" ? step.command : `p="$(cat)"; PATH="$HOME/.local/bin:$PATH" exec acpmux run -m ${step.harness} --on-permission fail --timeout ${Math.max(1, step.timeout_seconds - 10)} -- "$p"`
+  const own = step.type === "machine" ? step.command : `p="$(cat)"; PATH="$HOME/.local/bin:$PATH" exec acpmux run -m ${step.harness} --on-permission fail --timeout ${Math.max(1, step.timeout_seconds - 10)} -- "$p"`
+  // With secrets, the first stdin line carries them (automation-secrets-wire.ts); the command line never does.
+  const body = secrets ? `${SECRETS_READER}${own}` : own
   return `${layoutSelector()}; ${asDaemonUser(`${ids} bash -lc ${shellQuote(body)}`, { exec: true })}`
 }
 
 /** What the step reads on stdin: the agent prompt, then the input step's journaled output. */
-export const machineStepStdin = (step: MachineLikeStep, input: string | null): Uint8Array | null => {
+export const machineStepStdin = (step: MachineLikeStep, input: string | null, secrets?: Readonly<Record<string, string>>): Uint8Array | null => {
   const text = step.type === "agent" ? (input === null ? step.prompt : `${step.prompt}\n\nInput:\n${input}`) : input
+  if (secrets) return new TextEncoder().encode(`${secretsLine(secrets)}\n${text ?? ""}`)
   return text === null ? null : new TextEncoder().encode(text)
 }
 
 const lastLine = (s: string) => s.trimEnd().split("\n").pop()?.slice(0, 300) ?? ""
 
 /** Runs one step through the port and maps the answer to a journaled outcome. */
-export const runMachineStep = async (port: MachineExec, step: MachineLikeStep, ctx: { readonly run: string; readonly index: number }, input: string | null): Promise<StepOutcome> => {
-  const r = await port.exec(step.machine, machineStepCommand(step, ctx), machineStepStdin(step, input), step.timeout_seconds * 1000)
+export const runMachineStep = async (port: MachineExec, step: MachineLikeStep, ctx: { readonly run: string; readonly index: number }, input: string | null, secrets?: Readonly<Record<string, string>>): Promise<StepOutcome> => {
+  const some = secrets && Object.keys(secrets).length > 0 ? secrets : undefined
+  const r = await port.exec(step.machine, machineStepCommand(step, ctx, Boolean(some)), machineStepStdin(step, input, some), step.timeout_seconds * 1000)
   if (!r.ok) {
     if (r.refusal === "not_found") return { ok: false, code: "machine.not_found", message: `step ${ctx.index}: ${step.machine} is not a machine of this team` }
     if (r.refusal === "forbidden") return { ok: false, code: "machine.forbidden", message: `step ${ctx.index}: only automations of ${step.machine}'s creator may run commands on it` }
