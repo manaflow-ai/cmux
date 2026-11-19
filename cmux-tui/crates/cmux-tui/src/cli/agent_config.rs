@@ -18,6 +18,7 @@ const HELP: &str = "\
 Usage: cmux agent-config settings get --agent claude|codex [--cwd DIR] [--json]
        cmux agent-config settings set --agent claude|codex --key KEY --value VALUE [--scope SCOPE] [--cwd DIR] [--json]
        cmux agent-config settings unset --agent claude|codex --key KEY [--scope SCOPE] [--cwd DIR] [--json]
+       cmux agent-config hooks list|enable|disable|add|remove ... [--json]   (cmux agent-config hooks --help)
 
 Claude Code's and Codex's own settings, as each agent reads them.
 
@@ -74,6 +75,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         })
         .cloned()
         .collect();
+    if rest.first().is_some_and(|part| part == "hooks") {
+        return Some(run_hooks(&rest, global.output));
+    }
     if rest.is_empty() || rest.iter().any(|w| w == "--help" || w == "-h" || w == "help") {
         print!("{HELP}");
         return Some(0);
@@ -119,6 +123,25 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     })
 }
 
+/// `agent-config hooks ...`: every Claude Code and Codex hook, listed by event, turned off and on
+/// (cmux-agent-customize's hooks part, which answers its own --help).
+fn run_hooks(words: &[String], output: OutputMode) -> i32 {
+    match cmux_agent_customize::cli::run(words) {
+        Ok(value) => match output {
+            OutputMode::Human => {
+                print!("{}", cmux_agent_customize::cli::render_human(&value));
+                0
+            }
+            output => super::wire::print_local_success(&value, output),
+        },
+        Err(error) => super::wire::print_local_error(
+            &json!({ "code": "agent_config_failed", "message": format!("{error:#}") }),
+            output,
+            1,
+        ),
+    }
+}
+
 fn fail(output: OutputMode, error: SettingsError) -> i32 {
     let message = if matches!(output, OutputMode::Json | OutputMode::JsonLines) {
         error.message
@@ -133,9 +156,9 @@ fn parse(words: &[String]) -> Result<Request, String> {
     match iter.next().map(String::as_str) {
         Some("settings") => {}
         Some(other) => {
-            return Err(format!("unknown agent-config part {other:?}; the part is settings"));
+            return Err(format!("unknown agent-config part {other:?}; the parts are settings and hooks"));
         }
-        None => return Err("agent-config needs a part (settings)".to_owned()),
+        None => return Err("agent-config needs a part (settings or hooks)".to_owned()),
     }
     let verb = match iter.next().map(String::as_str) {
         Some("get") => Verb::Get,

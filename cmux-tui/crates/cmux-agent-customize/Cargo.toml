@@ -15,8 +15,13 @@ workspace = true
 cmux-config.workspace = true
 # The codex config.toml lock every cmux writer of it takes.
 cmux-tui-platform.workspace = true
+# Codex hook trust hash, state keys and cmux's own hook markers.
+cmux-tui-hooks.workspace = true
+anyhow.workspace = true
+indexmap.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
 toml_edit.workspace = true
 
 [dev-dependencies]

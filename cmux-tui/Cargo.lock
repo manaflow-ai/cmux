@@ -1279,10 +1279,14 @@ dependencies = [
 name = "cmux-agent-customize"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "cmux-config",
+ "cmux-tui-hooks",
  "cmux-tui-platform",
+ "indexmap",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "toml_edit 0.22.27",
 ]

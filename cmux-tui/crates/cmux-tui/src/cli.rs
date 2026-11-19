@@ -103,6 +103,8 @@ mod key_broker;
 mod notification_banners;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
+mod agent_config;
+#[cfg(unix)]
 mod community;
 #[cfg(unix)]
 mod customize;

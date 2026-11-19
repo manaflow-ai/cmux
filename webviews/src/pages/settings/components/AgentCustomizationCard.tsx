@@ -6,6 +6,7 @@ import { AGENT_CUSTOMIZATION_LAB } from "../agentConfig";
 import { useSettingsSelector } from "../context";
 import { valueOf } from "../store";
 import { t } from "../strings";
+import { AgentHooksSection } from "./AgentHooksSection";
 import { AgentSettingsSection } from "./AgentSettingsSection";
 
 export function AgentCustomizationCard() {
@@ -16,6 +17,7 @@ export function AgentCustomizationCard() {
       <h3 className="group-title">{t("settingsWindow.agentConfig.title")}</h3>
       <div className="row-help">{t("settingsWindow.agentConfig.help")}</div>
       <AgentSettingsSection />
+      <AgentHooksSection />
     </section>
   );
 }
