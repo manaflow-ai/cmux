@@ -70,6 +70,17 @@ class DecideTests(unittest.TestCase):
         d = cron.decide(state, at(0.4), None, None, lambda sha: ALL, None)
         self.assertEqual(d["part"], "memory-agents")
 
+    def test_a_measurement_planned_under_the_old_order_runs_memory_agents_next(self):
+        """The state of 2026-11-19 01:00Z: tip 7c697af8, its build done, memory-agents 10th in parts_todo."""
+        state = cron.empty_state(T0)
+        old = ["stress", "motion", "switch", "perf-gate", "launch", "sidebar", "workspace-scaling", "home-idle",
+               "chat-anim", "memory-agents", "throughput", "infinite-items", "web-ui-flat", "chat-disk"]
+        state["current"] = cron.new_measurement("a" * 40, "tip", old, T0)
+        state["current"]["host"] = BENCH
+        d = cron.decide(state, at(0.1), None, None, lambda sha: ALL, None)
+        self.assertEqual((d["part"], d["linux_part"]), ("memory-agents", "infinite-items"))
+        self.assertEqual(state["current"]["parts_todo"][:3], ["memory-agents", "throughput", "stress"])
+
     def test_nothing_new_runs_nothing(self):
         d = cron.decide(cron.empty_state(T0), T0, None, None, lambda sha: ALL, None)
         self.assertEqual(d["action"], "none")
@@ -2716,7 +2727,9 @@ class NoHostTipTests(OneRunRule):
     browser) were never run again, and every row went stale. A tip's Mac parts that no host takes for HOST_WAIT_HOURS
     after a give-up end as no_host; the tip finishes with what ran, and a newer tip starts."""
 
-    PARTS = ["build", "motion", "memory-agents", "web-ui-flat"]
+    PARTS = ["build", "motion", "chat-anim", "web-ui-flat"]
+    # chat-anim stands for the part the bench host never takes: it comes after motion in PARTS (memory-agents now runs
+    # right after the build, so it no longer can).
     OLD, NEW = "a" * 40, "b" * 40
 
     def stuck_tip(self):
@@ -2733,25 +2746,25 @@ class NoHostTipTests(OneRunRule):
         d = cron.decide(state, at(0.6 + cron.HOST_WAIT_HOURS), None, None, lambda sha: [], None, controller_route=True)
         self.assertEqual((d["part"], d["worker"]), ("motion", ""), "a first silence tries any idle host")
         self.assertEqual([g["host"] for g in cur["gave_up"]], [BENCH])
-        # It comes back for one part, then is reserved again with memory-agents asked.
+        # It comes back for one part, then is reserved again with chat-anim asked.
         t = at(1 + cron.HOST_WAIT_HOURS)
         cron.record_part(cur, "motion", {"state": "done", "worker": BENCH}, "r", t)
         cur["parts"]["motion"]["worker"] = cur["host"] = BENCH
         d = cron.decide(state, t, "c" * 40, None, lambda sha: [], None, controller_route=True)
-        self.assertEqual((d["part"], d["worker"]), ("memory-agents", BENCH))
+        self.assertEqual((d["part"], d["worker"]), ("chat-anim", BENCH))
         return state
 
     def test_a_stuck_tip_with_a_no_host_part_is_superseded_after_the_bound(self):
         state = self.stuck_tip()
         before = at(0.9 + 2 * cron.HOST_WAIT_HOURS)
         d = cron.decide(state, before, self.NEW, None, lambda sha: self.PARTS, None, controller_route=True)
-        self.assertEqual((d["sha"], d["part"]), (self.OLD, "memory-agents"), "within the bound it still waits")
+        self.assertEqual((d["sha"], d["part"]), (self.OLD, "chat-anim"), "within the bound it still waits")
         late = at(1.1 + 2 * cron.HOST_WAIT_HOURS)
         d = cron.decide(state, late, self.NEW, None, lambda sha: self.PARTS, None, controller_route=True)
         self.assertEqual((d["action"], d["sha"]), ("finish", self.OLD), d["reason"])
         cur = state["current"]
-        self.assertEqual(cur["parts"]["memory-agents"]["state"], "no_host")
-        self.assertIn("no measure host", cur["parts"]["memory-agents"]["reason"])
+        self.assertEqual(cur["parts"]["chat-anim"]["state"], "no_host")
+        self.assertIn("no measure host", cur["parts"]["chat-anim"]["reason"])
         self.assertNotIn("yield_since", cur, "the wait ended")
         # The parts that ran are stored as usual; the no_host part's row keeps its last value and ages honestly.
         mem, tab = f"memory.app_agents.idle_mb@{BENCH}", f"cmd_t.e2e@{BENCH}"
@@ -2761,12 +2774,12 @@ class NoHostTipTests(OneRunRule):
         self.assertEqual(event, "partial")
         self.assertEqual(state["last_good"]["rows"][mem]["p95"], 100.0, "never faked")
         self.assertIsNone(state.get("last"), "incomplete: the stale clock keeps running")
-        self.assertIn("no measure host", state["history"][-1]["failed_why"]["memory-agents"])
-        self.assertEqual(state["history"][-1]["failed_parts"], ["memory-agents", "web-ui-flat"])
+        self.assertIn("no measure host", state["history"][-1]["failed_why"]["chat-anim"])
+        self.assertEqual(state["history"][-1]["failed_parts"], ["chat-anim", "web-ui-flat"])
         # A newer tip starts, and its Linux part (failed on the old tip) runs beside its build.
         d = cron.decide(state, late, self.NEW, None, lambda sha: self.PARTS, None, controller_route=True)
         self.assertEqual((d["action"], d["sha"], d["part"], d["linux_part"]), ("part", self.NEW, "build", "web-ui-flat"))
-        self.assertEqual(state["current"]["parts_todo"], ["build", "motion", "memory-agents", "web-ui-flat"])
+        self.assertEqual(state["current"]["parts_todo"], ["build", "motion", "chat-anim", "web-ui-flat"])
 
     def test_an_unpinned_tip_no_host_takes_ends_its_mac_parts(self):
         state = cron.empty_state(T0)

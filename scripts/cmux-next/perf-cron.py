@@ -236,6 +236,7 @@ PARTS = [
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
+PART_ORDER = {p["name"]: i for i, p in enumerate(PARTS)}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
 ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
@@ -1336,6 +1337,11 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
         pin = tip_pin_host(state, t)
         if pin:
             cur["host"] = pin
+    if cur:
+        # The parts run in PARTS order, also those of a measurement planned under an older order (its state keeps
+        # parts_todo): tip 7c697af8 was planned with memory-agents 10th of 11 Mac parts. The build stays first
+        # (with_build; it is first in PARTS too), and a name PARTS no longer has keeps its place at the end.
+        cur["parts_todo"].sort(key=lambda p: PART_ORDER.get(p, len(PART_ORDER)))
     if cur and mac_disabled:
         disable_mac_parts(cur, mac_disabled)
     tree_wait = wait_for_tree(cur, t, tree_ready) if cur else ""
