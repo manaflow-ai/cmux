@@ -33,14 +33,14 @@ extension PaneCommitMotionTests {
 
     /// Puts a picture background under the panes of the window of `harness`, as the app's window has it: the window
     /// is not opaque, and a backdrop view is the lowest view of the window's content, with a picture and a tint of
-    /// 0.85 over it. `gap`: the backdrop is no still picture, for this reason (a case of `WindowPictureGap`).
+    /// 0.6 over it. `gap`: the backdrop is no still picture, for this reason (a case of `WindowPictureGap`).
     static func picture(under harness: Commit.Harness, gap: String? = nil) -> WindowMaterialView {
         harness.window.isOpaque = false
         harness.window.backgroundColor = NSColor.white.withAlphaComponent(0.001)
         let backdrop = WindowMaterialView(frame: harness.root.bounds, images: BackdropImageStore(maxPixelSize: 256), videos: BackdropVideoPlayers())
         backdrop.autoresizingMask = [.width, .height]
         harness.root.addSubview(backdrop, positioned: .below, relativeTo: nil)
-        var look = WindowBackdrop(backgroundOpacity: 0.85, backgroundBlur: 0)
+        var look = WindowBackdrop(backgroundOpacity: 0.6, backgroundBlur: 0)
         if gap == "blur" { look.artBlurRadius = 8 }
         if gap == "seeThrough" { look.artOpacity = 0.5 }
         backdrop.apply(look, tint: .black)
@@ -65,8 +65,8 @@ extension PaneCommitMotionTests {
     /// - `zoom`, `unzoom`: of the pane at the far corner, so its origin moves.
     /// - `split, held`: one pane more; each pane that gets smaller keeps its own old picture (a hold).
     /// - `second close`: a second close key 3 frames into the first one's move.
-    /// - `resize`: the first pane closes, and 1 frame into that move the first divider's ratio changes: passes with
-    ///   no act place the panes again while they move.
+    /// - `resize`: the first pane closes, and 1 frame into that move a divider's ratio changes (``resized(_:to:)``):
+    ///   passes with no act place the panes again while they move.
     nonisolated static let pictureScenes = ["close", "zoom", "unzoom", "split, held", "second close", "resize"]
     nonisolated static let pictureCounts = [2, 6, 30]
 
@@ -77,17 +77,34 @@ extension PaneCommitMotionTests {
         return .split(id, axis: axis, ratio: ratio, a: withoutFirst(a), b: b)
     }
 
-    /// `node` with `ratio` in its first split.
-    static func firstRatio(_ ratio: Double, of node: SplitNode) -> SplitNode {
+    /// `node` with `ratio` in the first split that shares its room's height, on the way to the first pane. Nil: no
+    /// split on that way does.
+    static func rowsRatio(_ ratio: Double, of node: SplitNode) -> SplitNode? {
+        guard case let .split(id, axis, old, a, b) = node else { return nil }
+        if axis == .vertical { return .split(id, axis: axis, ratio: ratio, a: a, b: b) }
+        return rowsRatio(ratio, of: a).map { .split(id, axis: axis, ratio: old, a: $0, b: b) }
+    }
+
+    /// `node` after a divider's drag to `ratio`: of the first split that shares its room's height, or with none of
+    /// the first split. A split whose room is below the least sizes of its panes shares the room by those sizes and
+    /// does not use its ratio (`SplitGeometry.firstExtent`). The test window has the room for the least heights of
+    /// the panes at each count of ``pictureCounts``; it has not the room for the least widths of 30 panes.
+    static func resized(_ node: SplitNode, to ratio: Double) -> SplitNode {
+        if let rows = rowsRatio(ratio, of: node) { return rows }
         guard case let .split(id, axis, _, a, b) = node else { return node }
         return .split(id, axis: axis, ratio: ratio, a: a, b: b)
     }
 
     /// `count` panes in halves over a window's picture at rest, then the act of `scene` (``pictureScenes``).
-    static func overPicture(_ scene: String, panes count: Int, gap: String? = nil) throws -> OverPicture {
+    /// `speed`: the motion's springs have this speed, not the app's setting. `padding`: the model has its own style
+    /// with this padding around each pane's content, and each pane's content has a header.
+    static func overPicture(_ scene: String, panes count: Int, gap: String? = nil, speed: MotionSpeed? = nil, padding: CGFloat = 0) throws -> OverPicture {
         let more = scene == "second close" || scene == "resize"
-        let harness = Commit.Harness(Commit.screen(tree(more ? count + 1 : count)), focused: "p", holds: false) { model in
+        let harness = Commit.Harness(Commit.screen(tree(more ? count + 1 : count)), focused: "p", holds: false, headed: padding > 0) { model in
             if scene != "resize" { model.splitSizingOverride = .even }
+            guard padding > 0 else { return }
+            model.followsDesignMetrics = false
+            model.baseStyle.panePadding = padding
         }
         var begun = false
         defer { if !begun { harness.window.closeAfterTest() } }
@@ -95,6 +112,7 @@ extension PaneCommitMotionTests {
         movePanes(harness)
         Commit.rest(harness)
         let screen = try #require(harness.screen)
+        screen.zoomDim.motion.speed = speed
         let rest = paneHosts(screen).filter { !$0.isHidden }
         let far = try #require(rest.max { $0.frame.minX + $0.frame.minY < $1.frame.minX + $1.frame.minY }, "SETUP: the screen shows no pane at rest")
         func show() {
@@ -145,9 +163,10 @@ extension PaneCommitMotionTests {
             harness.model.apply(screens: Commit.screen(closed))
             show()
             let was = rest.map(\.frame)
-            harness.model.apply(screens: Commit.screen(firstRatio(0.35, of: closed)))
+            harness.model.apply(screens: Commit.screen(resized(closed, to: 0.35)))
             show()
-            try #require(zip(rest, was).contains { $0.0.frame != $0.1 }, "SETUP: the resize in the move changes no pane's frame")
+            try #require(zip(rest, was).contains { $0.0.frame != $0.1 },
+                         "SETUP: the resize in the move changes no pane's frame: the split has no room for its panes' least sizes")
         default:
             try closeFocused()
         }
@@ -157,11 +176,14 @@ extension PaneCommitMotionTests {
     }
 
     /// Where `copy` on the layer of `host` shows in the window, when the moves of each act are at `part(act)` of
-    /// their way: the copy's rect in its pane's own coordinates, put where the pane's layer shows on its screen.
+    /// their way: the copy's rect in its pane's own coordinates, put where the pane's layer shows on its screen. A
+    /// copy in the layer of the pane's clip is that clip's place farther in.
     static func windowRect(of copy: CALayer, on host: PaneHostView, in screen: ScreenContentView, at part: (Int) -> CGFloat) -> CGRect? {
         guard let layer = host.layer else { return nil }
         let cell = rect(of: layer, at: part), own = origin(of: layer, at: part), inner = rect(of: copy, at: part)
-        return screen.convert(inner.offsetBy(dx: cell.minX - own.x, dy: cell.minY - own.y), to: nil)
+        let inClip: Bool = copy.superlayer != nil && copy.superlayer === host.clipView.layer
+        let clip = inClip ? host.clipView.frame.origin : .zero
+        return screen.convert(inner.offsetBy(dx: cell.minX - own.x + clip.x, dy: cell.minY - own.y + clip.y), to: nil)
     }
 
     /// Each pane that moves over a window's picture has one copy of the picture under it. At the start, at each
@@ -219,8 +241,11 @@ extension PaneCommitMotionTests {
         #expect(Self.rgba(tints.first?.backgroundColor) == Self.rgba(tint),
                 "the copy's tint is \(String(describing: Self.rgba(tints.first?.backgroundColor))); the window shows \(String(describing: Self.rgba(tint)))")
         #expect(tints.first?.frame == copy.bounds, "the tint covers \(String(describing: tints.first?.frame)) of the copy's \(copy.bounds)")
+        // The layers of a view's subviews come into the view's layer at a display, and this window has none: the
+        // row reads the copy's own place in the order, and each other layer that is there.
         let others = (host.layer?.sublayers ?? []).filter { $0 !== copy }
-        #expect(!others.isEmpty && others.allSatisfy { $0.zPosition > copy.zPosition }, "the copy is not under each other layer of its pane")
+        let lowest: Bool = host.layer?.sublayers?.first === copy
+        #expect(lowest && copy.zPosition < 0 && others.allSatisfy { $0.zPosition > copy.zPosition }, "the copy is not under each other layer of its pane")
         #expect(host.layer?.masksToBounds == true && host.layer?.backgroundColor == nil, "the pane's layer does not clip the copy, or it has a colour")
         // The system turns a layer's image itself where the geometry is flipped: the copy needs no turn of its own.
         let flips = [art, host.layer, copy].map { $0?.contentsAreFlipped() }
@@ -289,7 +314,7 @@ extension PaneCommitMotionTests {
         if change == "a new picture" {
             over.backdrop.showArt(NSImage(size: NSSize(width: 320, height: 200)))
         } else {
-            over.backdrop.apply(WindowBackdrop(backgroundOpacity: 0.6, backgroundBlur: 0), tint: .black)
+            over.backdrop.apply(WindowBackdrop(backgroundOpacity: 0.4, backgroundBlur: 0), tint: .black)
         }
         _ = over.harness.root.advanceFrame(Self.dt)
         let left = hosts.flatMap { Self.pictures(on: $0) }

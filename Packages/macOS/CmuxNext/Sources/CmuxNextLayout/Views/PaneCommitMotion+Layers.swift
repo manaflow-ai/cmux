@@ -17,20 +17,33 @@ extension PaneCommitMotion {
     }
 
     /// Adds the move of one pane's host, and its twin on the pane's copy of the window's picture: the copy is a layer
-    /// of the host, so it gets the inverse of the move of the host's origin, with the same spring in the same
-    /// transaction. The two cancel at each time, and the copy stays where the window has the picture
-    /// (`PaneCommitMotion+Sheet`). The host's size change moves its origin by nothing: `move` puts the size's part
-    /// of the anchor into the position.
+    /// of the host, or of the host's clip, which is at one place in the host. So it gets the inverse of the move of
+    /// the host's origin, with the same spring in the same transaction. The two cancel at each time, and the copy
+    /// stays where the window has the picture (`PaneCommitMotion+Sheet`). The host's size change moves its origin
+    /// by nothing: `move` puts the size's part of the anchor into the position.
     func move(_ change: Change, _ token: MotionSpring) {
         guard let layer = change.host.layer else { return }
         move(layer, token, origin: change.origin, size: change.size)
-        guard let copy = Self.picture(on: layer) else { return }
+        guard let copy = sheets.first(where: { $0.host === change.host })?.picture else { return }
         move(copy, token, origin: CGPoint(x: -change.origin.x, y: -change.origin.y), size: .zero)
+    }
+
+    /// The spring of `token` at this motion's speed: the app's setting, or ``speed``.
+    func spring(_ token: MotionSpring) -> SpringParameters {
+        var policy = Motion.panes.policy
+        if let speed { policy.speed = speed }
+        return policy.spring(token)
     }
 
     /// Adds one animation of this motion to `layer`; ``finish()`` takes it away.
     func add(_ keyPath: String, from: NSValue, to: NSValue, on layer: CALayer, _ token: MotionSpring) {
         let animation = Motion.panes.springAnimation(token, keyPath, from: from, to: to)
+        if speed != nil {
+            let spring = self.spring(token)
+            animation.stiffness = spring.stiffness
+            animation.damping = spring.damping
+            animation.duration = spring.settlingTime(within: Self.rest)
+        }
         animation.isAdditive = true
         let key = "pane.commit.\(serial).\(keyPath)"
         layer.add(animation, forKey: key)

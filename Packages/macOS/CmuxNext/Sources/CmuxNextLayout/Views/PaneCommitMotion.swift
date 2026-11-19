@@ -96,6 +96,9 @@ final class PaneCommitMotion {
     private var overtime = 0
     /// One number for each act, in the keys of its animations.
     var serial = 0
+    /// The speed of this motion's springs. Nil: the app's setting. A test reads the motion at another speed by this,
+    /// with no change of a setting of the whole process.
+    var speed: MotionSpeed?
     /// Each animation in flight.
     var moved: [(layer: CALayer, key: String)] = []
     /// The pane hosts that show ground strips, and the largest size each showed in this motion.
@@ -107,8 +110,9 @@ final class PaneCommitMotion {
     /// `zPosition` that its layer had.
     var under: [(host: PaneHostView, z: CGFloat)] = []
     /// The hosts that show the window's ground under their content in this motion, each with the colour that its
-    /// layer had, and with its copy of the window's picture when the ground is one (`PaneCommitMotion+Sheet`).
-    var sheets: [(host: PaneHostView, color: CGColor?, picture: CALayer?)] = []
+    /// layer had, with its copy of the window's picture when the ground is one, and with its plain ground when that
+    /// is a layer in the pane's card (`PaneCommitMotion+Sheet`).
+    var sheets: [(host: PaneHostView, color: CGColor?, picture: CALayer?, plain: CALayer?)] = []
     /// The window's picture that the copies show, as it was read at the motion's first act, and its screen.
     var shownPicture: WindowStillPicture?
     weak var pictured: ScreenContentView?
@@ -233,7 +237,7 @@ final class PaneCommitMotion {
             guard let new = host.layer?.frame, let old = Self.start(of: new, among: staying) else { continue }
             changes.append(Change(host: host, old: old, new: new, comes: true))
         }
-        let time = Motion.panes.spring(act.spring).settlingTime(within: Self.rest)
+        let time = spring(act.spring).settlingTime(within: Self.rest)
         // A close moves when each pane that it took out still shows on this screen: a pane that went to another screen
         // would leave the window's backdrop where its neighbours grow. A zoom moves when the panes that still show
         // are the tiled panes that it covers and no other: a floating pane that goes with the zoom goes in one frame.
