@@ -214,15 +214,6 @@ const IDLE_COST =
   "At rest the composer's render pays one null check (composerProbe.render) and nothing else runs; the frame loop, observers and listeners exist only between begin and end, or until the page's own end seconds + 2 s in.";
 
 /** The page's one drive. */
-/// Why typing stopped short, if it did: its own reason; else a person's key the next frame had not
-/// acted on yet (the person goes first); else text left when the run ended (its `seconds`, or a
-/// throttled display's slow frames) is `time_up`. A run that typed it all has none.
-function typeStopped(typing: NonNullable<Run["type"]>, run: Run): { type_stopped?: string } {
-  if (typing.stopped) return { type_stopped: typing.stopped };
-  if (typing.text.length === 0) return {};
-  return { type_stopped: run.personTypedAt !== undefined ? "person" : "time_up" };
-}
-
 export class ChatDrive {
   private run: Run | undefined;
   /// The last run's target, so `state()` still reads it after `end()` (the host releases its hover
@@ -617,7 +608,13 @@ export class ChatDrive {
       // How many were asked for: with `typed`, a caller tells a run that typed it all from one cut off.
       type_asked: typing ? typing.asked : null,
       draft_left: typing ? typing.typed.length > 0 : false,
-      ...(typing ? typeStopped(typing, run) : {}),
+      // A person's key the run ended on, before a frame's typing acted on it, is theirs all the same; other
+      // text left when the run ended (its `seconds`, a throttled display's slow frames) was cut off.
+      ...(typing?.stopped
+        ? { type_stopped: typing.stopped }
+        : typing && typing.text.length > 0
+          ? { type_stopped: run.personTypedAt !== undefined ? "person" : "time_up" }
+          : {}),
       // The hover and card as the run ended; the host's own release comes after (`state()`).
       card_open: cardOpen(run.target),
       scrolled_into_view: run.scrolledIntoView,
