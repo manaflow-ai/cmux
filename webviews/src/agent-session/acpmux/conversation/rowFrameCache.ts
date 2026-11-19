@@ -11,7 +11,6 @@ export type RowFrameInputs = {
   expanded: boolean;
   active: boolean;
   selected: boolean;
-  tabStop: boolean;
   finalFooter: boolean;
   sendThinking: boolean;
   enter: boolean;
@@ -29,7 +28,6 @@ const INPUT_KEYS = [
   "expanded",
   "active",
   "selected",
-  "tabStop",
   "finalFooter",
   "sendThinking",
   "enter",
@@ -75,7 +73,6 @@ export class RowFrameCache {
     expanded: false,
     active: false,
     selected: false,
-    tabStop: false,
     finalFooter: false,
     sendThinking: false,
     enter: false,

@@ -406,7 +406,7 @@ type RowContentProps = {
 } & RowProps;
 
 /// A row's content, drawn again only when what it draws from changes: never for its frame's place
-/// (`top`, `index`, `gapBelow`), focus (`tabStop`, `active`, `selected`) or entrance flags. A scroll
+/// (`top`, `index`, `gapBelow`), focus (`active`, `selected`) or entrance flags. A scroll
 /// moves every mounted frame each time a row above is measured or an older page lands, and the
 /// roving tab stop follows the first row in view; with the content drawn inside the frame, each such
 /// change drew every mounted row's whole content again (Leo, 2026-11-06: "Still seeing the flicker
@@ -466,7 +466,6 @@ const RowFrame = React.memo(function RowFrame({
   onOlderShown,
   active,
   selected,
-  tabStop,
   onFocus,
   onRowKeyDown,
   referenceScope,
@@ -530,7 +529,6 @@ const RowFrame = React.memo(function RowFrame({
   onOlderShown: (id: string) => void;
   active: boolean;
   selected: boolean;
-  tabStop: boolean;
   onFocus: (id: string) => void;
   onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
   /// What the child row draws from, compared instead of `children` (a new element every render).
@@ -569,7 +567,10 @@ const RowFrame = React.memo(function RowFrame({
     (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
     [index, onRowKeyDown],
   );
-  const rowTabStop = rovingTabStopProps(tabStop, handleKeyDown);
+  // Never the tab stop here: TranscriptView writes the one stop's `tabIndex` to its row's node
+  // (paintRowTabStop), and React, seeing this prop never change, leaves that write alone. As a prop,
+  // the stop moved with the view and redrew the two rows it left and reached each time.
+  const rowTabStop = rovingTabStopProps(false, handleKeyDown);
   // A frame drawn again for its place hands down the scope object it had while that names the same
   // repositories (sameRowFrame compares it so): a new object would redraw its content's chips.
   const [scope, setScope] = useState(referenceScope);
@@ -848,7 +849,6 @@ type RowFramesView = {
   onOlderShown: (id: string) => void;
   activeRowId: string | undefined;
   selectedRows: ReadonlySet<number>;
-  tabStopId: string | undefined;
   finalFooter: string | undefined;
   onFocus: (id: string) => void;
   onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
@@ -898,7 +898,6 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
       inputs.expanded = isExpanded;
       inputs.active = view.activeRowId === row.id;
       inputs.selected = view.selectedRows.has(absoluteIndex);
-      inputs.tabStop = view.tabStopId === row.id;
       inputs.finalFooter = row.id === view.finalFooter;
       inputs.sendThinking = row.kind === THINKING && row.verbKey !== undefined && view.sentPromptIds.has(row.verbKey);
       inputs.enter = entering?.has(frameId) ?? false;
@@ -956,7 +955,6 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
           onOlderShown={view.onOlderShown}
           active={inputs.active}
           selected={inputs.selected}
-          tabStop={inputs.tabStop}
           onFocus={view.onFocus}
           onRowKeyDown={view.onRowKeyDown}
           contentType={Component}
@@ -1266,10 +1264,56 @@ function restingAnchor(
   return atLatest || !row ? null : { rowId: row.id, offset: top - layoutGeometry(placed).topAt(index) };
 }
 
-/// Keeps the rows' tab stop a commit drew (TranscriptView `keptTabStop`), written here, outside the
-/// component, as the row lookups' hints are: it is a ref the component holds in state.
-function keepTabStop(kept: { current: string | undefined }, id: string | undefined) {
-  kept.current = id;
+/// The rows' one tab stop (roving tabindex) as last written (TranscriptView `rowTabStopRef`): its row and
+/// that row's node.
+type RowTabStop = { id: string | undefined; node: HTMLElement | null };
+
+/// Writes the rows' one tab stop to the row nodes in `thread`, as the soft edges are written to the
+/// scroller (paintTranscriptFades): `tabIndex` 0 on the stop's node, -1 back on the last one. Rows
+/// render -1 always, so a row drawn again leaves the stop as written. The stop is the active row while
+/// it is on screen (`shownTop` and `height`, no overscan); else the last stop while its row is; else
+/// the first row on screen (or the run in view, `first`, with none). Rendered, the stop moved with
+/// each window the view drew, and the two rows it left and reached drew again for it. Kept while
+/// merely mounted, it sat up to four viewports off screen (the warm rows, the history above a followed
+/// view), where Tab into the transcript skips it (ui/tabReach.ts keepTabOnScreen). Run after each
+/// commit, whatever rows it mounted or let go, and by each scroll frame that renders nothing
+/// (`commitScroll`). A direct scan of the rows on screen (bounded), and a lookup of the node only when
+/// the stop moves: a long transcript can commit several times a frame while the reader moves.
+function paintRowTabStop(
+  thread: HTMLElement | null,
+  kept: RowTabStop,
+  at: { layout: PlacedLayout; rows: readonly AcpmuxRow[]; shownTop: number; height: number; first: number },
+  activeRowId: string | undefined,
+) {
+  if (!thread) return;
+  const { layout, rows } = at;
+  const onScreen = visibleLayoutRange(layout, at.shownTop, at.height, 0);
+  let activeOnScreen = false;
+  let keptOnScreen = false;
+  for (let index = onScreen.first; index < onScreen.last; index += 1) {
+    const id = rows[index]?.id;
+    if (id === undefined) continue;
+    if (id === activeRowId) activeOnScreen = true;
+    if (id === kept.id) keptOnScreen = true;
+  }
+  const id = activeOnScreen ? activeRowId : keptOnScreen ? kept.id : (rows[onScreen.first]?.id ?? rows[at.first]?.id);
+  const isRow = (node: Element | null | undefined): node is HTMLElement =>
+    node instanceof HTMLElement && node.parentElement === thread && node.dataset.rowId !== undefined;
+  let node = kept.node;
+  if (!isRow(node) || node.dataset.rowId !== id) {
+    node = null;
+    for (const child of thread.children)
+      if (isRow(child) && child.dataset.rowId === id) {
+        node = child;
+        break;
+      }
+    // Never none while a row is mounted: the last stop while it is, else the first row.
+    if (!node) node = isRow(kept.node) ? kept.node : ([...thread.children].find(isRow) ?? null);
+  }
+  if (kept.node && kept.node !== node) kept.node.tabIndex = -1;
+  if (node && node.tabIndex !== 0) node.tabIndex = 0;
+  kept.node = node;
+  kept.id = node?.dataset.rowId;
 }
 
 /// What a commit drew of the offset (TranscriptView `windowKey`), as one string: whether Jump to latest
@@ -1290,6 +1334,8 @@ type ScrollWindowInputs = {
   idle: IdleTracker;
   idleMark: IdleMark["mark"];
   switched: boolean;
+  /// The active row, for the rows' tab stop (paintRowTabStop).
+  activeRowId: string | undefined;
   /// What a frame reads live: the scroller, the layout the placement pass last placed and the one it is
   /// placing, the reader's intent, the warm rows' held place and a bottom fold in flight.
   live: {
@@ -1309,7 +1355,7 @@ type ScrollWindowInputs = {
 function scrollWindowAt(
   drawn: ScrollWindowInputs | undefined,
   scroll: { top: number; delta: number },
-): { key: string; warmAt: string; fades: TranscriptFades } | undefined {
+): { key: string; warmAt: string; fades: TranscriptFades; shownTop: number; first: number } | undefined {
   if (!drawn) return undefined;
   const { layout, rows, lift, height, heldIndices, live } = drawn;
   const node = live.scroller.current;
@@ -1343,6 +1389,8 @@ function scrollWindowAt(
     key: `${behind ? 1 : 0}${upOff ? 1 : 0}|${mounted.map(({ first, last }) => `${first}:${last}`).join(",")}`,
     warmAt: lead.warmAt,
     fades: transcriptFades(top, below, following),
+    shownTop: lead.shownTop,
+    first: lead.range.first,
   };
 }
 
@@ -2032,6 +2080,9 @@ function TranscriptView({
   /// commit reads its offset again only when no frame read it against that commit (the layout effect
   /// after the placement pass).
   const scrollReadRef = useRef<{ scroll: typeof scrollRef.current; against: unknown } | undefined>(undefined);
+  /// The rows' one tab stop as last written to their nodes (paintRowTabStop): by each commit and each
+  /// scroll frame that renders nothing. No render reads it.
+  const rowTabStopRef = useRef<RowTabStop>({ id: undefined, node: null });
   /// Commits the offset in `scrollRef`. A render only when it draws another window than the last commit
   /// did; else the frame writes only what moves with every pixel (the soft edges) to the scroller. A
   /// render each scroll frame redrew the whole transcript (a 100k-row fling's long frames were mostly
@@ -2048,6 +2099,13 @@ function TranscriptView({
     }
     const node = ref.current;
     if (node) paintTranscriptFades(node, next.fades);
+    const { layout, rows, height, activeRowId } = scrollWindowRef.current!;
+    paintRowTabStop(
+      thread.current,
+      rowTabStopRef.current,
+      { layout, rows, shownTop: next.shownTop, height, first: next.first },
+      activeRowId,
+    );
     if (next.warmAt !== drawn.warmAt) {
       const scroll = scrollRef.current;
       startTransition(() => setScroll(scroll));
@@ -2089,10 +2147,6 @@ function TranscriptView({
   /// Jump to latest is shown (`behind`, below): set past JUMP_LATEST_DISTANCE, cleared only back at
   /// the latest message. Each render's answer is the next one's start (set during render).
   const [jumpShown, setJumpShown] = useState(false);
-  /// The rows' tab stop (`tabStopId`) as the last commit drew it: the next render keeps it while its row
-  /// is on screen. A ref held in state, as the row lookups' hints are: a render reads it, a commit
-  /// writes it.
-  const [keptTabStop] = useState(() => ({ current: undefined as string | undefined }));
   /// Jump up (jumpUp.ts): the reader's idle stretch and the mark it pinned (this chat's, kept across
   /// reloads), the way back a press holds (a second press or Esc returns there), and the row lookups'
   /// hints.
@@ -4776,32 +4830,17 @@ function TranscriptView({
     (index: number, event: React.KeyboardEvent<HTMLElement>) => rowKeyDownRef.current(index, event),
     [],
   );
-  // The rows' one tab stop (roving tabindex): the active row while it is on screen (`onScreen`, the
-  // rows the view shows, no overscan); else the last commit's stop while its row is, and once it is
-  // not the first row on screen. A render whose screen still holds the stop moves none and redraws no
-  // row for one. Read against the run in view (`range`), the stop moved with every scroll that moved
-  // the run, and two mounted rows drew again each time. Kept while merely mounted, it sat up to four
-  // viewports off screen (the warm rows, the history above a followed view; the active row is the first
-  // row until the reader picks one), where Tab into the transcript skips it (ui/tabReach.ts
-  // keepTabOnScreen). A scroll frame that renders nothing moves no stop.
-  // A direct scan of the rows on screen (bounded), with no slice: a long transcript can commit several
-  // times a frame while the reader moves.
-  const onScreen = visibleLayoutRange(layout, shownTop, height, 0);
-  const keptStop = keptTabStop.current;
-  let activeOnScreen = false;
-  let keptOnScreen = false;
-  for (let index = onScreen.first; index < onScreen.last; index += 1) {
-    const id = rows[index]?.id;
-    if (id === undefined) continue;
-    if (id === effectiveActiveRowId) activeOnScreen = true;
-    if (id === keptStop) keptOnScreen = true;
-  }
-  const tabStopId = activeOnScreen
-    ? effectiveActiveRowId
-    : keptOnScreen
-      ? keptStop
-      : (rows[onScreen.first]?.id ?? rows[range.first]?.id);
-  useLayoutEffect(() => keepTabStop(keptTabStop, tabStopId));
+  // The rows' one tab stop (roving tabindex), written to the row nodes after each commit, whatever rows
+  // it mounted, let go or focused (paintRowTabStop): never a row prop, so a window change redraws no
+  // row for it.
+  useLayoutEffect(() =>
+    paintRowTabStop(
+      thread.current,
+      rowTabStopRef.current,
+      { layout, rows, shownTop, height, first: range.first },
+      effectiveActiveRowId,
+    ),
+  );
   useLayoutEffect(() => {
     const spans = mountedRanges.map(({ first, last }): MountedSpan => [
       layout.geometry.topAt(first),
@@ -7212,6 +7251,7 @@ function TranscriptView({
     idle,
     idleMark: idleNow.mark,
     switched: sessionSwitched,
+    activeRowId: effectiveActiveRowId,
     live: {
       scroller: ref,
       placed: previousLayoutRef,
@@ -7299,7 +7339,6 @@ function TranscriptView({
     onOlderShown,
     activeRowId: effectiveActiveRowId,
     selectedRows,
-    tabStopId,
     finalFooter,
     onFocus: rowFocus,
     onRowKeyDown: handleRowKeyDown,
