@@ -277,6 +277,8 @@ extension UpdaterService {
         if let idleInstall {
             idleInstallQuiet = .seconds(idleInstall.quiet)
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
+            // The longest an automatic install waits silently on a modal, sheet, menu or composition.
+            relaunchMomentHold.surfaceAfter = .seconds(idleInstall.maxWait)
         }
         downloadSetting = (downloadAutomatically, metered)
         settingsApplied = true

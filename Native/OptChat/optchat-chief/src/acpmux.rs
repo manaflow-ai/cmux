@@ -167,13 +167,37 @@ pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<V
             json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "optchat-chief", "version": env!("CARGO_PKG_VERSION")}}),
         )
         .map_err(|e| format!("initialize: {e}"))
-        .and_then(|_| {
-            client
+        .and_then(|init| {
+            let mut answer = client
                 .request("_acpmux/harnesses", json!({}))
-                .map_err(|e| format!("harnesses: {e}"))
+                .map_err(|e| format!("harnesses: {e}"))?;
+            // What the daemon can do, for the brains (brain_home.rs `prepare`).
+            if let Some(map) = answer.as_object_mut() {
+                map.insert(
+                    DAEMON_FEATURES.to_owned(),
+                    json!({
+                        "builtinPresets": builtin_presets(&init),
+                        "brainPresets": has_feature(&init, BRAIN_PRESETS_FEATURE),
+                    }),
+                );
+            }
+            Ok(answer)
         });
     client.close();
     result
+}
+
+/// The key `query_harnesses` adds to its answer: `{builtinPresets, brainPresets}`.
+pub const DAEMON_FEATURES: &str = "optchatDaemonFeatures";
+
+/// acpmux's `initialize` feature for the brain turn presets (acpmux
+/// `chief_builtins::BRAIN_PRESETS_FEATURE`).
+pub const BRAIN_PRESETS_FEATURE: &str = "chiefBrainPresets";
+
+fn has_feature(init: &Value, feature: &str) -> bool {
+    init.pointer("/_meta/acpmux/features")
+        .and_then(Value::as_array)
+        .is_some_and(|f| f.iter().any(|v| v == feature))
 }
 
 /// Whether the daemon's `initialize` says it defines the Chief's presets

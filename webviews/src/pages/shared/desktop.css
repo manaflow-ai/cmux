@@ -173,6 +173,22 @@ body {
   --ds-color-attention: var(--cmux-app-warning, light-dark(#a15c00, #f0c674)); /* warnings and needs-you marks */
   --ds-color-danger: var(--cmux-app-danger, light-dark(#c0392b, #ff6b6b)); /* errors and destructive actions */
   --ds-color-success: var(--cmux-app-success, light-dark(#2e7d32, #8ad48a)); /* success and healthy states */
+  /* content surfaces: the page's ink over clear; a page whose ink is another variable sets --ds-surface-ink */
+  --ds-surface-ink: var(--ds-color-fg);
+  --ds-surface-card: color-mix(in srgb, var(--ds-surface-ink) 4%, transparent); /* a container of content in the page: the transcript's tool, edit, error and permission cards, plans, code blocks, tool output, the subagent card */
+  --ds-surface-card-line: color-mix(in srgb, var(--ds-surface-ink) 10%, transparent); /* a container of content in the page: the transcript's tool, edit, error and permission cards, plans, code blocks, tool output, the subagent card */
+  --ds-surface-inset: color-mix(in srgb, var(--ds-surface-ink) 8%, transparent); /* a piece inside a card or inline in text: an icon tile, inline code, a chip, a key cap, a filled secondary control */
+  --ds-surface-control-line: color-mix(in srgb, var(--ds-surface-ink) 16%, transparent); /* the outline of a secondary button at rest; its hover and press take the hover and pressed roles */
+}
+:root[data-borders="none"] {
+  --ds-surface-card-line: transparent;
+  --ds-surface-control-line: transparent;
+}
+@media (prefers-contrast: more) {
+  :root:not([data-borders="none"]) {
+    --ds-surface-card-line: var(--ds-surface-ink);
+    --ds-surface-control-line: var(--ds-surface-ink);
+  }
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {

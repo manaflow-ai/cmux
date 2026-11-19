@@ -56,6 +56,13 @@ Known limit: a tree build is not Team-signed, so Rust hot-apply from it into a D
   say so. Any other class is refused with `runs as class X` and no step is made.
   Several agents' local SwiftPM test runs pegged the Mac at 100% CPU (2026-10-20). The PATH
   guards (`~/.local/lib/cmux-local-build-guards`) queue or refuse these; never bypass them.
+- **Wait on GitHub with one shared waiter, never a poll.** Team hosts: one background
+  `glaeda-gh wait pr OWNER/REPO#N --sha FULL_SHA` (or `wait run OWNER/REPO/RUN_ID`) per PR or run,
+  or the acpmux `run_wait` tool, which uses it. Its daemon waits on GitHub's PR events
+  (`gh event listen`, gh 2.105.0+, where the account has Event Streams access) and polls otherwise.
+  Never `gh pr checks --watch`, `gh run watch`, a sleep loop, or a `gh event listen` of your own
+  (each listener holds one of the account's few subscriptions). Rules:
+  [github-ci-wait](https://github.com/teamleaderleo/glaeda/blob/main/skills/github-ci-wait/SKILL.md).
 - **Scope every search.** `rg`/`find`/`fd` only inside your worktree or a named subfolder, never
   `..`, `~`, `~/fun`, `/`, `$TMPDIR` or `/var/folders` (worktrees and caches there hold millions of
   files). Prefer `git grep` or `rg` with a path; prefix long scans with `nice -n 10`.
@@ -112,8 +119,9 @@ use it before the build is done. The agent itself runs it there only when asked;
   survive a relaunch, and checks the build in a fleet simulator signed in with the agent account,
   whose session comes from this Mac (`cmux-ci run --sign-in agent`; no credential lives on a
   worker). Never install with raw `devicectl`, and nothing boots in a simulator on the person's
-  Mac. Rerunning the same command resumes the saved fleet jobs. Its phone leg has not yet had a
-  green end-to-end run; report a failure as the phone's blocker. Details:
+  Mac. Rerunning the same command resumes the saved fleet jobs. Its phone leg passed end to end on
+  2026-11-18 (real iPhone, tag `phone-e2e-1118`, #46718, all three modes); report a failure as the
+  phone's blocker. Details:
   [cmux-next-ios/CLAUDE.md](cmux-next-ios/CLAUDE.md).
   The Tag Opener link opens the Mac app and, on every connected phone, the same-tag iPhone app it
   has installed (hq `tools/cmux-hq/Sources/CmuxHQ/TagOpener.swift`, `iosLauncher.launch`).

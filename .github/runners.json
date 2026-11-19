@@ -330,10 +330,6 @@
       "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the simulator step to the controller with cmux-ci run"
     },
     "cmux-next-media.yml#tour": "apple-gui",
-    "cmux-next-hot-verify.yml#look": {
-      "class": "apple-gui",
-      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the hot-verify step to the controller with cmux-ci run"
-    },
     "cmux-next-tab-switch.yml#frames": {
       "class": "apple-gui",
       "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the display measure to the controller with cmux-ci run"
