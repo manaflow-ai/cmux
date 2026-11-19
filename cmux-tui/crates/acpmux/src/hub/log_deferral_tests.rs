@@ -481,7 +481,7 @@ fn a_killed_daemon_keeps_the_newest_tool_output() {
     assert_eq!(shown.get("c"), Some(&(2, 2)), "the running command's newest was shown");
     assert_eq!(shown.get("t2"), Some(&(1, 1)));
     let logged = ranks(&before);
-    assert!(logged.get("c").is_none() && logged.get("t2").is_none(), "held: stubs only");
+    assert!(!logged.contains_key("c") && !logged.contains_key("t2"), "held: stubs only");
     assert_eq!(inner.kept_held("k").unwrap().len(), 2, "c's and t2's bodies beside the log");
     let hub = restarted(&inner, "k");
     let after = hub.store.events("k", 0, usize::MAX).unwrap();
