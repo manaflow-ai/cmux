@@ -291,6 +291,34 @@ def load_budgets_module():
     return mod
 
 
+_BUDGET_TABLE = {}
+
+
+def budget_table():
+    """perf-budget-table.py and its table, loaded once a process: (module, rows)."""
+    if "rows" not in _BUDGET_TABLE:
+        spec = importlib.util.spec_from_file_location("perf_budget_table", os.path.join(HERE, "perf-budget-table.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _BUDGET_TABLE.update(mod=mod, rows=mod.load_table())
+    return _BUDGET_TABLE["mod"], _BUDGET_TABLE["rows"]
+
+
+def budget_report(state, now):
+    """The budget of every producer from the state (perf-budget-table.py): (module, result), or (None, error text) when
+    the table does not load. Reported, never judged: it opens, closes and fails nothing."""
+    try:
+        mod, rows = budget_table()
+        return mod, mod.evaluate(rows, state, now)
+    except (OSError, ValueError, re.error) as error:
+        return None, f"Budget: the table did not load ({error})"
+
+
+def budget_issue_lines(state, now):
+    mod, result = budget_report(state, now)
+    return mod.issue_lines(result) if mod else [f"**{result}.**"]
+
+
 def animation_budgets(budgets_mod):
     """perf-budgets' animation rows; scripts/perf-bench/budget.py imports its siblings, so their directory goes
     on sys.path first. None of them on this checkout: no animation rows (their default budgets apply)."""
@@ -2162,6 +2190,7 @@ def issue_body(state, repo, now):
                          f"{str(rng.get('good') or '?')[:7]}..{str(rng.get('bad') or '?')[:7]} |")
     else:
         lines.append("No confirmed regression.")
+    lines += ["", *budget_issue_lines(state, now)]
     unconfirmed = [u for u in state.get("unconfirmed") or [] if isinstance(u, dict)]
     if unconfirmed:
         lines += ["", f"**Unconfirmed ({len(unconfirmed)} row(s), not a regression):** a row is a regression only with "
@@ -3794,7 +3823,13 @@ def report(o):
     nxt = next_now(state, fleet_done)
     if nxt:
         line += "; a measure host is idle: the next tick starts now"
+    # The budget of every producer, each tick (perf-budget-table.py): one summary line, then each row over or not measured.
+    mod, budget = budget_report(state, t)
+    budget_lines = mod.text_lines(budget) if mod else [budget]
+    line += f"; {budget_lines[0]}"
     print(f"perf-cron report: {line}")
+    for text in budget_lines:
+        print(f"perf-cron budget: {text}")
     write_outputs(o.output, {"changed": "true" if changed else "false", "line": line.replace("\n", " "),
                              "next_now": "true" if nxt else "false",
                              "not_measuring": (not_measuring or "").replace("\n", " ")})
