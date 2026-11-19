@@ -196,10 +196,10 @@ fn main() -> std::process::ExitCode {
             }
         }
         Some(
-            tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
-            | "stop" | "sleep" | "watch" | "remember" | "transcript" | "control"
-            | "profile" | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
-            | "cloud_workspace"),
+            tool @ ("zoom" | "date" | "recall" | "memory_read" | "memory_write" | "memory_forget"
+            | "spawn" | "tell" | "peers" | "react" | "reply" | "send" | "stop" | "sleep"
+            | "watch" | "remember" | "transcript" | "control" | "profile" | "chiefs"
+            | "escalate-auth" | "escalate_auth" | "cloud-workspace" | "cloud_workspace"),
         ) => {
             let socket = flags
                 .value("socket")
