@@ -7,9 +7,12 @@
 // and another page's write reaches a page already showing as a `storage` event, so its rows update
 // in place. A page draws the store's list on its first frame (no refetch, no empty list); a blocked
 // store leaves each page its own list, as before. With `agent.pageHost` on each page has its own
-// store, so this is each page's own list again.
+// store, so this is each page's own list again. Only New Tab pages write and read it (the spare
+// among them): a chat page never shows the list, so it writes nothing and parses nobody's write
+// (Leo, 2026-11-18: "Why should non visible thing even affect the renderer thread anyways?").
 import { useSyncExternalStore } from "react";
 import type { AcpmuxSnapshot } from "../model";
+import { markStorageRefused } from "../perf";
 import type { AcpmuxSessionEntry } from "../sessionList";
 
 type Sessions = AcpmuxSnapshot["sessions"];
@@ -30,6 +33,14 @@ const PUBLISH_MS = 500;
 
 let current: Stored | undefined;
 let loaded = false;
+/// Another page wrote while this page was a chat page: `current` is read again when it lists the
+/// store, instead of parsing every write for no one. A chat started from a New Tab is such a page.
+let stale = false;
+/// The page's last snapshot came while it showed a New Tab (`publishSessions`'s `posts`).
+let newTabPage = false;
+/// A chat page's newest list, not written: its New Tab, if it shows one again, writes it then
+/// unless the store has a newer one, so the store never lags a page that had the newest list.
+let held: { sessions: Sessions; at: number } | undefined;
 /// The newest list this page received and has not written yet, and the window's timer: it is
 /// armed only while a write went out in the last `PUBLISH_MS`, and ends when a window passes
 /// with nothing to write. A page that hides or goes away writes what it holds first.
@@ -79,6 +90,11 @@ function written(raw: string | null | undefined): { at: number; listed: string }
 function onStorage(event: StorageEvent): void {
   // `key: null` is a clear() of the whole store.
   if (event.key !== KEY && event.key !== null) return;
+  // A chat page, its New Tab gone: nothing here reads the list until it shows one again.
+  if (!newTabPage && listeners.size === 0) {
+    stale = true;
+    return;
+  }
   // Every page publishes the list it receives, so most writes hold the list this page already
   // has: those are read from their text, without parsing thousands of chats.
   const raw = event.key === null ? undefined : written(event.newValue);
@@ -89,7 +105,7 @@ function onStorage(event: StorageEvent): void {
   }
   const next = event.key === null ? undefined : parse(event.newValue);
   if (next && current && next.at < current.at) return;
-  const text = next ? JSON.stringify(next.sessions) : undefined;
+  const text = next ? (raw?.listed ?? JSON.stringify(next.sessions)) : undefined;
   current = next;
   // Another page wrote the list this page shows: nothing on screen changes.
   if (text === lastText) return;
@@ -98,10 +114,13 @@ function onStorage(event: StorageEvent): void {
 }
 
 function load(): void {
+  if (loaded && !stale) return;
+  stale = false;
+  const raw = storage()?.getItem(KEY);
+  current = parse(raw);
+  lastText = current ? (written(raw)?.listed ?? JSON.stringify(current.sessions)) : undefined;
   if (loaded) return;
   loaded = true;
-  current = parse(storage()?.getItem(KEY));
-  lastText = current ? JSON.stringify(current.sessions) : undefined;
   try {
     globalThis.window?.addEventListener("storage", onStorage);
     globalThis.window?.addEventListener("pagehide", flushPending);
@@ -138,8 +157,11 @@ function kept(sessions: Sessions): AcpmuxSessionEntry[] {
   );
 }
 
+/// The text `JSON.stringify({ at, sessions })` makes, built from the list's own text (`written` reads it back).
+const storedText = (at: number, listed: string) => `{"at":${JSON.stringify(at)},"sessions":${listed}}`;
+
 function encode(sessions: Sessions, at: number): string {
-  return JSON.stringify({ at, sessions: kept(sessions) } satisfies Stored);
+  return storedText(at, JSON.stringify(kept(sessions)));
 }
 
 function sameEntries(a: Sessions, b: Sessions | undefined): boolean {
@@ -161,12 +183,24 @@ function publishable(snapshot: Pick<AcpmuxSnapshot, "connection" | "origin" | "l
 }
 
 /// Takes a page's daemon snapshot into the store, when it is publishable and its list changed.
-/// `connection` is why the client emitted ("connected", "session changed", an event's kind).
+/// `connection` is why the client emitted ("connected", "session changed", an event's kind). Only a
+/// page that shows a New Tab (`posts`, newtab/pageLists.ts) writes: a chat page's write was a sort,
+/// a stringify and a parse of every chat twice a second that only other pages read.
 export function publishSessions(
   snapshot: Pick<AcpmuxSnapshot, "connection" | "origin" | "listedSessions" | "sessions">,
   at = Date.now(),
+  posts = true,
 ): void {
+  newTabPage = posts;
   if (!publishable(snapshot)) return;
+  if (!posts) {
+    // A chat page keeps only its newest list's reference, written if it shows a New Tab again
+    // (`subscribe`). What it held back as a New Tab is older than any page's next write.
+    held = { sessions: snapshot.sessions, at };
+    pending = undefined;
+    return;
+  }
+  held = undefined;
   load();
   // Every snapshot (one per transcript row while a turn streams) builds a new list of the same
   // entries (the direct client keeps an unchanged session's entry): compare entries, not the list.
@@ -186,6 +220,8 @@ function endWindow(): void {
 /// Writes the list held back from the last window, unless another page wrote a newer one meanwhile:
 /// a held-back list carries the `at` it arrived with, and must not replace a newer page's list.
 function flushPending(): void {
+  // Another page wrote while this one was a chat page: compare with what the store holds now.
+  if (pending && stale) load();
   if (pending && current && pending.at < current.at) pending = undefined;
   writePending();
 }
@@ -201,15 +237,16 @@ function writePending(): void {
 }
 
 function write(sessions: Sessions, at: number): void {
-  const text = encode(sessions, at);
-  const stored = JSON.parse(text) as Stored;
-  const listed = written(text)?.listed ?? JSON.stringify(stored.sessions);
+  const stored: Stored = { at, sessions: kept(sessions) };
+  const listed = JSON.stringify(stored.sessions);
   // The list the store already holds (this page's or another's): no write, no event elsewhere.
   if (listed === lastText && current) return;
+  const text = storedText(at, listed);
   try {
     storage()?.setItem(KEY, text);
   } catch {
-    // A full or blocked store: this page still lists the newest it has.
+    // A full or blocked store: this page still lists the newest it has, and the trace says so.
+    markStorageRefused(KEY, text.length);
   }
   current = stored;
   lastText = listed;
@@ -224,6 +261,15 @@ export function sharedSessions(own: Sessions): Sessions {
 
 function subscribe(listener: () => void): () => void {
   load();
+  // A chat page that shows a New Tab again: the list it heard last goes in, unless the store is
+  // newer (`flushPending`). Its next snapshot would write it anyway; this one is for the frame now.
+  const own = held;
+  held = undefined;
+  if (own && !sameEntries(own.sessions, lastPublished)) {
+    lastPublished = own.sessions;
+    pending = own;
+    flushPending();
+  }
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
@@ -273,6 +319,9 @@ export function reloadChatStoreForTests(): void {
   if (windowTimer !== undefined) clearTimeout(windowTimer);
   windowTimer = undefined;
   loaded = false;
+  stale = false;
+  newTabPage = false;
+  held = undefined;
   current = undefined;
   lastPublished = undefined;
   lastText = undefined;
@@ -291,4 +340,9 @@ export const CHAT_STORE_KEY_FOR_TESTS = KEY;
 /// What a page writes to the store for `sessions` received at `at` (tests stand in for another page).
 export function encodeChatStoreForTests(sessions: Sessions, at: number): string {
   return encode(sessions, at);
+}
+
+/// A New Tab starting to list the store (`useSharedSessions` enabled), for tests.
+export function subscribeChatStoreForTests(listener: () => void): () => void {
+  return subscribe(listener);
 }

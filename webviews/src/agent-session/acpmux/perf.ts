@@ -3,6 +3,16 @@
 // Everything here is inert until the first debug call sets `acpmuxPerf.enabled`:
 // the render path then pays one boolean check per render.
 
+/// A page storage write the engine refused (a full or blocked store): a `performance` mark a trace and
+/// `performance.getEntriesByName` read, where a bare `catch {}` lost the write without a word.
+export function markStorageRefused(key: string, bytes: number): void {
+  try {
+    globalThis.performance?.mark?.(`cmux.storage.refused:${key}`, { detail: { bytes } });
+  } catch {
+    // No performance timeline: nothing else to tell.
+  }
+}
+
 /** Rounds to hundredths, as the native pane's stats do. */
 export function round2(value: number): number {
   return Math.round(value * 100) / 100;

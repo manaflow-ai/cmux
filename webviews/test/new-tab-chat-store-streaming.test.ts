@@ -158,3 +158,69 @@ test("a held-back list never replaces a newer list another page wrote in its win
   expect(JSON.parse(window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS)!).at).toBe(T0 + 1_200);
   expect(store.sharedSessions([])[0]?.sessionId).toBe("s-0005");
 });
+
+// A chat started from a New Tab is a chat page from then on: it shows no list, so another page's write
+// is not parsed for it (each was every chat's JSON); it reads the newest once it lists the store again.
+test("a chat page parses no other page's write, and reads the newest when it shows a New Tab again", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const lists = streamingLists();
+  store.publishSessions(connected(lists[0]), T0 + 1);
+  // The New Tab's chat starts: the page's next snapshots are a chat page's.
+  store.publishSessions(connected(lists[1]), T0 + 2, false);
+  const newer = store.encodeChatStoreForTests(lists[5], T0 + 3);
+  window.localStorage.setItem(store.CHAT_STORE_KEY_FOR_TESTS, newer);
+  const parse = JSON.parse;
+  let parses = 0;
+  JSON.parse = ((text: string, reviver?: Parameters<typeof parse>[1]) => {
+    parses += 1;
+    return parse(text, reviver);
+  }) as typeof JSON.parse;
+  try {
+    window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue: newer }));
+  } finally {
+    JSON.parse = parse;
+  }
+  expect(parses).toBe(0);
+  expect(window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS)).toBe(newer);
+  expect(store.sharedSessions([])[0]?.sessionId).toBe("s-0005");
+});
+
+// Review of #46414: a New Tab page held back a list in its window, then its chat started. A newer
+// list another page wrote meanwhile must stay: the chat page's held-back list is dropped.
+test("a page that leaves its New Tab never writes its held-back list over a newer one", async () => {
+  jest.useFakeTimers();
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const lists = streamingLists();
+  store.publishSessions(connected(lists[0]), T0 + 1);
+  store.publishSessions(connected(lists[1]), T0 + 2);
+  store.publishSessions(connected(lists[2]), T0 + 3, false);
+  const newer = store.encodeChatStoreForTests(lists[5], T0 + 4);
+  window.localStorage.setItem(store.CHAT_STORE_KEY_FOR_TESTS, newer);
+  window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue: newer }));
+  jest.advanceTimersByTime(1_000);
+  expect(window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS)).toBe(newer);
+});
+
+// A chat page writes nothing, so with no other New Tab alive the store can be older than the list
+// the page heard: when it shows a New Tab again, that list goes in before its first frame reads it.
+test("a chat page that shows a New Tab again lists the newest list it heard, not an older store", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const lists = streamingLists();
+  window.localStorage.setItem(store.CHAT_STORE_KEY_FOR_TESTS, store.encodeChatStoreForTests(lists[0], T0 + 1));
+  store.publishSessions(connected(lists[5]), T0 + 9, false);
+  const stop = store.subscribeChatStoreForTests(() => {});
+  try {
+    expect(store.sharedSessions([])[0]?.sessionId).toBe("s-0005");
+    expect(JSON.parse(window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS)!).at).toBe(T0 + 9);
+  } finally {
+    stop();
+  }
+  // A store newer than what the page heard stays.
+  const newest = store.encodeChatStoreForTests(lists[7], T0 + 20);
+  store.publishSessions(connected(lists[6]), T0 + 15, false);
+  window.localStorage.setItem(store.CHAT_STORE_KEY_FOR_TESTS, newest);
+  window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue: newest }));
+  const again = store.subscribeChatStoreForTests(() => {});
+  again();
+  expect(window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS)).toBe(newest);
+});

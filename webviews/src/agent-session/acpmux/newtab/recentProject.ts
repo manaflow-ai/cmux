@@ -7,6 +7,7 @@
 // reads them before it paints. A blocked store, or a run that has heard no list yet, leaves the
 // page to wait for its own list (NewTabScreen holds the chip's place, never a wrong label).
 import type { AcpmuxSnapshot } from "../model";
+import { markStorageRefused } from "../perf";
 import { firstProject, recentLocalFolders } from "../sessionList";
 
 const KEY = "cmux.acpmux.newTab.recentFolders.v1";
@@ -24,13 +25,42 @@ function storage(): Storage | undefined {
 let lastWritten: string | undefined;
 /// The last list read: a streaming turn emits a snapshot per row with the same `sessions` array.
 let lastSessions: AcpmuxSnapshot["sessions"] | undefined;
+/// The newest local list heard and not read for its folders yet. Reading them filters and sorts
+/// every chat, about 1 ms at 10,000, once per change on every page; they are read once, when a
+/// New Tab mounts (`rememberedRecentFolders`) or the page hides or goes away.
+let held: AcpmuxSnapshot["sessions"] | undefined;
+let hooked: Window | undefined;
 
 /// Keeps the newest chat folders of `snapshot`, a list this Mac's daemon sent (`origin` local).
 /// An empty list keeps the last one: a connection lists nothing before its first answer.
-export function rememberRecentFolders(snapshot: Pick<AcpmuxSnapshot, "origin" | "sessions">): void {
+/// `now`: a New Tab page (the hidden spare among them, which never hides) writes them as it hears
+/// them, as every page did; a chat page only holds the list.
+export function rememberRecentFolders(snapshot: Pick<AcpmuxSnapshot, "origin" | "sessions">, now = false): void {
   if (snapshot.origin !== "local" || snapshot.sessions === lastSessions) return;
   lastSessions = snapshot.sessions;
-  const folders = recentLocalFolders(snapshot.sessions, KEPT);
+  held = snapshot.sessions;
+  if (now) writeHeld();
+  // Hooked on the page's own window, which a test that brings its own document replaces.
+  const page = globalThis.window;
+  if (!page || hooked === page) return;
+  hooked = page;
+  try {
+    page.addEventListener("pagehide", writeHeld);
+    globalThis.document?.addEventListener("visibilitychange", writeIfHidden);
+  } catch {
+    // No window: a New Tab's mount still reads the held list.
+  }
+}
+
+function writeIfHidden(): void {
+  if (globalThis.document?.visibilityState === "hidden") writeHeld();
+}
+
+function writeHeld(): void {
+  const sessions = held;
+  held = undefined;
+  if (!sessions) return;
+  const folders = recentLocalFolders(sessions, KEPT);
   if (folders.length === 0) return;
   const text = JSON.stringify(folders);
   if (text === lastWritten) return;
@@ -38,12 +68,14 @@ export function rememberRecentFolders(snapshot: Pick<AcpmuxSnapshot, "origin" | 
   try {
     storage()?.setItem(KEY, text);
   } catch {
-    // A full or blocked store: the next page waits for its own list.
+    // A full or blocked store: the next page waits for its own list, and the trace says so.
+    markStorageRefused(KEY, text.length);
   }
 }
 
 /// The folders a page of this run kept last, newest first.
 export function rememberedRecentFolders(): string[] {
+  writeHeld();
   try {
     const value = JSON.parse(storage()?.getItem(KEY) ?? "null") as unknown;
     return Array.isArray(value) ? value.filter((cwd): cwd is string => typeof cwd === "string" && cwd !== "") : [];
@@ -71,4 +103,5 @@ export function initialRecentProject(
 export function resetRecentProjectForTests(): void {
   lastWritten = undefined;
   lastSessions = undefined;
+  held = undefined;
 }

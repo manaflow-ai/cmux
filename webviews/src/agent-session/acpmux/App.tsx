@@ -118,7 +118,8 @@ import {
   type SessionAdoption,
   withHandshakeNewTab,
 } from "./newtab/adoption";
-import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
+import { markMockPage, sharesChatList, useSharedSessions } from "./newtab/chatStore";
+import { keepListsForNewTab } from "./newtab/pageLists";
 import { heldPick, withCloudStartFolder, withDraftFolder } from "./newtab/draftFolder";
 import {
   cloudModePickFor as cloudModeFor,
@@ -128,9 +129,8 @@ import {
   useCloudModePick,
 } from "./cloudModePick";
 import { configurationSessionMatches, pickEffort } from "./configurationActions";
-import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
-import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
+import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
 import { githubFolder, githubFolderRepo } from "./githubRepos";
@@ -8634,19 +8634,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const summary = next.summary;
             const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
             harnessProfiles.observe(summary, started);
-            // The next New Tab page names the project used last on its first frame
-            // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
-            if (!mock) {
-              rememberRecentFolders(next);
-              // Every page's New Tab lists one chat store (newtab/chatStore.ts).
-              publishSessions(next);
-              // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
-              publishWarmNewTab(
+            // The next New Tab page's first frame: the project used last, the shared chat store and
+            // the host's warm list, from New Tab pages only (newtab/pageLists.ts); the mock
+            // daemon's chats are not the app's.
+            if (!mock)
+              keepListsForNewTab(
                 next,
-                (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
                 showsNewTabRef.current,
+                (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
               );
-            }
             // Only the streaming reply's text grew: its row draws it (streamingRow.ts); the pane,
             // the composer and Session Info keep the snapshot they drew.
             const drawn = drawnSnapshot.current;
