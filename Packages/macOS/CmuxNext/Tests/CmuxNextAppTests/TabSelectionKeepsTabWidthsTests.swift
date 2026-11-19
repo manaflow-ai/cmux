@@ -92,4 +92,74 @@ import Testing
             #expect(Self.geometry(strip) == first, "selecting \(id) moved tabs")
         }
     }
+
+    // MARK: experiments.tabBarStyle
+
+    /// A strip of `count` tabs in a window, read under `style` (restored to `.off` by the caller's defer).
+    private static func styledStrip(_ style: TabBarStyleExperiment, count: Int = 6) -> (NSWindow, TabStripView, TabStripModel) {
+        DesignSettings.shared.tabOverflow = .shrink
+        DesignSettings.shared.tabBarStyleExperiment = style
+        let ids = (0..<count).map { "tab\($0)" }
+        let model = TabStripModel(tabs: ids.map { TabItem(id: TabID($0), title: "A longer title \($0)") }, selectedID: TabID(ids[0]))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 40), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        let strip = TabStripView(model: model)
+        strip.dragsWindowFromEmptySpace = false
+        strip.frame = NSRect(x: 0, y: 0, width: 1200, height: TabStripView.preferredHeight)
+        window.contentView = strip
+        strip.layoutSubtreeIfNeeded()
+        return (window, strip, model)
+    }
+
+    /// Off is the shipped strip: none of the looks' layers, the shipped + width and separators setting.
+    @Test func barStyleOffDrawsNoStyleLayers() {
+        let (window, strip, _) = Self.styledStrip(.off)
+        defer { window.closeAfterTest() }
+        #expect(strip.metrics.barStyle == .off)
+        #expect(strip.barStyleBackdrop == nil && strip.barStyleHairline == nil)
+        #expect(strip.metrics.newTabButtonWidth == TitlebarBandButton.side)
+        #expect(strip.metrics.showsSeparators == TabTunables.separators.value)
+        #expect(strip.metrics.glassInset == 0 && strip.metrics.glassButtonGap == 0)
+    }
+
+    /// Underline: bolding the selected label never moves a tab, and only the selected tab has the rule.
+    @Test func underlineSelectionKeepsEveryTabInPlace() throws {
+        let (window, strip, model) = Self.styledStrip(.underline)
+        defer {
+            window.closeAfterTest()
+            DesignSettings.shared.tabBarStyleExperiment = .off
+        }
+        #expect(strip.barStyleHairline != nil && strip.barStyleBackdrop == nil)
+        #expect(!strip.metrics.showsSeparators)
+        let first = Self.geometry(strip)
+        for id in model.tabs.map(\.id) {
+            model.selectedID = id
+            strip.syncFromModel()
+            strip.layoutSubtreeIfNeeded()
+            #expect(Self.geometry(strip) == first, "selecting \(id.rawValue) moved tabs")
+            let cell = try #require(strip.cells[id])
+            #expect(cell.underlineLayer != nil)
+            #expect(cell.titleLayer.font.pointSize == cell.titleFont.pointSize)
+            #expect(strip.cells.values.filter { $0.underlineLayer != nil }.count == 1)
+        }
+    }
+
+    /// Switching the look restyles a live strip: the glass capsule and its round + come and go with the setting.
+    @Test func glassLookRestylesLiveAndBack() {
+        let (window, strip, _) = Self.styledStrip(.off)
+        defer {
+            window.closeAfterTest()
+            DesignSettings.shared.tabBarStyleExperiment = .off
+        }
+        DesignSettings.shared.tabBarStyleExperiment = .glass
+        strip.customMetrics = nil // re-reads the tokens now, as the token observation does on the next turn
+        strip.layoutSubtreeIfNeeded()
+        #expect(strip.metrics.barStyle == .glass)
+        #expect(strip.barStyleBackdrop != nil && strip.newTabButton.glassCircle)
+        #expect(strip.metrics.newTabButtonWidth >= strip.metrics.tabHeight)
+        DesignSettings.shared.tabBarStyleExperiment = .off
+        strip.customMetrics = nil
+        strip.layoutSubtreeIfNeeded()
+        #expect(strip.barStyleBackdrop == nil && !strip.newTabButton.glassCircle)
+    }
 }

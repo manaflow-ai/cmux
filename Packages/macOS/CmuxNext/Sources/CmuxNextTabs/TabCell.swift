@@ -77,6 +77,13 @@ final class TabCell {
     }
     /// The selected tab runs into the card (``cornerFoot``); a lifted (dragged) tab is a pill again.
     var runsIntoCard: Bool { cornerFoot > 0 && isSelected && !isLifted }
+    /// How far below the pill the strip's bottom is, at every tab and in every look: the underline look's rule sits
+    /// there (`TabCell+Separator`), on the strip's hairline.
+    var underlineDrop: CGFloat = 0 {
+        didSet { if underlineDrop != oldValue, isSelected, metrics.barStyle == .underline { layoutLayers() } }
+    }
+    /// The underline look's 2 pt accent rule under the selected tab, made on first use and removed when unused.
+    var underlineLayer: CALayer?
     /// The share of the selected fill's alpha a background window's active tab keeps.
     static let backgroundWindowSelectionShare: CGFloat = 0.55
     /// Hover may start the title marquee (off while a drag or rename runs).
@@ -101,6 +108,8 @@ final class TabCell {
     var metrics: TabStripMetrics = .standard {
         didSet {
             guard oldValue != metrics else { return }
+            // The underline look measures titles at the selected weight (``titleMeasureFont``).
+            if oldValue.barStyle != metrics.barStyle { measuredTitle = nil }
             layoutLayers()
             updateColors(animated: false)
         }
@@ -350,12 +359,16 @@ final class TabCell {
             let multi = isMultiSelected && !isSelected
             let selection = isWindowMain || isLifted ? Palette.selectionFill
                 : Palette.selectionFill.withAlphaComponent(Palette.selectionFill.alphaComponent * Self.backgroundWindowSelectionShare)
-            let fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
+            var fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
+            // `experiments.tabBarStyle` underline: no fills or pills at all; the label's weight and the rule mark the tab.
+            if metrics.barStyle == .underline { fill = nil }
             backgroundLayer.backgroundColor = fill?.cgColor
             // The flush corner: the content's own glass (`Palette.folderTabFill`: what the content paints, with the
             // chrome's shade cut away under the tab), so the tab and the card read as one shape and the same
-            // transparency. Where that would not stand out of the chrome, the selection fill.
-            let folder = Palette.folderTabFill ?? selection
+            // transparency. Where that would not stand out of the chrome, the selection fill. The fused look without
+            // the flush corner (no shade hole under the tab) takes the content sheet's own color.
+            let folder = metrics.barStyle == .fused && !CornerFlush.current.isOn ? Palette.contentBackground
+                : Palette.folderTabFill ?? selection
             if runsIntoCard { backgroundLayer.backgroundColor = folder.cgColor }
             cornerFeetLayer?.fillColor = folder.cgColor
             if isLifted {
@@ -383,6 +396,7 @@ final class TabCell {
             statusGlyphLayer?.colors = indicatorColors
             iconLayer.contents = iconImage(tint: item.tint?.markColor ?? AgentIdentityTone.rgb(item.agentTone, tokens: themeScope.tokens)?.nsColor ?? text)
             applySeparatorColor()
+            underlineLayer?.backgroundColor = Palette.accent.cgColor
         }
         applyCloseColors()
         applyBadgeColor()
@@ -475,9 +489,14 @@ final class TabCell {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        backgroundLayer.frame = bounds
+        applyTitleWeight()
+        // The glass look's pill is a lighter capsule inset inside the strip's glass capsule; every other look's pill
+        // is the slot's height at the tabs' corner.
+        let glassInset = m.glassInset
+        backgroundLayer.frame = glassInset > 0 ? bounds.insetBy(dx: 0, dy: glassInset) : bounds
         layoutSeparator(slot: slot, pill: bounds)
-        backgroundLayer.cornerRadius = m.cornerRadius
+        backgroundLayer.cornerRadius = glassInset > 0 ? backgroundLayer.frame.height / 2 : m.cornerRadius // radius-allow: the glass look's inner capsule, concentric with its strip capsule
+        layoutUnderline(pill: bounds, onPath: onPath)
         // A folder tab takes the circular curve of its shade cut-out and fillets (``folderPath()``, ``feetPath``), so a
         // squircle `tabs.cornerCurve` leaves no halo of shade at its top corners.
         backgroundLayer.cornerCurve = runsIntoCard ? .circular : Metrics.tabCornerCurve
@@ -643,7 +662,7 @@ final class TabCell {
     private func titleWidth() -> CGFloat {
         let title = displayTitle
         if let measuredTitle, measuredTitle.0 == title { return measuredTitle.1 }
-        let width = ceil((title as NSString).size(withAttributes: [.font: titleFont]).width)
+        let width = ceil((title as NSString).size(withAttributes: [.font: titleMeasureFont]).width)
         measuredTitle = (title, width)
         return width
     }

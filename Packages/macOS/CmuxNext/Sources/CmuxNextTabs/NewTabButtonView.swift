@@ -50,6 +50,53 @@ final class NewTabButtonView: NSView {
 
     private(set) lazy var look = PlusButtonLook(host: self)
 
+    /// `experiments.tabBarStyle` glass: the + sits on its own round glass disc beside the tabs' capsule, the same
+    /// height and material (`TabStripView.applyBarStyleColors`). Off in every other look, where no layer is made.
+    var glassCircle = false {
+        didSet {
+            guard oldValue != glassCircle else { return }
+            if !glassCircle {
+                glassLayer?.removeFromSuperlayer()
+                glassLayer = nil
+            }
+            needsLayout = true
+            refreshGlassCircle()
+        }
+    }
+    private var glassLayer: CALayer?
+
+    /// Lays the disc out in the bounds: a circle as tall as the button (a capsule where a ⌄ widens it).
+    private func layoutGlassCircle() {
+        guard glassCircle else { return }
+        let disc: CALayer
+        if let glassLayer {
+            disc = glassLayer
+        } else {
+            disc = CALayer()
+            disc.actions = ["bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull(), "borderColor": NSNull(),
+                            "borderWidth": NSNull(), "cornerRadius": NSNull()]
+            disc.cornerCurve = .continuous
+            layer?.insertSublayer(disc, at: 0) // under the look's hover fill and glyph
+            glassLayer = disc
+            refreshGlassCircle()
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        disc.frame = bounds
+        disc.cornerRadius = min(bounds.width, bounds.height) / 2 // radius-allow: the glass look's round + (Apple HIG Liquid Glass tab bar)
+        CATransaction.commit()
+    }
+
+    /// The disc's colors in the strip's theme: the chrome's faint lift with a hairline rim, as the capsule.
+    func refreshGlassCircle() {
+        guard let glassLayer else { return }
+        performWithTheme {
+            glassLayer.backgroundColor = Palette.chromeBackground.cgColor
+            glassLayer.borderColor = Palette.separator.cgColor
+            glassLayer.borderWidth = Metrics.lineWidth(Metrics.dividerThickness)
+        }
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
@@ -80,6 +127,7 @@ final class NewTabButtonView: NSView {
     override func layout() {
         super.layout()
         look.layout(in: bounds, scale: window?.backingScaleFactor ?? 2)
+        layoutGlassCircle()
     }
 
     override func updateLayer() {
@@ -94,6 +142,7 @@ final class NewTabButtonView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         look.refresh()
+        refreshGlassCircle()
     }
 
     private func applyState(animated: Bool) {

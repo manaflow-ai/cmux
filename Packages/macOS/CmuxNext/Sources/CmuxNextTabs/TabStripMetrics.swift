@@ -14,6 +14,9 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var minActiveTabWidth: CGFloat
     /// `tabs.overflow`: with `.scroll` both minimums are `scrollTabMinWidth`.
     public var overflow: TabOverflow
+    /// `experiments.tabBarStyle` (Settings > Experimental): the strip's look. `.off`, the default, is the shipped one;
+    /// every other look is drawn by the cells and the strip from this value, so a change restyles live.
+    public var barStyle: TabBarStyleExperiment = .off
     public var pinnedTabWidth: CGFloat
     /// Chrome's strip geometry (design-tokens.json `motion.tabStrip`, at the UI scale): open and
     /// close widths, the minimum widths above, the reorder threshold, closing mode.
@@ -212,6 +215,9 @@ public struct TabStripMetrics: Equatable, Sendable {
         stripTopOutset = Metrics.stripTopOutset
         // The chrome's one button size (`TitlebarBandButton.side`), as the pane's tools beside it.
         newTabButtonWidth = TitlebarBandButton.side
+        barStyle = DesignSettings.shared.tabBarStyleExperiment
+        // The glass look's + is its own round glass button as tall as the tabs' capsule.
+        if barStyle == .glass { newTabButtonWidth = max(newTabButtonWidth, tabHeight) }
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
@@ -227,6 +233,13 @@ public struct TabStripMetrics: Equatable, Sendable {
         separatorHeight = TabTunables.separatorHeight.value
         separatorOpacity = TabTunables.separatorOpacity.value
         showsPinnedDivider = TabTunables.pinnedDivider.value
+        switch barStyle {
+        case .off: break
+        // One capsule, or plain labels on a hairline: no line between tabs.
+        case .glass, .underline: showsSeparators = false
+        // Flat inactive tabs read apart by thin lines between them (the selected tab hides its own, as always).
+        case .fused: showsSeparators = true
+        }
     }
 
     /// Token-derived metrics for the current density.
@@ -234,6 +247,13 @@ public struct TabStripMetrics: Equatable, Sendable {
 }
 
 extension TabStripMetrics {
+    /// The glass look's inset of each tab's pill inside the capsule (top, bottom and the capsule's ends); 0 in
+    /// every other look, which keeps the pill the slot's height.
+    var glassInset: CGFloat { barStyle == .glass ? Metrics.space1 : 0 }
+
+    /// The glass look's room between the capsule's end and the + circle beside it, beyond the strip's end gap.
+    var glassButtonGap: CGFloat { barStyle == .glass ? Metrics.space2 : 0 }
+
     /// Where a titled tab's status mark sits: ``statusMarkPlacement``, else the Debug tunable.
     var resolvedStatusMarkPlacement: TabStatusMarkPlacement { statusMarkPlacement ?? TabTunables.statusMarkPlacement.value }
 

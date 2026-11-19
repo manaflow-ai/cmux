@@ -76,7 +76,10 @@ public final class TabStripView: NSView {
     /// The + button's offset after the last tab's slot: the last pill to the button is `Metrics.tabStripEndGap`, the
     /// strip's leading gap, at every density; the slot's trailing inset and the button's own leading inset (a
     /// `tabBackgroundInset` each) count toward it, so this can be negative where a density spaces its tabs wider.
-    var newTabLeadingGap: CGFloat { metrics.endGap(scale: window?.backingScaleFactor ?? 2) - 2 * metrics.tabBackgroundInset }
+    /// The glass look adds its capsule-to-circle gap (``TabStripMetrics/glassButtonGap``, 0 in every other look).
+    var newTabLeadingGap: CGFloat {
+        metrics.endGap(scale: window?.backingScaleFactor ?? 2) - 2 * metrics.tabBackgroundInset + metrics.glassButtonGap
+    }
     var newTabControlsWidth: CGFloat {
         guard showsTypeChooser else { return metrics.newTabButtonWidth }
         // Circles: the ⌄ takes the +'s square, so both circles are one diameter. Split: classic's narrower segment.
@@ -115,6 +118,10 @@ public final class TabStripView: NSView {
     var inCardTone: (shade: CAShapeLayer, divider: CAShapeLayer)?
     /// What ``inCardTone`` was last drawn from: a chrome redraw that changes none of it redraws nothing.
     var inCardToneDrawn: InCardToneKey?
+    /// `experiments.tabBarStyle`'s strip layers (`TabStripView+CornerFlush`), made on first use and removed in the
+    /// shipped look: the glass capsule behind the tabs or the fused look's tinted bar, and the underline look's hairline.
+    var barStyleBackdrop: CALayer?
+    var barStyleHairline: CALayer?
     /// The pane's content starts with a toolbar row right under this strip (a browser's omnibar; the pane sets it):
     /// the tab row's divider leaves this pane out, the window's (`CornerFlushChrome`) and this strip's own in-card one,
     /// so the tabs and the omnibar read as one surface (Lawrence, 2026-11-13). A change reports to the window root.
@@ -538,6 +545,8 @@ public final class TabStripView: NSView {
         for band in groups.bands.values { band.themeScope = scope }
         applyPinnedDividerColor()
         updateInCardTone()
+        applyBarStyleColors()
+        newTabButton.refreshGlassCircle()
         hoverCard.themeChanged()
     }
 
@@ -564,8 +573,12 @@ public final class TabStripView: NSView {
         metrics = customMetrics ?? TabStripMetrics()
         if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
         trailingButtons = TabTunables.trailingButtons.value
-        newTabButton.hoverStyle = trailingButtons.hoverStyle
-        newTabButton.splitSegment = showsTypeChooser && trailingButtons == .split
+        // The glass look's + is a round glass button of its own, never the split look's leading segment.
+        let glass = metrics.barStyle == .glass
+        newTabButton.hoverStyle = glass ? .circle : trailingButtons.hoverStyle
+        newTabButton.splitSegment = !glass && showsTypeChooser && trailingButtons == .split
+        newTabButton.glassCircle = glass
+        applyBarStyleColors()
         newTabMenuButton.style = trailingButtons
         newTabMenuButton.isHidden = !showsTypeChooser || !model.showsNewTabButton
         updateChooserReveal()
