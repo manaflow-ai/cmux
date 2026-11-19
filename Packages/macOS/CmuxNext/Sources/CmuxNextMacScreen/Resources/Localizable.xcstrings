@@ -3538,6 +3538,137 @@
         }
       }
     },
+    "devices.history.consentRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يسمح %@ بمشاركة الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nije dozvolio dijeljenje ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ har ikke tilladt skærmdeling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat die Bildschirmfreigabe nicht erlaubt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hasn’t allowed screen sharing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no ha permitido compartir pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas autorisé le partage d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non ha consentito la condivisione dello schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は画面共有を許可していません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មិនបានអនុញ្ញាតការចែករំលែកអេក្រង់ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 화면 공유를 허용하지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ har ikke tillatt skjermdeling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie zezwolił na udostępnianie ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não permitiu o compartilhamento de tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не разрешил показ экрана"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ไม่อนุญาตให้แชร์หน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ekran paylaşımına izin vermedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не дозволив показ екрана"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ chưa cho phép chia sẻ màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 未允许共享屏幕"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 未允許分享螢幕"
+          }
+        }
+      }
+    },
     "devices.history.detail": {
       "extractionState": "manual",
       "localizations": {
@@ -16638,6 +16769,399 @@
         }
       }
     },
+    "macScreen.card.noAnswer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يصل رد من %@ خلال 15 ثانية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema odgovora od %@ u roku od 15 sekundi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet svar fra %@ inden for 15 sekunder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine Antwort von %@ innerhalb von 15 Sekunden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No answer from %@ within 15 seconds."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sin respuesta de %@ en 15 segundos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune réponse de %@ en 15 secondes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna risposta da %@ entro 15 secondi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "15秒以内に%@から応答がありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានការឆ្លើយតបពី %@ ក្នុងរយៈពេល 15 វិនាទីទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "15초 안에 %@에서 응답이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen svar fra %@ innen 15 sekunder."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak odpowiedzi od %@ w ciągu 15 sekund."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem resposta de %@ em 15 segundos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не ответил за 15 секунд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีการตอบกลับจาก %@ ภายใน 15 วินาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 15 saniye içinde yanıt vermedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не відповів за 15 секунд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có phản hồi từ %@ trong 15 giây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 在 15 秒内没有应答。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 在 15 秒內沒有回應。"
+          }
+        }
+      }
+    },
+    "macScreen.card.noLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رد %@، لكن لم يُنشأ اتصال خلال 15 ثانية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ je odgovorio, ali veza nije uspostavljena u roku od 15 sekundi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ svarede, men der blev ikke oprettet forbindelse inden for 15 sekunder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ hat geantwortet, aber innerhalb von 15 Sekunden kam keine Verbindung zustande."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ answered, but no link came up within 15 seconds."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ respondió, pero no se estableció la conexión en 15 segundos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ a répondu, mais aucune liaison n’a été établie en 15 secondes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ha risposto, ma nessun collegamento è stato stabilito entro 15 secondi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@は応答しましたが、15秒以内に接続が確立しませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ បានឆ្លើយតប ប៉ុន្តែគ្មានការតភ្ជាប់ក្នុងរយៈពេល 15 វិនាទីទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@이(가) 응답했지만 15초 안에 연결되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ svarte, men ingen forbindelse kom i stand innen 15 sekunder."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ odpowiedział, ale połączenie nie powstało w ciągu 15 sekund."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ respondeu, mas nenhuma conexão foi estabelecida em 15 segundos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ответил, но соединение не установилось за 15 секунд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ตอบกลับแล้ว แต่ไม่มีการเชื่อมต่อภายใน 15 วินาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ yanıt verdi, ancak 15 saniye içinde bağlantı kurulmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ відповів, але з’єднання не встановилося за 15 секунд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ đã phản hồi, nhưng không có kết nối nào trong 15 giây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 已应答，但 15 秒内未建立连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 已回應，但 15 秒內未建立連線。"
+          }
+        }
+      }
+    },
+    "macScreen.card.noFrame": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم الاتصال بـ %@، لكن لم تصل أي صورة خلال 15 ثانية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Povezano s %@, ali slika nije stigla u roku od 15 sekundi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbundet til %@, men intet billede kom inden for 15 sekunder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mit %@ verbunden, aber innerhalb von 15 Sekunden kam kein Bild an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected to %@, but no picture arrived within 15 seconds."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectado a %@, pero no llegó ninguna imagen en 15 segundos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connecté à %@, mais aucune image n’est arrivée en 15 secondes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connesso a %@, ma nessuna immagine è arrivata entro 15 secondi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@に接続しましたが、15秒以内に画面が届きませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានតភ្ជាប់ទៅ %@ ប៉ុន្តែគ្មានរូបភាពមកដល់ក្នុងរយៈពេល 15 វិនាទីទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에 연결되었지만 15초 안에 화면이 도착하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koblet til %@, men ikke noe bilde kom innen 15 sekunder."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połączono z %@, ale obraz nie dotarł w ciągu 15 sekund."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectado a %@, mas nenhuma imagem chegou em 15 segundos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключено к %@, но изображение не пришло за 15 секунд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อกับ %@ แล้ว แต่ไม่มีภาพมาถึงภายใน 15 วินาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ile bağlantı kuruldu, ancak 15 saniye içinde görüntü gelmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підключено до %@, але зображення не надійшло за 15 секунд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã kết nối với %@, nhưng không có hình ảnh nào trong 15 giây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已连接到 %@，但 15 秒内没有收到画面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已連線到 %@，但 15 秒內沒有收到畫面。"
+          }
+        }
+      }
+    },
     "macScreen.card.failedTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -21747,137 +22271,6 @@
         }
       }
     },
-    "macScreen.home.screenRecordingDetail.holder": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يتيح لـ «%@» إرسال هذه الشاشة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Omogućava da „%@“ šalje ovaj ekran."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lader „%@“ sende denne skærm."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erlaubt „%@“, diesen Bildschirm zu senden."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lets “%@” send this screen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permite que «%@» envíe esta pantalla."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permet à « %@ » d’envoyer cet écran."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Consente a “%@” di inviare questo schermo."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「%@」がこの画面を送信できるようにします。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អនុញ្ញាតឱ្យ “%@” ផ្ញើអេក្រង់នេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "‘%@’이(가) 이 화면을 전송할 수 있게 합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lar «%@» sende denne skjermen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pozwala aplikacji „%@” wysyłać ten ekran."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permite que “%@” envie esta tela."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Позволяет приложению «%@» передавать этот экран."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "อนุญาตให้ “%@” ส่งหน้าจอนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“%@” uygulamasının bu ekranı göndermesine izin verir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дозволяє застосунку «%@» передавати цей екран."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cho phép “%@” gửi màn hình này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "允许“%@”发送此屏幕。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "允許「%@」傳送此螢幕。"
-          }
-        }
-      }
-    },
     "macScreen.home.invalidHubAddress": {
       "extractionState": "manual",
       "localizations": {
@@ -25411,6 +25804,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 已允許工作階段，但無法開始。請再試一次。"
+          }
+        }
+      }
+    },
+    "macScreen.hub.reason.consentRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يسمح %@ بمشاركة الشاشة من هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nije dozvolio dijeljenje ekrana s ovog uređaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ har ikke tilladt skærmdeling fra denne enhed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat die Bildschirmfreigabe von diesem Gerät nicht erlaubt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hasn’t allowed screen sharing from this device."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no ha permitido compartir pantalla desde este dispositivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas autorisé le partage d’écran depuis cet appareil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non ha consentito la condivisione dello schermo da questo dispositivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はこのデバイスからの画面共有を許可していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មិនបានអនុញ្ញាតការចែករំលែកអេក្រង់ពីឧបករណ៍នេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 이 기기의 화면 공유를 허용하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ har ikke tillatt skjermdeling fra denne enheten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie zezwolił na udostępnianie ekranu z tego urządzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não permitiu o compartilhamento de tela deste dispositivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не разрешил показ экрана с этого устройства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ไม่อนุญาตให้แชร์หน้าจอจากอุปกรณ์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bu aygıttan ekran paylaşımına izin vermedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не дозволив показ екрана з цього пристрою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ chưa cho phép chia sẻ màn hình từ thiết bị này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 未允许此设备共享屏幕。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 未允許此裝置分享螢幕。"
           }
         }
       }
@@ -35371,137 +35895,6 @@
         }
       }
     },
-    "macScreen.home.screenRecordingNeeded.holder": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مطلوب لإرسال هذه الشاشة. فعّل «%@» في إعدادات النظام."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Potrebno za slanje ovog ekrana. Uključite „%@“ u Postavkama sistema."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kræves for at sende denne skærm. Slå „%@“ til i Systemindstillinger."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nötig, um diesen Bildschirm zu senden. Aktiviere „%@“ in den Systemeinstellungen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Needed to send this screen. Turn on “%@” in System Settings."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Necesario para enviar esta pantalla. Activa «%@» en Ajustes del Sistema."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nécessaire pour envoyer cet écran. Activez « %@ » dans Réglages Système."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Serve per inviare questo schermo. Attiva “%@” in Impostazioni di Sistema."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この画面を送るために必要です。システム設定で「%@」をオンにしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ត្រូវការដើម្បីផ្ញើអេក្រង់នេះ។ បើក “%@” ក្នុងការកំណត់ប្រព័ន្ធ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 화면을 보내는 데 필요합니다. 시스템 설정에서 ‘%@’을(를) 켜세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trengs for å sende denne skjermen. Slå på «%@» i Systeminnstillinger."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Potrzebne do wysyłania tego ekranu. Włącz „%@” w Ustawieniach systemowych."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Necessário para enviar esta tela. Ative “%@” nos Ajustes do Sistema."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нужно, чтобы передавать этот экран. Включите «%@» в системных настройках."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "จำเป็นสำหรับการส่งหน้าจอนี้ เปิด “%@” ในการตั้งค่าระบบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu ekranı göndermek için gerekir. Sistem Ayarları’nda “%@” uygulamasını açın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Потрібно, щоб надсилати цей екран. Увімкніть «%@» у системних параметрах."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cần để gửi màn hình này. Bật “%@” trong Cài đặt hệ thống."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "发送此屏幕时需要。请在系统设置中打开“%@”。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "傳送此螢幕時需要。請在系統設定中開啟「%@」。"
-          }
-        }
-      }
-    },
     "macScreen.home.accessibilityNeeded": {
       "extractionState": "manual",
       "localizations": {
@@ -36943,264 +37336,264 @@
         }
       }
     },
-    "macScreen.setup.screen.body.holder": {
+    "macScreen.setup.screen.body": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحتاج macOS إلى إذن تسجيل الشاشة لكي يتمكن «%@» من مشاركة شاشتك."
+            "value": "يحتاج macOS إلى إذن تسجيل الشاشة ليتمكن تطبيق cmux هذا من مشاركة شاشتك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS-u je potrebna dozvola za snimanje ekrana da bi „%@“ dijelio vaš ekran."
+            "value": "macOS-u je potrebna dozvola za snimanje ekrana da bi ova cmux aplikacija dijelila vaš ekran."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS skal have tilladelse til skærmoptagelse, så „%@“ kan dele din skærm."
+            "value": "macOS skal have tilladelse til skærmoptagelse, så denne cmux-app kan dele din skærm."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS benötigt die Bildschirmaufnahme-Berechtigung, damit „%@“ deinen Bildschirm teilen kann."
+            "value": "macOS benötigt die Bildschirmaufnahme-Berechtigung, damit diese cmux-App deinen Bildschirm teilen kann."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS needs Screen Recording permission for “%@” to share your display."
+            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS necesita permiso de grabación de pantalla para que «%@» comparta tu pantalla."
+            "value": "macOS necesita permiso de grabación de pantalla para que esta app de cmux comparta tu pantalla."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS a besoin de l’autorisation d’enregistrement de l’écran pour que « %@ » partage votre écran."
+            "value": "macOS a besoin de l’autorisation d’enregistrement de l’écran pour que cette app cmux partage votre écran."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS richiede l’autorizzazione per la registrazione dello schermo affinché “%@” possa condividere lo schermo."
+            "value": "macOS richiede l’autorizzazione per la registrazione dello schermo affinché questa app cmux possa condividere lo schermo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」で画面を共有するには、macOSの画面収録の許可が必要です。"
+            "value": "このcmuxアプリで画面を共有するには、macOSの画面収録の許可が必要です。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS ត្រូវការការអនុញ្ញាតថតអេក្រង់ ដើម្បីឱ្យ “%@” ចែករំលែកអេក្រង់របស់អ្នក។"
+            "value": "macOS ត្រូវការការអនុញ្ញាតថតអេក្រង់ ដើម្បីឱ្យកម្មវិធី cmux នេះចែករំលែកអេក្រង់របស់អ្នក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "‘%@’이(가) 화면을 공유하려면 macOS 화면 기록 권한이 필요합니다."
+            "value": "이 cmux 앱이 화면을 공유하려면 macOS 화면 기록 권한이 필요합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS trenger tillatelse til skjermopptak for at «%@» skal kunne dele skjermen din."
+            "value": "macOS trenger tillatelse til skjermopptak for at denne cmux-appen skal kunne dele skjermen din."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS potrzebuje uprawnień do nagrywania ekranu, aby aplikacja „%@” mogła udostępniać ekran."
+            "value": "macOS potrzebuje uprawnień do nagrywania ekranu, aby ta aplikacja cmux mogła udostępniać ekran."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O macOS precisa da permissão Gravação de Tela para que “%@” compartilhe sua tela."
+            "value": "O macOS precisa da permissão Gravação de Tela para que este app cmux compartilhe sua tela."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS требуется разрешение на запись экрана, чтобы приложение «%@» могло делиться вашим экраном."
+            "value": "Для этого приложения cmux macOS требуется разрешение на запись экрана, чтобы делиться вашим экраном."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS ต้องได้รับอนุญาตการบันทึกหน้าจอเพื่อให้ “%@” แชร์หน้าจอของคุณได้"
+            "value": "macOS ต้องได้รับอนุญาตการบันทึกหน้าจอเพื่อให้แอป cmux นี้แชร์หน้าจอของคุณได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” uygulamasının ekranınızı paylaşabilmesi için macOS’te Ekran Kaydı izni gerekir."
+            "value": "Bu cmux uygulamasının ekranınızı paylaşabilmesi için macOS’te Ekran Kaydı izni gerekir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS потрібен дозвіл на запис екрана, щоб застосунок «%@» міг надавати доступ до вашого екрана."
+            "value": "macOS потрібен дозвіл на запис екрана, щоб цей застосунок cmux міг надавати доступ до вашого екрана."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS cần quyền Ghi màn hình để “%@” chia sẻ màn hình của bạn."
+            "value": "macOS cần quyền Ghi màn hình để ứng dụng cmux này chia sẻ màn hình của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@”需要 macOS 的屏幕录制权限才能共享你的显示屏。"
+            "value": "此 cmux 应用需要 macOS 的屏幕录制权限才能共享你的显示屏。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」需要 macOS 的螢幕錄製權限才能共享你的顯示器。"
+            "value": "此 cmux App 需要 macOS 的螢幕錄製權限才能共享你的顯示器。"
           }
         }
       }
     },
-    "macScreen.setup.allow.holder": {
+    "macScreen.setup.screen.settings": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اسمح لـ «%@» في مطالبة الأذونات في macOS أو إعدادات النظام، ثم عد إلى هنا وتحقق مرة أخرى."
+            "value": "اسمح لـ cmux في مطالبة الأذونات في macOS أو إعدادات النظام، ثم عد إلى هنا وتحقق مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dozvolite „%@“ u macOS upitu za dozvolu ili u Postavkama sistema, zatim se vratite ovdje i provjerite ponovo."
+            "value": "Dozvolite cmux-u u macOS upitu za dozvolu ili u Postavkama sistema, zatim se vratite ovdje i provjerite ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tillad „%@“ i macOS-tilladelsesdialogen eller Systemindstillinger, vend derefter tilbage hertil og tjek igen."
+            "value": "Tillad cmux i macOS-tilladelsesdialogen eller Systemindstillinger, vend derefter tilbage hertil og tjek igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Erlaube „%@“ im macOS-Berechtigungsdialog oder in den Systemeinstellungen, kehre dann hierher zurück und prüfe erneut."
+            "value": "Erlaube cmux im macOS-Berechtigungsdialog oder in den Systemeinstellungen, kehre dann hierher zurück und prüfe erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow “%@” in the macOS permission prompt or System Settings, then return here and check again."
+            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permite «%@» en el aviso de permisos de macOS o en Ajustes del Sistema; después vuelve aquí y comprueba de nuevo."
+            "value": "Permite cmux en el aviso de permisos de macOS o en Ajustes del Sistema; después vuelve aquí y comprueba de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Autorisez « %@ » dans la demande d’autorisation de macOS ou dans Réglages Système, puis revenez ici et vérifiez à nouveau."
+            "value": "Autorisez cmux dans la demande d’autorisation de macOS ou dans Réglages Système, puis revenez ici et vérifiez à nouveau."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Consenti a “%@” nella richiesta di autorizzazione di macOS o in Impostazioni di Sistema, poi torna qui e controlla di nuovo."
+            "value": "Consenti a cmux nella richiesta di autorizzazione di macOS o in Impostazioni di Sistema, poi torna qui e controlla di nuovo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOSの許可ダイアログまたはシステム設定で「%@」を許可し、ここに戻ってもう一度確認してください。"
+            "value": "macOSの許可ダイアログまたはシステム設定でcmuxを許可し、ここに戻ってもう一度確認してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អនុញ្ញាត “%@” ក្នុងសំណើសុំការអនុញ្ញាតរបស់ macOS ឬការកំណត់ប្រព័ន្ធ បន្ទាប់មកត្រឡប់មកទីនេះ ហើយពិនិត្យម្ដងទៀត។"
+            "value": "អនុញ្ញាត cmux ក្នុងសំណើសុំការអនុញ្ញាតរបស់ macOS ឬការកំណត់ប្រព័ន្ធ បន្ទាប់មកត្រឡប់មកទីនេះ ហើយពិនិត្យម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS 권한 메시지나 시스템 설정에서 ‘%@’을(를) 허용한 다음 여기로 돌아와 다시 확인하세요."
+            "value": "macOS 권한 메시지나 시스템 설정에서 cmux를 허용한 다음 여기로 돌아와 다시 확인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tillat «%@» i macOS-tillatelsesmeldingen eller Systeminnstillinger, og gå deretter tilbake hit og sjekk igjen."
+            "value": "Tillat cmux i macOS-tillatelsesmeldingen eller Systeminnstillinger, og gå deretter tilbake hit og sjekk igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zezwól aplikacji „%@” w monicie uprawnień macOS lub w Ustawieniach systemowych, a następnie wróć tutaj i sprawdź ponownie."
+            "value": "Zezwól na cmux w monicie uprawnień macOS lub w Ustawieniach systemowych, a następnie wróć tutaj i sprawdź ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permita “%@” no aviso de permissão do macOS ou nos Ajustes do Sistema; depois volte aqui e verifique novamente."
+            "value": "Permita o cmux no aviso de permissão do macOS ou nos Ajustes do Sistema; depois volte aqui e verifique novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Разрешите «%@» в запросе разрешений macOS или в системных настройках, затем вернитесь сюда и проверьте ещё раз."
+            "value": "Разрешите cmux в запросе разрешений macOS или в системных настройках, затем вернитесь сюда и проверьте ещё раз."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อนุญาต “%@” ในพรอมต์สิทธิ์ของ macOS หรือการตั้งค่าระบบ จากนั้นกลับมาที่นี่แล้วตรวจสอบอีกครั้ง"
+            "value": "อนุญาต cmux ในพรอมต์สิทธิ์ของ macOS หรือการตั้งค่าระบบ จากนั้นกลับมาที่นี่แล้วตรวจสอบอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS izin isteminde veya Sistem Ayarları’nda “%@” uygulamasına izin verin, ardından buraya dönüp tekrar kontrol edin."
+            "value": "macOS izin isteminde veya Sistem Ayarları’nda cmux’a izin verin, ardından buraya dönüp tekrar kontrol edin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Дозвольте «%@» у запиті macOS або в системних параметрах, потім поверніться сюди й перевірте ще раз."
+            "value": "Дозвольте cmux у запиті macOS або в системних параметрах, потім поверніться сюди й перевірте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cho phép “%@” trong lời nhắc quyền của macOS hoặc Cài đặt hệ thống, rồi quay lại đây và kiểm tra lại."
+            "value": "Cho phép cmux trong lời nhắc quyền của macOS hoặc Cài đặt hệ thống, rồi quay lại đây và kiểm tra lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 macOS 权限提示或系统设置中允许“%@”，然后返回此处再次检查。"
+            "value": "在 macOS 权限提示或系统设置中允许 cmux，然后返回此处再次检查。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 macOS 權限提示或系統設定中允許「%@」，然後返回此處再次檢查。"
+            "value": "在 macOS 權限提示或系統設定中允許 cmux，然後返回此處再次檢查。"
           }
         }
       }
@@ -40088,792 +40481,6 @@
         }
       }
     },
-    "macScreen.home.sharingOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sharing off"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المشاركة متوقفة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dijeljenje isključeno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deling slået fra"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Freigabe aus"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compartir desactivado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Partage désactivé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Condivisione disattivata"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "共有オフ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការចែករំលែកបានបិទ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "공유 꺼짐"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deling av"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Udostępnianie wyłączone"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compartilhamento desativado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Доступ выключен"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ปิดการแชร์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paylaşım kapalı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Спільний доступ вимкнено"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đã tắt chia sẻ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "共享已关闭"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "共享已關閉"
-          }
-        }
-      }
-    },
-    "macScreen.home.blockedShort": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not allowed"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "غير مسموح"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nije dozvoljeno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ikke tilladt"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nicht erlaubt"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No permitido"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non autorisé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non consentito"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "許可されていません"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនអនុញ្ញាត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "허용되지 않음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ikke tillatt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Niedozwolone"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não permitido"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не разрешено"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไม่อนุญาต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "İzin verilmiyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не дозволено"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không được phép"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不允许"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不允許"
-          }
-        }
-      }
-    },
-    "macScreen.home.offlineGroup": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline (%d)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "غير متصل (%d)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Van mreže (%d)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline (%d)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nicht verbunden (%d)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sin conexión (%d)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hors ligne (%d)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline (%d)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オフライン（%d）"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "គ្មានអ៊ីនធឺណិត (%d)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오프라인 (%d)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Frakoblet (%d)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline (%d)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline (%d)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не в сети (%d)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ออฟไลน์ (%d)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çevrimdışı (%d)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не в мережі (%d)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ngoại tuyến (%d)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "离线（%d）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "離線（%d）"
-          }
-        }
-      }
-    },
-    "macScreen.home.offlineCount": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d offline"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d غير متصل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d van mreže"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d offline"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d nicht verbunden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d sin conexión"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d hors ligne"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d offline"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d 台がオフライン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d គ្មានអ៊ីនធឺណិត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d대 오프라인"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d frakoblet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d offline"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d offline"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не в сети: %d"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ออฟไลน์ %d เครื่อง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d çevrimdışı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не в мережі: %d"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d ngoại tuyến"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d 台离线"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%d 台離線"
-          }
-        }
-      }
-    },
-    "devices.history.consentRequired": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم يسمح %@ بمشاركة الشاشة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ nije dozvolio dijeljenje ekrana"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ har ikke tilladt skærmdeling"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ hat die Bildschirmfreigabe nicht erlaubt"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ hasn’t allowed screen sharing"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ no ha permitido compartir pantalla"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ n’a pas autorisé le partage d’écran"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ non ha consentito la condivisione dello schermo"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ は画面共有を許可していません"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ មិនបានអនុញ្ញាតការចែករំលែកអេក្រង់ទេ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@에서 화면 공유를 허용하지 않았습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ har ikke tillatt skjermdeling"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ nie zezwolił na udostępnianie ekranu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ não permitiu o compartilhamento de tela"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ не разрешил показ экрана"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ไม่อนุญาตให้แชร์หน้าจอ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ekran paylaşımına izin vermedi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ не дозволив показ екрана"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ chưa cho phép chia sẻ màn hình"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 未允许共享屏幕"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 未允許分享螢幕"
-          }
-        }
-      }
-    },
-    "macScreen.hub.reason.consentRequired": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم يسمح %@ بمشاركة الشاشة من هذا الجهاز."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ nije dozvolio dijeljenje ekrana s ovog uređaja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ har ikke tilladt skærmdeling fra denne enhed."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ hat die Bildschirmfreigabe von diesem Gerät nicht erlaubt."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ hasn’t allowed screen sharing from this device."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ no ha permitido compartir pantalla desde este dispositivo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ n’a pas autorisé le partage d’écran depuis cet appareil."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ non ha consentito la condivisione dello schermo da questo dispositivo."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ はこのデバイスからの画面共有を許可していません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ មិនបានអនុញ្ញាតការចែករំលែកអេក្រង់ពីឧបករណ៍នេះទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@에서 이 기기의 화면 공유를 허용하지 않았습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ har ikke tillatt skjermdeling fra denne enheten."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ nie zezwolił na udostępnianie ekranu z tego urządzenia."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ não permitiu o compartilhamento de tela deste dispositivo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ не разрешил показ экрана с этого устройства."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ไม่อนุญาตให้แชร์หน้าจอจากอุปกรณ์นี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ bu aygıttan ekran paylaşımına izin vermedi."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ не дозволив показ екрана з цього пристрою."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ chưa cho phép chia sẻ màn hình từ thiết bị này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 未允许此设备共享屏幕。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 未允許此裝置分享螢幕。"
-          }
-        }
-      }
-    },
     "macScreen.approval.allow": {
       "extractionState": "manual",
       "localizations": {
@@ -41918,6 +41525,530 @@
           "stringUnit": {
             "state": "translated",
             "value": "允許後，%@ 今後可以檢視這台 Mac。可在「裝置」中更改。"
+          }
+        }
+      }
+    },
+    "macScreen.home.sharingOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sharing off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المشاركة متوقفة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeljenje isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deling slået fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Freigabe aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partage désactivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condivisione disattivata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有オフ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចែករំលែកបានបិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 꺼짐"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deling av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnianie wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhamento desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ выключен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดการแชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paylaşım kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спільний доступ вимкнено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã tắt chia sẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享已关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享已關閉"
+          }
+        }
+      }
+    },
+    "macScreen.home.blockedShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not allowed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير مسموح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije dozvoljeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke tilladt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht erlaubt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No permitido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non autorisé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non consentito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可されていません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអនុញ្ញាត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허용되지 않음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke tillatt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niedozwolone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não permitido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не разрешено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่อนุญาต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İzin verilmiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не дозволено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không được phép"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不允许"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不允許"
+          }
+        }
+      }
+    },
+    "macScreen.home.offlineGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline (%d)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متصل (%d)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Van mreže (%d)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline (%d)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht verbunden (%d)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin conexión (%d)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne (%d)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline (%d)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン（%d）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានអ៊ីនធឺណិត (%d)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오프라인 (%d)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frakoblet (%d)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline (%d)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline (%d)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не в сети (%d)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ออฟไลน์ (%d)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çevrimdışı (%d)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не в мережі (%d)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngoại tuyến (%d)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线（%d）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線（%d）"
+          }
+        }
+      }
+    },
+    "macScreen.home.offlineCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d offline"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d غير متصل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d van mreže"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d offline"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d nicht verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d sin conexión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d hors ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d offline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 台がオフライン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d គ្មានអ៊ីនធឺណិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d대 오프라인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d frakoblet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d offline"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d offline"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не в сети: %d"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ออฟไลน์ %d เครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d çevrimdışı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не в мережі: %d"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d ngoại tuyến"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 台离线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 台離線"
           }
         }
       }
