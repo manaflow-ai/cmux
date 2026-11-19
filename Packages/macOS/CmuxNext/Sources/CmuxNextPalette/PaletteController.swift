@@ -311,7 +311,7 @@ public final class PaletteController {
         }
         // The room (theme) of the window it opens over.
         (parent?.themeScope ?? .app).adopt(panel)
-        let size = PaletteLayout.windowSize
+        let size = PaletteLayout.windowSize(model.experiments)
         panel.setFrame(frame(for: parent, size: size), display: false)
         if let parent, panel.parent !== parent {
             panel.parent?.removeChildWindow(panel)
@@ -394,7 +394,7 @@ public final class PaletteController {
     private var contentView: PaletteContentView? { panel?.contentView as? PaletteContentView }
 
     private func makePanel() -> PalettePanel {
-        let panel = PalettePanel(size: PaletteLayout.windowSize)
+        let panel = PalettePanel(size: PaletteLayout.windowSize(model.experiments))
         let content = PaletteContentView(model: model)
         content.autoresizingMask = [.width, .height]
         content.onPreferredSizeChange = { [weak self, weak panel] size in

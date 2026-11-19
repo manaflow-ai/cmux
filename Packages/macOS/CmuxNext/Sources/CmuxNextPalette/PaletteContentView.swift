@@ -56,7 +56,7 @@ final class PaletteContentView: NSView {
 
     init(model: PaletteModel) {
         self.model = model
-        super.init(frame: NSRect(origin: .zero, size: PaletteLayout.windowSize))
+        super.init(frame: NSRect(origin: .zero, size: PaletteLayout.windowSize(model.experiments)))
         wantsLayer = true
         layer?.masksToBounds = false
         glass.translatesAutoresizingMaskIntoConstraints = true
@@ -148,7 +148,7 @@ final class PaletteContentView: NSView {
         let pageToken = model.pageToken
         let menuState = model.actionsMenu
         let recorderState = model.shortcutRecorder
-        let size = PaletteLayout.windowSize
+        let size = PaletteLayout.windowSize(model.experiments)
         let textSizes = PaletteLayout.textSizes
 
         if resultsVersion != appliedResults {
@@ -268,7 +268,7 @@ final class PaletteContentView: NSView {
         super.layout()
         let margin = PaletteLayout.shadowMargin
         stage.frame = bounds
-        glass.frame = NSRect(x: margin, y: margin, width: PaletteLayout.width, height: PaletteLayout.height)
+        glass.frame = NSRect(x: margin, y: margin, width: PaletteLayout.width(model.experiments), height: PaletteLayout.height(model.experiments))
         glass.cornerRadius = PaletteLayout.cornerRadius
         body.frame = CGRect(origin: .zero, size: glass.bounds.size)
         let width = body.bounds.width
@@ -276,8 +276,8 @@ final class PaletteContentView: NSView {
         searchBar.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.searchHeight)
         y += PaletteLayout.searchHeight
         // The v2 scope bar's band (zero high in every other look).
-        scopeBar.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.scopeBarHeight)
-        y += PaletteLayout.scopeBarHeight
+        scopeBar.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.scopeBarHeight(model.experiments))
+        y += PaletteLayout.scopeBarHeight(model.experiments)
         // The hint takes its line from the top of the list.
         let fieldHintHeight = fieldHint.isHidden ? 0 : PaletteText.height(fieldHint) + Metrics.space2
         fieldHint.frame = body.pixelAligned(NSRect(x: PaletteLayout.horizontalPadding, y: y,
@@ -286,10 +286,10 @@ final class PaletteContentView: NSView {
         topRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness
         // [rail: railWidth][list: listWidth][preview]; with no rail and no preview the list is the whole width.
-        let listFrame = NSRect(x: PaletteLayout.railWidth, y: y, width: PaletteLayout.listWidth, height: PaletteLayout.listHeight - fieldHintHeight)
+        let listFrame = NSRect(x: PaletteLayout.railWidth(model.experiments), y: y, width: PaletteLayout.listWidth, height: PaletteLayout.listHeight - fieldHintHeight)
         listHost.frame = listFrame
-        rail.frame = NSRect(x: 0, y: listFrame.minY, width: PaletteLayout.railWidth, height: listFrame.height)
-        previewPane.frame = NSRect(x: listFrame.maxX, y: listFrame.minY, width: PaletteLayout.previewWidth, height: listFrame.height)
+        rail.frame = NSRect(x: 0, y: listFrame.minY, width: PaletteLayout.railWidth(model.experiments), height: listFrame.height)
+        previewPane.frame = NSRect(x: listFrame.maxX, y: listFrame.minY, width: PaletteLayout.previewWidth(model.experiments), height: listFrame.height)
         list.contentInsets = NSEdgeInsets(top: PaletteLayout.listInset, left: 0, bottom: PaletteLayout.listInset, right: 0)
         let titleHeight = PaletteText.height(emptyTitle)
         let emptyTop = listFrame.midY - titleHeight / 2
@@ -299,7 +299,7 @@ final class PaletteContentView: NSView {
         y += Metrics.dividerThickness
         footer.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.footerHeight)
         // The recorder floats over the top of the list, under the field.
-        let recorderWidth = min(PaletteLayout.width - 2 * Metrics.space6, PaletteLayout.actionsMenuWidth * 1.5)
+        let recorderWidth = min(PaletteLayout.width(model.experiments) - 2 * Metrics.space6, PaletteLayout.actionsMenuWidth * 1.5)
         recorderView.frame = NSRect(x: glass.frame.midX - recorderWidth / 2, y: glass.frame.minY + PaletteLayout.searchHeight + Metrics.space4,
                                     width: recorderWidth, height: recorderHeight)
         let menuWidth = PaletteLayout.actionsMenuWidth
@@ -383,7 +383,7 @@ final class PaletteContentView: NSView {
     /// Center of the glass panel in this view's coordinates.
     var panelCenter: CGPoint {
         let margin = PaletteLayout.shadowMargin
-        return CGPoint(x: margin + PaletteLayout.width / 2, y: bounds.height - margin - PaletteLayout.height / 2)
+        return CGPoint(x: margin + PaletteLayout.width(model.experiments) / 2, y: bounds.height - margin - PaletteLayout.height(model.experiments) / 2)
     }
 
     /// The panel scaled about its own center (`Motion.scale` accounts for

@@ -10,11 +10,16 @@ public nonisolated struct PaletteRankSettings: Sendable, Equatable {
     /// Whether the palette learns from what the person runs (cmux.json `palette.searchHistory`): uses,
     /// learned picks per query start and frecency. Off, nothing is recorded and nothing ranks by it.
     public var remembersSearches: Bool
+    /// The palette experiments the person turned on (`experiments.paletteV2`, `experiments.palettePreview`), read
+    /// with the rest of the palette's cmux.json keys on every open.
+    public var experiments: PaletteExperiments
 
-    public init(aliases: [String: [String]] = [:], pins: [String] = [], remembersSearches: Bool = true) {
+    public init(aliases: [String: [String]] = [:], pins: [String] = [], remembersSearches: Bool = true,
+                experiments: PaletteExperiments = PaletteExperiments()) {
         self.aliases = aliases
         self.pins = pins
         self.remembersSearches = remembersSearches
+        self.experiments = experiments
     }
 }
 

@@ -1,6 +1,1054 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.choice.paletteV2.flat": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: قائمة مجمّعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Grupisana lista"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Grupperet liste"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Gruppierte Liste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Grouped List"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Lista agrupada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Liste groupée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Elenco raggruppato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: グループ化されたリスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: បញ្ជីដែលបានដាក់ក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: 그룹화된 목록"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Gruppert liste"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Lista pogrupowana"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Lista agrupada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Сгруппированный список"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: รายการแบบจัดกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Gruplanmış liste"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Згрупований список"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A: Danh sách theo nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A：分组列表"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A：分組列表"
+          }
+        }
+      }
+    },
+    "settings.choice.paletteV2.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выкл."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимк."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "settings.choice.paletteV2.rail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: شريط الفئات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Traka kategorija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Kategorilinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Kategorieleiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Category Rail"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Barra de categorías"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Barre de catégories"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Barra delle categorie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: カテゴリレール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: របារប្រភេទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: 카테고리 레일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Kategorilinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Pasek kategorii"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Barra de categorias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Панель категорий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: แถบหมวดหมู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Kategori şeridi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Панель категорій"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B: Thanh danh mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B：类别栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B：類別列"
+          }
+        }
+      }
+    },
+    "settings.choice.paletteV2.scoped": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: مجمّعة مع شريط النطاق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Grupisano s trakom opsega"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Grupperet med områdelinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Gruppiert mit Bereichsleiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Grouped with Scope Bar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Agrupado con barra de ámbito"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Groupé avec barre de portée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Raggruppato con barra dell’ambito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: スコープバー付きグループ化"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: ដាក់ក្រុមជាមួយរបារវិសាលភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: 범위 막대가 있는 그룹화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Gruppert med omfangslinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Pogrupowane z paskiem zakresu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Agrupado com barra de escopo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Группировка с панелью области"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: จัดกลุ่มพร้อมแถบขอบเขต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Kapsam çubuğuyla gruplanmış"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Згруповано з панеллю області"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C: Theo nhóm với thanh phạm vi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C：分组并带范围栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C：分組並附範圍列"
+          }
+        }
+      }
+    },
+    "settings.experiments.palettePreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معاينة لوحة الأوامر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregled palete naredbi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forhåndsvisning af kommandopalet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau der Befehlspalette"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command Palette Preview"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista previa de la paleta de comandos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aperçu de la palette de commandes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anteprima della palette dei comandi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレットのプレビュー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការមើលជាមុនផ្ទាំងពាក្យបញ្ជា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령 팔레트 미리보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forhåndsvisning av kommandopalett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podgląd palety poleceń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pré-visualização da paleta de comandos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предпросмотр палитры команд"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวอย่างพาเลตคำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komut paleti önizlemesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попередній перегляд палітри команд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xem trước bảng lệnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令面板预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令面板預覽"
+          }
+        }
+      }
+    },
+    "settings.experiments.palettePreview.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض تفاصيل مساحة العمل أو الجلسة المحددة بجانب النتائج، مع إجراءها الأساسي وإجراءات ⌘K في الأسفل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje detalje odabranog radnog prostora ili sesije pored rezultata, s njegovom glavnom radnjom i Radnje ⌘K na dnu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser detaljerne for det valgte arbejdsområde eller den valgte session ved siden af resultaterne, med den primære handling og Handlinger ⌘K nederst."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt die Details des ausgewählten Arbeitsbereichs oder der ausgewählten Sitzung neben den Ergebnissen an, mit der Hauptaktion und „Aktionen ⌘K“ am unteren Rand."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the selected workspace or session's details beside the results, with its primary action and Actions ⌘K at the bottom."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra los detalles del espacio de trabajo o la sesión seleccionados junto a los resultados, con su acción principal y Acciones ⌘K en la parte inferior."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche les détails de l’espace de travail ou de la session sélectionnés à côté des résultats, avec son action principale et Actions ⌘K en bas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra i dettagli dello spazio di lavoro o della sessione selezionati accanto ai risultati, con la relativa azione principale e Azioni ⌘K in basso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したワークスペースまたはセッションの詳細を結果の横に表示し、下部にその主要なアクションと「アクション ⌘K」を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញព័ត៌មានលម្អិតនៃកន្លែងធ្វើការ ឬវគ្គដែលបានជ្រើសរើសនៅជាប់លទ្ធផល ជាមួយសកម្មភាពចម្បងរបស់វា និងសកម្មភាព ⌘K នៅខាងក្រោម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 작업 공간 또는 세션의 세부 정보를 결과 옆에 표시하고, 하단에 기본 동작과 동작 ⌘K를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser detaljene for det valgte arbeidsområdet eller den valgte økten ved siden av resultatene, med hovedhandlingen og Handlinger ⌘K nederst."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje szczegóły wybranego obszaru roboczego lub sesji obok wyników, wraz z jego główną akcją i Akcje ⌘K u dołu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra os detalhes do espaço de trabalho ou da sessão selecionados ao lado dos resultados, com a ação principal e Ações ⌘K na parte inferior."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает сведения о выбранном рабочем пространстве или сеансе рядом с результатами, а внизу — его основное действие и «Действия ⌘K»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงรายละเอียดของพื้นที่ทำงานหรือเซสชันที่เลือกไว้ข้างผลลัพธ์ พร้อมการทำงานหลักและการทำงาน ⌘K ที่ด้านล่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçili çalışma alanının veya oturumun ayrıntılarını sonuçların yanında, altta ise birincil eylemini ve Eylemler ⌘K öğesini gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує відомості про вибраний робочий простір або сеанс поруч із результатами, а внизу — його основну дію та «Дії ⌘K»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị chi tiết của không gian làm việc hoặc phiên đã chọn bên cạnh kết quả, cùng hành động chính và Hành động ⌘K ở dưới cùng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在结果旁显示所选工作区或会话的详细信息，并在底部显示其主要操作和“操作 ⌘K”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在結果旁顯示所選工作區或工作階段的詳細資訊，並在底部顯示其主要動作和「動作 ⌘K」。"
+          }
+        }
+      }
+    },
+    "settings.experiments.paletteV2": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحة الأوامر v2"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paleta naredbi v2"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommandopalet v2"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehlspalette v2"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command Palette v2"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paleta de comandos v2"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette de commandes v2"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palette dei comandi v2"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレット v2"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងពាក្យបញ្ជា v2"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령 팔레트 v2"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommandopalett v2"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paleta poleceń v2"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paleta de comandos v2"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Палитра команд v2"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พาเลตคำสั่ง v2"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komut paleti v2"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Палітра команд v2"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bảng lệnh v2"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令面板 v2"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令面板 v2"
+          }
+        }
+      }
+    },
+    "settings.experiments.paletteV2.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجمّع النتائج ضمن مساحات العمل والجلسات والأوامر والوكلاء، وتعيد التجميع أثناء الكتابة، مع تحديد أفضل نتيجة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupiše rezultate pod Radni prostori, Sesije, Naredbe i Agenti, ponovo grupiše dok kucate, a najbolji rezultat je odabran."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupperer resultater under Arbejdsområder, Sessioner, Kommandoer og Agenter og omgrupperer, mens du skriver, med det bedste match valgt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppiert Ergebnisse unter Arbeitsbereiche, Sitzungen, Befehle und Agenten, gruppiert während der Eingabe neu und wählt den besten Treffer aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groups results under Workspaces, Sessions, Commands and Agents, regrouping as you type, with the top match selected."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrupa los resultados en Espacios de trabajo, Sesiones, Comandos y Agentes, los reagrupa mientras escribes y selecciona la mejor coincidencia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regroupe les résultats sous Espaces de travail, Sessions, Commandes et Agents, les regroupe à mesure que vous saisissez et sélectionne la meilleure correspondance."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raggruppa i risultati in Spazi di lavoro, Sessioni, Comandi e Agenti, li raggruppa di nuovo mentre scrivi e seleziona la corrispondenza migliore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結果を「ワークスペース」「セッション」「コマンド」「エージェント」にグループ化し、入力に合わせて再グループ化して、最も一致するものを選択します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដាក់ក្រុមលទ្ធផលនៅក្រោមកន្លែងធ្វើការ វគ្គ ពាក្យបញ្ជា និងភ្នាក់ងារ ហើយដាក់ក្រុមឡើងវិញពេលអ្នកវាយ ដោយជ្រើសរើសលទ្ធផលដែលត្រូវគ្នាបំផុត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "결과를 작업 공간, 세션, 명령, 에이전트별로 그룹화하고 입력하는 동안 다시 그룹화하며 가장 일치하는 항목을 선택합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupperer resultater under Arbeidsområder, Økter, Kommandoer og Agenter, omgrupperer mens du skriver, og velger det beste treffet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupuje wyniki w sekcjach Obszary robocze, Sesje, Polecenia i Agenci, przegrupowuje je podczas pisania i zaznacza najlepsze dopasowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrupa os resultados em Espaços de trabalho, Sessões, Comandos e Agentes, reagrupa conforme você digita e seleciona a melhor correspondência."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группирует результаты по разделам «Рабочие пространства», «Сеансы», «Команды» и «Агенты», перегруппировывает их по мере ввода и выбирает лучшее совпадение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จัดกลุ่มผลลัพธ์ภายใต้พื้นที่ทำงาน เซสชัน คำสั่ง และเอเจนต์ จัดกลุ่มใหม่ขณะที่คุณพิมพ์ และเลือกรายการที่ตรงที่สุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonuçları Çalışma alanları, Oturumlar, Komutlar ve Ajanlar altında gruplar, siz yazdıkça yeniden gruplar ve en iyi eşleşmeyi seçer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Групує результати за розділами «Робочі простори», «Сеанси», «Команди» й «Агенти», перегруповує їх під час введення та вибирає найкращий збіг."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhóm kết quả theo Không gian làm việc, Phiên, Lệnh và Tác nhân, nhóm lại khi bạn nhập và chọn kết quả khớp nhất."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将结果按“工作区”“会话”“命令”和“代理”分组，并在你输入时重新分组，同时选中最佳匹配项。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將結果依「工作區」、「工作階段」、「命令」和「代理」分組，並在你輸入時重新分組，同時選取最佳符合項目。"
+          }
+        }
+      }
+    },
     "settings.group.agentGuidance": {
       "comment": "Settings > Agents: group title for cmux's guidance and the person's skills",
       "extractionState": "manual",

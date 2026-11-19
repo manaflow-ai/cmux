@@ -8,18 +8,26 @@ enum PaletteLayout {
     /// Result rows visible without scrolling. A count, not a size.
     static let visibleRows: CGFloat = 10
 
-    /// The palette experiments of the open palette (`PaletteModel.experiments`, set on every open): the v2 rail, the
-    /// scope bar and the preview pane add their room to the panel. All off, the panel is today's.
-    static var experiments = PaletteExperiments()
     /// The result list's column: today's panel width.
     static var listWidth: CGFloat { Metrics.paletteWidth }
-    /// The v2 category rail left of the list (`PaletteV2Look.rail`); zero otherwise.
-    static var railWidth: CGFloat { experiments.look.showsRail ? (Metrics.paletteWidth * 0.3).rounded() : 0 }
+    /// The v2 category rail left of the list (`PaletteV2Look.rail`); zero otherwise. The panel's experiments are the
+    /// open palette's (`PaletteModel.experiments`, read on every open); all off, the panel is today's.
+    static func railWidth(_ experiments: PaletteExperiments) -> CGFloat {
+        experiments.look.showsRail ? (Metrics.paletteWidth * 0.3).rounded() : 0
+    }
     /// The detail pane right of the list (`experiments.palettePreview`); zero otherwise.
-    static var previewWidth: CGFloat { experiments.preview ? (Metrics.paletteWidth * 0.75).rounded() : 0 }
+    static func previewWidth(_ experiments: PaletteExperiments) -> CGFloat {
+        experiments.preview ? (Metrics.paletteWidth * 0.75).rounded() : 0
+    }
     /// The v2 scope bar under the field (`PaletteV2Look.scoped`); zero otherwise.
-    static var scopeBarHeight: CGFloat { experiments.look.showsScopeBar ? rowHeight : 0 }
-    static var width: CGFloat { railWidth + listWidth + previewWidth }
+    static func scopeBarHeight(_ experiments: PaletteExperiments) -> CGFloat {
+        experiments.look.showsScopeBar ? rowHeight : 0
+    }
+    /// Today's panel width (every experiment off).
+    static var width: CGFloat { width(PaletteExperiments()) }
+    static func width(_ experiments: PaletteExperiments) -> CGFloat {
+        railWidth(experiments) + listWidth + previewWidth(experiments)
+    }
     static var searchHeight: CGFloat { Metrics.paletteSearchHeight + textGrowth(Typography.search) }
     static var rowHeight: CGFloat { Metrics.paletteRowHeight + textGrowth(Typography.body) }
     static var headerRowHeight: CGFloat { Metrics.sidebarHeaderHeight + textGrowth(Typography.header) }
@@ -35,7 +43,11 @@ enum PaletteLayout {
     /// 31478: "density of selected cmd shift p row needs to be concentric"). The panel holds its rows
     /// as a card holds its tabs, at every density.
     static var cornerRadius: CGFloat { Metrics.corners.nested(in: rowCornerRadius, inset: -listInset) }
-    static var height: CGFloat { searchHeight + scopeBarHeight + listHeight + footerHeight + 2 * Metrics.dividerThickness }
+    /// Today's panel height (every experiment off).
+    static var height: CGFloat { height(PaletteExperiments()) }
+    static func height(_ experiments: PaletteExperiments) -> CGFloat {
+        searchHeight + scopeBarHeight(experiments) + listHeight + footerHeight + 2 * Metrics.dividerThickness
+    }
     static var horizontalPadding: CGFloat { Metrics.space5 }
     /// Where everything at a row's or the field's right ends (a key, a kind label, the field's
     /// "Search Workspaces ⇥" hint), from the panel's right edge: the rows' side inset plus the room an
@@ -47,8 +59,10 @@ enum PaletteLayout {
     /// animation are never clipped by the window.
     static var shadowMargin: CGFloat { Metrics.space6 * 2 }
 
-    static var windowSize: CGSize {
-        CGSize(width: width + 2 * shadowMargin, height: height + 2 * shadowMargin)
+    /// Today's window (every experiment off).
+    static var windowSize: CGSize { windowSize(PaletteExperiments()) }
+    static func windowSize(_ experiments: PaletteExperiments) -> CGSize {
+        CGSize(width: width(experiments) + 2 * shadowMargin, height: height(experiments) + 2 * shadowMargin)
     }
 
     static var actionsMenuWidth: CGFloat { listWidth / 2 - Metrics.space6 }
