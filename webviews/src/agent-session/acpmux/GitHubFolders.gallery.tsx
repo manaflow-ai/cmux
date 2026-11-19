@@ -95,26 +95,6 @@ export default componentEntry<Props>({
       props: { ...base, github: picker({ status: { state: "not_connected", reposScope: null }, connecting: true }) },
       play: openFolder,
     },
-    "connecting-alt-second-line": {
-      note: "Alternative, not shipped: the title stays and Opening GitHub… is a second line. The row grows by a line for under a second and shrinks back as the page opens.",
-      props: {
-        ...base,
-        github: picker({ status: { state: "not_connected", reposScope: null }, connectError: "Opening GitHub…" }),
-      },
-      play: openFolder,
-    },
-    "connecting-alt-title-and-line": {
-      note: "Alternative, not shipped: the title reads Opening GitHub… and a second line says where the page opens. Two changes for one short state.",
-      props: {
-        ...base,
-        github: picker({
-          status: { state: "not_connected", reposScope: null },
-          connecting: true,
-          connectError: "GitHub opens in your browser.",
-        }),
-      },
-      play: openFolder,
-    },
     waiting: {
       note: "After the click: the row stays its title alone (GitHub's own page is the one wait, #46018) until the window comes back and the status says ready.",
       props: { ...base, github: picker({ status: { state: "not_connected", reposScope: null }, waiting: true }) },
