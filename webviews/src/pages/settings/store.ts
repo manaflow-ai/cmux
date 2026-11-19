@@ -20,6 +20,7 @@ import {
   withLinked,
 } from "./appearanceUndo";
 import type { PageCommand } from "./keyboard";
+import { cardResetLabel, type ResetCard } from "./cardReset";
 import {
   createSettingsQueryClient,
   optimistic,
@@ -232,6 +233,9 @@ export class SettingsStore {
   private appearanceOpened: TargetState[] | null = null;
   /** How many appearance steps are running (`trackAppearance`); inner ones record nothing. */
   private tracking = 0;
+  /** Every other page's card history (cardReset.ts): each Reset <card> is a step its bar's Undo
+   * takes back. Page state, never written; one stack for the pages, as one bar shows at a time. */
+  readonly cardHistory = new AppearanceHistory();
 
   constructor(
     private readonly client: SettingsClient,
@@ -1172,6 +1176,66 @@ export class SettingsStore {
 
   resetAll(): Promise<WriteResult> {
     return this.write({ kind: "resetAll" });
+  }
+
+  /** The keys of `card` the person set; a managed key is the team's, not theirs to reset. */
+  private cardSetKeys(card: ResetCard): string[] {
+    const rows = this.getSnapshot().rows;
+    return card.keys.filter((key) => {
+      const row = rows.get(key);
+      return row !== undefined && row.customized && !row.managed;
+    });
+  }
+
+  /** Whether Reset <card> would change anything. */
+  cardCustomized(card: ResetCard): boolean {
+    return this.cardSetKeys(card).length > 0;
+  }
+
+  /** Resets the keys of one card the person set to their defaults, leaving every other card (and
+   * the card's managed keys) as they are: one step of the card history, "Reset Notifications".
+   * The writes go around the appearance stack, so a look key on Tabs or Terminal is one step here. */
+  async resetCard(card: ResetCard): Promise<boolean> {
+    const keys = this.cardSetKeys(card);
+    if (keys.length === 0) return true;
+    const before = captureKeys(this.getSnapshot(), keys);
+    let ok = true;
+    for (const key of keys) ok = (await this.write({ kind: "reset", key })).ok && ok;
+    const changes = diff(before, captureKeys(this.getSnapshot(), keys));
+    this.cardHistory.record({ label: cardResetLabel(card), changes });
+    return ok;
+  }
+
+  /** Undo on a card page: puts the last card reset's values back. False when there was none or
+   * the owner refused (the step stays where it was). */
+  async undoCardReset(): Promise<boolean> {
+    const step = this.cardHistory.takeUndo();
+    if (!step) return false;
+    const ok = await this.writeKeyStates(step.apply);
+    if (!ok) this.cardHistory.restore("undo", step.entry);
+    return ok;
+  }
+
+  /** Redo on a card page: resets the last undone card again. */
+  async redoCardReset(): Promise<boolean> {
+    const step = this.cardHistory.takeRedo();
+    if (!step) return false;
+    const ok = await this.writeKeyStates(step.apply);
+    if (!ok) this.cardHistory.restore("redo", step.entry);
+    return ok;
+  }
+
+  /** Writes each key state (a set, or a reset when it was unset), outside both stacks. */
+  private async writeKeyStates(states: readonly TargetState[]): Promise<boolean> {
+    let ok = true;
+    for (const state of states) {
+      if (state.kind !== "setting") continue;
+      const result = state.customized
+        ? await this.write({ kind: "set", key: state.key, value: state.value })
+        : await this.write({ kind: "reset", key: state.key });
+      ok &&= result.ok;
+    }
+    return ok;
   }
 
   /** The host holds one live preview at a time, whatever its key: its latest owner. */

@@ -19,6 +19,7 @@ import { GroupList } from "./GroupList";
 import { HarnessesCard } from "./HarnessesCard";
 import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
 import { AppearanceBar } from "./AppearanceBar";
+import { CardResetBar } from "./CardResetBar";
 import { MobileCard } from "./MobileCard";
 import { NoticesCard } from "./NoticesCard";
 import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
@@ -175,6 +176,8 @@ export function SectionView({
         <SectionActions key={id} section={id} />
       ))}
       {APPEARANCE_CATEGORIES.includes(category.id) && <AppearanceBar />}
+      {/* Every other page: Reset <card> and its Undo (cardReset.ts). */}
+      {!APPEARANCE_CATEGORIES.includes(category.id) && <CardResetBar section={category.id} />}
     </div>
   );
 }
