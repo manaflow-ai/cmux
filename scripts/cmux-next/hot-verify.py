@@ -90,7 +90,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import zipfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -1541,7 +1540,10 @@ def can_build_swift_app(planned: dict) -> bool:
     manifests, bundled helpers) remain an explicit build-required result.
     """
     build = planned.get("build")
-    return bool(planned.get("needs_build") and isinstance(build, dict) and set(build) == {"Swift"})
+    return bool(planned.get("needs_build") and isinstance(build, dict) and build
+                and set(build) <= {"Swift", "Swift, resources or manifests"}
+                and all(paths and all(path.endswith(".swift") and not path.endswith("Package.swift")
+                                      for path in paths) for paths in build.values()))
 
 
 def _ci_client() -> str:
@@ -1551,8 +1553,8 @@ def _ci_client() -> str:
     return ci
 
 
-def _ci_run(argv: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
-    done = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", timeout=APPLY_SECONDS)
+def _ci_run(argv: list[str], cwd: Path | None = None, timeout: int = APPLY_SECONDS) -> subprocess.CompletedProcess:
+    done = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", timeout=timeout)
     if done.returncode != 0:
         detail = why_failed(done.stderr or done.stdout, 500)
         raise LookError(f"{' '.join(argv[1:])}: {detail}")
@@ -1560,16 +1562,17 @@ def _ci_run(argv: list[str], cwd: Path | None = None) -> subprocess.CompletedPro
 
 
 def _artifact_app(bundle: Path) -> Path:
-    apps = sorted(p for p in bundle.rglob("*.app") if p.is_dir() and (p / "Contents/Info.plist").is_file())
-    if not apps:
-        raise LookError("fleet build returned no complete .app artifact")
+    apps = sorted(p for pattern in ("*.app", "*/*.app") for p in bundle.glob(pattern)
+                  if p.is_dir() and (p / "Contents/Info.plist").is_file())
+    if len(apps) != 1:
+        raise LookError(f"fleet build returned {len(apps)} top-level app artifacts; expected one")
     return apps[0]
 
 
 def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
     """Build the exact source tree on the fleet and return its complete app artifact."""
     ci = _ci_client()
-    kind, _, _ = source.partition(":")
+    kind = source.partition(":")[0]
     tree = resolve_tree(planned, source) if kind == "dir" else repo
     if tree is None:
         raise LookError("working-tree source has no checkout")
@@ -1584,7 +1587,8 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
         job = str(json.loads(submitted.stdout)["id"])
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         raise LookError(f"cmux-ci build returned no job id: {why_failed(submitted.stdout, 300)}") from error
-    _ci_run([ci, "wait", "--timeout", str(APPLY_SECONDS), job], cwd=tree)
+    log(f"fleet app build {job} for {planned['head'][:12]}")
+    _ci_run([ci, "wait", "--timeout", str(APPLY_SECONDS), job], cwd=tree, timeout=APPLY_SECONDS + 30)
     bundle = out / "fleet-bundle"
     bundle.mkdir(parents=True, exist_ok=True)
     artifact = subprocess.run([ci, "artifact", job, str(bundle), "--bundle"], cwd=tree,
@@ -1592,13 +1596,10 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
     if artifact.returncode == 3:
         archive = out / "fleet-app.zip"
         _ci_run([ci, "artifact", job, str(archive)], cwd=tree)
-        try:
-            shutil.rmtree(bundle, ignore_errors=True)
-            bundle.mkdir(parents=True, exist_ok=True)
-            with zipfile.ZipFile(archive) as zipped:
-                zipped.extractall(bundle)
-        except (OSError, zipfile.BadZipFile) as error:
-            raise LookError(f"cmux-ci artifact {job} returned an unreadable app zip") from error
+        shutil.rmtree(bundle, ignore_errors=True)
+        bundle.mkdir(parents=True, exist_ok=True)
+        # ditto preserves the executable modes and framework symlinks in macOS app archives.
+        _ci_run(["ditto", "-x", "-k", str(archive), str(bundle)], cwd=tree)
     elif artifact.returncode != 0:
         raise LookError(f"cmux-ci artifact {job}: {why_failed(artifact.stderr or artifact.stdout, 500)}")
     return _artifact_app(bundle)
@@ -1651,12 +1652,8 @@ def command_run(args) -> int:
             if side.exists():
                 side.stop()
                 side.run("remove", timeout=300)
-            make = ["make", "--from", str(built_app or the_app), "--label", args.label or f"cmux {side.name}",
-                    "--neutral-shell"]
+            make = ["make", "--from", str(built_app or the_app), "--label", args.label or f"cmux {side.name}"]
             side.run(*make, timeout=600)
-            if scratch is not None:
-                shutil.rmtree(scratch, ignore_errors=True)
-                scratch = None
             side.remember(try_source=args.source, try_repo=str(repo), try_head=planned["head"],
                           try_fork=planned["fork"], try_from=str(the_app))
             launched = side.run("launch", timeout=LAUNCH_SECONDS)

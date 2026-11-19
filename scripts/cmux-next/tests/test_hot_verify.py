@@ -542,6 +542,47 @@ class PlanTest(unittest.TestCase):
             "needs_build": True,
             "build": {"Swift": ["App.swift"], "Rust the app links (FFI)": ["pin.json"]},
         }))
+        self.assertTrue(hv.can_build_swift_app({
+            "needs_build": True, "build": {"Swift, resources or manifests": ["App.swift"]},
+        }))
+        self.assertFalse(hv.can_build_swift_app({
+            "needs_build": True, "build": {"Swift, resources or manifests": ["Packages/App/Package.swift"]},
+        }))
+
+    def test_fleet_zip_fallback_preserves_app_archive_with_ditto(self):
+        scratch = Path(self.tmp.name) / "zip-fallback"
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(argv)
+            if argv[1:3] == ["build", "cmux"]:
+                return subprocess.CompletedProcess(argv, 0, '{"id":"zip-job"}', "")
+            if "--bundle" in argv:
+                (Path(argv[3]) / "partial").write_text("partial")
+                return subprocess.CompletedProcess(argv, 3, "", "no bundle")
+            if argv[0] == "ditto":
+                bundle = Path(argv[-1])
+                self.assertFalse((bundle / "partial").exists())
+                app = bundle / "cmux DEV.app/Contents"
+                app.mkdir(parents=True)
+                (app / "Info.plist").write_text("plist")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with unittest.mock.patch.object(hv, "_ci_client", return_value="/fake/cmux-ci"), \
+                unittest.mock.patch.object(hv.subprocess, "run", side_effect=run):
+            app = hv.build_swift_app(self.fx.repo, {"head": self.fx.base}, f"sha:{self.fx.base}", scratch)
+        self.assertEqual(app.name, "cmux DEV.app")
+        self.assertEqual(calls[-1][:3], ["ditto", "-x", "-k"])
+
+    def test_fleet_artifact_selects_outer_app_not_embedded_helpers(self):
+        bundle = Path(self.tmp.name) / "bundle"
+        outer = bundle / "App.app"
+        contents = outer / "Contents"
+        nested = contents / "Frameworks/Helper.app/Contents"
+        nested.mkdir(parents=True)
+        (nested / "Info.plist").write_text("plist")
+        (contents / "Info.plist").write_text("plist")
+        self.assertEqual(hv._artifact_app(bundle), outer)
 
     def test_swift_app_fallback_builds_a_clean_ref_with_cmux_ci(self):
         head = self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "struct App { let x = 3 }\n"})
@@ -597,8 +638,17 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(calls[0][1]["cwd"], self.fx.repo)
 
     def test_run_on_swift_uses_the_fleet_app_before_launch(self):
+        self.assert_run_app_case(swift=True)
+
+    def test_run_without_swift_keeps_scratch_for_live_overlays(self):
+        self.assert_run_app_case(swift=False)
+
+    def assert_run_app_case(self, swift):
         app = self.fake_app(self.fx.base)
-        head = self.fx.change({"Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift": "struct App { let x = 4 }\n"})
+        files = {"webviews/src/app.tsx": "export const title = 'new'\n"}
+        if swift:
+            files["Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift"] = "struct App { let x = 4 }\n"
+        head = self.fx.change(files)
         built = Path(self.tmp.name) / "cmux DEV.app"
         (built / "Contents").mkdir(parents=True)
         calls = []
@@ -626,24 +676,36 @@ class PlanTest(unittest.TestCase):
             def stop(self):
                 return []
 
-        planned = {"head": head, "fork": self.fx.base, "base": self.fx.base, "layers": ["web"],
-                   "needs_build": True, "build": {"Swift": ["App.swift"]}}
+        scratch_paths = []
+
+        def apply_overlay(rules, planned, src_tree, side, scratch):
+            self.assertIsInstance(scratch, Path)
+            self.assertTrue(scratch.is_dir())
+            (scratch / "overlay-input").write_text("payload")
+            scratch_paths.append(scratch)
+            return {"how": "test overlay"}
+
         with unittest.mock.patch.object(hv, "Side", FakeSide), \
-                unittest.mock.patch.object(hv, "plan", return_value=planned), \
-                unittest.mock.patch.object(hv, "build_swift_app", return_value=built), \
+                unittest.mock.patch.object(hv, "build_swift_app", return_value=built) as app_build, \
                 unittest.mock.patch.object(hv, "rules_for", return_value=self.fx.repo), \
                 unittest.mock.patch.object(hv, "resolve_tree", return_value=None), \
-                unittest.mock.patch.object(hv, "apply_web") as apply_web, \
+                unittest.mock.patch.object(hv, "apply_web", side_effect=apply_overlay) as apply_web, \
                 unittest.mock.patch.object(hv, "control_socket", return_value="/tmp/try-test.sock"), \
                 unittest.mock.patch.object(hv.sys, "platform", "darwin"):
             code, text = self.cli("run", "--source", f"sha:{head}", "--app", str(app),
                                   "--repo", str(self.fx.repo), "--side", "try-test")
         self.assertEqual(code, 0)
         result = json.loads(text.strip().splitlines()[-1])
-        self.assertEqual(result["applied"]["app"]["how"], "fleet app build (re-sealed side instance)")
-        self.assertEqual(calls[0][:3], ("make", "--from", str(built)))
-        self.assertIn("--neutral-shell", calls[0])
-        apply_web.assert_not_called()
+        if swift:
+            self.assertEqual(result["applied"]["app"]["how"], "fleet app build (re-sealed side instance)")
+            self.assertEqual(calls[0][:3], ("make", "--from", str(built)))
+            app_build.assert_called_once()
+            apply_web.assert_not_called()
+        else:
+            self.assertEqual(calls[0][:3], ("make", "--from", str(app)))
+            app_build.assert_not_called()
+            apply_web.assert_called_once()
+            self.assertFalse(scratch_paths[0].exists())
 
     def test_run_needs_an_app(self):
         code, _ = self.cli("run", "--source", f"dir:{self.fx.repo}", "--app", hv.NO_APP, "--repo", str(self.fx.repo),
