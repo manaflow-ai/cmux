@@ -116,6 +116,15 @@ jobs:
           # An improvement's before with no `before:` line: the same state at the commit before the
           # highlight's, from a checkout there. At most 4 commits a run; the next push plans the rest.
           # A state the highlight's commit added comes from that commit's copy of its gallery file (overlays).
+          # An overlay that does not build at the parent (it imports what its commit added) is taken off
+          # again, so the parent's other befores still render; the overlaid ones are then named missing.
+          at_parent() {
+            (cd "$at/webviews" && bun scripts/gallery/manifest.ts --themes pair --widths normal --frame component \
+                --out "$RUNNER_TEMP/cases-$parent.json") &&
+              python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" manifest --plan "$out/plan.json" \
+                --cases "$RUNNER_TEMP/cases-$parent.json" --parent "$parent" --out "$RUNNER_TEMP/manifest-$parent.json" &&
+              (cd "$at/webviews" && CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-$parent" bun run gallery:build)
+          }
           for parent in $(python3 ../scripts/cmux-next/media/whats-new-gallery.py parents --plan "$out/plan.json" --limit 4); do
             at="$RUNNER_TEMP/at-$parent"
             {
@@ -123,17 +132,16 @@ jobs:
               git -C "$GITHUB_WORKSPACE" worktree add --no-checkout --detach "$at" "$parent" &&
               git -C "$at" sparse-checkout set --no-cone '/*' '!/cmux-next-ios/verify/' &&
               git -C "$at" reset -q --hard &&
+              (cd "$at/webviews" && bun install --frozen-lockfile) &&
               python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" overlays --plan "$out/plan.json" \
                 --parent "$parent" > "$RUNNER_TEMP/overlays-$parent.txt" &&
               (while read -r commit path; do
                 git -C "$GITHUB_WORKSPACE" show "$commit:$path" > "$at/$path" || exit 1
               done < "$RUNNER_TEMP/overlays-$parent.txt") &&
-              (cd "$at/webviews" && bun install --frozen-lockfile &&
-                bun scripts/gallery/manifest.ts --themes pair --widths normal --frame component \
-                  --out "$RUNNER_TEMP/cases-$parent.json") &&
-              python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" manifest --plan "$out/plan.json" \
-                --cases "$RUNNER_TEMP/cases-$parent.json" --parent "$parent" --out "$RUNNER_TEMP/manifest-$parent.json" &&
-              (cd "$at/webviews" && CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-$parent" bun run gallery:build) &&
+              { at_parent || {
+                  [ -s "$RUNNER_TEMP/overlays-$parent.txt" ] &&
+                  echo "::warning title=What's New picture::the overlaid gallery files do not build at $parent; rendering its other befores without them" &&
+                  git -C "$at" reset -q --hard && at_parent; }; } &&
               render "$RUNNER_TEMP/manifest-$parent.json" "$RUNNER_TEMP/gallery-$parent"
             } || echo "::warning title=What's New picture::no gallery at $parent; its befores wait"
           done

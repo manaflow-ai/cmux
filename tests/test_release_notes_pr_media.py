@@ -656,6 +656,14 @@ class GalleryRenderPlanTests(unittest.TestCase):
         self.assertEqual(len(missing), 1)
         self.assertIn("h before: a.b/x is new in its commit, not in src/a.gallery.tsx at pppppppppppp", missing[0])
         self.assertIn('"Before:"', missing[0])
+        # The file is at the parent without the state, but there is no copy to lay over it: a plan from before overlays
+        # (no commit), or a highlight commit whose copy lacks the variant (a later commit added it). Named, not overlaid.
+        at = {"p" * 40: "y: {}\n", "c" * 40: "y: {}\n"}
+        for row in ({k: v for k, v in rows[0].items() if k != "commit"}, rows[0]):
+            with self.subTest(commit=row.get("commit")):
+                out, missing = self.tool.resolve([row], cases, lambda rev, path: at.get(rev), {})
+                self.assertEqual(out, [])
+                self.assertIn("h before: a.b/x is new in its commit", missing[0])
 
     def test_a_state_its_commit_added_to_a_file_already_there_renders_at_the_parent_from_the_commits_copy(self):
         # new-tab-run-command (2026-11-17) added `typed-command` to NewTabScreen.gallery.ts and shipped with no before:
@@ -665,7 +673,8 @@ class GalleryRenderPlanTests(unittest.TestCase):
         cases = [self.case("a.b", "x"), self.case("a.b", "y")]
         rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p", "commit": "c"},
                 {"id": "g", "role": "before", "state": "a.b/y", "parent": "p", "commit": "d"}]
-        out, missing = self.tool.resolve(rows, cases, lambda rev, path: "y: {}\n", {})
+        files = {"p": "y: {}\n", "c": "x: {}\ny: {}\n", "d": "y: {}\n"}
+        out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get(rev), {})
         self.assertEqual(missing, [])
         self.assertEqual([(r["state"], r["parent"], r.get("overlay")) for r in out],
                          [("a.b/x", "p", "webviews/src/a.gallery.tsx"), ("a.b/y", "p", None)])

@@ -306,9 +306,10 @@ def resolve(rows: list[dict], cases: list[dict], text_at=show, notes: dict | Non
             old = marked_before(row["state"], cases, notes or {})
             if old:
                 row = {key: value for key, value in row.items() if key != "parent"} | {"state": old}
-            elif (source := _source(row["state"], cases)) and not _key(row["state"].partition("/")[2]).search(
+            elif (source := _source(row["state"], cases)) and not (key := _key(row["state"].partition("/")[2])).search(
                     there := text_at(row["parent"], f"webviews/{source}") or ""):
-                if not there or not row.get("commit"):
+                # The overlay is the highlight commit's copy, so it must hold the variant (a later commit may have added it).
+                if not there or not row.get("commit") or not key.search(text_at(row["commit"], f"webviews/{source}") or ""):
                     missing.append(f"{row['id']} before: {row['state']} is new in its commit, not in {source} at "
                                    f"{row['parent'][:12]}; give its gallery file the old look, a variant whose note "
                                    "opens \"Before:\"")
