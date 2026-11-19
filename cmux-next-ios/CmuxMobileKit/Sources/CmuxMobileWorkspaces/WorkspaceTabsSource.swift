@@ -27,11 +27,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The tab chosen on this screen. When it disappears (a new workspace
     /// whose placeholder tab became the Mac's real tab), the active tab
     /// falls back to the workspace's opening tab.
-    private var selectedTabID: String? {
-        // Every path that changes the active tab while the grid shows (a tap, the active
-        // tab closed there, a Mac publish dropping it): the new one holds its frame too.
-        didSet { if freezesStreams, selectedTabID != oldValue { freezeStreams(true) } }
-    }
+    private var selectedTabID: String?
     /// From the published tabs (`tabs`), not the workspace: a Mac publish
     /// that changes nothing the kit shows does not re-run the tabs screen.
     public var activeTabID: String? {
@@ -1197,60 +1193,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
         holdActiveTranscript(true)
         let inactive = (workspace?.tabs ?? []).filter { $0.kind == .terminal && $0.id != activeTabID }
         if !inactive.isEmpty { terminal.overviewWillAppear(inactive: inactive) }
-        // A streamed page holds still from the first shrinking frame (its freeze takes the card's snapshot).
-        freezeStreams(true)
         guard let id = activeTabID else { return }
-        if let tab = workspaceTab(id), tab.kind == .browser, streamModel(tab) == nil { browser(tab).takeSnapshot() }
+        if let tab = workspaceTab(id), tab.kind == .browser { browser(tab).takeSnapshot() }
+        if let tab = workspaceTab(id), tab.kind == .simulator { simulator(tab)?.takeSnapshot() }
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
-    }
-
-    /// The streamed pages held on one frame while the grid shows.
-    @ObservationIgnored private var frozenStreams: [StreamedBrowserModel] = []
-    /// The grid is showing (from the page's first shrinking frame until a page
-    /// settles): a tab activated meanwhile is held too.
-    @ObservationIgnored private var freezesStreams = false
-
-    /// Safari's still tab frame: from the moment the page starts shrinking into
-    /// its card, through the grid, until a page has grown back and settled, the
-    /// active streamed page (a browser tab or a simulator) holds the picture it
-    /// showed. A playing video or a scrolling page never moves inside the moving
-    /// card. The chat's equivalent is `holdActiveTranscript`.
-    private func freezeStreams(_ freeze: Bool) {
-        freezesStreams = freeze
-        guard freeze else {
-            for model in frozenStreams { model.freeze(false) }
-            frozenStreams = []
-            return
-        }
-        // A model the directory replaced (a new link) is let go: the active tab's current one holds.
-        frozenStreams.removeAll { model in
-            guard model.isClosed else { return false }
-            model.freeze(false)
-            return true
-        }
-        guard let id = activeTabID, let tab = workspaceTab(id), let model = streamModel(tab),
-              !frozenStreams.contains(where: { $0 === model }) else { return }
-        model.freeze(true)
-        frozenStreams.append(model)
-    }
-
-    /// The tab's page streamed from the Mac (a browser tab not opened on this
-    /// iPhone, or a simulator), nil for every other page.
-    private func streamModel(_ tab: WorkspaceTab) -> StreamedBrowserModel? {
-        switch tab.kind {
-        case .browser: nativeBrowser(tab) == nil ? streamedBrowser(tab) : nil
-        case .simulator: simulator(tab)
-        case .agent, .terminal: nil
-        }
-    }
-
-    /// A streamed browser page with nothing drawn of its own yet stays under
-    /// its card's frozen frame (the page as last seen) until the stream draws,
-    /// as Safari keeps a tab's last frame while it loads: opening it shows that
-    /// frame growing, not a black "Loading browser session…".
-    public func isContentReady(_ id: TabsKitTab.ID) -> Bool {
-        guard let tab = workspaceTab(id), tab.kind == .browser, let model = streamModel(tab) else { return true }
-        return !model.coversWithSnapshot
     }
 
     public func overviewVisibilityChanged(_ visible: Bool) {
@@ -1258,7 +1204,6 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if !visible {
             gridIdle = false
             holdActiveTranscript(false)
-            freezeStreams(false)
             followCards(false)
             flushHeldTabRefreshes()
         }
@@ -1315,13 +1260,6 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// The app went to the background (false) or came back (true): `WorkspaceScreen`'s
     /// scene phase. The grid's view stays "visible" while the app is in the background.
-    /// The workspace screen went away: TabsView sends no `overviewVisibilityChanged(false)`
-    /// when it is removed with the grid up, and the streamed models outlive this source
-    /// (the shared directory), so the next screen of the tab must not find it frozen.
-    public func screenDisappeared() {
-        freezeStreams(false)
-    }
-
     public func sceneActiveChanged(_ active: Bool) {
         guard active != sceneActive else { return }
         sceneActive = active
@@ -2586,8 +2524,7 @@ struct WorkspaceTabCard: View {
                 if let model = source.nativeBrowser(tab) {
                     BrowserCard(model: model, insets: insets)
                 } else if let model = source.streamedBrowser(tab) {
-                    // Laid out as its page is: the card covers an opening page (`isContentReady`).
-                    StreamedBrowserCard(model: model, insets: insets)
+                    StreamedBrowserCard(model: model)
                 } else {
                     // The tab's model only if its page was shown: a card never makes a web view.
                     BrowserCard(model: source.existingBrowser(tab.id), insets: insets)

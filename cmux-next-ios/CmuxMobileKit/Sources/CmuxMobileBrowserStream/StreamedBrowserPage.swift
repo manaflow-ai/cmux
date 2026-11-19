@@ -228,16 +228,11 @@ public struct StreamedBrowserCard: View {
     let placeholder: String
     /// A simulator's frame is shown whole and centred; a page's fills the width from the top.
     let fit: Bool
-    /// A page's insets (`StreamedBrowserPage`'s): its picture sits where the
-    /// page draws it, so the card can stand in for an opening page and the
-    /// live picture replaces it in place. Nil: the picture starts at the top.
-    let insets: EdgeInsets?
 
-    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false, insets: EdgeInsets? = nil) {
+    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false) {
         self.model = model
         self.placeholder = placeholder
         self.fit = fit
-        self.insets = insets
     }
 
     public var body: some View {
@@ -246,13 +241,6 @@ public struct StreamedBrowserCard: View {
             if fit, let image = model.snapshot?.image {
                 Color.black
                 Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
-            } else if let image = model.snapshot?.image, let insets {
-                // The page's layer: the picture fitted in the area between the insets, on black.
-                Color.black
-                Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.top, insets.top)
-                    .padding(.bottom, insets.bottom)
             } else if let image = model.snapshot?.image {
                 GeometryReader { geo in
                     Image(decorative: image, scale: 1).resizable().interpolation(.medium)
