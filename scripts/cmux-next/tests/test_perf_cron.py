@@ -670,6 +670,42 @@ class WebUiTests(unittest.TestCase):
                          "no empty sample: no ratio either")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
 
+    def test_the_cef_resize_part_owns_its_rows_and_judges_late_frames(self):
+        """Live resize beside a Chromium page (cef-layer-hosting-DESIGN.md "Live resize"): every frame on time (0
+        missed) and the frame's commit under half a display frame, from cef-resize-sync-bench.py's summary.json."""
+        self.assertIn("cef-resize", FLEET, "a Mac part on the measure host")
+        self.assertIn("--config=bench", cron.PART_BY_NAME["cef-resize"]["args"])
+        self.assertEqual(cron.part_for_row("cef_resize.drag.4x2.missed@cmux20-bench"), "cef-resize")
+        self.assertEqual(cron.part_for_row("cef_resize.window.1x2.commit_p95_ms@cmux20-bench"), "cef-resize")
+        spec2 = importlib.util.spec_from_file_location("cef_resize_cron", os.path.join(HERE, "..", "cef-resize-cron.py"))
+        cr = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(cr)
+        summary = {"validity": {"on0": {"ok": True}}, "modes": {"on0": {"light": {"rows": [
+            {"layout": "4x2", "action": "drag", "missed": 2, "commit_p95_ms": 3.1, "commit_max_ms": 7.0, "refresh_ms": 8.33},
+            {"layout": "1x2", "action": "window", "missed": 0, "commit_p95_ms": 5.0, "refresh_ms": 16.67},
+            {"layout": "1x2", "action": "drag", "missed": None, "commit_p95_ms": None, "refresh_ms": 8.33}]}}}}
+        bench_rows = cr.rows_from(summary)
+        self.assertEqual(cr.missing_from(summary, bench_rows), [])
+        part = cron.PART_BY_NAME["cef-resize"]
+        rows = cron.rows_of_part(part, {"rows": bench_rows}, budgets_mod, {})
+        self.assertEqual(sorted(rows), ["cef_resize.drag.4x2.commit_p95_ms", "cef_resize.drag.4x2.missed",
+                                        "cef_resize.window.1x2.commit_p95_ms", "cef_resize.window.1x2.missed"],
+                         "a layout the bench left no number for gets no row")
+        self.assertEqual(rows["cef_resize.drag.4x2.missed"]["unit"], "frames")
+        self.assertEqual(cron.target_of("cef_resize.drag.4x2.missed@cmux20-bench", rows["cef_resize.drag.4x2.missed"], 8.33), 0)
+        self.assertTrue(cron.over_target("cef_resize.drag.4x2.missed", rows["cef_resize.drag.4x2.missed"], 8.33))
+        self.assertEqual(cron.target_of("cef_resize.drag.4x2.commit_p95_ms", rows["cef_resize.drag.4x2.commit_p95_ms"], 8.33),
+                         4.17, "half a 120 Hz frame, not the 10 ms action latency")
+        self.assertEqual(rows["cef_resize.window.1x2.commit_p95_ms"]["budget"], 8.34, "half the frame it ran at")
+        self.assertFalse(cron.over_target("cef_resize.window.1x2.commit_p95_ms", rows["cef_resize.window.1x2.commit_p95_ms"], 16.67))
+        self.assertTrue(cron.frame_sensitive("cef_resize.drag.4x2.missed", rows["cef_resize.drag.4x2.missed"]))
+        self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("cef_resize.drag.4x2.missed"), "judged, not report-only")
+        no_window = {**summary, "modes": {"on0": {"light": {"rows": summary["modes"]["on0"]["light"]["rows"][:1]}}}}
+        self.assertEqual(cr.missing_from(no_window, cr.rows_from(no_window)), ["window: no rows"])
+        invalid = {"validity": {"on0": {"ok": False}}, "modes": {"on0": {}}}
+        self.assertEqual(len(cr.missing_from(invalid, cr.rows_from(invalid))), 1, "a run that was not layer-hosted")
+        self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": cr.missing_from(invalid, [])}))
+
     def test_the_memory_agents_part_measures_the_optimized_app(self):
         """CMUX-571 ram-baseline compares the app with other apps' release builds and with the 2026-11-08 Release
         baseline (app process 243-285 MB). The part measured the Debug build (app process 323.3 MB at 8c515cc5), so

@@ -196,6 +196,13 @@ PARTS = [
     {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
+    # Late frames and the frame's commit time while a pane divider drags and the window zooms beside a Chromium page
+    # (cef-resize-cron.py: cef-resize-sync-bench.py in its shipped mode on0, light bench): cef_resize.<action>.<layout>
+    # .missed (budget 0) and .commit_p95_ms (budget half a display frame), from plans/cmux-next/cef-layer-hosting-DESIGN.md
+    # "Live resize". The bench build, like memory-agents and throughput: the frames people see are Release frames.
+    {"name": "cef-resize", "args": [*MEASURE, "--config=bench", "--suite=cef-resize"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "cef-resize",
+     "run_seconds": 1800},  # a layer-hosting check launch, 2 layouts x 2 actions x 3 rounds, a cold bench build
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -237,7 +244,7 @@ ROW_PARTS = [
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"), (r"^launch\.", "launch"),
-    (r"^terminal\.throughput\.", "throughput"),
+    (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
     (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.infinite_items\.", "infinite-items"),
@@ -831,7 +838,7 @@ def refresh_skipped(rows, base_rows, refresh_ms, base_refresh_ms):
 
 def target_of(name, row, refresh_ms):
     """The row's target p95: latency 10 ms; a frame row one display refresh (the row's own when it has one); counts
-    0; diff, launch, web UI and main-thread rows their budget (a web UI row without a target has none)."""
+    0; diff, launch, web UI, CEF resize and main-thread rows their budget (a web UI row without a target has none)."""
     refresh_ms = row_refresh(row, refresh_ms)
     unit = row.get("unit") or "ms"
     name = base_row(name)
@@ -839,7 +846,7 @@ def target_of(name, row, refresh_ms):
         # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
         # latency is intentionally advisory and must not inherit the generic 10 ms target.
         return None
-    if name.startswith(("diff.", "launch.", "webui.")):
+    if name.startswith(("diff.", "launch.", "webui.", "cef_resize.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
         return 0
@@ -1905,7 +1912,7 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True).stdout
             ok = "--suite=launch" in text and '"--activation"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents"):
+        elif need in ("perf-gate", "launch", "memory-agents", "cef-resize"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
