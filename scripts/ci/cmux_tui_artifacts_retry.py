@@ -53,10 +53,14 @@ def decide(run: dict, jobs: list[dict], annotations: dict[int, list[dict]]) -> D
     # only feat-cmux-next's tree-publishing runs (they have this job) are retried.
     if not any(job.get("name") == TREE_PREFLIGHT_JOB for job in jobs):
         return Decision("skip", f"no {TREE_PREFLIGHT_JOB!r} job: not a tree-publishing run")
-    # The macOS fallback publishes the tree while its Linux-cross legs stay red:
-    # nothing is left to rescue, and a rerun would only rerun publish.
+    # The macOS fallback publishes the tree while its Linux-cross legs stay red.
+    # That is recovered unless the separate Mac delivery failed: a source tree
+    # alone does not provide the signed per-commit file `app try` consumes.
     published = [job["name"] for job in jobs if job.get("name") in TREE_PUBLISH_JOBS and job.get("conclusion") == "success"]
-    if published:
+    mac_delivery_failed = any(job.get("name") == "publish the Mac live update"
+                              and job.get("conclusion") in ("failure", "cancelled", "timed_out")
+                              for job in jobs)
+    if published and not mac_delivery_failed:
         return Decision("skip", f"{published[0]} succeeded: the tree is published")
     attempt = int(run.get("run_attempt") or 1)
     if attempt >= MAX_ATTEMPTS:

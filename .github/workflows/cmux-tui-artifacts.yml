@@ -4916,7 +4916,7 @@ jobs:
     needs: [publish, verify-publish, adopt-commit-manifest]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 50  # 15 for the Cloud machine channel, at most 15 more each for the Linux release and Mac live update files
+    timeout-minutes: 35  # 15 for the Cloud machine channel, at most 15 more for the Linux release file
     permissions:
       contents: read
       actions: read  # the Linux release file: this run's own build artifacts (gh run download)
@@ -4924,8 +4924,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # The Mac live update file walks first parents back up to 400 commits (hot-apply.py live-from).
-          fetch-depth: 402
 
       # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
       - name: Repair a reused self-hosted checkout
@@ -4985,11 +4983,41 @@ jobs:
             echo "::warning::the signed Linux release file of $GITHUB_SHA was not published; the next push signs its own"
           fi
 
+  # Mac delivery must not wait for or be skipped by the unrelated Cloud channel or
+  # Linux release signing. Manual artifact repairs must publish the same live file
+  # as a landing push. The payload maker re-downloads and hashes every Mac binary.
+  point-mac-live-channel:
+    name: publish the Mac live update
+    needs: [publish, verify-publish, adopt-commit-manifest]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
+    environment:
+      name: artifacts
+      deployment: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # live-from walks at most 400 first parents, including a merge's parents.
+          fetch-depth: 402
+
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
+
       # cmuxterm-hq docs/design/nightly-live-updates.md step 1: cmux-tui/<sha>/mac-live.json (written once; `cmux app
       # try SHA` takes it live) and cmux-tui/channels/mac-live.json (forward only), the same envelope and key with
       # purpose cmux-mac-live-update. It names the commit's darwin daemon binaries from the manifest (the Cloud
       # machine channel's trust: the darwin build is not this job's) and live_from, the app commits that can take
-      # them live. Delivery, not a gate: a failure is a warning and holds nothing above.
+      # them live. Failure fails this delivery job so it can be retried and alerted; builds do not wait on it.
       - name: Sign the Mac live update file
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
@@ -5002,16 +5030,14 @@ jobs:
           ml="$RUNNER_TEMP/mac-live"
           mkdir -p "$ml" && chmod 700 "$ml"
           export ml GITHUB_SHA GITHUB_RUN_ID
-          if ! timeout 900 bash -euo pipefail -c '
+          timeout 900 bash -euo pipefail -c '
                  curl -fsS --retry 3 --max-time 60 -o "$ml/manifest.json" "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json?mac-live=$GITHUB_RUN_ID"
                  python3 scripts/cmux-next/hot-apply.py live-from "$GITHUB_SHA" > "$ml/live-from.json"
                  python3 scripts/ci/cmux-machine-channel.py payload --purpose mac-live --manifest "$ml/manifest.json" \
                    --live-from "$ml/live-from.json" --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
                    --download-dir "$ml/binaries" --out "$ml/payload.json"
                  rm -rf "$ml/binaries"
-                 scripts/ci/cmux-machine-channel-point.sh "$ml/payload.json" "$ml"'; then
-            echo "::warning::the signed Mac live update file of $GITHUB_SHA was not published; the next push signs its own"
-          fi
+                 scripts/ci/cmux-machine-channel-point.sh "$ml/payload.json" "$ml"'
 
   # The fallback for publish's "Request the Cloud VM image roll": only when that dispatch failed, after the
   # read-back of the same commit manifests point-machine-channel reads. The roll's plan decides whether the
