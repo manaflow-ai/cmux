@@ -59,6 +59,15 @@ public final class BillingModel {
     /// The last product-load outcome sent to analytics, so a reload with the
     /// same result (after a purchase, restore or renewal) is not counted again.
     private var lastProductsEvent: String?
+    /// Purchases still waiting for their transaction, by product id:
+    /// `.pending` (Ask to Buy, an interrupted purchase) or `.awaitingServer`.
+    /// Kept apart from ``purchase`` because dismissing the result banner (the
+    /// plans screen closing) or starting another purchase must not forget
+    /// them: an approval often arrives long after, and must still complete
+    /// and report the purchase. In memory only: an approval that arrives
+    /// after a relaunch is still delivered and granted, but not reported as
+    /// this session's purchase.
+    private var waitingPurchases: [String: BillingPurchasePhase] = [:]
 
     /// Creates the model.
     /// - Parameters:
@@ -148,12 +157,14 @@ public final class BillingModel {
             capture(.purchaseCancelled, properties)
         case .pending:
             purchase = .pending(productID: offer.product.id)
+            waitingPurchases[offer.product.id] = purchase
             capture(.purchasePending, properties)
         case .completed(.unverified):
             fail(.unverified, properties: properties)
         case .completed(.verified(let transaction)):
             switch await deliver(transaction) {
             case .accepted(let receipt):
+                waitingPurchases[offer.product.id] = nil
                 purchase = .completed(receipt.planID)
                 capturePurchaseSucceeded(offer, transaction, delivery: "accepted")
                 await loadAccount()
@@ -165,6 +176,7 @@ public final class BillingModel {
                 // server also learns of it from App Store Server
                 // Notifications, so this is not a failed purchase.
                 purchase = .awaitingServer(productID: offer.product.id)
+                waitingPurchases[offer.product.id] = purchase
                 capturePurchaseSucceeded(offer, transaction, delivery: "deferred")
             }
         }
@@ -195,7 +207,9 @@ public final class BillingModel {
         for entitlement in await store.currentEntitlements() {
             guard case .verified(let transaction) = entitlement else { continue }
             switch await deliver(transaction) {
-            case .accepted: accepted += 1
+            case .accepted(let receipt):
+                accepted += 1
+                completeWaitingPurchase(transaction, receipt: receipt)
             case .deferred(let failure), .rejected(let failure): lastFailure = failure
             }
         }
@@ -236,7 +250,9 @@ public final class BillingModel {
         capture(.refundRequestResult, ["product_id": .string(productID), "result": .string(result)])
     }
 
-    /// Clears the result banner of the last purchase or restore.
+    /// Clears the result banner of the last purchase or restore. A purchase
+    /// still waiting for approval or for the server stays tracked, and shows
+    /// its result once its transaction arrives.
     public func dismissResult() {
         if !purchase.isPurchasing { purchase = .idle }
         if restore != .restoring { restore = .idle }
@@ -256,6 +272,7 @@ public final class BillingModel {
         offers = []
         offersFailure = nil
         purchase = .idle
+        waitingPurchases = [:]
         restore = .idle
     }
 
@@ -267,23 +284,42 @@ public final class BillingModel {
         case .accepted(let accepted):
             receipt = accepted
         case .rejected(let failure):
-            if purchase.isWaiting(for: transaction.productID) { purchase = .failed(failure) }
+            if isWaitingPurchase(transaction) {
+                waitingPurchases[transaction.productID] = nil
+                purchase = .failed(failure)
+            }
             return
         case .deferred:
             return
         }
-        if case .pending(let productID) = purchase, productID == transaction.productID,
-           let offer = offers.first(where: { $0.product.id == productID }) {
+        completeWaitingPurchase(transaction, receipt: receipt)
+        if account.account != nil {
+            await loadAccount()
+        }
+    }
+
+    /// True when `transaction` can be the one a waiting purchase of its
+    /// product waits for: it carries this account's token (or none, as a
+    /// resolved interrupted purchase does).
+    private func isWaitingPurchase(_ transaction: StoreTransaction) -> Bool {
+        guard waitingPurchases[transaction.productID] != nil else { return false }
+        guard let token = transaction.appAccountToken else { return true }
+        return token == account.account?.appAccountToken
+    }
+
+    /// Completes the waiting purchase `transaction` delivered, once the server
+    /// accepted it and granted a plan. A refund, an expiry or a lapsed
+    /// re-delivery of the same product (the receipt grants nothing) leaves it
+    /// waiting.
+    private func completeWaitingPurchase(_ transaction: StoreTransaction, receipt: BillingTransactionReceipt) {
+        guard isWaitingPurchase(transaction), receipt.planID != .free, receipt.status != "revoked",
+              let waiting = waitingPurchases.removeValue(forKey: transaction.productID) else { return }
+        if case .pending = waiting, let offer = offers.first(where: { $0.product.id == transaction.productID }) {
             // An approved Ask to Buy purchase: the App Store charged now.
             // An awaitingServer purchase already reported its success.
             capturePurchaseSucceeded(offer, transaction, delivery: "accepted")
         }
-        if purchase.isWaiting(for: transaction.productID) {
-            purchase = .completed(receipt.planID)
-        }
-        if account.account != nil {
-            await loadAccount()
-        }
+        purchase = .completed(receipt.planID)
     }
 
     /// Posts one transaction and remembers a permanent refusal for this
