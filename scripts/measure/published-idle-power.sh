@@ -41,21 +41,46 @@ utc = lambda: datetime.datetime.now(datetime.timezone.utc).isoformat().replace('
 bp.powermetrics = lambda _: None
 baseline = {p: (cmd, bp.counters(p)) for p, _, cmd in bm.process_table()
             if p not in owned and ('/cmux-tui' in cmd or '/.cmux/host-bin/' in cmd)}
-capture = subprocess.run(['screencapture', '-x', os.path.join(out, 'screen.png')], capture_output=True, text=True)
+first = {p: bp.counters(p) for p in owned}
+try:
+    capture = subprocess.run(['screencapture', '-x', os.path.join(out, 'screen.png')],
+                             capture_output=True, text=True, timeout=20)
+    capture_status, capture_error = capture.returncode, capture.stderr
+except subprocess.TimeoutExpired:
+    capture_status, capture_error = None, 'capture exceeded 20 seconds'
 start = utc()
 print('IDLE-WINDOW ' + json.dumps({'start': start, 'label': label, 'pid': pid, 'seconds': seconds}), flush=True)
-top = subprocess.Popen(['top', '-l', '2', '-s', str(seconds), '-pid', str(pid), '-stats', 'pid,cpu,power,command'],
-                       stdout=open(os.path.join(out, 'top.txt'), 'w'), stderr=subprocess.STDOUT)
-result = bp.measure(pid, bundle, label, seconds)
+with open(os.path.join(out, 'top.txt'), 'w') as top_output:
+    top = subprocess.Popen(['top', '-l', '2', '-s', str(seconds), '-pid', str(pid), '-stats', 'pid,cpu,power,command'],
+                           stdout=top_output, stderr=subprocess.STDOUT)
+    try:
+        result = bp.measure(pid, bundle, label, seconds)
+        try:
+            top.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            pass
+    finally:
+        if top.poll() is None:
+            top.terminate()
+            try:
+                top.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                top.kill()
+                top.wait(timeout=5)
+after = bm.owned(pid, bundle)
+last = {p: bp.counters(p) for p in owned}
+valid = set(owned) == set(after) and all(first[p] is not None and last[p] is not None for p in owned)
 result.update(start=start, end=utc(), bundle=bundle, pid=pid,
               version=info.get('CFBundleShortVersionString'), bundle_id=info.get('CFBundleIdentifier'),
-              members_before=owned, members_after=bm.owned(pid, bundle),
-              capture_status=capture.returncode, capture_error=capture.stderr)
+              members_before=owned, members_after=after, valid=valid, top_status=top.returncode,
+              validity_scope='stable observed membership and readable endpoint counters; transient processes may be missed',
+              capture_status=capture_status, capture_error=capture_error)
 result['existing_daemons'] = [{'pid': p, 'command': cmd, 'before': first, 'after': bp.counters(p)}
                               for p, (cmd, first) in baseline.items()]
-top.wait(timeout=20)
 with open(os.path.join(out, 'report.json'), 'w') as f:
     json.dump(result, f, indent=2)
 print('IDLE-RESULT ' + json.dumps(result), flush=True)
+if not valid:
+    raise SystemExit('Invalid measurement: process membership changed or counters became unreadable')
 PY
 tar -czf "artifacts/published-idle-$label.tgz" -C "$out" .
