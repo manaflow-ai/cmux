@@ -155,7 +155,12 @@ extension TabCell {
     /// dot at `dot` while `badgeColor` says one shows. Returns the drawn mark's width, nil when none.
     /// A tab glowing in place of its mark (`showsNeedsYouGlow`) keeps the mark's room and draws none.
     private func placeStateMark(dot: CGRect, glyph: CGRect, visible: Bool, onPath: Bool) -> CGFloat? {
-        let visible = visible && !showsNeedsYouGlow
+        if showsNeedsYouGlow {
+            dotFadesIn = false
+            let hasGlyph = layoutStatusGlyph(frame: glyph, visible: false) || statusGlyphLayer != nil
+            removeBadge(onPath: onPath)
+            return visible ? (hasGlyph ? glyph.width : dot.width) : nil
+        }
         if layoutStatusGlyph(frame: glyph, visible: visible) { removeBadge(onPath: onPath); return glyph.width }
         guard visible, badgeColor != nil else { removeBadge(onPath: onPath); return nil }
         let isNew = self.badgeLayer == nil

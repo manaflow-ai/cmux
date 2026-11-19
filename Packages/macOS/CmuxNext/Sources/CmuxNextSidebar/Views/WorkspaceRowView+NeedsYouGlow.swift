@@ -9,7 +9,8 @@ import QuartzCore
 /// again. The marks only go transparent, so nothing in the row moves.
 ///
 /// One layer per waiting row, made on first need and removed when it stops. The breath runs on the render server
-/// (`MotionGate.breathAnimation`), and holds still while the window is covered and when loops are off.
+/// (`MotionGate.attentionBreathAnimation`: three breaths, then the halo rests, so a row that waits for hours costs
+/// no frames), again each time its window shows after being covered, and not at all when loops are off.
 extension WorkspaceRowView {
     static let needsYouGlowKey = "row.needsYouGlow"
 
@@ -76,10 +77,11 @@ extension WorkspaceRowView {
         needsYouGlowLayer = nil
     }
 
-    /// Breathes while the window shows (``isNeedsYouWindowVisible``) and loops run; else the halo holds at full strength.
+    /// Breathes once per showing (``isNeedsYouWindowVisible``) while loops run, then rests at full strength; a covered
+    /// window drops the breath, so the row breathes again when it shows.
     func updateNeedsYouGlowMotion() {
         guard let glow = needsYouGlowLayer else { return }
-        guard isNeedsYouWindowVisible, let breath = Motion.indicators.breathAnimation(low: 0.35) else {
+        guard isNeedsYouWindowVisible, let breath = Motion.indicators.attentionBreathAnimation(low: 0.35) else {
             glow.removeAnimation(forKey: Self.needsYouGlowKey)
             return
         }

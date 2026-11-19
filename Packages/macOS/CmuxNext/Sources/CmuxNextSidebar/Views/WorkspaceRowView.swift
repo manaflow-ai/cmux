@@ -245,8 +245,13 @@ final class WorkspaceRowView: SidebarRowView {
         placeholderBar.layer?.removeAllAnimations()
         placeholderBar.alphaValue = 1
         shownBadges = nil
-        needsYouTone = nil
-        removeNeedsYouGlow()
+    }
+
+    /// A row made or parked while its window is covered starts from the window's own state, as a row's
+    /// indicators do; the list keeps it current after that (`SidebarListView.setWindowVisible`).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let window { isNeedsYouWindowVisible = window.occlusionState.contains(.visible) }
     }
 
     private struct Content: Hashable {
