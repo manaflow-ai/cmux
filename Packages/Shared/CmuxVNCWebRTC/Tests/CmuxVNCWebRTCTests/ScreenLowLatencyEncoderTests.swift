@@ -106,6 +106,11 @@ struct ScreenLowLatencyEncoderTests {
         for _ in 0 ..< 30 where sizes.count < 5 { try await Task.sleep(for: .milliseconds(100)) }
         #expect(sizes.count == 5, "every cropped BGRA frame was encoded (\(sizes.count))")
         #expect(sizes.all.allSatisfy { $0.0 == 1280 && $0.1 == 800 && $0.2 > 0 })
+        // The picture handed to VideoToolbox is the crop at the session's size.
+        let crop = RTCCVPixelBuffer(pixelBuffer: pixels, adaptedWidth: 1280, adaptedHeight: 800,
+                                    cropWidth: 1920, cropHeight: 1200, cropX: 1920, cropY: 0)
+        let picture = ScreenLowLatencyEncoder.i420(crop, width: 1280, height: 800)
+        #expect(picture.width == 1280 && picture.height == 800, "I420 at \(picture.width)x\(picture.height)")
     }
 
     /// Every rate control against libwebrtc's encoder at the bitrates a stream runs at:

@@ -228,25 +228,39 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
             // GPU. libwebrtc's own path scales NV12 on the CPU (libyuv) on every frame. Its
             // adapter also crops a few pixels to align the smaller size; the whole picture is
             // scaled instead (``cropIsAlignment``), which keeps the viewer's pointer fractions exact.
-            // A real crop (one display of a wider framebuffer): the GPU crops it too, which
-            // also converts a BGRA source (libyuv's ARGB path would need a BGRA output).
-            let whole = !crop || Self.cropIsAlignment(buffer)
-            if let transfer = transferSession() {
-                let rect = whole ? CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(buffer.pixelBuffer), height: CVPixelBufferGetHeight(buffer.pixelBuffer))
-                    : CGRect(x: Int(buffer.cropX), y: Int(buffer.cropY), width: Int(buffer.cropWidth), height: Int(buffer.cropHeight))
-                VTSessionSetProperty(transfer, key: kVTPixelTransferPropertyKey_SourceCropRectangle, value: rect.dictionaryRepresentation)
-                if VTPixelTransferSessionTransferImage(transfer, from: buffer.pixelBuffer, to: out) == noErr { return out }
+            if !crop || Self.cropIsAlignment(buffer), let transfer = transferSession(),
+               VTPixelTransferSessionTransferImage(transfer, from: buffer.pixelBuffer, to: out) == noErr {
+                return out
             }
-            // libyuv's NV12 path only: its ARGB path needs an ARGB output, and this one is NV12.
-            guard CVPixelBufferGetPixelFormatType(buffer.pixelBuffer) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-                || CVPixelBufferGetPixelFormatType(buffer.pixelBuffer) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange else { return nil }
+            // A real crop (one display of a wider framebuffer): libyuv's NV12 path, or, for
+            // any other source (BGRA), libwebrtc's own crop and convert to I420 below. libyuv's
+            // ARGB path would need an ARGB output, and this one is NV12.
+            let format = CVPixelBufferGetPixelFormatType(buffer.pixelBuffer)
+            guard format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange || format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange else {
+                return copyI420(Self.i420(buffer, width: width, height: height), into: out)
+            }
             let size = Int(buffer.bufferSizeForCroppingAndScaling(toWidth: width, height: height))
             if scaleBuffer.count < size { scaleBuffer = [UInt8](repeating: 0, count: size) }
             let ok = scaleBuffer.withUnsafeMutableBufferPointer { temp in buffer.cropAndScale(to: out, withTempBuffer: temp.baseAddress) }
             return ok ? out : nil
         }
         guard let out = pooledBuffer(session) else { return nil }
-        let i420 = frame.buffer.toI420()
+        return copyI420(frame.buffer.toI420(), into: out)
+    }
+
+    /// The buffer's crop as I420 at `width` x `height`: libwebrtc crops and converts it,
+    /// then scales it when its size is not the session's.
+    static func i420(_ buffer: RTCCVPixelBuffer, width: Int32, height: Int32) -> any RTCI420BufferProtocol {
+        let picture = buffer.toI420()
+        guard picture.width != width || picture.height != height,
+              let scaled = picture.cropAndScale?(with: 0, offsetY: 0, cropWidth: picture.width, cropHeight: picture.height,
+                                                 scaleWidth: width, scaleHeight: height)
+        else { return picture }
+        return scaled.toI420()
+    }
+
+    /// An I420 picture copied into an NV12 buffer of (at most) its size.
+    private func copyI420(_ i420: any RTCI420BufferProtocol, into out: CVPixelBuffer) -> CVPixelBuffer {
         CVPixelBufferLockBaseAddress(out, [])
         defer { CVPixelBufferUnlockBaseAddress(out, []) }
         let rows = min(Int(i420.height), CVPixelBufferGetHeightOfPlane(out, 0))
