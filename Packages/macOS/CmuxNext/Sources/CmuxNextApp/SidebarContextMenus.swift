@@ -67,8 +67,8 @@ enum SidebarContextMenus {
             menu.themeRows(in: scope)
             return menu
         case .section(.machine(let machine)) where machine.rawValue == MachineRegistry.localID && SidebarSection.machineCount(model.sections) == 1:
-            // This Mac alone: its header is the list's "Projects" title and draws no machine icon.
-            return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
+            // This Mac alone: its header is the list's "Projects" title and draws no machine icon; it keeps Share This Mac.
+            return SidebarScreenIntentActions.addShareThisMacRow(to: registry.makeContextMenu(for: .sidebarBackground), registry: registry).themeRows(in: scope)
         case .section(.machine(let machine)):
             return machineMenu(machine.rawValue, header: model.sections.first { $0.machine?.id == machine }?.machine, services: services).themeRows(in: scope)
         case .section, .background:

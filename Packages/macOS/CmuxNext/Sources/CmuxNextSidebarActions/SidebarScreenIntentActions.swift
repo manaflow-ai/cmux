@@ -1,3 +1,4 @@
+public import AppKit
 public import CmuxNextActions
 public import CmuxNextSidebar
 
@@ -38,6 +39,17 @@ public struct SidebarScreenIntentActions {
         case .viewScreen? where header?.screenActionEnabled == true: return [share]
         default: return [share, view]
         }
+    }
+
+    /// The single-machine sidebar's "Projects" title menu (the sidebar's own menu) with This Mac's Share This Mac row on
+    /// top, the row its machine header menu has when other machines are listed, so whichever header is shown offers
+    /// sharing. Returns `menu` unchanged when the registry has no such row (an administrator turned the action off).
+    @discardableResult
+    public static func addShareThisMacRow(to menu: NSMenu, registry: ActionRegistry) -> NSMenu {
+        guard let share = registry.makeContextMenuItem(for: "macScreen.shareThisMac", in: .machineSection) else { return menu }
+        menu.insertItem(share, at: 0)
+        if menu.items.count > 1, !menu.items[1].isSeparatorItem { menu.insertItem(.separator(), at: 1) }
+        return menu
     }
 
     /// Binds View Screen (`machine.viewScreen`), a machine header menu's row (Leo 2026-11-14: "ok but in screen sharing

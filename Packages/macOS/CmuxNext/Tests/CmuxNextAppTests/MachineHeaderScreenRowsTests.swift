@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextSidebar
 import CmuxNextSidebarActions
@@ -24,5 +25,17 @@ import Testing
         #expect(SidebarScreenIntentActions.hiddenMenuRows(Self.machine(.ssh, device: device, online: false)) == [Self.share, Self.view])
         #expect(SidebarScreenIntentActions.hiddenMenuRows(Self.machine(.ssh)) == [Self.share, Self.view])
         #expect(SidebarScreenIntentActions.hiddenMenuRows(nil) == [Self.share, Self.view])
+    }
+
+    /// This Mac alone draws its header as the list's "Projects" title, whose menu is the sidebar's own: it still
+    /// leads with Share This Mac, the row This Mac's header has when other machines are listed (review F1, #47230).
+    @Test func theProjectsTitleMenuLeadsWithShareThisMac() {
+        let registry = ActionRegistry(catalog: [ActionDescriptor(id: Self.share, title: "Share This Mac", category: .other)])
+        let menu = NSMenu()
+        menu.addItem(withTitle: "New Project", action: nil, keyEquivalent: "")
+        SidebarScreenIntentActions.addShareThisMacRow(to: menu, registry: registry)
+        #expect(menu.items.map(\.title) == ["Share This Mac", "", "New Project"])
+        #expect(menu.items[1].isSeparatorItem)
+        #expect(SidebarScreenIntentActions.addShareThisMacRow(to: NSMenu(), registry: ActionRegistry(catalog: [])).items.isEmpty)
     }
 }
