@@ -525,27 +525,27 @@ fn list_codex(
         files.push(source);
     }
     // `[hooks.<Event>]` tables inside config.toml itself.
-    if let Some(document) = &config {
-        if let Some(table) = document.get("hooks").and_then(|item| item.as_table_like()) {
-            let root = toml_hooks_as_json(table);
-            let before = hooks.len();
-            collect_json_hooks(&root, Agent::Codex, Scope::UserConfig, &config_path, None, hooks);
-            let key_path = paths.codex_state_key_path(&config_path);
-            for hook in &mut hooks[before..] {
-                hook.read_only = true;
-                apply_codex_state(hook, &key_path, &states);
-            }
-            if hooks.len() > before {
-                files.push(SourceFile {
-                    agent: Agent::Codex,
-                    scope: Scope::UserConfig,
-                    path: config_path,
-                    exists: true,
-                    hooks: hooks.len() - before,
-                    error: None,
-                    disable_all_hooks: false,
-                });
-            }
+    if let Some(document) = &config
+        && let Some(table) = document.get("hooks").and_then(|item| item.as_table_like())
+    {
+        let root = toml_hooks_as_json(table);
+        let before = hooks.len();
+        collect_json_hooks(&root, Agent::Codex, Scope::UserConfig, &config_path, None, hooks);
+        let key_path = paths.codex_state_key_path(&config_path);
+        for hook in &mut hooks[before..] {
+            hook.read_only = true;
+            apply_codex_state(hook, &key_path, &states);
+        }
+        if hooks.len() > before {
+            files.push(SourceFile {
+                agent: Agent::Codex,
+                scope: Scope::UserConfig,
+                path: config_path,
+                exists: true,
+                hooks: hooks.len() - before,
+                error: None,
+                disable_all_hooks: false,
+            });
         }
     }
     feature
@@ -824,9 +824,9 @@ pub fn set_enabled(
     }
     match hook.agent {
         Agent::Codex => {
-            let key = hook.state_key.clone().context("this Codex hook has no state key")?;
+            let key = hook.state_key.as_deref().context("this Codex hook has no state key")?;
             edit_codex_config(paths, |document| {
-                let entry = codex_state_entry(document, &key)?;
+                let entry = codex_state_entry(document, key)?;
                 if enabled {
                     entry.remove("enabled");
                 } else {
@@ -980,10 +980,11 @@ fn take_handler(
     if groups.is_empty() {
         events.shift_remove(&hook.event);
     }
-    if drop_empty_hooks && events.is_empty() {
-        if let Some(object) = root.as_object_mut() {
-            object.shift_remove("hooks");
-        }
+    if drop_empty_hooks
+        && events.is_empty()
+        && let Some(object) = root.as_object_mut()
+    {
+        object.shift_remove("hooks");
     }
     Ok((handler, emptied))
 }

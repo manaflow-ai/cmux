@@ -345,7 +345,7 @@ fn add_refuses_unknown_events_and_missing_project() {
     assert!(add(&fixture.paths, &new).is_err());
     new.agent = Agent::Claude;
     new.scope = Scope::Project;
-    let mut no_project = fixture.paths.clone();
+    let mut no_project = fixture.paths;
     no_project.project = None;
     assert!(add(&no_project, &new).is_err());
 }
@@ -385,7 +385,7 @@ fn claude_disable_enable_any_order_round_trips() {
     for disable_order in &orders {
         for enable_order in &orders {
             let fixture = fixture();
-            let paths = AgentPaths { project: None, ..fixture.paths.clone() };
+            let paths = AgentPaths { project: None, ..fixture.paths };
             let file = paths.claude_dir.join("settings.json");
             fs::write(&file, SETTINGS).unwrap();
             let normalized = OJson::parse(SETTINGS).unwrap().to_pretty();
@@ -418,7 +418,7 @@ fn claude_disable_enable_any_order_round_trips() {
 #[test]
 fn claude_add_remove_into_file_without_hooks() {
     let fixture = fixture();
-    let paths = AgentPaths { project: None, ..fixture.paths.clone() };
+    let paths = AgentPaths { project: None, ..fixture.paths };
     let file = paths.claude_dir.join("settings.json");
     let before = "{\n  \"model\": \"opus\",\n  \"theme\": \"dark\"\n}\n";
     fs::write(&file, before).unwrap();
