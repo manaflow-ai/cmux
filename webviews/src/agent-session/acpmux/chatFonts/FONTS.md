@@ -17,6 +17,7 @@ A character outside Latin falls back to the system font. The licence notices are
 | `cmuxSans-latin-wght.woff2`                 | cmux Sans                  | `ef16f0da63bd8946187083e17cb5e89909735f6bae3f159fc04b94ebf9a5d8a9` |
 | `cmuxSansSquat-latin-wght.woff2`            | cmux Sans Squat            | `141a246b968d230228f44a47dc2aaf00f152b9e9d0e1c5b7c2e753fce4f92364` |
 | `cmuxSansCandy-latin-wght.woff2`            | cmux Sans Candy            | `d69bb5a89d81737869c12ef385c7da94ca2115b6526d811bea3fd6357f14fd74` |
+| `cmuxSansOpen-latin-wght.woff2`             | cmux Sans Open             | `8a00bcfb95972dd55410f7b19c7669d71186f8cca78bf04cf0347b41d881622b` |
 
 cmux Sans is ours: Source Sans 3 3.052R (Adobe's variable font, sha256-checked) with its lowercase 8 %
 taller at Source's own size, cut to the same Latin range and features, built by
@@ -32,6 +33,13 @@ lowercase 15 % taller than Source's and its regular a touch heavier (440); Candy
 and the tailed l, heavier (470).
 The width scales every outline, advance and kern; the weight moves the axis (avar), so 400 draws heavier and 200
 and 900 stay. Their tracking is chatUiFont.ts's, per width.
+
+cmux Sans Open fixes the fit, not the letters (Leo, 2026-11-19: "The kerning in cmux sans is off it all looks too
+packed together and narrow a lot of the time ... Quillet does things better"): `build.py --preset open`. Measured against
+Quillet at weight 400, cmux Sans's lowercase sidebearings sum 88 units to Quillet's 103 and its word space is 200 to
+270, so Open is 4 % wider, adds 8 units each side of a lowercase letter (4 more right of the round ones), 3 each side
+of a capital (6 more right of the round ones), 4 each side of a figure, and has a 255-unit word space. Its x-height
+stays cmux Sans's.
 
 Inter was the app's bundled UI font until 2026-11-07 (Lawrence: "default fonts on cmux for everything should
 be macos default, not inter"); it stays a choice here, `cmux Inter` (its calculated tracking) or stock, and

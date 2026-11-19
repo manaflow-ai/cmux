@@ -18,7 +18,7 @@ export default agentPaneEntry({
   title: "cmux Sans personality",
   area: "Agent pane",
   covers: ["gallery/fontStudy/sansPersonality.ts", "gallery/fontStudy/candidates.ts"],
-  keywords: ["font", "typeface", "typography", "cmux sans", "hanken", "squat", "candy", "sidebar"],
+  keywords: ["font", "typeface", "typography", "cmux sans", "hanken", "squat", "candy", "open", "sidebar"],
   variants: Object.fromEntries(
     SANS_PERSONALITY_NAMES.map((name): [string, AgentPaneVariant] => [
       name,

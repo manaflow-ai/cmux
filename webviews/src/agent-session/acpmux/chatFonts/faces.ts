@@ -5,6 +5,7 @@
 import atkinson from "./AtkinsonHyperlegibleNext-latin-wght.woff2";
 import cmuxSans from "./cmuxSans-latin-wght.woff2";
 import cmuxSansCandy from "./cmuxSansCandy-latin-wght.woff2";
+import cmuxSansOpen from "./cmuxSansOpen-latin-wght.woff2";
 import cmuxSansSquat from "./cmuxSansSquat-latin-wght.woff2";
 import geist from "./Geist-latin-wght.woff2";
 import hanken from "./HankenGrotesk-latin-wght.woff2";
@@ -24,6 +25,7 @@ const FILES: Record<BundledChatFont, string> = {
   "cmux-sans": cmuxSans,
   "cmux-sans-squat": cmuxSansSquat,
   "cmux-sans-candy": cmuxSansCandy,
+  "cmux-sans-open": cmuxSansOpen,
   hanken,
   atkinson,
 };

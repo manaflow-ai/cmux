@@ -51879,6 +51879,7 @@
         "cmux-sans",
         "cmux-sans-squat",
         "cmux-sans-candy",
+        "cmux-sans-open",
         "hanken",
         "atkinson"
       ],
@@ -51968,6 +51969,13 @@
             "text" : "cmux Sans Candy"
           },
           "value" : "cmux-sans-candy"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontCmuxSansOpen",
+            "text" : "cmux Sans Open"
+          },
+          "value" : "cmux-sans-open"
         },
         {
           "title" : {

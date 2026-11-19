@@ -614,6 +614,13 @@
               }
             },
             {
+              "value": "cmux-sans-open",
+              "title": {
+                "key": "settings.choice.agentChatUiFontCmuxSansOpen",
+                "text": "cmux Sans Open"
+              }
+            },
+            {
               "value": "hanken",
               "title": {
                 "key": "settings.choice.agentChatUiFontHanken",

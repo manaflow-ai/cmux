@@ -26,7 +26,7 @@ Needs fontTools and brotli. Usage:
     build.py --all --out DIR               every preset
     build.py --all --out DIR --subset latin  Fontsource's Latin subset (the gallery's and the chat's files)
     build.py --preset c --subset latin --release --out DIR   the chat's cmux Sans (family "cmux Sans")
-    build.py --preset squat --subset latin --release --out DIR   cmux Sans Squat (likewise candy)
+    build.py --preset squat --subset latin --release --out DIR   cmux Sans Squat (likewise candy and open)
 The source zip is fetched once into ~/.cache/cmux-sans and checked against its sha256.
 """
 
@@ -80,6 +80,26 @@ PRESETS: dict[str, dict] = {
     "squat": {"scale": 1.0, "xheight": 548, "width": 1.08, "weight": 440, "name": "Squat"},
     # Round and soft: the single-storey a, the tailed l, wider and heavier still.
     "candy": {"scale": 1.0, "xheight": 536, "width": 1.05, "weight": 470, "sets": ["ss02", "ss05"], "name": "Candy"},
+    # Open: the fix is the fit, not the letters (Leo, 2026-11-19: "The kerning in cmux sans is off it all looks too
+    # packed together and narrow a lot of the time ... Quillet does things better"). Measured against Quillet at
+    # 400: its lowercase sidebearings sum 103 units to cmux Sans's 88, its o is 45 units wider, its word space 270 to
+    # 200. So: 4 % wider, 8 units more on each side of a lowercase letter and 4 more right of the round ones (whose
+    # right sides are the tight ones), 3 each side of a capital and 6 right of the round ones, 4 each side of a
+    # figure, and a 255-unit word space. The x-height stays cmux Sans's: a taller one would crowd the line again.
+    "open": {
+        "scale": 1.0,
+        "xheight": 516,
+        "width": 1.04,
+        "spacing": {
+            "lower": (8, 8),
+            "round_lower": 4,
+            "upper": (3, 3),
+            "round_upper": 6,
+            "digit": (4, 4),
+            "space": 255,
+        },
+        "name": "Open",
+    },
 }
 
 # Fontsource's "latin" subset, the range every other bundled chat face is cut to (chatFonts/FONTS.md).
@@ -310,6 +330,76 @@ def shift_weight(font: TTFont, weight: float) -> None:
     font["avar"].segments["wght"] = {x: through(old, through(shift, x)) for x in sorted(breaks)}
 
 
+def add_space(font: TTFont, spacing: dict) -> None:
+    """Opens the fit: each letter's sidebearings grow by the units its class gets (`lower`, `upper`, `digit`, each a
+    (left, right) pair, plus `round_lower` and `round_upper` added on the right of the round letters, whose right
+    sides are the tight ones), and the word space becomes `space` wide. A simple glyph's points move right by its
+    left addition at the default; every master moves with it, so the deltas stay. A composite keeps its base's
+    offset (the base moved) and moves its marks with it. Marks keep their zero width. The base anchors marks attach
+    to (GPOS) move with their letter, so accents stay centred. Kerning is relative and stays."""
+    glyf, hmtx, cmap = font["glyf"], font["hmtx"], font.getBestCmap()
+    kind: dict[str, str] = {}
+    for code, name in cmap.items():
+        category = unicodedata.category(chr(code))
+        kind[name] = {"Ll": "lower", "Lu": "upper", "Lt": "upper", "Lo": "lower", "Nd": "digit"}.get(category, "")
+    for name in font.getGlyphOrder():  # alternates follow their base letter (a.a, g.a, l.a)
+        if name not in kind and name.split(".", 1)[0] in kind:
+            kind[name] = kind[name.split(".", 1)[0]]
+    round_lower = {"o", "c", "e", "d", "q", "b", "p", "a.a"}
+    round_upper = {"O", "C", "G", "D", "Q"}
+
+    def amount(name: str) -> tuple[int, int]:
+        cls = kind.get(name, "")
+        if not cls:
+            return 0, 0
+        left, right = spacing.get(cls, (0, 0))
+        if name in round_lower:
+            right += spacing.get("round_lower", 0)
+        if name in round_upper:
+            right += spacing.get("round_upper", 0)
+        return left, right
+
+    moved: dict[str, int] = {}
+    for name in font.getGlyphOrder():
+        glyph = glyf[name]
+        if glyph.isComposite():
+            base = glyph.components[0].glyphName
+            left, right = amount(name) if name in kind else amount(base)
+            if (left, right) == (0, 0) and base not in moved:
+                continue
+            base_left = moved.get(base, amount(base)[0])
+            for component in glyph.components[1:]:
+                component.x += base_left  # marks move with the base the base glyph already shifted
+            advance, lsb = hmtx[name]
+            hmtx[name] = (advance + left + right, lsb + base_left)
+            moved[name] = base_left
+            continue
+        left, right = amount(name)
+        if (left, right) == (0, 0):
+            continue
+        coords, _controls = glyf._getCoordinatesAndControls(name, hmtx.metrics, None)
+        n_real = len(coords) - 4
+        shifted = [(x + left, y) for x, y in list(coords)[:n_real]]
+        phantom = list(coords)[n_real:]
+        phantom[1] = (phantom[1][0] + left + right, phantom[1][1])  # the right side
+        glyf._setCoordinates(name, GlyphCoordinates(shifted + phantom), hmtx.metrics)
+        moved[name] = left
+    space = cmap.get(0x20)
+    if space and spacing.get("space"):
+        advance, lsb = hmtx[space]
+        hmtx[space] = (spacing["space"], lsb)
+    for lookup in font["GPOS"].table.LookupList.Lookup:
+        for table in lookup.SubTable:
+            table = table.ExtSubTable if lookup.LookupType == 9 else table
+            if getattr(table, "LookupType", lookup.LookupType) != 4:
+                continue
+            for base, record in zip(table.BaseCoverage.glyphs, table.BaseArray.BaseRecord):
+                for anchor in record.BaseAnchor:
+                    if anchor is not None and moved.get(base):
+                        anchor.XCoordinate += moved[base]
+    font["OS/2"].recalcAvgCharWidth(font)
+
+
 def rename(font: TTFont, suffix: str | None) -> None:
     family = FAMILY if suffix is None else f"{FAMILY} {suffix}"
     ps = PS_FAMILY if suffix is None else f"{PS_FAMILY}{suffix}"
@@ -352,6 +442,8 @@ def build(preset: str, subset: str | None, out: Path, release: bool) -> list[Pat
         font["head"].unitsPerEm = 1000
     if params.get("width", 1) != 1:
         scale_width(font, params["width"])
+    if params.get("spacing"):
+        add_space(font, params["spacing"])
     if params.get("weight", 400) != 400:
         shift_weight(font, params["weight"])
     suffix = params.get("name") if release else preset.upper()
