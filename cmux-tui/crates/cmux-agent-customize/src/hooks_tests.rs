@@ -256,6 +256,27 @@ fn codex_disable_writes_enabled_false_and_enable_takes_it_out() {
 }
 
 #[test]
+fn codex_disable_enable_without_a_state_entry_gives_back_the_file() {
+    let fixture = fixture();
+    let config = fixture.paths.codex_home.join("config.toml");
+    let id = by_command(&list(&fixture.paths), "codex-b").id.clone();
+    // No state entry for any hook: with other hooks tables, and with none at all.
+    for before in [
+        "# my codex config\nmodel = \"gpt-5\"\n\n[hooks]\nfoo = 1\n\n[profiles.fast]\nmodel = \"gpt-5-mini\" # keep\n",
+        "# my codex config\nmodel = \"gpt-5\"\n\n[features]\nhooks = true\n\n[profiles.fast]\nmodel = \"gpt-5-mini\" # keep\n",
+    ] {
+        fs::write(&config, before).unwrap();
+        set_enabled(&fixture.paths, &id, false, false).unwrap();
+        let text = read(&config);
+        assert!(text.contains("enabled = false"), "{text}");
+        assert!(!by_command(&list(&fixture.paths), "codex-b").enabled);
+        set_enabled(&fixture.paths, &id, true, false).unwrap();
+        assert_eq!(read(&config), before);
+        assert!(by_command(&list(&fixture.paths), "codex-b").enabled);
+    }
+}
+
+#[test]
 fn codex_add_appends_a_trusted_group() {
     let fixture = fixture();
     let hook = add(
