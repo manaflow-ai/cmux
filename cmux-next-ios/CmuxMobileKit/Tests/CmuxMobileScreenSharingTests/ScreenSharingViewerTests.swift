@@ -3,6 +3,7 @@ import CmuxDeviceHub
 import CmuxScreenKit
 import CryptoKit
 import Foundation
+import QuartzCore
 import Testing
 @testable import CmuxMobileScreenSharing
 
@@ -369,6 +370,43 @@ import Testing
         #expect(reloaded.defaultScope == .view)
     }
 
+    /// A Linux desktop serves cmux.rd/1 only (its host refuses a WebRTC offer): its viewer's
+    /// screen is a desktop stream made on the ticket's signaling, in control for Full Control.
+    /// A Mac stays on WebRTC.
+    @Test func aLinuxDesktopIsViewedOverRdAndAMacOverWebRTC() throws {
+        #expect(ScreenSharingViewer.Transport(host: .linux) == .rd)
+        #expect(ScreenSharingViewer.Transport(host: .macos) == .webRTC)
+        #expect(ScreenSharingViewer.Transport(host: nil) == .webRTC)
+
+        let (service, _) = makeService()
+        let linux = HubDevice(id: hostID, name: "Box", platform: .linux, signingKey: "", macScreenShared: true, online: true)
+        let viewer = try #require(service.connect(to: linux, scope: .full))
+        #expect(viewer.transport == .rd)
+        var made: [(String, String, Bool)] = []
+        viewer.makeDesktopStream = { _, id, viewerID, control in
+            made.append((id, viewerID, control))
+            return FakeDesktop()
+        }
+        service.route(.sessionTicket(ticket("rd1", scope: .full)))
+        let screen = try #require(viewer.screen)
+        #expect(screen.isDesktop && !screen.isStream)
+        screen.connect()
+        #expect(made.map(\.0) == ["rd1"])
+        let phoneID = try #require(service.hub?.identity.id)
+        #expect(made.map(\.1) == [phoneID])
+        #expect(made.map(\.2) == [true])
+        #expect(screen.desktop != nil)
+        // The ticket admits once: its signaling went to that stream.
+        #expect(viewer.takeDesktopStream() == nil)
+
+        let (macService, _) = makeService()
+        let macViewer = try #require(macService.connect(to: mac(), scope: .view))
+        #expect(macViewer.transport == .webRTC)
+        macService.route(.sessionTicket(ticket("w1", scope: .view)))
+        #expect(macViewer.screen?.isStream == true)
+        #expect(macViewer.screen?.isDesktop == false)
+    }
+
     // MARK: Fixtures
 
     func makeService() -> (ScreenSharingService, Ends) {
@@ -590,5 +628,19 @@ extension ScreenSharingViewerTests {
         #expect(service.viewerOnScreen == nil)
     }
 
+}
+#endif
+
+#if os(iOS)
+/// A desktop stream that records what the session sends it.
+@MainActor final class FakeDesktop: ScreenDesktopStream {
+    let layer = CALayer()
+    private(set) var sent: [ScreenDesktopInput] = []
+    private(set) var closed = false
+    func start(_: @escaping @MainActor (ScreenDesktopEvent) -> Void) {}
+    func send(_ input: ScreenDesktopInput) { sent.append(input) }
+    func requestKeyframe() {}
+    func sample() -> ScreenDesktopSample { ScreenDesktopSample() }
+    func close() { closed = true }
 }
 #endif

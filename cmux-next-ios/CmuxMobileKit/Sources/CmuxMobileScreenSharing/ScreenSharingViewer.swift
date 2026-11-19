@@ -78,9 +78,31 @@ public final class ScreenSharingViewer: Identifiable {
     /// A denial or end the hub pushed before the request's HTTP answer named its session.
     @ObservationIgnored private var earlyOutcomes: [String: Phase] = [:]
 
-    init(hostID: String, hostName: String, hub: DeviceHub, preferences: ScreenSharingPreferences) {
+    /// How this phone reaches the host's screen, by the host's platform.
+    public enum Transport: Equatable, Sendable {
+        /// The Mac's screen stream: WebRTC video and data channels.
+        case webRTC
+        /// cmux.rd/1 (a Linux desktop): the Rust link and viewer, VideoToolbox decode.
+        case rd
+
+        /// A Mac streams over WebRTC; a Linux desktop serves cmux.rd/1 viewers only (its host
+        /// refuses a WebRTC offer). A host that named no platform is a Mac from before platforms.
+        public init(host platform: DevicePlatform?) {
+            switch platform {
+            case .linux?: self = .rd
+            case .macos?, .ios?, nil: self = .webRTC
+            }
+        }
+    }
+
+    /// How this viewer reaches the host's screen.
+    public let transport: Transport
+
+    init(hostID: String, hostName: String, hostPlatform: DevicePlatform? = nil, hub: DeviceHub,
+         preferences: ScreenSharingPreferences) {
         self.hostID = hostID
         self.hostName = hostName
+        transport = Transport(host: hostPlatform)
         self.hub = hub
         self.preferences = preferences
     }
@@ -259,8 +281,14 @@ public final class ScreenSharingViewer: Identifiable {
             watch(screen, sessionID: ticket.sessionId)
             return
         }
-        let session = ScreenSession(title: hostName, preferences: preferences.screen(for: hostID),
-                                    signaling: { [weak self] in self?.takeSignaling() })
+        let session = switch transport {
+        case .webRTC:
+            ScreenSession(title: hostName, preferences: preferences.screen(for: hostID),
+                          signaling: { [weak self] in self?.takeSignaling() })
+        case .rd:
+            ScreenSession(title: hostName, preferences: preferences.screen(for: hostID),
+                          desktop: { [weak self] in self?.takeDesktopStream() })
+        }
         session.reconnectLimit = 0
         // A drop goes straight to the reattach (no failed card first, over the last frame).
         session.onDropped = { [weak self, weak session] in
@@ -403,6 +431,20 @@ public final class ScreenSharingViewer: Identifiable {
     func takeSignaling() -> (any ScreenSignaling)? {
         defer { pendingSignaling = nil }
         return pendingSignaling
+    }
+
+    /// Makes a cmux.rd/1 stream (a Linux desktop) on the ticket's signaling, once per ticket.
+    @ObservationIgnored var makeDesktopStream: @MainActor (any ScreenSignaling, _ sessionID: String, _ viewerID: String,
+                                                           _ control: Bool) -> any ScreenDesktopStream = { signaling, id, viewer, control in
+        RdScreenSession(signaling: signaling, sessionID: id, viewerID: viewer, control: control)
+    }
+
+    /// The stream for `ScreenSession.connect()` on the rd transport: once per ticket, for the
+    /// session the viewer streams, in control when the ticket's scope is Full Control.
+    func takeDesktopStream() -> (any ScreenDesktopStream)? {
+        guard let signaling = takeSignaling(), case let .streaming(id, scope) = phase else { return nil }
+        let sessionID = (signaling as? TicketSignaling)?.ticket.sessionID ?? id
+        return makeDesktopStream(signaling, sessionID, hub.identity.id, scope == .full)
     }
 
     private func stopStream() {

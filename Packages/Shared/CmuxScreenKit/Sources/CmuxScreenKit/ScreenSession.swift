@@ -7,11 +7,13 @@ import Observation
 import QuartzCore
 
 /// One live session to a computer's screen: connection state, input, quality
-/// and live stats. Three kinds of target:
+/// and live stats. Four kinds of target:
 /// - a Mac paired as a screen stream (`VNCPairing.isStream`): the screen as
 ///   WebRTC video, input on data channels; reconnects on its own;
 /// - a Mac paired for RFB over WebRTC (`cmux-vnc-host` without `--stream`);
-/// - a VNC server reached directly (`VNCEndpoint`), or the built-in demo desktop.
+/// - a VNC server reached directly (`VNCEndpoint`), or the built-in demo desktop;
+/// - a desktop stream the app runs itself (``ScreenDesktopStream``: the iPhone's
+///   cmux.rd/1 viewer of a Linux desktop), its pictures in the stream's own layer.
 ///
 /// Frames do not go through observation (30+ per second): `ScreenView`
 /// receives them through `onFrame` / `onVideoTrack`. Use it from the main actor.
@@ -75,6 +77,15 @@ public final class ScreenSession {
     /// Set for a screen stream whose signaling the app supplies per connect
     /// (a device hub session's ticket): nil when there is none to connect with.
     @ObservationIgnored private let makeSignaling: (@MainActor () -> (any ScreenSignaling)?)?
+    /// Set for a desktop stream the app supplies per connect (``init(title:preferences:desktop:)``).
+    @ObservationIgnored private let makeDesktop: (@MainActor () -> (any ScreenDesktopStream)?)?
+    /// The running desktop stream (nil before a connect and after a disconnect).
+    @ObservationIgnored public private(set) var desktop: (any ScreenDesktopStream)?
+    /// The desktop stream's picture and its size, once one showed: a view made after the
+    /// connect attaches it, and ``onDesktopPicture`` hears every later change. A reconnect
+    /// keeps the last stream's picture here (and on screen) until the new stream shows one.
+    @ObservationIgnored public private(set) var desktopPicture: (layer: CALayer, size: CGSize)?
+    @ObservationIgnored public var onDesktopPicture: ((CALayer, CGSize) -> Void)?
     @ObservationIgnored private var demo: VNCDemoServer?
     @ObservationIgnored private var statsWindow = (start: CACurrentMediaTime(), frames: 0, bytes: 0)
     @ObservationIgnored private var heldButtons: VNCButtons = []
@@ -253,6 +264,7 @@ public final class ScreenSession {
         self.preferences = preferences
         pairing = nil
         makeSignaling = nil
+        makeDesktop = nil
     }
 
     /// A Mac paired over WebRTC: a screen stream host (`cmux-vnc-host
@@ -265,6 +277,7 @@ public final class ScreenSession {
         self.credentials = credentials
         self.preferences = preferences
         makeSignaling = nil
+        makeDesktop = nil
     }
 
     /// A screen stream whose signaling the app supplies: each `connect()`
@@ -279,10 +292,30 @@ public final class ScreenSession {
         credentials = VNCCredentials()
         self.preferences = preferences
         makeSignaling = signaling
+        makeDesktop = nil
     }
 
+    /// A desktop stream the app runs itself (the iPhone's cmux.rd/1 viewer): each `connect()`
+    /// asks `desktop` for a new stream (a device hub session's ticket admits once). Nil fails
+    /// the connect; an app that needs to reattach supplies a fresh ticket before reconnecting.
+    public init(title: String, preferences: ScreenPreferences = ScreenPreferences(),
+                desktop: @escaping @MainActor () -> (any ScreenDesktopStream)?) {
+        self.title = title
+        endpoint = VNCEndpoint(host: "rd", port: 1)
+        pairing = nil
+        credentials = VNCCredentials()
+        self.preferences = preferences
+        makeSignaling = nil
+        makeDesktop = desktop
+    }
+
+    /// Whether this session shows a desktop stream the app runs (``ScreenDesktopStream``).
+    public var isDesktop: Bool { makeDesktop != nil }
+
     /// "WebRTC" or "Direct", for the stats line.
-    public var pathLabel: String { isStream ? "Video · \(streamPath)" : (pairing != nil ? "WebRTC" : (isDemo ? "Loopback" : "Direct")) }
+    public var pathLabel: String {
+        isStream || isDesktop ? "Video · \(streamPath)" : (pairing != nil ? "WebRTC" : (isDemo ? "Loopback" : "Direct"))
+    }
 
     /// The built-in demo desktop on a loopback server in this app.
     public init(demoPreferences: ScreenPreferences = ScreenPreferences()) {
@@ -292,6 +325,7 @@ public final class ScreenSession {
         preferences = demoPreferences
         pairing = nil
         makeSignaling = nil
+        makeDesktop = nil
     }
 
     public var isDemo: Bool { endpoint == nil }
@@ -307,6 +341,14 @@ public final class ScreenSession {
                 return
             }
             connectStream(ScreenStreamViewer(signaling: signaling, relayOnly: relayOnly), name: title)
+            return
+        }
+        if let makeDesktop {
+            guard let desktop = makeDesktop() else {
+                phase = .failed(message: "There is no session to connect with.", needsSignIn: false)
+                return
+            }
+            connectDesktop(desktop)
             return
         }
         if let pairing, pairing.isStream {
@@ -462,6 +504,85 @@ public final class ScreenSession {
         })
     }
 
+    // MARK: Desktop stream
+
+    private func connectDesktop(_ desktop: any ScreenDesktopStream) {
+        self.desktop = desktop
+        relayErrors = []
+        isStalled = false
+        stats = LiveStats()
+        hostCapabilities = []
+        receiveSourceState(.live)
+        streamPath = "cmux.rd"
+        desktop.start { [weak self, weak desktop] event in
+            guard let self, let desktop, self.desktop === desktop else { return }
+            desktopEvent(event, from: desktop)
+        }
+    }
+
+    private func desktopEvent(_ event: ScreenDesktopEvent, from desktop: any ScreenDesktopStream) {
+        switch event {
+        case let .connected(width, height):
+            guard case .connecting = phase else { return }
+            reconnectAttempts = 0
+            reconnectStarted = nil
+            isReconnecting = false
+            phase = .connected(VNCServerInfo(width: width, height: height, name: title, nativeFormat: .bgrx,
+                                             protocolMinor: 8, securityType: 0))
+            tasks.append(Task { [weak self] in await self?.pollDesktopStats(desktop) })
+        case let .picture(size):
+            desktopPicture = (desktop.layer, size)
+            onDesktopPicture?(desktop.layer, size)
+        case let .path(relayed):
+            streamPath = relayed ? "Relay" : "Direct"
+        case let .ended(reason):
+            if case .connected = phase {
+                streamDropped(reason)
+            } else if isReconnecting {
+                streamDropped("Could not reach the computer: \(reason)")
+            } else {
+                self.desktop = nil
+                desktop.close()
+                phase = .failed(message: "Could not reach the computer: \(reason)", needsSignIn: false)
+            }
+        }
+    }
+
+    /// The desktop stream's counters, once a second, for the stats line.
+    private func pollDesktopStats(_ desktop: any ScreenDesktopStream) async {
+        var last = desktop.sample()
+        var lastTime = CACurrentMediaTime()
+        while !Task.isCancelled, self.desktop === desktop {
+            try? await Task.sleep(for: .seconds(1)) // stats sampling period
+            guard !Task.isCancelled, self.desktop === desktop else { return }
+            let sample = desktop.sample()
+            let now = CACurrentMediaTime()
+            let elapsed = max(now - lastTime, 0.001)
+            var next = stats
+            next.fps = Double(sample.framesShown &- last.framesShown) / elapsed
+            next.kilobytesPerSecond = Double(sample.bytes &- last.bytes) / 1024 / elapsed
+            next.latencyMs = sample.roundTripMs
+            next.decodeMs = sample.decodeMs
+            next.encoding = sample.encoding
+            next.framesReceived = Double(sample.framesReceived)
+            next.framesDecoded = Double(sample.framesShown)
+            next.framesDropped = Double(sample.framesLost)
+            stats = next
+            last = sample
+            lastTime = now
+        }
+    }
+
+    /// X button numbers of RFB buttons (1 left, 2 middle, 3 right).
+    private nonisolated static func desktopButtons(_ buttons: VNCButtons) -> [Int] {
+        let numbers: [(VNCButtons, Int)] = [(.left, 1), (.middle, 2), (.right, 3)]
+        return numbers.compactMap { buttons.contains($0.0) ? $0.1 : nil }
+    }
+
+    private func sendDesktopPointer(_ desktop: any ScreenDesktopStream) {
+        desktop.send(.pointer(x: Int(pointer.x.rounded()), y: Int(pointer.y.rounded())))
+    }
+
     /// The stream ended without the user closing it: reconnect a few times
     /// (backing off) before showing the error.
     /// How long one try may wait: 30 s, or what is left of the reconnect
@@ -484,6 +605,8 @@ public final class ScreenSession {
             // Giving up: the dropped stream's room socket would keep reconnecting.
             stream?.close()
             stream = nil
+            desktop?.close()
+            desktop = nil
             if let onDropped {
                 // The owner reattaches with a new ticket: still reconnecting, never the failed card.
                 isReconnecting = true
@@ -547,7 +670,7 @@ public final class ScreenSession {
     /// The app came back to the foreground: a stream that dropped while it
     /// was suspended reconnects right away.
     public func resumeIfNeeded() {
-        guard isStream, !isClosed else { return }
+        guard isStream || isDesktop, !isClosed else { return }
         switch phase {
         case .failed(_, false), .ended:
             reconnectAttempts = 0
@@ -622,6 +745,9 @@ public final class ScreenSession {
             Task.detached { stream.close(sendBye: sendBye) }
         }
         stream = nil
+        // The stream's link closes on the library's runtime: no waiting here.
+        desktop?.close()
+        desktop = nil
         onTelepointers?(nil, nil)
         stats.targetFps = nil
         if !silently { phase = .ended }
@@ -677,6 +803,11 @@ public final class ScreenSession {
 
     /// Moves the pointer to framebuffer point `point`.
     public func movePointer(to point: CGPoint) {
+        if let desktop {
+            pointer = clamp(point)
+            sendDesktopPointer(desktop)
+            return
+        }
         if let stream {
             pointer = clamp(point)
             let (x, y) = normalized(pointer)
@@ -690,6 +821,12 @@ public final class ScreenSession {
     }
 
     public func press(_ button: VNCButtons, down: Bool) {
+        if let desktop {
+            if down { perf?.input("press"); heldButtons.insert(button) } else { heldButtons.remove(button) }
+            sendDesktopPointer(desktop)
+            for number in Self.desktopButtons(button) { desktop.send(.button(number, down: down)) }
+            return
+        }
         if let stream {
             if down { perf?.input("press"); heldButtons.insert(button) } else { heldButtons.remove(button) }
             let (x, y) = normalized(pointer)
@@ -706,7 +843,7 @@ public final class ScreenSession {
     /// before the click and up after it, in reverse order.
     public func click(_ button: VNCButtons = .left, modifiers: [VNCKeysym]) {
         guard !modifiers.isEmpty else { return click(button) }
-        if stream != nil {
+        if stream != nil || desktop != nil {
             for modifier in modifiers { key(modifier, down: true) }
             click(button)
             for modifier in modifiers.reversed() { key(modifier, down: false) }
@@ -724,6 +861,15 @@ public final class ScreenSession {
     }
 
     public func click(_ button: VNCButtons = .left) {
+        if let desktop {
+            perf?.input(button == .right ? "right-click" : "click")
+            sendDesktopPointer(desktop)
+            for number in Self.desktopButtons(button) {
+                desktop.send(.button(number, down: true))
+                desktop.send(.button(number, down: false))
+            }
+            return
+        }
         if let stream {
             perf?.input(button == .right ? "right-click" : "click")
             let (x, y) = normalized(pointer)
@@ -740,6 +886,14 @@ public final class ScreenSession {
     }
 
     public func scroll(dx: Int, dy: Int) {
+        if let desktop {
+            guard dx != 0 || dy != 0 else { return }
+            perf?.input("scroll")
+            // RFB's sign (positive: wheel up, left) to rd's (negative: up, left), in hundredths of a line.
+            sendDesktopPointer(desktop)
+            desktop.send(.scroll(dx: -dx * 100, dy: -dy * 100))
+            return
+        }
         if let stream, dx != 0 || dy != 0 {
             perf?.input("scroll")
             let (x, y) = normalized(pointer)
@@ -768,6 +922,15 @@ public final class ScreenSession {
     }
 
     public func type(_ text: String, modifiers: [VNCKeysym] = []) {
+        if let desktop {
+            perf?.input("type")
+            if modifiers.isEmpty {
+                desktop.send(.type(text))
+            } else {
+                for character in text { tap(VNCKeysym(character: character), modifiers: modifiers) }
+            }
+            return
+        }
         if let stream {
             perf?.input("type")
             if modifiers.isEmpty {
@@ -791,6 +954,14 @@ public final class ScreenSession {
     }
 
     public func tap(_ key: VNCKeysym, modifiers: [VNCKeysym] = []) {
+        if let desktop {
+            perf?.input(modifiers.isEmpty ? "key" : "shortcut")
+            for modifier in modifiers { desktop.send(.keysym(modifier, down: true)) }
+            desktop.send(.keysym(key, down: true))
+            desktop.send(.keysym(key, down: false))
+            for modifier in modifiers.reversed() { desktop.send(.keysym(modifier, down: false)) }
+            return
+        }
         if let stream {
             perf?.input(modifiers.isEmpty ? "key" : "shortcut")
             stream.send(ScreenInput(t: "chord", k: key.rawValue, m: modifiers.map(\.rawValue)))
@@ -802,6 +973,10 @@ public final class ScreenSession {
     }
 
     public func key(_ key: VNCKeysym, down: Bool) {
+        if let desktop {
+            desktop.send(.keysym(key, down: down))
+            return
+        }
         if let stream {
             stream.send(ScreenInput(t: "key", k: key.rawValue, d: down))
             return
@@ -811,6 +986,10 @@ public final class ScreenSession {
     }
 
     public func refresh() {
+        if let desktop {
+            desktop.requestKeyframe()
+            return
+        }
         if let stream {
             stream.send(ScreenInput(t: "refresh"))
             return

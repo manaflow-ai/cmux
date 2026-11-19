@@ -121,8 +121,10 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
   signs itself in with its machine credential (`$ACPMUX_HOME/machine-credential.json`, the home of the acpmux that runs it,
   `POST /v1/auth/machine`), registers, and turns sharing on, so nobody does anything on it.
   Any other machine prints one `not_installed:` line. It never fails the join.
-- Viewers: cmux on a Mac (cmux.rd/1). The iPhone's WebRTC viewer is not served by this host
-  yet; its session ends with that reason.
+- Viewers: cmux on a Mac and the cmux iPhone app, both over cmux.rd/1. The iPhone picks
+  cmux.rd/1 for a `linux` device (its Rust viewer is `cmux-next-ios/rust/crates/cmux-mobile-link-ffi/src/screen.rs`)
+  and WebRTC for a Mac. A viewer that offers WebRTC (an iPhone app from before this) is
+  refused, and its session ends with that reason.
 - Relays the person added by hand are sealed to the device's agreement key and not opened
   yet: the host uses the hub's ICE servers.
 

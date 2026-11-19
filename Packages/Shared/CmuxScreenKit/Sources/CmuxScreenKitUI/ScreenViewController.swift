@@ -62,6 +62,8 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// Stream mode: the Mac's video, and its displays (each streams on its own).
     private var videoView: ScreenVideoView?
     private var streamDisplays: [CGSize] = []
+    /// Desktop mode: holds the desktop stream's picture layer.
+    private var desktopView: ScreenDesktopView?
     /// The decoded video's pixel size (stream mode; nil before the first frame).
     private var videoSize: CGSize?
     /// The 2 s viewer demand reports (stream mode).
@@ -146,6 +148,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
         session.onFrame = { [weak self] frame in self?.show(frame) }
         if session.isStream { installVideo() }
+        if session.isDesktop { installDesktop() }
         session.onCursor = { [weak self] cursor in self?.setCursor(cursor) }
         session.onTelepointers = { [weak self] person, agent in self?.setTelepointers(person: person, agent: agent) }
         session.onScreens = { [weak self] screens in
@@ -233,6 +236,25 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         }
     }
 
+    /// Desktop mode (``ScreenSession/isDesktop``): the stream's own picture layer fills the
+    /// content; its picture size is the frame size (stream pixels, the pointer's coordinates).
+    private func installDesktop() {
+        let host = ScreenDesktopView(frame: content.bounds)
+        host.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        content.insertSubview(host, at: 0)
+        desktopView = host
+        session.onDesktopPicture = { [weak self] layer, size in self?.showDesktop(layer, size: size) }
+        // A picture that came before this view did (the session connects as it is made).
+        if let picture = session.desktopPicture { showDesktop(picture.layer, size: picture.size) }
+    }
+
+    private func showDesktop(_ layer: CALayer, size: CGSize) {
+        guard let desktopView else { return }
+        desktopView.show(layer)
+        applyFrameSize(size)
+        session.perf?.streamFrame()
+    }
+
     /// The viewer's demand report: the long edge, in this screen's pixels, of
     /// the whole streamed display at the current zoom.
     private func reportDemand(pinch: Bool) {
@@ -262,6 +284,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         content.frame = CGRect(origin: .zero, size: size)
         screenLayer.frame = content.bounds
         videoView?.frame = content.bounds
+        desktopView?.frame = content.bounds
         scrollView.contentSize = size
         updateZoomLimits(resetToFit: true)
         updateCursor()
@@ -974,6 +997,37 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         if !keyInput.forward(presses, down: false) { super.pressesCancelled(presses, with: event) }
     }
 }
+/// Hosts a desktop stream's picture layer, sized to the view (a reconnect's new stream
+/// replaces the old layer once its first picture shows).
+private final class ScreenDesktopView: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .black
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    func show(_ picture: CALayer) {
+        guard picture.superlayer !== layer else { return }
+        for old in layer.sublayers ?? [] { old.removeFromSuperlayer() }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        picture.frame = bounds
+        layer.addSublayer(picture)
+        CATransaction.commit()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for sublayer in layer.sublayers ?? [] { sublayer.frame = bounds }
+        CATransaction.commit()
+    }
+}
+
 /// Carries the focused responder back from a nil-targeted action.
 private final class ScreenFirstResponderBox: NSObject {
     weak var responder: UIResponder?
