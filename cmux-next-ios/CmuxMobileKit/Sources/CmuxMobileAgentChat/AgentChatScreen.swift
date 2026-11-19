@@ -367,7 +367,7 @@ public final class AgentChatSurface {
         case .artifactsLayout(let grid):
             artifacts.grid = grid
         case .artifactsOpen(let reference):
-            let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
+            let collected = store.artifacts
             if let artifact = collected.artifacts.first(where: { $0.reference == reference }) { artifacts.path = [artifact] }
         case .artifactsSource(let on):
             artifacts.showSource = on
