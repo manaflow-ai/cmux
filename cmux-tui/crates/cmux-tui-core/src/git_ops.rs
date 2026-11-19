@@ -34,6 +34,10 @@ mod journal;
 mod list;
 mod mutation;
 mod push;
+#[cfg(all(test, unix))]
+mod read_cache_tests;
+#[cfg(test)]
+mod read_probe;
 mod target;
 mod user_run;
 mod work_tree_entry;
@@ -154,15 +158,17 @@ pub(crate) fn dispatch(
     let directory = target::directory(mux, &request, operation)?;
     if operation == "git.status" {
         let github = request.fields.get("github").and_then(Value::as_bool).unwrap_or(false);
-        return status(&directory, github);
+        return status_reply(&directory, github);
     }
     if operation == "git.fingerprint" {
         return fingerprint::read(&directory, &request.fields);
     }
+    if operation == "git.branches" {
+        return branches_reply(&directory, &request.fields);
+    }
     let repository = open_repository(&directory, operation)?;
     match operation {
         "git.diff" => diff::read(&repository, &request.fields),
-        "git.branches" => branches(&repository, &request.fields),
         "git.files.search" => files::search(&repository, &directory, &request.fields),
         _ => list::list(&repository, &directory, &request.fields),
     }
@@ -180,6 +186,20 @@ fn open_failed(operation: &'static str, directory: &Path, error: OpenError) -> R
     }
 }
 
+/// `git.status` of `directory`.
+fn status_reply(directory: &Path, github: bool) -> Result<Value, ResourceError> {
+    status(directory, github)
+}
+
+/// `git.branches` of the repository `directory` is in.
+fn branches_reply(
+    directory: &Path,
+    fields: &serde_json::Map<String, Value>,
+) -> Result<Value, ResourceError> {
+    let repository = open_repository(directory, "git.branches")?;
+    branches(directory, &repository, fields)
+}
+
 /// What HEAD of the checkout `directory` is in is on. A view that shows a
 /// branch asks this often and a person waits for it, so it comes from the
 /// refs (`cmux_git::head`): no run looks at the work tree's files, whose
@@ -188,6 +208,8 @@ fn open_failed(operation: &'static str, directory: &Path, error: OpenError) -> R
 /// so only a caller that asks pays it.
 fn status(directory: &Path, github: bool) -> Result<Value, ResourceError> {
     const OPERATION: &str = "git.status";
+    #[cfg(test)]
+    read_probe::ran(read_probe::Read::Status, directory);
     let repository =
         Checkout::open(directory).map_err(|error| open_failed(OPERATION, directory, error))?;
     let headers = repository.head().map_err(|failure| git_failed(OPERATION, &failure))?;
@@ -228,9 +250,14 @@ fn status(directory: &Path, github: bool) -> Result<Value, ResourceError> {
 /// Local, then remote branches, with HEAD's branch and the bases a branch
 /// diff may compare with (`cmux_git::refs`).
 fn branches(
+    directory: &Path,
     repository: &Repository,
     fields: &serde_json::Map<String, Value>,
 ) -> Result<Value, ResourceError> {
+    #[cfg(test)]
+    read_probe::ran(read_probe::Read::Branches, directory);
+    #[cfg(not(test))]
+    let _ = directory;
     let limit = fields.get("limit").and_then(Value::as_u64).unwrap_or(DEFAULT_BRANCH_LIMIT);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let listing = refs::branches(repository, limit)

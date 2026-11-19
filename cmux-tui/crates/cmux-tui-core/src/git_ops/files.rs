@@ -227,6 +227,8 @@ pub(super) fn listed(
 ) -> Result<(Vec<String>, bool), ResourceError> {
     // Run in the folder itself, so paths are relative to it and only files
     // under it are listed.
+    #[cfg(test)]
+    super::read_probe::ran(super::read_probe::Read::Listing, &repository.root);
     let listing = ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."];
     let listed = run_git(directory, &repository.overrides, &listing, MAX_LISTING_BYTES)
         .map_err(|failure| git_failed(operation, &failure))?;
