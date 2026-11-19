@@ -50,7 +50,7 @@ def runs_ci_group(job: dict) -> bool:
     for step in job.get("steps") or []:
         command = str(step.get("run", ""))
         # No --group runs the fast set (the ci group) plus the groups --feat-routes picks.
-        if ("scripts/ci/guards-local.sh" in command and "--list" not in command
+        if (any("scripts/ci/guards-local.sh" in line and "--list" not in line for line in command.splitlines())
                 and ("--group" not in command or "--group ci " in command)):
             return True
     return False
@@ -275,7 +275,7 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
 
     def test_each_guard_pass_uses_a_worker_per_core(self):
         run = "\n".join(str(step.get("run", "")) for step in self.job()["steps"])
-        calls = [line for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
+        calls = [line for line in run.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]
         # The head (one call for a pull request and a push), then the base.
         self.assertEqual(len(calls), 2, calls)
         for call in calls:
