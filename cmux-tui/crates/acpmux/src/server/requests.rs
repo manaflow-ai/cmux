@@ -2307,6 +2307,8 @@ async fn dispatch_request_with_identity(
                         flag("steerOnly") == Some(true),
                         given_provenance,
                     ),
+                // Taken by `prompt_with` from this request's task (`intake_order.rs`).
+                intake: None,
             };
             // An unverified prompt names no other sender: its activity is counted as an
             // unnamed prompt's was (`prompt_provenance::is_unverified`).

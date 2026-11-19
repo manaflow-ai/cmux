@@ -76,6 +76,8 @@ mod forum_held_turn_tests;
 #[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
+mod intake_order_tests;
+#[cfg(test)]
 mod ledger_hub_tests;
 #[cfg(test)]
 mod long_chat_tests;
@@ -294,6 +296,7 @@ pub(crate) use shutdown::{
 mod caller_registry;
 mod history_timing;
 pub(crate) mod inbox;
+pub(crate) mod intake_order;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
@@ -761,6 +764,11 @@ pub struct PromptOptions {
     /// "waiting" only while that caller is still there, and a question nobody waits for gets its
     /// reply sent back (`hub/question_replies.rs`).
     pub reply_reader: Option<tokio::sync::watch::Receiver<bool>>,
+    /// Its `session/prompt` request's place in the order its chat's prompts were read
+    /// (`intake_order.rs`): it waits for the ones read before it, and frees the ones after it
+    /// once it has its own place. Taken in `prompt_with`, never set by a caller.
+    #[doc(hidden)]
+    pub intake: Option<intake_order::Hold>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -874,6 +882,9 @@ pub struct Hub {
     /// Client requests every connection serves now, each holding its work slot
     /// (`server/in_flight.rs`, `Hub::requests_in_flight`).
     pub(crate) requests_in_flight: Arc<std::sync::atomic::AtomicUsize>,
+    /// The order each chat's prompts were read in (`intake_order.rs`): a prompt takes its place
+    /// after the ones sent before it.
+    pub(crate) intake_order: Arc<intake_order::IntakeOrder>,
     /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
     pub(crate) usage_stats: usage_view::UsageCache,
     /// What every turn here cost, indexed by day and session (`hub/ledger`, `_acpmux/ledger`).
@@ -1409,6 +1420,7 @@ impl Hub {
             list_guard: Default::default(),
             list_order: Default::default(),
             requests_in_flight: Default::default(),
+            intake_order: Default::default(),
             usage_stats: Default::default(),
             ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),

@@ -199,6 +199,10 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        // Its place in the order this chat's prompts were sent, before anything is awaited: it
+        // takes its place after the ones sent before it (`intake_order.rs`), whichever finished
+        // reading first. Dropped with `opts`, a prompt answered without a place frees the next.
+        opts.intake = super::intake_order::take_for(&session.id);
         // A deferred start reads the queues after its ready line: a new prompt waits for its
         // chat's, so it never runs ahead of a prompt queued under the previous daemon, nor ahead
         // of a turn adoption recovers.
@@ -288,6 +292,9 @@ impl Hub {
         };
         let outcome = match seen {
             Err(mut first) => {
+                // A copy has the first run's place: the prompt sent after it goes on now, not
+                // once the first run's turn ends.
+                drop(opts.intake.take());
                 if let Some(f) = opts.on_accepted.take() {
                     // The first run's turn, once it has one (queued or running): the sender of
                     // this copy then knows the prompt was taken. With none yet, the first run
@@ -471,6 +478,20 @@ impl Hub {
         if let Some(guard) = opts.race_guard.as_ref() {
             guard()?;
         }
+        // Read and checked: it takes its place (queued, started, steered in, or in the inbox)
+        // only after every prompt to this chat sent before it took its own (`intake_order.rs`).
+        // Freed as it is accepted (`accept`, below) or counted (`queue_slot`).
+        let intake = opts.intake.take();
+        if let Some(intake) = intake.as_ref()
+            && !intake.wait_turn().await
+        {
+            tracing::warn!(
+                session = %session.id,
+                prompt = %prompt_id,
+                "a prompt sent before this one was still being read after {:?}; this one goes on",
+                super::intake_order::BOUND
+            );
+        }
         // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
         let control = opts.control;
         let trust_gate = opts.trust_gate;
@@ -507,6 +528,10 @@ impl Hub {
                 && !opts.send_now;
         let race_guard = opts.race_guard.clone();
         let mut accept = |mut v: Value| {
+            // It has its place: the prompt sent after it may take its own.
+            if let Some(intake) = intake.as_ref() {
+                intake.release();
+            }
             if let Some(race_guard) = race_guard.as_ref()
                 && let Err(error) = race_guard()
             {
@@ -732,6 +757,7 @@ impl Hub {
             admitted: opts.admitted,
             after_turn: after_turn.is_some(),
             steer_on_start,
+            intake: intake.as_ref(),
         };
         let (turn_id, waiting, mut guard, run) =
             match self.queue_slot(session, slot, &mut accept).await {

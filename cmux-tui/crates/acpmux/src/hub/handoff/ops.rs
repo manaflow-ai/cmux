@@ -638,6 +638,7 @@ impl Hub {
             wake_or_fail: false,
             inbox: false,
             reply_reader: None,
+            intake: None,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

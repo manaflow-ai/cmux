@@ -1858,6 +1858,14 @@ async fn serve_connection_from(
                 // Registered in order, before the request is spawned: a `$/cancel_request` read
                 // after it finds it, and taking it frees its slot (`in_flight.rs`).
                 let mut ticket = conn.in_flight.begin(&id, &m, slot, dual_key);
+                // Numbered in order, before the request is spawned: a prompt takes its place in
+                // its chat after the prompts read before it, whichever finishes reading first
+                // (`hub/intake_order.rs`). Not a copy sent on two paths, which may wait for its
+                // other copy's whole turn before it runs.
+                let intake = (m == method::SESSION_PROMPT && dual.is_none())
+                    .then(|| crate::hub::intake_order::sent_to(params.as_ref()))
+                    .flatten()
+                    .map(|session| hub.intake_order.take(session));
                 #[cfg(test)]
                 cancel_classes_tests::after_begin(&conn);
                 let owner = conn.clone();
@@ -1883,11 +1891,11 @@ async fn serve_connection_from(
                     let cancel =
                         std::mem::replace(&mut ticket.cancel, tokio::sync::oneshot::channel().1);
                     let claim = ticket.claim();
-                    let serve = async {
+                    let serve = crate::hub::intake_order::scope(intake, async {
                         let stage = crate::hub::RequestStage::Dispatch;
                         hub.request_hold(stage, &m, &id).await;
                         list_reply::scope(id.clone(), &m, claim, route).await
-                    };
+                    });
                     // A cancel of its copy on another connection stops it too (`dual_requests.rs`).
                     let also = first.as_mut().and_then(dual_requests::First::take_stop);
                     let served = crate::request_cancel::until_either(cancel, also, serve).await;

@@ -198,6 +198,8 @@ pub(super) struct Slot<'a> {
     /// [`QueuedPrompt::steer_on_start`]: the person's steer to an agent that steers, sent before
     /// the turn it is for showed.
     pub(super) steer_on_start: bool,
+    /// Its intake place (`intake_order.rs`): freed once it is counted or queued here.
+    pub(super) intake: Option<&'a super::intake_order::Hold>,
 }
 
 /// What a queued prompt's task waits on (`enqueue`): its withdrawal, the turn it joined
@@ -386,6 +388,11 @@ impl Hub {
                     session.queued.fetch_add(1, Ordering::SeqCst);
                     break waiting;
                 };
+                // Counted, it has its place: a prompt sent after it now waits behind it
+                // (`intake_order.rs`). A queued one is freed as it is accepted, just below.
+                if !waiting && let Some(intake) = p.intake {
+                    intake.release();
+                }
                 let withdraw = if waiting {
                     let (waits, position) =
                         self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
