@@ -106,6 +106,12 @@ public final class StreamedBrowserModel: BrowserTabState {
     public private(set) var meter = Meter()
     /// The last shown picture for the grid card.
     public private(set) var snapshot: CGImageBox?
+    /// The page drew a picture of its own (not held by a freeze). Until it does,
+    /// a tab opening with a frozen frame keeps that frame over the page
+    /// (`coversWithSnapshot`), as Safari keeps a tab's last frame while it loads.
+    public private(set) var showsPicture = false
+    /// The page holds the picture it showed (`freeze`).
+    @ObservationIgnored public private(set) var isFrozen = false
     /// The page's open `<select>` popup (`rb.menu.show` of kind `select`): the page shows
     /// its options until the person picks or cancels, or the page closes it.
     public private(set) var selectMenu: OpenMenu?
@@ -334,6 +340,9 @@ public final class StreamedBrowserModel: BrowserTabState {
         guard visible != before else { return }
         connection?.setVisible(visible)
         if welcomed { send(wire.visibility(visible)) }
+        // Hidden (another tab shown, the workspace left): its card shows the
+        // page as it was last seen, not as it was when the grid last showed.
+        if !visible, showsPicture, !isFrozen { takeSnapshot() }
         updateWatch()
         // Shown again (on screen, app active) with its stream gone: open it.
         if visible { reconnect() }
@@ -526,6 +535,7 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     private func note(_ shown: BrowserVideoDecoder.Shown) {
         if phase != .live { phase = .live }
+        if !shown.held, !showsPicture { showsPicture = true }
         reconnecting = false
         watchdog.pictureShown(at: .now)
         let instant = ContinuousClock.now
@@ -662,6 +672,45 @@ public final class StreamedBrowserModel: BrowserTabState {
         history = nil
         queuedHistory = nil
         send(wire.navigate(target.absoluteString))
+    }
+
+    /// Freezes the page on the picture it shows (true) or lets it play again
+    /// (false). A tab zooming to the grid, resting there as its card and growing
+    /// back stays one still frame, as Safari's tabs do, instead of a video or a
+    /// moving page inside a moving card. The stream keeps decoding meanwhile
+    /// (the stall watchdog hears it), and the card's snapshot is the held frame.
+    public func freeze(_ frozen: Bool) {
+        guard frozen != isFrozen else { return }
+        isFrozen = frozen
+        decoder.setFrozen(frozen) { [weak self] drewHeld in
+            // A picture that came while frozen is the page's own once drawn.
+            guard drewHeld else { return }
+            Task { @MainActor in if let self, !self.showsPicture { self.showsPicture = true } }
+        }
+        // After the freeze on the decode queue: the snapshot is the held picture.
+        if frozen { takeSnapshot() }
+    }
+
+    /// A still kept from an earlier model of this tab (the link dropped and the
+    /// directory made the model again): the card and the opening page show it
+    /// until the stream draws.
+    public func seed(snapshot still: CGImageBox?) {
+        if snapshot == nil { snapshot = still }
+    }
+
+    /// The tab's frozen frame (its card) stays over the page: it has one, the
+    /// page has drawn nothing of its own yet, and the page is opening. A page
+    /// waiting on the Mac or the person (Reopen, unavailable) shows its status.
+    public var coversWithSnapshot: Bool {
+        Self.coversWithSnapshot(showsPicture: showsPicture, hasSnapshot: snapshot != nil, phase: phase)
+    }
+
+    static func coversWithSnapshot(showsPicture: Bool, hasSnapshot: Bool, phase: Phase) -> Bool {
+        guard hasSnapshot, !showsPicture else { return false }
+        switch phase {
+        case .connecting, .live: return true
+        case .waiting, .unavailable: return false
+        }
     }
 
     public func takeSnapshot() {
