@@ -232,12 +232,13 @@ public final class RemoteMachinesSidebar {
         return true
     }
 
-    private func rebuild() {
+    func rebuild() {
         guard laneWatch != nil else { return } // stopped: a fire queued before `stop()` does nothing
         askForPeers()
         // Captures run no peers: the sample machines stand in (`sidebar.laneFixture`, Debug, off).
         let next = SidebarTunables.laneFixture.value ? Self.machines(lanes: Self.fixtureLanes, peers: Self.fixturePeers)
             : Self.machines(lanes: lanes.lanes.values, peers: peers)
+        ScaleWork.add(.lanesWalked, machines.reduce(0) { $0 + $1.chats.count }) // the comparison
         if machines != next { machines = next }
     }
 
@@ -310,6 +311,9 @@ public final class RemoteMachinesSidebar {
     /// The groups: every peer the daemon lists (none listed yet: every peer a lane names), each
     /// with its live chats newest first, reachable machines first. A peer the daemon cannot reach has no chats.
     static func machines(lanes: some Collection<AgentActivityLane>, peers: [AcpmuxPeerList.Peer]?) -> [Machine] {
+        ScaleWork.add(.rebuilds)
+        ScaleWork.add(.setsBuilt)
+        ScaleWork.add(.lanesWalked, lanes.count)
         var byPeer: [String: [AgentActivityLane]] = [:]
         for lane in lanes {
             guard let peer = lane.peer else { continue }

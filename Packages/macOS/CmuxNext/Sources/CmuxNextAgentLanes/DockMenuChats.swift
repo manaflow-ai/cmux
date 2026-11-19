@@ -1,4 +1,5 @@
 public import CmuxNextAgentActivity
+import CmuxNextCompat
 public import Foundation
 
 /// The chats the Dock icon's menu lists (Leo 2026-11-03, after Claude's and Codex's Dock menus):
@@ -45,6 +46,8 @@ public nonisolated struct DockMenuChats: Equatable, Sendable {
     /// person marked read in its current state is not unread. Newest first by last change.
     public static func make(lanes: some Collection<AgentActivityLane>, marks: AgentPriorityMarks.State, now: Date = Date(),
                             shown: Int = 3, more: Int = 10) -> DockMenuChats {
+        ScaleWork.add(.rebuilds)
+        ScaleWork.add(.lanesWalked, lanes.count)
         let listed = lanes.filter { lane in
             guard !lane.sidebarRequiresOpen, !marks.archived.contains(lane.id) else { return false }
             return !marks.isSnoozed(lane.id, stamp: AgentPriorityMarks.stamp(lane), now: now)

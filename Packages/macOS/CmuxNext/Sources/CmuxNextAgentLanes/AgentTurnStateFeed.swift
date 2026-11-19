@@ -1,5 +1,6 @@
 public import CmuxNextAgentActivity
 public import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import os
@@ -311,6 +312,7 @@ public final class AgentTurnStateFeed {
         // session or of a peer's row is newer than the page, a purge's missing lane included.
         var lanes = page.lanes
         for id in keeping.union(keepingPeers.keys) { lanes[id] = self.lanes.lanes[id] }
+        ScaleWork.add(.lanesWalked, lanes.count) // the comparison below
         if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
     }
 

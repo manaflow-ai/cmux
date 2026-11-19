@@ -79,6 +79,13 @@ public final class DockMenuController: NSObject {
         refreshChoices()
     }
 
+    /// The rows rebuilt now from the lanes and marks, on this turn (what one step of the watch does;
+    /// the scale bench, `SidebarScaleWorkTests`, counts it).
+    func refreshChats() {
+        let made = DockMenuChats.make(lanes: lanes.lanes.values, marks: marks.state)
+        if made != chats { chats = made }
+    }
+
     public func stop() {
         watch?.cancel()
         watch = nil

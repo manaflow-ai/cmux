@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// acpmux's sub-session links (`startedBy`, `hub/subsessions.rs`): the session whose agent started a
@@ -45,6 +46,7 @@ extension AgentTurnStateStore {
 
     /// Replaces the links of every session of `source`'s watch with its page's, but the `keeping` ones.
     public func replaceStartedBy(_ links: [String: String], source: String = AgentTurnStateStore.localSource, keeping: Set<String> = []) {
+        ScaleWork.add(.lanesWalked, sessions.count + links.count)
         let own = sessions.compactMap { $0.value.source == source && $0.value.startedBy != nil ? $0.key : nil }
         for id in Set(own).union(links.keys) where !keeping.contains(id) { setStartedBy(links[id], session: id, source: source) }
     }

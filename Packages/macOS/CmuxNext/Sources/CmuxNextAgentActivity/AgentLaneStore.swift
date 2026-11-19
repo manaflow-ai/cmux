@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Observation
 
 /// Every acpmux session's lane (cx-v9k2f): this Mac's and the acpmux peers' it mirrors, from the
@@ -24,6 +25,10 @@ public final class AgentLaneStore {
             return storage
         }
         set {
+            // The whole map: compared, then three sets built over every session (ScaleWork counts it).
+            ScaleWork.add(.rebuilds)
+            ScaleWork.add(.lanesWalked, max(storage.count, newValue.count) + 3 * newValue.count)
+            ScaleWork.add(.setsBuilt, 3)
             if storage != newValue { revision &+= 1 }
             withMutation(keyPath: \.lanes) { storage = newValue }
             waiting = Set(newValue.compactMap { $0.value.state == .input ? $0.key : nil })
@@ -74,6 +79,8 @@ public final class AgentLaneStore {
     }
 
     private func syncNames() {
+        ScaleWork.add(.lanesWalked, storage.count)
+        ScaleWork.add(.setsBuilt)
         let current = Set(storage.values.map(\.name))
         if names != current { names = current }
     }
@@ -85,6 +92,8 @@ public final class AgentLaneStore {
     }
 
     private func syncChiefParticipants() {
+        ScaleWork.add(.lanesWalked, storage.count)
+        ScaleWork.add(.setsBuilt)
         let identities = Dictionary(storage.values.compactMap { lane -> (String, String)? in
             Self.chiefOwnership(lane).map { ($0[0], $0[1]) }
         }, uniquingKeysWith: { first, _ in first })
@@ -152,6 +161,7 @@ public final class AgentLaneStore {
     /// told (their readers re-read and get a fresh cell).
     private func syncCells() {
         guard !cells.isEmpty else { return }
+        ScaleWork.add(.lanesWalked, cells.count)
         var ended: [String] = []
         for (session, cell) in cells {
             let lane = storage[session]

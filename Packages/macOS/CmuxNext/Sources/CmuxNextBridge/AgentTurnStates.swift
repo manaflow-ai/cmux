@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import CmuxNextCompat
 public import Foundation
 public import Observation
 import os
@@ -496,6 +497,9 @@ public final class AgentTurnStateStore {
                         titles: [String: String], generatedTitles: [String: String] = [:], sessionNames: [String: String] = [:], details: [String: AgentChatDetail],
                         source: String = AgentTurnStateStore.localSource, peers: [String: [String: AgentPeerRow]] = [:], keeping: Set<String> = [],
                         keepingPeers: [String: Set<String>] = [:]) {
+        ScaleWork.add(.listReloads)
+        ScaleWork.add(.setsBuilt, 2)
+        ScaleWork.add(.lanesWalked, sessions.count + states.bySession.count + details.count + peers.count)
         let own = sessions.compactMap { $0.value.source == source ? $0.key : nil }
         let listed = Set(states.bySession.keys).union(lastMessages.keys).union(muted)
             .union(titles.keys).union(generatedTitles.keys).union(sessionNames.keys).union(details.keys).union(peers.keys)
@@ -519,6 +523,7 @@ public final class AgentTurnStateStore {
     /// `source`'s sessions, leaving every other fact as it is; writes only what changed. A session
     /// the store does not hold from `source` is skipped: the watch has not listed it.
     public func applyUsage(_ usage: [String: AgentChatDetail], source: String = AgentTurnStateStore.localSource) {
+        ScaleWork.add(.lanesWalked, usage.count)
         for (id, numbers) in usage {
             guard let record = sessions[id], record.source == source else { continue }
             let detail = (record.detail ?? AgentChatDetail()).withUsage(of: numbers)

@@ -1,3 +1,5 @@
+import CmuxNextCompat
+
 /// A client-only top item and its look (`SidebarModel.transientTopItems`). Never in the layout
 /// document: it cannot be moved, edited or hidden, and activates like any item.
 public nonisolated struct SidebarTransientItem: Hashable, Sendable {
@@ -52,9 +54,15 @@ extension SidebarModel {
     }
 
     private static func anchor(_ refs: [LayoutItemRef], in sections: [LayoutSection]) -> (Int, Int)? {
+        var visited = 0
+        defer { ScaleWork.add(.bandRows, visited) }
         for ref in refs {
             for (s, section) in sections.enumerated() {
-                if let i = section.items.firstIndex(where: { $0.ref == ref }) { return (s, i) }
+                if let i = section.items.firstIndex(where: { $0.ref == ref }) {
+                    visited += i + 1
+                    return (s, i)
+                }
+                visited += section.items.count
             }
         }
         return nil
