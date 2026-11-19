@@ -26,6 +26,14 @@ push to feat-cmux-next or main keep their own policy there, usually
 A workflow that must not cancel a superseded pull request run goes in ALLOWED
 with the reason. Entries that stop being needed fail the test.
 
+A merged or closed pull request's run is the same waste, and a push never
+replaces it. A closed-cancel twin (CLOSED_TWINS) ends it: a workflow on
+`pull_request: types: [closed]` whose concurrency group, on that closed event,
+is the group its target gives the pull request's synchronize runs, with
+cancel-in-progress. Its group is checked against the target's, so a change to
+either one's group that stops them matching goes red here; a `no-janitor` label
+must keep the run (a group of its own).
+
 Run: python3 tests/test_ci_pr_runs_cancel_superseded.py
 """
 
@@ -67,6 +75,16 @@ ALLOWED = {
     "backend.yml": "deploy workflow",
     # Writes to the nightly R2 bucket; serialising is the safe answer there.
     "repair-nightly-appcast-content-types.yml": "writes nightly R2 objects; serialised",
+}
+
+
+# Closed-cancel twins: each ends its target's run for a pull request when that
+# pull request closes, by joining the target's per-pull-request group.
+CLOSED_TWINS = {
+    "cmux-next-pr-closed-cancel.yml": "cmux-next.yml",
+    "cmux-next-pr-autofix-closed-cancel.yml": "cmux-next-pr-autofix.yml",
+    # The CI run of a merged PR held 15 Linux jobs after the merge (run 44326505154).
+    "ci-pr-closed-cancel.yml": "ci.yml",
 }
 
 
@@ -216,12 +234,21 @@ class _Parser:
 
     def postfix(self) -> Any:
         value = self.primary()
+        star = False
         while self.peek() in (".", "["):
             if self.take()[1] == ".":
                 key = self.take()[1]
             else:
                 key = _text(self.or_())
                 self.take("]")
+            if key == "*":
+                # An object filter: `labels.*.name` is every label's name.
+                value = list(value.values()) if isinstance(value, dict) else value if isinstance(value, list) else None
+                star = True
+                continue
+            if star and isinstance(value, list):
+                value = [item.get(key) if isinstance(item, dict) else None for item in value]
+                continue
             value = value.get(key) if isinstance(value, dict) else None
         return value
 
@@ -417,6 +444,39 @@ def workflow_problem(workflow: dict) -> str | None:
     return None
 
 
+def closed_context(workflow: dict, number: int, labels: list[str]) -> dict[str, Any]:
+    """The contexts of the `closed` run of pull request `number`."""
+    context = pr_context(workflow, "pull_request", number, 1)
+    context["github"]["event"]["action"] = "closed"
+    context["github"]["event"]["pull_request"]["labels"] = [{"name": name} for name in labels]
+    return context
+
+
+def twin_problem(twin: dict, target: dict) -> str | None:
+    """Why `twin` does not cancel `target`'s run when a pull request closes, or None."""
+    twin_concurrency, target_concurrency = twin.get("concurrency"), target.get("concurrency")
+    if not isinstance(twin_concurrency, dict) or not isinstance(target_concurrency, dict):
+        return "the twin or its target has no workflow concurrency block"
+    trigger = triggers(twin).get("pull_request")
+    types = trigger.get("types") if isinstance(trigger, dict) else None
+    if list(types or []) != ["closed"]:
+        return f"the twin must run only on pull_request closed, not {types!r}"
+    try:
+        closed = _text(resolve(twin_concurrency.get("group"), closed_context(twin, 101, [])))
+        kept = _text(resolve(twin_concurrency.get("group"), closed_context(twin, 101, ["no-janitor"])))
+        target_group = _text(resolve(target_concurrency.get("group"), pr_context(target, "pull_request", 101, 1)))
+        cancels = _truthy(resolve(twin_concurrency.get("cancel-in-progress", False), closed_context(twin, 101, [])))
+    except (ExpressionError, KeyError, IndexError, TypeError, ValueError) as error:
+        return f"cannot evaluate a group: {error}"
+    if closed != target_group:
+        return f"its closed group {closed!r} is not the target's pull request group {target_group!r}"
+    if kept == target_group:
+        return "a no-janitor pull request's run is cancelled too; give it a group of its own"
+    if not cancels:
+        return "cancel-in-progress is false"
+    return None
+
+
 def self_check() -> list[str]:
     """The evaluator agrees with GitHub on the shapes the workflows use."""
     failures = []
@@ -442,6 +502,14 @@ def self_check() -> list[str]:
     # pull_request_target runs carry the base branch in github.ref.
     if problem({"group": "w-${{ github.ref }}", "cancel-in-progress": True}, on, "pull_request_target") is None:
         failures.append("self-check: a github.ref group must not count as per-PR for pull_request_target")
+    target = {"name": "W", "concurrency": {"group": "${{ github.workflow }}-${{ github.ref }}"}}
+    twin = {"on": {"pull_request": {"types": ["closed"]}}, "concurrency": {
+        "group": "${{ contains(github.event.pull_request.labels.*.name, 'no-janitor') && 'kept' || format('W-refs/pull/{0}/merge', github.event.pull_request.number) }}",
+        "cancel-in-progress": True}}
+    if twin_problem(twin, target) is not None:
+        failures.append(f"self-check: a matching closed twin fails: {twin_problem(twin, target)}")
+    if twin_problem({**twin, "concurrency": {"group": "W-other", "cancel-in-progress": True}}, target) is None:
+        failures.append("self-check: a closed twin with another group passes")
     return failures
 
 
@@ -460,6 +528,13 @@ def main() -> int:
             continue
         if reason:
             failures.append(f"{path.relative_to(ROOT)}: {reason}")
+    for twin_name, target_name in sorted(CLOSED_TWINS.items()):
+        if not (WORKFLOWS / twin_name).exists() or not (WORKFLOWS / target_name).exists():
+            failures.append(f"CLOSED_TWINS names {twin_name} -> {target_name}, and one of them no longer exists")
+            continue
+        reason = twin_problem(load(WORKFLOWS / twin_name), load(WORKFLOWS / target_name))
+        if reason:
+            failures.append(f".github/workflows/{twin_name} (closes {target_name}'s runs): {reason}")
     for name, why in sorted(ALLOWED.items()):
         if not why.strip() or not (WORKFLOWS / name).exists():
             failures.append(f"ALLOWED names {name}, which no longer exists or has no reason")
@@ -468,7 +543,8 @@ def main() -> int:
         for failure in failures:
             print(f"  - {failure}", file=sys.stderr)
         return 1
-    print(f"{checked} pull request workflows cancel a superseded run ({len(ALLOWED)} allowed exceptions)")
+    print(f"{checked} pull request workflows cancel a superseded run ({len(ALLOWED)} allowed exceptions); "
+          f"{len(CLOSED_TWINS)} closed-cancel twins match their targets")
     return 0
 
 
