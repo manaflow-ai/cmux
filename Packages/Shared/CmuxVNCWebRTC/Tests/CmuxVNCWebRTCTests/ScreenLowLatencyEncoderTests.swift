@@ -42,6 +42,32 @@ struct ScreenLowLatencyEncoderTests {
         #expect(result.implementation == ScreenLowLatencyEncoder.implementation)
     }
 
+    /// Each frame's QP, read from its slice header, is the QP libwebrtc's own parser
+    /// reads for its VideoToolbox encoder, on the same frames; this encoder reports one
+    /// for every frame, higher when the bitrate is lower, so the quality scaler (Smooth)
+    /// works as it did with libwebrtc's encoder.
+    @Test(.timeLimit(.minutes(2)))
+    func eachFrameReportsTheQPLibwebrtcReads() throws {
+        for kbps: UInt32 in [600, 12000] {
+            let theirs = try EncoderBench(kind: .webrtc, sourceWidth: 1920, sourceHeight: 1200, width: 1280, height: 800, fps: 60)
+                .run(frames: 60, bitrateKbps: kbps)
+            let agreed = theirs.outputs.filter { $0.qp >= 0 && $0.parsedQP == $0.qp }.count
+            print("SCREEN-ENCODER-QP libwebrtc kbps=\(kbps) frames=\(theirs.outputs.count) agreed=\(agreed) qps=\(theirs.outputs.prefix(8).map { "\($0.qp)/\($0.parsedQP ?? -1)" })")
+            #expect(theirs.outputs.count >= 55)
+            #expect(agreed == theirs.outputs.count, "H264SliceQP reads libwebrtc's QP on each of its frames")
+        }
+        var means: [UInt32: Double] = [:]
+        for kbps: UInt32 in [300, 24000] {
+            let ours = try EncoderBench(kind: .realTime, sourceWidth: 1920, sourceHeight: 1200, width: 1280, height: 800, fps: 60)
+                .run(frames: 60, bitrateKbps: kbps)
+            #expect(ours.outputs.allSatisfy { (0 ... 51).contains($0.qp) }, "a QP on every frame: \(ours.outputs.map(\.qp))")
+            means[kbps] = Double(ours.outputs.map(\.qp).reduce(0, +)) / Double(max(ours.outputs.count, 1))
+            print("SCREEN-ENCODER-QP real-time kbps=\(kbps) frames=\(ours.outputs.count) mean_qp=\(String(format: "%.1f", means[kbps] ?? -1))")
+        }
+        #expect((means[300] ?? 0) > (means[24000] ?? 99), "a lower bitrate, a higher QP")
+        #expect(ScreenLowLatencyEncoder().scalingSettings()?.low == 28 && ScreenLowLatencyEncoder().scalingSettings()?.high == 39)
+    }
+
     /// Every rate control against libwebrtc's encoder at the bitrates a stream runs at:
     /// scrolling text, 3456x2234 scaled to Auto's 120 fps size, 2 s each. Prints
     /// SCREEN-ENCODER-MODES lines: frames out of 240 (the rest were dropped), the
@@ -119,6 +145,9 @@ final class EncoderBench: @unchecked Sendable {
         var height: Int32
         var nalTypes: [UInt8]
         var latencyMs: Double
+        /// The QP the encoder reported (-1: none) and the QP ``H264SliceQP`` reads.
+        var qp: Int
+        var parsedQP: Int?
     }
 
     struct Result {
@@ -134,6 +163,7 @@ final class EncoderBench: @unchecked Sendable {
     private let lock = NSLock()
     private var outputs: [Output] = []
     private var sentAt: [UInt32: UInt64] = [:]
+    private var reader = H264SliceQP()
 
     init(kind: Kind, sourceWidth: Int, sourceHeight: Int, width: Int, height: Int, fps: Int) {
         self.kind = kind
@@ -165,7 +195,8 @@ final class EncoderBench: @unchecked Sendable {
                 let sent = sentAt[image.timeStamp] ?? now
                 outputs.append(Output(rtp: image.timeStamp, bytes: bytes.count, keyframe: image.frameType == .videoFrameKey,
                                       width: image.encodedWidth, height: image.encodedHeight,
-                                      nalTypes: Self.nalTypes(bytes), latencyMs: Double(now - sent) / 1e6))
+                                      nalTypes: Self.nalTypes(bytes), latencyMs: Double(now - sent) / 1e6,
+                                      qp: image.qp?.intValue ?? -1, parsedQP: reader.qp(annexB: bytes)))
             }
             return true
         }

@@ -25,9 +25,10 @@ import WebRTC
 /// before. It stays selectable for the bench, not for streams.
 ///
 /// Used when the stream negotiated a High profile with packetization mode 1
-/// (``ScreenEncoderFactory``); anything else keeps libwebrtc's encoder. VideoToolbox
-/// reports no per-frame QP, so libwebrtc's QP-based quality scaler is off for this
-/// encoder (`scalingSettings` nil): resolution still adapts to CPU load and bandwidth.
+/// (``ScreenEncoderFactory``); anything else keeps libwebrtc's encoder. Each frame's QP
+/// is read from its slice header and reported with libwebrtc's own thresholds, so the
+/// quality scaler lowers the resolution as it does for libwebrtc's encoder (Smooth
+/// keeps its frame rate that way).
 // crash-allow: libwebrtc calls start, encode, setBitrate and release on its one encoder queue; `callback` and the session's output (VideoToolbox's thread) meet only under `lock`.
 final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Sendable {
     // @unchecked: mutable state is behind `lock`.
@@ -65,6 +66,7 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
     private var transfer: VTPixelTransferSession?
     private var failed = false
     private var outcomes = Outcomes()
+    private var qpReader = H264SliceQP()
 
     /// What became of the frames VideoToolbox took: encoded, dropped by its rate
     /// control, failed, or not packable as Annex B.
@@ -141,8 +143,10 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
 
     func implementationName() -> String { Self.implementation }
 
-    /// No QP per frame from VideoToolbox, so no QP-based quality scaling.
-    func scalingSettings() -> RTCVideoEncoderQpThresholds? { nil }
+    /// libwebrtc's thresholds for its own VideoToolbox H.264 encoder (RTCVideoEncoderH264):
+    /// above 39 it scales the picture down, below 28 back up. Each frame's QP comes from
+    /// its slice header (``H264SliceQP``), as libwebrtc reads it.
+    func scalingSettings() -> RTCVideoEncoderQpThresholds? { RTCVideoEncoderQpThresholds(thresholdsLow: 28, high: 39) }
 
     var resolutionAlignment: Int { 1 }
     var applyAlignmentToAllSimulcastLayers: Bool { false }
@@ -275,7 +279,11 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
             lock.withLock { outcomes.unpackable += 1 }
             return
         }
-        lock.withLock { outcomes.encoded += 1 }
+        // libwebrtc's quality scaler reads each frame's QP (VideoToolbox reports none).
+        let qp = lock.withLock { () -> Int? in
+            outcomes.encoded += 1
+            return qpReader.qp(annexB: [UInt8](annexB))
+        }
         let image = RTCEncodedImage()
         image.buffer = annexB
         image.encodedWidth = width
@@ -285,7 +293,7 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
         image.frameType = keyframe ? .videoFrameKey : .videoFrameDelta
         image.rotation = rotation
         image.contentType = .screenshare
-        image.qp = NSNumber(value: -1) // VideoToolbox reports none
+        image.qp = NSNumber(value: qp ?? -1)
         let info = RTCCodecSpecificInfoH264()
         info.packetizationMode = .nonInterleaved
         guard let callback = lock.withLock({ callback }) else { return }
