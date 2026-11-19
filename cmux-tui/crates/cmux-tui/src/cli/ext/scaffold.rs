@@ -155,7 +155,10 @@ pub(super) fn cli_name_problem(name: &str) -> Option<String> {
             "--kind command makes `cmux {name} …`, which needs a name of 2 to 24 lowercase letters, digits and single dashes that starts with a letter"
         ));
     }
-    cmux_app_manifest::is_reserved_cli_name(name).then(|| {
+    // Reserved words, and the first word of a built-in command the CLI routes
+    // after its grammar (`tab`, `share`), always win over an app's short form
+    // (`app_commands::short_form_word`), so `cmux NAME hello` would never reach it.
+    (!crate::cli::app_commands::short_form_word(name)).then(|| {
         format!(
             "--kind command makes `cmux {name} …`, but {name} is a cmux command; pick another name"
         )
