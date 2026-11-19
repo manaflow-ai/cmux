@@ -13993,6 +13993,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             <ReplayScreen
               sessionId={replaying}
               title={snapshot.summary?.title || snapshot.summary?.name}
+              cwd={chatCwd}
               load={loadReplay}
               onClose={() => setReplaying(undefined)}
               onContinue={

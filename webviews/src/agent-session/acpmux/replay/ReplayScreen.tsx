@@ -4,13 +4,16 @@ import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";
+import { ReplayTouches } from "./ReplayTouches";
 import {
   clockLabel,
   continueSeq,
+  DEFAULT_REPLAY_SPEED,
   REPLAY_SPEEDS,
   replayTimeline,
   seqAt,
   toolMark,
+  touchesThrough,
   type ReplayTimeline,
 } from "./timeline";
 import "./replay.css";
@@ -20,28 +23,34 @@ type Loaded = { client: AcpmuxDirectClient; timeline: ReplayTimeline };
 /// How far the arrow keys move replay time.
 const ARROW_STEP_MS = 5_000;
 
+type Shown = {
+  setSecond: (second: number) => void;
+  setForkSeq: (seq: number | undefined) => void;
+  setTouched: (count: number) => void;
+};
+
 /// Shows replay time `time.current`: the transcript through that point, the scrubber's thumb,
-/// (once a second) the clock, and the turn Continue from here would fork through.
-function showAt(
-  loaded: Loaded,
-  time: RefObject<number>,
-  scrub: RefObject<HTMLInputElement | null>,
-  setSecond: (second: number) => void,
-  setForkSeq: (seq: number | undefined) => void,
-) {
-  loaded.client.seekReplay(seqAt(loaded.timeline, time.current));
+/// (once a second) the clock, the turn Continue from here would fork through, and how many of the
+/// files and commands the chat had touched by then.
+function showAt(loaded: Loaded, time: RefObject<number>, scrub: RefObject<HTMLInputElement | null>, shown: Shown) {
+  const seq = seqAt(loaded.timeline, time.current);
+  loaded.client.seekReplay(seq);
   if (scrub.current) scrub.current.value = String(Math.round(time.current));
-  setSecond(Math.floor(time.current / 1000));
-  setForkSeq(continueSeq(loaded.timeline, time.current));
+  shown.setSecond(Math.floor(time.current / 1000));
+  shown.setForkSeq(continueSeq(loaded.timeline, time.current));
+  shown.setTouched(touchesThrough(loaded.timeline.touches, seq));
 }
 
 /// A recorded chat played back read-only, as it happened (cx-osmw): its events fold into the
 /// transcript on replay time (timeline.ts), with no composer and nothing sent to the agent.
-/// Scrub with the bar, change speed, and jump between tool calls (also `[` and `]`). Continue from
-/// here forks a live chat holding the conversation through the last turn finished at that point.
+/// Scrub with the bar, change speed (it starts at 10×), and jump between tool calls (also `[` and
+/// `]`). Beside the transcript, the files and commands the chat touched so far; a row jumps to its
+/// call. Continue from here forks a live chat holding the conversation through the last turn
+/// finished at that point.
 export function ReplayScreen({
   sessionId,
   title,
+  cwd,
   load,
   onClose,
   onContinue,
@@ -49,6 +58,8 @@ export function ReplayScreen({
 }: {
   sessionId: string;
   title?: string;
+  /** The chat's folder: touched paths inside it read from there. */
+  cwd?: string;
   /** The session's recorded events (AcpmuxDirectClient.recordedEvents). */
   load: () => Promise<EventRecord[]>;
   onClose: () => void;
@@ -63,13 +74,16 @@ export function ReplayScreen({
   const [loaded, setLoaded] = useState<Loaded | "loading" | "failed">("loading");
   const [snapshot, setSnapshot] = useState<AcpmuxSnapshot | undefined>();
   const [playing, setPlaying] = useState(true);
-  const [speed, setSpeed] = useState<number>(1);
+  const [speed, setSpeed] = useState<number>(DEFAULT_REPLAY_SPEED);
   // Replay time lives in a ref and the scrubber is uncontrolled: a frame moves both without a
   // render; the clock label re-renders once a second.
   const time = useRef(0);
   const scrub = useRef<HTMLInputElement>(null);
   const [second, setSecond] = useState(0);
   const [forkSeq, setForkSeq] = useState<number | undefined>();
+  const [touched, setTouched] = useState(0);
+  // State setters never change, so one holder serves every frame.
+  const shown = useRef<Shown>({ setSecond, setForkSeq, setTouched }).current;
 
   useEffect(() => {
     let live = true;
@@ -91,13 +105,13 @@ export function ReplayScreen({
   const ready = typeof loaded === "object" ? loaded : undefined;
   useEffect(() => {
     if (!ready) return;
-    showAt(ready, time, scrub, setSecond, setForkSeq);
+    showAt(ready, time, scrub, shown);
     if (!playing) return;
     let last = performance.now();
     let frame = requestAnimationFrame(function tick(now) {
       time.current = Math.min(time.current + (now - last) * speed, ready.timeline.duration);
       last = now;
-      showAt(ready, time, scrub, setSecond, setForkSeq);
+      showAt(ready, time, scrub, shown);
       if (time.current >= ready.timeline.duration) setPlaying(false);
       else frame = requestAnimationFrame(tick);
     });
@@ -107,7 +121,7 @@ export function ReplayScreen({
   const seek = (to: number) => {
     if (!ready) return;
     time.current = Math.min(Math.max(to, 0), ready.timeline.duration);
-    showAt(ready, time, scrub, setSecond, setForkSeq);
+    showAt(ready, time, scrub, shown);
   };
   const togglePlaying = () => {
     if (!ready) return;
@@ -171,7 +185,12 @@ export function ReplayScreen({
         <p className="acpmux-replay-note">{t("replay.empty")}</p>
       ) : (
         <>
-          {snapshot && transcript(snapshot)}
+          <div className="acpmux-replay-body">
+            <div className="acpmux-replay-transcript">{snapshot && transcript(snapshot)}</div>
+            {loaded.timeline.touches.length > 0 && (
+              <ReplayTouches touches={loaded.timeline.touches} shown={touched} cwd={cwd} onSeek={seek} />
+            )}
+          </div>
           <div className="acpmux-replay-controls">
             <button
               type="button"

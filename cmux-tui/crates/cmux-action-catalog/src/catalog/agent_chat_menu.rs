@@ -29,11 +29,14 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["agent", "chat", "conversation", "replay", "history", "recording", "playback"],
         category: "agents",
         symbol: "arrow.counterclockwise",
+        surfaces: PALETTE | MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
         requires: &["agentPaneFocused"],
         targets: &["pane"],
         cli_name: "agent replay-conversation",
         focuses: true,
+        // View > Replay Conversation (Leo, 2026-11-19: "a View menu item and the chat's ... menu").
+        main_menu: Some("view"),
         ..Action::DEFAULT
     },
     Action {

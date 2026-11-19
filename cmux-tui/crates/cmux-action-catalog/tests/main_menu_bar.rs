@@ -70,6 +70,12 @@ const PALETTE_ONLY: &[(&str, &str, &[&str])] = &[
     ),
     (
         "view",
+        "Awaiting its app FFI re-pin (awaiting-repin/fields/agentPane.replayConversation): the pinned \
+         catalog has no View placement for it yet, so MainMenu.swift lists it in the change after the re-pin",
+        &["agentPane.replayConversation"],
+    ),
+    (
+        "view",
         COMPACT,
         &[
             "splitRight", "newColumn", "newColumnLeft", "newRow", "splitDown", "newPaneAutoLayout",

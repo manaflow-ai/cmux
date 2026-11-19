@@ -18,3 +18,22 @@
 .acpmux-replay-continue{flex:none;height:28px;margin-left:4px;padding:0 12px;border:0;border-radius:6px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;font-weight:500;white-space:nowrap}
 .acpmux-replay-continue:disabled{opacity:.45}
 .acpmux-replay-continue:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+.acpmux-replay{container:acpmux-replay/inline-size}
+.acpmux-replay-body{flex:1;min-height:0;display:flex}
+.acpmux-replay-transcript{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+.acpmux-replay-touches{flex:0 0 260px;min-height:0;overflow-y:auto;box-sizing:border-box;padding:4px 12px 12px 4px;color:var(--agent-text)}
+.acpmux-replay-touches section+section{margin-top:12px}
+.acpmux-replay-touches ul{margin:0;padding:0;list-style:none}
+.acpmux-replay-touches-heading{display:flex;align-items:baseline;gap:6px;margin:0 0 2px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);font-weight:600;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-replay-touches-count{font-variant-numeric:tabular-nums;font-weight:400}
+.acpmux-replay-touches-none{margin:6px;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-replay-touch{display:flex;align-items:center;gap:6px;width:100%;min-height:24px;padding:2px 6px;border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-detail);text-align:start}
+.acpmux-replay-touch:hover{background:var(--agent-control-hover);color:var(--agent-text)}
+.acpmux-replay-touch[aria-current="true"]{color:var(--agent-text);background:color-mix(in srgb,var(--agent-accent) 12%,transparent)}
+.acpmux-replay-touch:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+.acpmux-replay-touch-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;unicode-bidi:plaintext}
+.acpmux-replay-touch-command{direction:ltr;font-family:var(--font-mono)}
+.acpmux-replay-touch-verb{flex:none;color:var(--agent-muted);font-size:var(--text-caption)}
+.acpmux-replay-touch-verb[data-edited="true"]{color:var(--agent-accent)}
+.acpmux-replay-touch-verb[data-failed="true"]{color:var(--agent-danger,var(--agent-muted))}
+@container acpmux-replay (width < 640px){.acpmux-replay-body{flex-direction:column}.acpmux-replay-touches{flex:0 1 auto;max-height:32%;padding:4px max(12px,calc((100% - 760px)/2)) 8px}}
