@@ -1113,7 +1113,9 @@ class TruncatedSnapshot(unittest.TestCase):
         probes = health({two: "started", four: "stalled", eight: "stalled", sixteen: "stalled",
                          thirty_two: "stalled"})
         dead, started, _ = runner_pools.label_evidence(probes, snapshot, now=NOW)
-        self.assertEqual(dead, {sixteen, thirty_two})
+        # Its starts count; the probe's stalls do not (#46302): a partial snapshot cannot tell a dead size from
+        # one the vCPU cap keeps full, so they mark nothing dead.
+        self.assertEqual(dead, set())
         self.assertTrue({four, eight} <= started)
         self.assertNotIn("blacksmith-6vcpu-macos-26", dead)
         pools = runner_pools.load_pools()
@@ -1121,7 +1123,7 @@ class TruncatedSnapshot(unittest.TestCase):
         current = {"_dead": {four: runner_pools.iso(NOW - dt.timedelta(minutes=10)),
                              eight: runner_pools.iso(NOW - dt.timedelta(minutes=10))}}
         value, _ = runner_pools.reconcile(current, pools, dead_now=dead, served_now=started, now=NOW, covered=covered)
-        self.assertEqual((value["linux"], value["linux_8"], value["linux_16"]), (four, eight, eight))
+        self.assertEqual((value["linux"], value["linux_8"], value["linux_16"]), (four, eight, sixteen))
         self.assertNotEqual(value["linux_32"], two)
 
 
@@ -1238,9 +1240,10 @@ class RefusedRead(unittest.TestCase):
         fallback = self.Counting(RuntimeError("HTTP Error 403: Forbidden"))
         value, out = self.main_output(fallback)
         self.assertEqual(fallback.calls, 1)
-        self.assertIn(self.SIXTEEN, value["_dead"])
-        # Every x64 size but 2 vCPU stalled with no snapshot: linux_16 (16, 8, 32 vCPU) takes the 2 vCPU valve.
-        self.assertEqual(value["linux_16"], self.TWO)
+        # Every x64 size but 2 vCPU stalled with no snapshot: no size is marked dead (#46302), so no pool moves
+        # to the 2 vCPU valve, which is what squeezed every Linux pool there at 11:18Z.
+        self.assertEqual(value["_dead"], {})
+        self.assertEqual(value["linux_16"], self.SIXTEEN)
         self.assertIn("judging on the probe alone", out)
 
     def test_a_fallback_with_no_snapshot_warns_it_judges_on_the_probe(self) -> None:
@@ -1248,7 +1251,7 @@ class RefusedRead(unittest.TestCase):
         fallback = self.Counting(None)
         value, out = self.main_output(fallback)
         self.assertEqual(fallback.calls, 1)
-        self.assertEqual(value["linux_16"], self.TWO)
+        self.assertEqual(value["linux_16"], self.SIXTEEN)
         self.assertIn("judging on the probe alone", out)
         self.assertNotIn("janitor snapshot read with the fallback token", out)
 
