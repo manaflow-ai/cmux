@@ -13,8 +13,8 @@ private final class LiveStub: TerminalSession {
     func stop() {}
 }
 
-/// A live signed-in session never shows the scripted mock terminal: the mock
-/// is DEBUG-only and needs the explicit mock data setting.
+/// A live signed-in session never shows the scripted terminal: it needs demo
+/// content (DEBUG mock mode, or the server-flagged App Review demo account).
 @MainActor
 @Suite struct TerminalSessionChoiceTests {
     @Test func liveSessionAlwaysWins() {
@@ -28,22 +28,46 @@ private final class LiveStub: TerminalSession {
     @Test func liveTabWithoutSessionIsConnectingNotMock() {
         let chosen = TerminalSessionChoice.session(live: nil, mockDataEnabled: false, macName: "Aziz's Mac Studio", programName: "zsh")
         #expect(chosen is PendingTerminalSession)
-        #if DEBUG
         #expect(!(chosen is MockTerminalSession))
-        #endif
         #expect(chosen.connectionState == .connecting(mac: "Aziz's Mac Studio"))
         #expect(chosen.connectionState.label == "Connecting to Aziz's Mac Studio…")
         #expect(chosen.programName == "zsh")
     }
 
-    #if DEBUG
-    @Test func mockOnlyWithTheExplicitSetting() {
-        #expect(TerminalSessionChoice.mockCompiledIn)
+    /// Demo content (DEBUG mock mode, or the App Review demo account in any build)
+    /// gets the scripted shell and its sample files; nothing else does.
+    @Test func demoShellOnlyWithDemoContent() {
         let chosen = TerminalSessionChoice.session(live: nil, mockDataEnabled: true, macName: nil, programName: "zsh")
         #expect(chosen is MockTerminalSession)
         #expect(TerminalSessionChoice.fallbackArtifactSource(mockDataEnabled: true) is MockArtifactSource)
     }
-    #endif
+
+    /// The review demo's shell answers typed commands like a Mac's: no mock
+    /// labels, a prompt, and output for a command it knows.
+    @Test func demoShellAnswersACommand() async throws {
+        let session = MockTerminalSession(playsIntro: false)
+        var output = ""
+        session.start { event in
+            if case .output(let data) = event { output += String(decoding: data, as: UTF8.self) }
+        }
+        defer { session.stop() }
+        try await Self.waitUntil(5) { output.contains("❯") }
+        try #require(output.contains("❯"), "the demo shell never showed its prompt")
+        session.send(Data("echo hello from the demo\r".utf8))
+        try await Self.waitUntil(5) { output.contains("hello from the demo\r\n") }
+        #expect(output.contains("hello from the demo\r\n"))
+        session.send(Data([0x04]))
+        try await Self.waitUntil(5) { output.contains("exit is disabled") }
+        #expect(output.contains("exit is disabled in this session"))
+        #expect(!output.contains("(mock)"))
+    }
+
+    static func waitUntil(_ seconds: Double, _ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(Int(seconds * 1000)))
+        while !condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10)) // test: polls the demo shell's output until a deadline
+        }
+    }
 
     @Test func filesAndLinksWithoutAMacSayNotConnected() async {
         let source = TerminalSessionChoice.fallbackArtifactSource(mockDataEnabled: false)
