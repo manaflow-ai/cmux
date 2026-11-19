@@ -23,7 +23,7 @@
 //! them answers 503 at once and the client moves on.
 
 use std::fs::OpenOptions;
-use std::io::{BufRead as _, BufReader, Write as _};
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -34,6 +34,12 @@ use sha1::{Digest as _, Sha1};
 
 /// The flag that turns the chain off (`0`).
 pub const FLAG: &str = "CMUX_PROJECTION_PEERS";
+
+/// Maximum HTTP body retained from any peer, SSD, R2 or remote peer index: 16 MiB.
+/// With eight blob requests in flight this budgets 128 MiB of retained HTTP bodies per fill
+/// (plus transport buffers). This is a transport limit, not a git object size limit: larger
+/// blobs fail this optional chain and remain for git fetch, never a truncated installation.
+pub const MAX_HTTP_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 /// The git object id of a blob with these bytes: sha1 for a 40-hex id, sha256 for a 64-hex id.
 #[must_use]
@@ -98,6 +104,7 @@ pub trait Get: Send + Sync {
 /// never a stall.
 pub struct Http {
     client: reqwest::blocking::Client,
+    body_limit: usize,
 }
 
 impl Http {
@@ -108,7 +115,37 @@ impl Http {
             .timeout(Duration::from_secs(20))
             .pool_max_idle_per_host(PARALLEL)
             .build()?;
-        Ok(Self { client })
+        Ok(Self { client, body_limit: MAX_HTTP_BODY_BYTES })
+    }
+}
+
+/// Check the advertised length before allocating, but also count streamed bytes: lengths may
+/// be absent or untrustworthy. Probe one byte past the limit to distinguish a complete body at
+/// the boundary from a truncated one. Neither a read failure nor an oversize returns any bytes.
+fn bounded_body(mut response: reqwest::blocking::Response, limit: usize) -> Answer {
+    if response.content_length().is_some_and(|length| length > limit as u64) {
+        return Answer::Failed;
+    }
+    let mut bytes = Vec::new();
+    let mut chunk = [0_u8; 8192];
+    loop {
+        let remaining = limit - bytes.len();
+        let read_limit = chunk.len().min(remaining.saturating_add(1));
+        let read = match response.read(&mut chunk[..read_limit]) {
+            Ok(0) => return Answer::Found(bytes),
+            Ok(read) if read <= remaining => read,
+            _ => return Answer::Failed,
+        };
+        let needed = bytes.len() + read;
+        if needed > bytes.capacity() {
+            // Grow geometrically without reserving beyond the cap or trusting a remote's
+            // length. Allocation pressure is another optional-source failure, not a panic.
+            let capacity = needed.max(bytes.capacity().saturating_mul(2)).min(limit);
+            if bytes.try_reserve_exact(capacity - bytes.len()).is_err() {
+                return Answer::Failed;
+            }
+        }
+        bytes.extend_from_slice(&chunk[..read]);
     }
 }
 
@@ -122,7 +159,7 @@ impl Get for Http {
             Ok(response) if response.status().as_u16() == 404 => Answer::Absent,
             Ok(response) if matches!(response.status().as_u16(), 429 | 503) => Answer::Busy,
             Ok(response) if response.status().is_success() => {
-                response.bytes().map_or(Answer::Failed, |bytes| Answer::Found(bytes.to_vec()))
+                bounded_body(response, self.body_limit)
             }
             _ => Answer::Failed,
         }

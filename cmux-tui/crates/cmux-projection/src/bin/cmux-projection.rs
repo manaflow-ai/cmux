@@ -41,6 +41,7 @@ fn main() -> std::process::ExitCode {
 #[cfg(target_os = "linux")]
 mod linux {
     use std::net::{IpAddr, SocketAddr};
+    use std::os::unix::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -49,6 +50,7 @@ mod linux {
     use cmux_projection::mount;
     use cmux_projection::overlay::Overlay;
     use cmux_projection::peers::{self, Chain, SeedLimits};
+    use sha2::{Digest as _, Sha256};
 
     const USAGE: &str = "usage: cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH \
                          [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE]\n       \
@@ -149,12 +151,55 @@ mod linux {
             )
     }
 
-    /// FNV-1a: a short stable name for a mount path.
-    fn hash(text: &str) -> String {
-        let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+    /// A collision-resistant stable name for a canonical repository/mount pair.
+    fn hash(git_dir: &Path, at: &Path) -> String {
+        let git_dir = git_dir.as_os_str().as_bytes();
+        let at = at.as_os_str().as_bytes();
+        let mut digest = Sha256::new();
+        digest.update(b"cmux-projection-default-v2\0");
+        digest.update((git_dir.len() as u64).to_be_bytes());
+        digest.update(git_dir);
+        digest.update((at.len() as u64).to_be_bytes());
+        digest.update(at);
+        let digest = digest.finalize();
+        digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    /// The old default key, retained only to detect state that would otherwise be stranded.
+    fn legacy_hash(path: &Path) -> String {
+        let hash = path.to_string_lossy().bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
             (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
         });
         format!("{:08x}", hash >> 32)
+    }
+
+    fn reject_legacy_default_state(
+        home: &Path,
+        git_dir: &Path,
+        at: &Path,
+        check_worktree: bool,
+    ) -> anyhow::Result<()> {
+        let key = legacy_hash(at);
+        let legacy_keep = home.join(".cache/cmux-projection").join(&key);
+        let legacy_worktree = git_dir.join("worktrees").join(format!("projected-{key}"));
+        let keep_exists = path_exists(&legacy_keep)?;
+        let worktree_exists = check_worktree && path_exists(&legacy_worktree)?;
+        anyhow::ensure!(
+            !keep_exists && !worktree_exists,
+            "legacy default projection state for {} uses the 32-bit key {}; pass --keep {} explicitly to recover it",
+            at.display(),
+            key,
+            legacy_keep.display()
+        );
+        Ok(())
+    }
+
+    fn path_exists(path: &Path) -> anyhow::Result<bool> {
+        match std::fs::symlink_metadata(path) {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error.into()),
+        }
     }
 
     fn ms(since: Instant) -> u128 {
@@ -169,19 +214,24 @@ mod linux {
         let rev = args.commit.clone().ok_or_else(|| anyhow::anyhow!("--commit is required"))?;
         let at = if at.is_absolute() { at.to_owned() } else { std::env::current_dir()?.join(at) };
         let at = if at.exists() { at.canonicalize()? } else { at };
-        let at_text = at.to_string_lossy().into_owned();
+        let provisional_name =
+            args.name.clone().unwrap_or_else(|| format!("projected-{}", hash(&git_dir, &at)));
+        Worktree::validate(&git_dir, &provisional_name, &at)?;
+        std::fs::create_dir_all(&at)?;
+        let at = at.canonicalize()?;
         let keep = match &args.keep {
             Some(keep) => keep.clone(),
             None => {
                 let home = std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("no HOME"))?;
-                PathBuf::from(home).join(".cache/cmux-projection").join(hash(&at_text))
+                let home = PathBuf::from(home);
+                reject_legacy_default_state(&home, &git_dir, &at, args.name.is_none())?;
+                home.join(".cache/cmux-projection").join(hash(&git_dir, &at))
             }
         };
-        let name = args.name.clone().unwrap_or_else(|| format!("projected-{}", hash(&at_text)));
+        let name =
+            args.name.clone().unwrap_or_else(|| format!("projected-{}", hash(&git_dir, &at)));
         let worktree = Worktree::validate(&git_dir, &name, &at)?;
         let keep = canonical_keep(&keep)?;
-        std::fs::create_dir_all(&at)?;
-        let at = at.canonicalize()?;
 
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
@@ -216,7 +266,7 @@ mod linux {
         let phase = Instant::now();
         let book_file = keep.join("book");
         let mut book = Book::load(&book_file);
-        let admin = worktree.admin.clone();
+        let admin = worktree.admin;
         let real_root = keep.join("real");
         // New content is a second older than now, so git never finds it racily clean against the
         // index written just after (and cargo still sees it newer than any earlier build).
@@ -287,7 +337,42 @@ mod linux {
 
     #[cfg(test)]
     mod tests {
-        use super::{canonical_keep_from, listen_is_specific};
+        use super::{
+            canonical_keep_from, hash, legacy_hash, listen_is_specific, reject_legacy_default_state,
+        };
+
+        #[test]
+        fn default_keys_isolate_known_legacy_collision() {
+            let git_dir = std::path::Path::new("/mirror");
+            let first = std::path::Path::new("/tmp/proj/S1PeuLm9h0Gk");
+            let second = std::path::Path::new("/tmp/proj/WlAVSM8HUQw0");
+            assert_eq!(legacy_hash(first), legacy_hash(second));
+            assert_ne!(hash(git_dir, first), hash(git_dir, second));
+            assert_eq!(hash(git_dir, first).len(), 64);
+        }
+
+        #[test]
+        fn default_keys_isolate_repositories_at_the_same_mount() {
+            let at = std::path::Path::new("/tmp/proj/shared");
+            assert_ne!(
+                hash(std::path::Path::new("/mirror/one"), at),
+                hash(std::path::Path::new("/mirror/two"), at)
+            );
+        }
+
+        #[test]
+        fn legacy_default_state_requires_explicit_recovery() {
+            let home = tempfile::tempdir().unwrap();
+            let git_dir = tempfile::tempdir().unwrap();
+            let at = std::path::Path::new("/tmp/proj/legacy");
+            let legacy_keep = home.path().join(".cache/cmux-projection").join(legacy_hash(at));
+            std::fs::create_dir_all(&legacy_keep).unwrap();
+            let error = reject_legacy_default_state(home.path(), git_dir.path(), at, true)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("pass --keep"));
+            assert!(error.contains(&legacy_hash(at)));
+        }
 
         #[test]
         fn rejects_every_spelling_of_an_unspecified_listener() {

@@ -45,6 +45,164 @@ fn remote(tier: &'static str, base: &str) -> Remote {
 const HELLO: &str = "ce013625030ba8dba906f756967f9e9ca394464a";
 const EMPTY: &str = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391";
 
+/// A real HTTP exchange with controlled framing, including dishonest/missing lengths. Bind
+/// before the client runs; join the single server thread so no listener survives the test.
+fn with_http_response<T>(response: &[u8], run: impl FnOnce(&str) -> T) -> T {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::scope(|scope| {
+        let server = scope.spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            stream.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut request = BufReader::new(stream.try_clone().unwrap());
+            let mut headers_complete = false;
+            for _ in 0..64 {
+                let mut line = String::new();
+                assert!(request.read_line(&mut line).unwrap() > 0);
+                if line == "\r\n" {
+                    headers_complete = true;
+                    break;
+                }
+            }
+            assert!(headers_complete);
+            // Rejecting an advertised oversize may close before the server finishes writing.
+            let _ = stream.write_all(response);
+        });
+        let result = run(&base);
+        server.join().unwrap();
+        result
+    })
+}
+
+fn http_with_limit(limit: usize) -> Http {
+    let mut http = Http::new().unwrap();
+    // Keep loopback fixtures independent of the fleet's proxy environment.
+    http.client = reqwest::blocking::Client::builder().no_proxy().build().unwrap();
+    http.body_limit = limit;
+    http
+}
+
+#[test]
+fn http_body_rejects_advertised_oversize() {
+    let http = http_with_limit(6);
+    assert_eq!(Http::new().unwrap().body_limit, MAX_HTTP_BODY_BYTES);
+    for response in [
+        b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nhello\nx".as_slice(),
+        // No allocation proportional to an advertised size, even if no body ever arrives.
+        b"HTTP/1.1 200 OK\r\nContent-Length: 18446744073709551615\r\nConnection: close\r\n\r\n",
+    ] {
+        with_http_response(response, |base| {
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), Answer::Failed);
+        });
+    }
+}
+
+#[test]
+fn http_body_rejects_streamed_oversize_without_returning_a_valid_prefix() {
+    let http = http_with_limit(6);
+    for response in [
+        b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello\nx".as_slice(),
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n6\r\nhello\n\r\n1\r\nx\r\n0\r\n\r\n",
+        // Transfer-Encoding wins over the deliberately understated Content-Length.
+        b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n6\r\nhello\n\r\n1\r\nx\r\n0\r\n\r\n",
+    ] {
+        with_http_response(response, |base| {
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), Answer::Failed);
+        });
+    }
+}
+
+#[test]
+fn http_body_accepts_the_exact_limit_with_each_framing() {
+    let http = http_with_limit(6);
+    for response in [
+        b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nhello\n".as_slice(),
+        b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello\n",
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n2\r\nhe\r\n4\r\nllo\n\r\n0\r\n\r\n",
+    ] {
+        with_http_response(response, |base| {
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), Answer::Found(b"hello\n".to_vec()));
+        });
+    }
+    with_http_response(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n", |base| {
+        assert_eq!(
+            http_with_limit(0).get(base, None, Duration::from_secs(2)),
+            Answer::Found(vec![])
+        );
+    });
+}
+
+#[test]
+fn http_body_incomplete_framing_is_never_returned_as_a_complete_blob() {
+    let http = http_with_limit(8);
+    for response in [
+        b"HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\nhello\n".as_slice(),
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n6\r\nhello\n\r\n",
+    ] {
+        with_http_response(response, |base| {
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), Answer::Failed);
+        });
+    }
+}
+
+#[test]
+fn http_body_counts_across_multiple_read_buffers() {
+    let limit = 8192 + 6;
+    let http = http_with_limit(limit);
+    for length in [limit, limit + 1] {
+        let body = vec![b'x'; length];
+        let mut response = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+        response.extend_from_slice(&body);
+        with_http_response(&response, |base| {
+            let expected = if length == limit { Answer::Found(body) } else { Answer::Failed };
+            assert_eq!(http.get(base, None, Duration::from_secs(2)), expected);
+        });
+    }
+}
+
+#[test]
+fn http_body_oversize_on_every_tier_leaves_the_full_blob_for_git() {
+    for tier in ["peer", "ssd", "r2"] {
+        let http = http_with_limit(5);
+        with_http_response(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nhello\n",
+            |base| {
+                let chain = Chain::new(vec![remote(tier, base)], Box::new(http));
+                let writes = AtomicUsize::new(0);
+                let (rest, filled) = chain.fill(&[HELLO.to_owned()], &|_, _| {
+                    writes.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                });
+                assert_eq!(writes.load(Ordering::Relaxed), 0);
+                assert_eq!(rest, vec![HELLO.to_owned()]);
+                assert_eq!(filled, Filled::default());
+            },
+        );
+    }
+}
+
+#[test]
+fn http_body_understated_length_cannot_install_the_wrong_object() {
+    let http = http_with_limit(6);
+    let oid = blob_id(b"hello\nx", 40);
+    with_http_response(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nhello\nx",
+        |base| {
+            let chain = Chain::new(vec![remote("peer", base)], Box::new(http));
+            let writes = AtomicUsize::new(0);
+            let (rest, filled) = chain.fill(&[oid.clone()], &|_, _| {
+                writes.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            });
+            assert_eq!(writes.load(Ordering::Relaxed), 0);
+            assert_eq!(rest, vec![oid]);
+            assert_eq!(filled.peer, 0);
+            assert_eq!(filled.rejected, 1);
+        },
+    );
+}
+
 #[test]
 fn blob_ids_match_git() {
     assert_eq!(blob_id(b"hello\n", 40), HELLO);
