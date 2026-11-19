@@ -675,7 +675,7 @@ class WebUiTests(unittest.TestCase):
         over 10 % miss their target; a latency row at one count keeps the 10 ms action target."""
         self.assertIn("workspace-scale", FLEET, "a Mac part on the measure host")
         part = cron.PART_BY_NAME["workspace-scale"]
-        self.assertEqual(part["run_seconds"], 3600)
+        self.assertEqual(part["run_seconds"], 3000)
         self.assertIn("--scale", part["args"])
         self.assertIn("--vdisplay-hold=3600", part["args"])
         self.assertEqual(cron.part_for_row("workspace_scale.switch.ratio_5000@cmux20-bench"), "workspace-scale")

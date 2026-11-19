@@ -179,8 +179,10 @@ PARTS = [
     # and the sidebar's app CPU idle and with 15 agents ticking, each p95 over its smallest topology's (budget 1.10:
     # Leo, cost stays constant as workspaces grow, never linear), and the CPU rows also under the sidebar's 10 %. Its
     # own part, so the 1/100/1000 trend keeps its hour: two app launches, each growing one list to 5,000 rows.
+    # run_seconds: the part ran about 2,400 s on a measure Mac (a cold app build of about 1,750 s, the two probes 642 s),
+    # plus margin for the 5,000-row seeding it could not reach there (the app held 4,096).
     {"name": "workspace-scale", "args": [*MEASURE, "--vdisplay-hold=3600", "--suite=workspace-scaling", "--scale"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "workspace-scale", "run_seconds": 3600},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "workspace-scale", "run_seconds": 3000},
     {"name": "home-idle", "args": [*MEASURE, "--suite=budgets", "--only=home,idle"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
