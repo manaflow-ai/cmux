@@ -32,8 +32,8 @@ jobs:
   # skipped. Only for a same-repository pull request whose body names
   # one (`CI-Receipt: rust-workspaces <Fast checks run URL>`), so every other run spends no runner and no API call
   # here. The receipt is a Fast checks run of the canonical `python3 scripts/ci/ci_receipt.py produce rust-workspaces`
-  # on this head (`cmux-ci test`), which GitHub attests: no key. It must have merged onto this run's very base (no
-  # freshness rule reads this check). The verifier comes from the base commit, never the pull request. A valid
+  # on this head (`cmux-ci test`), which GitHub attests: no key. It must have merged onto this run's base, or an
+  # older one whose commits since change no Rust input (ci_receipt.py rust_input). The verifier comes from the base commit, never the pull request. A valid
   # receipt skips plan and every workspace before they take a runner and the summary passes;
   # CI_RECEIPT_AUDIT_PERCENT (default 10) of them still run in full, and a red there names the receipt.
   receipt:
@@ -69,6 +69,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /scripts/ci/ci_receipt.py
+            /.github/rust-workspaces.toml
 
       - name: Verify the local test receipt
         id: verify
@@ -88,7 +89,8 @@ jobs:
           [[ "$(git rev-parse HEAD^2)" == "$HEAD_SHA" ]] || { echo "valid=false" >> "$GITHUB_OUTPUT"; echo "::notice title=CI receipt::the merge ref is not on the head"; exit 0; }
           python3 "$verifier" verify rust-workspaces --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" \
             --base "$(git rev-parse HEAD^1)" --head-tree "$(git rev-parse 'HEAD^2^{tree}')" \
-            --merge-tree "$(git rev-parse 'HEAD^{tree}')" --audit-percent "$AUDIT_PERCENT" --output "$GITHUB_OUTPUT"
+            --merge-tree "$(git rev-parse 'HEAD^{tree}')" --audit-percent "$AUDIT_PERCENT" --output "$GITHUB_OUTPUT" \
+            --workspaces .receipt-verifier/.github/rust-workspaces.toml
 
   plan:
     name: plan (changed Cargo workspaces)

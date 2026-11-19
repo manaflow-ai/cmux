@@ -73,10 +73,11 @@ def run_record(**overrides) -> dict:
 
 class FakeGitHub:
     def __init__(self, *, run: dict | None = None, log: str | None = None, compare: str = "ahead",
-                 jobs: list | None = None):
+                 jobs: list | None = None, files: list[str] | None = None):
         self.run = run or run_record()
         self.log = log if log is not None else log_text()
         self.compare = compare
+        self.files = files or []
         self.jobs = jobs if jobs is not None else [{"id": JOB_ID, "name": "checks", "conclusion": "success"}]
         self.calls: list[str] = []
 
@@ -89,17 +90,17 @@ class FakeGitHub:
         if path == f"repos/{REPO}/actions/jobs/{JOB_ID}/logs":
             return self.log.encode()
         if path.startswith(f"repos/{REPO}/compare/"):
-            return json.dumps({"status": self.compare}).encode()
+            return json.dumps({"status": self.compare, "files": [{"filename": f} for f in self.files]}).encode()
         raise ci_receipt.Rejected(f"GitHub answered 404 for {path}")
 
 
 def verify(fake: FakeGitHub, *, job: str = "fast-gates", body: str | None = None, base: str = BASE,
-           merge_tree: str = MERGE_TREE, audit_percent: int = 0) -> dict:
+           merge_tree: str = MERGE_TREE, audit_percent: int = 0, workspaces: Path | None = None) -> dict:
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
         handle.write(body if body is not None else
                      f"Change.\n\nCI-Receipt: {job} https://github.com/{REPO}/actions/runs/{RUN}\n")
     args = SimpleNamespace(job=job, repo=REPO, head=HEAD, base=base, head_tree=HEAD_TREE, merge_tree=merge_tree,
-                           body_file=handle.name, audit_percent=audit_percent)
+                           body_file=handle.name, audit_percent=audit_percent, workspaces=workspaces)
     try:
         return ci_receipt.verify(args, fetch=fake)
     finally:
@@ -223,11 +224,26 @@ class Verify(unittest.TestCase):
         self.assertEqual(result["base"], OLD_BASE)
         self.assertRejected(verify(FakeGitHub(log=log_text(base=OLD_BASE), compare="diverged")), "not an ancestor")
 
-    def test_rust_workspaces_needs_the_same_base(self):
+    def test_rust_workspaces_on_an_older_base_only_when_no_rust_input_changed_since(self):
         rust = log_text(command="python3 scripts/ci/ci_receipt.py produce rust-workspaces", job="rust-workspaces",
-                        base=OLD_BASE)
-        self.assertRejected(verify(FakeGitHub(log=rust), job="rust-workspaces",
-                                   body=f"CI-Receipt: rust-workspaces {RUN}"), "needs the same base")
+                        base=OLD_BASE, tree="1" * 40)
+        body = f"CI-Receipt: rust-workspaces {RUN}"
+        listing = ROOT / ".github/rust-workspaces.toml"
+
+        def run(files, workspaces=listing, compare="ahead"):
+            return verify(FakeGitHub(log=rust, files=files, compare=compare), job="rust-workspaces", body=body,
+                          workspaces=workspaces)
+
+        self.assertEqual(run(["webviews/src/App.tsx", "docs/x.md"])["valid"], "true")
+        self.assertEqual(run(["webviews/src/App.tsx"])["base"], OLD_BASE)
+        for changed in ("cmux-tui/crates/acpmux/src/lib.rs", "webviews/native/build.rs", "Cargo.lock",
+                        "coderouter/README.md", "ghostty-next", ".github/rust-workspaces.toml",
+                        "cmux-tui/rust-toolchain.toml", ".github/actions/setup-cmux-tui-rust/action.yml"):
+            with self.subTest(changed=changed):
+                self.assertRejected(run(["docs/x.md", changed]), "changed Rust inputs")
+        self.assertRejected(run([f"docs/{n}.md" for n in range(300)]), "too many to clear")
+        self.assertRejected(run(["docs/x.md"], workspaces=None), "workspace list is not here")
+        self.assertRejected(run(["docs/x.md"], compare="diverged"), "not an ancestor")
         same = log_text(command="python3 scripts/ci/ci_receipt.py produce rust-workspaces", job="rust-workspaces")
         self.assertEqual(verify(FakeGitHub(log=same), job="rust-workspaces",
                                 body=f"CI-Receipt: rust-workspaces {RUN}")["valid"], "true")

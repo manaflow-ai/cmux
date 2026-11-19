@@ -28,9 +28,11 @@ request job reads it with its own read-only token. The pull request names the ru
                       is gone) has exit 0, an unmoved HEAD, and this head's tree: a receipt is keyed on the tree, so a
                       commit with the same tree (an empty commit pushed after the body names the receipt) keeps it;
                     - the command's CMUX_CI_RECEIPT names this job and a commit of this tree, and its merge tree is this run's
-                      merge tree: with the same base, the tree must equal ours; with an older base (fast gates only),
-                      that base must be an ancestor of ours, and the status names it (`base SHA`) so mergers apply
-                      their freshness rule to it as to any fast-gates status.
+                      merge tree: with the same base, the tree must equal ours; with an older base, that base must
+                      be an ancestor of ours. For fast gates the status names it (`base SHA`) so mergers apply their
+                      freshness rule to it as to any fast-gates status; for rust workspaces the commits since may change
+                      no Rust input (a Rust or Cargo file anywhere, the build setup, or a path under a listed
+                      workspace root or input, .github/rust-workspaces.toml), at most 300 files.
                   Anything else (no pointer, a forged or replayed run, another tree or command, an API failure) is
                   `valid=false` with the reason, and the job runs in full.
                   `audit=true` for CI_RECEIPT_AUDIT_PERCENT of valid receipts (default 10, seeded by the head and the
@@ -191,8 +193,31 @@ def parse_log(text: str) -> dict:
 TESTED = re.compile(r" tests (?P<repo>[^@\s]+)@(?P<sha>[0-9a-f]{40})$")
 
 
+# What a Cargo workspace build reads beyond its own root (rust-workspaces.py's EVERYTHING and the build setup).
+RUST_ANYWHERE = re.compile(r"(^|/)(Cargo\.(toml|lock)|rust-toolchain(\.toml)?|build\.rs|\.cargo/[^/]+|clippy\.toml)$|\.rs$"
+                           r"|^ghostty(-next)?($|/)|^\.github/(rust-workspaces\.toml|scripts/rust-workspaces\.py"
+                           r"|workflows/rust-workspaces\.yml|actions/setup-cmux-tui-rust/)|^scripts/cmux-next/cargo-locks\.py$"
+                           r"|^scripts/(install-zig-ci\.sh|ci/init-submodule\.sh)$")
+
+
+def load_rust_roots(path: Path | None) -> list[str]:
+    """Every listed workspace's root and `inputs` (.github/rust-workspaces.toml, from the base commit)."""
+    if path is None or not path.is_file():
+        return []
+    import tomllib  # noqa: PLC0415
+
+    entries = tomllib.loads(path.read_text(encoding="utf-8")).get("workspace", [])
+    return sorted({p for entry in entries for p in [entry.get("root", ""), *entry.get("inputs", [])] if p})
+
+
+def rust_input(path: str, roots: list[str]) -> bool:
+    """Whether a base change to PATH can change a Rust workspace's result: a Rust or Cargo file anywhere, the build
+    setup, or anything under a listed workspace root or input."""
+    return bool(RUST_ANYWHERE.search(path)) or any(path == r or path.startswith(r.rstrip("/") + "/") for r in roots)
+
+
 def check_run(fetch: Fetch, *, repo: str, run_id: str, job: str, head_tree: str, base: str,
-              merge_tree: str) -> dict:
+              merge_tree: str, rust_roots: list[str] | None = None) -> dict:
     """Every check a receipt must pass; raises Rejected naming the first that fails. Returns the receipt's base, the
     run's URL and its producer."""
     run = json.loads(fetch(f"repos/{repo}/actions/runs/{run_id}"))
@@ -240,14 +265,24 @@ def check_run(fetch: Fetch, *, repo: str, run_id: str, job: str, head_tree: str,
     if receipt_base == base:
         if receipt_tree != merge_tree:
             raise Rejected(f"{where} tested merge tree {receipt_tree}, not this run's {merge_tree} (same base {base})")
-    elif job != "fast-gates":
-        raise Rejected(f"{where} merged onto base {receipt_base}, not this run's {base}; a {job} receipt needs the "
-                       "same base")
     else:
-        compared = json.loads(fetch(f"repos/{repo}/compare/{receipt_base}...{base}?per_page=1"))
+        # One page of up to 300 files: the base's commits since the receipt's base.
+        compared = json.loads(fetch(f"repos/{repo}/compare/{receipt_base}...{base}?per_page=300"))
         if compared.get("status") not in ("ahead", "identical"):
             raise Rejected(f"{where} merged onto base {receipt_base}, which is {compared.get('status')} of this "
                            f"run's base {base}, not an ancestor")
+        if job == "rust-workspaces":
+            if not rust_roots:
+                raise Rejected(f"{where} merged onto base {receipt_base}, not this run's {base}, and the workspace "
+                               "list is not here to clear the base's changes")
+            files = [each.get("filename", "") for each in compared.get("files") or []]
+            if len(files) >= 300:
+                raise Rejected(f"{where} merged onto base {receipt_base}, {len(files)}+ files behind this run's base "
+                               f"{base}; too many to clear")
+            reached = [path for path in files if rust_input(path, rust_roots)]
+            if reached:
+                raise Rejected(f"{where} merged onto base {receipt_base}; the base has changed Rust inputs since "
+                               f"({', '.join(reached[:5])}), so it needs a receipt on this run's base {base}")
     return {"base": receipt_base, "run_url": url, "producer": producer}
 
 
@@ -279,7 +314,8 @@ def verify(args: argparse.Namespace, fetch: Fetch | None = None) -> dict:
     for run_id in reversed(runs[-3:]):
         try:
             found = check_run(fetch, repo=args.repo, run_id=run_id, job=args.job, head_tree=args.head_tree,
-                              base=args.base, merge_tree=args.merge_tree)
+                              base=args.base, merge_tree=args.merge_tree,
+                              rust_roots=load_rust_roots(args.workspaces))
         except Rejected as error:
             reasons.append(str(error))
             continue
@@ -434,6 +470,7 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--audit-percent", type=lambda v: int(v) if v.strip() else DEFAULT_AUDIT_PERCENT,
                        default=DEFAULT_AUDIT_PERCENT)
     check.add_argument("--output", type=Path)
+    check.add_argument("--workspaces", type=Path, help=".github/rust-workspaces.toml (rust-workspaces, from the base)")
     args = parser.parse_args(argv)
     if args.mode == "produce":
         return produce(args)
