@@ -65,7 +65,7 @@ public final class ActionRegistry {
     public var disabledFeatures: Set<ActionFeature> = [] { didSet { shortcutIndex = nil } }
     /// Why a cmux.json setting turns `id` off now (`browser.import.enabled`), or nil. Such an action
     /// leaves the palette, menus and context menus, and a run is refused with this reason (the
-    /// person's own choice, not `DisabledFeatures`). The App installs it.
+    /// person's own choice, not `DisabledFeatures`). Owners add theirs with `addSettingOffReason` (docks, hang reports too).
     @ObservationIgnored public var settingOffReason: @MainActor (ActionID) -> String? = { _ in nil }
     /// Debug-only actions: offered to the person only while Internal Developer Mode is on, to scripts
     /// wherever developer tools exist (`DebugActionGate`). The App installs the setting's read.
