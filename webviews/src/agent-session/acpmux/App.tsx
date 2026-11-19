@@ -13695,21 +13695,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
-          {!harnessesOpen &&
-            showNewTab &&
-            !newTab.history &&
-            pageStyle(shownTemplate(newTab)) !== "minimal" && (
-              <StyleSwitch
-                current={pageStyle(shownTemplate(newTab))}
-                onPick={(next) =>
-                  pickNewTabStyle(next, {
-                    callNative,
-                    show: (template) => setNewTab((current) => current && { ...current, template }),
-                  })
-                }
-                onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-              />
-            )}
+          {!harnessesOpen && showNewTab && !newTab.history && pageStyle(shownTemplate(newTab)) !== "minimal" && (
+            <StyleSwitch
+              current={pageStyle(shownTemplate(newTab))}
+              onPick={(next) =>
+                pickNewTabStyle(next, {
+                  callNative,
+                  show: (template) => setNewTab((current) => current && { ...current, template }),
+                })
+              }
+              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
+            />
+          )}
           {showNewTab && folderAskView}
           {showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
             <>
