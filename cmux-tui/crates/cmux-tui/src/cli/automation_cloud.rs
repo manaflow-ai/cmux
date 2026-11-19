@@ -143,6 +143,10 @@ fn checkout_name(repo: &str) -> String {
 }
 
 /// Step 0's script: start the command once per run (`CMUX_RUN` names it), detached.
+/// It leads a session of its own (`setsid`, or perl's where there is none, as on macOS), so the
+/// step's process group can end without it and the last wait can end its whole group. The step
+/// returns only after the command detached (its `detached` mark, at most 10 s), so a step runner
+/// that ends the step's group on exit never ends the command.
 pub(super) fn start_script(c: &CloudCommand) -> String {
     let q = super::cloud_start_chat::shell_quote;
     let place = match (&c.repo, &c.folder) {
@@ -160,9 +164,11 @@ pub(super) fn start_script(c: &CloudCommand) -> String {
     };
     format!(
         "set -e; d=\"{RUNS}/$CMUX_RUN\"; if [ -e \"$d/started\" ]; then echo started; exit 0; fi; mkdir -p \"$d\"; \
-         {place}cd \"$w\"; printf '%s\\n' {command} > \"$d/cmd.sh\"; s=; command -v setsid >/dev/null 2>&1 && s=setsid; \
-         $s nohup sh -c 'bash \"$1/cmd.sh\" > \"$1/log\" 2>&1; echo $? > \"$1/exit.tmp\"; mv \"$1/exit.tmp\" \"$1/exit\"' _ \"$d\" </dev/null >/dev/null 2>&1 & \
-         echo $! > \"$d/pid\"; : > \"$d/started\"; echo started in \"$w\"",
+         {place}cd \"$w\"; printf '%s\\n' {command} > \"$d/cmd.sh\"; s=; if command -v setsid >/dev/null 2>&1; then s=setsid; \
+         elif command -v perl >/dev/null 2>&1; then s='perl -MPOSIX -e POSIX::setsid();exec(@ARGV)'; fi; \
+         $s nohup sh -c ': > \"$1/detached\"; bash \"$1/cmd.sh\" > \"$1/log\" 2>&1; echo $? > \"$1/exit.tmp\"; mv \"$1/exit.tmp\" \"$1/exit\"' _ \"$d\" </dev/null >/dev/null 2>&1 & \
+         echo $! > \"$d/pid\"; i=0; while [ ! -e \"$d/detached\" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; \
+         : > \"$d/started\"; echo started in \"$w\"",
         command = q(&c.command),
     )
 }
