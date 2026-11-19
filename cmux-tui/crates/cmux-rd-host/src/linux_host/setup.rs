@@ -56,11 +56,15 @@ pub fn session_desktop(props: &str) -> Desktop {
 }
 
 /// The desktop from this process's environment, else from the user's logind sessions (each
-/// one's `show-session` text): Wayland wins over X11, which wins over none.
+/// one's `show-session` text): Wayland wins over X11, which wins over none. A `DISPLAY` naming
+/// `own_virtual`, the virtual display cmux runs here, is no desktop: the join puts it in the user
+/// environment so apps land on the shared screen, and reading it as one made the daemon's next
+/// `enable` install the desktop's host unit, which never starts without a graphical session.
 pub fn choose_desktop(
     session_type: Option<&str>,
     wayland_display: Option<&str>,
     display: Option<&str>,
+    own_virtual: Option<u32>,
     sessions: &[String],
 ) -> Desktop {
     fn set(v: Option<&str>) -> Option<&str> {
@@ -71,7 +75,8 @@ pub fn choose_desktop(
     {
         return Desktop::Wayland;
     }
-    if let Some(d) = set(display) {
+    let own = |d: &&str| own_virtual.is_some() && display_number(d) == own_virtual;
+    if let Some(d) = set(display).filter(|d| !own(d)) {
         return Desktop::X11(Some(d.to_owned()));
     }
     let found: Vec<Desktop> = sessions.iter().map(|s| session_desktop(s)).collect();
@@ -88,8 +93,22 @@ pub fn detect_desktop() -> Desktop {
         env("XDG_SESSION_TYPE").as_deref(),
         env("WAYLAND_DISPLAY").as_deref(),
         env("DISPLAY").as_deref(),
+        written_virtual_display(),
         &logind_sessions(),
     )
+}
+
+/// The number of a local X display name (`:N`, `:N.S`, `unix:N`); None for a `host:N` one.
+pub fn display_number(display: &str) -> Option<u32> {
+    let name = display.trim();
+    let rest = name.strip_prefix("unix").unwrap_or(name).strip_prefix(':')?;
+    rest.split('.').next()?.parse().ok()
+}
+
+/// The virtual display a written `cmux-screen-display.service` runs, whether or not the host is
+/// set up for it now ([`virtual_display`] needs the host's drop-in, which a misread join removed).
+fn written_virtual_display() -> Option<u32> {
+    display_of_unit(&std::fs::read_to_string(user_unit_dir().ok()?.join(DISPLAY_UNIT)).ok()?)
 }
 
 /// The `show-session` text of each of this user's logind sessions (empty without loginctl).
@@ -546,26 +565,58 @@ mod tests {
         let greeter = "Type=wayland\nClass=greeter\n".to_owned();
         // Over ssh: no WAYLAND_DISPLAY or DISPLAY, a tty session of its own.
         assert_eq!(
-            choose_desktop(Some("tty"), None, None, &[ssh.clone(), wayland.clone()]),
+            choose_desktop(Some("tty"), None, None, None, &[ssh.clone(), wayland.clone()]),
             Desktop::Wayland
         );
         assert_eq!(
-            choose_desktop(None, None, None, &[ssh.clone(), x11.clone()]),
+            choose_desktop(None, None, None, None, &[ssh.clone(), x11.clone()]),
             Desktop::X11(Some(":0".into()))
         );
-        assert_eq!(choose_desktop(None, None, None, &[x11, wayland]), Desktop::Wayland);
+        assert_eq!(choose_desktop(None, None, None, None, &[x11, wayland]), Desktop::Wayland);
         // The login screen is not this user's desktop.
-        assert_eq!(choose_desktop(None, None, None, &[ssh.clone(), greeter]), Desktop::None);
-        assert_eq!(choose_desktop(None, None, None, &[ssh]), Desktop::None);
-        assert_eq!(choose_desktop(None, None, None, &[]), Desktop::None);
+        assert_eq!(choose_desktop(None, None, None, None, &[ssh.clone(), greeter]), Desktop::None);
+        assert_eq!(choose_desktop(None, None, None, None, &[ssh]), Desktop::None);
+        assert_eq!(choose_desktop(None, None, None, None, &[]), Desktop::None);
         // The environment of a session on the desktop wins.
-        assert_eq!(choose_desktop(Some("wayland"), None, None, &[]), Desktop::Wayland);
-        assert_eq!(choose_desktop(None, Some("wayland-0"), None, &[]), Desktop::Wayland);
+        assert_eq!(choose_desktop(Some("wayland"), None, None, None, &[]), Desktop::Wayland);
+        assert_eq!(choose_desktop(None, Some("wayland-0"), None, None, &[]), Desktop::Wayland);
         assert_eq!(
-            choose_desktop(Some("x11"), None, Some(":1"), &[]),
+            choose_desktop(Some("x11"), None, Some(":1"), None, &[]),
             Desktop::X11(Some(":1".into()))
         );
-        assert_eq!(choose_desktop(None, Some(""), Some(" "), &[]), Desktop::None);
+        assert_eq!(choose_desktop(None, Some(""), Some(" "), None, &[]), Desktop::None);
+    }
+
+    #[test]
+    fn the_virtual_display_cmux_runs_here_is_no_desktop() {
+        // The join's environment.d puts DISPLAY=:99 in the user manager; the daemon's next
+        // `enable` read it as an X11 desktop and installed a host unit that never started.
+        assert_eq!(choose_desktop(None, None, Some(":99"), Some(99), &[]), Desktop::None);
+        assert_eq!(choose_desktop(None, None, Some(":99.0"), Some(99), &[]), Desktop::None);
+        // Another display is still the person's desktop, and so is :99 with no virtual display.
+        assert_eq!(
+            choose_desktop(None, None, Some(":0"), Some(99), &[]),
+            Desktop::X11(Some(":0".into()))
+        );
+        assert_eq!(
+            choose_desktop(None, None, Some(":99"), None, &[]),
+            Desktop::X11(Some(":99".into()))
+        );
+        // A logind desktop still wins over the virtual display.
+        let x11 = "Type=x11\nClass=user\nDisplay=:0\n".to_owned();
+        assert_eq!(
+            choose_desktop(None, None, Some(":99"), Some(99), &[x11]),
+            Desktop::X11(Some(":0".into()))
+        );
+    }
+
+    #[test]
+    fn display_numbers_are_read_from_local_names_only() {
+        assert_eq!(display_number(":99"), Some(99));
+        assert_eq!(display_number(":1.0"), Some(1));
+        assert_eq!(display_number("unix:7"), Some(7));
+        assert_eq!(display_number("remote:3"), None);
+        assert_eq!(display_number(""), None);
     }
 
     #[test]
