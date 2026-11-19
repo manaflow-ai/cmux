@@ -2,6 +2,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { ChromeHeaderMenus } from "./ChromeHeaderMenus";
 import { SidebarShapes } from "./SidebarShapes";
+import { GoldenChrome, type GoldenChromeProps } from "./GoldenChrome";
 
 export type ChromeShapeVariant = "recommendation" | "group-line" | "aside-labels" | "rex-icons";
 export type ChromeDensity = "compact" | "comfortable";
@@ -53,7 +54,13 @@ function BrowserPane() {
   );
 }
 
-export function WindowChromeShape({ variant, density, theme, menuScene }: WindowChromeShapeProps) {
+/** The review's states, or the golden preview: the whole chrome drawn from one look (GoldenChrome). */
+export function WindowChromeShape(props: WindowChromeShapeProps | GoldenChromeProps) {
+  if ("golden" in props) return <GoldenChrome golden={props.golden} />;
+  return <ShapeReview {...props} />;
+}
+
+function ShapeReview({ variant, density, theme, menuScene }: WindowChromeShapeProps) {
   const style = {
     "--chrome-density": density === "compact" ? 1 : 1.125,
   } as CSSProperties;

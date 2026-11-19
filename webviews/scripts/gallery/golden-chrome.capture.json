@@ -1,0 +1,174 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "golden-tabs",
+      "entry": "native.window-chrome-shapes",
+      "variant": "golden-tabs-soft",
+      "widthName": "normal",
+      "width": 1360,
+      "height": 880,
+      "deviceScaleFactor": 1,
+      "clip": ".golden-chrome",
+      "margin": 0,
+      "arms": {
+        "soft": "",
+        "capsule": "",
+        "square": ""
+      },
+      "armQuery": {
+        "soft": {
+          "variant": "golden-tabs-soft"
+        },
+        "capsule": {
+          "variant": "golden-tabs-capsule"
+        },
+        "square": {
+          "variant": "golden-tabs-square"
+        }
+      }
+    },
+    {
+      "name": "golden-sidebar-width",
+      "entry": "native.window-chrome-shapes",
+      "variant": "golden-sidebar-240",
+      "widthName": "normal",
+      "width": 1360,
+      "height": 880,
+      "deviceScaleFactor": 1,
+      "clip": ".golden-chrome",
+      "margin": 0,
+      "arms": {
+        "240": "",
+        "280": "",
+        "320": ""
+      },
+      "armQuery": {
+        "240": {
+          "variant": "golden-sidebar-240"
+        },
+        "280": {
+          "variant": "golden-sidebar-280"
+        },
+        "320": {
+          "variant": "golden-sidebar-320"
+        }
+      }
+    },
+    {
+      "name": "golden-session-info",
+      "entry": "native.window-chrome-shapes",
+      "variant": "golden-session-docked",
+      "widthName": "normal",
+      "width": 1360,
+      "height": 880,
+      "deviceScaleFactor": 1,
+      "clip": ".golden-chrome",
+      "margin": 0,
+      "arms": {
+        "docked": "",
+        "floating": "",
+        "inline": ""
+      },
+      "armQuery": {
+        "docked": {
+          "variant": "golden-session-docked"
+        },
+        "floating": {
+          "variant": "golden-session-floating"
+        },
+        "inline": {
+          "variant": "golden-session-inline"
+        }
+      }
+    },
+    {
+      "name": "golden-toolbar-buttons",
+      "entry": "native.window-chrome-shapes",
+      "variant": "golden-buttons-plain",
+      "widthName": "normal",
+      "width": 1360,
+      "height": 880,
+      "deviceScaleFactor": 1,
+      "clip": ".golden-chrome",
+      "margin": 0,
+      "arms": {
+        "plain": "",
+        "grouped": "",
+        "glass": ""
+      },
+      "armQuery": {
+        "plain": {
+          "variant": "golden-buttons-plain"
+        },
+        "grouped": {
+          "variant": "golden-buttons-grouped"
+        },
+        "glass": {
+          "variant": "golden-buttons-glass"
+        }
+      }
+    },
+    {
+      "name": "golden-home-cards",
+      "entry": "native.window-chrome-shapes",
+      "variant": "golden-home-flat",
+      "widthName": "normal",
+      "width": 1360,
+      "height": 880,
+      "deviceScaleFactor": 1,
+      "clip": ".golden-chrome",
+      "margin": 0,
+      "arms": {
+        "flat": "",
+        "raised": "",
+        "glass": ""
+      },
+      "armQuery": {
+        "flat": {
+          "variant": "golden-home-flat"
+        },
+        "raised": {
+          "variant": "golden-home-raised"
+        },
+        "glass": {
+          "variant": "golden-home-glass"
+        }
+      }
+    },
+    {
+      "name": "golden-looks",
+      "entry": "native.window-chrome-shapes",
+      "variant": "golden-look-stock",
+      "widthName": "normal",
+      "width": 1360,
+      "height": 880,
+      "deviceScaleFactor": 1,
+      "clip": ".golden-chrome",
+      "margin": 0,
+      "arms": {
+        "stock": "",
+        "arcade": "",
+        "neon": "",
+        "dusk": ""
+      },
+      "armQuery": {
+        "stock": {
+          "variant": "golden-look-stock"
+        },
+        "arcade": {
+          "variant": "golden-look-arcade"
+        },
+        "neon": {
+          "variant": "golden-look-neon"
+        },
+        "dusk": {
+          "variant": "golden-look-dusk"
+        }
+      }
+    }
+  ]
+}

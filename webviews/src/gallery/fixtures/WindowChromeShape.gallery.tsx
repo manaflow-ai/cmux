@@ -7,6 +7,8 @@ import {
   type ChromeTheme,
   type WindowChromeShapeProps,
 } from "./WindowChromeShape";
+import { GOLDEN_LOOKS, type GoldenLookId } from "./goldenChromeLooks";
+import type { GoldenChromeProps } from "./GoldenChrome";
 
 type Props = {
   variant: ChromeShapeVariant;
@@ -49,17 +51,32 @@ for (const menuScene of [
       };
     }
 
-export default componentEntry<Props>({
+// The golden preview: the whole chrome (sidebar, tab strips, vertical tabs, top right buttons, Session Info,
+// Home cards) from one look. `golden-<area>-<option>` varies one area; `golden-look-<name>` is a whole window.
+// Each look is a theme file fragment (goldenChromeLooks.ts); light and dark follow the gallery's scheme.
+const golden = Object.fromEntries(
+  (Object.keys(GOLDEN_LOOKS) as GoldenLookId[]).map((id) => [
+    `golden-${id}`,
+    { props: { golden: id }, note: `golden preview · ${GOLDEN_LOOKS[id].label}: ${GOLDEN_LOOKS[id].note}` },
+  ]),
+);
+
+export default componentEntry<Props | GoldenChromeProps>({
   id: "native.window-chrome-shapes",
   title: "Window chrome shape review",
   area: "Native",
   height: 860,
   widths: { narrow: 1080, normal: 1360, wide: 1680 },
-  // A review of the native window and pane chrome shapes (radii, header seam), drawn as a fixture.
+  // A review of the native window and pane chrome shapes (radii, header seam), drawn as a fixture, and the
+  // golden preview of every chrome shape at once.
   covers: ["swift:PaneChromeMetrics"],
   load: async () => WindowChromeShape,
-  styles: () => Promise.all([import("./WindowChromeShape.css"), import("./sidebarShapes.css")]),
-  variants: Object.fromEntries(
-    Object.entries(variants).map(([name, fixture]) => [name, { props: fixture, note: fixture.note }]),
-  ),
+  styles: () =>
+    Promise.all([import("./WindowChromeShape.css"), import("./sidebarShapes.css"), import("./GoldenChrome.css")]),
+  variants: {
+    ...golden,
+    ...Object.fromEntries(
+      Object.entries(variants).map(([name, fixture]) => [name, { props: fixture, note: fixture.note }]),
+    ),
+  },
 });
