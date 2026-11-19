@@ -784,9 +784,15 @@ jobs:
           SNAPSHOT_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/portable_job_placement.py
 
-      # The artifact daemon is Linux-only. Emit the fleet Linux label only when
-      # the runner census shows an idle Linux member beyond its queue; an empty
-      # output keeps the measured Blacksmith fallback. The trusted runner state
+      # The artifact daemon is Linux-only. Emit our persistent GCP build-lane label
+      # (cmux-gcp-lane-build-x64) only when the runner census shows an idle member
+      # beyond its queue; an empty output keeps the measured Blacksmith fallback.
+      # Not cmux-fleet-linux-x64: on 2026-11-19 no runner carried it (168 jobs
+      # waited there; its VM reconciler sat queued on starved Blacksmith), so this
+      # pick never found one and every daemon test fell to blacksmith-16vcpu behind
+      # ~346 runs (Leo: "i have my doubts blacksmith 16 is gonna fre up"). The
+      # lane's runners report no OS, so the label is vouched (FLEET_LINUX_VOUCHED).
+      # The trusted runner state
       # document answers without routing App reads; the route token is reused
       # only when the macOS pick already minted it.
       - name: Pick a live Linux runner for the artifact daemon
@@ -798,7 +804,8 @@ jobs:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           JOBS: cmux-next-daemon-tests
           LINUX_ONLY: cmux-next-daemon-tests
-          FLEET_LINUX: cmux-fleet-linux-x64
+          FLEET_LINUX: cmux-gcp-lane-build-x64
+          FLEET_LINUX_VOUCHED: "1"
           REQUIRE_LIVE_CAPACITY: "1"
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           ROUTE_TOKEN_FALLBACK: ${{ github.token }}
@@ -832,7 +839,9 @@ jobs:
           JOBS: tree-x86_64-musl tree-aarch64-musl machine-x86_64-musl machine-aarch64-musl
           LINUX_ONLY: tree-x86_64-musl tree-aarch64-musl machine-x86_64-musl machine-aarch64-musl
           LINUX_GROUPS: tree-x86_64-musl,tree-aarch64-musl machine-x86_64-musl,machine-aarch64-musl
-          FLEET_LINUX: cmux-fleet-linux-x64
+          # The persistent GCP build lane, which has runners; cmux-fleet-linux-x64 had none (2026-11-19).
+          FLEET_LINUX: cmux-gcp-lane-build-x64
+          FLEET_LINUX_VOUCHED: "1"
           REQUIRE_LIVE_CAPACITY: "1"
           NIGHTLY_WAIT_FOR_FLEET: "1"
           NIGHTLY_WAIT_SECONDS: "120"

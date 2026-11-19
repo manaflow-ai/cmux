@@ -409,7 +409,7 @@ def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = N
                       root: Path = ROOT) -> dict[str, str]:
     """label -> why it may not run this job; empty when every label is Blacksmith or declared fleet Linux.
 
-    A FLEET_LINUX_OUTPUTS step output reads as the GCP fleet Linux label it can only hold.
+    A FLEET_LINUX_OUTPUTS step output reads as the GCP build-lane label it can only hold.
 
     GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
     """
@@ -417,7 +417,7 @@ def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = N
     personal = personal_machine_names()
     if isinstance(runs_on, str):
         for output in FLEET_LINUX_OUTPUTS:
-            runs_on = runs_on.replace(output, f"'{GCP_FLEET_LINUX}'")
+            runs_on = runs_on.replace(output, f"'{GCP_LANE_BUILD_LINUX}'")
     labels = resolve_labels(runs_on, variables=variables)
     if not labels:
         return {"[]": "no label at all: an empty runs-on never schedules"}
