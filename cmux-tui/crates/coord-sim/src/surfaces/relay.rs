@@ -111,9 +111,49 @@ fn publisher(sh: Arc<Shared>, coord: u32, items: Arc<Vec<Item>>) -> Result<(), S
         return Err(format!("register: {reg}"));
     }
     ctl.set_read_timeout(Some(Duration::from_secs(1)))?;
+    // The registration lasts `lease_seconds` unless renewed: a ping every third of it, as the real daemon does
+    // (cmux-remote's `registration_liveness`). Without it the slot goes offline mid-run and a reconnect is refused.
+    let lease = reg["lease_seconds"].as_u64().unwrap_or(30);
+    let heartbeat = Duration::from_secs((lease / 3).max(1));
+    let mut pinger = ctl.try_clone()?;
+    let stop = AtomicBool::new(false);
+    thread::scope(|beat| {
+        beat.spawn(|| {
+            let mut nonce = 0u64;
+            let mut last = Instant::now();
+            while !stop.load(Ordering::Relaxed) && !sh.done.load(Ordering::Relaxed) {
+                thread::sleep(Duration::from_millis(100));
+                if last.elapsed() >= heartbeat {
+                    nonce += 1;
+                    last = Instant::now();
+                    if pinger
+                        .send_text(&json!({ "type": "ping", "nonce": nonce }).to_string())
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+        });
+        let served = serve_circuits(&sh, coord, &slot, &items, &mut ctl);
+        stop.store(true, Ordering::Relaxed);
+        served
+    })?;
+    ctl.close();
+    Ok(())
+}
+
+/// Joins every circuit the relay offers this publisher's slot and sends it the records from the index it asks for.
+fn serve_circuits(
+    sh: &Shared,
+    coord: u32,
+    slot: &str,
+    items: &[Item],
+    ctl: &mut Ws,
+) -> Result<(), String> {
     let mut circuits = 0u64;
     while !sh.done.load(Ordering::Relaxed) {
-        let incoming = match read_control(&mut ctl) {
+        let incoming = match read_control(ctl) {
             Ok(v) => v,
             Err(e)
                 if e.contains("timed out")
@@ -198,7 +238,6 @@ fn publisher(sh: Arc<Shared>, coord: u32, items: Arc<Vec<Item>>) -> Result<(), S
             c.shutdown();
         });
     }
-    ctl.close();
     Ok(())
 }
 
