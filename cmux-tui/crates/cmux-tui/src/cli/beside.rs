@@ -335,19 +335,38 @@ fn rows(answer: &Value) -> &[Value] {
         .map_or(&[], Vec::as_slice)
 }
 
-/// Whether a pane is an agent's home: one of its `tabs` (a `tab.list` of
-/// the pane) shows a terminal an agent of `agents` (`agent.list`) runs in
-/// and has not ended. A caller's tab never opens in another agent's pane.
+/// Whether a pane is an agent's home, by the app's rule
+/// (ControlCallerPlacement `isAnotherAgent`): one of its `tabs` (a
+/// `tab.list` of the pane) is an agent's chat, or shows a terminal an agent
+/// of `agents` (`agent.list`) runs in and has not ended. A caller's tab never
+/// opens in another agent's pane. The caller here is a plain shell, which has
+/// no session of its own, so every agent's chat is another agent's.
 pub(super) fn holds_agent(tabs: &Value, agents: &Value) -> bool {
     let live: Vec<&str> = rows(agents)
         .iter()
         .filter(|agent| agent.get("state").and_then(Value::as_str) != Some("done"))
         .filter_map(|agent| agent.get("terminal_id").and_then(Value::as_str))
         .collect();
-    rows(tabs)
-        .iter()
-        .filter_map(|tab| tab.get("content_id").and_then(Value::as_str))
-        .any(|terminal| live.contains(&terminal))
+    rows(tabs).iter().any(|tab| {
+        is_agent_chat(tab)
+            || tab
+                .get("content_id")
+                .and_then(Value::as_str)
+                .is_some_and(|terminal| live.contains(&terminal))
+    })
+}
+
+/// Whether a tab row is an agent's chat: a conversation tab
+/// (`content_kind: conversation`) whose record names an agent session
+/// (`extra.conversation.agent_session.session`, the store's
+/// `agent-session-tabs-v1` record). A chat tab that has no session yet (a
+/// New Tab page before its agent starts) is no agent's, as in the app.
+fn is_agent_chat(tab: &Value) -> bool {
+    tab.get("content_kind").and_then(Value::as_str) == Some("conversation")
+        && tab
+            .pointer("/extra/conversation/agent_session/session")
+            .and_then(Value::as_str)
+            .is_some_and(|session| !session.is_empty())
 }
 
 /// The id of the pane a `pane.neighbor.get` answer names, if any.

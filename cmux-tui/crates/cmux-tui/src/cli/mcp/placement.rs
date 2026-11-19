@@ -214,15 +214,14 @@ impl<B: Backend> Server<B> {
     /// workspace named, in the chat's own pane when the chat is not docked.
     /// The request names the caller's terminal, as `cmux open URL` does (an
     /// agent in a cmux terminal has no agent session, and with no terminal
-    /// the app opened the link in the person's focused pane), and says
-    /// `origin: mcp`, so the app places that terminal's caller as an agent.
+    /// the app opened the link in the person's focused pane). The server's
+    /// app requests say `origin: mcp` (app.rs `with_caller`, the one place
+    /// that adds it and that asks an older app again without it), so the app
+    /// places that terminal's caller as an agent.
     fn open_beside(&self, arguments: &Map<String, Value>) -> Value {
         let key = arguments.get("idempotency_key").and_then(Value::as_str);
-        let mut params = json!({
-            "url": arguments.get("url").cloned().unwrap_or(Value::Null),
-            "focus": false,
-            "origin": "mcp",
-        });
+        let mut params =
+            json!({"url": arguments.get("url").cloned().unwrap_or(Value::Null), "focus": false});
         if let Some(terminal) = self.backend.caller_terminal() {
             params.set("terminal_id", json!(terminal));
         }

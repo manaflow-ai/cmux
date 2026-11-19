@@ -25,8 +25,9 @@ terminal's right, else a new pane right of it. Use the flags only when the
 person names another place. UI actions `cmux tab new-browser`,
 `cmux browser split-right` and `cmux browser split-down`, run from a cmux
 terminal or an agent chat with no `--target`, act at the caller's own place;
-an agent's closing or removing action needs `--target` (`target_required`),
-and a window-scoped close needs `--window`.
+an agent's closing or removing action needs `--target` (`target_required`).
+Only `workspace close-all` and `window stash` take `--window`; the other
+window-scoped closes are refused for an agent (`person_required`).
 Read their arguments with `cmux action describe "browser split-right"`.
 
 ## Page commands for app tabs (`tab_…` or `page`)

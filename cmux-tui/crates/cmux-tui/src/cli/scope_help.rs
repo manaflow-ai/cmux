@@ -33,14 +33,20 @@ workspace, screen or pane. With none it opens in the caller's own workspace:
 the column right of an agent's chat (made when missing), or, from a cmux
 terminal (an agent's or a plain shell), where a Cmd-click there opens a
 link, by the person's link placement setting: by default the pane on the
-terminal's right, else a new pane right of it. Only a shell outside cmux
-gets the focused pane. --url <url> is the same as the positional URL.
+terminal's right, else a new pane right of it. When no window shows the
+terminal's workspace: the helper column right of the terminal (never another
+agent's pane), else a new pane right of it, whatever that setting says. Only
+a shell outside cmux gets the focused pane. --url <url> is the same as the
+positional URL.
 
 browser profile list shows each profile's id, name, color, icon and index,
 never its cookies, history or site data. browser profile open opens a tab in
-the profile, in the named pane; with no --pane it is placed like browser
-open, to the right of the caller in its own workspace. --background true
-keeps the pane's selected tab. The URL must be http or https. Without
+the profile, in the named pane. With no --pane it opens in the caller's own
+workspace: the column right of an agent's chat or terminal (made when
+missing), or, from a plain shell, the pane right of the terminal unless an
+agent's chat or terminal is in it, else a new pane right of the terminal.
+It does not read the link placement setting. --background true keeps the
+pane's selected tab. The URL must be http or https. Without
 --engine the tab uses the browser.defaultEngine setting.
 ";
 
