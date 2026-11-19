@@ -21,7 +21,14 @@
 //!   `fanoutUs`), the attach of a local chat (`attachLocalUs`) and of a remote row
 //!   (`attachRemoteUs`) on another connection, `ACPMUX_SCALE_PROBES` times each (default 30);
 //! - a whole-list read on a fresh connection after the churn (`relistMs`, `relistBytes`): what
-//!   each `acpmux ls`-style re-read costs at N.
+//!   each `acpmux ls`-style re-read costs at N;
+//! - `ACPMUX_SCALE_LS_REPEATS` (default 10) live-list reads as `acpmux-ls-paged --live` makes them
+//!   (pages of 2,048 rows, `excludeStatus: [closed]`, a fresh connection each): `lsLiveUs`,
+//!   `lsLiveBytes` a read and the daemon's CPU a read (`lsLiveCpuMs`). `ACPMUX_SCALE_CLOSED_PCT`
+//!   (default 0) of each peer's rows are closed, as most of a busy hub's are.
+//!
+//! With `ACPMUX_SCALE_DHAT_DIR` and a `--features dhat-heap` build, the daemon writes its heap
+//! profile there and the run prints its allocation sites (`SCALE-DHAT`), with the peak per row.
 //!
 //! It prints one `SCALE-ROW {json}` per N, then a table and `SCALE-RATIO` lines against the first
 //! N. Manual, on Linux CI:
@@ -33,6 +40,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "support/dhat_sites.rs"]
+mod dhat_sites;
 // No prompt is sent; the knobs hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_SCALE_NS",
@@ -43,6 +52,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_SCALE_PROBES",
     "ACPMUX_GOD_DAEMON_BIN",
     "ACPMUX_SCALE_DHAT_DIR",
+    "ACPMUX_SCALE_CLOSED_PCT",
+    "ACPMUX_SCALE_LS_REPEATS",
 ]);
 
 use acpmux::config::{Config, StoreMode};
@@ -220,13 +231,19 @@ struct Peer {
 /// `counts.len()` peers, peer `p` listing `counts[p]` rows: the daemon's `peers` config and them.
 async fn peers(counts: &[usize], scratch: &Path) -> (Value, Vec<Peer>) {
     let (mut config, mut peers) = (serde_json::Map::new(), vec![]);
+    let closed_pct: usize = env_or("ACPMUX_SCALE_CLOSED_PCT", 0);
     for (p, &rows) in counts.iter().enumerate() {
         let name = format!("peer{p:03}");
         let mut cfg = Config::default();
         cfg.store.mode = StoreMode::Memory;
         let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
         for i in 0..rows {
-            store.save(&serde_json::from_value(god_fixture::peer_meta(&name, i)).unwrap()).unwrap();
+            let mut meta = god_fixture::peer_meta(&name, i);
+            // `ACPMUX_SCALE_CLOSED_PCT` of each peer's rows are closed, as most of a hub's are.
+            if i * 100 < rows * closed_pct {
+                meta["status"] = json!("closed");
+            }
+            store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         }
         let hub = Hub::new(cfg, store);
         let home = scratch.join(format!("peer-{p}"));
@@ -383,7 +400,8 @@ async fn run(n: usize) -> Value {
     let peers = Arc::new(peers);
     let peer_count = counts.len();
 
-    let daemon = Daemon::start(&scratch, &home, &format!("{n}-{peer_count}peers"));
+    let tag = format!("{n}-{peer_count}peers");
+    let daemon = Daemon::start(&scratch, &home, &tag);
     let watched = Arc::new(Watched::default());
     let (watcher, first_list_bytes) = watch(&daemon.socket, watched.clone());
     let socket = daemon.socket.clone();
@@ -532,11 +550,55 @@ async fn run(n: usize) -> Value {
         .await
         .unwrap()
     };
+    // `acpmux-ls-paged --live`, as the agent tooling calls it again and again: the live rows,
+    // read in pages of up to 2,048 rows (its FIRST_PAGE) with `excludeStatus: [closed]`, on a
+    // fresh connection each time. Its time, its bytes, and the daemon's CPU per read.
+    let ls_repeats: usize = env_or("ACPMUX_SCALE_LS_REPEATS", 10);
+    let cpu_ls = daemon.cpu_seconds();
+    let ls_live = {
+        let socket = daemon.socket.clone();
+        tokio::task::spawn_blocking(move || {
+            let (mut ms, mut bytes, mut rows, mut pages) = (vec![], 0u64, 0u64, 0u64);
+            for _ in 0..ls_repeats {
+                let mut fresh = Rpc::connect(&socket, "scale-ls-live");
+                let before = fresh.read_bytes;
+                let at = Instant::now();
+                let mut cursor = Value::Null;
+                let mut got = 0u64;
+                loop {
+                    let mut params = json!({"limit": 2048, "excludeStatus": ["closed"]});
+                    if !cursor.is_null() {
+                        params["cursor"] = cursor.clone();
+                    }
+                    let Ok(reply) = fresh.call("_acpmux/sessions", params) else { break };
+                    pages += 1;
+                    got += reply["sessions"].as_array().map_or(0, |r| r.len() as u64);
+                    cursor = reply["nextCursor"].clone();
+                    if cursor.is_null() {
+                        break;
+                    }
+                }
+                ms.push(at.elapsed().as_micros() as u64);
+                bytes = fresh.read_bytes - before;
+                rows = got;
+            }
+            (ms, bytes, rows, pages)
+        })
+        .await
+        .unwrap()
+    };
+    let ls_cpu_ms = (daemon.cpu_seconds() - cpu_ls) * 1000.0 / ls_repeats.max(1) as f64;
     let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
     let (rss_end, peak_rss) = daemon.rss();
     let threads = daemon.threads();
     watched.stop.store(true, Ordering::Relaxed);
     drop(daemon);
+    // A `dhat-heap` build wrote its heap on the way out: its sites, and the peak per remote row.
+    if let Some(dir) = std::env::var_os("ACPMUX_SCALE_DHAT_DIR") {
+        let heap = dhat_sites::attribute(&PathBuf::from(dir).join(format!("dhat-{tag}.json")), 40);
+        let per_row = heap["peakBytes"].as_u64().map(|b| b / n.max(1) as u64);
+        println!("SCALE-DHAT n={n} peakBytesPerRow={per_row:?} {heap}");
+    }
     let _ = watcher.join();
 
     let mut steady = rss_samples.clone();
@@ -564,6 +626,8 @@ async fn run(n: usize) -> Value {
         "attachRemoteUs": spread(&remote), "attachRemoteErrors": remote_errors,
         "attachRemoteError": remote_error,
         "relistMs": relist.0, "relistBytes": relist.1, "relistRows": relist.2,
+        "lsLiveUs": spread(&ls_live.0), "lsLiveBytes": ls_live.1, "lsLiveRows": ls_live.2,
+        "lsLivePages": ls_live.3, "lsLiveCpuMs": (ls_cpu_ms * 10.0).round() / 10.0,
         "listReplies": status["listReplies"],
         "peerLists": status["gauges"]["peerLists"],
     })
@@ -587,6 +651,9 @@ fn row_line(r: &Value, base: Option<&Value>) -> Value {
         "fanout_p95_ms": ms(&r["fanoutUs"]["p95"]),
         "relist_ms": r["relistMs"],
         "relist_bytes": r["relistBytes"],
+        "ls_live_p95_ms": ms(&r["lsLiveUs"]["p95"]),
+        "ls_live_bytes": r["lsLiveBytes"],
+        "ls_live_cpu_ms": r["lsLiveCpuMs"],
     });
     if let Some(b) = base {
         let ratio = |k: &str| match (
@@ -607,6 +674,9 @@ fn row_line(r: &Value, base: Option<&Value>) -> Value {
             "/fanout_p95_ms",
             "/relist_ms",
             "/relist_bytes",
+            "/ls_live_p95_ms",
+            "/ls_live_bytes",
+            "/ls_live_cpu_ms",
         ];
         let ratios: serde_json::Map<String, Value> =
             keys.iter().map(|k| (k[1..].replace('/', "."), ratio(k))).collect();
@@ -633,7 +703,7 @@ async fn daemon_cost_per_attached_remote_session() {
         lines.push(line);
     }
     println!(
-        "SCALE-TABLE {:>5} {:>5} {:>8} {:>8} {:>7} {:>7} {:>8} {:>9} {:>9} {:>9} {:>9}",
+        "SCALE-TABLE {:>5} {:>5} {:>8} {:>8} {:>7} {:>7} {:>8} {:>9} {:>9} {:>9} {:>9} {:>9} {:>10} {:>8}",
         "n",
         "peers",
         "rssMB",
@@ -644,11 +714,14 @@ async fn daemon_cost_per_attached_remote_session() {
         "attachP95",
         "remoteP95",
         "fanoutP95",
-        "relistMs"
+        "relistMs",
+        "lsLiveP95",
+        "lsLiveBytes",
+        "lsCpuMs"
     );
     for l in &lines {
         println!(
-            "SCALE-TABLE {:>5} {:>5} {:>8} {:>8} {:>7} {:>7} {:>8} {:>9} {:>9} {:>9} {:>9}",
+            "SCALE-TABLE {:>5} {:>5} {:>8} {:>8} {:>7} {:>7} {:>8} {:>9} {:>9} {:>9} {:>9} {:>9} {:>10} {:>8}",
             l["n"],
             l["peers"],
             l["daemon_rss_mb"]["steady"],
@@ -660,6 +733,9 @@ async fn daemon_cost_per_attached_remote_session() {
             l["attach_remote_p95_ms"],
             l["fanout_p95_ms"],
             l["relist_ms"],
+            l["ls_live_p95_ms"],
+            l["ls_live_bytes"],
+            l["ls_live_cpu_ms"],
         );
     }
     for l in lines.iter().skip(1) {
