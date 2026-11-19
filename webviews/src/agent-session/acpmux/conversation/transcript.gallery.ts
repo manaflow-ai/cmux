@@ -20,6 +20,7 @@ import {
   LOGIN_TESTS_MP4,
 } from "../../../gallery/fixtures/toolImages";
 import { JUMP_LATEST_SHOWN } from "../transcriptSelectors";
+import { ROW_METRIC } from "../rowMetric";
 
 const prompt = "Add retries with backoff to the fetch helper";
 
@@ -2052,10 +2053,10 @@ export default agentPaneEntry({
         if (!row()!.matches("button") || row()!.getAttribute("aria-expanded") !== "false")
           throw new Error("a finished thought is a closed toggle");
         if (!row()!.querySelector(".cv-tool__icon svg")) throw new Error("a folded thought draws the brain glyph");
-        if (Math.round(row()!.getBoundingClientRect().height) !== 22)
-          throw new Error("a finished thought uses the compact 22px tool-row rhythm");
+        if (Math.round(row()!.getBoundingClientRect().height) !== ROW_METRIC.height)
+          throw new Error("a finished thought uses the shared row metric's height (rowMetric.ts)");
         const preview = row()!.querySelector<HTMLElement>(".cv-thought__preview");
-        if (!preview || preview.getBoundingClientRect().height > 22)
+        if (!preview || preview.getBoundingClientRect().height > ROW_METRIC.height)
           throw new Error("a folded thought's words are one line");
         if (ctx.document.querySelector(".cv-thought__text")) throw new Error("a folded thought draws no body");
         if (row()!.closest("[title]") || row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
@@ -2542,7 +2543,7 @@ export default agentPaneEntry({
       play: openEndedRun,
     },
     "collapsed-run-spacing-selected": {
-      note: "Selected gallery rhythm: compact 22px tool rows and a 4px gap before the reply, matching the Codex reference.",
+      note: "Selected gallery rhythm: compact tool rows of the shared row metric and a 4px gap before the reply, matching the Codex reference.",
       snapshot: collapsedRunChat(),
       play: openEndedRun,
     },
@@ -2724,7 +2725,7 @@ export default agentPaneEntry({
     "codex-turn-raw-commands": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, flush under the run over it as one more 22px line of it (#31497); ⌃B to run in background shows on hover. Play: hover the line.",
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, flush under the run over it as one more line of it (#31497); ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
           user("What did the lanes decide? Relay it and answer.", 2),

@@ -10,7 +10,7 @@
   margin: 0;
   gap: var(--grid-gap-inner);
   font-family: var(--cv-font);
-  font-size: var(--cv-font-size);
+  font-size: var(--cv-row-font-size);
   letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }

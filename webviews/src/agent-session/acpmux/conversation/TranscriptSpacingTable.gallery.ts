@@ -177,7 +177,7 @@ const received = (text: string, minutes: number, continues = false) =>
 
 /// Leo's 2026-11-02 capture ("wtf these tool call spacing things are still weird"): a finished
 /// reply's footer, then another machine's lane's message, then the turn it started, its work folded
-/// to "Ran 2 commands, received a message". Every line on one 22px line, its icon in the shared
+/// to "Ran 2 commands, received a message". Every line on one line of the shared row metric, its icon in the shared
 /// column, the sender named once (transcript-received-line.test.ts).
 const peerLines = () => {
   const snapshot = chat(
