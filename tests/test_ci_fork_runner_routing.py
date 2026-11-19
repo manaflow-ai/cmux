@@ -166,28 +166,23 @@ HOSTED_LITERAL_RUNNER = re.compile(
 )
 # The one runner selector a trusted-token job may use. CI_TRUSTED_RUNNER can
 # only choose among ephemeral labels listed here, in the base-branch workflow:
-# a Blacksmith VM that runs one job and is destroyed. Any other value,
-# including a persistent mini's label or GitHub-hosted Ubuntu (the hosted pool
-# started nothing for hours on 2026-11-18), falls back to Blacksmith, and a
-# fork running its own CI gets GitHub-hosted.
-TRUSTED_RUNNER_LABELS = ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")
+# GitHub-hosted Ubuntu or a Blacksmith VM, each a one-job VM that is destroyed.
+# Any other value, such as a persistent mini's label, falls back to Blacksmith,
+# and a fork running its own CI gets GitHub-hosted. Hosted came back on
+# 2026-11-19: Blacksmith's Linux labels started almost nothing for hours and
+# the overflow switch's failover writes ubuntu-24.04, which a Blacksmith-only
+# list ignored.
+TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")
 TRUSTED_RUNNER_EXPRESSION = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
     + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
 TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
-# The one named exception: language-boundaries.yml keeps the selector that still admits ubuntu-24.04, because its
-# own guard refuses a change to it without Leo's leo-approved-port label; a follow-up PR carries it. Only that file.
-LEGACY_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace("('[", "('[\"ubuntu-24.04\",", 1)
-LEGACY_TRUSTED_RUNNER_WORKFLOWS = frozenset({"language-boundaries.yml"})
-LEGACY_TRUSTED_RUNNER_LINE = re.compile(
-    r"^\s*runs-on:\s*" + re.escape(LEGACY_TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
 
 
 def trusted_runner_line(workflow: str, line: str) -> bool:
-    return bool(TRUSTED_RUNNER_LINE.match(line) or (
-        workflow in LEGACY_TRUSTED_RUNNER_WORKFLOWS and LEGACY_TRUSTED_RUNNER_LINE.match(line)))
+    return bool(TRUSTED_RUNNER_LINE.match(line))
 
 
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
@@ -1682,18 +1677,13 @@ class ForkRunnerRoutingTests(unittest.TestCase):
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
         for label in TRUSTED_RUNNER_LABELS:
-            self.assertTrue(label.startswith("blacksmith-"), label)
+            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-"), label)
         widened = TRUSTED_RUNNER_EXPRESSION.replace('"blacksmith-2vcpu-ubuntu-2404",', '"glaeda-std-xcode-26.6","blacksmith-2vcpu-ubuntu-2404",')
         renamed = TRUSTED_RUNNER_EXPRESSION.replace("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER")
         unforked = TRUSTED_RUNNER_EXPRESSION.replace("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", "")
         for variant in (widened, renamed, unforked):
             with self.subTest(variant=variant):
                 self.assertNotEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {variant}\n"), [])
-        # The hosted-admitting selector passes only in the one named file.
-        self.assertIn('"ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404"', LEGACY_TRUSTED_RUNNER_EXPRESSION)
-        legacy = f"jobs:\n  a:\n    runs-on: {LEGACY_TRUSTED_RUNNER_EXPRESSION}\n"
-        self.assertNotEqual(outsider_runner_errors("x.yml", legacy), [])
-        self.assertEqual(outsider_runner_errors("language-boundaries.yml", legacy), [])
 
     def test_no_workflow_falls_back_to_blacksmith_outside_manaflow_ai(self) -> None:
         """Scheduled, dispatched and push-only workflows need a fork branch too.
