@@ -147,6 +147,17 @@ public actor InstallAuthClient {
         return try await mintRecovering()
     }
 
+    /// Reports the step a mint is in, in words ("POST /v1/auth/token"), for a caller that names a stalled mint.
+    public typealias Step = @Sendable (String) -> Void
+
+    /// A new token, minted in the caller's task whatever the held one's age, with its expiry: for an owner that
+    /// keeps its own lease (the Mac's ``MacInstallIdentity`` renews beside the held token, on Rust's rules).
+    public func mintFresh(step: Step? = nil) async throws -> (value: String, expiresAt: Date) {
+        let value = try await mintRecovering(step: step)
+        guard let token, token.value == value else { throw InstallAuthError.malformedReply }
+        return token
+    }
+
     /// The op classes the phone's install asks for (``InstallProfile/ios``).
     public static let grantClasses = InstallProfile.ios.opClasses
 
@@ -176,22 +187,24 @@ public actor InstallAuthClient {
     }
 
     /// The personal sign-in path can recover a revoked install once. A team refusal preserves the key and record.
-    private func mintRecovering() async throws -> String {
+    private func mintRecovering(step: Step? = nil) async throws -> String {
         do {
-            return try await mint()
+            return try await mint(step: step)
         } catch InstallAuthError.refused(let code) where code == "auth.forbidden" && team == nil {
             try await signer.rotate()
             record = nil
             await onRecord(nil)
-            return try await mint()
+            return try await mint(step: step)
         }
     }
 
-    private func mint() async throws -> String {
+    private func mint(step: Step? = nil) async throws -> String {
         // Team selection belongs to the signed challenge. A denied team must not rotate the install
         // or silently mint a personal token; the unscoped sign-in path owns registration recovery.
         if let team, !Self.isTeam(team) { throw InstallAuthError.unexpectedChallenge }
+        if record == nil { step?("registering this install") }
         let record = try await ensureRegistered()
+        step?("POST /v1/auth/challenge")
         var request = ["user": record.user, "install": record.install]
         if let team { request["team"] = team }
         let challenge = try await postJSON("/v1/auth/challenge", request, bearer: nil)
@@ -201,7 +214,9 @@ public actor InstallAuthClient {
         }
         // Once learned, the environment never changes for this client.
         if let environment, environment != named { throw InstallAuthError.unexpectedChallenge }
+        step?("signing the challenge with the install key")
         let signature = try await signer.sign(Data((prefix + nonce).utf8))
+        step?("POST /v1/auth/token")
         let reply = try await postJSON("/v1/auth/token", ["user": record.user, "install": record.install,
                                                           "nonce": nonce, "signature": (signature).base64URLEncoded], bearer: nil)
         guard let value = reply["access_token"] as? String else { throw InstallAuthError.malformedReply }
