@@ -202,7 +202,7 @@ PARTS = [
     # "Live resize". The bench build, like memory-agents and throughput: the frames people see are Release frames.
     {"name": "cef-resize", "args": [*MEASURE, "--config=bench", "--suite=cef-resize"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "cef-resize",
-     "run_seconds": 1800},  # a layer-hosting check launch, 2 layouts x 2 actions x 3 rounds, a cold bench build
+     "run_seconds": 1800},  # 156 s with the bench app cached (step 5574ba49fb74, 2026-11-19); a cold bench build adds ~800 s
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.

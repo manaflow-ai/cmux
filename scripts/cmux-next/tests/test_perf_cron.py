@@ -672,38 +672,43 @@ class WebUiTests(unittest.TestCase):
 
     def test_the_cef_resize_part_owns_its_rows_and_judges_late_frames(self):
         """Live resize beside a Chromium page (cef-layer-hosting-DESIGN.md "Live resize"): every frame on time (0
-        missed) and the frame's commit under half a display frame, from cef-resize-sync-bench.py's summary.json."""
+        missed) and the frame's commit under half a display frame, from pane-perf-terminal.py --browser's summary."""
         self.assertIn("cef-resize", FLEET, "a Mac part on the measure host")
         self.assertIn("--config=bench", cron.PART_BY_NAME["cef-resize"]["args"])
         self.assertEqual(cron.part_for_row("cef_resize.drag.4x2.missed@cmux20-bench"), "cef-resize")
-        self.assertEqual(cron.part_for_row("cef_resize.window.1x2.commit_p95_ms@cmux20-bench"), "cef-resize")
+        self.assertEqual(cron.part_for_row("cef_resize.window-zoom.1x2.commit_p95_ms@cmux20-bench"), "cef-resize")
         spec2 = importlib.util.spec_from_file_location("cef_resize_cron", os.path.join(HERE, "..", "cef-resize-cron.py"))
         cr = importlib.util.module_from_spec(spec2)
         spec2.loader.exec_module(cr)
+        # The shape step 5574ba49fb74 gave on 2026-11-19: a window that was not key names its layouts "-inactive".
         summary = {"summary": [
-            {"layout": "4x2", "action": "drag", "missed": 2, "commit_p95_ms": 3.1, "commit_max_ms": 7.0, "refresh_ms": 8.33},
-            {"layout": "1x2", "action": "window", "missed": 0, "commit_p95_ms": 5.0, "refresh_ms": 16.67},
-            {"layout": "1x2", "action": "drag", "missed": None, "commit_p95_ms": None, "refresh_ms": 8.33}]}
+            {"layout": "4x2-inactive", "action": "drag", "missed": 2, "commit_p95_ms": 3.1, "commit_max_ms": 7.0,
+             "refresh_ms": 8.33},
+            {"layout": "1x2", "action": "window-zoom", "missed": 0, "commit_p95_ms": 5.0, "refresh_ms": 16.67},
+            {"layout": "1x2", "action": "window-unzoom", "missed": None, "commit_p95_ms": None, "refresh_ms": 8.33}]}
         bench_rows = cr.rows_from(summary)
-        self.assertEqual(cr.missing_from(bench_rows), ["drag 1x2: no rows", "window 4x2: no rows"],
-                         "each layout and action asked for with no number")
+        self.assertEqual(cr.missing_from(bench_rows), ["window-unzoom 1x2: no rows", "window-zoom 4x2: no rows",
+                                                       "window-unzoom 4x2: no rows"],
+                         "each layout and action the bench gives with no number; 1x2 has no divider to drag")
         self.assertIn("--browser", cr.bench_cmd(argparse.Namespace(app="A", tag="T", rounds=3), "/o"),
                       "a Chromium page in the measured layout")
         part = cron.PART_BY_NAME["cef-resize"]
         rows = cron.rows_of_part(part, {"rows": bench_rows}, budgets_mod, {})
         self.assertEqual(sorted(rows), ["cef_resize.drag.4x2.commit_p95_ms", "cef_resize.drag.4x2.missed",
-                                        "cef_resize.window.1x2.commit_p95_ms", "cef_resize.window.1x2.missed"],
-                         "a layout the bench left no number for gets no row")
+                                        "cef_resize.window-zoom.1x2.commit_p95_ms", "cef_resize.window-zoom.1x2.missed"],
+                         "a layout the bench left no number for gets no row; an inactive window keeps the row name")
+        self.assertTrue(next(r for r in bench_rows if r["name"] == "cef_resize.drag.4x2.missed")["window_inactive"])
         self.assertEqual(rows["cef_resize.drag.4x2.missed"]["unit"], "frames")
         self.assertEqual(cron.target_of("cef_resize.drag.4x2.missed@cmux20-bench", rows["cef_resize.drag.4x2.missed"], 8.33), 0)
         self.assertTrue(cron.over_target("cef_resize.drag.4x2.missed", rows["cef_resize.drag.4x2.missed"], 8.33))
         self.assertEqual(cron.target_of("cef_resize.drag.4x2.commit_p95_ms", rows["cef_resize.drag.4x2.commit_p95_ms"], 8.33),
                          4.17, "half a 120 Hz frame, not the 10 ms action latency")
-        self.assertEqual(rows["cef_resize.window.1x2.commit_p95_ms"]["budget"], 8.34, "half the frame it ran at")
-        self.assertFalse(cron.over_target("cef_resize.window.1x2.commit_p95_ms", rows["cef_resize.window.1x2.commit_p95_ms"], 16.67))
+        z = rows["cef_resize.window-zoom.1x2.commit_p95_ms"]
+        self.assertEqual(z["budget"], 8.34, "half the frame it ran at")
+        self.assertFalse(cron.over_target("cef_resize.window-zoom.1x2.commit_p95_ms", z, 16.67))
         self.assertTrue(cron.frame_sensitive("cef_resize.drag.4x2.missed", rows["cef_resize.drag.4x2.missed"]))
         self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("cef_resize.drag.4x2.missed"), "judged, not report-only")
-        self.assertEqual(len(cr.missing_from(cr.rows_from({}))), 4, "no report: every layout and action is missing")
+        self.assertEqual(len(cr.missing_from(cr.rows_from({}))), 5, "no report: every layout and action is missing")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": cr.missing_from([])}))
 
     def test_the_memory_agents_part_measures_the_optimized_app(self):
