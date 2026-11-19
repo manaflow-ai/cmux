@@ -5,7 +5,7 @@
  *   bun ../images/cmux-vm/large-smoke.ts --snapshot <sh-id> --tag <tag> [--clones 2] [--out-dir <dir>]
  *
  * The large image holds the tree the small image's smoke (smoke.ts) already checks, so this checks only what the
- * second snapshot can change: every clone's daemon listens; every clone shows LARGE_IMAGE_SHAPE (4 vCPU, 8 GiB, a 32 GiB
+ * second snapshot can change: every clone's daemon listens; every clone shows LARGE_IMAGE_SHAPE (4 vCPU, 16 GiB, a 64 GiB
  * root filesystem) the first time it is asked, and this script never calls resize; two clones are bound to their own
  * instance with their own daemon identity and SSH host key (the builder ran on between the two snapshots); and
  * the machine-health guards (percentages of RAM) apply at this size. Boot latency is recorded the way smoke.ts

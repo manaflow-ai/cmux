@@ -13,13 +13,13 @@
 import { run, sleep, type Vm } from "./guest";
 
 /**
- * The large image's size: the catalog size `md`, 4 vCPU / 8 GiB of memory / 32 GiB of disk. It mirrors
- * cmux-platform's CHAT_START_SHAPE (src/server/machines/MachineSizes.ts), the size a Cloud chat start asks for
- * and every prewarmed spare is made at, which is being lowered to md together with the app's default machine.
+ * The large image's size: 4 vCPU / 16 GiB of memory / 64 GiB of disk. It mirrors cmux-platform's
+ * CHAT_START_SHAPE (src/server/machines/MachineSizes.ts), the size a Cloud chat start asks for and every
+ * prewarmed spare is made at. It is not one of the catalog's ladder sizes (md is 4 vCPU / 8 GiB / 32 GiB).
  * Change it only together with that constant: a large image at any other size makes every default start resize
  * again (a smaller one) or boot bigger than was asked (a larger one; nothing shrinks).
  */
-export const LARGE_IMAGE_SHAPE = Object.freeze({ vcpu: 4, memGiB: 8, diskGiB: 32 });
+export const LARGE_IMAGE_SHAPE = Object.freeze({ vcpu: 4, memGiB: 16, diskGiB: 64 });
 export type ImageShape = { vcpu: number; memGiB: number; diskGiB: number };
 
 /**
@@ -41,8 +41,9 @@ export function parseGuestShape(stdout: string): GuestShape {
 
 /**
  * The guest reports a little less than the provider's size: the kernel keeps some memory (8,011 of 8,192 MiB at
- * md) and ext4 its metadata (32,078 of 32,768 MiB at md; cloud-automation.md 19). At least this share of the
- * asked size must show, and never more than the asked size.
+ * the catalog size md) and ext4 its metadata (32,078 of 32,768 MiB at md; cloud-automation.md 19), and both
+ * shares stay about the same at the large size. At least this share of the asked size must show, and never more
+ * than the asked size.
  */
 export const GUEST_SHAPE_FLOOR = 0.9;
 
@@ -66,8 +67,13 @@ export async function guestShape(vm: Vm): Promise<GuestShape> {
 export const ROOT_DEVICE_COMMAND =
   'dev="$(findmnt -no SOURCE / 2>/dev/null || true)"; echo "root-device=${dev:-unknown} device-bytes=$(blockdev --getsize64 "$dev" 2>/dev/null || echo unknown) fs-bytes=$(df -B1 --output=size / | tail -1 | tr -dc 0-9)"';
 
-/** How long the guest may take to show the new size after the resize calls (the md probe took about 1.3 s). */
-export const GROW_BUDGET_MS = 120_000;
+/**
+ * How long the resize calls and the guest's view of the new size may take together. A resize to this size
+ * measured about 6.5 s on a day the provider was slow (creates of 13 to 15 s), and the bake makes two calls and
+ * then waits for the root filesystem to fill 64 GiB, so the budget is minutes: this runs once per bake, and a
+ * snapshot taken early would not be the large image.
+ */
+export const GROW_BUDGET_MS = 300_000;
 
 export type GrowRecord = { before: GuestShape; after: GuestShape; startedAt: string; cpuMemoryCallMs: number; storageCallMs: number; callMs: number; guestViewMs: number };
 

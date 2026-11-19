@@ -28,7 +28,7 @@ name: Cloud VM image bake
 # from the lock: the manual fallback, and the weekly run main's cloud-vm-image-full-bake.yml starts, so the
 # image stays reproducible from the lock alone. A dev tree bake is always a full bake.
 # large_image (off by default) also makes the large image (web/scripts/cmux-vm-image/large-image.ts): after the
-# image's own snapshot the same builder is grown to the default Cloud chat start size (md: 4 vCPU / 8 GiB / 32 GiB)
+# image's own snapshot the same builder is grown to the default Cloud chat start size (4 vCPU / 16 GiB / 64 GiB)
 # and snapshotted again as <name>-large, then smoked on its own (large-smoke.ts: clones boot at that size with no
 # resize). It has its own ledger (large/resources.tsv), so it is kept only when its own smoke passed and the
 # candidate records it, as the member `large` of channel-dev.json. The image's own snapshot, id, smoke and
@@ -93,7 +93,7 @@ on:
         default: true
         type: boolean
       large_image:
-        description: Also bake and smoke the large image, the same builder grown to the default Cloud chat start size (md, 4 vCPU / 8 GiB / 32 GiB), named <name>-large. No create boots it yet; not with team_vm or dev_tree
+        description: Also bake and smoke the large image, the same builder grown to the default Cloud chat start size (4 vCPU / 16 GiB / 64 GiB), named <name>-large. No create boots it yet; not with team_vm or dev_tree
         required: false
         default: false
         type: boolean

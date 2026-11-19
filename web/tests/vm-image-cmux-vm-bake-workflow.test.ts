@@ -245,7 +245,7 @@ describe("cloud-vm-image-bake.yml large_image", () => {
   const tag = "ci-4242-1";
   const name = `cmuxnp-dev-vmimg-${tag}`;
   const bakeRecord = { name, lockSha256: "f".repeat(64), inputsSha256: "e".repeat(64) };
-  const largeRecord = { name: `${name}-large`, snapshotId: LARGE_SNAPSHOT, size: { vcpu: 4, memGiB: 8, diskGiB: 32 }, grow: { callMs: 400, guestViewMs: 1300 }, snapshotMs: 900, ms: 2500 };
+  const largeRecord = { name: `${name}-large`, snapshotId: LARGE_SNAPSHOT, size: { vcpu: 4, memGiB: 16, diskGiB: 64 }, grow: { callMs: 400, guestViewMs: 1300 }, snapshotMs: 900, ms: 2500 };
   const candidateOf = (out: string) => JSON.parse(readFileSync(path.join(out, "channel-dev.json"), "utf8")) as Record<string, unknown>;
   /** The candidate without its two timestamps and without `large`. */
   const fields = (c: Record<string, unknown>) => {
@@ -309,7 +309,7 @@ describe("cloud-vm-image-bake.yml large_image", () => {
     expect(recorded.large).toMatchObject({
       snapshot: `${name}-large`,
       snapshot_id: LARGE_SNAPSHOT,
-      size: { vcpu: 4, mem_gib: 8, disk_gib: 32 },
+      size: { vcpu: 4, mem_gib: 16, disk_gib: 64 },
       smoke: { result: "PASSED", detail: "large-smoke.ts (CI run 4242): 3 checks passed" },
     });
     expect(fields(recorded)).toEqual(fields(today));

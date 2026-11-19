@@ -10,12 +10,14 @@ import { guestShellProblems } from "../scripts/cmux-vm-image/shell-check";
 // the grow and the judgments on fakes; the provider half runs only in cloud-vm-image-bake.yml.
 
 const SM: GuestShape = { cpu: 2, memoryMb: 3915, rootMb: 15990 };
-// What a guest shows at md (plans/cmux-next/cloud-automation.md 19: 4 vCPU, 8,011 MiB, 32,078 MiB root).
-const MD: GuestShape = { cpu: 4, memoryMb: 8011, rootMb: 32078 };
+// About what a guest shows at 4 vCPU / 16 GiB / 64 GiB: a little under 16,384 MiB of memory and 65,536 MiB of root.
+const LARGE: GuestShape = { cpu: 4, memoryMb: 16008, rootMb: 64200 };
+// The catalog size md (plans/cmux-next/cloud-automation.md 19): the nearest ladder size, and not this image's.
+const LADDER_M: GuestShape = { cpu: 4, memoryMb: 8011, rootMb: 32078 };
 
 describe("LARGE_IMAGE_SHAPE", () => {
-  test("is the catalog size md, the platform's chat start shape", () => {
-    expect(LARGE_IMAGE_SHAPE).toEqual({ vcpu: 4, memGiB: 8, diskGiB: 32 });
+  test("is the platform's chat start shape, 4 vCPU / 16 GiB / 64 GiB", () => {
+    expect(LARGE_IMAGE_SHAPE).toEqual({ vcpu: 4, memGiB: 16, diskGiB: 64 });
     expect(Object.isFrozen(LARGE_IMAGE_SHAPE)).toBe(true);
   });
 
@@ -26,21 +28,25 @@ describe("LARGE_IMAGE_SHAPE", () => {
 
 describe("shapeProblems", () => {
   test("a guest at the large size passes", () => {
-    expect(shapeProblems(MD)).toEqual([]);
-    expect(shapeProblems(parseGuestShape("4\n8011\n32078\n"))).toEqual([]);
+    expect(shapeProblems(LARGE)).toEqual([]);
+    expect(shapeProblems(parseGuestShape("4\n16008\n64200\n"))).toEqual([]);
   });
 
   test("the small image's own size names every axis", () => {
-    expect(shapeProblems(SM)).toEqual(["2 vCPU, want 4", "memory 3915 MiB, want 7373 to 8192", "root filesystem 15990 MiB, want 29492 to 32768"]);
+    expect(shapeProblems(SM)).toEqual(["2 vCPU, want 4", "memory 3915 MiB, want 14746 to 16384", "root filesystem 15990 MiB, want 58983 to 65536"]);
+  });
+
+  test("the catalog size md is not the large image: same vCPUs, half the memory and disk", () => {
+    expect(shapeProblems(LADDER_M)).toEqual(["memory 8011 MiB, want 14746 to 16384", "root filesystem 32078 MiB, want 58983 to 65536"]);
   });
 
   test("a disk that grew under a filesystem that did not is a problem", () => {
-    expect(shapeProblems({ ...MD, rootMb: 15990 })).toEqual(["root filesystem 15990 MiB, want 29492 to 32768"]);
+    expect(shapeProblems({ ...LARGE, rootMb: 15990 })).toEqual(["root filesystem 15990 MiB, want 58983 to 65536"]);
   });
 
   test("a machine bigger than the large size is not the large image either", () => {
-    expect(shapeProblems({ cpu: 4, memoryMb: 16008, rootMb: 64200 })).toHaveLength(2);
-    expect(shapeProblems({ ...MD, cpu: 8 })).toEqual(["8 vCPU, want 4"]);
+    expect(shapeProblems({ cpu: 4, memoryMb: 32100, rootMb: 128500 })).toHaveLength(2);
+    expect(shapeProblems({ ...LARGE, cpu: 8 })).toEqual(["8 vCPU, want 4"]);
   });
 
   test("an unreadable shape fails closed", () => {
@@ -69,15 +75,15 @@ function fakeVm(shapes: GuestShape[]) {
 describe("growToShape", () => {
   test("grows vCPU and memory, then disk, and waits until the guest shows all three", async () => {
     // Before, then right after the calls the filesystem still has its old size, then the full shape.
-    const fake = fakeVm([SM, { ...MD, rootMb: 15990 }, MD]);
+    const fake = fakeVm([SM, { ...LARGE, rootMb: 15990 }, LARGE]);
     const grow = await growToShape(fake.vm, LARGE_IMAGE_SHAPE, fake.deps);
-    expect(fake.calls).toEqual([{ cpu: 4, memory: 8192 }, { storage: 32768 }]);
-    expect(grow).toMatchObject({ before: SM, after: MD, cpuMemoryCallMs: 200, storageCallMs: 200, callMs: 400, guestViewMs: 900 });
+    expect(fake.calls).toEqual([{ cpu: 4, memory: 16384 }, { storage: 65536 }]);
+    expect(grow).toMatchObject({ before: SM, after: LARGE, cpuMemoryCallMs: 200, storageCallMs: 200, callMs: 400, guestViewMs: 900 });
   });
 
   test("throws when the guest never shows the size, so no snapshot is taken", async () => {
-    const fake = fakeVm([SM, { ...MD, rootMb: 15990 }]);
-    await expect(growToShape(fake.vm, LARGE_IMAGE_SHAPE, { ...fake.deps, budgetMs: 5_000 })).rejects.toThrow(/did not reach 4 vCPU \/ 8 GiB \/ 32 GiB: root filesystem 15990 MiB/);
+    const fake = fakeVm([SM, { ...LARGE, rootMb: 15990 }]);
+    await expect(growToShape(fake.vm, LARGE_IMAGE_SHAPE, { ...fake.deps, budgetMs: 5_000 })).rejects.toThrow(/did not reach 4 vCPU \/ 16 GiB \/ 64 GiB: root filesystem 15990 MiB/);
     expect(fake.reads()).toBeGreaterThan(5);
   });
 
@@ -102,9 +108,9 @@ describe("bake.ts --large", () => {
 
 describe("large smoke judgments", () => {
   test("every clone must show the large size on its first read", () => {
-    expect(bootShapeCheck([MD, MD])).toMatchObject({ ok: true });
-    expect(bootShapeCheck([MD, SM])).toMatchObject({ ok: false });
-    expect(bootShapeCheck([MD, SM]).detail).toContain("clone 2: 2 vCPU, want 4");
+    expect(bootShapeCheck([LARGE, LARGE])).toMatchObject({ ok: true });
+    expect(bootShapeCheck([LARGE, SM])).toMatchObject({ ok: false });
+    expect(bootShapeCheck([LARGE, SM]).detail).toContain("clone 2: 2 vCPU, want 4");
     expect(bootShapeCheck([])).toMatchObject({ ok: false });
   });
 
@@ -123,7 +129,7 @@ describe("large smoke judgments", () => {
 describe("a candidate that records the large image", () => {
   const snapshot = `sh-${"1".repeat(32)}`;
   const base = { schema: 1, env: "dev", var: "CLOUD_FREESTYLE_SNAPSHOT", snapshot: "cmuxnp-dev-vmimg-ci-4242-1", snapshot_id: snapshot, lock_sha256: "f".repeat(64), run: 4242, smoke: { result: "PASSED" } };
-  const large = { snapshot: "cmuxnp-dev-vmimg-ci-4242-1-large", snapshot_id: `sh-${"2".repeat(32)}`, size: { vcpu: 4, mem_gib: 8, disk_gib: 32 }, smoke: { result: "PASSED" } };
+  const large = { snapshot: "cmuxnp-dev-vmimg-ci-4242-1-large", snapshot_id: `sh-${"2".repeat(32)}`, size: { vcpu: 4, mem_gib: 16, disk_gib: 64 }, smoke: { result: "PASSED" } };
 
   test("is recorded as today's entry plus `large`: every field a reader knows is unchanged", () => {
     const without = historyEntry(base, snapshot, "4242");
