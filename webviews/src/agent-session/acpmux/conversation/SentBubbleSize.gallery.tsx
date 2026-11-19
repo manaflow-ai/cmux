@@ -10,6 +10,7 @@
 // every frame.
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import type { ComposerAttachment } from "../attachments";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { frameName, framesNote } from "../composer/videoPrompt";
@@ -178,10 +179,12 @@ function Sent({ prompt, index }: { prompt: Prompt; index: number }) {
     let prime: ReturnType<typeof setTimeout> | undefined;
     // The echo lands a frame or two after the send, before the pane's priming; the priming lands
     // a moment later and draws the images.
+    // gallery-capture: the attachment arms' play `settled` waits for the echo and the priming (data-sent-settled).
     const echo = setTimeout(() => {
       void echoRow(row, attachments, index).then((next) => {
         if (!live) return;
         setRow(next);
+        // gallery-capture: the attachment arms' play `settled` waits for the priming (data-sent-settled).
         prime = setTimeout(() => void primeSentImages(attachments).then(() => live && setPrimed(true)), 400);
       });
     }, 120);
@@ -224,6 +227,11 @@ function SentBubbleStage({ prompts }: Props) {
 const PASTE =
   "Okay, there's a really odd thing going on when you move between tabs inside a pane, and it's a tight space, a tight fit or whatever. Like you open a tab, and the tab bar jumps a few pixels, and then the content under it reflows, and then the whole pane settles a moment later. It happens with two tabs and it happens with ten. It happens in a narrow pane more than a wide one. I'd expect the tab bar to know its height before the tab opens and keep it, and the content to keep its place while the new tab draws. Can you find where the height is measured and why it changes after the tab has opened?";
 
+/// The capture moment of an arm that sends attachments: every prompt settled (its echo landed and
+/// the pane primed its images, the timers in `Sent`), not the frame the stage first went quiet.
+const settled: Play = ({ waitFor, document }) =>
+  waitFor(() => !document.querySelector(".cv-user[data-sent-prompt]:not([data-sent-settled])"));
+
 /// `count` numbered lines of a prompt typed with line breaks.
 const lines = (count: number) =>
   Array.from({ length: count }, (_, index) => `Step ${index + 1}: retry the upload on a 5xx`).join("\n");
@@ -243,6 +251,7 @@ export default componentEntry<Props>({
       props: { prompts: [{ text: "Why does the upload fail after the second retry?" }] },
     },
     "one-image": {
+      play: settled,
       note: "A wide screenshot sent with text: acpmux's echo names it before the pane primes it, and its thumbnail keeps the shape it landed with.",
       height: 260,
       props: {
@@ -255,6 +264,7 @@ export default componentEntry<Props>({
       },
     },
     "several-files": {
+      play: settled,
       note: "Two screenshots and three files sent with text: the images, the file chips and the bubble land at their final size.",
       height: 360,
       props: {
@@ -275,6 +285,7 @@ export default componentEntry<Props>({
       },
     },
     video: {
+      play: settled,
       note: "A screen recording sent with text: its tile, poster and length land with the prompt, not when acpmux's echo names its frames.",
       height: 260,
       props: {
