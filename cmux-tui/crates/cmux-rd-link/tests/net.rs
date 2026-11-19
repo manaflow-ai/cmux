@@ -64,6 +64,30 @@ fn a_session_runs_over_real_udp_sockets() {
         .contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)))));
 }
 
+/// A viewer's last `stop` is a control record sent right before the driver is
+/// dropped: the close must not discard it (it went in the same command batch).
+#[test]
+fn a_control_record_sent_right_before_drop_still_arrives() {
+    let (v, h) = (KeyPair::generate().unwrap(), KeyPair::generate().unwrap());
+    let host = start(Role::Responder, &h, v.public);
+    let viewer = start(Role::Initiator, &v, h.public);
+    viewer.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: host.local_addr() });
+    host.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: viewer.local_addr() });
+    let established =
+        |e: &[NetEvent]| e.contains(&NetEvent::Endpoint(EndpointEvent::Link(Event::Established)));
+    let (mut at_host, mut at_viewer) = (Vec::new(), Vec::new());
+    assert!(wait(&viewer, &mut at_viewer, established));
+    assert!(wait(&host, &mut at_host, established));
+
+    viewer.send_control(b"stop".to_vec());
+    drop(viewer);
+    let stop = NetEvent::Endpoint(EndpointEvent::Link(Event::Control(b"stop".to_vec())));
+    let closed = NetEvent::Endpoint(EndpointEvent::Link(Event::Closed));
+    assert!(wait(&host, &mut at_host, |e| e.contains(&closed)), "the close arrives");
+    let at = |want: &NetEvent| at_host.iter().position(|e| e == want);
+    assert!(at(&stop).is_some_and(|s| Some(s) < at(&closed)), "stop arrives before the close");
+}
+
 #[test]
 fn a_stun_server_that_resolves_after_start_still_gives_the_reflexive_candidate() {
     // A STUN server on loopback that answers every binding request with a fixed address.
