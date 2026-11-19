@@ -58,7 +58,7 @@ pub enum Probe {
 pub fn wait_ready(path: &Path, timeout: Duration) -> io::Result<()> {
     let deadline = Instant::now() + timeout;
     loop {
-        match probe(path)? {
+        match probe_within(path, deadline)? {
             Probe::Ready(ready) => {
                 drop(ready);
                 return Ok(());
@@ -133,18 +133,49 @@ fn try_take(file: File, kind: Kind) -> io::Result<Result<FileLock, File>> {
 /// wait for each other's writes or startup. They live outside the repository
 /// and share a location even when daemon processes have different TMPDIRs.
 /// Never unlink these inodes, for the same reason as the repository markers.
+///
+/// One empty file per folder ever probed (every ancestor of every tool path), so /tmp keeps
+/// a few hundred of them on a busy machine. They stay: a reader must take the lease even
+/// before any marker exists, and no process can tell a file nobody will open again from one
+/// a reader is about to lock, so a sweep could split a lease. A reboot clears /tmp.
 fn creation_lock(folder: &Path) -> io::Result<File> {
+    open(&creation_lock_path(folder), true)
+}
+
+/// Where [`creation_lock`] keeps `folder`'s lease.
+pub fn creation_lock_path(folder: &Path) -> PathBuf {
     use std::os::unix::ffi::OsStrExt;
     // SAFETY: geteuid has no preconditions.
     let uid = unsafe { libc::geteuid() };
     let hash = format!("{:x}", Sha256::digest(folder.as_os_str().as_bytes()));
-    open(&PathBuf::from(format!("/tmp/cmux-repo-sync-{uid}-{hash}.lock")), true)
+    PathBuf::from(format!("/tmp/cmux-repo-sync-{uid}-{hash}.lock"))
 }
 
-fn wait_take(file: File, kind: Kind) -> io::Result<FileLock> {
-    FileLock::take_within(file, kind, Duration::from_secs(30), Duration::from_millis(10)).map_err(
+/// How long one lock wait may take when the caller names no deadline ([`probe`], [`Sync::begin`]).
+const LOCK_WAIT: Duration = Duration::from_secs(30);
+
+/// A lock wait ran out of its budget while another holder kept the lock: the wait decided
+/// nothing about the repository's sync, unlike a marker that says syncing or failed.
+#[derive(Debug)]
+pub struct LockWaitElapsed;
+
+impl std::fmt::Display for LockWaitElapsed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("repository is in use")
+    }
+}
+
+impl std::error::Error for LockWaitElapsed {}
+
+/// Whether `error` is a [`LockWaitElapsed`]: a wait that ran out, not a marker's verdict.
+pub fn lock_wait_elapsed(error: &io::Error) -> bool {
+    error.get_ref().is_some_and(|inner| inner.is::<LockWaitElapsed>())
+}
+
+fn wait_take(file: File, kind: Kind, budget: Duration) -> io::Result<FileLock> {
+    FileLock::take_within(file, kind, budget, Duration::from_millis(10)).map_err(
         |error| match error {
-            LockError::Busy(_) => io::Error::new(io::ErrorKind::TimedOut, "repository is in use"),
+            LockError::Busy(_) => io::Error::new(io::ErrorKind::TimedOut, LockWaitElapsed),
             LockError::Io(error) => error,
         },
     )
@@ -160,12 +191,12 @@ impl Sync {
         // while the owner lock is held and the head lock free, so until both are taken this
         // sync reads as short of its head. Only the marker's holder takes them, and a reader
         // holds either only for one probe, so these waits are short.
-        let head = wait_take(open(&head_marker(folder)?, true)?, Kind::Exclusive)?;
-        let owner = wait_take(open(&owner_marker(folder)?, true)?, Kind::Exclusive)?;
+        let head = wait_take(open(&head_marker(folder)?, true)?, Kind::Exclusive, LOCK_WAIT)?;
+        let owner = wait_take(open(&owner_marker(folder)?, true)?, Kind::Exclusive, LOCK_WAIT)?;
         // Take the repository lock first: a reader of an existing marker
         // refuses this sync immediately. A reader that preceded the first
         // marker instead holds the creation lease until its write completes.
-        let _creating = wait_take(creation_lock(folder)?, Kind::Exclusive)?;
+        let _creating = wait_take(creation_lock(folder)?, Kind::Exclusive, LOCK_WAIT)?;
         let file = marker.file_mut();
         file.write_all(b"0")?;
         file.set_len(1)?;
@@ -227,11 +258,19 @@ fn resolved(path: &Path) -> io::Result<PathBuf> {
 /// returns immediately, so a running sync never blocks a reader thread.
 /// No marker means an ordinary local repository, which needs no sync wait.
 pub fn probe(path: &Path) -> io::Result<Probe> {
+    probe_within(path, Instant::now() + LOCK_WAIT)
+}
+
+/// [`probe`], whose creation-lease waits all end by `deadline`: one shared budget for every
+/// ancestor, not a full wait each, so a caller with its own deadline (a hook answered within its
+/// registered timeout) is never held past it. A wait that runs out is a [`LockWaitElapsed`].
+pub fn probe_within(path: &Path, deadline: Instant) -> io::Result<Probe> {
     let path = resolved(path)?;
     let mut held = Vec::new();
     let mut head_only = false;
     for folder in path.ancestors().filter(|folder| folder.parent().is_some()) {
-        held.push(wait_take(creation_lock(folder)?, Kind::Shared)?);
+        let budget = deadline.saturating_duration_since(Instant::now());
+        held.push(wait_take(creation_lock(folder)?, Kind::Shared, budget)?);
         let file = match open(&marker(folder)?, false) {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
@@ -323,6 +362,28 @@ impl Drop for Ready {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A creation lease another holder keeps (a stuck producer) holds a probe only until the
+    /// caller's deadline, for all ancestors together, and the error says it decided nothing.
+    /// Before, each ancestor's wait took a fixed 30 s past any deadline.
+    #[test]
+    fn a_held_creation_lease_ends_the_probe_at_the_callers_deadline() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().canonicalize().unwrap().join("repo");
+        // A description of its own, as another process has: flock excludes the probe's.
+        let held = open(&creation_lock_path(&repo), true).unwrap();
+        let _held = try_take(held, Kind::Exclusive).unwrap().expect("the lease is free");
+        let started = Instant::now();
+        let result = probe_within(&repo, started + Duration::from_millis(200));
+        let took = started.elapsed();
+        let Err(error) = result else { panic!("the held lease ends the probe") };
+        assert!(lock_wait_elapsed(&error), "a wait that ran out, not a verdict: {error}");
+        assert!(took < Duration::from_secs(2), "the probe took {took:?} past its 200 ms");
+        let started = Instant::now();
+        let error = wait_ready(&repo, Duration::from_millis(200)).unwrap_err();
+        assert!(lock_wait_elapsed(&error));
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
 
     /// The window review F1 (cmux#38084, 8843ee22f76) found: the reader saw the marker locked,
     /// then the producer failed and dropped both locks. The head lock is free now, but the
