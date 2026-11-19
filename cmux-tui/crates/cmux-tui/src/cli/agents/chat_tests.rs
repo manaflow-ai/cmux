@@ -238,3 +238,22 @@ fn a_read_masks_a_secret_split_across_chunks_and_holds_back_a_half_written_one()
     assert_eq!(page["items"][0]["from_name"], "bot [AWS access key]", "{page}");
     assert_eq!(page["items"][1]["text"], "set [AWS access key] done", "{page}");
 }
+
+/// A failed turn's end keeps the agent's own reason, masked like any text (goal local-chat-replies,
+/// 2026-11-19: `cmux chat --wait` said only "the turn ended failed").
+#[test]
+fn a_failed_turn_end_keeps_its_error() {
+    let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+    let events = vec![
+        mux(1, "user_message", json!({"text": "go"})),
+        mux(2, "turn_result", json!({"status": "failed", "error": "You've hit your weekly limit"})),
+        mux(3, "user_message", json!({"text": "again"})),
+        mux(4, "turn_result", json!({"status": "failed", "errorText": format!("key {key}")})),
+        mux(5, "turn_result", json!({"status": "completed", "errorText": "an agent note"})),
+    ];
+    let page = transcript(&events).page("c", 0, 10, false, 5);
+    assert_eq!(page["items"][1]["error"], "You've hit your weekly limit", "{page}");
+    assert!(!page.to_string().contains(&key), "{page}");
+    assert!(page["items"][3]["error"].is_string(), "{page}");
+    assert_eq!(page["items"][4].get("error"), None, "{page}");
+}

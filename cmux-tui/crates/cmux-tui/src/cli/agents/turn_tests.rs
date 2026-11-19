@@ -222,6 +222,23 @@ fn a_permission_a_failed_turn_and_a_closed_chat_exit_as_cloud_does() {
     assert_eq!(error(&outcome), ("chat.lost", 1));
 }
 
+/// A failed turn names why: the agent's own error from its turn end (goal local-chat-replies,
+/// 2026-11-19: every `--wait` said only "the turn ended failed", with no way to tell a usage
+/// limit from a crash).
+#[test]
+fn a_failed_turn_names_the_agents_own_error() {
+    let mut fake = Fake::new(new_receipt());
+    fake.waits = VecDeque::from([idle()]);
+    let mut failed = end(2, "failed");
+    failed["error"] = json!("You've hit your weekly limit");
+    fake.reads = VecDeque::from([vec![item(1, "user", "go"), failed]]);
+    let outcome = run_turn(&mut fake, &Begin::New(vec!["go".into()]), Duration::from_secs(60));
+    let Outcome::Failed { error, exit } = outcome else { panic!("{outcome:?}") };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.turn_failed"), 1));
+    assert_eq!(error["message"], "the turn ended failed: You've hit your weekly limit", "{error}");
+    assert_eq!(error["details"]["error"], "You've hit your weekly limit", "{error}");
+}
+
 #[test]
 fn a_rejected_first_prompt_or_no_prompt_does_not_wait() {
     let mut rejected = new_receipt();
