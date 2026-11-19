@@ -660,6 +660,37 @@ fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"''', {'CMUX_CI': str(
                      'CMUX_MOBILE_STACK_EMAIL', 'env-value'):
             self.assertNotIn(gone, body)
 
+    def test_the_handoff_recording_stops_when_the_check_ends(self):
+        # The step hung after its last leg (2026-11-18, step 10714bf70abba176377ca4de): the recorder
+        # was started through the simctl() wrapper in the background, a subshell that ignores the
+        # SIGINT meant to finish the recording, so `wait` never returned. This runs the handoff
+        # check's own start and stop lines against a recorder that only exits on SIGINT.
+        text = SIM.read_text()
+        start = text.index('  handoff_check() {')
+        body = text[start:text.index('\n  }\n', start)].splitlines()
+        rec = next(i for i, line in enumerate(body) if 'recordVideo' in line)
+        stop = next(line for line in body if 'kill -INT "$rec_pid"' in line)
+        self.assertEqual(body[rec + 1].strip(), 'rec_pid=$!')
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp) / 'bin'
+            bin_dir.mkdir()
+            (bin_dir / 'xcrun').write_text(
+                '#!/usr/bin/env python3\nimport signal, sys, time\n'
+                f'def done(*_):\n    open("{temp}/stopped", "w").write(" ".join(sys.argv[1:])); sys.exit(0)\n'
+                'signal.signal(signal.SIGINT, done)\nwhile True: time.sleep(0.1)\n')
+            (bin_dir / 'xcrun').chmod(0o755)
+            script = (f'PATH="{bin_dir}:$PATH"; sims=S udid=U out="{temp}" work="{temp}"\n'
+                      'simctl() { xcrun simctl --set "$sims" "$@"; }\n'
+                      f'{body[rec]}\n{body[rec + 1]}\nsleep 1\n{stop}\necho STOPPED')
+            try:
+                r = bash(script, timeout=45)
+            except subprocess.TimeoutExpired:
+                subprocess.run(['pkill', '-f', f'{temp}/recording.mp4'], check=False)
+                self.fail('the handoff check never stopped its recording (wait hung)')
+            self.assertIn('STOPPED', r.stdout, r.stderr)
+            self.assertTrue((Path(temp) / 'stopped').exists(), 'the recorder never got SIGINT, so recording.mp4 is unfinished')
+            self.assertIn('simctl --set S io U recordVideo', (Path(temp) / 'stopped').read_text())
+
     def test_the_session_reaches_only_the_auto_login_launch(self):
         with tempfile.TemporaryDirectory() as temp:
             f = Path(temp) / 'session.json'
