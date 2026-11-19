@@ -3,10 +3,12 @@
 //! Every crate-local v2 gate writes one JSON object per measure when `V2_GATE_OUT` names a
 //! file. The line format is `{"name":"v2.prNN.measure","small_p95":N,"god_p95":N,"unit":"ns"}`.
 //! This home joins those files with the registry, computes the ratio and verdict, and prints the
-//! JSON consumed by `quality-report.py --god-small`. A missing placeholder remains skipped; an
-//! unknown name or a measured row with no input is an error. `run-v2-gates.sh` adds
-//! `"gate_failed":true` to every line a gate filter wrote before its test failed; that row reads
-//! red with its numbers kept.
+//! JSON consumed by `quality-report.py --god-small`. A missing placeholder remains skipped. No one
+//! line stops the report: a line the home cannot read or join reads its row `failed` with the
+//! reason, a line with no registered name goes into the report's `errors`, and the report is
+//! written; any of those, or a measured row with no input, then fails the run.
+//! `run-v2-gates.sh` adds `"gate_failed":true` to every line a gate filter wrote before its test
+//! failed; that row reads red with its numbers kept.
 
 use acpmux::god_fixture::Shape;
 use serde_json::{Value, json};
@@ -60,7 +62,8 @@ struct Measure {
     god_p95: f64,
     god_p95_all: Option<f64>,
     unit: Option<String>,
-    /// The gate's test failed after writing this measure.
+    /// A test in this row's filter failed: the script marks every line the filter wrote, so the
+    /// failed test may be another of the filter's tests than the one that wrote this measure.
     gate_failed: bool,
 }
 
@@ -112,20 +115,48 @@ fn parse_measure(value: Value, source: &Path) -> Result<Measure, String> {
     })
 }
 
-fn read_measures(paths: &[PathBuf]) -> Result<Vec<Measure>, String> {
+/// A line the home could not take. `name` is the registered row it names, if any: that row reads
+/// `failed` with `reason`; a line with no registered name goes into the report's `errors`.
+struct Unreadable {
+    name: Option<String>,
+    reason: String,
+}
+
+/// Read every line, keeping the ones the home can parse and setting the others aside, so no one
+/// line stops the report. Only a file that cannot be read stops it.
+fn read_lines(paths: &[PathBuf]) -> Result<(Vec<Measure>, Vec<Unreadable>), String> {
     let mut measures = Vec::new();
+    let mut unreadable = Vec::new();
     for path in paths {
         let text = fs::read_to_string(path).map_err(|e| format!("{path:?}: {e}"))?;
         for (line_no, line) in text.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
-            let value =
-                serde_json::from_str(line).map_err(|e| format!("{path:?}:{line_no}: {e}"))?;
-            measures.push(parse_measure(value, path)?);
+            let value: Value = match serde_json::from_str(line) {
+                Ok(value) => value,
+                Err(e) => {
+                    let reason = format!("{path:?}:{line_no}: {e}");
+                    unreadable.push(Unreadable { name: None, reason });
+                    continue;
+                }
+            };
+            let name = value.get("name").and_then(Value::as_str).map(str::to_owned);
+            match parse_measure(value, path) {
+                Ok(measure) => measures.push(measure),
+                Err(reason) => unreadable.push(Unreadable { name, reason }),
+            }
         }
     }
-    Ok(measures)
+    Ok((measures, unreadable))
+}
+
+fn read_measures(paths: &[PathBuf]) -> Result<Vec<Measure>, String> {
+    let (measures, unreadable) = read_lines(paths)?;
+    match unreadable.into_iter().next() {
+        Some(line) => Err(line.reason),
+        None => Ok(measures),
+    }
 }
 
 fn merge_measures(
@@ -165,7 +196,7 @@ fn measured_row(row: &GateRow, measure: &Measure) -> Value {
     };
     let ratio_all = measure.god_p95_all.map(|value| value / measure.small_p95);
     let failures = [
-        (measure.gate_failed, "the gate's test failed after writing this measure"),
+        (measure.gate_failed, "a test in this row's filter failed"),
         (ratio > row.ratio, "god p95 exceeds the row's ratio"),
         (
             row.ratio_all.is_some_and(|limit| ratio_all.is_none_or(|value| value > limit)),
@@ -187,48 +218,79 @@ fn measured_row(row: &GateRow, measure: &Measure) -> Value {
         "limit": row.ratio, "limit_all": row.ratio_all, "god_max": row.god_max, "unit": measure.unit })
 }
 
+/// What the report could not judge: rows that read `failed` with their reasons, and lines that
+/// name no registered row.
+#[derive(Default)]
+struct Refused {
+    rows: HashMap<String, Vec<String>>,
+    errors: Vec<String>,
+}
+
+impl Refused {
+    fn line(&mut self, name: Option<String>, reason: String) {
+        match name.filter(|name| registered_names().contains(name.as_str())) {
+            Some(name) => self.rows.entry(name).or_default().push(reason),
+            None => self.errors.push(reason),
+        }
+    }
+}
+
 fn merge_for_report(
-    measures: &[Measure],
+    measures: Vec<Measure>,
+    unreadable: Vec<Unreadable>,
     required: &[&str],
-) -> Result<(HashMap<String, Measure>, Vec<String>), String> {
-    let names = registered_names();
+) -> (HashMap<String, Measure>, Refused, Vec<String>) {
+    let mut refused = Refused::default();
+    for line in unreadable {
+        refused.line(line.name, line.reason);
+    }
     let mut joined = HashMap::new();
     for measure in measures {
-        if !names.contains(measure.name.as_str()) {
-            return Err(format!("unknown v2 gate row {}", measure.name));
-        }
-        let row = GATE_ROWS
-            .iter()
-            .find(|row| row.name == measure.name)
-            .ok_or_else(|| format!("unknown v2 gate row {}", measure.name))?;
+        let Some(row) = GATE_ROWS.iter().find(|row| row.name == measure.name) else {
+            refused.errors.push(format!("unknown v2 gate row {}", measure.name));
+            continue;
+        };
         if row.ratio_all.is_some() && measure.god_p95_all.is_none() {
-            return Err(format!("{} requires god_p95_all", measure.name));
+            refused.line(Some(measure.name.clone()), format!("{} requires god_p95_all", row.name));
+            continue;
         }
-        if joined.insert(measure.name.clone(), measure.clone()).is_some() {
-            return Err(format!("duplicate v2 gate row {}", measure.name));
+        if joined.contains_key(row.name) {
+            refused.line(Some(measure.name.clone()), format!("duplicate v2 gate row {}", row.name));
+            continue;
         }
+        joined.insert(measure.name.clone(), measure);
+    }
+    // A refused row is judged by its refusal, not by a line of it that did join.
+    for name in refused.rows.keys() {
+        joined.remove(name);
     }
     let missing = required
         .iter()
         .copied()
-        .filter(|name| !joined.contains_key(*name))
+        .filter(|name| !joined.contains_key(*name) && !refused.rows.contains_key(*name))
         .map(str::to_owned)
         .collect();
-    Ok((joined, missing))
+    (joined, refused, missing)
 }
 
+/// The report, and whether it stops the run: a row the home refused, a line with no registered
+/// name, or a measured row with no measure. The report names each in its rows or `errors`.
 fn report_value(
     measure_files: &[PathBuf],
     measures_requested: bool,
 ) -> Result<(Value, bool), String> {
     let required =
         GATE_ROWS.iter().filter(|row| row.measured).map(|row| row.name).collect::<Vec<_>>();
-    let measures = read_measures(measure_files)?;
-    let (measures, missing) =
-        merge_for_report(&measures, if measures_requested { &required } else { &[] })?;
+    let (measures, unreadable) = read_lines(measure_files)?;
+    let (measures, refused, missing) =
+        merge_for_report(measures, unreadable, if measures_requested { &required } else { &[] });
     let missing_set: HashSet<_> = missing.iter().map(String::as_str).collect();
     let rows = GATE_ROWS.iter().map(|row| {
-        if let Some(measure) = measures.get(row.name) {
+        if let Some(reasons) = refused.rows.get(row.name) {
+            json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when,
+                "status": "failed", "reason": reasons.join("; "),
+                "small_p95": Value::Null, "god_p95": Value::Null })
+        } else if let Some(measure) = measures.get(row.name) {
             measured_row(row, measure)
         } else if row.measured && measures_requested && missing_set.contains(row.name) {
             json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when,
@@ -242,20 +304,35 @@ fn report_value(
             json!({ "name": row.name, "pr": row.pr, "done_when": row.done_when, "status": "skipped", "reason": format!("PR {} implementation has not landed; turn on {} by this name", row.pr, row.name), "small_p95": Value::Null, "god_p95": Value::Null })
         }
     }).collect::<Vec<_>>();
+    let stops = !missing.is_empty() || !refused.rows.is_empty() || !refused.errors.is_empty();
     Ok((
-        json!({ "schema": 1, "name": "acpmux-agent-service-v2", "comparison": "god-vs-small", "god_small_limit": GOD_SMALL_LIMIT, "fixtures": { "small": shape_json(small()), "god": shape_json(god()) }, "rows": rows }),
-        !missing.is_empty(),
+        json!({ "schema": 1, "name": "acpmux-agent-service-v2", "comparison": "god-vs-small", "god_small_limit": GOD_SMALL_LIMIT, "fixtures": { "small": shape_json(small()), "god": shape_json(god()) }, "rows": rows, "errors": refused.errors }),
+        stops,
     ))
+}
+
+/// Each reason a report stops the run: its `errors`, then every `failed` row with its reason.
+fn stop_reasons(value: &Value) -> String {
+    let errors = value["errors"].as_array().into_iter().flatten().filter_map(Value::as_str);
+    let failed =
+        value["rows"].as_array().into_iter().flatten().filter(|row| row["status"] == "failed");
+    errors
+        .map(str::to_owned)
+        .chain(failed.map(|row| {
+            format!(
+                "{}: {}",
+                row["name"].as_str().unwrap_or("?"),
+                row["reason"].as_str().unwrap_or("?")
+            )
+        }))
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// Build the nightly-report JSON when measures are required.
 pub fn report(measure_files: &[PathBuf]) -> Result<Value, String> {
-    let (value, missing) = report_value(measure_files, true)?;
-    if missing {
-        Err("one or more measured v2 gate rows did not report a measure".to_owned())
-    } else {
-        Ok(value)
-    }
+    let (value, stops) = report_value(measure_files, true)?;
+    if stops { Err(stop_reasons(&value)) } else { Ok(value) }
 }
 
 pub fn validate_measure_files(measure_files: &[PathBuf], required: &[&str]) -> Result<(), String> {
@@ -266,23 +343,21 @@ pub fn print_report(measure_files: &[PathBuf], output: Option<&Path>) -> Result<
     print_report_with_mode(measure_files, output, true)
 }
 
+/// Write the report, then fail if it holds a refused row, an unnamed line or a missing measure:
+/// no one line keeps the report from being written.
 pub fn print_report_with_mode(
     measure_files: &[PathBuf],
     output: Option<&Path>,
     measures_requested: bool,
 ) -> Result<(), String> {
-    let (value, missing) = report_value(measure_files, measures_requested)?;
+    let (value, stops) = report_value(measure_files, measures_requested)?;
     let text = serde_json::to_string(&value).map_err(|e| e.to_string())?;
     if let Some(path) = output {
         fs::write(path, format!("{text}\n")).map_err(|e| format!("{path:?}: {e}"))?;
     } else {
         println!("{text}");
     }
-    if missing {
-        Err("one or more measured v2 gate rows did not report a measure".to_owned())
-    } else {
-        Ok(())
-    }
+    if stops { Err(stop_reasons(&value)) } else { Ok(()) }
 }
 
 #[cfg(test)]
@@ -290,7 +365,7 @@ mod tests {
     use super::*;
 
     /// Rows intentionally left without a source writer while a later PR owns their gate.
-    const WAITS_ON_ANOTHER_PR: &[&str] = &[];
+    const WAITS_ON_ANOTHER_PR: &[&str] = &["v2.pr12.follow_driver_views"];
 
     /// A gate name as a source spells it. A `{..}` hole is a name built by `format!`. A PR's
     /// part is its number and then any letters and digits (`03a3`).
@@ -313,21 +388,8 @@ mod tests {
     /// are left out: their rows are what the names are checked against. `v2.pr99` is the made-up
     /// PR the report's own tests use.
     fn names_in_sources() -> Vec<(String, PathBuf)> {
-        let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
         let registry = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/v2");
-        let mut files = Vec::new();
-        for entry in fs::read_dir(&crates).unwrap() {
-            let path = entry.unwrap().path();
-            let is_ours = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("acpmux") || name == "cmux-tui-core");
-            for part in ["src", "tests", "benches"] {
-                if is_ours && path.join(part).is_dir() {
-                    rust_sources(&path.join(part), &mut files);
-                }
-            }
-        }
+        let files = gate_writer_sources();
         let pattern = regex::Regex::new(NAME_IN_SOURCE).unwrap();
         let mut names = Vec::new();
         for file in files {
@@ -342,6 +404,178 @@ mod tests {
             }
         }
         names
+    }
+
+    /// The Rust sources of the acpmux crates and `cmux-tui-core`: every file a gate line can be
+    /// written from.
+    fn gate_writer_sources() -> Vec<PathBuf> {
+        let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+        let mut files = Vec::new();
+        for entry in fs::read_dir(&crates).unwrap() {
+            let path = entry.unwrap().path();
+            let is_ours = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("acpmux") || name == "cmux-tui-core");
+            for part in ["src", "tests", "benches"] {
+                if is_ours && path.join(part).is_dir() {
+                    rust_sources(&path.join(part), &mut files);
+                }
+            }
+        }
+        files
+    }
+
+    /// The string literal around `at`: from the quote before it that no backslash escapes to the
+    /// next such quote. A `\`-continued literal spans its lines.
+    fn literal_around(text: &str, at: usize) -> &str {
+        let bytes = text.as_bytes();
+        let is_quote =
+            |index: usize| bytes[index] == b'"' && (index == 0 || bytes[index - 1] != b'\\');
+        let start = (0..at).rev().find(|index| is_quote(*index)).map_or(0, |index| index + 1);
+        let end = (at..bytes.len()).find(|index| is_quote(*index)).unwrap_or(bytes.len());
+        &text[start..end]
+    }
+
+    /// The gate lines a source writes by hand: each format string holding `\"name\":\"v2.`, with
+    /// the file and line it starts on, that lacks `small_p95` or `god_p95`.
+    fn hand_written_lines_without_the_home_shape(file: &Path, text: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        for (at, _) in text.match_indices(r#"\"name\":\"v2."#) {
+            let literal = literal_around(text, at);
+            let lacks: Vec<_> = [r#"\"small_p95\":"#, r#"\"god_p95\":"#]
+                .into_iter()
+                .filter(|field| !literal.contains(field))
+                .collect();
+            if !lacks.is_empty() {
+                let line = text[..at].lines().count();
+                found.push(format!("{file:?}:{line} lacks {lacks:?}: {literal}"));
+            }
+        }
+        found
+    }
+
+    /// The `json!` object around `at`: from the `{` before it that no `}` closes to the `}` that
+    /// closes it; None when that `{` does not open a `json!(` call. Braces are counted as they
+    /// stand, so a string value holding a brace would mislead it; no gate line has one.
+    fn json_object_around(text: &str, at: usize) -> Option<&str> {
+        let bytes = text.as_bytes();
+        let mut depth = 0_usize;
+        let open = (0..at).rev().find(|index| match bytes[*index] {
+            b'}' => {
+                depth += 1;
+                false
+            }
+            b'{' if depth == 0 => true,
+            b'{' => {
+                depth -= 1;
+                false
+            }
+            _ => false,
+        })?;
+        if !text[..open].trim_end().ends_with("json!(") {
+            return None;
+        }
+        let mut depth = 0_usize;
+        let close = (open..bytes.len()).find(|index| match bytes[*index] {
+            b'{' => {
+                depth += 1;
+                false
+            }
+            b'}' => {
+                depth -= 1;
+                depth == 0
+            }
+            _ => false,
+        })?;
+        Some(&text[open..=close])
+    }
+
+    /// The gate lines a source spells as a `json!` object with a `"name": "v2.` key, each with
+    /// the file and line its name is on, and those of them that lack `small_p95` or `god_p95`.
+    fn json_lines_without_the_home_shape(file: &Path, text: &str) -> (usize, Vec<String>) {
+        let name = regex::Regex::new(r#""name"\s*:\s*"v2\."#).unwrap();
+        let (mut lines, mut found) = (0, Vec::new());
+        for at in name.find_iter(text).map(|m| m.start()) {
+            let Some(object) = json_object_around(text, at) else { continue };
+            lines += 1;
+            let lacks: Vec<_> = ["small_p95", "god_p95"]
+                .into_iter()
+                .filter(|field| {
+                    !regex::Regex::new(&format!(r#""{field}"\s*:"#)).unwrap().is_match(object)
+                })
+                .collect();
+            if !lacks.is_empty() {
+                let line = text[..at].lines().count();
+                found.push(format!("{file:?}:{line} lacks {lacks:?}: {object}"));
+            }
+        }
+        (lines, found)
+    }
+
+    /// The home reads `small_p95` and `god_p95` from every line (`parse_measure`); a hand-written
+    /// line without them once stopped the nightly report from being written at all. A line is
+    /// hand-written as a format string holding `\"name\":\"v2.` or as a `json!` object with a
+    /// `"name": "v2.` key; both are read.
+    #[test]
+    fn a_hand_written_gate_line_carries_small_p95_and_god_p95() {
+        // The registry's own tests spell broken lines on purpose.
+        let registry = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/v2");
+        let (mut lines, mut json_lines) = (0, 0);
+        let mut found = Vec::new();
+        for file in gate_writer_sources() {
+            if file.starts_with(&registry) {
+                continue;
+            }
+            let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
+            lines += text.matches(r#"\"name\":\"v2."#).count();
+            found.extend(hand_written_lines_without_the_home_shape(&file, &text));
+            let (in_json, lacking) = json_lines_without_the_home_shape(&file, &text);
+            json_lines += in_json;
+            found.extend(lacking);
+        }
+        assert!(lines >= 3, "the scan read too few hand-written gate lines: {lines}");
+        assert!(json_lines >= 3, "the scan read too few json! gate lines: {json_lines}");
+        assert!(found.is_empty(), "gate lines the home cannot read:\n{}", found.join("\n"));
+    }
+
+    #[test]
+    fn the_hand_written_line_check_reads_the_whole_format_string() {
+        let without = concat!(
+            r#"format!("{{\"name\":\"v2.pr08.mirror_local_row_thirty\",\"capped_p95\":{c},"#,
+            r#"\"unit\":\"ns\"}}")"#
+        );
+        let found = hand_written_lines_without_the_home_shape(Path::new("a.rs"), without);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].contains("small_p95") && found[0].contains("god_p95"), "{found:?}");
+        let continued = concat!(
+            r#"format!("{{\"name\":\"v2.pr08.mirror_local_row_thirty\",\"small_p95\":0,\"#,
+            "\n",
+            r#"    \"god_p95\":{c},\"unit\":\"ns\"}}")"#
+        );
+        assert!(hand_written_lines_without_the_home_shape(Path::new("a.rs"), continued).is_empty());
+    }
+
+    #[test]
+    fn the_json_line_check_reads_the_whole_object() {
+        let without = concat!(
+            "write_gate_line(&json!({\n",
+            r#"    "name": "v2.pr06.client_chat_held", "capped": {"p95": 1}, "unit": "bytes""#,
+            "\n}));"
+        );
+        let (lines, found) = json_lines_without_the_home_shape(Path::new("a.rs"), without);
+        assert_eq!((lines, found.len()), (1, 1), "{found:?}");
+        assert!(found[0].contains("small_p95") && found[0].contains("god_p95"), "{found:?}");
+        let with = concat!(
+            "let line = serde_json::json!({\n",
+            r#"    "name":"v2.pr04b.mirror_v1_rows", "rounds": {"n": 5},"#,
+            "\n",
+            r#"    "small_p95":small, "god_p95":god, "unit":"ns""#,
+            "\n});"
+        );
+        assert_eq!(json_lines_without_the_home_shape(Path::new("a.rs"), with), (1, Vec::new()));
+        let not_json = r#"let row = Row { name: "v2.x" }; let v = map(&{ "name": "v2.y" });"#;
+        assert_eq!(json_lines_without_the_home_shape(Path::new("a.rs"), not_json), (0, Vec::new()));
     }
 
     /// Whether a source's name is this row's: equal, or a `format!` whose holes fit.
@@ -575,6 +809,24 @@ mod tests {
                 },
             )
         }
+
+        /// Whether one of `functions` calls the function `callee`.
+        fn calls(&self, functions: &HashSet<String>, callee: &str) -> bool {
+            let call = regex::Regex::new(&format!(r"\b{callee}\(")).unwrap();
+            self.functions.iter().filter(|(function, _, _)| functions.contains(function)).any(
+                |(_, first, last)| self.lines[*first + 1..=*last].iter().any(|l| call.is_match(l)),
+            )
+        }
+    }
+
+    /// Helpers that write `god_p95_all` for the rows their callers name, by the file (under this
+    /// crate) that defines each: a caller writes that line without spelling `god_p95_all`. A
+    /// helper here reports the rounds it is given, so a row written through it reports them.
+    const SHARED_WRITERS: &[(&str, &str)] = &[("src/test_support/list_daemon.rs", "emit_with_all")];
+
+    /// Whether one of `functions` in `source` writes its line through a [`SHARED_WRITERS`] helper.
+    fn calls_a_shared_writer(source: &Source, functions: &HashSet<String>) -> bool {
+        SHARED_WRITERS.iter().any(|(_, helper)| source.calls(functions, helper))
     }
 
     /// Rows a source with `god_p95_all` in it names and that compare no rounds: one measure a
@@ -589,63 +841,63 @@ mod tests {
         ("v2.pr05c.replay_open_hold", "one round, against an absolute bound"),
         ("v2.pr05c.single_encode", "one count of encodes a side"),
         ("v2.pr05c.walk_rss", "a diagnostic line that names the row, no measure"),
-    ];
-
-    /// Best-of-rounds rows whose gate source an open pull request changes: they move onto
-    /// `gate_rounds` after it lands, and leave this list then.
-    const ROUNDS_WAIT_ON_ANOTHER_PR: &[&str] = &[
-        // cmux#43039: acpmux-client/src/lib.rs.
-        "v2.pr04b.mirror_v1_rows",
-        // cmux#43553: acpmux-core/src/chat/stream/gates_tests.rs.
-        "v2.pr03c.first_window",
-        "v2.pr03c.resume_missed",
-        "v2.pr03c.subscribed_rss",
-        "v2.pr03c.append_behind_page",
-        "v2.pr03c.queue_window",
-        "v2.pr03c.prompt_blob_next",
-        "v2.pr04.chat_stopped_reader",
-        // cmux#43438 and cmux#43403: acpmux-core/src/hub.rs.
-        "v2.pr05.first_list_window",
-        "v2.pr05.summary_change",
-        // cmux#43403: acpmux-core/src/hub/mirror_gates.rs.
-        "v2.pr08.mirror_apply",
-        "v2.pr08.mirror_local_row",
-        "v2.pr08.mirror_local_row_thirty",
+        ("v2.pr04.chat_stopped_reader", "one peak resident rise a side, each in its own process"),
     ];
 
     /// A gate that keeps the best of several rounds hides a round that did different work from
     /// the rest (cmux#43438's replay append read 0.995x on rounds that returned early). A source
     /// that writes `god_p95_all` for a row calls `gate_rounds::report` on the way to that line:
-    /// in a function that reaches the row's name ([`Source::reaches`]) or one those call.
+    /// in a function that reaches the row's name ([`Source::reaches`]) or one those call. A row
+    /// written through a [`SHARED_WRITERS`] helper is read the same way, in its caller's source,
+    /// and the helper itself must report.
     #[test]
     fn a_best_of_rounds_row_reports_its_rounds() {
+        for (file, helper) in SHARED_WRITERS {
+            let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(file);
+            let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+            assert!(text.contains("god_p95_all"), "{helper} in {file} writes no god_p95_all");
+            let source = Source::read(&text);
+            let helper_and_callees = source.called_from(HashSet::from([helper.to_string()]));
+            assert!(
+                source.reports_rounds(&helper_and_callees),
+                "{helper} in {file} writes rows' god_p95_all without gate_rounds::report"
+            );
+        }
         let registry_home = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/v2_gate_home.rs");
         let mut files: Vec<PathBuf> =
             names_in_sources().into_iter().map(|(_, file)| file).collect();
         files.sort();
         files.dedup();
-        let mut checked = 0;
+        let (mut checked, mut shared) = (0, 0);
         let mut silent = Vec::new();
         for file in files.iter().filter(|file| **file != registry_home) {
             let text = fs::read_to_string(file).unwrap_or_else(|e| panic!("{file:?}: {e}"));
-            if !text.contains("god_p95_all") {
+            let source = Source::read(&text);
+            let all_functions = source.functions.iter().map(|(f, _, _)| f.clone()).collect();
+            let through_shared = calls_a_shared_writer(&source, &all_functions);
+            if !text.contains("god_p95_all") && !through_shared {
                 continue;
             }
-            let source = Source::read(&text);
             for row in GATE_ROWS {
                 let reached = source.reaches(row.name);
                 if reached.is_empty() {
                     continue;
                 }
                 checked += 1;
-                let exempt = NO_ROUNDS.iter().any(|(name, _)| *name == row.name)
-                    || ROUNDS_WAIT_ON_ANOTHER_PR.contains(&row.name);
-                if !exempt && !source.reports_rounds(&source.called_from(reached)) {
+                let exempt = NO_ROUNDS.iter().any(|(name, _)| *name == row.name);
+                let called = source.called_from(reached);
+                if calls_a_shared_writer(&source, &called) {
+                    shared += 1;
+                }
+                let reports =
+                    source.reports_rounds(&called) || calls_a_shared_writer(&source, &called);
+                if !exempt && !reports {
                     silent.push(format!("{} in {file:?}", row.name));
                 }
             }
         }
         assert!(checked >= 20, "the scan read too few rows that write god_p95_all: {checked}");
+        assert!(shared >= 1, "the scan read no row written through a shared writer");
         assert!(
             silent.is_empty(),
             "these rows write god_p95_all and no function on the way to their line calls \
@@ -678,6 +930,26 @@ mod tests {
         let reports = |row: &str| source.reports_rounds(&source.called_from(source.reaches(row)));
         assert!(reports("v2.pr99.through_two"));
         assert!(!reports("v2.pr99.silent"));
+    }
+
+    #[test]
+    fn a_row_written_through_a_shared_writer_reports_its_rounds() {
+        let text = [
+            "fn gate() {",
+            "    let name = \"v2.pr99.through_list_daemon\";",
+            "    let (small, god, god_all) = emit_with_all(name, &small_wall, &god_wall, \"ns\");",
+            "}",
+            "",
+            "fn other_gate() {",
+            "    line(\"v2.pr99.silent\", \"ns\");",
+            "}",
+        ]
+        .join("\n");
+        let source = Source::read(&text);
+        let shared = |row: &str| calls_a_shared_writer(&source, &source.reaches(row));
+        assert!(shared("v2.pr99.through_list_daemon"));
+        assert!(!shared("v2.pr99.silent"));
+        assert!(!source.reports_rounds(&source.reaches("v2.pr99.through_list_daemon")));
     }
 
     /// The gate script's group table: each `.gates` group word and the runner it starts.
@@ -1099,7 +1371,7 @@ mod gate_failed_tests {
     fn a_marked_line_reads_red_with_its_numbers_kept() {
         let row = kin_row(kin_line(Some(json!(true))));
         assert_eq!(row["status"], "red");
-        assert_eq!(row["reason"], "the gate's test failed after writing this measure");
+        assert_eq!(row["reason"], "a test in this row's filter failed");
         assert_eq!(row["small_p95"], 1000.0);
         assert_eq!(row["god_p95"], 1100.0);
         assert_eq!(row["ratio"], 1.1);
@@ -1137,7 +1409,7 @@ mod gate_failed_tests {
         };
         assert_eq!(
             status_of("v2.pr05e.kin_table_change"),
-            (json!("red"), json!("the gate's test failed after writing this measure"))
+            (json!("red"), json!("a test in this row's filter failed"))
         );
         assert_eq!(
             status_of("v2.pr05e.sibling_insert"),
@@ -1147,5 +1419,112 @@ mod gate_failed_tests {
             status_of("v2.pr05e.family_page"),
             (json!("failed"), json!("the gate did not report a measure"))
         );
+    }
+}
+
+#[cfg(test)]
+mod unreadable_line_tests {
+    use super::*;
+
+    fn in_bound_line(row: &GateRow) -> Value {
+        let value = row.god_max.unwrap_or(1.0).min(1.0);
+        json!({"name": row.name, "small_p95": value, "god_p95": value, "god_p95_all": value,
+            "unit": "ns"})
+    }
+
+    fn status_of<'a>(value: &'a Value, name: &str) -> &'a Value {
+        value["rows"].as_array().unwrap().iter().find(|row| row["name"] == name).unwrap()
+    }
+
+    /// One malformed line, one that is not JSON and one with no registered name among good
+    /// lines: the malformed line's row reads `failed` with the parser's reason, the other two go
+    /// into `errors`, every other row is judged, the report is written, and the run fails.
+    #[test]
+    fn a_line_the_home_cannot_read_fails_its_row_only_and_the_report_is_written() {
+        let broken = "v2.pr01.append_time";
+        let mut lines = String::new();
+        for row in GATE_ROWS.iter().filter(|row| row.measured) {
+            let mut line = in_bound_line(row);
+            if row.name == broken {
+                line.as_object_mut().unwrap().remove("small_p95");
+            }
+            lines.push_str(&format!("{line}\n"));
+        }
+        lines.push_str("not json\n");
+        let unknown =
+            json!({"name": "v2.pr99.unknown", "small_p95": 1, "god_p95": 1, "unit": "ns"});
+        lines.push_str(&format!("{unknown}\n"));
+        let measures = tempfile::NamedTempFile::new().unwrap();
+        fs::write(measures.path(), &lines).unwrap();
+        let output = tempfile::NamedTempFile::new().unwrap();
+        let error =
+            print_report_with_mode(&[measures.path().to_path_buf()], Some(output.path()), true)
+                .unwrap_err();
+        assert!(error.contains(broken) && error.contains("no numeric small_p95"), "{error}");
+        let value: Value = serde_json::from_str(&fs::read_to_string(output.path()).unwrap())
+            .expect("the report is written");
+        let row = status_of(&value, broken);
+        assert_eq!(row["status"], "failed");
+        assert!(row["reason"].as_str().unwrap().contains("has no numeric small_p95"), "{row}");
+        for other in GATE_ROWS.iter().filter(|row| row.measured && row.name != broken) {
+            assert_eq!(status_of(&value, other.name)["status"], "ok", "{}", other.name);
+        }
+        let errors = value["errors"].as_array().unwrap();
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert!(errors.iter().any(|error| error.as_str().unwrap().contains("unknown v2 gate row")));
+    }
+
+    /// A row the home cannot join (a second line of it, or no `god_p95_all` where the row
+    /// requires one) reads `failed` with that reason; the report is still built.
+    #[test]
+    fn a_line_the_home_cannot_join_fails_its_row() {
+        let duplicate = GATE_ROWS.iter().find(|row| row.measured).unwrap();
+        let needs_all = GATE_ROWS
+            .iter()
+            .find(|row| row.measured && row.ratio_all.is_some() && row.name != duplicate.name)
+            .unwrap();
+        let mut lines = String::new();
+        for row in GATE_ROWS.iter().filter(|row| row.measured) {
+            let mut line = in_bound_line(row);
+            if row.name == needs_all.name {
+                line.as_object_mut().unwrap().remove("god_p95_all");
+            }
+            lines.push_str(&format!("{line}\n"));
+        }
+        lines.push_str(&format!("{}\n", in_bound_line(duplicate)));
+        let measures = tempfile::NamedTempFile::new().unwrap();
+        fs::write(measures.path(), &lines).unwrap();
+        let (value, stops) = report_value(&[measures.path().to_path_buf()], true).unwrap();
+        assert!(stops);
+        assert_eq!(status_of(&value, duplicate.name)["status"], "failed");
+        assert!(
+            status_of(&value, duplicate.name)["reason"].as_str().unwrap().contains("duplicate")
+        );
+        assert_eq!(status_of(&value, needs_all.name)["status"], "failed");
+        assert!(
+            status_of(&value, needs_all.name)["reason"]
+                .as_str()
+                .unwrap()
+                .contains("requires god_p95_all")
+        );
+        assert_eq!(value["errors"], json!([]));
+    }
+
+    /// The thirty-unit row is one-sided: `small_p95` 0, its capped p95 as `god_p95`, judged by
+    /// the row's absolute 10 ms bound, present or not in the measured set.
+    #[test]
+    fn the_thirty_unit_line_is_judged_by_its_absolute_bound() {
+        let row =
+            GATE_ROWS.iter().find(|row| row.name == "v2.pr08.mirror_local_row_thirty").unwrap();
+        let line = |god: u64| {
+            json!({"name": row.name, "small_p95": 0, "god_p95": god, "god_p95_all": god,
+                "capped_p95": god, "capped_p95_all": god, "lifted_p95": god, "origins": 30,
+                "unit_changes": 30, "turn_changes": 30, "unit": "ns"})
+        };
+        let judged =
+            |god| measured_row(row, &parse_measure(line(god), Path::new("thirty")).unwrap());
+        assert_eq!(judged(9_000_000)["status"], "ok");
+        assert_eq!(judged(10_300_000)["status"], "red");
+        assert_eq!(judged(10_300_000)["reason"], "god p95 exceeds the row's absolute maximum");
     }
 }

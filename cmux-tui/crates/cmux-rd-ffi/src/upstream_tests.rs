@@ -212,6 +212,10 @@ fn invalid_arguments_and_null_handles_are_refused() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "fills the 4 MB queue, over 10 minutes under Miri; the same send runs in every other test here"
+)]
 fn a_full_queue_drops_new_frames() {
     let u = upstream(CMUX_RD_CARRIER_DATAGRAM);
     let frame = vec![4u8; 200];

@@ -5,7 +5,8 @@
 //   `seenSeq`, `hub/seen.rs`), a hairline in the theme's accent across the text column with a small
 //   "New" tag pinned to its end, as chat apps draw it. Its row keeps the transcript's 28px rhythm
 //   (model.ts), placed when the chat opens and kept until another chat is selected, so it never
-//   appears or goes under the reader. Once read it fades in place: the row stays, nothing moves.
+//   appears under the reader. Once read the line takes no space (sinceRead.experiment.ts): a faded
+//   row kept its height, a blank band between turns (Leo, 2026-11-17: "in the periods here").
 //   The recap the daemon made for the same return (`hub/away_recap.rs`) draws under it.
 // - The moving view, `UnreadBanner`: "3 new turns since 3:42 · Mark read" in the transcript's
 //   top-start zone (overlayLayout.ts) while the line is off screen, as chat apps' unread bars.
@@ -15,6 +16,7 @@
 //
 // Every shape, colour and motion is a token (unread.css; check-design-tokens.ts TOKEN_ONLY_FILES).
 import { useCallback, useSyncExternalStore } from "react";
+import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { setUnreadBannerMode, useSessionRecapOn, useUnreadBannerMode } from "../chatDisplay";
 import { useT } from "../i18n";
@@ -32,6 +34,7 @@ import {
   unreadRead,
   type UnreadBannerMode,
 } from "./unreadState";
+import { sinceRead } from "./sinceRead.experiment";
 import "./unread.css";
 
 export { sinceDone } from "./unreadState";
@@ -79,7 +82,11 @@ function unreadMenu(
 ): ContextMenuItem[] {
   return [
     ...extra,
-    { id: "unread.markRead", label: t("since.markRead"), onSelect: () => markUnreadRead(mark) },
+    {
+      id: "unread.markRead",
+      label: t("since.markRead"),
+      onSelect: () => markUnreadRead(mark),
+    },
     mode === "off"
       ? {
           id: "unread.showBanner",
@@ -115,8 +122,19 @@ export function SinceDivider({
   const recapOn = useSessionRecapOn();
   const isRead = read ?? unreadRead(since.key, unread);
   const label = t("since.label");
+  // Read, the line takes no space (sinceRead.experiment.ts): a row with nothing visible in it is a
+  // blank band between turns (Leo, 2026-11-17: "in the periods here"). Its recap stays.
+  const arm = isRead ? experimentArm(sinceRead) : undefined;
   return (
-    <div className="cv-since" data-look={look} data-read={isRead ? "" : undefined} ref={useSinceObserver(since.key)}>
+    <div
+      className="cv-since"
+      data-look={look}
+      data-read={isRead ? "" : undefined}
+      data-gone={arm === "fade" ? undefined : arm}
+      // Shrinking to nothing, the rows around it close their gaps with it (model.ts collapsingHeight).
+      data-row-collapsing={arm === "shrink" && !since.recap ? "" : undefined}
+      ref={useSinceObserver(since.key)}
+    >
       <ContextMenu items={unreadMenu(t, since.key, mode)} className="cv-since__menu">
         <p className="cv-since__line" aria-label={`${label}, ${t("since.turns", { n: since.turns })}`}>
           {look === "labelled" && (
@@ -143,7 +161,10 @@ export function SinceDivider({
 let clock: Intl.DateTimeFormat | undefined;
 /// 3:42 PM, in the person's locale.
 const clockLabel = (at: number) =>
-  (clock ??= new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" })).format(new Date(at));
+  (clock ??= new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  })).format(new Date(at));
 
 /// The moving view: in the transcript's top-start zone (VirtualTranscript.tsx places it from
 /// overlayLayout.ts) while the "New" line is out of view and not yet reached. Mounted with the mark

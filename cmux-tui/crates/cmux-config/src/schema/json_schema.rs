@@ -75,6 +75,25 @@ impl Schema {
                 "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }],
             }),
         );
+        root.insert(
+            "density".into(),
+            json!({
+                "type": "object",
+                "description": "The look's own density: the shape of every tab and sidebar row, the toolbar's buttons and the sidebar's width. A built-in (basedOn) with the Density Playground's tokens over it; it is the density in use while the file applies.",
+                "properties": {
+                    "basedOn": { "enum": ["ultraCompact", "compact", "cozy", "comfortable", "spacious"] },
+                    "level": { "type": "number" },
+                    "spacing": { "type": "number" },
+                    "fontSize": { "type": "number" },
+                    "tokens": {
+                        "type": "object",
+                        "description": "Density Playground tokens by name (tabCornerRadius, sidebarCornerRadius, sidebarWidth, browserRowHeight, toolbarGlyphSize, ...), in points.",
+                        "additionalProperties": { "type": "number", "minimum": 0 },
+                    },
+                },
+                "additionalProperties": false,
+            }),
+        );
         for row in self.rows.iter().filter(|row| is_look(row)) {
             root.insert(row.key.clone(), leaf(row));
             if row.path.len() > 1 {
@@ -135,6 +154,17 @@ fn kind_schema(row: &Row) -> Value {
             // or `folder:<absolute path>` (not `/` alone).
             let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
             return json!({ "anyOf": [choice(choices), path] });
+        }
+        Validation::Domain(DomainKind::BackdropPicture) => return picture(),
+        Validation::Domain(DomainKind::BackdropSchedule) => {
+            return json!({
+                "type": "object",
+                "propertyNames": { "pattern": super::backdrop::WHEN_PATTERN },
+                "additionalProperties": picture(),
+            });
+        }
+        Validation::Domain(DomainKind::BackdropLocation) => {
+            return json!({ "type": "string", "pattern": super::backdrop::LOCATION_PATTERN });
         }
         Validation::Domain(DomainKind::ChatRoots) => {
             return json!({ "type": "array", "items": { "type": "string", "pattern": "^/" } });
@@ -259,6 +289,12 @@ fn kind_schema(row: &Row) -> Value {
             })
         }
     }
+}
+
+/// A fixed background: a listed one or a `system:` / `file:` absolute path.
+fn picture() -> Value {
+    let listed = json!({ "type": "string", "enum": super::backdrop::picture_choices() });
+    json!({ "anyOf": [listed, { "type": "string", "pattern": super::backdrop::PATH_PATTERN }] })
 }
 
 fn choice(choices: &[Choice]) -> Value {

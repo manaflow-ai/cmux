@@ -234,7 +234,7 @@ class WorkflowTests(unittest.TestCase):
                         and "CmuxMobileLinkFFI.swift" in run_text(placed[0]) and ".xcframework" in run_text(placed[0]),
                         "a hit moves the framework and its Swift into the app")
         self.assertFalse([s for s in steps if is_save(s)],
-                         "the legs hold the agent pass's token, never the bucket's write credentials")
+                         "the legs never hold the bucket's write credentials")
 
     def test_a_feat_cmux_next_run_seeds_r2_from_a_linux_job(self) -> None:
         jobs = gate()["jobs"]

@@ -21,7 +21,15 @@ export class AppSceneMount {
     private readonly surface: MountSurface,
     private readonly app: string,
     private readonly context: Record<string, unknown> = {},
+    /** Hears the daemon's id of each mount this makes (a widget tile follows its health and sends
+     * its visibility by it), and `undefined` when it ends. */
+    private readonly onMountId?: (mountId: string | undefined) => void,
   ) {}
+
+  /** The daemon's id of the live mount, while there is one. */
+  get id(): string | undefined {
+    return this.mountId;
+  }
 
   start(): void {
     if (this.active) return;
@@ -79,6 +87,7 @@ export class AppSceneMount {
         return;
       }
       this.mountId = mountId;
+      this.onMountId?.(mountId);
       if (typeof result.asset_base === "string" && result.asset_base.endsWith("/")) this.assetBase = result.asset_base;
       const stop = await client.subscribe<SceneEvent>(
         "cmux.apps.panels.scene",
@@ -102,6 +111,7 @@ export class AppSceneMount {
     const mountId = this.mountId;
     if (!mountId) return;
     this.mountId = undefined;
+    this.onMountId?.(undefined);
     void this.client?.call("cmux.apps.panels.unmount", { mount_id: mountId }).catch(() => undefined);
   }
 }

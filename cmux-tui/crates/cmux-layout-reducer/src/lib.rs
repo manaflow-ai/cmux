@@ -957,11 +957,13 @@ mod sidebar_face_tests;
 pub mod auto_archive;
 pub mod closing_panes;
 pub mod divider_insert;
+pub mod floating_panes;
 
 pub mod group_hover_summary;
 pub mod keep_awake;
 pub mod new_placement;
 pub mod optimistic;
+pub mod pane_focus;
 #[cfg(kani)]
 mod proofs;
 pub mod scroll;
