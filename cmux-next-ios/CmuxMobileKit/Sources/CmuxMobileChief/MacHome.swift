@@ -728,11 +728,18 @@ public final class MacHomeFeed {
             isShowingKeptRows = true
             return
         }
+        // The first screen of kept rows in this turn (one small head file), so the first frame
+        // draws them, not "Connecting to <Mac>…"; the rest of the kept list follows off the main thread.
+        let head = rowsCache.firstScreen(key)
+        if let head {
+            setRows(head, complete: false)
+            isShowingKeptRows = true
+        }
         let macID = macID
         // task-owner: one disk read of the kept rows; ends with it, and its rows land only if nothing newer did
         Task { [weak self] in
             guard let kept = await rowsCache.load(key), let self,
-                  self.macID == macID, self.rows == nil, self.rowsKey() == key else { return }
+                  self.macID == macID, self.rows == head, self.rowsKey() == key, kept != head else { return }
             self.setRows(kept, complete: false)
             self.isShowingKeptRows = true
         }

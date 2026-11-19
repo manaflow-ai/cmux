@@ -30,6 +30,8 @@ FAKE_SSH = """#!/bin/bash
 while [[ "$1" == -o ]]; do shift 2; done
 echo "$1" >> "$FAKE_SSH_LOG"
 printf '%s\\n' "$*" >> "${FAKE_SSH_LOG%.log}-argv.log"
+# A host named in FAKE_SSH_HOSTS_DOWN does not answer: ssh's own failure, 255.
+if [[ " ${FAKE_SSH_HOSTS_DOWN:-} " == *" $1 "* ]]; then exit 255; fi
 # A host named in FAKE_SSH_HOSTS_OK answers a probe with success (for hosts the fixture has no clone name for).
 if [[ " ${FAKE_SSH_HOSTS_OK:-} " == *" $1 "* && "$2" == test\\ -e* ]]; then exit 0; fi
 shift  # the host
@@ -419,6 +421,21 @@ git config core.hooksPath "$common/cmux-git-hooks"
         self.assertIn("scripts/cmux-next/push-hosts.json", done.stderr)
         self.assertEqual((self.root / "ssh.log").read_text(), "cmux-lawrence-2\n")
 
+    def test_the_repo_registry_falls_back_when_its_first_host_is_down(self):
+        # 2026-11-18: cmux-lawrence-2 reset every SSH connection at key exchange for an hour and, as the repo
+        # registry's only host, blocked every landing. Its second host, the cmux-lawrence mini, takes the push.
+        home = self.root / "home-without-leo-workspace"
+        home.mkdir()
+        self.env.pop("CMUX_FLEET_REGISTRY", None)
+        self.env.pop("CMUX_PUSH_HOST", None)
+        self.env["HOME"] = str(home)
+        self.env["FAKE_SSH_HOSTS_DOWN"] = "cmux-lawrence-2"
+        self.env["FAKE_SSH_HOSTS_OK"] = "cmux-lawrence"
+        done = self.push("--which-host", "topic", hosts=())
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "cmux-lawrence fun/cmux")
+        self.assertIn("cmux-lawrence-2 does not answer SSH; trying the next host", done.stderr)
+
     def test_the_repo_registry_admits_no_host_it_does_not_list(self):
         home = self.root / "home-without-leo-workspace"
         home.mkdir()
@@ -431,7 +448,7 @@ git config core.hooksPath "$common/cmux-git-hooks"
 
     def test_the_repo_registry_has_only_fleet_builders(self):
         machines = json.loads((SCRIPT.parent / "push-hosts.json").read_text())["machines"]
-        self.assertEqual(list(machines), ["cmux-lawrence-2"])
+        self.assertEqual(list(machines), ["cmux-lawrence-2", "cmux-lawrence"])
         for machine in machines.values():
             self.assertIn("mac-build", machine["roles"])
             self.assertFalse(machine.get("personal"))

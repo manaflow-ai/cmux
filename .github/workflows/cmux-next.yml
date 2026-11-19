@@ -79,7 +79,7 @@ on:
       - mux/packages/brain/conformance/**
       - skills/cmux-acpmux/SKILL.md
       - skills/cmux-browser/**
-      - skills/cmux-cua/**
+      - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
       - skills/cmux/SKILL.md
@@ -124,7 +124,6 @@ on:
       - tests/test_web_ota_pointer.sh
       - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
-      - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/cmux_next_base_merge_carry.py
@@ -437,7 +436,7 @@ on:
       - mux/packages/brain/conformance/**
       - skills/cmux-acpmux/SKILL.md
       - skills/cmux-browser/**
-      - skills/cmux-cua/**
+      - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
       - skills/cmux/SKILL.md
@@ -477,7 +476,6 @@ on:
       - tests/test_web_ota_pointer.sh
       - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
-      - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
       - scripts/ci/cmux_next_base_merge_carry.py
