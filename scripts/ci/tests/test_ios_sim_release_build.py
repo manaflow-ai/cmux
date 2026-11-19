@@ -134,6 +134,8 @@ class ReleaseBuildTests(unittest.TestCase):
         cache = self.root / "scripts/ci/ios_ffi_cache.py"
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(CACHE_TOOL)
+        (self.script.parent / "lib").mkdir()
+        shutil.copyfile(SCRIPT.parent / "lib/ios-sim-reduce-motion.sh", self.script.parent / "lib/ios-sim-reduce-motion.sh")
         (self.script.parent / "ios_sim_runtime.py").write_text(
             "import json, sys\njson.load(sys.stdin)\nprint('fixture-runtime fixture-device')\n"
         )
@@ -332,6 +334,70 @@ class ReleaseBuildTests(unittest.TestCase):
                 result = self.run_script(*args)
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
                 self.assertIn(message, result.stderr)
+
+
+FAKE_XCRUN = r"""#!/usr/bin/env bash
+# simctl [--set SET] spawn UDID defaults write|read ... / notifyutil: records the call, answers the read.
+printf '%s\n' "$*" >>"$FIXTURE_CALLS"
+case "$*" in
+  *"defaults read com.apple.Accessibility ReduceMotionEnabled") printf '%s\n' "$FIXTURE_READ_BACK" ;;
+esac
+"""
+
+
+class ReduceMotionTests(unittest.TestCase):
+    """reducemotion=1: the simulator write and read-back, and the app's own launch line, each fail with exit 3."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="ios-sim-reduce-motion-test-")
+        self.addCleanup(self.temp.cleanup)
+        self.dir = Path(self.temp.name)
+        (self.dir / "xcrun").write_text(FAKE_XCRUN)
+        (self.dir / "xcrun").chmod(0o755)
+        self.calls = self.dir / "calls"
+        self.lib = SCRIPT.parent / "lib/ios-sim-reduce-motion.sh"
+
+    def bash(self, body, read_back="1"):
+        env = {**os.environ, "PATH": f"{self.dir}:{os.environ['PATH']}", "FIXTURE_CALLS": str(self.calls),
+               "FIXTURE_READ_BACK": read_back}
+        return subprocess.run(["bash", "-c", f"set -euo pipefail; source {shlex.quote(str(self.lib))}; {body}"],
+                              env=env, capture_output=True, text=True, timeout=30)
+
+    def test_write_then_read_back_inside_the_simulator(self):
+        p = self.bash('v="$(sim_reduce_motion UDID1 /sims)"; echo "value=$v"')
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("value=1", p.stdout)
+        calls = self.calls.read_text().splitlines()
+        self.assertEqual(calls[0], "simctl --set /sims spawn UDID1 defaults write com.apple.Accessibility ReduceMotionEnabled -bool true")
+        self.assertEqual(calls[-1], "simctl --set /sims spawn UDID1 defaults read com.apple.Accessibility ReduceMotionEnabled")
+
+    def test_a_read_back_other_than_1_fails(self):
+        for read_back in ("0", "", "The domain/default pair does not exist"):
+            with self.subTest(read_back=read_back):
+                p = self.bash('v="$(sim_reduce_motion UDID1)" || { echo "failed with $v"; exit 3; }', read_back)
+                self.assertEqual(p.returncode, 3, p.stdout + p.stderr)
+
+    def test_the_app_must_report_true(self):
+        for log, verdict, status in (
+            ("... [dev.cmux.mobile:accessibility] launch: isReduceMotionEnabled=true", "true", 0),
+            ("... [dev.cmux.mobile:accessibility] launch: isReduceMotionEnabled=false", "false", 3),
+            ("", "not logged", 3),
+        ):
+            with self.subTest(verdict=verdict):
+                p = self.bash(f'v="$(reduce_motion_app_verdict {shlex.quote(log)})" || {{ echo "v=$v"; exit 3; }}; echo "v=$v"')
+                self.assertEqual(p.returncode, status, p.stdout + p.stderr)
+                self.assertIn("v=" + verdict, p.stdout)
+
+    def test_step_turns_it_on_before_install_and_fails_with_3(self):
+        text = SCRIPT.read_text()
+        launch = text.index('simctl install "$udid" "$app"')
+        write = text.index('rm_value="$(sim_reduce_motion "$udid" "$sims")" || {')
+        check = text.index('a11y_seen="$(reduce_motion_app_verdict "$a11y_log")" || a11y_ok=0')
+        self.assertLess(write, launch)
+        self.assertGreater(check, launch)
+        self.assertIn("exit 3", text[write:launch])
+        self.assertIn('if [[ $reduce_motion -eq 1 && $a11y_ok -eq 0 ]]; then', text[check:check + 400])
+        self.assertIn("exit 3", text[check:check + 400])
 
 
 if __name__ == "__main__":

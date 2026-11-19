@@ -12,6 +12,11 @@
 # below): device=NAME (an iPhone type other than the default, e.g. --arg device=iPhone,16e or
 # --arg device=iPhone,17,Pro,Max; commas stand for spaces; an unknown type exits 3 with the list)
 # and reducemotion=1 (Reduce Motion on, read back in the simulator and in SUMMARY.md).
+# Through the fleet controller (hq build-fleet/cmd/controller/ios_next_sim_step.go), until its
+# change for these lands, they pass only after `shots` with at least one real scene, e.g.
+#   --arg shots --arg device=iPhone,16e --arg reducemotion=1 --arg settings=-cmux-mobile-tab,settings
+# The controller's argument pattern has no spaces or parentheses: a name with parentheses goes in
+# its identifier form (device=iPhone-SE-3rd-generation).
 #
 # MODE:
 #   release-build
@@ -542,25 +547,16 @@ for runtime in devices.values():
 }
 # --- end sim_create
 
-# sim_reduce_motion UDID [SET]: Reduce Motion on in a booted simulator (its own com.apple.Accessibility
-# domain, never the host's), then read back inside it; prints the value read, fails unless it is 1.
-# An app launched after this reads UIAccessibility.isReduceMotionEnabled == true.
-sim_reduce_motion() {
-  local udid=$1 set=${2:-} value
-  local c=(xcrun simctl)
-  [[ -z "$set" ]] || c+=(--set "$set")
-  "${c[@]}" spawn "$udid" defaults write com.apple.Accessibility ReduceMotionEnabled -bool true
-  "${c[@]}" spawn "$udid" notifyutil -p com.apple.accessibility.reduce.motion.status >/dev/null 2>&1 || true
-  value="$("${c[@]}" spawn "$udid" defaults read com.apple.Accessibility ReduceMotionEnabled 2>&1)" || true
-  [[ "$value" == 1 ]] || { echo "error: Reduce Motion did not take in $udid: read back '$value'" >&2; return 1; }
-  printf '%s\n' "$value"
-}
+# sim_reduce_motion UDID [SET] and reduce_motion_app_verdict LOG (reducemotion=1).
+# shellcheck source-path=SCRIPTDIR source=lib/ios-sim-reduce-motion.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/ios-sim-reduce-motion.sh"
 # sim_boot_reduce_motion UDID WHAT: boots a default-set simulator (unless booted) and turns Reduce Motion on.
 sim_boot_reduce_motion() {
   local value
   xcrun simctl boot "$1" >/dev/null 2>&1 || true
   xcrun simctl bootstatus "$1" -b >/dev/null
-  value="$(sim_reduce_motion "$1")" || exit 3
+  value="$(sim_reduce_motion "$1")" || {
+    note "- reduce motion ($2 simulator): FAIL: ReduceMotionEnabled read back in the simulator: '$value'"; exit 3; }
   note "- reduce motion ($2 simulator): on, ReduceMotionEnabled read back in the simulator: $value"
 }
 
@@ -820,7 +816,8 @@ else
   note "- device: $device_name ($device_type), the default"
 fi
 if [[ $reduce_motion -eq 1 ]]; then
-  rm_value="$(sim_reduce_motion "$udid" "$sims")" || exit 3
+  rm_value="$(sim_reduce_motion "$udid" "$sims")" || {
+    note "- reduce motion: FAIL: com.apple.Accessibility ReduceMotionEnabled read back in the simulator: '$rm_value'"; exit 3; }
   note "- reduce motion: on, com.apple.Accessibility ReduceMotionEnabled read back in the simulator: $rm_value"
 fi
 simctl install "$udid" "$app"
@@ -831,10 +828,17 @@ simctl io "$udid" screenshot "$out/screens/launch.png" >/dev/null
 simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
 note "- launch: ok, screens/launch.png"
 # What the app itself read: its DEBUG launch line (CmuxMobileApp.init), from the simulator's log.
-a11y_line="$(simctl spawn "$udid" log show --last 5m --style compact \
-  --predicate 'subsystem == "dev.cmux.mobile" AND category == "accessibility"' 2>/dev/null |
-  grep -o 'isReduceMotionEnabled=[a-z]*' | tail -n 1 || true)"
-note "- app at launch: UIAccessibility.${a11y_line:-isReduceMotionEnabled not logged (a build without the DEBUG line)}"
+# With reducemotion=1 the app must have seen it: false or no line fails the step (exit 3).
+a11y_log="$(simctl spawn "$udid" log show --last 5m --style compact \
+  --predicate 'subsystem == "dev.cmux.mobile" AND category == "accessibility"' 2>/dev/null || true)"
+a11y_ok=1
+a11y_seen="$(reduce_motion_app_verdict "$a11y_log")" || a11y_ok=0
+note "- app at launch: UIAccessibility.isReduceMotionEnabled: $a11y_seen"
+if [[ $reduce_motion -eq 1 && $a11y_ok -eq 0 ]]; then
+  note "- reduce motion: FAIL: the app did not see Reduce Motion at launch (isReduceMotionEnabled: $a11y_seen)"
+  exit 3
+fi
+[[ $reduce_motion -eq 0 ]] || note "- reduce motion: PASS: the app saw isReduceMotionEnabled=true at launch"
 # The simulator's memory at launch (simslim measure: phys_footprint of its processes, slim or stock),
 # for the fleet's stock-versus-slim comparison. Read-only; never fails the step.
 if [[ -n "${CMUX_CI_SIMSLIM:-}" && -x "${CMUX_CI_SIMSLIM}" ]] &&

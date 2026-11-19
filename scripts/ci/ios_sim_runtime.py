@@ -17,7 +17,7 @@ available runtime won. Unset (a run outside the fleet), the newest available
 iOS runtime is used, as before.
 
 The iPhone is the first of PHONES the runtime supports, unless the step names one:
-`--device NAME` (the step's device= argument) picks that device type and nothing else. NAME
+`--device NAME` (the step's device= argument) picks that iPhone type and nothing else (no iPad). NAME
 is the device type's name ("iPhone 16e"), the same with commas for spaces ("iPhone,16e",
 since fleet step arguments hold no spaces), or its identifier's last part
 ("iPhone-SE-3rd-generation", for names with parentheses). A name the runtime does not
@@ -42,12 +42,13 @@ def version_key(runtime):
 def find_device(types, want):
     """The device type identifier and name for want among types ({name: identifier}), or raise SystemExit."""
     spaced = want.replace(",", " ").strip()
+    types = {k: v for k, v in types.items() if k.startswith("iPhone")}
     for name, ident in types.items():
         if want in (name, ident, ident.rsplit(".", 1)[-1]) or spaced == name:
             return ident, name
-    phones = sorted(k for k in types if k.startswith("iPhone"))
+    phones = sorted(types)
     raise SystemExit(
-        f"cmux-next-ios-sim.sh: device={want}: this runtime has no such device type; "
+        f"cmux-next-ios-sim.sh: device={want}: this runtime has no such iPhone device type; "
         f"available iPhone types: {', '.join(phones) or 'none'}"
     )
 
