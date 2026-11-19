@@ -49,7 +49,7 @@ await requireBrowserLane("subagent-composer-via-line.test.ts", async () => {
         await page.locator(".acpmux-subagent-composer .cv-subagent-composer-via").waitFor();
         const layout = await page.evaluate(() => {
           const composer = document.querySelector(".acpmux-subagent-composer")!;
-          const rect = (node: Element) => {
+          const rect = (node: Element | Range) => {
             const r = node.getBoundingClientRect();
             return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
           };

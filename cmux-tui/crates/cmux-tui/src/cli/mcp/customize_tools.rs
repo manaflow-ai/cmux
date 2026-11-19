@@ -205,6 +205,15 @@ const TOOLS: &[CustomizeTool] = &[
         minutes: false,
         mutation: false,
     },
+    CustomizeTool {
+        name: "customize_recipes",
+        verb: "recipes",
+        description: "Ready-made customizations (a compact sidebar, a different font, a PR widget, a tiling look, pane keys, vertical tabs, larger text, calm, glass, a clock, a look like the Claude desktop app): each one's name, title, wish, what it changes and the `path` of its profile file. To try one, call customize_use with that path: it previews as a draft the person applies or discards. To tailor one, use its `ask` with customize_ask. It writes the recipe files and their guide into cmux's state folder.",
+        argument: None,
+        note: None,
+        minutes: false,
+        mutation: true,
+    },
 ];
 
 pub(super) fn descriptors() -> Vec<Value> {
@@ -330,6 +339,7 @@ mod tests {
             ["brief", "--", "--compact sidebar, please"]
         );
         assert_eq!(w("customize_check", json!({})).unwrap(), ["check"]);
+        assert_eq!(w("customize_recipes", json!({})).unwrap(), ["recipes"]);
         assert_eq!(w("customize_schema", json!({})).unwrap(), ["schema"]);
         assert_eq!(w("customize_schema", json!({"part": "views"})).unwrap(), ["schema", "views"]);
         assert_eq!(w("customize_apply", json!({"note": "compact"})).unwrap(), ["apply", "compact"]);
@@ -374,7 +384,7 @@ mod tests {
         assert!(w("customize_try", json!({"minutes": 0})).is_err());
         assert!(w("customize_try", json!({"minutes": "5"})).is_err());
         assert!(w("customize_keep", json!({"minutes": 5})).is_err());
-        assert_eq!(names.len(), 16);
+        assert_eq!(names.len(), 17);
         assert!(names.iter().all(|name| name.starts_with("customize_")));
     }
 }

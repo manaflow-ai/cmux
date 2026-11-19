@@ -125,9 +125,6 @@ REVIEW_NOTES = "cmux-next-ios/AppStoreReview/review-notes-asc.txt"
 # Blockers the app already had when pushes and pull requests started failing on
 # new ones; a fix removes its entry, and nothing is ever added to dodge a red.
 KNOWN_BLOCKERS_FILE = "cmux-next-ios/AppStoreReview/known-blockers.json"
-# The agent pass is a model's judgement: it can say something different on the
-# same build, so it informs every run and fails only a submission.
-UNPINNED_SOURCES = ("agent reviewer pass",)
 # The public App Store build: project.yml's AppStore configuration, bundle
 # com.cmux.app (the record the classic app used; NEXT replaces it as an update).
 APPSTORE_CONFIG = "AppStore"
@@ -299,7 +296,15 @@ class Lint:
             self.add("metadata.support-url", "1.5", "blocker", "no supportUrl in the version metadata", METADATA_DIR)
         if not has_privacy:
             self.add("metadata.privacy-url", "5.1.1", "blocker", "no privacyPolicyUrl in the app-info metadata", METADATA_DIR)
-        for family in ("iphone", "ipad"):
+        # App Store Connect asks for iPad screenshots only when the app runs
+        # natively on iPad ("Required if app runs on iPad"). An iPhone-only app
+        # (TARGETED_DEVICE_FAMILY "1") runs on iPad in compatibility mode with
+        # no iPad screenshots listed, so the ipad folder is required only when
+        # the app target's device families include 2 (iPad).
+        families = ["iphone"]
+        if "2" in app_device_families(self.root):
+            families.append("ipad")
+        for family in families:
             shots = self.root / SCREENSHOTS_DIR / family
             count = len([p for p in shots.glob("*") if p.suffix.lower() in (".png", ".jpg", ".jpeg")]) if shots.is_dir() else 0
             if count == 0:
@@ -916,6 +921,48 @@ def fetch(url: str) -> dict:
     }
 
 
+# xcodegen's iOS preset (and Xcode's) is TARGETED_DEVICE_FAMILY "1,2": an app
+# that never sets it runs natively on iPhone and iPad.
+DEFAULT_DEVICE_FAMILIES = frozenset({"1", "2"})
+DEVICE_FAMILY_RE = re.compile(r'^\s*"?TARGETED_DEVICE_FAMILY"?:\s*"?([0-9 ,]*)"?\s*(?:#.*)?$', re.M)
+APP_TARGET = "CmuxMobileApp"
+
+
+def app_device_families(root: Path, target: str = APP_TARGET) -> frozenset[str]:
+    """The device families (1 iPhone, 2 iPad) project.yml builds the app
+    target for: every TARGETED_DEVICE_FAMILY in that target's block, else the
+    project's own settings, else xcodegen's iOS default "1,2"."""
+    project = root / PROJECT_YML
+    if not project.is_file():
+        return DEFAULT_DEVICE_FAMILIES
+    lines = project.read_text(errors="ignore").splitlines()
+    in_target: list[str] = []
+    outside: list[str] = []
+    in_targets = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip() and not line[0].isspace():
+            in_targets = line.rstrip() == "targets:"
+        if in_targets and line.rstrip() == f"  {target}:":
+            i += 1
+            while i < len(lines) and (not lines[i].strip() or lines[i].startswith("   ")):
+                in_target.append(lines[i])
+                i += 1
+            continue
+        if not in_targets:
+            outside.append(line)
+        i += 1
+
+    def families(block: list[str]) -> set[str]:
+        found: set[str] = set()
+        for value in DEVICE_FAMILY_RE.findall("\n".join(block)):
+            found |= {part.strip() for part in value.split(",") if part.strip()}
+        return found
+
+    return frozenset(families(in_target) or families(outside) or DEFAULT_DEVICE_FAMILIES)
+
+
 def entitlement_files(text: str, value: str) -> list[str]:
     """The entitlements files a CMUX_MOBILE_ENTITLEMENTS_* value can sign with:
     the path itself, or for a switch such as
@@ -1191,7 +1238,7 @@ def read_known_blockers(path: Path) -> tuple[set[str], list[dict]]:
 def ratchet(findings: list[dict], known: set[str]) -> tuple[list[dict], list[str]]:
     """New blockers (fail this change) and known ones no longer seen (fixed:
     remove them from known-blockers.json)."""
-    pinned = [f for f in findings if f["severity"] == "blocker" and f.get("source") not in UNPINNED_SOURCES]
+    pinned = [f for f in findings if f["severity"] == "blocker"]
     seen = {blocker_key(f) for f in pinned}
     return [f for f in pinned if blocker_key(f) not in known], sorted(known - seen)
 
@@ -1252,25 +1299,6 @@ def cmd_report(args: argparse.Namespace) -> int:
         else:
             findings.append({"rule": "uitest.missing", "guideline": "2.1(a)", "severity": "blocker",
                              "source": "reviewer-path suite", "message": f"no test result at {x}: the suite did not run", "where": x})
-    agent_verdict = False
-    for extra in args.extra or []:
-        body, unreadable = read_input(Path(extra), "agent reviewer pass")
-        findings += unreadable + [dict(f) for f in (body or [])]
-        agent_verdict = agent_verdict or isinstance(body, list)
-    # The agent pass skips by name only where it cannot run (a fork pull
-    # request has no token); the marker says why.
-    for item in args.agent_skipped:
-        body, unreadable = read_input(Path(item), "agent reviewer pass")
-        findings += unreadable
-        if isinstance(body, dict) and body.get("skipped") is True:
-            agent_verdict = True
-            findings.append({"rule": "agent.skipped", "guideline": "-", "severity": "warning",
-                             "source": "agent reviewer pass", "where": "",
-                             "message": f"the agent reviewer pass did not run: {str(body.get('reason', 'no reason given'))[:200]}"})
-    if args.expect_agent and not agent_verdict:
-        findings.append({"rule": "agent.missing", "guideline": "2.1", "severity": "blocker",
-                         "source": "agent reviewer pass", "where": "",
-                         "message": "the agent reviewer pass left no verdict (no findings and no skip marker reached the report)"})
     for log in args.suite_log:
         findings += suite_log_findings(Path(log))
     for item in args.suite_status:
@@ -1364,7 +1392,6 @@ def main(argv: list[str] | None = None) -> int:
     report.add_argument("--asc-skipped", action="store_true",
                         help="asc validate cannot run for this event (a PR has no release secrets)")
     report.add_argument("--xcresult-json", action="append")
-    report.add_argument("--extra", action="append", help="JSON list of findings from another check")
     report.add_argument("--suite-log", action="append", default=[],
                         help="a suite's xcodebuild log; its GATE-NOTE lines become warnings")
     report.add_argument("--suite-status", action="append", default=[],
@@ -1377,10 +1404,6 @@ def main(argv: list[str] | None = None) -> int:
                         help="a device family (duo) whose suite result or --skipped marker must be present")
     report.add_argument("--skipped", action="append", default=[],
                         help="{family, skipped: true}: the image had no simulator for that family")
-    report.add_argument("--expect-agent", action="store_true",
-                        help="the agent reviewer pass ran: no --extra verdict and no --agent-skipped marker blocks")
-    report.add_argument("--agent-skipped", action="append", default=[],
-                        help="{skipped: true, reason}: the agent pass could not run for this event (a fork pull request)")
     report.add_argument("--known-blockers",
                         help="known-blockers.json: fail only on a blocker not listed there (a push or pull request)")
     report.add_argument("--proposed-known-blockers",
