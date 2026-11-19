@@ -385,6 +385,9 @@ Leo and every agent:
   `cmux-ci capture <head sha> --state scene:NAME|tour:NAME --pr N [--video]` builds that commit, drives the
   real app on a capture mini, takes light and dark stills, refuses any that show private text, and prints
   the Markdown to paste. Or add the `media-tour` label, or write `No capture: <why>`. Never mock stills.
+- On a shared GUI Mac (`cmux-lawrence-2`, a capture mini), start what you run by hand over `ssh` (`open -n`,
+  `xctrace`, `sample`, `workspace new`, `nohup` helpers) as `~/.local/bin/gui-run -- CMD`. It closes what the
+  run opened when the run exits, fails or is cut off, and its sweep closes what a killed run left, by run tag.
 - Every `feat-cmux-next` PR gets a `risk:low|normal|high` label ([risk tiers](docs/ci/risk-tiers.md)).
   Low (docs, copy, generated, tests) and normal (most UI and logic) never wait for a person:
   agent review and the relevant checks, then merge. High (auth, socket and relay policy,
