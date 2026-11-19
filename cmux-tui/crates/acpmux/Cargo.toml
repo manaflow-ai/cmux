@@ -105,6 +105,8 @@ cmux-transport = { path = "../cmux-transport" }
 # Where the running cmux link registers its socket (`peer_carriers.rs`).
 cmux-tui-platform.workspace = true
 cmux-file-lock.workspace = true
+# The model picker's lists, served stale while a probe refreshes them (`hub/model_lists.rs`).
+cmux-tag-cache.workspace = true
 cmux-supervise-core.workspace = true
 cmux-git.workspace = true
 cmux-worktree-care.workspace = true
