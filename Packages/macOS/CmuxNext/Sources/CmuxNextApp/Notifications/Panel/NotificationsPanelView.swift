@@ -57,7 +57,7 @@ final class NotificationsPanelView: NSView {
 
     private let background = NSView()
     /// The glass under the content; the panel's clear window is all it covers.
-    private let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius, interactive: false)
+    private let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius, interactive: false, tone: .neutralGlass(.transient))
     private let body = NSView()
     private let markAllRead = NSButton()
     private let clearAll = NSButton()

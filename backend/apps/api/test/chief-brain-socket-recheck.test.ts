@@ -70,10 +70,14 @@ describe("placed chief rights on an open socket", { timeout: 60_000 }, () => {
     const sock = await chiefSocket(t.chief.main_conversation, t.token)
     await t.ask("ask-1")
     expect((await sock.send("before")).t).toBe("result")
-    await inDO(t.userDO, async (instance) => {
-      instance.revokeByTeam = async () => {
-        throw new Error("push held back")
-      }
+    // Through TeamDO's `userOwner` seam: RPC serves only prototype methods, so a method patched onto the
+    // UserDO instance is refused as "does not implement the method" (seen as an unhandled error in a run).
+    await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(t.team)), async (instance) => {
+      instance.userOwner = () => ({
+        revokeByTeam: async () => {
+          throw new Error("push held back")
+        }
+      })
     })
     expect((await op(t.owner, "server.revoke", { host: t.server.host })).json.ok).toBe(true)
     await t.ask("ask-2")
@@ -100,14 +104,25 @@ describe("placed chief rights on an open socket", { timeout: 60_000 }, () => {
     const t = await placedChief("socket-recheck-teamdo-down")
     await t.ask("ask-1")
     const teamDO = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(t.team))
+    // UserDO reaches this over RPC, which serves only prototype methods (an instance property is
+    // refused as not implemented), so this one instance fails from the prototype.
+    let restore = () => {}
     await inDO(teamDO, async (instance) => {
-      instance.serverPlacementActive = async () => {
-        throw new Error("TeamDO down")
+      const proto = Object.getPrototypeOf(instance)
+      const real = proto.serverPlacementActive
+      proto.serverPlacementActive = async function (this: unknown, ...a: Array<unknown>) {
+        if (this === instance) throw new Error("TeamDO down")
+        return real.apply(this, a)
       }
+      restore = () => void (proto.serverPlacementActive = real)
     })
-    const sent = (await op(t.token, "message.send", { conversation: t.chief.main_conversation, client_msg_id: "teamdo-down", parts: [{ type: "text", text: "x" }] }, "teamdo-down")).json
-    expect(sent.ok, JSON.stringify(sent)).not.toBe(true)
-    expect(await chiefSaid(t.owner, t.chief.main_conversation, "teamdo-down")).toBe(false)
+    try {
+      const sent = (await op(t.token, "message.send", { conversation: t.chief.main_conversation, client_msg_id: "teamdo-down", parts: [{ type: "text", text: "x" }] }, "teamdo-down")).json
+      expect(sent.ok, JSON.stringify(sent)).not.toBe(true)
+      expect(await chiefSaid(t.owner, t.chief.main_conversation, "teamdo-down")).toBe(false)
+    } finally {
+      restore()
+    }
   })
 
   it("a placed chief keeps its own conversation reads and its wake queue socket after the inbox refusal (cx-59n8.11, hq-84)", async () => {
