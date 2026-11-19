@@ -187,13 +187,12 @@ enum AgentBesidePlacement {
             }
             defer { finish() }
             let source = controller ?? services.paneController(for: anchor)
-            let measured = (source.map { LinkOpener.rightColumn(beside: $0) } ?? RightColumnPlacement.Column()).avoiding(invocation.besideAgentHomes)
+            // A pane no window shows has no frames: the daemon's layout says what is right of it, so the pane one open made takes the next.
+            let measured = (source.map { LinkOpener.rightColumn(beside: $0) } ?? RightColumnPlacement.Column(layoutRightOf: anchor, in: store, holds: { LinkOpener.holds(tabs: $0.tabs, $1) })).avoiding(invocation.besideAgentHomes)
             let kind = RightColumnPlacement.Kind(opening: tab.kind, document: tab.page == InternalPageID.diff.rawValue)
             let decision = RightColumnPlacement.decide(measured, opening: kind)
-            let destination: PaneController? = {
-                guard case .tab(let id) = decision, let id else { return nil }
-                return source?.workspace?.panes[LayoutPaneID(rawValue: id)]
-            }()
+            let shown: (String) -> PaneController? = { source?.workspace?.panes[LayoutPaneID(rawValue: $0)] }
+            let destination: PaneController? = if case .tab(let id?) = decision { shown(id) } else { nil }
             moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 switch decision {
                 case .splitRight:
@@ -204,15 +203,13 @@ enum AgentBesidePlacement {
                         done.resume(returning: $0)
                     }
                 case .splitBelow(let id):
-                    let right = source?.workspace?.panes[LayoutPaneID(rawValue: id)]
-                    guard let right else { return done.resume(returning: false) }
-                    TabMoves.toNewSplit(tab, pane: right.pane, edge: .bottom, services: services, keepFocus: true) {
+                    guard let right = shown(id)?.pane ?? services.locatePane(id, onMachine: machineID) else { return done.resume(returning: false) }
+                    TabMoves.toNewSplit(tab, pane: right, edge: .bottom, services: services, keepFocus: true) {
                         done.resume(returning: $0)
                     }
-                case .tab:
-                    let right = destination ?? source
-                    guard let right else { return done.resume(returning: false) }
-                    TabMoves.move(tab, to: right.pane, index: right.pane.tabs.count, services: services) {
+                case .tab(let id):
+                    let right = (destination ?? source)?.pane ?? id.flatMap { services.locatePane($0, onMachine: machineID) } ?? anchor
+                    TabMoves.move(tab, to: right, index: right.tabs.count, services: services) {
                         done.resume(returning: $0)
                     }
                 }

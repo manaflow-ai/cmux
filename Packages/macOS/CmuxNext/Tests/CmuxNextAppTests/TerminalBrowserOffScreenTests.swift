@@ -12,8 +12,9 @@ import Testing
 /// capture of build ff3b87ce78d6 on cmux23, 2026-11-18: the reply's `pane_id` was the caller's own pane, for a
 /// plain shell and for an agent's terminal). The rule that sends a terminal's browser right of it (7a35bded508,
 /// db311ade813) measured the window, and a workspace no window shows has nothing to measure. The control router
-/// now decides from the topology: the pane of the column on the right, never one of another agent, else a new
-/// pane right of the terminal; the terminal's own pane keeps its tabs, and the person's view does not change.
+/// now decides from the topology: the column on the right (a tab in its pane that holds a browser, a split below
+/// its lone pane that holds none), never one of another agent, else a new pane right of the terminal; the
+/// terminal's own pane keeps its tabs, and the person's view does not change.
 ///
 /// The request is the CLI's own: `openBrowser` aimed at the caller's terminal tab, with that terminal as the
 /// caller, through the app's control router, registry and a same-tree daemon.
@@ -23,7 +24,9 @@ struct TerminalBrowserOffScreenTests {
     enum Right: String, Sendable, CaseIterable {
         /// Nothing: a plain shell's browser gets a new pane right of it.
         case nothing
-        /// A column with a terminal no agent runs in: an agent's browser is a tab in that column's pane.
+        /// A column with a terminal no agent runs in: an agent's browser opens in that column, in a split below
+        /// its lone terminal pane, as on screen (Leo 2026-10-31: "you only need the rightmost botom auto split
+        /// when there's a terminal that gets opened when there's already a browser, and vice versa").
         case helperColumn
         /// A column that is another agent's home (its chat): an agent's browser gets a new pane, not that column.
         case anotherAgentsColumn
@@ -117,7 +120,9 @@ struct TerminalBrowserOffScreenTests {
             case .nothing:
                 #expect(!panesBefore.contains { $0 === landed }, "a plain shell's browser gets a new pane right of it: \(describe())")
             case .helperColumn:
-                #expect(landed === rightPane, "an agent's browser is a tab in the pane of the column on its right: \(describe())")
+                #expect(!panesBefore.contains { $0 === landed }, "a lone terminal pane keeps its tabs: \(describe())")
+                let below = rightPane.flatMap { BesidePaneReuseOffScreenTests.split(of: workspace, between: $0, and: landed) }
+                #expect(below == .down, "an agent's browser splits below the lone pane of the column on its right, never beside it: \(describe())")
             case .anotherAgentsColumn:
                 #expect(!panesBefore.contains { $0 === landed }, "another agent's column is never where it opens: \(describe())")
             }

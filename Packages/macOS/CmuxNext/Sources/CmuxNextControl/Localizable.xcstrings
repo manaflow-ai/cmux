@@ -16401,6 +16401,137 @@
           }
         }
       }
+    },
+    "control.error.agentMustNameFront": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ acts on what the person has in front when nothing is named, so an agent must name it; pass one of: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل %1$@ على ما يعرضه الشخص في المقدمة عند عدم تسمية شيء، لذا يجب على الوكيل تسميته؛ مرّر أحد ما يلي: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ djeluje na ono što je osobi u prvom planu kada ništa nije imenovano, pa ga agent mora imenovati; proslijedite jedno od: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ virker på det, personen har forrest, når intet er navngivet, så en agent skal navngive det; angiv en af: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ wirkt auf das, was die Person im Vordergrund hat, wenn nichts benannt ist, daher muss ein Agent es benennen; übergib eines von: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ actúa sobre lo que la persona tiene en primer plano cuando no se nombra nada, así que un agente debe nombrarlo; pasa uno de: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ agit sur ce que la personne a au premier plan quand rien n’est nommé, un agent doit donc le nommer ; passez l’un de : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ agisce su ciò che la persona ha in primo piano quando non è indicato nulla, quindi un agente deve indicarlo; passa uno tra: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は、対象が指定されていない場合、ユーザーが前面に表示しているものに作用するため、エージェントは対象を指定する必要があります。次のいずれかを渡してください: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ធ្វើសកម្មភាពលើអ្វីដែលមនុស្សមាននៅខាងមុខ នៅពេលមិនបានបញ្ជាក់អ្វី ដូច្នេះភ្នាក់ងារត្រូវបញ្ជាក់វា; សូមផ្តល់មួយក្នុងចំណោម៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@은(는) 대상을 지정하지 않으면 사용자가 앞에 띄워 둔 대상에 작용하므로 에이전트는 대상을 지정해야 합니다. 다음 중 하나를 전달하세요: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ virker på det personen har fremst når ingenting er navngitt, så en agent må navngi det; oppgi en av: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ działa na tym, co osoba ma na pierwszym planie, gdy nic nie wskazano, więc agent musi to wskazać; podaj jedno z: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ age sobre o que a pessoa tem em primeiro plano quando nada é nomeado, então um agente deve nomeá-lo; passe um destes: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ действует на то, что у человека на переднем плане, если ничего не указано, поэтому агент должен это указать; передайте одно из: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ทำงานกับสิ่งที่ผู้ใช้เปิดอยู่ด้านหน้าเมื่อไม่ได้ระบุสิ่งใด ดังนั้นเอเจนต์ต้องระบุสิ่งนั้น โปรดส่งอย่างใดอย่างหนึ่ง: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, hiçbir şey belirtilmediğinde kişinin önünde açık olan şey üzerinde çalışır, bu yüzden bir ajan onu belirtmelidir; şunlardan birini verin: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ діє на те, що в людини на передньому плані, якщо нічого не вказано, тому агент має це вказати; передайте одне з: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ tác động lên thứ người dùng đang để phía trước khi không nêu tên gì, nên tác nhân phải nêu tên thứ đó; hãy truyền một trong: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未指定对象时，%1$@ 会作用于用户当前置于前台的对象，因此代理必须指定该对象；请传入以下之一：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未指定對象時，%1$@ 會作用於使用者目前置於前景的對象，因此代理必須指定該對象；請傳入以下其中之一：%2$@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

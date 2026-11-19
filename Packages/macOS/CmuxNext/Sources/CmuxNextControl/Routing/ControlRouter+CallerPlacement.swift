@@ -27,6 +27,10 @@ import Foundation
 ///   ``workspaceCreatingActions`` still run.
 /// - A Chief turn (`caller.home_chat`) acts for the person across the app: only what it opens beside itself is
 ///   placed, beside the Home chat; its other runs are unchanged.
+/// - An action on a tab group, a screen group or a workspace group runs on the group of the caller's own tab,
+///   screen or workspace (``callerPlaceKind(of:)``).
+/// - An action on the person's front window, Space or bookmark is never aimed: an agent must name its object
+///   (``CallerActionClass/personsFront``).
 /// - An action with no such target kind (settings, the palette) and a run with a target or no caller are unchanged.
 ///
 /// Existing-browser actions are aimed first, at the browser nearest the caller (``aimBrowserActionAtCaller``).
@@ -85,11 +89,10 @@ extension ControlRouter {
         // A closing run that names its object by argument (`--session`, `--window`) acts on that, and one on a
         // window has no place of the caller's: neither is aimed at the caller's own tab or workspace.
         let actionClass = callerClass(of: action)
-        if actionClass == .windowClosing || (actionClass == .closing && namesObject(request, action: action)) { return }
+        if actionClass == .personsFront || (actionClass == .closing && namesObject(request, action: action)) { return }
         let beside = opensBeside(action.id), opens = beside || opensSurface(action.id)
-        var kind = action.targets.first { callerTargetKinds.contains($0) }
-        // New Tab in Group takes a tab group: the group of the caller's own tab (its handler reads a tab's group).
-        if kind == nil, action.id == "tabGroup.newTab" { kind = "tab" }
+        // A group action is aimed at the caller's own tab, screen or workspace: its handler reads that one's group.
+        let kind = callerPlaceKind(of: action)
         guard beside || (kind != nil && !caller.homeChat) else { return }
         guard let location = ControlCallerLocation.resolve(caller, in: topology) else {
             guard caller.agentSession != nil || caller.homeChat else { return }

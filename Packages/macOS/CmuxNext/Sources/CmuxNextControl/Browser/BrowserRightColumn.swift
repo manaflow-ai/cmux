@@ -31,7 +31,7 @@ struct BrowserRightColumn: Sendable, Equatable {
         guard location.workspace.kind != "home" else { return resolve(in: topology) }
         let placement = ControlCallerPlacement(location)
         let pane: ControlPaneInfo? = switch placement.kind {
-        case .helperColumn: placement.pane(for: "browser")
+        case .helperColumn: placement.pane(for: "browser") ?? placement.column.first
         case .ownPane: location.pane
         case .newColumn: nil
         }

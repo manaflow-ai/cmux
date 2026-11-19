@@ -6,10 +6,12 @@ import Testing
 
 /// What a caller's run with no target does is decided per action, for every action of the catalog
 /// (`ControlRouter.callerClass(of:)`): it opens beside an agent, runs on the caller's own place, must have its
-/// object named (it closes or destroys it), acts on the person's front window (an agent cannot run it unnamed),
-/// or is not affected by a caller. Reviews of 4b4017014c8 and 79f350e1deb: `cmux cloud archive-session` with no
-/// `--session` archived the agent's own session; a destructive browser action reached the nearest browser, the
-/// person's; `cmux workspace close-all` closed the workspaces of the window the person had in front.
+/// object named (it closes or destroys it), acts on the person's front window, Space or bookmark (an agent
+/// cannot run it unnamed), or is not affected by a caller. Reviews of 4b4017014c8, 79f350e1deb and 4fb5810d35c:
+/// `cmux cloud archive-session` with no `--session`, or with an empty one, archived the agent's own session; a
+/// destructive browser action reached the nearest browser, the person's; `cmux workspace close-all` closed the
+/// workspaces of the window the person had in front; an agent's Ungroup or Move Group to New Window took the
+/// group of the tab the person had focused; Minimize and Stop Chief acted on the person's front window.
 ///
 /// These run each action of the app's REAL catalog through `action.run` as an agent with no target. A new action
 /// has no reviewed class (CallerActionClassReview) and fails the first test whatever its name, until someone decides.
@@ -49,7 +51,7 @@ import Testing
             counts[derived, default: 0] += 1
             // A catalog field or a hand list of the router decides these three; a review decides the default two.
             let reviewed: Bool = switch derived {
-            case .opensBeside, .closing, .windowClosing: true
+            case .opensBeside, .closing, .personsFront: true
             case .ownPlace: CallerActionClassReview.ownPlace.contains(action.id)
             case .unaffected: CallerActionClassReview.unaffected.contains(action.id)
             }
@@ -57,15 +59,30 @@ import Testing
         }
         #expect(undecided.isEmpty, """
             \(undecided.count) action(s) with no reviewed class. Decide each: does an agent's run of it with no target close, \
-            end or destroy something (ControlRouter.closingActions, .windowClosingActions), open a tab beside the agent \
-            (.besideCallerActions), or neither (CallerActionClassReview, in the list of its default class)? \(undecided)
+            end or destroy something (ControlRouter.closingActions, .windowClosingActions), change the person's front \
+            window or its Chief (.frontWindowActions), open a tab beside the agent (.besideCallerActions), or none of \
+            these (CallerActionClassReview, in the list of its default class)? Read its handler: does it take the \
+            focused tab, pane, workspace or the front window when the run has no target? \(undecided)
             """)
         for each in CallerActionClass.allCases { #expect(counts[each, default: 0] > 0, "no action is \(each.rawValue)") }
         // The hand lists name real actions only (a renamed action is not silently unguarded), and each id has one decision.
         let ids = Set(actions.map(\.id))
         let byHand = ControlRouter.closingActions.union(ControlRouter.windowClosingActions).union(ControlRouter.besideCallerActions)
-            .union(ControlRouter.profileBrowserActions)
-        #expect(byHand.subtracting(ids).isEmpty, "\(byHand.subtracting(ids).sorted())")
+            .union(ControlRouter.profileBrowserActions).union(ControlRouter.frontWindowActions)
+        let named = byHand.union(ControlRouter.ownPlaceByHand.keys).union(ControlRouter.frontReadingActions)
+        #expect(named.subtracting(ids).isEmpty, "\(named.subtracting(ids).sorted())")
+        #expect(ControlRouter.windowClosingActions.isDisjoint(with: ControlRouter.frontWindowActions))
+        // The actions of the two reviews of 4fb5810d35c are where their handlers put them.
+        let classes = Dictionary(actions.map { ($0.id, ControlRouter.callerClass(of: $0)) }, uniquingKeysWith: { first, _ in first })
+        for id in ["tabGroup.ungroup", "tabGroup.moveToNewWindow", "tabGroup.moveToNewWorkspace", "tabGroup.moveToWorkspace", "tabGroup.moveToNewSplit",
+                   "tabGroup.newTab", "screenGroup.rename", "workspaceGroup.rename", "toggleUnread"] {
+            #expect(classes[id] == .ownPlace, "\(id): \(String(describing: classes[id]))")
+        }
+        for id in ["minimizeWindow", "home.stopChief", "home.stopAllAgents", "toggleFullScreen", "window.toggleDock", "space.rename", "bookmark.open",
+                   "workspace.closeAll"] {
+            #expect(classes[id] == .personsFront, "\(id): \(String(describing: classes[id]))")
+        }
+        #expect(classes["window.screenshot"] == .unaffected)
         #expect(byHand.isDisjoint(with: CallerActionClassReview.ownPlace.union(CallerActionClassReview.unaffected)))
         #expect(CallerActionClassReview.ownPlace.isDisjoint(with: CallerActionClassReview.unaffected))
         #expect(ControlRouter.closingActions.isDisjoint(with: ControlRouter.windowClosingActions))
@@ -88,7 +105,7 @@ import Testing
             let derived = ControlRouter.callerClass(of: action)
             if request != nil { ran[derived, default: 0] += 1 }
             switch derived {
-            case .closing, .windowClosing:
+            case .closing, .personsFront:
                 #expect(request == nil, "\(action.id) ran for an agent that named nothing")
                 let refusal = ControlRouter.objectArguments(of: action).isEmpty && action.targets.isEmpty ? "person_required" : "target_required"
                 #expect(result.failure?.code == refusal, "\(action.id) \(action.targets): \(String(describing: result))")
@@ -118,9 +135,12 @@ import Testing
         var named = 0
         for action in snapshot.catalog.actions {
             let derived = ControlRouter.callerClass(of: action)
-            guard derived == .closing || derived == .windowClosing else { continue }
+            guard derived == .closing || derived == .personsFront else { continue }
             let objects = ControlRouter.objectArguments(of: action)
-            for argument in action.arguments where argument.kind != .bool && argument.kind != .enumeration && !objects.contains(argument.name) {
+            // The qualifier review is of what closes: an action on the person's front object that closes nothing has
+            // arguments (a name, a color) that say what to do, and it is refused unnamed whatever they hold.
+            let closes = derived == .closing || ControlRouter.windowClosingActions.contains(action.id)
+            for argument in action.arguments where closes && argument.kind != .bool && argument.kind != .enumeration && !objects.contains(argument.name) {
                 if !Self.qualifierArguments.contains(action.id + "." + argument.name) { undecided.append(action.id + "." + argument.name) }
             }
             for name in objects {
@@ -137,6 +157,17 @@ import Testing
                     #expect(request.target == nil, "\(action.id) --\(name) was also aimed at \(String(describing: request.target))")
                 }
                 named += 1
+                // An empty or blank value names nothing: the run is refused as one with no argument is (review of
+                // 4fb5810d35c: `cloud archive-session --session ""` archived the agent's own session).
+                for blank in argument.kind == .target ? [] : ["", "  "] {
+                    let ran = executor.requests.withLock { $0.count }
+                    let refused = await router.handle(ControlRequest(id: "1", method: "action.run", params: [
+                        "action": .string(action.id), "interactive": true, "wait": false, "args": .object([name: .string(blank)]),
+                        "caller": CallerOwnPlacementTests.agent,
+                    ]))
+                    #expect(executor.requests.withLock { $0.count } == ran, "\(action.id) --\(name) '\(blank)' ran for an agent that named nothing")
+                    #expect(refused.failure?.code == "target_required", "\(action.id) --\(name) '\(blank)': \(String(describing: refused))")
+                }
             }
         }
         #expect(undecided.isEmpty, """
@@ -144,6 +175,42 @@ import Testing
             .objectArgumentExceptions, when the schema does not show it) or only qualify it (qualifierArguments)? \(undecided)
             """)
         #expect(named >= 4, "the session, bookmark, window and browser-profile arguments: \(named)")
+    }
+
+    /// An action on a group runs on the group of the agent's own tab, screen or workspace, never on the group of
+    /// what the person has focused; an action on the person's front window or its Chief is refused for an agent,
+    /// runs for a Chief turn (Stop Chief from its own turn stops its own Chief), and runs for an agent that names
+    /// the window.
+    @Test func aGroupActionRunsOnTheCallersOwnAndAFrontWindowActionNeedsItsWindow() async throws {
+        let executor = RecordingExecutor()
+        let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: .loadTolerant)
+        router.snapshots.publish { $0 = Self.snapshot() }
+        func run(_ action: String, caller: JSONValue = CallerOwnPlacementTests.agent, target: String? = nil) async -> (ControlActionRequest?, ControlError?) {
+            let before = executor.requests.withLock { $0.count }
+            var params: [String: JSONValue] = ["action": .string(action), "interactive": true, "wait": false, "caller": caller]
+            if let target { params["target"] = .string(target) }
+            let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: params))
+            return (executor.requests.withLock { $0.count > before ? $0.last : nil }, result.failure)
+        }
+        for action in ["tabGroup.ungroup", "tabGroup.moveToNewWindow", "tabGroup.moveToNewWorkspace", "tabGroup.moveToWorkspace", "tabGroup.moveToNewSplit"] {
+            let (request, failure) = await run(action)
+            #expect(request?.target == ControlTargetRef(kind: "tab", id: "tab-agent"), "\(action): \(String(describing: request?.target)) \(String(describing: failure))")
+        }
+        #expect(await run("screenGroup.rename").0?.target == ControlTargetRef(kind: "screen", id: "screen-agent"))
+        #expect(await run("workspaceGroup.rename").0?.target == ControlTargetRef(kind: "workspace", id: "ws-agent"))
+
+        for action in ["minimizeWindow", "home.stopChief", "home.stopAllAgents", "toggleFullScreen"] {
+            let (request, failure) = await run(action)
+            #expect(request == nil, "\(action) ran on the person's front window for an agent")
+            #expect(failure?.code == "person_required", "\(action): \(String(describing: failure))")
+            let (chief, refused) = await run(action, caller: ["home_chat": true])
+            #expect(chief != nil && chief?.target == nil, "a Chief turn's \(action): \(String(describing: refused))")
+        }
+        let (unnamed, refusal) = await run("window.toggleDock")
+        #expect(unnamed == nil)
+        #expect(refusal?.code == "target_required", "\(String(describing: refusal))")
+        #expect(refusal?.message.contains("window:<id>") == true, "\(String(describing: refusal?.message))")
+        #expect(await run("window.toggleDock", target: "window:win-1").0?.target == ControlTargetRef(kind: "window", id: "win-1"))
     }
 
     /// A person's shell is not an agent: its close with no target closes its own tab, as it asked, and its
