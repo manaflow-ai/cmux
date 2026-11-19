@@ -11,7 +11,7 @@
 import { pageError, type PageClient, type PageCallOptions, type PageHandler } from "../shared/pageClient";
 import { PAGE_CONNECTION } from "../shared/pageStreams";
 import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
-import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
+import { CloudHome, cloudReason, WS_CLOUD_CAPABILITY } from "./cloudHome";
 import { DaemonPeople } from "./daemonPeople";
 import {
   fixtureRank,
@@ -732,13 +732,24 @@ export class DaemonHomeClient implements PageClient {
           const home = await this.local.request<{ me?: string; rows?: Json[] }>("home-inbox").catch(() => undefined);
           if (home && home.me === this.me) for (const row of home.rows ?? []) this.homeRows.set(String(row.id), row);
         }
-        // The person's Cloud inbox through the same daemon; a Cloud failure never hides the local one.
-        const cloud = await this.cloud.inbox(await this.cloudReady()).catch(() => []);
+        // The person's Cloud inbox through the same daemon; a Cloud failure never hides the local one,
+        // nor the last good Cloud rows: it is said with its reason (`cloudError`), never as signed out.
+        let cloud: HomeConversation[];
+        let cloudError: string | undefined;
+        try {
+          cloud = await this.cloud.inbox(await this.cloudReady());
+          cloudError = this.cloud.failure() ?? undefined;
+        } catch (error) {
+          cloud = this.cloud.rows();
+          cloudError = cloudReason(error);
+          console.warn(`[home-channels] Cloud inbox read failed: ${cloudError}`);
+        }
         return {
           me,
           conversations: [...summaries.map((entry) => this.localRow(entry)), ...cloud],
           rev: Math.max(0, ...summaries.map((entry) => num(entry.rev))),
           inboxState: await this.capable(INBOX_STATE_CAPABILITY),
+          ...(cloudError ? { cloudError } : {}),
         };
       }
       case HomeOps.page: {
