@@ -281,7 +281,11 @@ public final class CloudAuth {
             callbackRouter: callbackRouter,
             makeSignInURL: { configuration.signInURL(callbackState: $0) },
             callbackScheme: { configuration.callbackScheme },
-            openExternalURL: openExternalURL
+            openExternalURL: openExternalURL,
+            // The hosted page answers a PKCE challenge with a one-time code, redeemed over
+            // HTTPS at the same origin; no token ever rides in the callback URL.
+            codeRedeemer: NativeSignInCodeRedeemer(authWebOrigin: configuration.authWebOrigin,
+                                                   scheme: configuration.callbackScheme)
         )
     }
 
