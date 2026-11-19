@@ -31,6 +31,14 @@ pub const CLAUDE_ENV: &[(&str, &str)] = &[
     // every foreground command, a subagent's included, that long before it
     // times out.
     ("BASH_MAX_TIMEOUT_MS", "2147483647"),
+    // How often Claude Code resends a refused model request itself (default 10, over about
+    // three minutes). Each resend carries the chat's whole context, and Claude Code ignores
+    // `session/cancel` while it waits between them, so a 429 storm cost 11-13 full-context
+    // requests per failed turn (cmux#47337's storm harness). With one retry it makes 2, then
+    // fails the turn, and acpmux's own continuation (`auto_resume`, its backoff and the
+    // session's rate hold) goes on for the chat: a 429 as a limit, a 529, 5xx or dropped
+    // connection as `capacity` or `transport` (`turn_errors::resume_cause`).
+    ("CLAUDE_CODE_MAX_RETRIES", "1"),
 ];
 
 /// The autocompact window acpmux starts a Claude Code session with when the person set none

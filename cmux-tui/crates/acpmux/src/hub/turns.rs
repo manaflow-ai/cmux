@@ -1703,8 +1703,8 @@ impl Hub {
         if let Some(e) = stalled {
             result = Err(e);
         }
-        // acpmux ended a turn whose model API refused the agent's sign-in or a rate limit (`turn_retry.rs`).
-        let refused = result.as_ref().ok().and_then(Self::refused_retry_error);
+        // acpmux ended a turn whose model API refused the agent's sign-in (`turn_retry.rs`).
+        let refused = result.as_ref().ok().and_then(Self::sign_in_refused_error);
         if let Some(e) = refused {
             result = Err(e);
         }
