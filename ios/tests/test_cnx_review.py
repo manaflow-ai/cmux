@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 import re
+import signal
 from pathlib import Path
 import plistlib
 import subprocess
@@ -35,8 +36,16 @@ BASH = '/bin/bash' if os.path.exists('/bin/bash') else 'bash'
 
 
 def bash(script, env=None, timeout=60):
-    return subprocess.run([BASH, '-c', script], capture_output=True, text=True, timeout=timeout,
-                          env=dict(os.environ, **(env or {})))
+    # Its own process group, so a timeout ends the script and every child it started (a fake recorder too).
+    with subprocess.Popen([BASH, '-c', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                          env=dict(os.environ, **(env or {})), start_new_session=True) as p:
+        try:
+            out, err = p.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(p.pid, signal.SIGKILL)
+            p.communicate()
+            raise
+    return subprocess.CompletedProcess(p.args, p.returncode, out, err)
 
 
 def devices_json(*phones):
@@ -710,7 +719,6 @@ fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"''', {'CMUX_CI': str(
             try:
                 r = bash(script, timeout=45)
             except subprocess.TimeoutExpired:
-                subprocess.run(['pkill', '-f', f'{temp}/recording.mp4'], check=False)
                 self.fail('the handoff check never stopped its recording (wait hung)')
             self.assertIn('STOPPED', r.stdout, r.stderr)
             self.assertTrue((Path(temp) / 'stopped').exists(), 'the recorder never got SIGINT, so recording.mp4 is unfinished')
