@@ -80,6 +80,25 @@ public struct TabLayoutResult: Equatable, Sendable {
     }
 }
 
+/// `experiments.tabOverflow` = moreMenu: the tabs that leave a row too narrow for them and wait in its More menu
+/// (``TabLayoutEngine/moreMenuPartition(slots:contentWidth:available:reserve:selected:)``).
+public struct TabOverflowPartition: Equatable, Sendable {
+    /// The items out of the strip, in strip order: a suffix of the unpinned ones, less the selected tab, which keeps
+    /// the last visible slot.
+    public var hidden: [TabID]
+    /// The available widths (the layout's, closing mode included) at which the partition stays this one: a resize
+    /// inside it moves no tab in or out of the menu, so the strip keeps its slots without a layout.
+    public var stable: Range<CGFloat>
+
+    public init(hidden: [TabID], stable: Range<CGFloat>) {
+        self.hidden = hidden
+        self.stable = stable
+    }
+
+    /// Nothing hidden, at any width (an arm without a More menu).
+    public static let none = TabOverflowPartition(hidden: [], stable: -CGFloat.infinity..<CGFloat.infinity)
+}
+
 /// How the flexible tabs of a row share its width (``TabLayoutEngine``). Their widths follow from it alone, so a strip
 /// whose width changes keeps every slot while the share stays the same.
 public enum TabRowShare: Equatable, Sendable {

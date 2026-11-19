@@ -122,6 +122,68 @@ public struct TabLayoutEngine {
         return resized
     }
 
+    /// `experiments.tabOverflow` = moreMenu: ``layout(items:availableWidth:style:metrics:closingModeWidth:fullWidthTab:)``
+    /// with the tabs that do not fit collapsed out of the row (``moreMenuPartition(slots:contentWidth:available:reserve:selected:)``),
+    /// so the rest keep their slots and nothing scrolls. `reserve`: the More button's room after the last visible tab,
+    /// taken only when something is hidden. Two passes over the items, O(tabs).
+    public static func layoutMoreMenu(
+        items: [TabLayoutItem],
+        availableWidth: CGFloat,
+        style: TabStripStyle,
+        metrics: TabStripMetrics = .standard,
+        closingModeWidth: CGFloat? = nil,
+        reserve: CGFloat,
+        selected: TabID?
+    ) -> (result: TabLayoutResult, partition: TabOverflowPartition) {
+        let full = layout(items: items, availableWidth: availableWidth, style: style, metrics: metrics, closingModeWidth: closingModeWidth)
+        let partition = moreMenuPartition(slots: full.slots, contentWidth: full.contentWidth, available: full.availableWidth, reserve: reserve,
+                                          selected: selected)
+        guard !partition.hidden.isEmpty else { return (full, partition) }
+        let hidden = Set(partition.hidden)
+        var trimmed = items
+        for index in trimmed.indices where hidden.contains(trimmed[index].id) { trimmed[index].isCollapsed = true }
+        return (layout(items: trimmed, availableWidth: availableWidth, style: style, metrics: metrics, closingModeWidth: closingModeWidth), partition)
+    }
+
+    /// Which items of a laid out row leave it for the More menu (pure, O(slots)). Nothing when the row fits
+    /// `available`; else every unpinned item from the first whose end passes `available - reserve`, except the
+    /// selected tab: it takes the last visible slot, the tabs before it giving up theirs from the end until it fits.
+    /// Pinned tabs and collapsed group members stay as they are. The slots are fixed widths (the experiment's), so a
+    /// tab's end in the trimmed row is its end here.
+    public static func moreMenuPartition(slots: [TabLayoutSlot], contentWidth: CGFloat, available: CGFloat, reserve: CGFloat,
+                                         selected: TabID?) -> TabOverflowPartition {
+        // Fits: stays so down to the content's width (`TabLayoutResult.isOverflowing`).
+        let fitsFrom = contentWidth - 0.5
+        guard available < fitsFrom else { return TabOverflowPartition(hidden: [], stable: min(fitsFrom, available)..<CGFloat.infinity) }
+        let candidates = slots.indices.filter { !slots[$0].isPinned && !slots[$0].isCollapsed }
+        guard !candidates.isEmpty else { return TabOverflowPartition(hidden: [], stable: available..<available.nextUp) }
+        let limit = available - reserve
+        // The end of the first `count` candidates (their start for none).
+        func end(_ count: Int) -> CGFloat { count == 0 ? slots[candidates[0]].x : slots[candidates[count - 1]].maxX }
+        // The candidates that fit, the same for every limit in [low, high).
+        let kept = candidates.firstIndex { slots[$0].maxX > limit } ?? candidates.count
+        var low = kept > 0 ? end(kept) : -CGFloat.infinity
+        var high = kept < candidates.count ? end(kept + 1) : CGFloat.infinity
+        var firstHidden = kept
+        var promoted: Int?
+        if let selected, let position = candidates.firstIndex(where: { slots[$0].id == selected }), position >= kept {
+            // The selected tab comes after the `room` tabs that leave it its width.
+            let width = slots[candidates[position]].width
+            var room = kept
+            while room > 0, end(room) + width > limit { room -= 1 }
+            if room > 0 { low = max(low, end(room) + width) }
+            if room < kept { high = min(high, end(room + 1) + width) }
+            firstHidden = room
+            promoted = position
+        }
+        let hidden = candidates[firstHidden...].indices.compactMap { position -> TabID? in
+            position == promoted ? nil : slots[candidates[position]].id
+        }
+        let lower = min(low + reserve, available)
+        let upper = max(min(high + reserve, fitsFrom), available.nextUp)
+        return TabOverflowPartition(hidden: hidden, stable: lower..<upper)
+    }
+
     /// `tab` across the whole strip; the rest collapse at its leading or trailing edge, so a
     /// mode change slides them in from where they sit.
     private static func fullWidthLayout(items: [TabLayoutItem], tab: TabID, available: CGFloat) -> TabLayoutResult {

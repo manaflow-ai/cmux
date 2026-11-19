@@ -17,6 +17,10 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// `experiments.tabBarStyle` (Settings > Experimental): the strip's look. `.off`, the default, is the shipped one;
     /// every other look is drawn by the cells and the strip from this value, so a change restyles live.
     public var barStyle: TabBarStyleExperiment = .off
+
+    /// Settings > Experimental `experiments.tabOverflow`: off follows ``overflow``; every other arm keeps each unpinned
+    /// tab at ``maxTabWidth`` (``withOverflowExperiment(_:)``) and shows the selected tab's x at rest.
+    public var overflowExperiment: TabOverflowExperiment = .off
     public var pinnedTabWidth: CGFloat
     /// Chrome's strip geometry (design-tokens.json `motion.tabStrip`, at the UI scale): open and
     /// close widths, the minimum widths above, the reorder threshold, closing mode.
@@ -240,6 +244,18 @@ public struct TabStripMetrics: Equatable, Sendable {
         // Flat inactive tabs read apart by thin lines between them (the selected tab hides its own, as always).
         case .fused: showsSeparators = true
         }
+        self = withOverflowExperiment(DesignSettings.shared.tabOverflowExperiment)
+    }
+
+    /// These metrics under `experiments.tabOverflow` = `experiment`: any arm but off keeps every unpinned tab at its
+    /// widest (both minimums are ``maxTabWidth``), so the row never shrinks a tab; off returns them as they are.
+    public func withOverflowExperiment(_ experiment: TabOverflowExperiment) -> TabStripMetrics {
+        var metrics = self
+        metrics.overflowExperiment = experiment
+        guard experiment != .off else { return metrics }
+        metrics.minActiveTabWidth = maxTabWidth
+        metrics.minInactiveTabWidth = maxTabWidth
+        return metrics
     }
 
     /// Token-derived metrics for the current density.

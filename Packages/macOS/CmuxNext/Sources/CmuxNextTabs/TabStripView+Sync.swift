@@ -70,6 +70,11 @@ extension TabStripView {
         }
         // At rest no tab overlaps another and no mask is on: only a move in flight needs the pass.
         if !movesInFlight.isEmpty || !occlusionEnds.isEmpty { updateOcclusion() }
+        // `experiments.tabOverflow` = moreMenu: the selected tab keeps the last visible slot, so with tabs in the More
+        // menu a switch lays the row out again (only then: a row that fits keeps the plain switch's cost).
+        if selected != lastSelectedID, !overflowPartition.hidden.isEmpty, metrics.overflowExperiment == .moreMenu {
+            relayout(animated: !reduceMotion)
+        }
         if let selected, selected != lastSelectedID { reveal(selected, animated: !reduceMotion) }
         lastSelectedID = selected
         refreshHoverCard()

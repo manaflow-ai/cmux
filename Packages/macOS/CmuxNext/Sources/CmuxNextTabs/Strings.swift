@@ -10,6 +10,18 @@ enum Strings {
     }
     /// "More": the tab group editor's overflow row.
     static var paneMore: String { String(localized: "paneToolbar.more", defaultValue: "More", bundle: .module) }
+    /// `experiments.tabOverflow` = moreMenu: the pill after the visible tabs whose menu lists the tabs that did not fit.
+    static var overflowMore: String { String(localized: "tabs.overflow.more", defaultValue: "More", bundle: .module) }
+    /// `experiments.tabOverflow` = allTabs: the pill at the strip's end whose menu lists every tab.
+    static var overflowAllTabs: String { String(localized: "tabs.overflow.allTabs", defaultValue: "All Tabs", bundle: .module) }
+    /// `experiments.tabOverflow` = chevrons: the chevron over the leading faded edge (tooltip, VoiceOver).
+    static var overflowScrollLeading: String {
+        String(localized: "tabs.overflow.scrollLeft", defaultValue: "Scroll Tabs Left", bundle: .module)
+    }
+    /// `experiments.tabOverflow` = chevrons: the chevron over the trailing faded edge (tooltip, VoiceOver).
+    static var overflowScrollTrailing: String {
+        String(localized: "tabs.overflow.scrollRight", defaultValue: "Scroll Tabs Right", bundle: .module)
+    }
     static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .module) }
     /// A Cloud chat's machine badge (drawn as a cloud): what VoiceOver says it runs on.
     static var cloudMachineBadge: String { String(localized: "tabs.machineBadge.cloud", defaultValue: "Cloud", bundle: .module) }

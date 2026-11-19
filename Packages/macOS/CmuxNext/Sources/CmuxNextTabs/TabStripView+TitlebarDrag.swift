@@ -25,9 +25,12 @@ extension TabStripView: TitlebarPressDeciding {
     func mouseRects() -> [CGRect] {
         var rects: [CGRect] = []
         let clip = contentView.convert(tabsClip.frame, to: self)
-        let runEnd = newTabButton.isHidden
+        let buttonsEnd = newTabButton.isHidden
             ? clip.minX + min(tabRunTrailing(), clip.width)
             : contentView.convert(newTabMenuButton.isHidden ? newTabButton.frame : newTabMenuButton.frame, to: self).maxX
+        // `experiments.tabOverflow`'s pill sits between the tabs and the +; with no + it ends the run.
+        let pillEnd = overflowControls.visibleControls.map { contentView.convert($0.frame, to: self).maxX }.max() ?? buttonsEnd
+        let runEnd = max(buttonsEnd, pillEnd)
         if runEnd > clip.minX { rects.append(CGRect(x: clip.minX, y: 0, width: runEnd - clip.minX, height: bounds.height)) }
         return rects
     }
