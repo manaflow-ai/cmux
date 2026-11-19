@@ -48,7 +48,7 @@ use super::*;
 /// The journal rows of one period: the commit of a journal row whose
 /// sequence is a multiple of this writes the subject rows of each journal
 /// row after the mark.
-pub(crate) const PERIOD: i64 = 100;
+pub(crate) const PERIOD: i64 = 1000;
 
 /// The stored schema number of a store at [`SCHEMA_VERSION`] with a journal
 /// row after the mark. It is not a schema of its own: the tables are those
