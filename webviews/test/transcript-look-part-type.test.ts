@@ -110,7 +110,7 @@ describe("a look's reply and prompt type", () => {
 
   test("a font pack's prose family stays first, the look's face behind it", () => {
     const display = resolveChatDisplay(look("claude", undefined, { "agentPane.display.font.proseFamily": "Literata" }));
-    expect(chatDisplayVariables(display, 1)["--cv-reply-font"]).toBe(`Literata, ${SERIF}`);
+    expect(chatDisplayVariables(display, 1)["--cv-reply-font"]).toBe(`"Literata", ${SERIF}`);
   });
 });
 
