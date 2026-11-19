@@ -46,6 +46,8 @@ fn hub() -> Arc<Hub> {
             "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
                 "env": {"CLAUDE_CONFIG_DIR": empty_home()}},
             "fakecodex": {"argv": ["python3", FAKE], "family": "codex"},
+            // OpenClaw's `acp` bridge refuses any per-session MCP server.
+            "fakeopenclaw": {"argv": ["python3", FAKE], "family": "openclaw"},
             "fakeclaude-nosearch": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
                 "env": {"ENABLE_TOOL_SEARCH": "false"}},
             // Another provider, as the `cmux` profile's open-source model router.
@@ -164,6 +166,12 @@ async fn local_sessions_get_the_browser_and_computer_use_tools_and_skills() {
     // An ACP harness: the servers in session/new, the secret tools (cx-ncc.42)
     // and the offer tool (cx-807da) for this session on this daemon's socket.
     let mut local = client(&hub, Origin::Local);
+    // OpenClaw's bridge refuses `mcpServers` in session/new ("ACP bridge mode does not support
+    // per-session MCP servers"), so its session gets none and starts; the Chief puts cmux's
+    // servers in that brain's own config instead.
+    let id = local.new_session("fakeopenclaw").await;
+    assert_eq!(local.ask(&id, "mcp").await, "[]");
+
     let id = local.new_session("fake").await;
     let servers: Value = serde_json::from_str(&local.ask(&id, "mcp").await).unwrap();
     // Code mode for every agent tool: one `cmux` server, which runs the
