@@ -26,9 +26,8 @@ public struct ScreenShareAction {
         localSummaryCurrent: Bool,
         screenDeviceID: String? = nil,
         device: WindowRules.ScreenShareDevice? = nil,
-        unavailable: String,
-        offline: String? = nil,
     ) -> AgentPaneActionRun {
+        let unavailable = Self.unavailable
         let chat = WindowRules.ScreenShareChat(expectedSessionId: session, sessionId: actualSession, host: host, hostKind: hostKind,
                                                peer: peer, registryHost: registryHost, localSummaryCurrent: localSummaryCurrent)
         guard let route = WindowRules().screenShare(machineID: machineID, kind: kind, chat: chat,
@@ -44,9 +43,18 @@ public struct ScreenShareAction {
         case "viewDevice":
             guard let device = route.deviceId else { return .refused(unavailable) }
             action = "macScreen.open"; invocation = .init(arguments: ["device": .string(device)], origin: .user)
-        default: return .refused(route.reason == "offline" ? offline ?? unavailable : unavailable)
+        default: return .refused(route.reason == "offline" ? Self.offline : unavailable)
         }
         return registry.runPageAction(action, invocation: invocation, showsInApp: showsInApp)
+    }
+
+    /// Why Session Info's Share or View screen did nothing for the chat's machine.
+    public static var unavailable: String {
+        String(localized: "screenShare.chat.unavailable", defaultValue: "Screen sharing is not available for this chat’s machine. Open Machines to check its connection.", table: "Home", bundle: .module)
+    }
+
+    static var offline: String {
+        String(localized: "screenShare.chat.offline", defaultValue: "This chat’s machine is offline, so its screen can’t be shown. Open Machines to check its connection.", table: "Home", bundle: .module)
     }
 
     public func runPageAction(

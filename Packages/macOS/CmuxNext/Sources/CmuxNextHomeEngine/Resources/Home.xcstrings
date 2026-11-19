@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "screenShare.chat.offline": {
+      "comment": "Session Info's View screen for a joined machine that the device hub reads as offline.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز هذه المحادثة غير متصل، لذا لا يمكن عرض شاشته. افتح الأجهزة للتحقق من اتصاله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Računar ovog razgovora je van mreže, pa se njegov ekran ne može prikazati. Otvorite Računari da provjerite vezu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chats maskine er offline, så dens skærm kan ikke vises. Åbn Maskiner for at kontrollere forbindelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Rechner dieses Chats ist offline, daher kann sein Bildschirm nicht angezeigt werden. Öffne Rechner, um die Verbindung zu prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat’s machine is offline, so its screen can’t be shown. Open Machines to check its connection."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El equipo de este chat está desconectado, así que no se puede mostrar su pantalla. Abre Equipos para comprobar su conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine de cette conversation est hors ligne : son écran ne peut pas être affiché. Ouvrez Machines pour vérifier sa connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il computer di questa chat è offline, quindi il suo schermo non può essere mostrato. Apri Computer per verificarne la connessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットのマシンはオフラインのため、画面を表示できません。「マシン」を開いて接続を確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីននៃការជជែកនេះគ្មានអ៊ីនធឺណិត ដូច្នេះមិនអាចបង្ហាញអេក្រង់របស់វាបានទេ។ បើកម៉ាស៊ីនដើម្បីពិនិត្យការតភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅의 컴퓨터가 오프라인이라 화면을 표시할 수 없습니다. 컴퓨터를 열어 연결을 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinen i denne chatten er frakoblet, så skjermen kan ikke vises. Åpne Maskiner for å kontrollere tilkoblingen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komputer tego czatu jest offline, więc nie można pokazać jego ekranu. Otwórz Komputery, aby sprawdzić połączenie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A máquina desta conversa está offline, então a tela dela não pode ser mostrada. Abra Máquinas para verificar a conexão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Компьютер этого чата не в сети, поэтому его экран нельзя показать. Откройте «Компьютеры», чтобы проверить подключение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องของแชตนี้ออฟไลน์อยู่ จึงแสดงหน้าจอไม่ได้ เปิดเครื่องเพื่อตรวจสอบการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin makinesi çevrimdışı, bu yüzden ekranı gösterilemiyor. Bağlantısını kontrol etmek için Makineler’i açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Комп’ютер цього чату не в мережі, тому його екран не можна показати. Відкрийте «Комп’ютери», щоб перевірити з’єднання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy của cuộc trò chuyện này đang ngoại tuyến nên không thể hiển thị màn hình. Mở Máy để kiểm tra kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天所在的机器处于离线状态，无法显示其屏幕。请打开“机器”检查连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天所在的機器目前離線，無法顯示其螢幕。請開啟「機器」檢查連線。"
+          }
+        }
+      }
+    },
+    "screenShare.chat.unavailable": {
+      "comment": "Screen sharing from the chat machine row in Session Info.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشاركة الشاشة غير متاحة لجهاز هذه المحادثة. افتح الأجهزة للتحقق من اتصاله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeljenje ekrana nije dostupno za računar ovog razgovora. Otvorite Računari da provjerite vezu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmdeling er ikke tilgængelig for denne chats maskine. Åbn Maskiner for at kontrollere forbindelsen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Bildschirmfreigabe ist für den Rechner dieses Chats nicht verfügbar. Öffne Rechner, um die Verbindung zu prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen sharing is not available for this chat’s machine. Open Machines to check its connection."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede compartir la pantalla del equipo de este chat. Abre Equipos para comprobar su conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le partage d’écran n’est pas disponible pour la machine de cette conversation. Ouvrez Machines pour vérifier sa connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La condivisione schermo non è disponibile per il computer di questa chat. Apri Computer per verificarne la connessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットのマシンでは画面共有を利用できません。「マシン」を開いて接続を確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចែករំលែកអេក្រង់មិនមានសម្រាប់ម៉ាស៊ីននៃការជជែកនេះទេ។ បើកម៉ាស៊ីនដើម្បីពិនិត្យការតភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅의 컴퓨터에서는 화면 공유를 사용할 수 없습니다. 컴퓨터를 열어 연결을 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermdeling er ikke tilgjengelig for maskinen i denne chatten. Åpne Maskiner for å kontrollere tilkoblingen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnianie ekranu jest niedostępne dla komputera tego czatu. Otwórz Komputery, aby sprawdzić połączenie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O compartilhamento de tela não está disponível para a máquina desta conversa. Abra Máquinas para verificar a conexão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Демонстрация экрана недоступна для компьютера этого чата. Откройте «Компьютеры», чтобы проверить подключение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถแชร์หน้าจอของเครื่องสำหรับแชตนี้ได้ เปิดเครื่องเพื่อตรวจสอบการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin makinesi için ekran paylaşımı kullanılamıyor. Bağlantısını kontrol etmek için Makineler’i açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спільний доступ до екрана недоступний для комп’ютера цього чату. Відкрийте «Комп’ютери», щоб перевірити з’єднання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể chia sẻ màn hình của máy trong cuộc trò chuyện này. Mở Máy để kiểm tra kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天所在的机器无法共享屏幕。请打开“机器”检查连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天所在的機器無法共享螢幕。請開啟「機器」檢查連線。"
+          }
+        }
+      }
+    },
     "home.teleport.notice.moving": {
       "comment": "Chat row: the Chief is moving to %@ (a place: cmux Cloud or a machine).",
       "extractionState": "manual",
