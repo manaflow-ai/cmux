@@ -503,6 +503,10 @@ path = "tests/test_nushell_shim_path_refront.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_one_permission_identity.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_outbound_hosts.py"
 lane = "linux-guard"
 
@@ -749,6 +753,11 @@ reason = "Run by the lane that changes side-instance.sh (no new CI tests): pytho
 path = "tests/test_side_instance_remake_clears_old_identity.py"
 lane = "manual"
 reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_remake_clears_old_identity.py; needs only bash and python3."
+
+[[test]]
+path = "tests/test_side_instance_stale_default.py"
+lane = "manual"
+reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_stale_default.py; needs only bash and python3."
 
 [[test]]
 path = "tests/test_sidebar_row_oracle.py"
