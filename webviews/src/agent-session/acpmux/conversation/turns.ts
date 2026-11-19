@@ -1247,6 +1247,14 @@ function shapedTurn(
       if (body[worked]!.foldOpen) body.splice(worked + 1, 0, user);
       drawnUser.length = 0;
     }
+    // While such a turn runs, its message is drawn where the open fold will hold it: right under the
+    // "Working for" that stands in the fold's line (`shapeLiveTurn`). The line keeps one place from
+    // the message's arrival to the turn's end, and the message keeps its place until the fold takes it.
+    const working = live && foldStyle.conclusion && isAgentPrompt(user) ? body.findIndex(isWorkingHeader(user)) : -1;
+    if (working >= 0 && drawnUser.length) {
+      body.splice(working + 1, 0, user);
+      drawnUser.length = 0;
+    }
     const emptyCompleted =
       isVisiblyEmptyMessage(user) &&
       body.length === 0 &&
@@ -1370,6 +1378,14 @@ function sinceAboveWorked(body: AcpmuxRow[]): AcpmuxRow[] {
   if (worked < 0) return body;
   return [...body.slice(0, worked), body[at]!, ...body.slice(worked, at), ...body.slice(at + 1)];
 }
+
+/// The agent's replies and the person's own steers: what a turn draws as it ran, with no work to fold.
+const isDialogue = (row: AcpmuxRow) =>
+  (row.kind === "user" && !row.incoming) || (isAnswer(row) && row.assistantPhase === undefined);
+
+/// A turn's rows hold no work to fold, open or closed: the rows a fold leaves in sight, and dialogue.
+const repliesOnly = (rows: readonly AcpmuxRow[]) =>
+  rows.every((row) => isFinalAnswer(row) || staysOut(row) || isDialogue(row));
 
 /// Where `body` draws the "Worked for" of the turn `user` opened, or -1 for none.
 const fold = (body: readonly AcpmuxRow[], user: AcpmuxRow) =>
@@ -1767,7 +1783,15 @@ function shapeTurn(
   // summary that is no longer running draws as it came.
   if (end < 0)
     return live
-      ? liveTurn(user, turn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs)
+      ? liveTurn(
+          user,
+          turn,
+          clockOffset,
+          sessionStatus,
+          trayAgents,
+          turnStartedAtMs,
+          turnFoldStyle(agentFamily).conclusion && isAgentPrompt(user),
+        )
       : last
         ? planLast(turn.flatMap(withoutDrafts).map(endedPlan))
         : settledWithoutSummary(turn);
@@ -1882,6 +1906,11 @@ function shapeTurn(
     // Work after the last answer folds with the work before it, so the answer stays last.
     // Edits after it join the card too, so its Undo covers the whole turn.
     const id = `${WORKED}-${segment.anchor.id}`;
+    // A turn another agent's message started that only replied still ends on its "Worked for": its
+    // "Working for" stood over the message from the turn's first frame (shapeLiveTurn `foldsPrompt`),
+    // and a header gone at the end would pull the message up into its place. It holds the message
+    // alone, open until a click closes it (`repliesOnly`); the replies draw as they ran.
+    const promptOnly = foldsPrompt && first && segments.length === 1 && repliesOnly([...before, ...after]);
     // A family with no turn fold draws as an open "Worked for" without the line.
     // Split in order, a received message inside the fold that a history page started at keeps its
     // provisional key (openFolds); a steer that closes it is the next fold's anchor, not its own.
@@ -1889,7 +1918,7 @@ function shapeTurn(
       !style.conclusion ||
       foldOpen ||
       expanded.has(id) ||
-      (isStopped(summary) && !expanded.has(closedTurnFoldKey(id))) ||
+      ((isStopped(summary) || promptOnly) && !expanded.has(closedTurnFoldKey(id))) ||
       (inOrder &&
         [...before, ...after].some(
           (row) =>
@@ -1919,9 +1948,7 @@ function shapeTurn(
     // A turn of nothing but the agent's replies and the person's own steers did no work to fold:
     // it stays drawn as it ran, the steer between the replies (agent-pane-steer-split.test.ts).
     // Reports received from other agents fold like work.
-    const dialogue = work.every(
-      (row) => (row.kind === "user" && !row.incoming) || (isAnswer(row) && row.assistantPhase === undefined),
-    );
+    const dialogue = work.every(isDialogue);
     // Opened, the person's steer after the answer draws in the fold, in its place: the answer draws
     // in its own place too, above the steer it came before, never moved under it (Leo, 2026-11-12:
     // "in this case you didnt respond to me at all..."). A card or strip under it keeps it last.
@@ -1939,14 +1966,16 @@ function shapeTurn(
     const taskLine: AcpmuxRow | undefined = tasks.length
       ? { id: `${TASK_LINE}-${segment.anchor.id}`, version, at: segment.anchor.at, kind: TASK_LINE, tasks }
       : undefined;
-    if (work.length && !dialogue) {
-      folded = style.conclusion;
+    if ((work.length && !dialogue) || promptOnly) {
+      if (!promptOnly) folded = style.conclusion;
       const from = segment.anchor.at;
       // Its label counts the fold's messages (`previous`), which can change while the summary's and
       // the answer's versions do not: the count is part of the version, so the memoized row redraws.
       // A reply is never folded, so it is never one of the fold's messages, open or closed.
       // Other agents' messages that started the turn fold in too, as its first entries (`foldsPrompt`).
-      const hidden = [...(foldsPrompt && first ? [user] : []), ...work.filter((row) => !keptOut.has(row.id))];
+      const hidden = promptOnly
+        ? [user]
+        : [...(foldsPrompt && first ? [user] : []), ...work.filter((row) => !keptOut.has(row.id))];
       const previous = style.countsMessages && foldMixesMessages(hidden) ? foldedMessages(hidden) : undefined;
       // The `header` arm names the work on the line itself ("Worked for 5m 15s · Finished 2 background
       // tasks and ran 8 commands").
@@ -2013,7 +2042,7 @@ function shapeTurn(
           style.runs,
           !style.conclusion,
         );
-      if (open)
+      if (open && !promptOnly)
         shaped.push(
           // The answer between `before` and `after` is a seam: the runs on either side of it stay apart.
           ...[...merge(before), ...(inPlace ? [said] : []), ...merge(after)].flatMap(withoutDrafts).map((row) => ({
@@ -2695,8 +2724,12 @@ function liveTurn(
   sessionStatus = false,
   trayAgents = 0,
   turnStartedAtMs?: number,
+  foldsPrompt = false,
 ): AcpmuxRow[] {
-  return withRetry(turn, shapeLiveTurn(user, turn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs));
+  return withRetry(
+    turn,
+    shapeLiveTurn(user, turn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs, foldsPrompt),
+  );
 }
 
 /// The running turn's retries (the client's `TURN_RETRY` row, direct.ts) on its "Thinking" line:
@@ -2727,6 +2760,7 @@ function shapeLiveTurn(
   sessionStatus = false,
   trayAgents = 0,
   turnStartedAtMs?: number,
+  foldsPrompt = false,
 ): AcpmuxRow[] {
   const drawn = turn.filter((row) => row.kind !== "typing" && !isVisiblyEmptyMessage(row) && !hidesEveryCall(row));
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
@@ -2768,7 +2802,11 @@ function shapeLiveTurn(
   // The activity line (Debug Settings `agent.sessionStatus`) is the turn's clock in this place.
   if (shaped.at(-1)?.kind === ACTIVITY_LINE) return shaped;
   if (drawn.some((row) => row.kind === "turnSummary" || row.kind === BACKGROUND_TURN)) return shaped;
-  if (!drawn.some((row) => row.kind === "activity" && row.inBackground === undefined)) return shaped;
+  // Another agent's message that started the turn folds under its "Worked for" when it ends
+  // (`foldsPrompt`, shapedTurn), so its "Working for" stands from the start, in that place: the line
+  // never comes in over the message at the first call, and the turn's end only swaps its words (Leo,
+  // 2026-11-17: "the jostles and shifts and spacing are still bad here").
+  if (!foldsPrompt && !drawn.some((row) => row.kind === "activity" && row.inBackground === undefined)) return shaped;
   // As the Codex app and T3 Code draw a running turn: "Working for 32s" over its work, under the
   // prompt, where "Worked for" lands when the turn ends (liveTurnClock.experiment.ts); the line at
   // the bottom says only what the agent does now, "Thinking", with no clock.
@@ -2779,6 +2817,7 @@ function shapeLiveTurn(
 
 /// The running turn's "Working for" line over its work (`shapeLiveTurn`), keyed by the turn's prompt.
 export const workingHeaderId = (promptId: string) => `${WORKING}-${promptId}`;
+const isWorkingHeader = (user: AcpmuxRow) => (row: AcpmuxRow) => row.id === workingHeaderId(user.id);
 
 /// When the live turn's current stretch began: `start`, or the latest notice (a prompt the person did
 /// not send) that came after the agent had replied since then, which set it going again.
@@ -3711,7 +3750,7 @@ export function toggleTurnFold(
   const next = new Set(expanded);
   const { keys: own, key } = turnFoldKeys(rows, id);
   const keys = covers.length ? [...own, ...covers] : own;
-  const cancelled = stoppedTurnFold(rows, key ?? id);
+  const cancelled = turnFoldOpensOpen(rows, key ?? id);
   const open =
     keys.some((key) => expanded.has(key)) || (cancelled && !keys.some((key) => expanded.has(closedTurnFoldKey(key))));
   for (const key of keys) {
@@ -3737,7 +3776,9 @@ function hidesContinuedSummary(rows: readonly AcpmuxRow[], at: number, last: boo
   return tail.some(continuesTurn) || (last && !tail.some((later) => later.kind === "turnSummary"));
 }
 
-function stoppedTurnFold(rows: readonly AcpmuxRow[], id: string): boolean {
+/// A turn's fold that draws open until a click closes it: a stopped turn's, and the one over an agent's
+/// message the turn only replied to (shapeTurn `promptOnly`).
+function turnFoldOpensOpen(rows: readonly AcpmuxRow[], id: string): boolean {
   if (!id.startsWith(`${WORKED}-`)) return false;
   const start = rows.findIndex((row) => `${WORKED}-${row.id}` === id);
   if (start < 0) return false;
@@ -3747,7 +3788,10 @@ function stoppedTurnFold(rows: readonly AcpmuxRow[], id: string): boolean {
   const summary = turn.find(
     (row, at) => row.kind === "turnSummary" && !hidesContinuedSummary(turn, at, end === rows.length),
   );
-  return summary !== undefined && isStopped(summary);
+  if (summary === undefined) return false;
+  return (
+    isStopped(summary) || (isAgentPrompt(rows[start]!) && repliesOnly(turn.filter((row) => row.kind !== "turnSummary")))
+  );
 }
 
 /// A turn's fold opens with every line in it closed (Lucas, 2026-11-11): the runs of messages and of
