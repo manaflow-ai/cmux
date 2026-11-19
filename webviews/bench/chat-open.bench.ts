@@ -24,6 +24,9 @@
 // PROFILE=1 adds a CPU profile of one load and prints the functions with the most self time between
 // navigation and the newest message plus 500 ms. The build is then unminified (so functions keep their
 // names) and every timed round runs on it, so the stage times are not the production build's.
+// CHROME_TRACE=PATH writes a Chrome trace (timeline and JS samples) of the first open to PATH and prints that
+// open's attach and latest, to read in the Performance panel what the page did between them.
+// bench/chat-open-patch-ab.sh runs this bench with and without a branch's pane change on one runner.
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -261,6 +264,7 @@ try {
       log: string[];
     };
   };
+  let traced = false;
   const open = async (rail = "compact"): Promise<Round> => {
     const page = await browser.newPage({
       viewport: { width: 1200, height: 800 },
@@ -468,6 +472,14 @@ try {
     calls = [];
     socketOpenedAt = 0;
     const started = Date.now();
+    const tracing = process.env.CHROME_TRACE && !traced;
+    if (tracing) {
+      traced = true;
+      await browser.startTracing(page, {
+        path: process.env.CHROME_TRACE,
+        categories: ["devtools.timeline", "v8.execute", "loading", "toplevel", "disabled-by-default-v8.cpu_profiler"],
+      });
+    }
     await page.goto(url);
     await page.waitForFunction(
       (remoteTail) => {
@@ -599,8 +611,10 @@ try {
       await page
         .locator(".acpmux-scroll")
         .screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `reveal-${rail}.png`) });
+    if (tracing) await browser.stopTracing();
     await page.close();
     const attach = attachedAt ? attachedAt - got.origin : 0;
+    if (tracing) console.log(`CHROME_TRACE: attach ${attach.toFixed(1)} ms, latest ${got.latest.toFixed(1)} ms`);
     if (process.env.TRACE === "1") {
       console.log(
         `trace of one load (ms from navigation): attach answered ${attach.toFixed(0)}, latest ${got.latest.toFixed(0)}`,
