@@ -614,11 +614,15 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.onScrollPosition = { [weak self] in
             ScaleKeeper.shared.setNeedsApply()
             self?.host.updateTopFadeScrollEdge()
+            self?.scrolledForSaveHover()
             self?.intents?.scrolled()
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
-        if intents?.canReply == true { swipe.install(); thread.install() }
+        // The thread view's outside-click and Esc close work in a chat that takes no replies too (a permalink opens
+        // a thread there); only the reply gestures need a host that takes replies.
+        if intents?.canReply == true { swipe.install() }
+        thread.install()
         host.needsLayout = true
         onInstalled.forEach { $0(self) }
         return store
@@ -793,6 +797,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var approvalPress: ApprovalTarget?
 
     func mouseDown(at p: CGPoint, _ e: NSEvent) {
+        // cmux: the hovered picture's save button (HomeMediaSaveHover) takes its own press.
+        if picker == nil, e.clickCount == 1, pressSaveHover(at: p) { return }
         approvalPress = picker == nil ? approvalTarget(at: p) : nil
         if approvalPress != nil { return }
         if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }

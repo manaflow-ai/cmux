@@ -17,12 +17,28 @@ if [[ ! "$db_test_timeout_ms" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
+# With file arguments, run only those (each must be CMUX_DB_TEST-gated); the
+# Billing lane passes its own subset this way. Without, run every gated file.
 test_files=()
-while IFS= read -r test_file; do
-  if grep -q "process\\.env\\.CMUX_DB_TEST" "$test_file"; then
+if [[ "$#" -gt 0 ]]; then
+  for test_file in "$@"; do
+    if [[ ! -f "$test_file" ]]; then
+      echo "No such DB behavior test file: $test_file" >&2
+      exit 2
+    fi
+    if ! grep -q "process\\.env\\.CMUX_DB_TEST" "$test_file"; then
+      echo "Not a CMUX_DB_TEST-gated test file: $test_file" >&2
+      exit 2
+    fi
     test_files+=("$test_file")
-  fi
-done < <(find tests \( -name "*.test.ts" -o -name "*.test.tsx" \) -print | sort)
+  done
+else
+  while IFS= read -r test_file; do
+    if grep -q "process\\.env\\.CMUX_DB_TEST" "$test_file"; then
+      test_files+=("$test_file")
+    fi
+  done < <(find tests \( -name "*.test.ts" -o -name "*.test.tsx" \) -print | sort)
+fi
 
 if [[ "${#test_files[@]}" -eq 0 ]]; then
   echo "No CMUX_DB_TEST-gated test files found" >&2

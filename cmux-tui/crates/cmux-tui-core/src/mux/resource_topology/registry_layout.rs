@@ -66,7 +66,12 @@ pub(super) fn registry_screen_from_layout(
         zoomed_pane: layout.zoomed_pane.map(public_pane).transpose()?,
         auto_layout,
         viewport: RegistryViewport { base_width: layout.viewport_base_width, columns },
-        floating: floating_panes::registry_floating_panes(state, &layout.root, &layout.floating)?,
+        floating: floating_panes::registry_floating_panes(
+            state,
+            &layout.root,
+            &layout.layout_columns,
+            &layout.floating,
+        )?,
     };
     let expected_panes = topology
         .panes
@@ -242,6 +247,9 @@ pub(super) fn swap_layout_panes(
             layout.zoomed_pane = Some(first);
         }
     }
+    // `floating-panes-v1`: a floating pane that the swap put into a stack, a docked column or a column with rows
+    // is tiled.
+    layout.settle_floating_panes();
     Ok(())
 }
 

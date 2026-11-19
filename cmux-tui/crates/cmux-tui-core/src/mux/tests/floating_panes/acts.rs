@@ -7,10 +7,11 @@ use super::*;
 use crate::model::{ColumnDock, DockEdge, DockMode};
 
 /// The frame of a new floating pane that brings none: 60 percent wide and high in the middle.
-const CENTERED: FloatFrame = FloatFrame { x: 200_000, y: 200_000, w: 600_000, h: 600_000 };
+pub(super) const CENTERED: FloatFrame =
+    FloatFrame { x: 200_000, y: 200_000, w: 600_000, h: 600_000 };
 
 /// A mux with one workspace whose screen has `count` panes side by side. Returns the panes from left to right.
-fn mux_with_panes(count: usize) -> (Arc<Mux>, Vec<PaneId>) {
+pub(super) fn mux_with_panes(count: usize) -> (Arc<Mux>, Vec<PaneId>) {
     let mux = test_mux();
     let first = mux.new_workspace(None, Some((80, 22))).unwrap();
     let mut panes = vec![mux.with_state(|state| state.pane_of(first.id).unwrap())];
@@ -26,7 +27,7 @@ fn pane_right_of(mux: &Arc<Mux>, target: PaneId) -> PaneId {
     mux.with_state(|state| state.pane_of(surface.id).unwrap())
 }
 
-fn float(
+pub(super) fn float(
     mux: &Arc<Mux>,
     pane: PaneId,
     mode: FloatMode,
@@ -35,7 +36,7 @@ fn float(
 }
 
 /// Gives `pane` a frame. `transaction` is the transaction of control client 7.
-fn float_at(
+pub(super) fn float_at(
     mux: &Arc<Mux>,
     pane: PaneId,
     frame: FloatFrame,
@@ -46,12 +47,12 @@ fn float_at(
 }
 
 /// The list of the first screen, back to front.
-fn list(mux: &Mux) -> Vec<Floating<PaneId>> {
+pub(super) fn list(mux: &Mux) -> Vec<Floating<PaneId>> {
     mux.with_state(|state| state.workspaces[0].screens[0].floating.clone())
 }
 
 /// The floating panes of the first screen, back to front.
-fn floating(mux: &Mux) -> Vec<PaneId> {
+pub(super) fn floating(mux: &Mux) -> Vec<PaneId> {
     list(mux).into_iter().map(|entry| entry.pane).collect()
 }
 
@@ -110,7 +111,7 @@ fn floating_pane_floats_and_goes_back() {
     let outcome = float(&mux, panes[1], FloatMode::Toggle).unwrap();
     assert_eq!(outcome.frame, Some(CENTERED), "a new floating pane is centered");
     assert!(outcome.changed);
-    assert_eq!(list(&mux), vec![Floating { pane: panes[1], frame: CENTERED }]);
+    assert_eq!(list(&mux), vec![Floating::plain(panes[1], CENTERED)]);
     assert_eq!(tree_panes(&mux).len(), 3, "the floating pane stays a pane of the tree");
     assert_rules(&mux, "after the float");
 
@@ -171,7 +172,7 @@ fn floating_pane_frame_moves_and_raises() {
     let outcome = float_at(&mux, panes[1], small, None).unwrap();
     let smallest = FloatFrame { x: 100_000, y: 100_000, w: 150_000, h: 150_000 };
     assert_eq!(outcome.frame, Some(smallest));
-    assert_eq!(list(&mux).last(), Some(&Floating { pane: panes[1], frame: smallest }));
+    assert_eq!(list(&mux).last(), Some(&Floating::plain(panes[1], smallest)));
     assert_eq!(floating(&mux), vec![panes[0], panes[1]]);
     assert_rules(&mux, "after two frames");
 }
@@ -202,13 +203,13 @@ fn floating_pane_undo_layout_puts_the_pane_back() {
         float_at(&mux, panes[1], frame, Some(77)).unwrap();
     }
     let dragged = FloatFrame { x: 150_000, y: 150_000, w: 400_000, h: 400_000 };
-    assert_eq!(list(&mux), vec![Floating { pane: panes[1], frame: dragged }]);
+    assert_eq!(list(&mux), vec![Floating::plain(panes[1], dragged)]);
 
     let undone = mux.undo_layout(panes[1], None, false).unwrap();
     assert!(matches!(undone, LayoutUndoResult::Undone { .. }), "{undone:?}");
     assert_eq!(
         list(&mux),
-        vec![Floating { pane: panes[1], frame: CENTERED }],
+        vec![Floating::plain(panes[1], CENTERED)],
         "the drag is undone, the float stays"
     );
 
@@ -242,7 +243,7 @@ fn floating_pane_repeated_request_commits_nothing() {
     let frame = FloatFrame { x: 250_000, y: 250_000, w: 500_000, h: 500_000 };
     let first = float_at(&mux, panes[0], frame, None).unwrap();
     assert!(first.changed);
-    assert_eq!(list(&mux), vec![Floating { pane: panes[0], frame }]);
+    assert_eq!(list(&mux), vec![Floating::plain(panes[0], frame)]);
     let revision = layout_revision(&mux);
     assert_eq!(float_commits(&mux), 1, "the first request is one commit of the store");
     let events = mux.subscribe();

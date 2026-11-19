@@ -33,7 +33,17 @@ password field to fill.
    `## REVIEW DEMO STEPS: END`. The review demo path work replaces the numbered
    steps between the markers with its exact steps; the `##` lines never reach the
    reviewer.
-4. Account deletion: Settings, the account row, "Account", "Delete Account".
+4. In-app purchases: Settings → "Plan" opens "Plans" with cmux Go, cmux Pro and
+   cmux Max, monthly auto-renewable subscriptions (`com.cmux.app.go.monthly`,
+   `.pro.monthly`, `.max.monthly`). "Subscribe" buys in the Sandbox and the plan
+   shows as "Current plan". "Restore Purchases" is on the same screen;
+   "Manage Subscription" appears once the account has an App Store
+   subscription. "Terms of Use", "Privacy Policy" and the 3.1.2 renewal terms
+   sit below. The app has no other purchase or billing link.
+5. Account deletion: Settings, the account row, "Account", "Delete Account".
+
+The reviewer never has Tailscale, a VPN or a Mac: every step above, the
+purchases included, works on the demo account alone.
 
 Every quoted label must be a string the release app shows; the test reads the
 app source to check.
@@ -45,6 +55,17 @@ app source to check.
   works. If it is not, Home says "Chief isn't available on this account." and the
   reviewer has nothing to message.
 - The demo account email and contact are filled in App Store Connect.
+- The demo account can buy in the Sandbox: production's
+  `APPLE_IAP_SANDBOX_ACCOUNT_EMAILS` lists `cmux-rev-0e6ba145@mailinator.com`
+  and that account's email is verified (`docs/billing/ios-in-app-purchases.md`,
+  Entitlement). Otherwise "Plans" says "Plans can't be bought in this version
+  of the app." and App Review finds no in-app purchases. The account must also
+  not be billed through a team or on the web, which hide the offers ("Your team
+  admin manages billing for this account.", "You subscribe on the web.").
+- The subscriptions submitted with the version (`com.cmux.app.go.monthly`,
+  `.pro.monthly`, `.max.monthly`) are the ones "Plans" lists: the server lists
+  cmux Go only while its flag is on, so a submitted Go product with the flag
+  off is a product the reviewer cannot find.
 - A reviewer may delete the demo account (the notes ask them to try it last).
   After a review that did, make the account and its Cloud Chief again before the
   next submission.

@@ -85,6 +85,8 @@ fn reduce_column_update(
     if let Some(dock) = update.dock {
         apply_column_dock(&mut next.layout_columns, index, dock)
             .map_err(|error| invalid("dock", error.to_string()))?;
+        // `floating-panes-v1`: a floating pane of a column that docks is tiled.
+        next.settle_floating_panes();
     }
     if update.pinned.is_some() || update.allow_tabs.is_some() {
         let flag = next.layout_columns[index]
@@ -195,6 +197,8 @@ impl Mux {
                         target.viewport_splits = layout.viewport_splits;
                         target.viewport_base_width = layout.viewport_base_width;
                         target.layout_columns = layout.layout_columns;
+                        // `floating-panes-v1`: the same settle as the plan's (`reduce_column_update`).
+                        target.settle_floating_panes();
                         target.record_layout_change(before, Vec::new(), None);
                     },
                 ))

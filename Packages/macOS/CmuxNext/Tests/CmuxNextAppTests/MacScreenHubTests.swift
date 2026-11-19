@@ -66,9 +66,9 @@ private func testHub() -> DeviceHub {
 }
 
 private func ticket(_ id: String = "s1", role: SessionTicket.Role = .viewer, scope: SessionScope = .full,
-                    peer: String = hostID) -> SessionTicket {
+                    peer: String = hostID, ownerKind: String? = nil) -> SessionTicket {
     SessionTicket(sessionId: id, ticket: "a.b.c", signalURL: URL(string: "wss://hub.invalid/v1/sessions/\(id)/ws")!, ice: [],
-                  peer: .init(id: peer, name: "Studio", signingKey: "key"), role: role, scope: scope)
+                  peer: .init(id: peer, name: "Studio", signingKey: "key"), role: role, scope: scope, ownerKind: ownerKind)
 }
 
 /// A signaling that is never opened.
@@ -545,6 +545,72 @@ struct MacScreenHubViewerTests {
         #expect(ends.items == ["s1 expired"])
     }
 
+    /// One Mac to another sat on Connecting forever (ask-a85f219369): an own-device session is
+    /// approved at once, and its ticket comes only as a push, which has no backlog. Past the wait the
+    /// viewer asks the hub for the ticket itself and streams.
+    @Test func anApprovedSessionWithNoTicketPushAsksTheHubForIt() async throws {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let asked = CallLog()
+        viewer.reattachSession = { _, id in
+            asked.items.append(id)
+            return ticket(id, scope: .full)
+        }
+        viewer.makeSignaling = { _, _ in IdleSignaling() }
+        let clock = ManualClock()
+        viewer.ticketDeadline = DemandTimer(owner: "test.mac-screen.hub-ticket-wait", clock: clock)
+        viewer.phase = .requesting(.full)
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .full)), scope: .full, hub: hub)
+        #expect(viewer.phase == .approved(sessionID: "s1", scope: .full))
+        try await clock.waitForSleeper()
+        clock.advance(by: viewer.ticketWait)
+        for _ in 0..<500 where viewer.phase != .streaming(sessionID: "s1", scope: .full) { await Task.yield() }
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
+        #expect(asked.items == ["s1"])
+    }
+
+    /// The hub has no ticket either (the host went offline): the tab says so instead of Connecting.
+    @Test func anApprovedSessionTheHubCannotAdmitEndsWithItsReason() async throws {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let ends = CallLog()
+        viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        viewer.reattachSession = { _, _ in
+            throw DeviceHubError.server(status: 409, code: .hostOffline, message: "the host is not connected")
+        }
+        let clock = ManualClock()
+        viewer.ticketDeadline = DemandTimer(owner: "test.mac-screen.hub-ticket-wait", clock: clock)
+        viewer.phase = .requesting(.view)
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .view)), scope: .view, hub: hub)
+        try await clock.waitForSleeper()
+        clock.advance(by: viewer.ticketWait)
+        for _ in 0..<500 where viewer.phase.isPending { await Task.yield() }
+        #expect(viewer.phase == .refused(.hostOffline, requested: .view))
+        #expect(ends.items == ["s1 failed"])
+    }
+
+    /// `/reattach` answers with the viewer ticket and also pushes it: the second copy of the ticket
+    /// for the stream already running starts nothing (a second connect would replay the ticket).
+    @Test func theReattachedTicketsPushStartsNoSecondStream() async throws {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        viewer.reattachSession = { _, id in ticket(id) }
+        viewer.makeSignaling = { _, _ in IdleSignaling() }
+        var started = 0
+        viewer.startStream = { started += 1 }
+        let clock = ManualClock()
+        viewer.ticketDeadline = DemandTimer(owner: "test.mac-screen.hub-ticket-wait", clock: clock)
+        viewer.phase = .requesting(.full)
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .full)), scope: .full, hub: hub)
+        try await clock.waitForSleeper()
+        clock.advance(by: viewer.ticketWait)
+        for _ in 0..<500 where started == 0 { await Task.yield() }
+        // The push of the same ticket comes after the HTTP answer.
+        viewer.accept(ticket("s1"))
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
+        #expect(started == 1)
+    }
+
     /// Full lowered to View: the card says the access changed and offers View Only.
     @Test func accessLoweredToViewIsNotRemoved() {
         #expect(MacScreenPaneModel.hubCard(.revoked(reason: "permission_revoked"), access: .view) == .hubAccessLowered)
@@ -926,7 +992,7 @@ struct MacScreenHubHostOrderTests {
         host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
         for _ in 0..<1000 where ends.items.isEmpty { await Task.yield() }
         #expect(host.session == nil && made.items.isEmpty, "nothing served")
-        #expect(ends.items == ["s1 failed"])
+        #expect(ends.items == ["s1 consent_required"], "the refusal says why")
         #expect(consent.ask == JoinConsentRefusal(requester: "Studio", surface: .screen))
         // The same Mac with consent support and Screen sharing on serves the view (read when it arrives).
         fake.capable = true
@@ -943,8 +1009,64 @@ struct MacScreenHubHostOrderTests {
         #expect(await consent.set(.screen, on: false) == nil)
         #expect(host.session == nil)
         for _ in 0..<1000 where ends.items.count < 2 { await Task.yield() }
-        #expect(ends.items == ["s1 failed", "s2 host_stopped"])
+        #expect(ends.items == ["s1 consent_required", "s2 host_stopped"])
         hubAnswers.open()
+    }
+
+    /// Leo, 2026-11-16 (ask-da398bba67): a machine joined to your account is yours to screen share onto.
+    /// A ticket the hub admitted as the person's own device (`ownerKind: user`) serves at once on a joined
+    /// Mac whose consent allows nothing: no consent read, no sheet. A consent change never stops it.
+    @Test func ownAccountTicketServesOnAJoinedMacWithNoConsentAndNoSheet() async {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        host.makeSignaling = { _, _ in OpenSignaling() }
+        let ends = CallLog(), reads = CallLog()
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let fake = JoinConsentTests.Fake()
+        fake.record = JoinConsentRecord(screen: false, control: false, consentRequired: true)
+        let consent = JoinConsentModel(services: fake.services())
+        await consent.refresh()
+        #expect(!consent.permitsMacScreen(control: true), "joined, nothing granted")
+        host.consentGate = { ticket in
+            reads.items.append(ticket.sessionId)
+            return await consent.allowsMacScreen(control: ticket.scope == .full, requester: ticket.peer.name)
+        }
+        host.serve(ticket("s1", role: .host, scope: .full, peer: "v1", ownerKind: "user"))
+        #expect(host.session?.id == "s1" && host.session?.scope == .full && host.session?.ownAccount == true, "served at once, Full Control")
+        #expect(reads.items.isEmpty && consent.ask == nil && ends.items.isEmpty, "no consent read, no sheet")
+        host.consentChanged { consent.permitsMacScreen(control: $0 == .full) }
+        #expect(host.session?.id == "s1", "a consent change does not stop the person's own session")
+        host.sessionOver("s1")
+    }
+
+    /// The three that still go through this Mac's consent (and its sheet): a hub that does not say whose the
+    /// session is, a team owner, and shared access. Same account is only what the hub says, never assumed.
+    @Test(arguments: [nil, "team", "shared"] as [String?])
+    func aTicketTheHubDidNotAdmitAsOwnStillAsks(ownerKind: String?) async {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        let made = CallLog(), ends = CallLog()
+        host.makeSignaling = { _, _ in
+            made.items.append("signaling")
+            return OpenSignaling()
+        }
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let fake = JoinConsentTests.Fake()
+        fake.record = JoinConsentRecord(screen: false, control: false, consentRequired: true)
+        let consent = JoinConsentModel(services: fake.services())
+        await consent.refresh()
+        host.consentGate = { await consent.allowsMacScreen(control: $0.scope == .full, requester: $0.peer.name) }
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1", ownerKind: ownerKind))
+        for _ in 0..<1000 where ends.items.isEmpty { await Task.yield() }
+        #expect(host.session == nil && made.items.isEmpty, "nothing served")
+        #expect(ends.items == ["s1 consent_required"])
+        #expect(consent.ask == JoinConsentRefusal(requester: "Studio", surface: .screen), "the sheet asks")
     }
 
     /// Consent reads that answer out of order: the newer ticket serves and the older one is replaced,
