@@ -45,6 +45,7 @@ pub struct Frame {
     pub encode_ms: f64,
     /// The encoder's bitrate after this frame.
     pub kbps: u32,
+    pub ltr_token: Option<u64>,
 }
 
 /// A nonblocking pipe: the encode thread writes a byte after each finished frame, so the loop
@@ -220,6 +221,8 @@ fn frame_kbps(job: &Job, current_kbps: u32) -> u32 {
 fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
     let req = &job.req;
     source.capture(req.damage)?;
+    source.set_acknowledged_ltr_tokens(&req.acknowledged_ltr_tokens);
+    source.set_force_ltr_refresh(req.force_ltr_refresh);
     let t_capture_us = now_ns() / 1000;
     source.set_bitrate(frame_kbps(job, source.kbps()));
     let t0 = now_ns();
@@ -234,6 +237,7 @@ fn encode_one(source: &mut dyn FrameSource, job: &Job) -> Res<Frame> {
         picked_times: source.picked_times(),
         encode_ms: (t1 - t0) as f64 / 1e6,
         kbps: source.kbps(),
+        ltr_token: source.ltr_token(),
     })
 }
 
@@ -277,6 +281,8 @@ mod tests {
             force_idr: true,
             idr_reason: None,
             target_kbps,
+            force_ltr_refresh: false,
+            acknowledged_ltr_tokens: Vec::new(),
         };
         Job { req, halve_first }
     }

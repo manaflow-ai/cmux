@@ -824,6 +824,7 @@ impl WindowsSession {
                     access_unit: au,
                     idr,
                     t_capture_us: now_ns() / 1000,
+                    ltr_token: None,
                 }),
                 now_ns() / 1000,
             )

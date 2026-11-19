@@ -79,9 +79,26 @@ pub trait SurfaceEncoder: Send {
     ) -> Res<bool>;
     fn set_bitrate(&mut self, kbps: u32);
     fn kbps(&self) -> u32;
+    fn set_acknowledged_ltr_tokens(&mut self, _tokens: &[u64]) {}
+    fn set_force_ltr_refresh(&mut self, _refresh: bool) {}
+    fn ltr_token(&self) -> Option<u64> {
+        None
+    }
 }
 
 impl SurfaceEncoder for VideoToolbox {
+    fn set_acknowledged_ltr_tokens(&mut self, tokens: &[u64]) {
+        self.acknowledged_ltr_tokens.clear();
+        self.acknowledged_ltr_tokens.extend_from_slice(tokens);
+    }
+
+    fn set_force_ltr_refresh(&mut self, refresh: bool) {
+        self.force_ltr_refresh = refresh;
+    }
+
+    fn ltr_token(&self) -> Option<u64> {
+        self.ltr_token
+    }
     /// Wraps the surface (no copy) and encodes it. A frame whose format or
     /// size does not match its surface is refused; a new size recreates the
     /// session and the frame becomes an IDR. Returns true for an IDR.
