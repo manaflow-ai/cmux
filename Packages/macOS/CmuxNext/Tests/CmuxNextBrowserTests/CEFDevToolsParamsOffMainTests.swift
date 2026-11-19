@@ -128,6 +128,22 @@ import Testing
                 "3 hidden pages, one browser-process purge")
     }
 
+    /// A hidden page that cannot take the notice (it closes meanwhile) does not cost the round: the next one takes it,
+    /// and the round still ends at the first that did.
+    @Test func aPageThatCannotTakeTheNoticePassesItToTheNext() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        var tries = 0
+        let trim = CEFHiddenPageTrim(hiddenPages: { [tab, tab, tab] }) { _ in
+            tries += 1
+            return tries == 2
+        }
+        await trim.trim()
+        #expect(tries == 2, "the first page failed, the second took it, the third was not asked")
+        #expect(trim.notices == 1)
+    }
+
     /// No timeout bounds the shim call: Chromium dispatches every DevTools message on the main thread, and a method
     /// the browser process answers runs inside it. A call past one frame is recorded with its method and size, which
     /// a hang report's stack does not name; a fast one is not.
