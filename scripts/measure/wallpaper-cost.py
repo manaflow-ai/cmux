@@ -668,8 +668,12 @@ def holds_of(app, pid, args, config_path, pointer, helper, kind, ident, backgrou
             rows.append(measure(app, pid, args.app, "idle", ident, args.measure))
         elif phase == "occluded":
             frame = (app.call("debug.window_frame", {}, timeout=30) or {}).get("frame")
-            app.call("debug.window_frame", {"frame": [-20000, -20000, frame[2], frame[3]] if frame else [-20000, -20000, 1200, 800]},
-                     timeout=30)
+            moved = app.call("debug.window_frame", {"frame": [-20000, -20000, frame[2], frame[3]] if frame else [-20000, -20000, 1200, 800]},
+                             timeout=30) or {}
+            # AppKit may constrain a titled window back onto a screen: say where it landed, so an "occluded" row that
+            # measured a window still on screen is not read as an off-screen one.
+            print(f"WALLPAPER-COST-NOTE {ident}: occluded frame={moved.get('frame')} screen={moved.get('screen')!r} "
+                  f"off_screen={not moved.get('screen')}", flush=True)
             if live:
                 pointer.moving.set()
                 wait_state(app, lambda s: s.startswith("hold:"), 15)
