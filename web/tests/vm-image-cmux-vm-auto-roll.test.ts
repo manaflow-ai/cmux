@@ -487,7 +487,7 @@ describe("auto-roll large image", () => {
       expect(() => approve(text, keyed(String(9500 + KEEP_AUTO)), options)).toThrow(/bytes, at most 5120/);
     // The same roll with the switch on fits by dropping the oldest roll, and says so.
     const trimmed = approve(text, keyed(String(9500 + KEEP_AUTO)), TRIM);
-    expect(trimmed.dropped).toEqual([{ env: "staging", id: keyed("9501").id, revision: keyed("9501").revision, why: expect.stringMatching(/over the 5120-byte binding limit/) }]);
+    expect(trimmed.dropped).toEqual([{ env: "staging", id: keyed("9501").id, revision: keyed("9501").revision, why: expect.stringContaining("over the 5120-byte binding limit") }]);
     expect(autos(locate(trimmed.text, "staging").images).map((i) => i.id)).not.toContain(keyed("9501").id);
   });
 
@@ -594,7 +594,7 @@ describe("auto-roll large image", () => {
 
   // Skipped until the Worker's schema names `large` (and its dependencies are installed to load it): there is no
   // schema to pin to on this base. LARGE_BOUNDS then has to be exactly what the Worker keeps and drops.
-  test.skipIf(!realWorker.readsLarge)("LARGE_BOUNDS are the Worker's: it keeps a large image at each bound and drops one just outside", () => {
+  (realWorker.readsLarge ? test : test.skip)("LARGE_BOUNDS are the Worker's: it keeps a large image at each bound and drops one just outside", () => {
     const parse = realWorker.parse!;
     const probe = (large: Record<string, unknown>) =>
       parse(JSON.stringify([{ id: "probe", revision: "r1", displayName: "Probe", snapshotId: "sh-probe", services: ["probe"], large }]));
@@ -1214,10 +1214,10 @@ describe("auto-roll scripts", () => {
         return JSON.parse(r.stdout) as { roll: boolean; large: boolean; largeReason: string };
       };
       expect(await plan(true, reads)).toMatchObject({ roll: true, large: true });
-      expect(await plan(false, reads)).toMatchObject({ roll: true, large: false, largeReason: expect.stringMatching(/large_image/) });
+      expect(await plan(false, reads)).toMatchObject({ roll: true, large: false, largeReason: expect.stringContaining("large_image") });
       expect(await plan(undefined, reads)).toMatchObject({ roll: true, large: false });
-      expect(await plan(true, strict)).toMatchObject({ roll: true, large: false, largeReason: expect.stringMatching(/does not read `large`/) });
-      expect(await plan(true, path.join(dir, "no-worker"))).toMatchObject({ roll: true, large: false, largeReason: expect.stringMatching(/does not read `large`/) });
+      expect(await plan(true, strict)).toMatchObject({ roll: true, large: false, largeReason: expect.stringContaining("does not read `large`") });
+      expect(await plan(true, path.join(dir, "no-worker"))).toMatchObject({ roll: true, large: false, largeReason: expect.stringContaining("does not read `large`") });
     }), 60_000);
 
   test("plan fails closed on a shallow checkout or a pin it lacks, and still refuses a build older than the pin", () =>
