@@ -22,7 +22,7 @@ Sources, read 2026-11-19:
 | Create from chat | yes: describe it, Claude asks, shows name, schedule, prompt, then Schedule | yes: ChatGPT drafts prompt and destination; skills can make tasks | yes: Chief runs `cmux automation create` (prompt rule) | same |
 | Create with a form | yes: name, prompt, approval mode, frequency, model, folder | yes: custom schedule controls, RRULE | no (CLI only) | New and Edit form on the Automations page |
 | Triggers | hourly, daily, weekdays, weekly, manual, cron (≥1 h in form), one-shot from chat; cloud: API and GitHub events | standalone or in-chat (minute loops); Gmail, Slack, GitHub events (web) | presets, cron+tz, every, at, in, manual, watch, `--when` events | same |
-| Where it runs | Cowork: cloud by default; Code Desktop local: app open and computer awake | desktop: local checkout or new worktree, app running; web/team: cloud | launchd runner on this Mac (no app needed); `--target cloud` | same, prompt runs pinned to this Mac |
+| Where it runs | Cowork: cloud by default; Code Desktop local: app open and computer awake | desktop: local checkout or new worktree, app running; web/team: cloud | launchd runner on this Mac (no app needed); `--target cloud`: a prompt in the Cloud Chief, a command on a team Cloud machine | same, prompt runs pinned to this Mac; Cloud commands run while the Mac sleeps |
 | Missed runs | local: one catch-up for the latest miss in 7 days, older discarded, notification | not stated | catch-up `latest` (24 h), `all`, `none`; every miss kept as a skipped row | same |
 | Overlap | skipped, reason shown | not stated | one live run; skipped `previous_run_running` | same |
 | Retries | none stated | "retry failed tasks" button (26.224); connector start failures reported (#21995) | none | automatic retry of start failures, 30 s / 2 min / 8 min |
@@ -60,6 +60,29 @@ Tried: `cmux automation list`, `runner status`, `history` on the nightly 4427140
    became that chat's child.
 9. The page loaded once when shown and never refreshed.
 
+## Commands on cmux Cloud
+
+Before: a Cloud automation could run a prompt only, so a command job (for example `models-scout`,
+every 6 h) had to run on this Mac's runner and stopped while the Mac slept. Now
+`cmux automation create NAME --command CMD --target cloud` makes the same automation on cmux Cloud:
+
+- It runs on a team Cloud machine (`--machine NAME` or a `vm_` id; with one machine, that one).
+- In `--folder DIR`, or with `--repo OWNER/NAME --ref BRANCH` in a checkout kept on the machine
+  that moves to the newest head of the branch before each run (fetch, then a detached checkout of
+  it); the run writes the commit it used.
+- The body is the Cloud's journaled `steps` body: one step starts the command in the background
+  (a replay never starts it twice), then wait steps of up to 280 s each cover `--timeout` (up to
+  228 min). The exit code is the run's result (`exit 3` fails with the last log lines); a run that
+  passes its time limit is stopped and fails as a timeout.
+- Concurrency 1, skip when one runs (no overlap); `--catch-up latest|all|none`; `--every` becomes a
+  cron (minutes that divide 60, or hours that divide 24).
+- `cmux automation history --target cloud` lists every Cloud run with its reason;
+  `cmux automation logs RUN --target cloud` reads the run's log from its machine; the page shows
+  Cloud runs, reasons and logs the same way as runs on this Mac.
+
+Not yet on Cloud: per-automation secrets, a notification for a failed Cloud run, waking a paused
+machine (a stopped machine fails the run), editing the body (delete and make it again).
+
 ## Proof
 
 - Rust: `cmux-tui/crates/cmux-automations/tests/reliability.rs` (retry with backoff, heartbeat
@@ -76,5 +99,5 @@ Tried: `cmux automation list`, `runner status`, `history` on the nightly 4427140
   `automations-failure` (a failed run with its reason and log). `cmux automation show-page --name
   NAME` opens one automation with its newest log.
 
-Not built here (next): Cloud run history on the page, worktree-per-run, saved "always allow" per
+Not built here (next): worktree-per-run, saved "always allow" per
 automation, failover between machines (platonic ideal section 4), archive and bulk mark-read.
