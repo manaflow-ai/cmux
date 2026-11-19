@@ -586,3 +586,23 @@ fn a_second_bring_back_takes_the_later_edits() {
     assert_eq!(again["written"], 0, "{again}");
     assert_eq!(again["deleted"], 0, "{again}");
 }
+
+/// `~/Projects`' shape (hard case 12): a folder of repositories, not one itself. An edit in one of
+/// them comes back, and that repository's `git status` reads the same on both sides.
+#[test]
+fn an_edit_in_a_repository_of_a_parent_folder_comes_back() {
+    let t = trip_or_skip!("parent", |side, at| {
+        for name in ["api", "web"] {
+            let repo_at = at.join(name);
+            fs::create_dir_all(&repo_at).unwrap();
+            repo(side, &repo_at);
+        }
+        write(&at.join("notes.md"), "notes\n");
+    });
+    write(&t.at("api/src/a.txt"), "alpha, edited on the machine\n");
+    write(&t.at("notes.md"), "notes, edited on the machine\n");
+    let answer = t.brought_back();
+    assert_eq!(read(&t.mac("notes.md")), "notes, edited on the machine\n", "{answer}");
+    assert_eq!(read(&t.mac("api/src/a.txt")), "alpha, edited on the machine\n", "{answer}");
+    assert_eq!(t.mac.status(&t.mac("api")), t.machine.side.status(&t.at("api")));
+}
