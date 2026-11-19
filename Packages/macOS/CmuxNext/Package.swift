@@ -192,7 +192,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 18cbd8a1b6cdb08bb99788f30ef60425d82749e03079c055c7fc09ea93c4d6fd
+// app-ffi-pin-checksum: 9478c1ee2ae40ac0c6c7e35b0422307b730b3643e99e81ceb7eecb6cff14b8c4
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -251,8 +251,42 @@ let uiLayerPreviewTargets: [Target] = [
     ),
 ]
 
+// The app's code ships as Contents/Frameworks/CmuxNextApp.framework behind a small
+// Contents/MacOS/cmux (App/main.swift), CMUX-629. Chromium's code-sign clone
+// (MacAppCodeSignClone, CEFSwitches.swift) hard-links the main executable on every
+// launch, which changes its link count and ctime, so XProtect scans that file again
+// before the next launch can start: about 500 ms for a 100 MB executable, 20 ms
+// for a stub (a pool M4 Pro, Dock launches). A framework nobody links stays scanned.
+// The live code build (docs/cmux-next/live-code.md) interposes symbols of the one
+// image it links, so it keeps the static link.
+let appLinksStatically = Context.environment["CMUX_LIVE_CODE_BUILD"] == "1"
+
+/// The framework's link, outside live code builds: it exports only the C
+/// symbols named `cmux_next_*`, the stub's entry point (`cmux_next_app_main`,
+/// CmuxNextApp.swift) and, in a release `swift build --build-tests`, the test
+/// support's `cmux_next_test_window_owner` that the window census looks up with
+/// dlsym. The static executable linked with `-no_exported_symbols` exported
+/// nothing; dead code stripping keeps only what those reach and dyld binds one
+/// symbol. The frameworks and flags the app target's OTHER_LDFLAGS gave the
+/// static link come along. Xcode passes these flags to the stub's link too, so
+/// its Release config no longer sets LD_EXPORT_SYMBOLS = NO (ld refuses
+/// -exported_symbol beside -no_exported_symbols); no stub symbol matches.
+let appFrameworkLinkerSettings: [LinkerSetting] = [
+    .linkedLibrary("c++"),
+    .linkedFramework("Metal"),
+    .linkedFramework("QuartzCore"),
+    .linkedFramework("IOSurface"),
+    .linkedFramework("UniformTypeIdentifiers"),
+    .linkedFramework("Carbon"),
+] + (appLinksStatically ? [] : [
+    .unsafeFlags(["-Xlinker", "-objc_stubs_small"]),
+    // Release only: a Debug or `swift test` link of a test bundle keeps every symbol.
+    .unsafeFlags(["-Xlinker", "-exported_symbol", "-Xlinker", "_cmux_next_*", "-Xlinker", "-dead_strip"],
+                 .when(configuration: .release)),
+])
+
 let packageProducts: [Product] = [
-    .library(name: "CmuxNextApp", targets: ["CmuxNextApp"]),
+    .library(name: "CmuxNextApp", type: appLinksStatically ? nil : .dynamic, targets: ["CmuxNextApp"]),
     .library(name: "CmuxNextFavicons", targets: ["CmuxNextFavicons"]),
     .library(name: "CmuxNextAppCore", targets: ["CmuxNextAppCore"]),
     // The remote view pipeline (rd transport, decode, presenters) alone, for a standalone viewer
@@ -419,7 +453,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            linkerSettings: appFrameworkLinkerSettings
         ),
         // macOS notification banners (moved out of CmuxNextApp/Notifications): the system
         // notifier (UNUserNotificationCenter, its banner categories and permission) and the
@@ -2352,7 +2387,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextPaletteTests",
             // CmuxTheme: PaletteScopeChipContrastTests derives theme tokens.
+            // CmuxNextActions: the tests import it. A target that reads a module only through another target's
+            // list is not compiled again when that module's interface changes, and its old objects then fail the link.
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextPalette",
                 "CmuxNextTestSupport",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
@@ -2613,6 +2651,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentCursor",
                 "CmuxNextAgentCursorVisibility",
                 "CmuxNextAgentLanes",
+                "CmuxNextAgentPane",
                 "CmuxNextAgentPermissions",
                 "CmuxNextAgentUpdates",
                 "CmuxNextApp",

@@ -851,6 +851,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cargo_affected.py
 
+      # The crate-graph job router (scripts/ci/affected_jobs.py), and that each workflow it routes keeps
+      # every input of its jobs on its paths filter and wires each job to the router.
+      - name: Validate the crate-graph job routing
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_affected_jobs.py
+
       - name: Validate the portable SwiftPM rolling cache keys
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_swift_packages_linux_cache.py
@@ -961,6 +967,11 @@ jobs:
         run: |
           python3 tests/test_ci_no_github_token_polling.py
           python3 tests/test_ci_no_bare_urlopen.py
+
+      - name: Validate that no cache is saved under a run- or commit-scoped key
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        # setup-zig's per-run caches filled the 10 GB store and evicted the cargo caches (2026-11-18).
+        run: python3 tests/test_ci_no_run_scoped_cache_keys.py
 
       - name: Validate CI queue janitor policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}

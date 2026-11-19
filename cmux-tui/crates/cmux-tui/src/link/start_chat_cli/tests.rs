@@ -354,18 +354,18 @@ fn plan_pins_a_machine_that_exists_and_names_a_new_one_otherwise() {
 #[test]
 fn a_copied_folder_keeps_move_to_clouds_name_under_the_sends_place() {
     // The name `CloudMoveFolder.remoteName` gives: the folder's name and 24 bits of FNV-1a.
-    assert_eq!(remote_name("/Users/me/src/paint"), "paint-33f597");
-    assert_eq!(remote_name("/"), format!("folder-{}", &remote_name("/")[7..]));
+    assert_eq!(remote_name("/Users/me/src/paint"), "paint");
+    assert_eq!(remote_name("/"), "folder");
     let copy = copy_of("/Users/me/src/paint", "web/app");
     let place = copy.fresh_place();
     let send = format!("chats/{}/", copy.key.to_lowercase());
     assert!(place.starts_with(&send) && place.len() == send.len() + 8, "{place}");
     assert_ne!(copy.fresh_place(), place, "each copy gets a folder of its own");
     let (folder, chat) = copy.remote("/home/cmux/work", &place);
-    assert_eq!(folder, format!("/home/cmux/work/{place}/paint-33f597"));
-    assert_eq!(chat, format!("/home/cmux/work/{place}/paint-33f597/web/app"));
+    assert_eq!(folder, format!("/home/cmux/work/{place}/paint"));
+    assert_eq!(chat, format!("/home/cmux/work/{place}/paint/web/app"));
     let top = StartCopy { subpath: String::new(), ..copy };
-    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/paint-33f597"));
+    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/paint"));
 }
 
 fn copy_of(local: &str, subpath: &str) -> StartCopy {
@@ -408,7 +408,7 @@ fn a_copy_tries_the_next_work_root_only_when_the_first_is_not_the_machines_home(
     // Both roots were tried with the same folder of the send's own.
     let place = seen.borrow()[1].strip_prefix("/root/work/").unwrap().to_string();
     assert_eq!(seen.borrow()[0], format!("/home/cmux/work/{place}"));
-    let place = place.strip_suffix("/paint-33f597").unwrap();
+    let place = place.strip_suffix("/paint").unwrap();
     assert_eq!(answer["chat"], json!(copy.remote("/root/work", place).1));
 
     // Another failure stops at once, with its code (the App's outdated-machine retry reads it).
