@@ -13,7 +13,11 @@ public protocol AgentPaneMoveCoverHost: NSView {
 extension AgentPaneView {
     /// A parked spare's own frame covers its move until WebKit draws again. Chromium uses its move hold instead.
     public func coverMove(in host: any AgentPaneMoveCoverHost, size: CGSize, limit: Duration, mark: @escaping (String) -> Void) {
-        if pageDrawsOverCovers { return placeMovedChromiumPage() }
+        if pageDrawsOverCovers {
+            page?.benchMark = mark
+            mark("newTab.move.chromium \(page?.scriptQueueState ?? "-")")
+            return placeMovedChromiumPage()
+        }
         let appearance = host.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
         let own = redraw.takeRememberedFrame(size: size, appearance: appearance)
         let image = size == .zero || host.launchImageView != nil ? nil : own ?? AgentPaneNewTabFrame.shared.image(size: size, appearance: appearance)

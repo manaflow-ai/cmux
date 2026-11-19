@@ -124,10 +124,12 @@ extension PageWebView {
         await new Promise((done) => setTimeout(done, 0));
         """
         let zoom = max(pageZoom, 0.01)
+        benchMark?("page.afterFrame.ask \(Int(size.width))x\(Int(size.height)) \(scriptQueueState)")
         // task-owner: bounded frame wait (at most 61 frames of 50 ms); ends with the page's answer (or at once when the page is gone)
         Task { @MainActor [weak self] in
             guard let self else { return body() }
             _ = await self.callPageFunction(wait, arguments: ["width": Double(size.width) / zoom, "height": Double(size.height) / zoom])
+            self.benchMark?("page.afterFrame.done")
             guard self.chromiumSession == nil else { return body() }
             Self.afterPresentationUpdate(of: self.webView, body)
         }

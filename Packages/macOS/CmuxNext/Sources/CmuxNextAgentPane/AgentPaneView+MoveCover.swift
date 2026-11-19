@@ -133,6 +133,7 @@ extension AgentPaneView {
         guard let move = chromiumMove, window != nil, frame.width > 0, frame.height > 0, page?.showsChromium == true else { return }
         chromiumMove = nil
         let drawn = !move.requiresFrame && Self.near(rest.size, move.parkedSize, within: 0.5)
+        page?.benchMark?("newTab.move.place drawn=\(drawn) landed=\(landed) parked=\(Int(move.parkedSize.width)) rest=\(Int(rest.size.width))")
         guard !(drawn && landed) else {
             pageContent.layoutSubtreeIfNeeded()
             move.moved()
@@ -192,6 +193,7 @@ extension AgentPaneView {
         chromiumMoveWait = nil
         wait.deadline.cancel()
         guard holdsPageAway else { return }
+        page?.benchMark?("newTab.move.shown")
         holdsPageAway = false
         pageContent.frame = topBar.pageFrame(in: bounds)
         applyNativeRects() // the tab row's holes, taken while it was away, follow it back

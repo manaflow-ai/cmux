@@ -45,6 +45,9 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     private var reachedHost = false
     private var scripts: [String] = []
     private var draining = false
+    /// Bench probe: marks of the script FIFO (an adopted New Tab spare's frame strip arms it).
+    public var benchMark: ((String) -> Void)?
+    public var queueState: String { "draining=\(draining) queued=\(scripts.count)" }
     /// Number of messages answered (tests wait on it).
     public private(set) var answered = 0
     /// Binding calls waiting for their parse off the main actor, in arrival order.
@@ -197,7 +200,10 @@ public final class ChromiumPageHostBridge: PageHostBridge {
             // Everything queued so far goes in one round trip (a streaming reply queues one push per
             // frame); scripts queued while it runs go in the next.
             let batch = takeBatch()
+            let adopt = batch.contains { $0.contains("acpmux-newtab-adopt") }
+            benchMark?("page.batch.sent n=\(batch.count) adopt=\(adopt) bytes=\(batch.reduce(0) { $0 + $1.utf8.count })")
             _ = try? await page.devTools("Runtime.evaluate", params: ["expression": Self.batch(batch), "silent": true])
+            benchMark?("page.batch.ran adopt=\(adopt)")
         }
     }
 

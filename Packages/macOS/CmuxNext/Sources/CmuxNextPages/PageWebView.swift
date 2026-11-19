@@ -41,6 +41,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The bridge the script FIFO and ``evaluateInPage(_:)`` use: WebKit's, or Chromium's while a
     /// Chromium page shows the document.
     let scriptTarget: PageScriptTarget
+    /// Bench probe: marks of this page's frame waits and script FIFO.
+    public var benchMark: ((String) -> Void)? { didSet { (scriptTarget.bridge as? ChromiumPageHostBridge)?.benchMark = benchMark } }
+    public var scriptQueueState: String { (scriptTarget.bridge as? ChromiumPageHostBridge)?.queueState ?? "webkit" }
     /// The engine the page shows in and, for WebKit, why (``PageEnginePolicy``).
     public internal(set) var engineDecision: PageEngineDecision
     /// The Chromium page while one shows the document (PageWebView+Chromium.swift). Its host places the page by its engine: it lays out again.
