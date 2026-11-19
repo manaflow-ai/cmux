@@ -545,6 +545,15 @@ impl RouteAttempt<'_> {
         let tracked: Arc<dyn LinkGroup> =
             Arc::new(Tracked { inner: group.clone(), step: step.clone() });
         let (tracked, daemon) = match self.answer.daemon_key {
+            // The first attempt's link is opened (parked, allocated, joined) before the connection,
+            // so the first handshake's bound below never cuts a park short.
+            Some(daemon) if self.first_attempt => match open_first(tracked, step).await {
+                Ok(opened) => (opened, daemon),
+                Err(failure) => {
+                    let _ = group.close().await;
+                    return Err(failure);
+                }
+            },
             Some(daemon) => (tracked, daemon),
             None => match pin_while_parked(plan, tracked, step).await {
                 Ok(pinned) => pinned,
@@ -583,6 +592,7 @@ impl RouteAttempt<'_> {
         let routes: Arc<dyn ReconnectGroupSource> = carrier_routes.clone();
         let connect =
             ClientConnection::connect_with_reconnect_groups(tracked, config, Some(routes));
+        // The first link is open by now (above, or `pin_while_parked`): this bounds the handshake only.
         let connected = if self.first_attempt {
             match tokio::time::timeout(FIRST_ATTEMPT_LINK_TIMEOUT, connect).await {
                 Ok(connected) => connected.map_err(|error| classify(&error, step.get())),
@@ -677,6 +687,20 @@ async fn pin_while_parked(
     let group: Arc<dyn LinkGroup> =
         Arc::new(Opened { inner: tracked, first: std::sync::Mutex::new(Some((first, link))) });
     Ok((group, daemon))
+}
+
+/// `tracked` with its first link already open: the group a connection opens no link on before its
+/// handshake.
+async fn open_first(
+    tracked: Arc<dyn LinkGroup>,
+    step: &Arc<Progress>,
+) -> Result<Arc<dyn LinkGroup>, Failure> {
+    let first = first_request(tracked.as_ref());
+    let link = tracked
+        .open(first)
+        .await
+        .map_err(|e| classify(&ConnectionError::Provider(e), step.get()))?;
+    Ok(Arc::new(Opened { inner: tracked, first: std::sync::Mutex::new(Some((first, link))) }))
 }
 
 /// The link request a connection on `group` opens first (cmux-remote's
