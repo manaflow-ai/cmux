@@ -143,7 +143,7 @@ if [[ "$suite" == arena || "$suite" == latency ]]; then
   [[ ",$arms," == *,cu-fast,* ]] && specs+=("cu-fast=${cu_fast:-$(pin arena engines cu-fast)}")
   [[ ",$arms," == *,cu-rewrite,* ]] && specs+=("cu-rewrite=${cu_rewrite:-$(pin arena engines cu-rewrite)}")
   [[ ",$arms," == *,chief-desktop,* ]] && specs+=("chief-desktop=${chief_desktop:-$(pin arena engines chief-desktop)}")
-  (( ${#specs[@]} )) && bash "$here/arena/build-engines.sh" "$engines_out" "$lume_home/arena/cache" "${specs[@]}" 2>&1 | tee "$out/engines.log"
+  (( ${#specs[@]} )) && bash "$here/arena/build-engines.sh" "$engines_out" "$lume_home/arena/cache" ${specs[@]+"${specs[@]}"} 2>&1 | tee "$out/engines.log"
 fi
 
 note "STAGE lume"
