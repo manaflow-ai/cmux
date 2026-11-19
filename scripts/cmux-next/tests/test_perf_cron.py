@@ -57,6 +57,19 @@ class DecideTests(unittest.TestCase):
         cron.decide(state, T0, "a" * 40, None, lambda sha: ["diff-viewer"], None)
         self.assertEqual(state["current"]["parts_todo"], ["diff-viewer"], "no Mac build for a Linux-only measurement")
 
+    def test_the_goal_parts_run_first_after_the_build(self):
+        """2026-11-16 (83b6f50f) and 2026-11-18 (7c697af8): memory-agents and throughput were the last Mac parts of
+        a tip, never ran before the measurement ended, and NOW's memory-per-chat row went stale."""
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, None)
+        cur = state["current"]
+        mac = [p for p in cur["parts_todo"] if not cron.is_linux_part(p)]
+        self.assertEqual(mac[:3], ["build", "memory-agents", "throughput"])
+        cron.record_part(cur, "build", {"state": "done", "worker": BENCH}, "r", at(0.3))
+        cur["host"] = BENCH
+        d = cron.decide(state, at(0.4), None, None, lambda sha: ALL, None)
+        self.assertEqual(d["part"], "memory-agents")
+
     def test_nothing_new_runs_nothing(self):
         d = cron.decide(cron.empty_state(T0), T0, None, None, lambda sha: ALL, None)
         self.assertEqual(d["action"], "none")
