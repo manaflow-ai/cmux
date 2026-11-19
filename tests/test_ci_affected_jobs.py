@@ -332,6 +332,20 @@ class PullRequestSkip(unittest.TestCase):
             key = (".github/workflows/s.yml", "heavy")
             self.assertEqual(jobs.check_pr_skip(Path(tmp), [key], {key}), [])
 
+    def test_a_job_that_runs_only_on_the_push_paths_needs_no_wider_push(self):
+        # cmux-tui-spec.yml's shape: every pull request starts it, and its `changes` job runs a job only when the
+        # change touches the push trigger's paths, so the push covers every change the job runs on.
+        text = SKIP_WORKFLOW.replace("  push:\n    branches: [feat-cmux-next]\n",
+                                     "  push:\n    branches: [feat-cmux-next]\n    paths:\n      - a/**\n")
+        self.assertIn("fewer paths", "".join(self.check(text)))
+        routed = text.replace(
+            "jobs:\n  heavy:\n    if: ${{ !cancelled() && ",
+            "jobs:\n  changes:\n    runs-on: x\n    steps:\n      - run: python3 .github/scripts/cmux-tui-spec-changed.py"
+            " --workflow s.yml\n  heavy:\n    needs: changes\n"
+            "    if: ${{ !cancelled() && needs.changes.outputs.run == 'true' && ")
+        self.assertEqual(self.check(routed), [])
+        self.assertIn("fewer paths", "".join(self.check(routed.replace("cmux-tui-spec-changed.py", "other.py"))))
+
     def test_a_job_that_needs_it_and_would_skip_with_it_is_named(self):
         text = SKIP_WORKFLOW.replace("    needs: [heavy]\n    if: ${{ !cancelled() }}\n", "    needs: heavy\n")
         problems = self.check(text)
@@ -344,6 +358,24 @@ class PullRequestSkip(unittest.TestCase):
                                                    (".github/workflows/s.yml", "after"))),
                          [".github/workflows/s.yml: job after's `if:` does not carry " + SKIP_IF
                           + ", so a pull request still runs it (scripts/ci/affected-jobs.json pull_request_skip)"])
+
+    def test_a_job_that_never_runs_on_a_pull_request_may_need_it(self):
+        folded = SKIP_WORKFLOW.replace("    needs: [heavy]\n    if: ${{ !cancelled() }}\n",
+                                       "    needs: heavy\n    if: >-\n      github.event_name != 'pull_request'\n"
+                                       "      && github.ref == 'refs/heads/main'\n")
+        self.assertEqual(self.check(folded), [])
+        self.assertEqual(jobs.job_if("    if: >-\n      a\n      && b\n    runs-on: x\n"), "a && b")
+
+    def test_the_lane_reader_counts_the_push_as_its_lane(self):
+        # tests/test_pr_lane_coverage.py reads which jobs a pull request runs; a listed job's lane is the push.
+        try:
+            import pr_test_lanes  # noqa: PLC0415 - needs PyYAML
+        except ImportError:
+            self.skipTest("PyYAML")
+        self.assertEqual(pr_test_lanes.PR_SKIP_IF, jobs.PR_SKIP_IF)
+        context = pr_test_lanes.event_context("feat-cmux-next")
+        self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", context), True)
+        self.assertIs(pr_test_lanes.evaluate("${{ github.event_name != 'pull_request' }}", context), False)
 
     def test_every_listed_job_is_named_in_the_map_with_its_replay(self):
         data = json.loads((ROOT / jobs.MAP).read_text())

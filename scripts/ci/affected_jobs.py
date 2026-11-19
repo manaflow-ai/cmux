@@ -27,9 +27,10 @@ It never trades a test for speed. Every job runs when:
   - a changed path under cmux-tui/ is in no Cargo package, is no job's input, and is not a Markdown file: a path
     the graph cannot place (unknown) is never skipped.
 
-A second list in the map, pull_request_skip, is Tier A of the replay of the last merged pull requests (job reds read
+A second list in the map, pull_request_skip, is the replay of the last merged pull requests (job reds read
 against base reds, re-runs and later heads of the same pull request): the jobs that never went red for a pull
-request's own change. A pull request skips them unless it carries the full-ci label; a push to feat-cmux-next runs
+request's own change (Tier A), and the jobs that did a few times (Tier B: those are fixed forward on the
+push, the rate accepted). A pull request skips them unless it carries the full-ci label; a push to feat-cmux-next runs
 them, so a red the skip would have hidden still shows on the push that lands it. Their `if:` reads the event and the
 label (PR_SKIP_IF), not this router's outputs; `check` holds each to that and to its push trigger.
 
@@ -94,7 +95,7 @@ class Route:
         for key in sorted(self.pr_skip):
             out.append(f"{key[0]} {key[1]}={'true' if self.pr_skip[key] else 'false'}  "
                        + ("a push or the full-ci label runs it" if self.pr_skip[key] else
-                          "skipped on a pull request (pull_request_skip: no red of its own in the replay; "
+                          "skipped on a pull request (pull_request_skip: the replay record is in the map; "
                           "the feat-cmux-next push runs it)"))
         return out
 
@@ -105,6 +106,10 @@ class Route:
 # there names the pull requests in its range. `check` holds each one to that: the job's `if:` carries PR_SKIP_IF,
 # its workflow starts on a feat-cmux-next push, and no job that needs it would be skipped with it.
 PR_SKIP_IF = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
+# A job that runs on a pull request only when its change touches the push paths: the workflow's `changes` job runs
+# cmux-tui-spec-changed.py, which reads the push trigger's own `paths:`, so the push covers every change it runs on.
+PUSH_PATHS_GATE = "needs.changes.outputs.run == 'true'"
+PUSH_PATHS_ROUTER = ".github/scripts/cmux-tui-spec-changed.py --workflow"
 
 
 def load_pr_skip(text: str) -> list[tuple[str, str]]:
@@ -386,12 +391,24 @@ def job_needs(block: str) -> list[str]:
     return [n.strip() for n in inline.split(",") if n.strip()] + listed
 
 
+def job_if(block: str) -> str:
+    """A job block's `if:` expression, a folded or literal `if: >-` block joined into one line."""
+    match = re.search(r"(?m)^    if:[ \t]*(.*)$((?:\n      .*)*)", block)
+    if match is None:
+        return ""
+    head = match.group(1).strip()
+    if head.startswith((">", "|")):
+        return " ".join(line.strip() for line in match.group(2).splitlines() if line.strip())
+    return head
+
+
 def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[str, str]] = frozenset()) -> list[str]:
     """Each pull_request_skip job: its `if:` carries PR_SKIP_IF; its workflow starts on a feat-cmux-next push, on every
     path its pull_request trigger starts on (the push is the safety net that runs it), or, for a job the crate graph
-    routes too (ROUTED), on every input of the job, which `check` already holds the push paths to; and every job of
+    routes too (ROUTED), on every input of the job, which `check` already holds the push paths to, or, for a job
+    that runs only when its change touches the push paths (PUSH_PATHS_GATE), on those; and every job of
     the workflow that needs it still decides for itself when it is skipped (an `if:` with !cancelled(), always() or
-    failure(): the default success() would skip it too), or is skipped with it."""
+    failure(): the default success() would skip it too), never runs on a pull request, or is skipped with it."""
     problems = []
     names = set(skipped)
     for workflow, job_id in skipped:
@@ -414,14 +431,18 @@ def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[
         else:
             pushed, pulled = workflow_paths(text, "push"), workflow_paths(text, "pull_request")
             narrower = pushed is not None and (pulled is None or bool(set(pulled) - set(pushed)))
-            if narrower and (workflow, job_id) not in routed:
+            gated = PUSH_PATHS_GATE in if_line and "needs: changes" in block and PUSH_PATHS_ROUTER in text
+            if narrower and (workflow, job_id) not in routed and not gated:
                 problems.append(f"{workflow}: its push paths start on fewer paths than its pull_request paths, so a "
                                 f"change the push skips would run {job_id} nowhere ({MAP} pull_request_skip)")
         for other in job_ids(text):
             other_block = job_block(text, other) or ""
             if job_id not in job_needs(other_block) or (workflow, other) in names:
                 continue
-            other_if = next((line for line in other_block.splitlines() if line.startswith("    if:")), "")
+            other_if = job_if(other_block)
+            # A job that never runs on a pull request loses nothing when the pull request skips what it needs.
+            if "github.event_name != 'pull_request'" in other_if:
+                continue
             if not any(status in other_if for status in ("!cancelled()", "always()", "failure()")):
                 problems.append(f"{workflow}: job {other} needs {job_id}, which a pull request skips, and its `if:` "
                                 f"has no !cancelled(), always() or failure(), so it would be skipped too")

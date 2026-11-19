@@ -264,7 +264,10 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
                       f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
         self.assertNotIn("needs", self.job())
-        self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
+        # The replay's Tier B (scripts/ci/affected-jobs.json pull_request_skip): a pull request skips it unless
+        # labeled full-ci; the feat-cmux-next push runs it.
+        self.assertEqual(self.job()["if"],
+                         "${{ (!cancelled()) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"

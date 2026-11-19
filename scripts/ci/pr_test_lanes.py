@@ -59,6 +59,10 @@ class Unknown:
 UNKNOWN = Unknown()
 # The pull request's label names: unknown, except that a lane cannot depend on one.
 LABELS = Unknown()
+# A job scripts/ci/affected-jobs.json pull_request_skip lists (affected_jobs.PR_SKIP_IF): a pull request skips it,
+# and the feat-cmux-next push that lands the pull request runs it, its red naming the pull requests in its range.
+# That push is the job's lane (the fix-forward the replay measured), so the guard reads as true here.
+PR_SKIP_IF = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
 
 
 # --- GitHub Actions expressions, three-valued -------------------------------------------
@@ -252,6 +256,7 @@ def evaluate(condition: object, context: dict[str, object]) -> object:
     text = str(condition).strip()
     if text.startswith("${{") and text.endswith("}}"):
         text = text[3:-2]
+    text = text.replace(PR_SKIP_IF, "true")
     if not text.strip():
         return True
     try:

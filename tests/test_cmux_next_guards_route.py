@@ -63,7 +63,10 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"],
                          "${{ github.event_name != 'pull_request' && 'true' || 'false' }}")
         group = jobs["ci-guard-group"]
-        self.assertEqual(group["if"], "${{ !cancelled() }}")
+        # The replay's Tier B (scripts/ci/affected-jobs.json pull_request_skip): a pull request skips it unless
+        # labeled full-ci; the feat-cmux-next push runs it.
+        self.assertEqual(group["if"],
+                         "${{ (!cancelled()) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]
         calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]
