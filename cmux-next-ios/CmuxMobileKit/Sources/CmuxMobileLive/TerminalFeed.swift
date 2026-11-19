@@ -539,11 +539,16 @@ public final class TerminalFeed {
                      texts: Texts? = nil) -> FeedItem {
         let agentName = harness == "terminal" ? "Terminal" : DaemonTree.agentName(harness)
         var kind: FeedItem.Kind = entry.question.map { .question($0) }
-            ?? entry.approval.flatMap { approval in entry.surface.map { .permission(approval.request(ledgerID: entry.id, surface: $0)) } }
+            ?? entry.approval.flatMap { approval in
+                // Only an approval its dialog can be told by gets buttons (`TerminalApprovalKeys.subject`).
+                TerminalApprovalKeys.subject(approval) == nil ? nil
+                    : entry.surface.map { .permission(approval.request(ledgerID: entry.id, surface: $0)) }
+            }
             ?? kind(entry)
-        var markdown = entry.question?.items.first?.prompt ?? entry.approval?.markdown
+        var markdown = entry.question?.items.first?.prompt
+            ?? (kind.isPermission ? entry.approval?.markdown : nil)
             ?? text(entry, agentName: agentName, kind: kind)
-        if entry.question == nil, entry.approval == nil, let message = texts?.message {
+        if entry.question == nil, !kind.isPermission, let message = texts?.message {
             switch kind {
             // The answer itself, as a GUI chat's finished turn shows it.
             case .finished: kind = .response; markdown = message
@@ -799,8 +804,13 @@ extension TerminalFeed {
     /// Answers a terminal agent's approval (Allow once or Deny) by typing it on its approval
     /// screen (`TerminalApprovalKeys`), only while that terminal shows this approval.
     public func respond(_ item: FeedItem, request permission: ACPPermissionRequest, option: ACPPermissionOption) async throws {
+        guard request != nil, type != nil, connection != nil else { throw QuestionRefused(message: FeedStore.notConnectedMessage) }
+        // The Mac's ledger now, not this phone's last read: the row must still carry this very
+        // approval (its agent still blocked on it), or a newer one may be on screen.
+        await refresh()
         guard let entry = entries.first(where: { Self.itemID(macID: macID, entry: $0.id) == item.id }),
-              let approval = entry.approval, let surface = entry.surface, permission.id == entry.id else {
+              let approval = entry.approval, let surface = entry.surface, permission.id == entry.id,
+              approval.request(ledgerID: entry.id, surface: surface).toolCall.rawInput == permission.toolCall.rawInput else {
             throw QuestionRefused(message: String(localized: "The agent isn't waiting on this anymore. Nothing was typed."))
         }
         guard let request, let type, let connection else { throw QuestionRefused(message: FeedStore.notConnectedMessage) }
@@ -834,5 +844,12 @@ extension TerminalFeed {
             if index > 0 { try await clock.sleep(for: keyPause) }
             try await type(surface, key, connection)
         }
+    }
+}
+
+private extension FeedItem.Kind {
+    var isPermission: Bool {
+        if case .permission = self { return true }
+        return false
     }
 }

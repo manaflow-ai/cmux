@@ -173,15 +173,24 @@ pub const MAX_APPROVAL_JSON_BYTES: usize = 16 * 1024;
 /// tool that is neither a question (AskUserQuestion has its own card) nor a plan review: the
 /// phone answers it by typing on that screen (cmux-next-ios `TerminalApprovalKeys`), which is
 /// mapped for Claude Code only. `None` for anything else.
-pub fn agent_hook_live_approval(source: &str, native_event: &str, native: &Value) -> Option<String> {
-    if !matches!(source, "claude" | "claude-code") || semantic_key(native_event) != "permissionrequest" {
+pub fn agent_hook_live_approval(
+    source: &str,
+    native_event: &str,
+    native: &Value,
+) -> Option<String> {
+    if !matches!(source, "claude" | "claude-code")
+        || semantic_key(native_event) != "permissionrequest"
+    {
         return None;
     }
     let approval = approval(native)?;
     if matches!(semantic_key(approval.tool).as_str(), "askuserquestion" | "exitplanmode") {
         return None;
     }
-    let kept = |text: &str| live_message_text(text).map(|text| text.chars().take(APPROVAL_TEXT_CHARS).collect::<String>());
+    let kept = |text: &str| {
+        live_message_text(text)
+            .map(|text| text.chars().take(APPROVAL_TEXT_CHARS).collect::<String>())
+    };
     let mut out = Map::new();
     out.insert("harness".into(), Value::String("claude".into()));
     out.insert("tool".into(), Value::String(crate::program_status::shown_text(approval.tool, 128)));
@@ -208,10 +217,10 @@ pub(crate) fn kept_approval(text: &str) -> Option<Value> {
     let value: Value = serde_json::from_str(text).ok()?;
     let named = value.get("harness").and_then(Value::as_str) == Some("claude")
         && value.get("tool").and_then(Value::as_str).is_some_and(|tool| !tool.trim().is_empty());
-    let strings = value
-        .as_object()?
-        .iter()
-        .all(|(key, field)| matches!(key.as_str(), "harness" | "tool" | "command" | "target" | "description") && field.is_string());
+    let strings = value.as_object()?.iter().all(|(key, field)| {
+        matches!(key.as_str(), "harness" | "tool" | "command" | "target" | "description")
+            && field.is_string()
+    });
     (named && strings).then_some(value)
 }
 

@@ -116,3 +116,19 @@ Read live in a terminal (`claude --permission-mode default`, a `mkdir … && tou
 
 `TerminalApprovalKeys` types only these keys, and only while the screen shows "Do you want to",
 "1. Yes" and the start of the approval's command.
+
+A file tool's dialog names the file relative to the folder (Write `notes/todo.txt`, read live):
+
+```
+ Create file
+ notes/todo.txt
+ 1 buy milk
+ Do you want to create todo.txt?
+ ❯ 1. Yes
+   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session
+   3. No
+ Esc to cancel · Tab to amend
+```
+
+Escape here answered "Rejected write to notes/todo.txt" (after Claude Code's short Escape wait); no file was written.
+The phone matches a file approval by its file name inside the dialog.

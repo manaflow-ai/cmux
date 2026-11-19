@@ -16,17 +16,28 @@ import Testing
     }
 
     /// Claude Code 2.1.328's approval screen, as read live (verify/push-matrix-terminal-questions.md).
-    nonisolated static let screen = """
-     Bash command
-     Create the out folder
-     mkdir -p out && touch out/a.txt
-     Do you want to proceed?
-     ❯ 1. Yes
-       2. Yes, and don't ask again for mkdir and touch commands in /tmp/x
-       3. Yes, and switch to auto mode · auto mode handles these prompts for you
-       4. No
-     Esc to cancel · Tab to amend
-    """
+    nonisolated static let rule = String(repeating: "\u{2500}", count: 60)
+
+    /// The dialog of `command` under a transcript that shows `transcript` (an earlier call).
+    static func screen(command: String = "mkdir -p out && touch out/a.txt", transcript: String = "ls -la") -> String {
+        """
+        ⏺ Running the command
+          ⎿  $ \(transcript)
+        \(rule)
+         Bash command
+         Create the out folder
+         \(command)
+         Do you want to proceed?
+         ❯ 1. Yes
+           2. Yes, and don't ask again for mkdir and touch commands in /tmp/x
+           3. Yes, and switch to auto mode · auto mode handles these prompts for you
+           4. No
+         Esc to cancel · Tab to amend
+        """
+    }
+
+    /// Claude Code 2.1.328's approval screen, as read live (verify/push-matrix-terminal-questions.md).
+    nonisolated static var screen: String { MainActor.assumeIsolated { screen() } }
 
     static func make(rows: [String]) -> (FeedStore, TerminalFeed, TerminalQuestionFeedTests.Daemon) {
         let daemon = TerminalQuestionFeedTests.Daemon()
@@ -69,8 +80,10 @@ import Testing
         #expect(daemon.reads == 1)
         #expect(daemon.typed.map(\.0) == [1])
         #expect(daemon.typed.map(\.1) == ["1"])
-        // A shell, or another approval on screen: nothing is typed, and the card says why.
-        for screen in ["$ ", Self.screen.replacingOccurrences(of: "mkdir -p out", with: "rm -rf /tmp/other")] {
+        // A shell, another approval in the dialog, or this card's command only in the transcript
+        // above a newer approval's dialog (a stale card): nothing is typed, and the card says why.
+        let stale = Self.screen(command: "rm -rf /tmp/other", transcript: "mkdir -p out && touch out/a.txt")
+        for screen in ["$ ", Self.screen(command: "rm -rf /tmp/other"), stale] {
             daemon.typed = []
             daemon.screen = screen
             await #expect(throws: TerminalFeed.QuestionRefused.self) {
@@ -81,5 +94,26 @@ import Testing
         daemon.screen = Self.screen
         try await feed.respond(item, request: request, option: TerminalApproval.deny)
         #expect(daemon.typed.map(\.1) == ["\u{1b}"])
+        // The Mac's ledger no longer carries it (answered there): nothing is typed, even though
+        // this phone's last read still showed it and the screen still shows a matching dialog.
+        daemon.typed = []
+        daemon.rows = [Self.row(approval: nil)]
+        await #expect(throws: TerminalFeed.QuestionRefused.self) {
+            try await feed.respond(item, request: request, option: TerminalApproval.allowOnce)
+        }
+        #expect(daemon.typed.isEmpty)
+    }
+
+    /// An approval its dialog cannot be told by (no command, no file) keeps "Answer in Terminal";
+    /// a file approval is told by its file name, as Claude Code shows it.
+    @Test func onlyAnApprovalItsDialogNamesGetsButtons() async {
+        let mcp = #"{"harness":"claude","tool":"mcp__linear__create_issue","description":"File the bug"}"#
+        let (store, feed, _) = Self.make(rows: [Self.row(approval: mcp)])
+        feed.treeChanged(TerminalFeedTests.tree(), macID: "mac", connection: TerminalFeedTests.connection)
+        await TerminalFeedTests.settle { store.items.count == 1 }
+        #expect(store.item(id: "term-mac-ntf_7")?.kind == .needsInput)
+        let write = TerminalApproval(tool: "Write", target: "/Users/me/src/notes/todo.txt")
+        #expect(TerminalApprovalKeys.subject(write) == "todo.txt")
+        #expect(TerminalApprovalKeys.subject(TerminalApproval(tool: "WebFetch", target: "https://example.com/a")) == nil)
     }
 }

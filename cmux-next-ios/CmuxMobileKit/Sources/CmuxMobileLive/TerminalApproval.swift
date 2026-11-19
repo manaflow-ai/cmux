@@ -64,19 +64,22 @@ public struct TerminalApproval: Hashable, Sendable {
 
 /// The keys that answer Claude Code's approval screen on its own terminal, as a person would
 /// press them. Read live from Claude Code 2.1.328 (verify/push-matrix-terminal-questions.md,
-/// "Terminal approvals"):
+/// "Terminal approvals"): the dialog starts at a horizontal rule, names the command (or the file,
+/// "Do you want to create todo.txt?") and lists its rows:
 ///
 /// ```
+/// ──────────────────────────────
 ///  Bash command
-///    ls -la /tmp/x
-///    List files
+///  mkdir -p out && touch out/a.txt
 ///  Do you want to proceed?
 ///  ❯ 1. Yes
-///    2. Yes, and don't ask again for ls commands in /tmp/x
-///    3. No, and tell Claude what to do differently (esc)
+///    2. Yes, and don't ask again for … commands in /tmp/x
+///    3. Yes, and switch to auto mode · auto mode handles these prompts for you
+///    4. No
+///  Esc to cancel · Tab to amend
 /// ```
 ///
-/// A row's number chooses it at once; Escape is the No row.
+/// A row's number chooses it at once; Escape cancels (the No row moves, Escape does not).
 public enum TerminalApprovalKeys {
     static let escape = "\u{1b}"
 
@@ -85,19 +88,37 @@ public enum TerminalApprovalKeys {
         [Data((option.kind == .allowOnce ? "1" : escape).utf8)]
     }
 
-    /// Whether `screen` (the terminal's text now) shows this approval waiting: Claude Code's
-    /// question line, its first row "1. Yes", and the start of the command (or the path) it
-    /// asks about. Keys go out only then, so a `1` never lands in another prompt or a shell.
-    public static func screenShows(_ screen: String, approval: TerminalApproval) -> Bool {
-        let compact = { (text: String) in text.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
-        let shown = compact(screen)
-        guard shown.contains("Do you want to"), shown.contains("1. Yes") else { return false }
-        // The prompt wraps and cuts long commands: the first line's start is what stays shown.
-        if let subject = approval.command ?? approval.target {
-            let first = subject.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? subject
+    /// What the approval dialog shows of this approval, to tell it from another one: the start
+    /// of the command's first line, or the file name of the path it touches (Claude Code shows
+    /// a path relative to the folder, "Do you want to create todo.txt?"). Nil when it names
+    /// neither: such an approval keeps "Answer in Terminal" (any approval dialog would pass).
+    static func subject(_ approval: TerminalApproval) -> String? {
+        if let command = approval.command {
+            let first = command.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? command
             let start = compact(String(first.prefix(40)))
-            if !start.isEmpty, !shown.contains(start) { return false }
+            return start.isEmpty ? nil : start
         }
-        return true
+        guard let target = approval.target, !target.contains("://") else { return nil }
+        let name = (target as NSString).lastPathComponent
+        return name.isEmpty || name == "/" ? nil : compact(name)
+    }
+
+    static func compact(_ text: String) -> String { text.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+
+    /// Whether `screen` (the terminal's text now) shows this approval waiting: Claude Code's
+    /// approval dialog, the last block that starts at a horizontal rule above its "Do you want
+    /// to" line, with its "1. Yes" row and this approval's `subject`. Only the dialog counts:
+    /// the transcript above it can still show an earlier command, whose stale card must never
+    /// answer a newer approval. Keys go out only then, so a `1` never lands in another prompt.
+    public static func screenShows(_ screen: String, approval: TerminalApproval) -> Bool {
+        guard let subject = subject(approval) else { return false }
+        let lines = screen.components(separatedBy: "\n")
+        guard let ask = lines.lastIndex(where: { $0.contains("Do you want to") }),
+              let top = lines[..<ask].lastIndex(where: { line in
+                  let rule = line.trimmingCharacters(in: .whitespaces)
+                  return rule.count >= 8 && rule.allSatisfy { $0 == "\u{2500}" }
+              }) else { return false }
+        let dialog = compact(lines[(top + 1)...].joined(separator: " "))
+        return dialog.contains("1. Yes") && dialog.contains(subject)
     }
 }
