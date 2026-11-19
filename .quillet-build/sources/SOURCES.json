@@ -1,0 +1,12 @@
+{
+  "upstream": "https://github.com/google/fonts (ofl/), each SIL OFL 1.1 with no Reserved Font Name",
+  "commit": "5bd87dfc525c8a0d1d8529d3684716e00c3fc59a",
+  "files": {
+    "HankenGrotesk[wght].ttf": {"dir": "hankengrotesk", "sha256": "813b3f8fa0965405669a89b38e51bbefd95eef6b8e20d1cb2d8c10cce062662f", "bytes": 132892},
+    "HankenGrotesk-Italic[wght].ttf": {"dir": "hankengrotesk", "sha256": "ae5731726ff75301a3cb63f2e98d1babc77d55ab09fb8e229ca75f5bd46fbe32", "bytes": 139388},
+    "Newsreader[opsz,wght].ttf": {"dir": "newsreader", "sha256": "8a08d13f8a6c0d51be379a60af84f945f65369a67e509ee3c3bdcc421254d7c1", "bytes": 451664},
+    "Newsreader-Italic[opsz,wght].ttf": {"dir": "newsreader", "sha256": "796668611f80b64d5adf182fde3b6f29ed83b4e7cbec7b96937e84ac01364792", "bytes": 495684},
+    "JetBrainsMono[wght].ttf": {"dir": "jetbrainsmono", "sha256": "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda", "bytes": 187208},
+    "JetBrainsMono-Italic[wght].ttf": {"dir": "jetbrainsmono", "sha256": "85ae2a5cd3f56baf1ce1c21a851322c58e3d8fbe8e8ad4a4d090a820dd7fe558", "bytes": 191556}
+  }
+}
