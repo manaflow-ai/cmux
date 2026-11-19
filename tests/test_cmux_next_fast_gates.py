@@ -127,9 +127,13 @@ class WorkflowShape(unittest.TestCase):
                 self.assertNotIn("vars.LINUX_RUNNER", runner)
         # Never a mini for them: an owned Mac's runner setup and teardown (20-60 s) dwarfs their ~5 s of work
         # (2026-11-11: resolve on a mini 41 s p50, hosted Ubuntu 5 s), on the fast gate's critical path.
+        # Placement places post only: resolve starts beside it, so the gates wait for one light runner, not two in a
+        # row (2026-11-19: 40-45 min each on Blacksmith, tests/test_ci_light_hops_before_work.py).
         place = step_named(job(doc, "portable-placement")["steps"], "Place")["env"]
-        self.assertEqual(set(place["LINUX_ONLY"].split()), light)
-        self.assertEqual(set(place["JOBS"].split()), light)
+        self.assertEqual(set(place["LINUX_ONLY"].split()), {"post"})
+        self.assertEqual(set(place["JOBS"].split()), {"post"})
+        self.assertNotIn("needs", job(doc, "resolve"))
+        self.assertNotIn("portable-placement", runner_text(job(doc, "resolve")))
         for key, each in doc["jobs"].items():
             if key in light or key == "portable-placement":
                 continue
