@@ -74,10 +74,8 @@ pub(crate) async fn run(cmd: ShareHostCmd, json_out: bool) -> Result<()> {
             let (verb, answer) = verb(cmd).await?;
             if json_out {
                 crate::cli::output::print_json(&answer);
-            } else if verb == "screens" {
-                super::verbs::print_list(&answer);
             } else {
-                super::verbs::print_record(verb, &answer);
+                print_verb(verb, &answer);
             }
             Ok(())
         }
@@ -124,6 +122,20 @@ async fn verb(cmd: ShareHostCmd) -> Result<(&'static str, Value)> {
 async fn verb(_cmd: ShareHostCmd) -> Result<(&'static str, Value)> {
     anyhow::bail!("the share host runs on macOS")
 }
+
+/// A verb's answer for a person: the list for `screens`, one record otherwise.
+#[cfg(unix)]
+fn print_verb(verb: &str, answer: &Value) {
+    if verb == "screens" {
+        super::verbs::print_list(answer);
+    } else {
+        super::verbs::print_record(verb, answer);
+    }
+}
+
+/// No share verb answers off unix (`verb` refuses first), so there is nothing to print.
+#[cfg(not(unix))]
+fn print_verb(_verb: &str, _answer: &Value) {}
 
 /// The running daemon's status (`_acpmux/share_host_status`); with no daemon, or one too old to
 /// answer, that it does not run.
