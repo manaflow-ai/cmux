@@ -451,7 +451,8 @@
     {
       "agent": "settable",
       "keys": [
-        "labs.previewFeatures"
+        "labs.previewFeatures",
+        "experiments.toastsV2"
       ]
     },
     {
