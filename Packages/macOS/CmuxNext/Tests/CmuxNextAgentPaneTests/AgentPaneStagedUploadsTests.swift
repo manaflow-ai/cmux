@@ -47,11 +47,11 @@ import Testing
         let store = AgentPaneStagedUploads<String>(owner: "test.staged-uploads.chunks")
         let begun = try #require(store.begin(name: "c.bin", size: 3, batchToken: nil, manifest: nil, target: "mine", work: Self.work, make: Self.stageFile))
         let mine = { (target: String) in target == "mine" }
-        #expect(store.chunk(begun.token, offset: 0, data: Data([1, 2]), owns: { $0 == "other" }, work: Self.work) == nil)
-        #expect(store.chunk(begun.token, offset: 1, data: Data([1]), owns: mine, work: Self.work) == nil)
-        #expect(store.chunk(begun.token, offset: 0, data: Data([1, 2]), owns: mine, work: Self.work) == 2)
-        #expect(store.chunk(begun.token, offset: 2, data: Data([3, 4]), owns: mine, work: Self.work) == nil)
-        #expect(store.chunk(begun.token, offset: 2, data: Data([3]), owns: mine, work: Self.work) == 3)
+        #expect(await store.chunk(begun.token, offset: 0, data: AgentPaneUploadChunk(Data([1, 2])), owns: { $0 == "other" }, work: Self.work) == nil)
+        #expect(await store.chunk(begun.token, offset: 1, data: AgentPaneUploadChunk(Data([1])), owns: mine, work: Self.work) == nil)
+        #expect(await store.chunk(begun.token, offset: 0, data: AgentPaneUploadChunk(Data([1, 2])), owns: mine, work: Self.work) == 2)
+        #expect(await store.chunk(begun.token, offset: 2, data: AgentPaneUploadChunk(Data([3, 4])), owns: mine, work: Self.work) == nil)
+        #expect(await store.chunk(begun.token, offset: 2, data: AgentPaneUploadChunk(Data([3])), owns: mine, work: Self.work) == 3)
         let read = await store.finish(begun.token, owns: mine, work: Self.work) { staged in
             (try? Data(contentsOf: staged.file)) ?? Data()
         }
@@ -60,12 +60,33 @@ import Testing
         #expect(again == nil)
     }
 
+    /// A chunk's base64 is decoded and written on the files lane (``AgentPaneUploadWriter``): the main
+    /// actor runs other work meanwhile. Text that is not base64 is refused when written.
+    @Test func aChunkIsDecodedAndWrittenOffTheMainActor() async throws {
+        let store = AgentPaneStagedUploads<String>(owner: "test.staged-uploads.off-main")
+        let begun = try #require(store.begin(name: "d.bin", size: 4, batchToken: nil, manifest: nil, target: "t", work: Self.work, make: Self.stageFile))
+        let notBase64 = try #require(AgentPaneUploadChunk(base64: "****"))
+        #expect(notBase64.count == 3)
+        #expect(await store.chunk(begun.token, offset: 0, data: notBase64, owns: { _ in true }, work: Self.work) == nil)
+        var ran = false
+        // task-owner: the test's probe of the main actor; it ends before the test does.
+        let probe = Task { @MainActor in ran = true }
+        let chunk = try #require(AgentPaneUploadChunk(base64: Data([1, 2, 3, 4]).base64EncodedString()))
+        #expect(await store.chunk(begun.token, offset: 0, data: chunk, owns: { _ in true }, work: Self.work) == 4)
+        #expect(ran, "the chunk was decoded and written in one main-actor turn")
+        await probe.value
+        let read = await store.finish(begun.token, owns: { _ in true }, work: Self.work) { staged in
+            (try? Data(contentsOf: staged.file)) ?? Data()
+        }
+        #expect(read == Data([1, 2, 3, 4]))
+    }
+
     /// A cancel while the transfer reads the staged file stops the transfer first; the file is gone
     /// when the cancel returns, and the transfer never saw it removed.
     @Test func cancellingDuringTheTransferStopsItBeforeTheFileGoes() async throws {
         let store = AgentPaneStagedUploads<String>(owner: "test.staged-uploads.cancel")
         let begun = try #require(store.begin(name: "slow.bin", size: 1, batchToken: nil, manifest: nil, target: "t", work: Self.work, make: Self.stageFile))
-        #expect(store.chunk(begun.token, offset: 0, data: Data([1]), owns: { _ in true }, work: Self.work) == 1)
+        #expect(await store.chunk(begun.token, offset: 0, data: AgentPaneUploadChunk(Data([1])), owns: { _ in true }, work: Self.work) == 1)
         let (started, starting) = AsyncStream.makeStream(of: URL.self)
         let finishing = Task { @MainActor in
             await store.finish(begun.token, owns: { _ in true }, work: Self.work) { staged -> Bool in
@@ -92,7 +113,7 @@ import Testing
         let undone = UndoLog()
         for (name, delivers) in [("sent.bin", true), ("failed.bin", false)] {
             let begun = try #require(store.begin(name: name, size: 1, batchToken: nil, manifest: nil, target: "t", work: Self.work, make: Self.stageFile))
-            #expect(store.chunk(begun.token, offset: 0, data: Data([1]), owns: { _ in true }, work: Self.work) == 1)
+            #expect(await store.chunk(begun.token, offset: 0, data: AgentPaneUploadChunk(Data([1])), owns: { _ in true }, work: Self.work) == 1)
             let answer = await store.finish(begun.token, owns: { _ in true }, work: Self.work, transfer: { _ in delivers },
                                             undo: { delivered in delivered ? { @MainActor in undone.add(name) } : nil })
             #expect(answer == delivers)

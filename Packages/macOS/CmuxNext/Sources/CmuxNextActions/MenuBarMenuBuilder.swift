@@ -51,6 +51,13 @@ public import AppKit
             case .command(let command, let title, let symbol):
                 let row = commands?.item(command, title: title) ?? NSMenuItem(title: title, action: nil, keyEquivalent: "")
                 row.image = Self.symbol(symbol, label: title)
+                if case .openChat = command {} else { row.indentationLevel = 1 }
+                menu.addItem(row)
+            case .sessionAction(let id, let session, let title, let symbol):
+                guard let row = registry.makeArgumentMenuItem(for: id, arguments: ["session": .string(session)], title: title) else { continue }
+                row.image = Self.symbol(symbol, label: title)
+                row.keyEquivalent = ""
+                row.indentationLevel = 1
                 menu.addItem(row)
             case .computerUse(let app, let bundleID, let items):
                 let row = NSMenuItem(title: MenuBarMenuSpec.text("menu.menuBar.computerUse", "Computer Use"), action: nil, keyEquivalent: "")
@@ -133,7 +140,7 @@ public import AppKit
 }
 
 /// Runs the menu bar's per-session rows (``MenuBarMenuSpec/Command``): a chat to open, a Computer
-/// Use session to take over or hand back. The menu's owner keeps it (a row's target is weak).
+/// Use session to resume or whose cursor to show. The menu's owner keeps it (a row's target is weak).
 @MainActor public final class MenuBarCommandTarget: NSObject {
     private let run: @MainActor (MenuBarMenuSpec.Command) -> Void
 

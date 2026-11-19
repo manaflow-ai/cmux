@@ -637,12 +637,16 @@ import Testing
     }
 
     /// cmux NEXT nightly is signed without a provisioning profile, so the data-protection Keychain
-    /// answers errSecMissingEntitlement: the seal goes to the login Keychain, and a phone allowed once
-    /// stays paired across a relaunch or an update (https://github.com/manaflow-ai/cmux/issues/26396).
-    @Test func aBuildWithoutTheKeychainEntitlementKeepsItsPhoneAcrossARelaunch() throws {
+    /// refuses its writes with errSecMissingEntitlement: the seal goes to the login Keychain, and a phone
+    /// allowed once stays paired across a relaunch or an update (https://github.com/manaflow-ai/cmux/issues/26396).
+    /// The read is answered errSecItemNotFound, as macOS 26 and 27 answer it (2026-11-18: a tagged DEV
+    /// build's phone was not trusted after every relaunch); an OS that answers the read with
+    /// errSecMissingEntitlement too is covered as well.
+    @Test(arguments: [errSecItemNotFound, errSecMissingEntitlement])
+    func aBuildWithoutTheKeychainEntitlementKeepsItsPhoneAcrossARelaunch(readAnswer: OSStatus) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let keychain = FakeKeychain(entitled: false)
+        let keychain = FakeKeychain(entitled: false, readAnswer: readAnswer)
         _ = try Self.saved(directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls, loginKeychain: testLoginKeychain))
         #expect(keychain.items(dataProtection: false) == 1 && keychain.items(dataProtection: true) == 0)
 
@@ -798,6 +802,10 @@ final class FakeKeychain: @unchecked Sendable {
     private var store: [Key: Data] = [:]
     private var loginRefusal: OSStatus?
     let entitled: Bool
+    /// What an unentitled build's data-protection read answers. macOS 26 and 27 answer a read with
+    /// errSecItemNotFound, never errSecMissingEntitlement (only writes and deletes say that; probed on
+    /// macOS 27, 2026-11-18), so a seal that waited for that answer never read its login item back.
+    let readAnswer: OSStatus
 
     /// From now on every login Keychain call answers `status` (nil: answers again), as a login item
     /// this launch may not read without UI does (errSecAuthFailed, 2026-11-03).
@@ -805,8 +813,9 @@ final class FakeKeychain: @unchecked Sendable {
         lock.withLock { loginRefusal = status }
     }
 
-    init(entitled: Bool) {
+    init(entitled: Bool, readAnswer: OSStatus = errSecItemNotFound) {
         self.entitled = entitled
+        self.readAnswer = readAnswer
     }
 
     func items(dataProtection: Bool) -> Int {
@@ -830,6 +839,7 @@ final class FakeKeychain: @unchecked Sendable {
         MobileHostSecItems(
             copy: { [self] query in
                 switch key(query) {
+                case .failure(let refusal) where refusal.status == errSecMissingEntitlement: return (readAnswer, nil)
                 case .failure(let refusal): return (refusal.status, nil)
                 case .success(let key):
                     let data = lock.withLock { store[key] }

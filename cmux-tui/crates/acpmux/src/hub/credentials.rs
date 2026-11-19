@@ -13,6 +13,26 @@ use super::*;
 use crate::agent_credentials::{AgentCredential, Family};
 
 impl Hub {
+    /// After a daemon restart, the credential the adopted agent `harness_pid` of `session` was
+    /// launched on (`agent_credentials::recovered`), held again for its next start. A credential
+    /// already held (one the Mac sent since) stays. Its family was checked when it was applied, and
+    /// is again at the next spawn (`agent_credentials::apply`). Names only are logged. Whether one
+    /// was taken.
+    pub(crate) fn recover_credential(&self, session: &Session, harness_pid: Option<u32>) -> bool {
+        let Some(pid) = harness_pid else { return false };
+        let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
+        if held.is_some() {
+            return false;
+        }
+        let Some(credential) = crate::agent_credentials::recovered_from_pid(pid) else {
+            return false;
+        };
+        let names: Vec<&str> = credential.names().collect();
+        tracing::info!(session = %session.id, ?names, "the adopted agent's launch credential is held again");
+        *held = Some(credential);
+        true
+    }
+
     /// Sets `credential` on session `id` (its exact id, a session of this daemon) and restarts its
     /// live agent on it. A credential of another family than the session's harness is refused.
     pub(crate) async fn update_credential(
@@ -156,6 +176,55 @@ mod tests {
         // The same credential again restarts nothing.
         let again = hub.update_credential(&session.id, credential(SECOND)).await.unwrap();
         assert_eq!(again["restart"], "none");
+    }
+
+    /// cmux#45776: a daemon restart forgets the credential (memory only), while the agent it adopts
+    /// still runs on it. Read back from that agent's env, the agent's next start (a wake after the
+    /// machine paused) runs on it again instead of the machine's route ("Claude is not signed in").
+    #[cfg(target_os = "linux")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_adopted_agents_credential_is_held_again_for_its_next_start() {
+        let hub = hub();
+        let req = NewRequest {
+            cwd: Some(std::env::temp_dir()),
+            credential: Some(credential(FIRST)),
+            ..NewRequest::default()
+        };
+        let session = hub.new_session(req).await.unwrap();
+        let child = hub.child_for(&session).await.unwrap();
+        let pid = child.pid.expect("the agent's pid");
+        // What a new daemon has of the session: no credential.
+        *session.credential.lock().unwrap() = None;
+        assert!(hub.recover_credential(&session, Some(pid)));
+        assert_eq!(*session.credential.lock().unwrap(), Some(credential(FIRST)));
+        // One the Mac sent since stays.
+        *session.credential.lock().unwrap() = Some(credential(SECOND));
+        assert!(!hub.recover_credential(&session, Some(pid)));
+        assert_eq!(*session.credential.lock().unwrap(), Some(credential(SECOND)));
+        // The next start runs on the held credential.
+        *session.credential.lock().unwrap() = None;
+        assert!(hub.recover_credential(&session, Some(pid)));
+        let before = child.generation;
+        let only = std::collections::BTreeSet::from([session.id.clone()]);
+        hub.restart_harnesses(None, Some(&only)).await;
+        let after = hub.child_for(&session).await.unwrap().generation;
+        assert_ne!(before, after, "a new agent process");
+        assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(FIRST));
+        assert!(!written(&hub, &session.id).contains(FIRST), "still never written down");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_agent_launched_without_a_credential_gives_none_back() {
+        let hub = hub();
+        let session = hub
+            .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+            .await
+            .unwrap();
+        let pid = hub.child_for(&session).await.unwrap().pid.expect("the agent's pid");
+        assert!(!hub.recover_credential(&session, Some(pid)));
+        assert!(session.credential.lock().unwrap().is_none());
+        assert!(!hub.recover_credential(&session, None));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
