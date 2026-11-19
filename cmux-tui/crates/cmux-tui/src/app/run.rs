@@ -359,8 +359,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         default_hook(info);
     }));
 
-    let backend =
-        CrosstermBackend::new(super::host_frame_writer::host_frame_writer(std::io::stdout()));
+    let backend = CrosstermBackend::new(std::io::stdout());
     let mut terminal = match RatatuiTerminal::new(backend) {
         Ok(terminal) => terminal,
         Err(e) => {
