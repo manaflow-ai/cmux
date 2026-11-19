@@ -1233,23 +1233,66 @@ impl Brain {
         }
         self.trace_sub_events(id, &events, floor);
         let report = report_of(&replies, cancelled);
+        // Its background work still pending now: each such task wakes it
+        // again with a notice when it ends.
+        let background = self.state.sub(id).map_or_else(Vec::new, |(_, s)| {
+            super::children::background_after(&s.background, &events)
+        });
         // Under the goal it ended its last run only with its task done, so a
         // run that only acpmux notices started (its own background command
         // finished) after that report wakes no Chief turn: its words go in
         // quietly (live on build 108: a2 reported again what it had reported).
+        // Not after a report that only waited: this run is where its result
+        // comes (tests/subagent_waiting.rs).
         let after_report = self
             .state
             .sub(id)
-            .is_some_and(|(_, s)| s.goal && s.reopened);
+            .is_some_and(|(_, s)| s.goal && s.reopened && s.waiting_ms == 0);
         if !cancelled && after_report && super::children::notice_only(&events) {
             (self.log)(&format!(
                 "subagent {id}: a notice turn after its report, passed on quietly"
             ));
             self.trace.emit("subagent.notice_quiet", json!({"id": id}));
             self.sub_done(id, report, true, Some(last_end), Some(&events));
+            if let Some(sub) = self.state.sub_mut(id) {
+                sub.background = background;
+            }
+            self.save();
             return;
         }
-        self.sub_done(id, report, cancelled, Some(last_end), Some(&events));
+        // It ended this run only to wait on work it started (a fleet step, a
+        // CI wait, a monitor), which wakes it again: its words reach the
+        // Chief quietly, with no turn and no outcome owed (Nov 12-18: 51% of
+        // Chief turns had nothing else to wake them). Its next run reports.
+        let waits = !cancelled && !background.is_empty() && crate::sub_watch::waits(&report);
+        if waits {
+            (self.log)(&format!(
+                "subagent {id}: waits on {} background task(s), its report goes in quietly",
+                background.len()
+            ));
+            self.trace.emit(
+                "subagent.waiting",
+                json!({"id": id, "background": background.len()}),
+            );
+        }
+        self.sub_done(
+            id,
+            report,
+            cancelled || waits,
+            Some(last_end),
+            Some(&events),
+        );
+        let now = self.now();
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.background = background;
+            if waits {
+                if sub.waiting_ms == 0 {
+                    sub.waiting_ms = now;
+                }
+                sub.waiting_checked_ms = now;
+            }
+        }
+        self.save();
     }
 
     pub(super) fn sub_done(
@@ -1267,6 +1310,11 @@ impl Brain {
         else {
             return;
         };
+        // Every run end starts as no wait; `finish_sub` marks a wait after.
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.waiting_ms = 0;
+            sub.waiting_checked_ms = 0;
+        }
         // A cancelled subagent's sign-ins wait on nobody now (every stop path ends here).
         if self.state.sub(id).is_some_and(|(_, s)| s.cancelled) {
             self.sign_ins.abandoned(id);
@@ -1981,6 +2029,14 @@ impl Brain {
                 matches!(&q.source, Source::Spawn(r) if r.spawn == spawn && r.subs.iter().any(|(s, _)| *s == id))
             });
             match queued {
+                // A quiet report still queued (it waited, or only acked)
+                // and now one that wakes: queued anew, so it starts a turn
+                // (replacing it in place woke nothing: tests/subagent_waiting.rs).
+                Some(k) if !quiet && !self.queue[k].wakes() => {
+                    self.queue.remove(k);
+                    (self.log)(&format!("subagent {id}: queued its report"));
+                    self.queue(text, source);
+                }
                 Some(k) => {
                     self.queue[k] = Queued {
                         text,
@@ -3405,7 +3461,7 @@ impl Brain {
             .spawns
             .values()
             .flat_map(|r| r.subs.iter())
-            .filter(|s| s.at_work())
+            .filter(|s| s.at_work() || s.waiting())
             .map(|s| s.id.as_str())
             .collect();
         (!ids.is_empty()).then(|| {
