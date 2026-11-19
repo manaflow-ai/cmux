@@ -171,6 +171,15 @@ impl Interrupt {
     }
 }
 
+/// Whether a prompt's answer ended its turn while Claude Code runs on into
+/// a carried turn with a message steered in after its last answer
+/// (`_meta.claude.carried`, acpmux `carried_turn.rs`).
+fn carried(answer: &Value) -> bool {
+    answer
+        .pointer("/_meta/claude/carried")
+        .is_some_and(|c| !c.is_null())
+}
+
 /// Whether a prompt's answer is the end acpmux gave a turn itself
 /// (`hub/cancel.rs` `forced_answer`: `cancelForced`, `restarted`).
 fn acpmux_forced_end(answer: &Value) -> bool {
@@ -805,6 +814,10 @@ pub fn run_with_drafts(
     // The prompt's answer was an error (even one after the fold ended on
     // `turn_end`): the session is not kept.
     let mut answer_failed = false;
+    // When the fold ended on `turn_end` with the prompt's answer still to
+    // come: the answer says whether Claude Code runs on into a carried turn
+    // (a message steered in after its last answer), which this turn folds.
+    let mut ended_at: Option<Instant> = None;
     // acpmux ended the turn itself (Claude Code did not answer the cancel in
     // time, or acpmux restarted it): the old turn may still run and its late
     // events would fold into the next turn, so the session is never kept.
@@ -854,7 +867,8 @@ pub fn run_with_drafts(
             append_at(fold.finish(Some(idle_error(limit))), seq);
             break;
         }
-        let wake = [deadline, resend, stream_due, idle_at]
+        let answer_by = ended_at.map(|t| t + ANSWER_WAIT);
+        let wake = [deadline, resend, stream_due, idle_at, answer_by]
             .into_iter()
             .flatten()
             .min();
@@ -866,6 +880,13 @@ pub fn run_with_drafts(
                     if stream_due.is_some_and(|due| Instant::now() >= due) =>
                 {
                     TurnSignal::Noted
+                }
+                // The fold ended and no answer came: the wait below has
+                // used its time already.
+                Err(RecvTimeoutError::Timeout)
+                    if answer_by.is_some_and(|by| Instant::now() >= by) =>
+                {
+                    break;
                 }
                 Err(RecvTimeoutError::Timeout) if deadline.is_none_or(|d| Instant::now() < d) => {
                     continue;
@@ -935,13 +956,38 @@ pub fn run_with_drafts(
                     log(&format!("turn {}: {e}", start.key));
                 }
                 if fold.ended().is_some() {
-                    break;
+                    if answered {
+                        break;
+                    }
+                    ended_at.get_or_insert_with(Instant::now);
+                } else {
+                    ended_at = None;
                 }
             }
             TurnSignal::Done(answer) => {
                 answered = true;
                 answer_failed = answer.is_err();
                 forced_end |= answer.as_ref().is_ok_and(acpmux_forced_end);
+                if answer.as_ref().is_ok_and(carried) && !interrupt.is_set() {
+                    // The prompt's answer came at the end of its first turn;
+                    // the carried turn sends none: its `turn_end` ends this.
+                    totals = answer.as_ref().ok().and_then(answer_usage);
+                    cost = answer.as_ref().ok().and_then(answer_cost);
+                    if let Err(e) = fetch(&mut fold) {
+                        log(&format!("turn {}: {e}", start.key));
+                    }
+                    // The answer is the prompt's first turn's: its
+                    // `turn_result` may have resumed the fold already.
+                    if fold.carries() == 0 {
+                        fold.resume_carried();
+                    }
+                    ended_at = None;
+                    log(&format!(
+                        "turn {}: Claude Code runs on with a message steered in late; following it",
+                        start.key
+                    ));
+                    continue;
+                }
                 totals = answer.as_ref().ok().and_then(answer_usage);
                 cost = answer.as_ref().ok().and_then(answer_cost);
                 let stopped = answer
@@ -981,7 +1027,7 @@ pub fn run_with_drafts(
     publish(&mut fold);
     let done_draft = Some(drafter.borrow_mut().done());
     // The fold ended on `turn_end`: the answer with the token use follows.
-    let until = Instant::now() + ANSWER_WAIT;
+    let until = ended_at.unwrap_or_else(Instant::now) + ANSWER_WAIT;
     while !answered {
         match rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
             Ok(TurnSignal::Changed | TurnSignal::Noted | TurnSignal::Streamed) => {}
