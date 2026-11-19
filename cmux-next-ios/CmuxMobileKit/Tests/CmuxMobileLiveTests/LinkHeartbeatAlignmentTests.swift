@@ -110,8 +110,8 @@ private final class BeatDialer: MacLinkDialer, @unchecked Sendable {
 
     private func eventually(_ condition: () -> Bool, within: Duration = .seconds(20),
                             sourceLocation: SourceLocation = #_sourceLocation) async throws {
-        let deadline = ContinuousClock.now + within
-        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        var deadline = AwakeDeadline(within)
+        while !condition(), deadline.hasTimeLeft() { try await Task.sleep(for: .milliseconds(5)) }
         try #require(condition(), "Timed out waiting for test setup or transition", sourceLocation: sourceLocation)
     }
 
