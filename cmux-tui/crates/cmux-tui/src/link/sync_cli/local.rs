@@ -307,7 +307,42 @@ fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<
     let top = place::Dir::open(folder)?;
     // Each file is counted as git lists it: past the copy's limit the listing stops there.
     let mut skipped = 0;
-    working_files(folder, &mut skipped, &mut |path, untracked| {
+    list_working(set, &top, folder, "", rules, &mut heavy_named, &mut skipped, 0)?;
+    set.skipped += skipped;
+    // A share of files sends no git state (`cmux link access` keeps no `.git` path), so it reads none:
+    // an unreadable reflog or config never fails it.
+    if rules == Rules::Share {
+        return Ok(());
+    }
+    list_git(set, &git)
+}
+
+/// Most submodule levels a listing enters (git's own checkouts stop far sooner).
+const MAX_SUBMODULE_DEPTH: usize = 8;
+
+/// The working files git names in `prefix` of `folder` (`top` holds `folder` open) into `set`,
+/// and those of each checked-out submodule in it: its files under its path and its `.git` file
+/// (its repository is the top one's `.git/modules/`, which goes with the top's state), so the
+/// machine's checkout has the submodule as this Mac has it and `git status` agrees.
+#[allow(clippy::too_many_arguments)]
+fn list_working(
+    set: &mut LocalSet,
+    top: &place::Dir,
+    folder: &Path,
+    prefix: &str,
+    rules: Rules,
+    heavy_named: &mut BTreeSet<String>,
+    skipped: &mut u64,
+    depth: usize,
+) -> anyhow::Result<()> {
+    let here = if prefix.is_empty() { folder.to_path_buf() } else { folder.join(prefix) };
+    let mut submodules: Vec<String> = Vec::new();
+    working_files(&here, skipped, &mut |path, untracked| {
+        let path = if prefix.is_empty() { path } else { format!("{prefix}/{path}") };
+        if !untracked && depth < MAX_SUBMODULE_DEPTH && checked_out_submodule(top, folder, &path) {
+            submodules.push(path);
+            return Ok(());
+        }
         if untracked
             && rules == Rules::Copy
             && let Some(heavy) = heavy_folder(folder, &path)
@@ -326,14 +361,62 @@ fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<
             set.skips.note(&path, why);
             return Ok(());
         }
-        add_working(set, &top, folder, &path)
+        add_working(set, top, folder, &path)
     })?;
-    set.skipped += skipped;
-    // A share of files sends no git state (`cmux link access` keeps no `.git` path), so it reads none:
-    // an unreadable reflog or config never fails it.
-    if rules == Rules::Share {
-        return Ok(());
+    for path in submodules {
+        add_working(set, top, folder, &format!("{path}/.git"))?;
+        list_working(set, top, folder, &path, rules, heavy_named, skipped, depth + 1)?;
     }
+    Ok(())
+}
+
+/// Whether the tracked path `path` of `folder` (`top` holds it open) is a folder with a `.git`
+/// file (a checked-out submodule's), reached without following a symlink, whose words name its
+/// repository in the top one's `.git/modules/` relative from it (what `git submodule` writes),
+/// so it names the same repository on the machine. A submodule with a `.git` folder of its
+/// own, or one naming a folder of this Mac, stays out, as any other repository inside the folder.
+fn checked_out_submodule(top: &place::Dir, folder: &Path, path: &str) -> bool {
+    let Ok(Some((dir, name))) = place::parent_of(top, path) else { return false };
+    if !matches!(dir.entry(&name), Ok(place::Entry::Dir)) {
+        return false;
+    }
+    let Ok(Some(child)) = dir.child(&name) else { return false };
+    if !matches!(child.entry(".git"), Ok(place::Entry::File { .. })) {
+        return false;
+    }
+    let Ok(text) = std::fs::read_to_string(folder.join(path).join(".git")) else { return false };
+    let Some(gitdir) = text.trim_end().strip_prefix("gitdir: ") else { return false };
+    in_modules(path, gitdir)
+}
+
+/// Whether the gitfile words `gitdir` of the submodule at `path` name a folder in the top
+/// repository's `.git/modules/` by their words alone: relative, no climb above the top, and
+/// past `.git/modules/` only plain names.
+fn in_modules(path: &str, gitdir: &str) -> bool {
+    if gitdir.is_empty() || gitdir.starts_with('/') || gitdir.chars().any(char::is_control) {
+        return false;
+    }
+    let mut parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+    for part in gitdir.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    return false;
+                }
+            }
+            name => parts.push(name),
+        }
+    }
+    parts.len() > 2
+        && parts[0] == ".git"
+        && parts[1] == "modules"
+        && parts[2..].iter().all(|name| !super::names::is_dotgit(name))
+}
+
+/// The repository's own state (`git`) into `set` as `.git/`: the allow-listed parts of its
+/// common folder, a linked worktree's own state over it, and borrowed objects.
+fn list_git(set: &mut LocalSet, git: &GitDirs) -> anyhow::Result<()> {
     let linked = git.own != git.common;
     let common = place::Dir::open(&git.common)?;
     walk_in(&common, "", &mut |relative, dir, name, entry| {

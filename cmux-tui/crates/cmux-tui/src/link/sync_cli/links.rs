@@ -51,6 +51,12 @@ pub(super) fn local_with(
     text: &str,
 ) -> std::io::Result<Local> {
     let Ok(canonical) = std::fs::canonicalize(path) else {
+        // A link to nothing yet (a tracked link to a build output, a lock file's target): kept
+        // as written when its words stay inside and nothing on their way is a link, so the
+        // machine's checkout holds what git holds and `git status` agrees on both sides.
+        if dangling_inside(top, parent_of(relative), text) {
+            return Ok(Local::Keep(Linked { target: text.to_string(), here: None }));
+        }
         return Ok(Local::Skip(Why::SymlinkBroken));
     };
     let Some(below) = canonical.strip_prefix(top).ok().and_then(Path::to_str) else {
@@ -164,6 +170,44 @@ pub(super) fn resolve(parent: &str, text: &str) -> Option<String> {
         }
     }
     Some(parts.join("/"))
+}
+
+/// Whether the link text `text` in the folder `parent` of the canonical folder `top` names a
+/// place inside `top` by its words alone ([`resolve`]) that is missing, with no symlink and no
+/// file on the way to it: so its words are where it points, on this Mac and on the machine.
+fn dangling_inside(top: &Path, parent: &str, text: &str) -> bool {
+    let Some(target) = resolve(parent, text) else { return false };
+    if target.is_empty() || target.split('/').any(names::is_dotgit) {
+        return false;
+    }
+    // A `..` only before every name: past a name it would climb from wherever that name leads.
+    let mut named = false;
+    for part in text.split('/').filter(|part| !part.is_empty() && *part != ".") {
+        if part == ".." && named {
+            return false;
+        }
+        named |= part != "..";
+    }
+    // The link's folder has no symlink on its way (the canonical top joined with it is
+    // canonical), so a `..` of its words climbs as the disk does and `target` is where they lead.
+    let folder = top.join(parent);
+    if !parent.is_empty()
+        && std::fs::canonicalize(&folder).ok().as_deref() != Some(folder.as_path())
+    {
+        return false;
+    }
+    let mut at = top.to_path_buf();
+    for part in target.split('/') {
+        at.push(part);
+        match std::fs::symlink_metadata(&at) {
+            Ok(meta) if meta.is_dir() => {}
+            // The first missing name: nothing past it exists.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return true,
+            // A link or a file on the way.
+            _ => return false,
+        }
+    }
+    false
 }
 
 /// Why a machine's link text that [`resolve`] refuses stays there.
