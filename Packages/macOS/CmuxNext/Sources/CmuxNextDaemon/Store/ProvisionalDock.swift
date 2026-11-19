@@ -54,7 +54,7 @@ import Foundation
             holder = daemon
         } else {
             holder = model(of: provisional, in: store)
-            screen.panes.insert(holder, at: 0)
+            screen.insertPane(holder, at: 0)
             store.index.insert(holder, in: screen)
         }
         if let from, let tab = pane.removeTab(surface: surface) {
@@ -96,7 +96,7 @@ import Foundation
                 return store.reportMirrorViolation("intent overlay undo found provisional dock pane \(pane) missing")
             }
             store.index.remove(model)
-            screen.panes.removeAll { $0 === model }
+            screen.removePane(model)
         }
         screen.layout = undo.layout
         if screen.columns != undo.columns { screen.columns = undo.columns }

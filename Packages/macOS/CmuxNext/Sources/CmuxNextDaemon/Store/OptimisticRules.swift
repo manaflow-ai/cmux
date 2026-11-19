@@ -35,7 +35,8 @@ import Foundation
     /// `leaf` first when `before`); nil when it shows nothing: cmux-tui would refuse it, or the screen's tree already
     /// places `leaf`.
     static func split(_ screen: ScreenModel, target: PaneID, direction: SplitDirection, ratio: Double, leaf: PaneID,
-                      splitID: String, column: ProvisionalColumn?, row: ProvisionalRow?, around: SplitID?, before: Bool) -> Placed? {
+                      splitID: String, column: ProvisionalColumn?, row: ProvisionalRow?, around: SplitID?, before: Bool,
+                      targetPane: PaneModel? = nil) -> Placed? {
         let layout = screen.layout, columns = screen.columns
         // A plain split looks for the split `around` when it wraps one; New Column and New Row always the target's leaf.
         let wraps = column == nil && row == nil ? around : nil
@@ -43,7 +44,9 @@ import Foundation
         // Each kind sends only the facts its rule reads, so no walk runs that no rule needs.
         var facts = Facts(leafPlaced: layout.contains(pane: leaf), columns: columns.count, panes: screen.panes.count)
         if column == nil {
-            facts.targetIndex = screen.panes.firstIndex { $0.handle == target }
+            // By identity when the caller has the target's model: no observed `handle` read per pane.
+            let panes = screen.panes
+            facts.targetIndex = targetPane.map { model in panes.firstIndex { $0 === model } } ?? panes.firstIndex { $0.handle == target }
         }
         if column != nil || row != nil {
             facts.zoomed = screen.zoomedPane != nil

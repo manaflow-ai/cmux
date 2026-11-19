@@ -214,14 +214,14 @@ extension DaemonStore {
             } else {
                 let index = min(max(delta.index ?? screen.panes.count, 0), screen.panes.count)
                 let pane = confirmedPane(delta.entity)
-                screen.panes.insert(pane, at: index)
+                screen.insertPane(pane, at: index)
                 indexed(pane, in: screen)
             }
             // The layout that places the pane arrives as `layout-changed`.
             return .none
         case .paneClosed(let delta):
             guard let screen = screensByHandle[delta.screen], let pane = screen.pane(delta.pane) else { return .none }
-            screen.panes.removeAll { $0 === pane }
+            screen.removePane(pane)
             index.remove(pane)
             return .none
 

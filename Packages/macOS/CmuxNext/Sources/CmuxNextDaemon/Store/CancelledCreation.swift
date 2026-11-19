@@ -139,7 +139,7 @@ import Foundation
         // with it. A tree the pane is the whole of (it would leave no pane) keeps it shown until the close.
         guard let shown = OptimisticRules.removePane(screen, pane: pane.handle) else { return nil }
         store.index.remove(pane)
-        screen.panes.remove(at: index)
+        screen.removePane(pane)
         screen.layout = shown.layout
         if shown.columnsEdited, shown.columns != columns { screen.columns = shown.columns }
         return HiddenPane(pane: pane, screen: screen.handle, index: index, layout: layout, columns: columns)
@@ -167,7 +167,7 @@ import Foundation
             guard let screen = store.screensByHandle[hidden.screen] else {
                 return store.reportMirrorViolation("cancelled creation undo found screen \(hidden.screen) missing")
             }
-            screen.panes.insert(hidden.pane, at: min(hidden.index, screen.panes.count))
+            screen.insertPane(hidden.pane, at: hidden.index)
             store.index.insert(hidden.pane, in: screen)
             screen.layout = hidden.layout
             if screen.columns != hidden.columns { screen.columns = hidden.columns }
