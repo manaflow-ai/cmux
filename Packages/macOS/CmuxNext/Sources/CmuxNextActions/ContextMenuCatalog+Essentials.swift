@@ -38,7 +38,7 @@ nonisolated enum ContextMenuEssentials {
         // within its twelve-row cap after the top-level Copy folder.
         // Show Nested Sessions sits just above Move ▸, as the chat row's "Show nested sessions" sits above
         // "Move to section" (Leo). It shows only on a row that started sessions of its own while the session
-        // tree is on (WorkspaceNestedSessionsHandlers), so every other row keeps twelve.
+        // tree is on (SidebarNestedSessionsToggle), so every other row keeps twelve.
         .workspaceRow: Rows(top: [.action("renameWorkspace"), .action("palette.toggleWorkspacePin"), .choices("palette.workspaceColor"),
                                   .action("workspace.newBelow"), .action("home.messageAbout"),
                                   .action("workspace.toggleNestedSessions"), .folder(.move, [])],

@@ -17,6 +17,10 @@ nonisolated enum ArchiveStrings {
     static var noSuchItem: String { text("archive.refusal.noSuchItem", "no such sidebar item") }
     static var groupSortNeedsDocument: String { text("groupSort.refusal.needsDocument", "this sidebar cannot sort groups yet") }
     static var groupSortBadValue: String { text("groupSort.refusal.badSort", "a group sorts by manual, name or recent") }
+    /// Show Nested Sessions while the session tree (`sidebar.sessionTree`) is off, on no workspace, and on a workspace that started none.
+    static var sessionTreeOff: String { text("nestedSessions.refusal.treeOff", "the Session Tree is off") }
+    static var nestedSessionsNoWorkspace: String { text("nestedSessions.refusal.noWorkspace", "no workspace to act on") }
+    static var noNestedSessions: String { text("nestedSessions.refusal.noneStarted", "the workspace started no other sessions") }
 
     static var noOtherWorkspaces: String {
         text("archive.refusal.noOtherWorkspaces", "There are no other workspaces to archive. Pinned workspaces stay.")
