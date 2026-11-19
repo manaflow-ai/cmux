@@ -104,8 +104,8 @@ class AffectedTests(unittest.TestCase):
         self.assertIn("rust", names(plan(["scripts/ci/macos_stubs.py"])))
 
     def test_a_skill_a_crate_embeds_sends_the_rust_step(self):
-        # acpmux include_str!s skills/cmux-cua/SKILL.md.
-        self.assertIn("rust", names(plan(["skills/cmux-cua/SKILL.md"])))
+        # acpmux include_str!s skills/cmux-computer-use/SKILL.md.
+        self.assertIn("rust", names(plan(["skills/cmux-computer-use/SKILL.md"])))
 
     def test_a_file_outside_cmux_tui_a_crate_reads_sends_the_rust_step(self):
         # cmux-tui crates read these by "../" path; the planner used to skip Rust for every path

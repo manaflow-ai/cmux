@@ -5,9 +5,9 @@
 //!            (Linux, the production Cloud mode: the socket comes from systemd; src/systemd.rs;
 //!            media moves to a UDP link when the viewer offers one: src/hybrid.rs)
 //!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps N (default: the display's refresh rate, else 60)] [--input-frame-now 1] [--max-width PX (macOS)] [--codec auto|vaapi|openh264|x264|videotoolbox (auto: VAAPI on a GPU, else openh264)] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
-//!            [--source synthetic|synthetic-still|synthetic-tick [--synthetic-size WxH]] (macOS bench builds, `host` and `serve`:
+//!            [--source synthetic|synthetic-still|synthetic-tick [--synthetic-size WxH] [--synthetic-scene bars|text|noise|churn]] (macOS bench builds, `host` and `serve`:
 //!            a generated picture with the marker instead of the display; no grants needed; src/synthetic.rs)
-//!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]
+//!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--marker-log 1 (none: each marker change with its decode time)] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]
 //!   observe  --mode passive --pid VIEWER_PID --window CGWINDOW_ID --start-file PATH --marker-origin X,Y --cell-size N [--expected-nonce 32 lowercase hex] [--duration-s 10] [--interval-ms 1000]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   serve    one device hub session over the secure link, driven by the app in JSON lines on
@@ -34,6 +34,10 @@
 //! Wire: crate cmux-rd-proto.
 
 #![cfg_attr(not(any(target_os = "linux", target_os = "macos", windows)), allow(dead_code))]
+// Edition 2021 leaves `std::env::set_var`/`remove_var` safe to call; they race every concurrent
+// read of the environment (a C library's `getenv` too), so each call needs an `unsafe` block and
+// an argument that no other thread exists, as in edition 2024.
+#![deny(deprecated_safe_2024)]
 
 mod args;
 #[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
@@ -142,6 +146,41 @@ pub fn is_launch_services_open(args: &[String], executable: &std::path::Path) ->
         .and_then(|bundle| bundle.extension())
         .is_some_and(|extension| extension == "app");
     inside_bundle && args.iter().all(|arg| arg.starts_with("-psn_"))
+}
+
+/// The process environment [`run_cli`] relies on, written once at start: `host`/`serve
+/// --xauthority PATH` becomes `XAUTHORITY` for every X connection and child, and `host
+/// --listen-systemd` takes systemd's `LISTEN_*` variables and clears them so no child inherits
+/// them. `run_cli` itself never writes the environment.
+///
+/// # Safety
+///
+/// No other thread may exist yet (call it first in `main`): `set_var` and `remove_var` race
+/// any concurrent read of the environment, a C library's `getenv` included.
+pub unsafe fn prepare_process_env(args: &[String]) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let Some(cmd) = args.first().filter(|cmd| matches!(cmd.as_str(), "host" | "serve")) else {
+            return Ok(());
+        };
+        // `run_cli` reports a parse error itself.
+        let Ok(opts) = args::Opts::parse(&args[1..]) else {
+            return Ok(());
+        };
+        if let Some(path) = opts.get("xauthority") {
+            std::fs::File::open(path)
+                .map_err(|e| format!("cmux-rd {cmd}: --xauthority {path}: {e}"))?;
+            // SAFETY: the caller's: no other thread exists.
+            unsafe { std::env::set_var("XAUTHORITY", path) };
+        }
+        if cmd == "host" && opts.flag("listen-systemd") {
+            // SAFETY: as above.
+            unsafe { systemd::take_env() };
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = args;
+    Ok(())
 }
 
 pub fn run_cli(args: &[String]) -> i32 {

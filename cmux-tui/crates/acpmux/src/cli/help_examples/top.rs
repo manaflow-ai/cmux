@@ -19,6 +19,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine-auth",
+        &[
+            (
+                "Check how this Cloud machine's agents reach models (the edge, the placeholder key, no login)",
+                "acpmux machine-auth",
+            ),
+            ("The same report as JSON", "acpmux --json machine-auth"),
+        ],
+    ),
+    (
         "who-else",
         &[
             (

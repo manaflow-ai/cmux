@@ -64,10 +64,10 @@ members = [
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
+    "crates/cmux-auth-coordinator",
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
     "crates/cmux-cloud-client",
-    "crates/cmux-cloud-codex-holder",
     "crates/cmux-cloud-api",
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
@@ -80,6 +80,7 @@ members = [
     "crates/cmux-signed-bundle",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-projection",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
@@ -106,6 +107,7 @@ members = [
     "crates/cmux-motion",
     "crates/cmux-config",
     "crates/cmux-customize",
+    "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
     "crates/cmux-image-linear",
     "crates/cmux-app-manifest",
@@ -120,6 +122,7 @@ members = [
     "crates/cmux-mcp-connect",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
+    "crates/cmux-stack-auth",
     "crates/cmux-agent-pane-policy",
     "crates/cmux-daemon-conn-core",
     "crates/cmux-daemon-launch-core",
@@ -144,6 +147,8 @@ members = [
     "crates/cmux-vault-egress",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
+    "crates/cmux-computer-use",
+    "crates/cmux-computer-use-ffi",
     "crates/acpmux-hot",
     "crates/cmux-command-class",
     "crates/cmux-source-scan",
@@ -188,10 +193,10 @@ default-members = [
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
+    "crates/cmux-auth-coordinator",
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
     "crates/cmux-cloud-client",
-    "crates/cmux-cloud-codex-holder",
     "crates/cmux-cloud-api",
     "crates/cmux-pty",
     "crates/cmux-process",
@@ -224,6 +229,7 @@ default-members = [
     "crates/cmux-motion",
     "crates/cmux-config",
     "crates/cmux-customize",
+    "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
     "crates/cmux-image-linear",
     "crates/cmux-app-manifest",
@@ -238,6 +244,7 @@ default-members = [
     "crates/cmux-mcp-connect",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
+    "crates/cmux-stack-auth",
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-supervise-core",
@@ -258,6 +265,8 @@ default-members = [
     "crates/cmux-device-kind",
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
+    "crates/cmux-computer-use",
+    "crates/cmux-computer-use-ffi",
 ]
 exclude = [
     "vendor/crossterm",
@@ -311,6 +320,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
+cmux-projection = { path = "crates/cmux-projection" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
@@ -327,7 +337,6 @@ cmux-cloud-config = { path = "crates/cmux-cloud-config" }
 cmux-cloud-handlers = { path = "crates/cmux-cloud-handlers" }
 cmux-window-rules = { path = "crates/cmux-window-rules" }
 cmux-cloud-client = { path = "crates/cmux-cloud-client" }
-cmux-cloud-codex-holder = { path = "crates/cmux-cloud-codex-holder" }
 cmux-cloud-api = { path = "crates/cmux-cloud-api" }
 cmux-cloud-environment = { path = "crates/cmux-cloud-environment" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
@@ -361,9 +370,11 @@ cmux-tasks = { path = "crates/cmux-tasks" }
 cmux-tasks-core = { path = "crates/cmux-tasks-core" }
 cmux-imessage = { path = "crates/cmux-imessage" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
+cmux-stack-auth = { path = "crates/cmux-stack-auth" }
 cmux-mcp-connect = { path = "crates/cmux-mcp-connect" }
 cmux-config = { path = "crates/cmux-config" }
 cmux-customize = { path = "crates/cmux-customize" }
+cmux-customize-recipes = { path = "crates/cmux-customize-recipes" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
@@ -392,6 +403,7 @@ cmux-terminal-sizing = { path = "crates/cmux-terminal-sizing" }
 cmux-mobile-core = { path = "crates/cmux-mobile-core" }
 cmux-cloud-wire = { path = "crates/cmux-cloud-wire" }
 cmux-vnc = { path = "crates/cmux-vnc" }
+cmux-computer-use = { path = "crates/cmux-computer-use", default-features = false }
 anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }

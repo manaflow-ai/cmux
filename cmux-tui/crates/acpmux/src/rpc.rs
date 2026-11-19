@@ -562,12 +562,13 @@ pub mod method {
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";
-    /// The signed app gives the daemon its legacy Computer Use agent endpoint.
-    pub const MUX_COMPUTER_USE_ENROLL: &str = "_acpmux/computer_use_enroll";
-    /// A local session reads the current legacy Computer Use endpoint (`cua_socket::from_env`):
-    /// its spawn env holds the endpoint of the app launch it started under, which an app
-    /// relaunch replaces (`cmux mcp serve`'s `cua_recovery.rs`).
-    pub const MUX_COMPUTER_USE_ENDPOINT: &str = "_acpmux/computer_use_endpoint";
+    /// One Computer Use call on another of the person's machines, over the
+    /// peer link (`server/computer_use_relay.rs`).
+    pub const MUX_COMPUTER_USE_CALL: &str = "_acpmux/computer_use_call";
+    /// The person's other machines and whether Computer Use is on there (local only).
+    pub const MUX_COMPUTER_USE_MACHINES: &str = "_acpmux/computer_use_machines";
+    /// Whether Computer Use is on here (asked by a peer for its machine list).
+    pub const MUX_COMPUTER_USE_STATE: &str = "_acpmux/computer_use_state";
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
@@ -781,6 +782,23 @@ pub mod method {
     pub const MUX_ACCOUNTS: &str = "_acpmux/accounts";
     pub const MUX_ACCOUNT_SET: &str = "_acpmux/account/set";
     pub const MUX_ACCOUNT_USAGE: &str = "_acpmux/account/usage";
+    // Model connections: the person's ordered ways to pay for a model, for Settings > Models and
+    // the inference gateway (server/connections.rs, cmux-tui/docs/model-connections.md). The list:
+    // also the local app; every change and every ChatGPT call: the unix socket only.
+    pub const MUX_CONNECTIONS: &str = "_acpmux/connections";
+    pub const MUX_CONNECTIONS_ORDER_SET: &str = "_acpmux/connections/order.set";
+    pub const MUX_CONNECTIONS_SPREAD_SET: &str = "_acpmux/connections/spread.set";
+    pub const MUX_CONNECTIONS_REMOVE: &str = "_acpmux/connections/remove";
+    pub const MUX_CONNECTIONS_KEY_ADD: &str = "_acpmux/connections/key.add";
+    pub const MUX_CONNECTIONS_CHATGPT_BEGIN: &str = "_acpmux/connections/chatgpt.begin";
+    pub const MUX_CONNECTIONS_CHATGPT_WAIT: &str = "_acpmux/connections/chatgpt.wait";
+    pub const MUX_CONNECTIONS_CHATGPT_CANCEL: &str = "_acpmux/connections/chatgpt.cancel";
+    pub const MUX_CONNECTIONS_CHATGPT_TOKEN: &str = "_acpmux/connections/chatgpt.token";
+    pub const MUX_CONNECTIONS_CLAUDE_TOKEN_ADD: &str = "_acpmux/connections/claude_token.add";
+    /// A Cloud-serving connection's credential for one machine agent launch (Revision 2).
+    pub const MUX_CONNECTIONS_CREDENTIAL: &str = "_acpmux/connections/credential";
+    /// Sent to watching unix-socket and local-app connections with the `ConnectionsState`.
+    pub const MUX_CONNECTIONS_CHANGED: &str = "_acpmux/connections.changed";
     /// Create a fix chat from a GitHub issue URL (`{url, cwd?}`).
     pub const CHAT_FIX_FROM_LINK: &str = "chat.fix_from_link";
     pub const CHAT_FIX_FROM_LINK_PREPARE: &str = "chat.fix_from_link.prepare";

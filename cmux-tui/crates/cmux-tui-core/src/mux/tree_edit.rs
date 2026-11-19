@@ -58,19 +58,31 @@ pub(super) fn stamp_changed_active_pane(mux: &Mux, state: &mut State, previous: 
 /// Bonsplit picks it (`SplitViewController.closePane`, issue 38194): the most
 /// recently focused of `panes` (focus only, as Zellij and tmux return to the
 /// pane used last), else `sibling`, the closed pane's sibling that absorbs
-/// its space, for a tree whose remaining panes were never focused.
+/// its space, for a tree whose remaining panes were never focused. A hidden
+/// quick terminal (`quick-terminal-v1`) takes the focus only when no other
+/// pane is left: a close of another pane does not show it.
 pub(super) fn close_focus_successor(
     state: &State,
     panes: &[PaneId],
     sibling: Option<PaneId>,
 ) -> Option<PaneId> {
+    let hidden = panes
+        .first()
+        .and_then(|pane| state.screen_of(*pane))
+        .and_then(|(workspace, screen)| state.workspaces.get(workspace)?.screens.get(screen))
+        .and_then(|screen| screen.quick_terminal())
+        .filter(|(_, mark)| mark.hidden)
+        .map(|(pane, _)| pane);
+    let shows = |pane: &PaneId| Some(*pane) != hidden;
     panes
         .iter()
+        .filter(|id| shows(id))
         .filter_map(|id| state.panes.get(id).map(|pane| (*id, pane.focused_at)))
         .filter(|(_, focused_at)| *focused_at > 0)
         .max_by_key(|(_, focused_at)| *focused_at)
         .map(|(id, _)| id)
-        .or(sibling.filter(|pane| panes.contains(pane)))
+        .or(sibling.filter(|pane| panes.contains(pane) && shows(pane)))
+        .or_else(|| panes.iter().copied().find(|pane| shows(pane)))
         .or_else(|| panes.first().copied())
 }
 
@@ -438,6 +450,7 @@ pub(super) fn layout_undo_confirmation_details(
         )
         .into());
     }
+    layout_undo::keep_hidden_quick_terminal(screen, entry)?;
     anyhow::ensure!(!entry.created_panes.is_empty(), "layout undo does not require confirmation");
 
     let mut hasher = Sha256::new();

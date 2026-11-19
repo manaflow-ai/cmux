@@ -641,6 +641,19 @@ pub fn from_next(value: &Value) -> Option<Machine> {
         let message = json::text(error.get("message")).unwrap_or_default();
         Some(ChangeFailure::new(code.to_owned(), message, error.get("at").and_then(Value::as_f64)))
     });
+    // The machine's size (protocol `CloudMachineSize`: `cpu`, `memory_mb`, `disk_mb`), which the
+    // classic record names `cpu`, `memoryMb`, `storageMb`. A field that is not a whole number drops
+    // only itself; a size with none of the three is no size.
+    machine.size = fields.get("size").and_then(Value::as_object).and_then(|size| {
+        let read = Size {
+            name: None,
+            cpu: size.get("cpu").and_then(int),
+            memory_mb: size.get("memory_mb").and_then(int),
+            storage_mb: size.get("disk_mb").and_then(int),
+        };
+        (read.cpu.is_some() || read.memory_mb.is_some() || read.storage_mb.is_some())
+            .then_some(read)
+    });
     machine.server_revision = json::text(fields.get("revision"));
     // The machine serves `desktop` (cloud-machine-ops.ts CloudMachine.desktop); absent from an older server.
     machine.serves_desktop = fields.get("desktop").and_then(Value::as_bool).unwrap_or(false);
