@@ -443,12 +443,22 @@ fn held_chat() -> Vec<(&'static str, &'static str, Value)> {
 /// chat's creation on; the hub is then dropped with no shutdown. What clients heard (every record
 /// the store took, as sent).
 fn run_until_killed(inner: &Arc<dyn Store>, kill: &Kill, at: usize) -> Vec<EventRecord> {
+    run_some_until_killed(inner, kill, at, usize::MAX)
+}
+
+/// [`run_until_killed`] over the first `records` of `held_chat` only.
+fn run_some_until_killed(
+    inner: &Arc<dyn Store>,
+    kill: &Kill,
+    at: usize,
+    records: usize,
+) -> Vec<EventRecord> {
     let hub = hub_on(inner, kill);
     let s = session(&hub, "k");
     let mut live = hub.events.subscribe();
     kill.at(at);
     let mut heard = Vec::new();
-    for (dir, kind, msg) in held_chat() {
+    for (dir, kind, msg) in held_chat().into_iter().take(records) {
         hub.append(&s, dir, kind, msg);
         while let Ok(event) = live.try_recv() {
             heard.push((*event.record).clone());
@@ -527,29 +537,39 @@ fn a_kill_at_any_write_keeps_what_the_log_showed() {
 }
 
 /// A body stored late whose file's removal failed: the next start reads the file past, since the
-/// log holds the body, and stores nothing twice.
+/// log holds the body, and stores nothing twice. Killed just after a command's end with no content
+/// (its newest snapshot stored late before it), and just after a turn's end (its diff).
 #[test]
 fn a_held_file_the_log_already_holds_is_read_past() {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let _enter = runtime.enter();
-    let inner: Arc<dyn Store> = Arc::new(crate::store::MemoryStore::default());
-    let kill = Kill::never();
-    kill.refuse_removals.store(true, Ordering::SeqCst);
-    run_until_killed(&inner, &kill, usize::MAX);
-    let before = inner.events("k", 0, usize::MAX).unwrap();
-    let a = before.iter().filter(|r| output(r).is_some_and(|t| t.starts_with("a:"))).count();
-    assert_eq!(a, 1, "a's newest, stored late before its end");
-    assert!(inner.kept_held("k").unwrap().len() >= 3, "a's, b's and t1's files stayed");
-    let hub = restarted(&inner, "k");
-    let after = hub.store.events("k", 0, usize::MAX).unwrap();
-    for name in ["a:", "b:", "t1:"] {
+    let through = |kind: &str| {
+        held_chat().iter().position(|(_, k, _)| *k == kind).map_or(usize::MAX, |at| at + 1)
+    };
+    let command_end = held_chat()
+        .iter()
+        .position(|(_, _, m)| m.pointer("/params/update/status").is_some_and(|s| s == "completed"))
+        .map_or(usize::MAX, |at| at + 1);
+    for (records, name) in [(command_end, "a:"), (through("turn_result"), "t1:")] {
+        let inner: Arc<dyn Store> = Arc::new(crate::store::MemoryStore::default());
+        let kill = Kill::never();
+        kill.refuse_removals.store(true, Ordering::SeqCst);
+        run_some_until_killed(&inner, &kill, usize::MAX, records);
+        let before = inner.events("k", 0, usize::MAX).unwrap();
         let count = |records: &[EventRecord]| {
             records.iter().filter(|r| output(r).is_some_and(|t| t.starts_with(name))).count()
         };
-        assert_eq!(count(&after), count(&before), "{name} stored again");
+        assert_eq!(count(&before), 1, "{name} its newest, stored late");
+        let left = inner.kept_held("k").unwrap();
+        assert_eq!(left.len(), 1, "{name} its file stayed");
+        let body = String::from_utf8_lossy(&left[0].1).into_owned();
+        assert!(body.contains(name), "{name} the file is not its body: {body}");
+        let hub = restarted(&inner, "k");
+        let after = hub.store.events("k", 0, usize::MAX).unwrap();
+        let outputs = |records: &[EventRecord]| records.iter().filter_map(output).count();
+        assert_eq!(outputs(&after), outputs(&before), "{name} an output stored again");
+        assert!(inner.kept_held("k").unwrap().is_empty(), "{name} a file stays");
     }
-    assert_eq!(ranks(&after).get("c"), Some(&(2, 2)), "the running command's newest is stored");
-    assert!(inner.kept_held("k").unwrap().is_empty());
 }
 
 /// A held body that cannot be written beside the log is not held: its record is stored whole.

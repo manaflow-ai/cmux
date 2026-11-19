@@ -19,7 +19,7 @@ use std::sync::Mutex;
 mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
 mod deferred;
-pub use deferred::{Deferral, HeldBack, Keep, held_file, slot as held_slot};
+pub use deferred::{Deferral, HeldBack, Keep, held_file};
 mod cold;
 pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
 mod superseded;
@@ -1465,7 +1465,7 @@ pub trait Store: Send + Sync {
         Ok(None)
     }
     /// Keeps `held`, the body of a tool output snapshot or turn diff chat `id` holds back from
-    /// its log (`store/deferred.rs`), as slot `slot` (lowercase hex, `deferred::slot`) beside the
+    /// its log (`store/deferred.rs`), as slot `slot` (lowercase hex, `Deferral::slot`) beside the
     /// log, in place of what the slot kept; None removes it, and a slot with nothing is Ok. The
     /// body is kept before its stub is logged, so the next start stores what a killed daemon held
     /// (`Hub::take_back_held`). Not synced: a kill keeps it, a power cut may not. Never makes a
@@ -2604,17 +2604,21 @@ impl Store for LocalStore {
     fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
         anyhow::ensure!(deferred::is_slot(slot), "{slot:?} names no held slot");
         let _open = self.writable()?;
-        let chat = self.dir(id);
-        let dir = chat.join(HELD);
+        let dir = self.dir(id).join(HELD);
         let path = dir.join(format!("{slot}.json"));
         match held {
             Some(bytes) => {
-                // Read in the held home, never by path (#41721 review F1).
-                let folder =
-                    crate::home_fs::symlink_metadata(&chat).is_ok_and(|m| m.file_type().is_dir());
-                anyhow::ensure!(folder, "no folder for {id}");
-                crate::home_fs::create_dir_all(&dir, 0o700)
-                    .with_context(|| format!("create {}", dir.display()))?;
+                // `held/` alone, never its parent: whenever a delete removed the chat's folder,
+                // this fails. Read in the held home, never by path (#41721 review F1).
+                if crate::home_fs::symlink_metadata(&dir).is_err() {
+                    match crate::home_fs::create_dir(&dir, 0o700) {
+                        Ok(()) => {}
+                        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                        Err(e) => {
+                            return Err(e).with_context(|| format!("create {}", dir.display()));
+                        }
+                    }
+                }
                 crate::config::write_atomic_unsynced(&path, bytes)
             }
             None => match crate::home_fs::remove_file(&path) {

@@ -990,10 +990,12 @@ impl Store for JournalStore {
         Store::kept_parked(&self.inner.local, id)
     }
     /// Beside the log, not in the journal, as `keep_parked`: a held body takes no seq, and the
-    /// journal is what the deferral keeps it out of (`store/deferred.rs`). Not while a delete or
-    /// a checkpoint works on the chat's folder.
+    /// journal is what the deferral keeps it out of (`store/deferred.rs`). Without the folders'
+    /// lock, which a checkpoint holds across the sync of another chat's `session.json`: this is
+    /// on a chat's append. It needs none: the hub writes no body once its chat is purged (under
+    /// the chat's append lock, which the purge waits out before the delete), the local store
+    /// never makes a chat's folder for one, and a sealed store refuses it.
     fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
-        let _folder = self.inner.folders.lock_or_recover();
         Store::keep_held(&self.inner.local, id, slot, held)
     }
     fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {

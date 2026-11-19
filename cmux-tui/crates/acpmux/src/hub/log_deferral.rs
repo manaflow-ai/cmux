@@ -75,10 +75,10 @@ impl Hub {
 
     /// Writes `msg`, a record of kind `kind` the session holds back, beside the log as its slot's
     /// body (`Store::keep_held`), as of the session's seq now: a record past it may replace it.
-    /// True when it is written, or needs no file: a purged chat stores nothing, and a fenced
-    /// record's receipt goes in its stub's place (`write_record_locked`). False when it is not
-    /// written, or `late_stored` is false: what the store refused before it is stored after its
-    /// stub, and an older body of its call stored after the file could read as replacing it.
+    /// True when it is written, or needs no file: a purged chat stores nothing. False when it is
+    /// not written (the store refused it, the chat has no slot free, or it is not caught up), or
+    /// `late_stored` is false: what the store refused before it is stored after its stub, and an
+    /// older body of its call stored after the file could read as replacing it.
     fn keep_held_body(
         &self,
         session: &Session,
@@ -86,29 +86,25 @@ impl Hub {
         msg: &Value,
         late_stored: bool,
     ) -> bool {
-        let fenced =
-            msg.pointer("/params/update").is_some_and(|u| session.fences_compaction_update(u));
-        if session.purged.load(Ordering::SeqCst) || fenced {
+        if session.purged.load(Ordering::SeqCst) {
             return true;
         }
-        if !late_stored {
+        // Nor before what an earlier run left is read (`take_back_held`): a slot may hold it still.
+        if !late_stored || !session.caught_up.load(Ordering::SeqCst) {
             return false;
         }
-        let Some(slot) = crate::store::held_slot(kind, msg) else { return false };
+        // The slot is taken whether or not the write lands: stored whole, its body is held no
+        // more, and the slot settles (and what an older write left in it is removed) with it.
+        let slot = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).slot(kind, msg);
+        let Some(slot) = slot else { return false };
         let after = session.seq.load(Ordering::SeqCst);
         let written = crate::store::held_file(after, kind, msg)
             .map_err(anyhow::Error::from)
             .and_then(|bytes| self.store.keep_held(&session.id, &slot, Some(bytes.as_slice())));
-        match written {
-            Ok(()) => {
-                session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).wrote(slot);
-                true
-            }
-            Err(e) => {
-                tracing::warn!(session = %session.id, kind, "a held tool output was not written beside the log, so it is stored whole: {e:#}");
-                false
-            }
+        if let Err(e) = &written {
+            tracing::warn!(session = %session.id, kind, "a held tool output was not written beside the log, so it is stored whole: {e:#}");
         }
+        written.is_ok()
     }
 
     /// Removes the files of `slots`, bodies the session no longer holds. One that stays is read
@@ -159,8 +155,8 @@ impl Hub {
         self.remove_held(session, unread.into_iter().chain(replaced).collect());
         {
             let mut deferral = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner());
-            for (slot, _, _) in &late {
-                deferral.wrote(slot.clone());
+            for (slot, kind, msg) in &late {
+                deferral.adopt(slot, kind, msg);
             }
         }
         session.held_read.store(true, Ordering::SeqCst);
