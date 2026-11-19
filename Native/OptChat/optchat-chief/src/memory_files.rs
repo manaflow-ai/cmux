@@ -29,8 +29,9 @@ pub const FILE: &str = "memory-files.sqlite3";
 pub const RULES: &str = "notes/standing-rules.md";
 /// Most bytes of the index in a turn; the rest is counted.
 pub const INDEX_BLOCK_BYTES: usize = 6_000;
-/// Most bytes of the standing rules in a turn.
-pub const RULES_BLOCK_BYTES: usize = 4_000;
+/// Most bytes of the standing rules in a turn (about 2,500 tokens; the
+/// nightly review keeps the file under 8 KB, so every rule is read).
+pub const RULES_BLOCK_BYTES: usize = 10_000;
 /// Longest file body.
 pub const BODY_MAX: usize = 16_000;
 /// Longest one-line description.
@@ -584,7 +585,7 @@ pub fn block_text(rows: &[Row]) -> Option<String> {
             rules.body.clone()
         };
         out.push_str(&format!(
-            "\n{RULES}: rules your person gave in chat, in their words. Follow them like the rules in their profile:\n{body}"
+            "\n{RULES}: rules your person gave in chat, in their words. Follow them like the rules in their profile, and copy each rule that applies into a task or tell you write (agents never see this file):\n{body}"
         ));
     }
     out.push_str("\n</chief-memory>");
