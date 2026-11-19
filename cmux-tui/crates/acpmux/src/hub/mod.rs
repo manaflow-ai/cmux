@@ -569,9 +569,18 @@ fn message_key(id: &str, target: Option<&str>, peer: Option<&str>) -> String {
 pub struct RemoteRef {
     pub peer: String,
     pub summary: Value,
+    /// The `_acpmux/session_changed` line watchers read for this change, without and with the
+    /// row's tools, built by the first watching connection that sends it and shared by the rest
+    /// (`server::deliver`), as a local row is (`HubEvent::row`): one copy and encode of the row
+    /// per change, not one per watching connection. None: too large for one frame.
+    pub lines: Arc<[std::sync::OnceLock<Option<Arc<str>>>; 2]>,
 }
 
 impl RemoteRef {
+    pub fn new(peer: impl Into<String>, summary: Value) -> Self {
+        Self { peer: peer.into(), summary, lines: Default::default() }
+    }
+
     /// The id this daemon's list row names the peer's session `mux_id` by (its
     /// `qualifiedSessionId`, `Hub::remote_summary`): the one key a client matches the
     /// peer's notices of that session to its row and to what it found by that row.
@@ -1227,6 +1236,10 @@ pub struct Hub {
     /// copies, merges and encodes the record's params. HOT PATH AUDIT area F, row A4: once per record,
     /// not once per connection.
     pub(crate) session_update_encodes: std::sync::atomic::AtomicU64,
+    /// A peer row's `_acpmux/session_changed` lines built for watchers since start
+    /// (`server::deliver`): once per change and variant (with or without its tools), not once per
+    /// watching connection.
+    pub(crate) remote_row_encodes: std::sync::atomic::AtomicU64,
     /// `_acpmux/wait` row evaluations since start (`server/wait.rs`): each builds the summaries of
     /// the chats it waits on. A streamed token must cost none (HOT PATH AUDIT area F, row A1).
     pub(crate) wait_evaluations: std::sync::atomic::AtomicU64,
@@ -1589,6 +1602,7 @@ impl Hub {
             subsession_runs: Default::default(),
             open_waits: Default::default(),
             session_update_encodes: Default::default(),
+            remote_row_encodes: Default::default(),
             wait_evaluations: Default::default(),
             subagent_retries: Default::default(),
             subagent_resumes: Default::default(),

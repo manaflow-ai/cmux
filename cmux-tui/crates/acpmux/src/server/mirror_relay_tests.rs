@@ -118,3 +118,53 @@ async fn a_peer_link_hears_no_change_of_a_row_mirrored_from_another_peer() {
         assert!(mirrored.is_empty(), "a link heard a mirrored row's change: {mirrored:?}");
     }
 }
+
+/// A peer row's change is built into its `session_changed` line once, however many connections
+/// watch the list: each watcher copied the row and encoded it again, so a hub with W watchers
+/// paid W copies of every remote row change (the 2,000-session bench, cmux#47303).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_peer_rows_change_is_encoded_once_for_every_watcher() {
+    const WATCHERS: usize = 4;
+    const CHANGES: u64 = 20;
+    let (hub, peer) = hub_with_a_mirrored_row().await;
+    let mut outs = Vec::new();
+    let mut inputs = Vec::new();
+    for n in 0..WATCHERS {
+        let (input, out) = watching(&hub, Origin::Local, &format!("watcher-{n}")).await;
+        inputs.push(input);
+        outs.push(out);
+    }
+    let before = hub.remote_row_encodes.load(std::sync::atomic::Ordering::Relaxed);
+    for seq in 1..=CHANGES {
+        let row =
+            json!({"sessionId": "m1", "name": "lane", "status": "running", "updatedAt": 10 + seq});
+        let notice = PeerNotice::SessionChanged { session: row, kind: "status".into(), seq };
+        hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
+    }
+    let mut heard: Vec<Vec<String>> = Vec::new();
+    for out in &mut outs {
+        let mut lines = Vec::new();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while (lines.len() as u64) < CHANGES {
+                let line = out.recv().await.unwrap();
+                let v: Value = serde_json::from_str(&line).unwrap();
+                if changed("m1")(&v) {
+                    lines.push(line);
+                }
+            }
+        })
+        .await
+        .expect("every change reaches every watcher");
+        heard.push(lines);
+    }
+    for other in &heard[1..] {
+        assert_eq!(other, &heard[0], "every watcher reads the same line per change");
+    }
+    let last: Value = serde_json::from_str(heard[0].last().unwrap()).unwrap();
+    assert_eq!(last["params"]["peer"], "box");
+    assert_eq!(last["params"]["seq"], json!(CHANGES));
+    assert_eq!(last["params"]["session"]["updatedAt"], json!(10 + CHANGES));
+    assert_eq!(last["params"]["session"]["name"], "box/lane");
+    let built = hub.remote_row_encodes.load(std::sync::atomic::Ordering::Relaxed) - before;
+    assert_eq!(built, CHANGES, "{built} lines built for {CHANGES} changes to {WATCHERS} watchers");
+}

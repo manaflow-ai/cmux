@@ -2287,15 +2287,34 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // every other peer's link for nothing (24 copies of every change with one daemon's
             // 25 peers, 2026-10-30), and the row's origin hears it from its own.
             if rec.dir == "peer" && !view::a_link(conn) {
-                let sid = remote
-                    .summary
-                    .get("sessionId")
-                    .cloned()
-                    .unwrap_or_else(|| Value::String(ev.session_id.clone()));
-                conn.send(&Message::notification(
-                    method::MUX_SESSION_CHANGED,
-                    json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": if attached || conn.watch_tools.load(Ordering::SeqCst) { remote.summary.clone() } else { crate::hub::views::without_summary_tools(remote.summary.clone()) }, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
-                ));
+                let full = attached || conn.watch_tools.load(Ordering::SeqCst);
+                let notice = || {
+                    hub.remote_row_encodes.fetch_add(1, Ordering::Relaxed);
+                    let sid = remote
+                        .summary
+                        .get("sessionId")
+                        .cloned()
+                        .unwrap_or_else(|| Value::String(ev.session_id.clone()));
+                    let session = if full {
+                        remote.summary.clone()
+                    } else {
+                        crate::hub::views::without_summary_tools(remote.summary.clone())
+                    };
+                    Message::notification(
+                        method::MUX_SESSION_CHANGED,
+                        json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
+                    )
+                };
+                // Built once per change and variant, shared by every watcher (`RemoteRef::lines`):
+                // each connection here reads lines raw, as a peer daemon's link (the one origin
+                // that masks, `peer_text::masks`) never gets here (`a_link`). Before, each watcher
+                // copied the row and encoded it again.
+                let line = remote.lines[usize::from(full)]
+                    .get_or_init(|| notice().bounded_line_replying(None).ok().map(Arc::from));
+                match line {
+                    Some(line) if conn.raw_text => conn.send_line(line),
+                    _ => conn.send(&notice()),
+                }
             }
             return;
         }
