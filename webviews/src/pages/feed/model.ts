@@ -209,8 +209,9 @@ export function longDateTime(at: number, language: string): string {
 export const ROW_HEIGHT = 66;
 export const SHORT_ROW_HEIGHT = 48;
 export const HEADER_HEIGHT = 30;
-/** Past this many lines a list draws only the rows near the viewport. */
-export const VIRTUALIZE_AFTER = 200;
+/** Up to this many lines a list is drawn whole, so find-in-page and copy reach every line; past it
+ * only the rows near the viewport are in the document. */
+export const DRAWN_WHOLE_UP_TO = 100;
 
 export type FeedLine =
   | { type: "header"; id: string; title: string; count: number }

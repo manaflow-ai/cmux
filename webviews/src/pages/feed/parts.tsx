@@ -1,7 +1,8 @@
 // The Feed's shared pieces: a row (FeedRowCells), its glyph and poster line (FeedGlyph), the empty
 // state, the disconnected banner (FeedView), a request card (FeedListView's FeedRequestCard), the
-// prompt summary (FeedPromptSummary) and the list that virtualizes past 200 rows (FeedRowsView).
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+// prompt summary (FeedPromptSummary) and the list that keeps only the rows in view past 100 lines (FeedRowsView).
+import { memo, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { sameJson } from "../../agent-session/acpmux/sameJson";
 import { cx } from "../../ui/cx";
 import type { Strings } from "../shared/i18n";
 import { VirtualList } from "../../ui/VirtualList";
@@ -19,11 +20,13 @@ import {
   metaLine,
   posterLabel,
   relativeTime,
-  VIRTUALIZE_AFTER,
+  DRAWN_WHOLE_UP_TO,
   type FeedLine,
 } from "./model";
-import { isPending, plain, type FeedProps } from "./context";
-import type { FeedAttachment, ViewItem } from "./types";
+import { plain } from "./context";
+import type { ChoiceSelection } from "./model";
+import type { FeedStore } from "./store";
+import type { FeedApproveScope, FeedAttachment, ViewItem } from "./types";
 
 // MARK: - Small pieces
 
@@ -39,14 +42,15 @@ export function UnreadDot({ visible }: { visible: boolean }) {
   return <span className="feed-dot" data-visible={visible ? "" : undefined} aria-hidden="true" />;
 }
 
-/** "Claude Code · api-server · 3m", the local mark, "×2" (PosterLine). */
-export function PosterLine({ item, strings, now }: { item: ViewItem; strings: Strings; now: number }) {
+/** "Claude Code · api-server · 3m", the local mark, "×2" (PosterLine). `time`: `relativeTime` of the
+ * item's creation (the caller's clock; this never reads one). */
+export function PosterLine({ item, strings, time }: { item: ViewItem; strings: Strings; time: string }) {
   return (
     <span className="feed-poster">
       <span className="feed-poster-label">{posterLabel(item)}</span>
       <span aria-hidden="true">·</span>
       <time className="feed-num" title={fullDate(item.created_at, strings.language)}>
-        {relativeTime(item.created_at, now, strings.language)}
+        {time}
       </time>
       {isLocal(item) ? (
         <span className="feed-local" title={strings.t("item.thisMac")}>
@@ -82,10 +86,16 @@ export function Banner({ text }: { text: string }) {
 export interface RowProps {
   line: Extract<FeedLine, { type: "row" }>;
   strings: Strings;
-  now: number;
+  /** The row's time, `relativeTime` of its item at the page's clock: a new clock that leaves the text
+   * as it was renders no row. */
+  time: string;
   style?: CSSProperties;
-  onSelect: () => void;
-  onOpen: () => void;
+  /** The row's place in the list's grid (1-based, group titles counted), for a screen reader: only
+   * the rows in view are in the document. None: a row outside a list (the Inbox detail's thread). */
+  rowIndex?: number;
+  /** The list's handlers, called with the row's item id: the same functions for every row. */
+  onSelect: (id: string) => void;
+  onOpen: (id: string) => void;
   compact?: boolean;
 }
 
@@ -96,7 +106,16 @@ const revealOnSelect = (node: HTMLDivElement | null) => node?.scrollIntoView?.({
  *         Ran swift test --filter FeedModelTests: 42 passed.
  *         Claude Code · api-server › Fix login redirect · ×2
  */
-export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact = false }: RowProps) {
+export const FeedRow = memo(function FeedRow({
+  line,
+  strings,
+  time,
+  style,
+  rowIndex,
+  onSelect,
+  onOpen,
+  compact = false,
+}: RowProps) {
   const item = line.entry.item;
   const { row } = item;
   const meta = metaLine(item, line.threadCount, strings);
@@ -110,6 +129,7 @@ export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact =
       role="row"
       tabIndex={-1}
       id={`feed-row-${line.id}`}
+      aria-rowindex={rowIndex}
       aria-selected={line.selected}
       aria-label={[
         label ? `${label}: ${row.headline}` : row.headline,
@@ -125,13 +145,13 @@ export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact =
       style={style}
       ref={line.selected && !style ? revealOnSelect : undefined}
       title={row.headline}
-      onClick={onSelect}
-      onDoubleClick={onOpen}
+      onClick={() => onSelect(item.id)}
+      onDoubleClick={() => onOpen(item.id)}
       onKeyDown={(event) => {
         if (event.key !== "Enter" || !plain(event)) return;
         event.preventDefault();
         event.stopPropagation();
-        onOpen();
+        onOpen(item.id);
       }}
     >
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the row's one cell, laid on its grid */}
@@ -140,7 +160,7 @@ export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact =
         <Glyph item={item} />
         <span className="feed-row-headline">{row.headline}</span>
         <time className="feed-row-time feed-num" title={fullDate(item.created_at, strings.language)}>
-          {relativeTime(item.created_at, now, strings.language)}
+          {time}
         </time>
         {detail ? <span className={cx("feed-row-detail", row.detail_is_code && "code")}>{detail}</span> : null}
         <span className="feed-row-meta">
@@ -154,12 +174,49 @@ export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact =
       </span>
     </div>
   );
+}, sameRow);
+
+/** A row draws the same: the same line (the owner sends every item again on each change, so its
+ * item is compared by content), time, handlers and place (VirtualList hands a row the same style
+ * object while its place and size hold). */
+function sameRow(a: RowProps, b: RowProps): boolean {
+  return (
+    a.strings === b.strings &&
+    a.time === b.time &&
+    a.compact === b.compact &&
+    a.onSelect === b.onSelect &&
+    a.onOpen === b.onOpen &&
+    a.style === b.style &&
+    a.rowIndex === b.rowIndex &&
+    sameLine(a.line, b.line)
+  );
 }
 
-export function GroupHeader({ title, count, style }: { title: string; count: number; style?: CSSProperties }) {
+function sameLine(a: RowProps["line"], b: RowProps["line"]): boolean {
+  return (
+    a === b ||
+    (a.id === b.id &&
+      a.selected === b.selected &&
+      a.pending === b.pending &&
+      a.threadCount === b.threadCount &&
+      sameJson(a.entry.item, b.entry.item))
+  );
+}
+
+export const GroupHeader = memo(function GroupHeader({
+  title,
+  count,
+  style,
+  rowIndex,
+}: {
+  title: string;
+  count: number;
+  style?: CSSProperties;
+  rowIndex?: number;
+}) {
   return (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a group title row inside the grid
-    <div className="feed-group-header" role="row" aria-label={title} style={style}>
+    <div className="feed-group-header" role="row" aria-label={title} aria-rowindex={rowIndex} style={style}>
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the title row's one cell */}
       <span className="feed-group-cell" role="rowheader">
         <span className="feed-group-title">{title}</span>
@@ -167,7 +224,7 @@ export function GroupHeader({ title, count, style }: { title: string; count: num
       </span>
     </div>
   );
-}
+});
 
 // MARK: - The list
 
@@ -179,13 +236,17 @@ export interface LinesProps {
   compact?: boolean;
   /** The scroller the list sits in (cards above it); none: the list scrolls itself. */
   scrollParent?: string;
+  /** Called with the row's item id; pass the same functions each render (context.ts `rowActions`). */
   onSelect: (id: string) => void;
   onOpen: (id: string) => void;
   onKeyDown: (event: KeyboardEvent) => void;
 }
 
-/** Rows and group titles at fixed heights; past VIRTUALIZE_AFTER lines only the rows near the
- * viewport are in the document, so a long feed costs what the window shows. */
+/** Rows and group titles at fixed heights. Up to DRAWN_WHOLE_UP_TO lines every line is in the
+ * document, so find-in-page and copy reach all of them. Past it only the rows near the viewport (and
+ * the selected row, so Up and Down and `aria-selected` always find it) are: a long feed costs what the
+ * window shows, and find-in-page does not reach the rows out of it. Each row carries its place
+ * (`aria-rowindex`) for a screen reader. */
 export function FeedLines({
   lines,
   strings,
@@ -197,43 +258,46 @@ export function FeedLines({
   onOpen,
   onKeyDown,
 }: LinesProps) {
-  const draw = (line: FeedLine, style?: CSSProperties) =>
-    line.type === "header" ? (
-      <GroupHeader key={line.id} title={line.title} count={line.count} style={style} />
+  const draw = (index: number, style?: CSSProperties) => {
+    const line = lines[index]!;
+    return line.type === "header" ? (
+      <GroupHeader key={line.id} title={line.title} count={line.count} style={style} rowIndex={index + 1} />
     ) : (
       <FeedRow
         key={line.id}
         line={line}
         strings={strings}
-        now={now}
+        time={relativeTime(line.entry.item.created_at, now, strings.language)}
         style={style}
+        rowIndex={index + 1}
         compact={compact}
-        onSelect={() => onSelect(line.entry.item.id)}
-        onOpen={() => onOpen(line.entry.item.id)}
+        onSelect={onSelect}
+        onOpen={onOpen}
       />
     );
-  const active = lines.findIndex((line) => line.type === "row" && line.selected);
-  if (lines.length > VIRTUALIZE_AFTER) {
+  };
+  if (lines.length <= DRAWN_WHOLE_UP_TO) {
     return (
-      // The virtual list is the grid; this wrapper is its tab stop and takes its keys.
-      // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex
-      <div className="feed-lines" tabIndex={0} onKeyDown={onKeyDown}>
-        <VirtualList
-          className="feed-lines-virtual"
-          count={lines.length}
-          estimateSize={(index) => (compact && lines[index]!.type === "row" ? 48 : lineHeight(lines[index]!))}
-          activeIndex={active >= 0 ? active : undefined}
-          renderRow={(index, style) => draw(lines[index]!, style)}
-          label={label}
-          role="grid"
-          scrollParent={scrollParent}
-        />
+      <div className="feed-lines" role="grid" aria-label={label} tabIndex={0} onKeyDown={onKeyDown}>
+        {lines.map((_, index) => draw(index))}
       </div>
     );
   }
+  const active = lines.findIndex((line) => line.type === "row" && line.selected);
   return (
-    <div className="feed-lines" role="grid" aria-label={label} tabIndex={0} onKeyDown={onKeyDown}>
-      {lines.map((line) => draw(line))}
+    // The virtual list is the grid; this wrapper is its tab stop and takes its keys.
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex
+    <div className="feed-lines" tabIndex={0} onKeyDown={onKeyDown}>
+      <VirtualList
+        className="feed-lines-virtual"
+        count={lines.length}
+        estimateSize={(index) => (compact && lines[index]!.type === "row" ? 48 : lineHeight(lines[index]!))}
+        activeIndex={active >= 0 ? active : undefined}
+        renderRow={draw}
+        label={label}
+        role="grid"
+        scrollParent={scrollParent}
+      />
     </div>
   );
 }
@@ -348,21 +412,51 @@ export function PromptSummary({ item, full = false }: { item: ViewItem; full?: b
   );
 }
 
-/** An open request in the list: what it asks and how to answer, inline. */
-export function RequestCard({ item, store, snap, strings }: FeedProps & { item: ViewItem }) {
+export interface RequestCardProps {
+  item: ViewItem;
+  store: FeedStore;
+  strings: Strings;
+  /** `relativeTime` of the item at the page's clock. */
+  time: string;
+  pending: boolean;
+  /** Its answer controls' part of the snapshot (context.ts `answerState`). */
+  disabled: boolean;
+  scope?: FeedApproveScope;
+  choices?: Record<string, ChoiceSelection>;
+  reply?: string;
+}
+
+/** An open request in the list: what it asks and how to answer, inline. It gets its own part of the
+ * snapshot only, so a change to another item, a draft in another card or the selection renders it not. */
+export const RequestCard = memo(function RequestCard({
+  item,
+  store,
+  strings,
+  time,
+  pending,
+  ...answer
+}: RequestCardProps) {
   return (
-    <div className={cx("feed-card", isPending(snap, item) && "pending")} data-item={item.id}>
+    <div className={cx("feed-card", pending && "pending")} data-item={item.id}>
       <div className="feed-card-head">
         <Glyph item={item} />
         <div className="feed-card-titles">
           <span className="feed-card-title">{item.title}</span>
-          <PosterLine item={item} strings={strings} now={snap.now} />
+          <PosterLine item={item} strings={strings} time={time} />
         </div>
       </div>
       <div className="feed-card-body">
         <PromptSummary item={item} />
-        <AnswerControls item={item} store={store} snap={snap} strings={strings} density="inline" />
+        <AnswerControls item={item} store={store} strings={strings} density="inline" {...answer} />
       </div>
     </div>
   );
+}, sameCard);
+
+function sameCard(a: RequestCardProps, b: RequestCardProps): boolean {
+  for (const key in a) {
+    if (key === "item") continue;
+    if (!Object.is(a[key as keyof RequestCardProps], b[key as keyof RequestCardProps])) return false;
+  }
+  return Object.keys(a).length === Object.keys(b).length && sameJson(a.item, b.item);
 }

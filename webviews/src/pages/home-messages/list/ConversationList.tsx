@@ -125,12 +125,18 @@ export function ConversationList(props: ConversationListProps) {
   const pinnedHeight = metrics.pinnedHeight(shownPinned.length);
   const draft = props.draftTitle !== undefined;
   // The rows: the draft row first, then the conversations (a row dragged into the grid leaves them).
-  const rows = drag && !drag.fromGrid && drag.index !== null ? model.rows.filter((r) => r.id !== drag.id) : model.rows;
+  const leftRows = drag && !drag.fromGrid && drag.index !== null ? drag.id : undefined;
+  const rows = useMemo(
+    () => (leftRows === undefined ? model.rows : model.rows.filter((r) => r.id !== leftRows)),
+    [model.rows, leftRows],
+  );
+  // Each row's place, built once per list (not per selection, scroll step or drag move).
+  const rowIndex = useMemo(() => new Map(rows.map((row, index) => [row.id, index])), [rows]);
   const rowStart = pinnedHeight + (draft ? metrics.rowHeight : 0);
   const contentHeight = rowStart + rows.length * metrics.rowHeight;
   const first = Math.max(0, Math.floor((view.top - OVERSCAN - rowStart) / metrics.rowHeight));
   const last = Math.min(rows.length, Math.ceil((view.top + view.height + OVERSCAN - rowStart) / metrics.rowHeight));
-  const selectedRow = selected === undefined ? -1 : rows.findIndex((row) => row.id === selected);
+  const selectedRow = selected === undefined ? -1 : (rowIndex.get(selected) ?? -1);
 
   // The visible window follows the scroll position in steps (a render per step, not per frame).
   useEffect(() => {
@@ -238,8 +244,13 @@ export function ConversationList(props: ConversationListProps) {
     };
   });
 
-  const events: ItemEvents = {
+  // The rows' handlers: one object for the list's life, so a row that did not change keeps its props
+  // (ListRow and PinnedTile are memo). They read this render's props and state through `latest`.
+  const latest = useRef({ props, canPin, query, unreadOnly, fetchMenu });
+  latest.current = { props, canPin, query, unreadOnly, fetchMenu };
+  const [events] = useState<ItemEvents>(() => ({
     onClick(id: string, event: Modifiers) {
+      const { props } = latest.current;
       if (suppressClick.current) {
         suppressClick.current = false;
         return;
@@ -253,6 +264,7 @@ export function ConversationList(props: ConversationListProps) {
       scroller.current?.focus({ preventScroll: true });
     },
     onPointerDown(id: string, fromGrid: boolean, event: ReactPointerEvent) {
+      const { canPin, query, unreadOnly } = latest.current;
       if (event.button !== 0 || !canPin || id === DRAFT_ROW || query !== "" || unreadOnly) return;
       const element = scroller.current;
       if (!element) return;
@@ -265,8 +277,8 @@ export function ConversationList(props: ConversationListProps) {
         pointer: event.pointerId,
       };
     },
-    onHover: fetchMenu,
-  };
+    onHover: (id: string) => latest.current.fetchMenu(id),
+  }));
 
   const onListKey = (event: ReactKeyboardEvent) => {
     if (event.target !== event.currentTarget) return;
