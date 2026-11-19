@@ -24,7 +24,7 @@ Usage: split-resize-bench.py --app APP --out DIR [--json PATH] [--tag TAG] [--pa
 
 from __future__ import annotations
 
-import argparse, base64, json, os, subprocess, sys
+import argparse, base64, json, os, subprocess, sys, time
 from pathlib import Path
 
 here = os.path.dirname(os.path.abspath(__file__))
@@ -74,6 +74,17 @@ def strip_png(path: Path) -> str | None:
     return base64.b64encode((small if scaled.returncode == 0 and small.is_file() else path).read_bytes()).decode()
 
 
+def drag_sample(path: Path) -> dict | None:
+    """The main thread's part of a `sample` report: its call tree's first 120 lines and the top-of-stack counts."""
+    if not path.is_file():
+        return None
+    lines = path.read_text(errors="replace").splitlines()
+    tree = next((i for i, line in enumerate(lines) if line.startswith("Call graph:")), None)
+    top = next((i for i, line in enumerate(lines) if line.startswith("Sort by top of stack")), None)
+    return {"main_thread": lines[tree + 1:tree + 121] if tree is not None else None,
+            "top_of_stack": lines[top + 1:top + 41] if top is not None else None}
+
+
 def measure(pane: str, folder: Path) -> dict:
     """One launch: the harness's gestures on `pane` and its recording drag, judged."""
     folder.mkdir(parents=True, exist_ok=True)
@@ -84,7 +95,18 @@ def measure(pane: str, folder: Path) -> dict:
         driver = golden.Driver(app.socket, folder)
         driver.call("debug.motion", {"action": "speed", "value": "fast"})
         driver.call("debug.motion", {"action": "reduce", "value": False})
-        split_resize.drive(driver, folder, strip=True, pane=pane, gestures=gestures, seed=opts.seed if pane in ("chat", "terminal") else 0)
+        sample_path = folder / "drag-sample.txt"
+
+        def profile():
+            """macOS `sample` of the app through the first divider drag (2 s, 1 ms): where a slow drag frame goes."""
+            sampler = subprocess.Popen(["/usr/bin/sample", str(app.process.pid), "2", "1", "-mayDie", "-file",
+                                        str(sample_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.3)  # sample attaches before the drag begins
+            return lambda: sampler.wait(timeout=30)
+
+        split_resize.drive(driver, folder, strip=True, pane=pane, gestures=gestures,
+                           seed=opts.seed if pane in ("chat", "terminal") else 0, profile=profile)
+        report["drag_sample"] = drag_sample(sample_path)
         data = json.loads((folder / "split_resize.json").read_text())
         refresh = next((float(d.get("refresh_ms") or 0) for d in data.get("drags") or [] if float(d.get("refresh_ms") or 0) > 0),
                        1000 / 60)

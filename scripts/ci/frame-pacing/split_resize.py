@@ -210,12 +210,15 @@ def _cef_counters(reply) -> dict[str, float]:
 
 
 def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
-          gestures: tuple[str, ...] | list[str] = ("divider",), seed: int = 0) -> None:
+          gestures: tuple[str, ...] | list[str] = ("divider",), seed: int = 0, profile=None) -> None:
     """Splits right, opens the page (`pane`) in the right pane, then traces each of `gestures` four times.
 
     `strip`: then one more divider drag, held open while `debug.window_snapshot` takes the window every
     12 moves (`strip-NN.png` in `out`): a frame strip of where the page is while the divider moves.
-    Snapshots perturb timing, so that drag is not measured."""
+    Snapshots perturb timing, so that drag is not measured.
+
+    `profile`: called just before the first divider drag; it returns a callable that ends the profile it
+    started (the bench's CPU sample of the app through that drag)."""
     if pane not in PANES:
         driver.save("split_resize", {"error": f"unknown pane {pane!r}"})
         return
@@ -488,7 +491,10 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
             if pane == "terminal":
                 # Each terminal's drawn and PTY grids through the gesture (data: the reflows it drew).
                 driver.call("debug.terminal_final_grid", {"action": "start"}, timeout=10)
+            stop_profile = profile() if profile is not None and gesture == "divider" and not drags else None
             trace = driver.trace(targets, act, 0.8 if gesture != "sidebar" else 1.2)
+            if stop_profile is not None:
+                stop_profile()
             if pane == "terminal":
                 trace["grids"] = (driver.call("debug.terminal_final_grid", {"action": "stop"}, timeout=20)
                                   .get("terminals"))
