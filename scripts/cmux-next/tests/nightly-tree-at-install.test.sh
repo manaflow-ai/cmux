@@ -43,6 +43,9 @@ own=$(git -C "$TMP/src" rev-parse HEAD)
 echo app > "$TMP/src/app.swift"
 git_q -C "$TMP/src" add -A; git_q -C "$TMP/src" commit -m app
 app=$(git -C "$TMP/src" rev-parse HEAD)
+echo takeover > "$TMP/src/takeover.swift"
+git_q -C "$TMP/src" add -A; git_q -C "$TMP/src" commit -m takeover
+takeover=$(git -C "$TMP/src" rev-parse HEAD)
 key=$(cd "$TMP/src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2 HEAD)
 [[ "$(cd "$TMP/src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$own")" == "$key" ]] || { echo "fixture: own and app differ" >&2; exit 1; }
 [[ "$(cd "$TMP/src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$base")" != "$key" ]] || { echo "fixture: base has the key" >&2; exit 1; }
@@ -192,6 +195,17 @@ own_run "$app" 6
 client "$own"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "run of ${app:0:12} is building tree" "$TMP/err"' "a failed owner is passed over for a same-key run that builds (took $took s)"
 rm -f "$runs_dir/runs-$own" "$runs_dir/runs-$app"; rm -rf "$TMP/api/repos/o/r/actions/runs"
+
+# A stuck same-key publisher found in the full runs list is passed over for a later
+# same-key publisher too; a single active-publisher lookup must not abort while a
+# viable takeover run exists.
+reset_cdn; own_run "$app" 10 3; own_run "$takeover" 11 1
+jobs_file 10 "$failed_jobs"
+jobs_file 11 '{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"in_progress","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"}]}'
+set_runs "{\"total_count\":2,\"workflow_runs\":[{\"id\":10,\"status\":\"in_progress\",\"head_sha\":\"$app\",\"head_branch\":\"feat-cmux-next\"},{\"id\":11,\"status\":\"in_progress\",\"head_sha\":\"$takeover\",\"head_branch\":\"feat-cmux-next\"}]}"
+client "$own"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "run of ${takeover:0:12} is building tree" "$TMP/err"' "a stuck publisher is passed over for a later same-key run (took $took s)"
+rm -f "$runs_dir/runs-$app" "$runs_dir/runs-$takeover"; rm -rf "$TMP/api/repos/o/r/actions/runs"
 
 # 6. Bad usage.
 status=0; (cd "$TMP/src" && bash scripts/cmux-next/await-tree-client.sh nope "$own" 2>/dev/null) || status=$?
