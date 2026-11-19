@@ -23,23 +23,33 @@ impl Mux {
 
     /// The prefix terminal `terminal`'s shell gets in
     /// [`crate::shell_state::SHELL_STATE_ENV`], given its launch
-    /// environment `env`; `None` gives it none (it saves nothing).
+    /// environment `env`; `None` gives it none (it saves nothing). An
+    /// incognito terminal's shell (its launch environment carries
+    /// [`crate::shell_integration::INCOGNITO_ENV`], as every incognito
+    /// launch and respawn sets it) gets none: its cwd and exported variables
+    /// never reach the disk (design/spaces.md "Incognito": nothing kept).
+    /// Reads no registry, so a terminal being built takes no lock here.
     pub(crate) fn shell_state_prefix(
         &self,
         terminal: &TerminalPublicId,
         env: &[(String, String)],
     ) -> Option<std::path::PathBuf> {
-        let _ = env;
+        let incognito =
+            env.iter().rev().find(|(key, _)| key == crate::shell_integration::INCOGNITO_ENV);
+        if incognito.is_some_and(|(_, value)| value == "1") {
+            return None;
+        }
         self.shell_state_dir()?.prefix(terminal)
     }
 
     /// A respawn of terminal `terminal`: a parked tab's restart (`parked`)
     /// hands its last shell's saved state to the new shell, which reads it
     /// after the startup files and deletes it; any other respawn starts a
-    /// fresh shell, with no older state left to read.
+    /// fresh shell, with no older state left to read. An incognito
+    /// terminal's files are only removed, never handed on.
     pub(crate) fn hand_shell_state_to_respawn(&self, terminal: &TerminalPublicId, parked: bool) {
         let Some(dir) = self.shell_state_dir() else { return };
-        if parked {
+        if parked && !self.output_store.is_private(self, terminal) {
             dir.take_for_restore(terminal);
         } else {
             dir.discard(terminal);
@@ -59,10 +69,17 @@ impl Mux {
         let mut outcomes: HashMap<TerminalPublicId, SaveOutcome> =
             terminals.iter().map(|id| (id.clone(), SaveOutcome::NoAck)).collect();
         let Some(dir) = self.shell_state_dir() else { return outcomes };
+        // An incognito shell is never asked to save (it has no prefix to
+        // save under), and any file of its terminal is removed.
+        let (private, terminals): (Vec<&TerminalPublicId>, Vec<&TerminalPublicId>) =
+            terminals.iter().partition(|id| self.output_store.is_private(self, id));
+        for id in private {
+            dir.discard(id);
+        }
         let pids: Vec<(TerminalPublicId, u32)> = self.with_state(|state| {
             terminals
                 .iter()
-                .filter_map(|id| {
+                .filter_map(|&id| {
                     let surface = state.terminal_catalog.get(id)?;
                     (!surface.is_dead()).then_some(())?;
                     Some((id.clone(), surface.process_id()?))
