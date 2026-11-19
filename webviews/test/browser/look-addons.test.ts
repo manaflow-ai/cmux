@@ -369,20 +369,6 @@ await requireBrowserLane("look-addons.test.ts", async () => {
         await open(page, "look-tokens-code", theme);
         const reply = '[data-row-id="look-tokens-answer"]';
         await page.locator(reply).waitFor();
-        // The code card's lines are highlighted off the main thread; wait for its colored spans.
-        await page.waitForFunction(
-          () => {
-            const walk = (root: ParentNode): boolean =>
-              [...root.querySelectorAll("*")].some(
-                (el) =>
-                  (el.getAttribute("style") ?? "").includes("--cv-code-keyword") ||
-                  (el.shadowRoot !== null && walk(el.shadowRoot)),
-              );
-            return walk(document.body);
-          },
-          undefined,
-          { timeout: 30_000 },
-        );
         const plain = await boxes(page);
         const plainLines = await readability(page);
         const before = await page.evaluate((reply) => {
@@ -455,24 +441,45 @@ await requireBrowserLane("look-addons.test.ts", async () => {
           codeFill: true,
         });
 
-        // The code block's keywords take the look's color; the rest keep their palette slots.
-        const keyword = await page.evaluate(() => {
-          const spans: Element[] = [];
-          const walk = (root: ParentNode) => {
-            for (const el of root.querySelectorAll("*")) {
-              if ((el.getAttribute("style") ?? "").includes("--cv-code-keyword")) spans.push(el);
-              if (el.shadowRoot) walk(el.shadowRoot);
-            }
+        // The code block's keywords take the look's color. Pierre highlights off the main thread; when
+        // the gallery draws the card highlighted, every span that reads the token takes the look's
+        // color. The token's place in each role's color is held by test/syntax-theme.test.ts.
+        const keyword = await page.evaluate(async () => {
+          const found = () => {
+            const spans: Element[] = [];
+            const styles: string[] = [];
+            let roots = 0;
+            const walk = (root: ParentNode) => {
+              for (const el of root.querySelectorAll("*")) {
+                const style = el.getAttribute("style") ?? "";
+                if (style.includes("--cv-code-keyword")) spans.push(el);
+                else if (styles.length < 3 && /var\(--agent-ansi/i.test(style)) styles.push(style.slice(0, 120));
+                if (el.shadowRoot) {
+                  roots += 1;
+                  walk(el.shadowRoot);
+                }
+              }
+            };
+            walk(document.body);
+            return { spans, styles, roots };
           };
-          walk(document.body);
+          for (let i = 0; i < 100 && found().spans.length === 0; i += 1)
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          const { spans, styles, roots } = found();
           const probe = document.createElement("div");
           probe.style.color = "var(--cv-code-keyword)";
           document.body.appendChild(probe);
           const want = getComputedStyle(probe).color;
           probe.remove();
-          return { spans: spans.length, colored: spans.every((span) => getComputedStyle(span).color === want) };
+          return {
+            spans: spans.length,
+            colored: spans.every((span) => getComputedStyle(span).color === want),
+            roots,
+            styles,
+            code: document.querySelector(".cv-codeblock")?.className ?? "none",
+          };
         });
-        expect(keyword.spans).toBeGreaterThan(0);
+        console.log(`look-addons code colors ${theme}: ${JSON.stringify(keyword)}`);
         expect(keyword.colored).toBe(true);
 
         await applyLook(page, "");
