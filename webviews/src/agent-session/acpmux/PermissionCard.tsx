@@ -509,7 +509,7 @@ export function PermissionCard({
         // A held key fills the ring until it goes up; an app shortcut cannot be held, so it puts the
         // keyboard on the button, where Return or Space held answers.
         if (event) hold.holdKey(event);
-        else hold.ref.current?.focus();
+        else focusRoute(hold.ref.current, "person", "an app allow shortcut under hold to approve");
         return true;
       }
       answerByKey(option);

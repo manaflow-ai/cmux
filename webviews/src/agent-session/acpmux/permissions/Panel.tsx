@@ -11,6 +11,7 @@ import { errorMessage } from "../transportErrors";
 import type { PermissionClientState, PermissionDecision, PermissionGroupItem } from "./protocol";
 import { permissionKeyAction } from "./prompt";
 import { ProposedEdits } from "./ProposedEdits";
+import { focusRoute } from "../../../ui/focusRoute";
 import { HoldRing, holdButtonProps, holdTitle, useHoldToApprove, type HoldControl } from "./HoldButton";
 import { holdApplies, holdSettings } from "./holdToApprove";
 import type { HoldScope } from "./holdToApprove.experiment";
@@ -297,7 +298,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       const hold = holds.current.get(`${group.groupId}:${decision}`);
       if (hold) {
         if (event) hold.holdKey(event);
-        else hold.ref.current?.focus();
+        else focusRoute(hold.ref.current, "person", "an app allow shortcut under hold to approve");
         return true;
       }
       callbacks.current.onRespond(group.groupId, group.revision, decision);
