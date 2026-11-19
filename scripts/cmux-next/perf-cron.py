@@ -9,7 +9,8 @@ runs on a cron instead, only on idle fleet capacity, behind every nightly and de
   plan (Linux)      reads the state (the newest `perf-cron-state` artifact), picks the work: the next part of
                     the measurement in flight, else the newest feat-cmux-next commit whose cmux-tui tree is
                     published (a fleet build needs it) when it is newer than the last measured one (commits
-                    in between are skipped), else one bisect step of an open regression. While a nightly
+                    in between are skipped; when none has a tree, the newest commit, whose Linux parts run at
+                    once and whose Mac parts wait for its tree), else one bisect step of an open regression. While a nightly
                     or dev build waits for a Mac on GitHub, a Mac part runs only on cmux20-bench (it runs no
                     CI job); a measurement pinned to another host waits, and gives that host up after 2 h.
   measure (gateway) runs only on its own runner label (vars.CI_PERF_CRON_GATEWAY), skips unless the part's host
@@ -91,6 +92,11 @@ CANDIDATE_DEPTH = 80
 # always exists: while a regression range can be bisected, a tip measurement starts at most once per TIP_EVERY_HOURS
 # and the ticks in between go to the bisect.
 TIP_EVERY_HOURS = 6
+# When no commit since the last tip has a published cmux-tui tree, the tip is the newest commit anyway: its Linux
+# parts run at once, and its Mac parts (a fleet build needs the tree) wait this long for its tree, then are recorded
+# as not run ('no_tree'). 2026-11-17 07:13Z: none of the 10 commits since the last tip had a tree, so no tip started,
+# and the web-ui rows of new Linux benches (cmux#44534) waited on a prerequisite only the Mac parts have.
+TREE_WAIT_HOURS = 2
 # The plan's checkout is shallow (fetch-depth 300): a culprit range older than that is deepened this many commits at
 # a time, at most DEEPEN_ROUNDS times, before its commits are listed.
 DEEPEN_STEP = 500
@@ -156,6 +162,12 @@ PARTS = [
      "artifact": "artifacts/split-spring/perf-gate.json", "kind": "perf_gate", "needs": "perf-gate"},
     {"name": "launch", "args": [*MEASURE, "--suite=launch", "--profile", "empty", "--mode", "warm", "--runs", "5", "--timeout", "20"],
      "artifact": "artifacts/split-spring/report.json", "kind": "launch", "needs": "launch"},
+    # The same launch as a Dock click opens it (CMUX-629, CMUX-631): through LaunchServices, activated, the app's own
+    # restore placement. The direct exec above skips the wait before main that only a LaunchServices launch pays
+    # (cmux#44204: about 600 ms on the nightly against about 50 ms by direct exec), so only this part sees it.
+    {"name": "launch-dock", "args": [*MEASURE, "--suite=launch", "--profile", "empty", "--mode", "warm", "--runs", "5",
+                                     "--timeout", "20", "--activation", "active", "--window-placement", "restore"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "launch", "needs": "launch-dock", "row_prefix": "launch.dock"},
     # 400 workspaces, 6 scenarios: not timed against 900 s yet (perf-budgets' own per-bench cap is 900 s).
     {"name": "sidebar", "args": [*MEASURE, "--suite=budgets", "--only=sidebar"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "run_seconds": 1500},
@@ -224,7 +236,7 @@ ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
-    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
+    (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -247,6 +259,13 @@ DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_m
                 "diff.stream.p95": 250.0}
 # The launch-time budget that left the pull request CI (ms since process start, warm launch, empty profile).
 LAUNCH_BUDGETS = {"did_finish_launching_end": 800, "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000}
+# A Dock launch's budget (launch-dock). The Dock's bounce ends when AppKit checks in with LaunchServices
+# (NSRunningApplication.isFinishedLaunching), just before the delegate's applicationDidFinishLaunching runs: on the
+# nightly (launch-ready.sh, 2026-11-18, n=10) isFinishedLaunching came at 692 ms and did_finish_launching_start at
+# 719. Its target is launch-shell-first.md's "Dock bounce over", 250 ms: the icon rises once and stops. The other
+# rows keep the direct exec's budgets.
+LAUNCH_DOCK_BUDGETS = {"did_finish_launching_start": 250, "did_finish_launching_end": 800,
+                       "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000}
 
 
 def now_utc():
@@ -542,20 +561,22 @@ def rows_of_part(part, report, budgets_mod, budgets):
         for scenario, (_ok, failed) in sorted(per.items()):
             out[f"perf_gate.{scenario}.failed_checks"] = {"p50": failed, "p95": failed, "unit": "checks", "budget": 0, "floor": 0.5}
     elif part["kind"] == "launch":
+        prefix = part.get("row_prefix", "launch")
+        launch_budgets = LAUNCH_DOCK_BUDGETS if prefix == "launch.dock" else LAUNCH_BUDGETS
         for _tag, modes in report.items():
             for mode, runs in (modes or {}).items() if isinstance(modes, dict) else []:
                 runs = runs if isinstance(runs, list) else []
-                for mark, budget in LAUNCH_BUDGETS.items():
+                for mark, budget in launch_budgets.items():
                     values = [r[mark] for r in runs if isinstance(r, dict) and isinstance(r.get(mark), (int, float))]
                     if runs:
                         # A launch that hangs never sends the mark: the old CI budget failed on that, so it is a
                         # row of its own (target 0), and a run with no marks at all misses every one.
                         missing = len(runs) - len(values)
-                        out[f"launch.{mode}.{mark}.missing_runs"] = {"p50": missing, "p95": missing, "unit": "runs",
+                        out[f"{prefix}.{mode}.{mark}.missing_runs"] = {"p50": missing, "p95": missing, "unit": "runs",
                                                                      "budget": 0, "floor": 0.5}
                     if values:
                         p50, p95 = budgets_mod.pct(values, 0.5), budgets_mod.pct(values, 0.95)
-                        out[f"launch.{mode}.{mark}"] = {"p50": round(p50, 1), "p95": round(p95, 1), "unit": "ms",
+                        out[f"{prefix}.{mode}.{mark}"] = {"p50": round(p50, 1), "p95": round(p95, 1), "unit": "ms",
                                                         "budget": budget, "floor": 20.0}
     elif part["kind"] == "diff":
         sidecar, stream = report.get("sidecar") or {}, report.get("stream") or {}
@@ -1252,8 +1273,30 @@ def tip_due(state, t):
     return not times or hours_between(max(times), t) >= TIP_EVERY_HOURS
 
 
+def wait_for_tree(cur, t, tree_ready):
+    """A tip measurement's Mac parts wait for its commit's published cmux-tui tree (a fleet build needs it); its Linux
+    parts never do. Returns why the Mac parts wait now, or "" (the tree is published, or no Mac part is left to do).
+    Past TREE_WAIT_HOURS of waiting, its Mac parts still to do end as 'no_tree' (not run): the measurement finishes
+    with the parts that ran, as after no_host_for_tip, and the next tip starts on a newer commit."""
+    if cur.get("kind") != "tip" or not needs_mac(cur) or cur.get("tree_seen"):
+        return ""
+    if tree_ready(cur["sha"]):
+        cur["tree_seen"] = True
+        cur.pop("tree_wait_since", None)
+        return ""
+    since = parse_iso(cur.setdefault("tree_wait_since", iso(t)))
+    if hours_between(since, t) <= TREE_WAIT_HOURS:
+        return f"the Mac parts wait for the cmux-tui tree of {cur['sha'][:12]} (since {iso(since)})"
+    why = f"no published cmux-tui tree of {cur['sha'][:12]} for {TREE_WAIT_HOURS} h"
+    for name in [p for p in cur["parts_todo"] if not is_linux_part(p)]:
+        cur["parts"][name] = {"state": "no_tree", "reason": why}
+        cur["parts_todo"].remove(name)
+    cur.pop("tree_wait_since", None)
+    return ""
+
+
 def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable=lambda sha: True, mac_disabled=None,
-           controller_route=False):
+           controller_route=False, tree_ready=lambda sha: True):
     """The tick's work: {'action': 'part'|'none'|'finish', 'part': a fleet part or '', 'linux_part': '' or one}.
     May set state['current'] (a new measurement). With both a candidate and a bisect step, the bisect goes first
     unless a tip measurement is due (tip_due): a newer tip always exists, so 'bisect when idle' would never bisect.
@@ -1267,7 +1310,8 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     gateway runner label), or None: a tip measurement records its Mac parts as not run (so it is incomplete), and a
     bisect step measures only Linux rows. controller_route: the Mac part goes to the build controller as a request
     that has no answer until the part's result run, so the time from the request to the result is the fleet's wait
-    (start_yield; record_part ends it), not the measurement's active time."""
+    (start_yield; record_part ends it), not the measurement's active time. tree_ready(sha): the commit's cmux-tui
+    tree is published; a tip whose tree is not runs only its Linux parts until it is (wait_for_tree)."""
     drop_dead_measurement(state, t, measurable)
     no_host = no_host_for_tip(state, t)
     give_up_host(state, t)
@@ -1287,6 +1331,7 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
             cur["host"] = pin
     if cur and mac_disabled:
         disable_mac_parts(cur, mac_disabled)
+    tree_wait = wait_for_tree(cur, t, tree_ready) if cur else ""
     if not cur:
         return {"action": "none", "reason": "nothing new to measure: the newest measurable feat-cmux-next commit "
                                             "was measured, and no regression range to bisect"}
@@ -1294,8 +1339,10 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
         return {"action": "finish", "sha": cur["sha"],
                 "reason": f"its Mac parts have no host ({no_host}); report only" if no_host else "every part ran; report only"}
     linux = next((p for p in cur["parts_todo"] if is_linux_part(p)), "")
-    fleet = next((p for p in cur["parts_todo"] if not is_linux_part(p)), "")
+    fleet = "" if tree_wait else next((p for p in cur["parts_todo"] if not is_linux_part(p)), "")
     done = f"{len(cur['parts'])} of {len(cur['parts']) + len(cur['parts_todo'])} done"
+    if tree_wait and not linux:
+        return {"action": "none", "sha": cur["sha"], "reason": tree_wait}
     # A nightly or dev build waiting for a Mac holds back only a part that could take a Mac from it. The bench host
     # runs no CI job (it is a controller worker only), so a part there takes nothing: a measurement not pinned to
     # another host goes to it. From 2026-11-13 16:43Z to 11-14 02:29Z a nightly job was queued for a signing runner
@@ -1316,7 +1363,7 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     if fleet and controller_route:
         start_yield(cur, t)
     what = " and ".join(x for x in (fleet, linux) if x)
-    waits = ""
+    waits = f"; {tree_wait}" if tree_wait else ""
     if github_busy and bench_only:
         waits = f"; only on {BENCH_WORKER}, which runs no CI job: {github_busy}"
     elif github_busy and linux:
@@ -1852,6 +1899,12 @@ def supported_parts_at(sha):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = "--suite=terminal-throughput" in text
+        elif need == "launch-dock":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True).stdout
+            bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
+                                   capture_output=True, text=True).stdout
+            ok = "--suite=launch" in text and '"--activation"' in bench
         elif need in ("perf-gate", "launch", "memory-agents"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -2849,7 +2902,13 @@ def plan(o):
     if dead:
         print(f"perf-cron: the measurement in flight ended ({dead}); looking for a new commit")
     last_sha = (state.get("last_tried") or state.get("last") or {}).get("sha")
-    candidate = None
+    candidate, newest = None, None
+    trees = {}
+
+    def tree_ready(sha):
+        if sha not in trees:
+            trees[sha] = tree_published(sha)
+        return trees[sha]
     if not state.get("current"):
         for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
             if sha == last_sha or (last_sha and is_ancestor(sha, last_sha)):
@@ -2857,10 +2916,16 @@ def plan(o):
             if not fleet_runs(sha, tip_version):
                 print(f"perf-cron: {sha[:12]} has another {MEASURE_SCRIPT} measurement version than the tip's ({tip_version})")
                 break
-            if tree_published(sha):
+            newest = newest or sha
+            if tree_ready(sha):
                 candidate = sha
                 break
             print(f"perf-cron: {sha[:12]} has no published cmux-tui tree yet; trying its parent")
+        if not candidate and newest:
+            # Only the Mac parts need the tree: the Linux parts measure the newest commit now (wait_for_tree).
+            candidate = newest
+            print(f"perf-cron: no commit since the last tip has a published cmux-tui tree; the tip is {newest[:12]}, "
+                  f"its Mac parts wait for its tree (at most {TREE_WAIT_HOURS} h)")
     bisect = None
     if not state.get("current") and not (candidate and tip_due(state, t)):
         for group in bisect_groups(state):
@@ -2884,7 +2949,7 @@ def plan(o):
     if not no_mac and (candidate or bisect or state.get("current")):
         busy, busy_known = github_busy(o.repo, o.yield_mode), True
     d = decide(state, t, candidate, bisect, supported_parts_at, busy, lambda sha: fleet_runs(sha, tip_version), no_mac,
-               controller_route=bool(getattr(o, "controller", False)) and not no_mac)
+               controller_route=bool(getattr(o, "controller", False)) and not no_mac, tree_ready=tree_ready)
     state["mac_off"] = no_mac  # the issue says why no Mac row is measured
     if state.get("current") and isinstance(tip_version, int):
         # The measurement version its Mac rows carry (fleet_runs measures only commits of the tip's version).
