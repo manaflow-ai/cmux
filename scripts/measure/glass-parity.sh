@@ -23,6 +23,10 @@ for arg in "$@"; do
     *) args+=("$arg") ;;
   esac
 done
+# cmux-tui builds in a target of this measure's own: the host's shared one (CI_SHARED_CACHE_DIR/cmux-tui-client-target)
+# reused a stale cmux-tui-util on aws-m4pro-7 (step a89bbf49c265a936150712bf: "unresolved import AgentsCmuxMcp", which
+# this tree defines), and failed the app build.
+export CMUX_TUI_CLIENT_TARGET_DIR="${CI_SHARED_CACHE_DIR:-$(pwd)/cmux-tui/target}/glass-parity-cmux-tui-target"
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" --config bench 2>&1 | tee "$out/reload.log"
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
