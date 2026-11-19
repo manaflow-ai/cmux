@@ -1331,6 +1331,10 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
   // A create may take a spare (CloudDO.ts claim path): its daemon was started before this bench.
   boot.create_answer = short({ spare: spareFields(answer), claimed: answer?.claimed ?? answer?.spare ?? answer?.lease ?? null, status: answer?.machine?.status ?? answer?.status ?? null });
   const write = () => {
+    // The uploader keeps only header, rows and failures, so each failed probe's time since create rides in the header.
+    const failed = probes.filter((r) => execProbeHop(r) !== null).map(({ condition, kind, run, at, ms, status, code }) => ({ condition, kind, run, at, ms, status, code }));
+    // The first 30 keep it under the header's 4000-character cut, so the JSON stays whole.
+    if (failed.length) boot.probe_failures = JSON.stringify(failed.slice(0, 30));
     if (args.outDir) { mkdirSync(args.outDir, { recursive: true }); writeFileSync(path.join(args.outDir, "ensure-bench.md"), `${ensureBenchMarkdown(runs)}\n${execProbeMarkdown(probes)}`); }
     const rows = runs.map((r) => ({ ...r, output: scrub(r.output, args.journey.secrets), slow: scrub(r.slow, args.journey.secrets).slice(-6000) }));
     if (args.privateRowsPath) writeFileSync(args.privateRowsPath, `${JSON.stringify({ header: { backend: args.backend, summary: { runs: runs.length, crossed_120s: runs.filter((r) => r.ms !== null && r.ms > 120_000).length, probes: probes.length, probes_failed: probes.filter((r) => execProbeHop(r) !== null).length }, boot: Object.fromEntries(Object.entries(boot).map(([k, v]) => [k, scrub(v, args.journey.secrets).slice(-4000)])) }, rows, probes: probes.map((r) => ({ ...r, cause: scrub(r.cause, args.journey.secrets) })) }, null, 2)}\n`);
@@ -1347,8 +1351,10 @@ export async function runEnsureBench(args: { api: Api; journey: Journey; backend
       // Run 43983037186: the machine stopped during a 20 s exec and every probe after was 409 vm_not_running. Who
       // stopped it: the platform's row (status, pause_reason, paused_by) at the first one, with ms since create, so
       // a VM-side idle timeout (cmux-vm DEV_TEST_MAX_IDLE_SECONDS) shows against the probe times.
-      if (r.status === 409 && boot.first_not_running === undefined)
-        boot.first_not_running = JSON.stringify({ at: Date.now() - created, row: await args.api.read("cloud.machine.get", { machine }).then(machineStopFields, (e) => `read failed: ${String((e as Error)?.message ?? e)}`) });
+      // One read per distinct 409 refusal, so an unrelated conflict first does not hide vm_not_running.
+      const key = `first_409_${r.code.replace(/[^A-Za-z0-9_]/g, "_")}`.slice(0, 64);
+      if (r.status === 409 && boot[key] === undefined)
+        boot[key] = JSON.stringify({ at: Date.now() - created, code: r.code, row: await args.api.read("cloud.machine.get", { machine }).then(machineStopFields, (e) => `read failed: ${String((e as Error)?.message ?? e)}`) });
     };
     // Short execs back to back, 20 s holds like an `acp wait` read, and (settled) one after each idle gap, where a
     // pooled connection the far end already closed would be reused.
