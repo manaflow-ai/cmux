@@ -238,8 +238,9 @@ jobs:
       owns_key: ${{ steps.inspect.outputs.owns_key }}
       stale: ${{ steps.stale.outputs.stale }}
       # The live GCP Linux label for the daemon tests alone, only when the
-      # runner census shows an idle Linux member; empty keeps their measured
-      # Blacksmith overflow. The build calls read gcp_runner below.
+      # runner census shows an idle Linux member; empty leaves them on the
+      # owned GCP label on attempt 1 of the nightly path (never Blacksmith from
+      # one census reading). The build calls read gcp_runner below.
       linux_runner: ${{ steps.linux-placement.outputs.linux_runner }}
       linux_jobs: ${{ steps.linux-placement.outputs.linux_jobs }}
       # Owned GCP Linux for the shipped tree's two musl legs (the tree the NEXT nightly bundles), only
@@ -1646,7 +1647,16 @@ jobs:
     # its name's "cmux_next_ daemon tests" prefix, so older runs' names with
     # a runner suffix still count. Leo, 2026-10-27: "ok do NOT label stuff as
     # os=linux...": the name, steps and marker name no runner OS.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(needs.tree-preflight.outputs.linux_jobs, ' cmux-next-daemon-tests ') && needs.tree-preflight.outputs.linux_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    # Owned first, never frozen onto Blacksmith by a one-shot census (Leo, 2026-11-19: "why would it move OFF of gcp
+    # and into blacksmith if it was already linux 16!?"). tree-preflight's linux-placement reads the runner census
+    # once; until then an empty answer (no fleet member idle at that instant) put this job on Blacksmith linux_16 for
+    # good, and run 44464326281's daemon tests sat there from 05:23Z while the owned GCP runners freed up, holding
+    # the tree publish the nightly waits for. Now the census only picks the fleet label when it saw one idle; with
+    # none, attempt 1 of the nightly path still queues on the owned GCP label the tree preflight uses (nightly-only
+    # for a dispatch or nightly-next, the build lane for feat-cmux-next). The spill to Blacksmith is attempt 2+,
+    # which ci-owned-first-spill.yml (on main) starts after a bounded wait on the owned label. Lane pushes keep
+    # their Blacksmith route (tests/test_ci_owned_first_not_census_frozen.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && contains(needs.tree-preflight.outputs.linux_jobs, ' cmux-next-daemon-tests ') && needs.tree-preflight.outputs.linux_runner || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-lane-build-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 60
     env:
       # Cargo's default registry retry is too small for a transient index DNS

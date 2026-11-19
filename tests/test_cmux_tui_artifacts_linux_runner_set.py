@@ -85,9 +85,12 @@ OWNED = "cmux-gcp-lane-build-x64"
 # The nightly-only runners: a nightly-next push and a tree request (dispatch) take these first, so the
 # nightly's tree never queues behind lane builds on OWNED (tree request 44427450458 sat 2 h there, 2026-11-19).
 NIGHTLY = "cmux-gcp-nightly-x64"
-# Jobs that keep their own route on the nightly path: the daemon tests (linux-placement, then Blacksmith;
-# their full checkout is not repaired for a reused self-hosted workspace) and the shadow (its override).
+# Jobs that keep their own route on the nightly path: the daemon tests (linux-placement's fleet label when the
+# census saw one idle, else the owned label on attempt 1, never Blacksmith from one census reading:
+# tests/test_ci_owned_first_not_census_frozen.py) and the shadow (its override).
 OWN_ROUTE_JOBS = ("cmux-next-daemon-tests", DARWIN_CROSS_JOB)
+# Own-route jobs that still queue on the owned labels on attempt 1 of the nightly path.
+OWNED_FIRST_OWN_ROUTE_JOBS = ("cmux-next-daemon-tests",)
 # The jobs a NEXT nightly waits for; only these take the 4-runner owned GCP lane first.
 NIGHTLY_TREE_JOBS = ("tree-preflight", "tree-owner-wait", "publish", "publish-tree", "mark-tree-commits")
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
@@ -158,9 +161,9 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         ):
             labels = resolved(runs_on, "manaflow-ai", linux_runner, overflow, trusted)
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
-            # tests) stays on Blacksmith. The nightly path's attempt 1 takes the owned pool.
+            # tests) never takes it. The nightly path's attempt 1 takes the owned pool.
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
-                       | ({OWNED, NIGHTLY} if name in NIGHTLY_TREE_JOBS else set()))
+                       | ({OWNED, NIGHTLY} if name in NIGHTLY_TREE_JOBS + OWNED_FIRST_OWN_ROUTE_JOBS else set()))
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
 
