@@ -480,6 +480,7 @@
     "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks"},
     "nightly.yml#report-nightly-failure": {"class": "portable-checks"},
     "nightly.yml#republish-nightly-next": {"class": "portable-checks"},
+    "nightly.yml#runner-preflight": {"class": "portable-checks"},
     "nightly.yml#decide": {"class": "portable-checks"},
     "nightly.yml#await-release-surface-ack": {"class": "portable-checks"},
     "nightly.yml#pick-nightly-sign-runner": {"class": "portable-checks"},
@@ -604,23 +605,11 @@
   },
   "hosted_light_jobs": {
     "$comment": [
+      "Empty: every light job runs on Blacksmith (or placement onto owned capacity) on every attempt, never GitHub-hosted Ubuntu (Lawrence: Blacksmith for all CI; GitHub-hosted left them queued for hours on cmux#45735, 2026-11-18). Fork pull requests keep their own routes.",
       "allowed_secrets names every secret each job may reference, including inherited workflow env; omitted means none.",
       "Nightly jobs never use GitHub-hosted runners: they run only on our own Mac minis (tests/test_nightly_owned_minis_only.py).",
       "The route still prefers a verified fleet reservation and measured Blacksmith overflow; this table never permits release/signing operations, credentialed visual-gate routing or artifact publication on hosted Ubuntu."
-    ],
-    "cmux-next-fast-gates.yml#resolve": {"class": "portable-checks", "reason": "resolver: names the head and base, 10 s of work (run 41389051872)"},
-    "cmux-next-fast-gates.yml#post": {"class": "portable-checks", "reason": "report step: posts the cmux-next/fast-gates status"},
-    "ci.yml#changes": {"class": "portable-checks", "reason": "CI router: change classification and runner picks, 11 s of work (run 41385632466)", "allowed_secrets": ["GLAEDA_ROUTE_APP_KEY"]},
-    "pr-red-checks-comment.yml#comment": {"class": "portable-checks", "reason": "report step: edits the PR's red-checks comment, 3-9 s of work (runs 41393817927, 41393826242, 41394534282)"},
-    "ci-guards.yml#guard-status": {"class": "portable-checks", "reason": "report step: rolls up the guard job results, 2 s of work (runs 41393826242, 41393801145)"},
-    "pr-checks.yml#size": {"class": "portable-checks", "reason": "report step: one GraphQL read and a size warning, 4 s of work (runs 41394557472, 41394554327)"},
-    "pr-checks.yml#ui-review": {"class": "portable-checks", "reason": "report step: one file-list read and an advisory warning, 4 s of work (run 41394554327)"},
-    "web-validation.yml#web-validation": {"class": "portable-checks", "reason": "status rollup: accepts selected web results"},
-    "cmux-next.yml#path_route": {"class": "portable-checks", "reason": "router: classifies the PR's paths and probes the published tree, 32-51 s of work (runs 41394344151, 41393817927)"},
-    "cmux-next.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap: starts independently of the labels it validates"},
-    "ci-web.yml#web-subarea-scope": {"class": "portable-checks", "reason": "router: classifies the webview subareas and hands the shards their duration manifest, 29 s of work (run 41762274751)"},
-    "ci-web.yml#webviews-test-durations": {"class": "portable-checks", "reason": "bookkeeping: merges and saves the shard duration manifest beside web-subarea-scope's restore, 5 s of work (run 41761413284)"},
-    "resolve-runners.yml#resolve": {"class": "portable-checks", "reason": "resolver: prints the runner capability map, 5 s of work (run 41762274751)"}
+    ]
   },
   "light_fit": {
     "$comment": [
@@ -644,15 +633,9 @@
   },
   "portable_light_jobs": {
     "$comment": [
-      "Secretless placement bootstraps are admitted as light jobs so their short runner-state read cannot queue behind the paid overflow.",
-      "They fail open to the workflow's existing hosted or Blacksmith fallback when CI_RUNNER_STATE is stale or unavailable."
-    ],
-    "pr-red-checks-comment.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
-    "ci-guards.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap after guard completion"},
-    "pr-checks.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
-    "cmux-next-fast-gates.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
-    "web-validation.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
-    "ci.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"}
+      "Empty: the placement bootstraps run on the Blacksmith pool (RUNNER_POOLS.linux_2) on every attempt, never GitHub-hosted Ubuntu (Lawrence: Blacksmith for all CI).",
+      "GitHub-hosted Ubuntu left them queued for hours with no runner (cmux#45735, 2026-11-18), so they are no longer hosted exceptions."
+    ]
   },
   "linux_sizes": {
     "$comment": [

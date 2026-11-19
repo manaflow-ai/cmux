@@ -111,6 +111,7 @@ impl Hub {
             disallowed_tools,
             checked_cwd,
             additional_directories,
+            stop_condition,
             person,
             wait_start,
             throwaway,
@@ -296,6 +297,10 @@ impl Hub {
         meta.workspace_id = workspace_id;
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
+        // Claude Code (stdio) takes it as a Stop hook, Codex (codex-acp) as its goal
+        // (`stop_condition.rs`); the session/new answer says whether it was kept.
+        meta.stop_condition =
+            stop_condition.filter(|_| super::stop_condition::kept_by(&profile, &family));
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
@@ -315,6 +320,7 @@ impl Hub {
             && route.is_none()
             && meta.tools.off.is_empty()
             && meta.additional_directories.is_empty()
+            && meta.stop_condition.is_none()
             && checked_cwd.is_none();
         // A Cloud chat's owner credential (`agent_credentials.rs`) takes only an entry warmed with
         // that same credential (`_acpmux/prewarm` `credentials`, cmux#45953): the key's auth
@@ -1290,6 +1296,8 @@ impl Hub {
             // The chat's Sources (`additional_dirs.rs`), at every start.
             let mut plan = plan;
             plan.args.extend(super::additional_dirs::claude_args(&meta));
+            // Its stop condition, at every start (a resume or respawn too: `stop_condition.rs`).
+            plan.args.extend(super::stop_condition::claude_args(&meta));
             let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
