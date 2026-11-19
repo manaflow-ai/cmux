@@ -8,6 +8,9 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 webviews_root="$repo_root/webviews"
 sha="$(git -C "$repo_root" rev-parse HEAD)"
 home_root="${HOME:?HOME is required}"
+# An inherited ACPMUX_* variable (ACPMUX_SOCKET above all) would point the private daemon, and its
+# `daemon shutdown --end-agents` on exit, at the caller's daemon.
+for name in $(compgen -A export ACPMUX_); do unset "$name"; done
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-web-dev.XXXXXX")"
 index_dir="$work_dir/index"
 agent_state_dir="$work_dir/agent-state"
@@ -147,7 +150,8 @@ find_acpmux() {
 start_daemon() {
   local ready_file="$work_dir/daemon.ready"
   local token
-  mkdir -p "$daemon_home"
+  # 700 under any umask: acpmux refuses a home others can read.
+  (umask 077; mkdir -p "$daemon_home"); chmod 700 "$daemon_home"
   token="$(openssl rand -hex 32 2>/dev/null || python3 -c 'import secrets; print(secrets.token_hex(32))')"
   rm -f "$ready_file"
   exec {ready_fd}>"$ready_file"

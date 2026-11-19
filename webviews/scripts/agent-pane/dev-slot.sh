@@ -57,6 +57,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 home="$root/acpdev-$slot"
+# Every acpmux this script runs belongs to the slot: an inherited ACPMUX_* variable (a caller's
+# ACPMUX_SOCKET, session token or agent env) would point it at the caller's daemon instead.
+acpmux_bin="${ACPMUX_BIN:-}"
+for name in $(compgen -A export ACPMUX_); do unset "$name"; done
 daemon_port=$((47900 + slot))
 vite_port=$((4180 + slot))
 # 4190 is on the WHATWG fetch "bad ports" list, so browsers (WebKit, Chromium) and Node refuse it.
@@ -109,8 +113,13 @@ newest_app_bin() {
     2>/dev/null | head -1 || true
 }
 
+# Runs the command after it in a session of its own with no terminal, so it outlives the caller's
+# shell and process group (a one-shot shell's exit took nohup'd children with it). An array, not a
+# function: a backgrounded function is a forked shell, and $! must be the command's own pid.
+detach=(python3 -I -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])')
+
 resolve_bin() {
-  if [[ -n "${ACPMUX_BIN:-}" ]]; then echo "$ACPMUX_BIN"; return; fi
+  if [[ -n "$acpmux_bin" ]]; then echo "$acpmux_bin"; return; fi
   local newest; newest="$(newest_app_bin acpmux)"
   if [[ -n "$newest" ]]; then echo "$newest"; return; fi
   command -v acpmux || { echo "no acpmux binary: set ACPMUX_BIN" >&2; exit 1; }
@@ -120,7 +129,8 @@ case "$cmd" in
   up)
     stop_pid "$home/vite.pid"; stop_port "$vite_port"
     stop_pid "$home/daemon.pid"; stop_port "$daemon_port"
-    mkdir -p "$home"; chmod 700 "$home"
+    # 700 under any umask: acpmux refuses a home others can read.
+    (umask 077; mkdir -p "$home"); chmod 700 "$home"
     bin="$(resolve_bin)"
     if [[ -n "$from" ]]; then
       python3 -I "$WEBVIEWS/scripts/agent-pane/dev_slot_project.py" "$from" "$home" --sessions "$sessions"
@@ -160,18 +170,18 @@ PY
         origin_args+=(--dev)
       fi
     fi
-    (cd "$cwd" && env -u ACPMUX_ENV -u ACPMUX_SESSION_ID -u ACPMUX_SESSION_NAME -u ACPMUX_SESSION_TMPDIR \
-      -u ACPMUX_SESSION_TOKEN -u ACPMUX_SESSION_TOKEN_SOCKET ACPMUX_HOME="$home" ACPMUX_SOCKET="$home/acpmux.sock" \
-      nohup "$bin" daemon run --listen "127.0.0.1:$daemon_port" --token "$token" \
+    (cd "$cwd"; ACPMUX_HOME="$home" ACPMUX_SOCKET="$home/acpmux.sock" \
+      "${detach[@]}" "$bin" daemon run --listen "127.0.0.1:$daemon_port" --token "$token" \
       ${origin_args[@]+"${origin_args[@]}"} </dev/null >"$home/daemon.log" 2>&1 & echo $! >"$home/daemon.pid")
     wait_port "$daemon_port" "$home/daemon.log"
     sidecar="${CMUX_DIFF_SIDECAR_BIN:-$(newest_app_bin cmux-diff-sidecar)}"
     if [[ -n "$sidecar" ]]; then echo "cmux-diff-sidecar: $sidecar"; else echo "no cmux-diff-sidecar: /diff/ fails until CMUX_DIFF_SIDECAR_BIN is set" >&2; fi
     [[ -d "$WEBVIEWS/node_modules" ]] || (cd "$WEBVIEWS" && bun install --frozen-lockfile >/dev/null)
-    # Detached with no inherited stdio, so the caller's shell returns.
+    # Detached with no inherited stdio, so the caller's shell returns and its exit leaves Vite running;
+    # `cd;` rather than `cd &&`, so the background job is the command itself and $! its pid.
     # The slot's folder also keeps the viewer empty states' recents (viewer-recents.json).
-    (cd "$WEBVIEWS" && CMUX_WEBVIEWS_DEV_PORT="$vite_port" CMUX_DIFF_SIDECAR="$sidecar" \
-      CMUX_WEBVIEWS_DEV_STATE_DIR="$home" nohup bun run dev \
+    (cd "$WEBVIEWS"; CMUX_WEBVIEWS_DEV_PORT="$vite_port" CMUX_DIFF_SIDECAR="$sidecar" \
+      CMUX_WEBVIEWS_DEV_STATE_DIR="$home" "${detach[@]}" bun run dev \
       </dev/null >"$home/vite.log" 2>&1 & echo $! >"$home/vite.pid")
     wait_port "$vite_port" "$home/vite.log"
     echo "logs: $home/daemon.log $home/vite.log"
