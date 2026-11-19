@@ -16,13 +16,18 @@ on:
 permissions: {}
 
 concurrency:
-  group: classic-api-guard-${{ github.event.pull_request.number }}
+  # An edit it skips (below) gets a group of its own, so it never cancels a real run.
+  group: classic-api-guard-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
   classic-api:
     name: classic-api-guard
-    # Every edit re-runs it (a skipped run would read as a pass and replace a failing one).
+    # Every edit into main re-runs it (a skipped run would read as a pass and replace a failing one).
+    # A title or description edit of a feat-cmux-next pull request is skipped: there the guard only
+    # warns, so no edit can change what it gates. Leo, 2026-11-17, on checks re-run by every edit:
+    # "why should it do that".
+    if: ${{ !(github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
