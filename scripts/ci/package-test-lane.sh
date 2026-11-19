@@ -301,7 +301,6 @@ select_packages() {
     CmuxIrxTransport
     CmuxUpdater
     CmuxPhonePush
-    CmuxComputerUseHelper
     CmuxConnectivityTelemetry
     CmuxDeviceHub
     CmuxHomeCore
