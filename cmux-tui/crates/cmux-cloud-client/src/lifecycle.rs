@@ -404,7 +404,9 @@ fn mutation_error<S: UncertainTransition>(
     // A transport failure, proxy/server failure, or malformed success answer
     // can occur after the provider accepted the mutation. Keep the original
     // identity and key, but consume its stable capability into Unknown.
-    let ambiguous = source.status.is_none() || source.status.is_some_and(|status| status >= 500);
+    let ambiguous = source.status.is_none()
+        || source.status.is_some_and(|status| status >= 500)
+        || source.code.as_deref() == Some("mutation.indeterminate");
     if ambiguous {
         MutationError::Uncertain { pending: pending.into_unknown(), source }
     } else {
