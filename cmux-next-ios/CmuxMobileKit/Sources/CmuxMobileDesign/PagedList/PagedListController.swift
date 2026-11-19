@@ -199,6 +199,26 @@ final class SwipeProvider {
 final class PagedListCollectionView: UICollectionView {
     var willLayout: (() -> Void)?
     var didLayout: (() -> Void)?
+
+    /// The screen's content scroll view, as Workspaces' and the Feed's lists are, so the navigation
+    /// bar's scroll edge and its search drawer follow this list. Without it the drawer did not
+    /// collapse as the list scrolled, and the pull-down search's tuck at launch moved the rows 60 pt
+    /// down and back (Home on PagedList, HomeStressUITests at e3ad787). Every controller from the
+    /// list's own up to the navigation controller's child, so a list in a child host (an accessory
+    /// or the newest pill) reaches the one the bar reads; a controller that already names a content
+    /// scroll view keeps it (a chat's keyboard dock).
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        var responder: UIResponder? = self
+        while let next = responder?.next {
+            if let controller = next as? UIViewController {
+                if controller.contentScrollView(for: .top) == nil { controller.setContentScrollView(self, for: .top) }
+                if controller.parent is UINavigationController || controller.parent == nil { break }
+            }
+            responder = next
+        }
+    }
     /// While a set of the offset runs, what it asked for (each outermost set numbered): UIKit may
     /// move the offset further inside it (rows above it sized as they came into view, with the
     /// content moved by as much), which is its correction, not the finger's or the fling's move.
