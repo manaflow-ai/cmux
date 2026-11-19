@@ -1593,6 +1593,8 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
         archive = out / "fleet-app.zip"
         _ci_run([ci, "artifact", job, str(archive)], cwd=tree)
         try:
+            shutil.rmtree(bundle, ignore_errors=True)
+            bundle.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(archive) as zipped:
                 zipped.extractall(bundle)
         except (OSError, zipfile.BadZipFile) as error:
