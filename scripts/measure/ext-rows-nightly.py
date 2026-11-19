@@ -388,7 +388,10 @@ def row_ext_new(ctx: Ctx) -> dict:
         made = ctx.ext(["ext", "new", f"rows-{kind}", "--kind", kind, "--dir", str(folder), "--json"], timeout=60)
         shot = ctx.ext(["ext", "shot", str(folder), "--json", "--out", str(ctx.work / f"new-{kind}.png")])
         answer = shot.get("json") if isinstance(shot.get("json"), dict) else {}
+        # A preview loads with no picture (`phase: shot`, no errors). With the Mac app the scene must be drawn
+        # too; a headless daemon (the Linux run) mounts no preview, so its scene is empty.
         loaded = answer.get("ok") is True or (answer.get("phase") == "shot" and not answer.get("errors"))
+        loaded = loaded and (bool(scene_of(shot)) or not ctx.control or kind == "command")
         per_kind[kind] = {
             "ok": made.get("exit") == 0 and (folder / "cmux-app.json").is_file() and (folder / ".git").exists()
             and loaded,
