@@ -35,6 +35,7 @@ mod image_fit;
 pub mod images;
 mod inbox;
 pub mod media;
+mod memory;
 mod mux_ack;
 mod outbox;
 mod outcome_ledger;
@@ -412,6 +413,11 @@ pub enum Input {
         input: serde_json::Value,
         reply: Sender<Result<(), String>>,
     },
+    /// Whether the running turn is the owner's own (true) or one another
+    /// person's text started (false); read only: no log, audit or count.
+    TurnTrust {
+        reply: Sender<bool>,
+    },
     /// The reaction classifier's answer for decision `id` on Chief message
     /// `seq` (reaction_wake.rs).
     ReactionJudged {
@@ -650,6 +656,10 @@ pub struct Settings {
     /// The codex turn preset (`optchat-chief-codex-<home id>`), when a codex
     /// harness exists: a turn on codex starts with it.
     pub codex_preset: Option<String>,
+    /// The open-source brains (Hermes, OpenClaw; brain_home.rs): each brain harness's turn
+    /// preset and whether it can run a turn. A turn engine.json puts on one that cannot runs on
+    /// `harness` with a visible note.
+    pub brains: crate::brain_home::BrainTurns,
     /// The per-Chief settings file (`chief_settings`), read at start.
     pub settings_file: PathBuf,
     /// The monitoring trace's directory, where approvals are recorded
@@ -966,6 +976,10 @@ pub struct Brain {
     /// The wall clock (ms since the epoch) the subagent watch reads; tests
     /// set their own (`set_clock`).
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// When this host started (wall clock, ms since the epoch, as acpmux
+    /// stamps events): a subagent session that closed before it closed
+    /// with the last host (`resume_closed`).
+    born_ms: u64,
     /// Each running subagent's folded events (sub_watch.rs), by id: kept
     /// between ticks so each tick reads only the new events.
     watches: HashMap<String, crate::sub_watch::Watch>,
@@ -1081,6 +1095,15 @@ pub struct Brain {
     approval_told: HashSet<String>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
+    /// The memory files whose index and standing rules every turn reads
+    /// after the chat (memory_files.rs); None: no files on this host.
+    memory_files: Option<Arc<crate::memory_files::MemoryFiles>>,
+    /// The self-paced check-ins (check_in.rs).
+    check_ins: crate::check_in::Mode,
+    /// The last check-in slot taken (`YYYY-MM-DD HH:MM`).
+    check_in_last: Option<String>,
+    /// The `<chief-memory>` block the last turn read.
+    last_memory_block: Option<String>,
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
@@ -1211,6 +1234,7 @@ impl Brain {
             agent_key_grace: crate::agent_keys::REVOKE_AFTER_DONE,
             max_live: None,
             clock: Arc::new(now_ms),
+            born_ms: now_ms(),
             watches: HashMap::new(),
             sub_close_on_finish: false,
             resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
@@ -1249,6 +1273,10 @@ impl Brain {
             unanswered: Vec::new(),
             approval_told: HashSet::new(),
             previewer: None,
+            memory_files: None,
+            check_ins: crate::check_in::Mode::Off,
+            check_in_last: None,
+            last_memory_block: None,
             cuts: 0,
             cut_ran: false,
             resume_at: None,
@@ -1546,6 +1574,7 @@ impl Brain {
                 self.next_unanswered_due(),
                 self.next_reply_due(),
                 self.next_outcome_due(),
+                self.next_check_in(),
             ]
             .into_iter()
             .flatten()
@@ -1558,6 +1587,7 @@ impl Brain {
                         self.fire_wakes_at(now_ms());
                         self.fire_reply_checks_at(now_ms());
                         self.fire_outcome_checks_at(now_ms());
+                        self.fire_check_in();
                         let now = (self.clock)();
                         self.deny_overdue_permissions_at(now);
                         continue;
@@ -1838,6 +1868,9 @@ impl Brain {
             }
             Input::TurnGate { tool, input, reply } => {
                 let _ = reply.send(self.turn_gate(&tool, &input));
+            }
+            Input::TurnTrust { reply } => {
+                let _ = reply.send(!self.turn_is_ask());
             }
             Input::Described { image, description } => self.described(&image, description),
             Input::Redescribe { notes, reply } => {

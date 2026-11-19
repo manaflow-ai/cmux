@@ -241,9 +241,9 @@ class RoutingTableTests(unittest.TestCase):
         # the reviewed CI_TRUSTED_RUNNER selector (resolve-runners.yml#resolve).
         import yaml
         route = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || "
-                 "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
+                 "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
                  "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
-        widened = route.replace('\"ubuntu-24.04\",', '\"ubuntu-24.04\",\"self-hosted\",')
+        widened = route.replace('\"blacksmith-2vcpu-ubuntu-2404\",', '\"self-hosted\",\"blacksmith-2vcpu-ubuntu-2404\",')
         for runs_on, env, accepted in ((route, {}, True), (route, {"T": "${{ secrets.T }}"}, False), (widened, {}, False)):
             with self.subTest(runs_on=runs_on, env=env), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory); workflows = root / "workflows"; workflows.mkdir()

@@ -324,14 +324,29 @@ impl SubRecord {
     pub fn at_work(&self) -> bool {
         matches!(self.status, SubStatus::Starting | SubStatus::Running) && !self.cancelled
     }
+
+    /// Its task goes on: it runs, or has a report that starts a turn, or it
+    /// waits on its own background work.
+    fn still_works(&self) -> bool {
+        self.waiting()
+            || (self.status != SubStatus::Reported
+                && !(self.status == SubStatus::Done && self.stopped))
+    }
+
+    /// Its last run ended only to wait on its own background work: its task
+    /// goes on (the Chief's "at work" line names it) and its quiet report is
+    /// no outcome. It holds no live slot while it waits.
+    pub fn waiting(&self) -> bool {
+        self.waiting_ms > 0
+            && matches!(self.status, SubStatus::Done | SubStatus::Reported)
+            && !self.cancelled
+    }
 }
 
 impl SpawnRecord {
     /// A subagent still works or has a report waiting that starts a turn.
     pub fn working(&self) -> bool {
-        self.subs
-            .iter()
-            .any(|s| s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped))
+        self.subs.iter().any(|s| s.still_works())
     }
 
     /// A subagent still works for user message `id`: its own `answers` (a
@@ -343,7 +358,7 @@ impl SpawnRecord {
             } else {
                 s.answers.iter().any(|a| a == id)
             };
-            for_it && s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped)
+            for_it && s.still_works()
         })
     }
 }
@@ -548,6 +563,24 @@ pub struct SubRecord {
     /// person in its chat). Cleared when the run ends.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reopened: bool,
+    /// This run's session closed under it and the host sent the prompt that
+    /// resumes it (`resume_closed`): a second close ends the run.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closed_resumed: bool,
+    /// When its last run ended only to wait on its own background work (ms
+    /// since the epoch; 0: its last report was not a wait): that report went
+    /// to the Chief quietly, and the run the work's notice starts reports as
+    /// usual (brain/spawns.rs `finish_sub`, tests/subagent_waiting.rs).
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub waiting_ms: u64,
+    /// When the tick last read a held subagent's background work.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub waiting_checked_ms: u64,
+    /// Its background work still pending at its last run end: acpmux
+    /// process ids (`process_update` running) and daemon task ids
+    /// (`bg-…` from `bg_start`, until their notice).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub background: Vec<String>,
 }
 
 /// How many tell keys a subagent keeps for dedupe.
