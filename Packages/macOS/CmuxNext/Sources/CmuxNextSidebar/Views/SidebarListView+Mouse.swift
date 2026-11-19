@@ -96,7 +96,7 @@ extension SidebarListViewComponents {
             // Keyboard focus moves to the clicked disclosure (no ring), so a ring left on another one cannot take
             // the next Space or Return; the release toggles it.
             SidebarGroupKeys(list: self).focusFold(row.key, ring: false)
-        case .section, .emptySection, .emptyGroup, .folder, .block, .status, .listHeader:
+        case .section, .emptySection, .emptyGroup, .folder, .block, .status, .listHeader, .subSession:
             break
         }
         self.press = press
@@ -175,6 +175,12 @@ extension SidebarListViewComponents {
         case let .emptyGroup(group):
             // The group's empty row makes a workspace in it, as the header's + does; the new row lays the list out.
             onGroupEditorItem?(group, "workspaceGroup.newWorkspace")
+            return syncRowStates()
+        case let .subSession(workspace, _):
+            // A sub-session's row goes to the workspace whose agent runs it (its chevron folds without selecting).
+            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
+            model.click(workspace)
+            if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
             return syncRowStates()
         case .emptySection, .folder, .block, .listHeader:
             break

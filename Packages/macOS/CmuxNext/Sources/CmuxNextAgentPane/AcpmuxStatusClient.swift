@@ -77,6 +77,14 @@ nonisolated enum AcpmuxStatusClient {
         return AgentPanePastTurn.turns(result: result)
     }
 
+    /// `_acpmux/chat_subsessions {key}`: the sub-sessions of one device-wide chat (Claude Code subagents, Codex
+    /// spawned threads), read now from its harness's store, newest first. A row without an id is dropped.
+    @concurrent static func chatSubsessions(socketPath: String, key: String,
+                                            deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> [AcpmuxSubSession] {
+        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_subsessions", params: ["key": key], deadline: deadline)
+        return (result["subsessions"] as? [[String: Any]] ?? []).compactMap(AcpmuxSubSession.init(json:))
+    }
+
     /// `_acpmux/chat_fork {harness, agentSessionId, cwd}`: the fork's session id. The daemon starts
     /// the harness's ACP agent for it, so the deadline covers an agent's start.
     @concurrent static func chatFork(socketPath: String, harness: String, agentSessionId: String, cwd: String?,

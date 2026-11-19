@@ -70,11 +70,13 @@ import AppKit
                 if model.group(group)?.isCollapsed == false { toggle(group) }
                 return true
             }
+            if setTreeFold(open: false) { return true }
             guard let active = model.activeWorkspaceID, let group = group(containing: active) else { return false }
             focus(.group(group))
             return true
         case .rightArrow?:
             if let key = list.focusedFold { return setFold(key, collapsed: false) }
+            if list.focusedGroup == nil, setTreeFold(open: true) { return true }
             guard let id = list.focusedGroup, let group = model.group(id) else { return false }
             if group.isCollapsed {
                 toggle(id)
@@ -94,6 +96,21 @@ import AppKit
 
     private var currentStop: Stop? {
         list.focusedFold.map(Stop.fold) ?? list.focusedGroup.map(Stop.group) ?? model.activeWorkspaceID.map(Stop.workspace)
+    }
+
+    /// Left folds and Right opens the selected workspace row's chevron (its sub-sessions', `sidebar.nestedSessions`, or
+    /// the session tree's), as a disclosure in a macOS outline does. False when the row has no chevron, or it is
+    /// already that way: the key then does what it did before (Left goes to the row's group).
+    private func setTreeFold(open: Bool) -> Bool {
+        guard let active = model.activeWorkspaceID, let fold = list.displayed.row(for: .workspace(active))?.content?.treeFold,
+              (fold == .expanded) != open else { return false }
+        if SidebarNestedSessions.foldsSubSessions(of: active) {
+            SidebarSessionTree.shared.nested.fold(SidebarNestedSessionsState.rowID(active), open: open)
+        } else {
+            SidebarSessionTree.shared.toggle(active)
+        }
+        list.reload(animated: true)
+        return true
     }
 
     private func setFold(_ key: SidebarRowKey, collapsed: Bool) -> Bool {

@@ -15,6 +15,12 @@ extension AcpmuxEnvironment {
         try await AcpmuxStatusClient.chatTranscript(socketPath: socketPath, key: key)
     }
 
+    /// The sub-sessions of one device-wide chat from this daemon (`_acpmux/chat_subsessions`): the
+    /// sidebar lists them under the chat's workspace (`sidebar.nestedSessions`).
+    public nonisolated func chatSubsessions(key: String) async throws -> [AcpmuxSubSession] {
+        try await AcpmuxStatusClient.chatSubsessions(socketPath: socketPath, key: key)
+    }
+
     /// Forks a terminal agent's session `agentSessionId` of `harness` through the harness's ACP
     /// agent (`_acpmux/chat_fork`): Fork Conversation of an agent whose CLI has no fork (Muse).
     /// Returns the fork's own session id, which the agent's CLI then resumes.

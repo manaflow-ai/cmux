@@ -97,6 +97,13 @@ extension SidebarListViewComponents {
                 guard let self else { return false }
                 return SidebarFoldAction(list: self).toggle(key)
             }
+        case let (.subSession(workspace, sub), view as SubSessionRowView):
+            // Redraw now, as the session tree's chevron does (`WorkspaceRowView.wire`).
+            view.onToggle = { [weak self] in
+                let open = SidebarSessionTree.shared.nested.fold(SidebarNestedSessionsState.rowID(workspace, sub))
+                self?.reload(animated: true)
+                return open != nil
+            }
         case (.listHeader, let view as ListHeaderRowView):
             view.screenButton.onPress = { [weak self] in self?.model.send(.shareScreen(.local)) }
         case let (.section(sectionID), view as SectionHeaderRowView):

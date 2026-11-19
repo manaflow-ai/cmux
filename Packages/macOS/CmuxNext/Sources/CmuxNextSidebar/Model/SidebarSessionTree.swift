@@ -167,10 +167,13 @@ public final class SidebarSessionTree {
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// The parents the user folded (a chevron on the row), kept across launches.
     public private(set) var collapsed: Set<WorkspaceID>
+    /// The sub-sessions each workspace's agent started, drawn under its row (`sidebar.nestedSessions`).
+    @ObservationIgnored public let nested: SidebarNestedSessions
     @ObservationIgnored private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        nested = SidebarNestedSessions(defaults: defaults)
         collapsed = Set((defaults.stringArray(forKey: Self.collapsedKey) ?? []).map(WorkspaceID.init))
     }
 

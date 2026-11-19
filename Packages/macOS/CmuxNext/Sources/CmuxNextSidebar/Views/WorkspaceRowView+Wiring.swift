@@ -11,7 +11,15 @@ extension WorkspaceRowView {
         onSelect = { [weak list] in list?.model.click(id) }
         // Redraw now: left to the tree's observation, the fold would wait
         // out the calm-movement hold until the pointer leaves the sidebar.
-        onToggleTree = { [weak list] in SidebarSessionTree.shared.toggle(id); list?.reload(animated: true) }
+        // A row whose chevron is its sub-sessions' (`sidebar.nestedSessions`, no started workspace under it) folds those.
+        onToggleTree = { [weak list] in
+            if SidebarNestedSessions.foldsSubSessions(of: id) {
+                SidebarSessionTree.shared.nested.fold(SidebarNestedSessionsState.rowID(id))
+            } else {
+                SidebarSessionTree.shared.toggle(id)
+            }
+            list?.reload(animated: true)
+        }
         onToggleAudio = { [weak list] in list?.model.send(.toggleWorkspaceAudio(id)) }
         // The drive indicator's menu: Go to shows the agent's tab, Stop ends what it drives; each row a registered action.
         driveIndicator.makeItem = { [weak list] command, title in list?.driveMenuItem?(id, command, title) }

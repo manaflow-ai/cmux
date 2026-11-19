@@ -107,6 +107,20 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "tree", "nested", "parent", "child", "pull request", "keycap", "sessions"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.nestedSessionsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.nestedSessions", "Nested Sessions"),
+                help: SettingsText.keyed("settings.sidebar.nestedSessions.help", "Lists the sub-sessions an agent started (Claude Code subagents, Codex spawned threads) under its workspace, behind a chevron after the title. Collapsed folds each one until you open it; Expanded shows them open."),
+                kind: .choice([
+                    SettingChoice(SidebarNestedSessionsMode.never.rawValue, SettingsText.keyed("settings.choice.nestedSessionsNever", "Never")),
+                    SettingChoice(SidebarNestedSessionsMode.collapsed.rawValue, SettingsText.keyed("settings.choice.nestedSessionsCollapsed", "Collapsed")),
+                    SettingChoice(SidebarNestedSessionsMode.expanded.rawValue, SettingsText.keyed("settings.choice.nestedSessionsExpanded", "Expanded")),
+                ]),
+                default: .string(SidebarSectionsSetting.nestedSessionsDefault.rawValue),
+                keywords: ["sidebar", "nested", "subagent", "sub-session", "child", "tree", "chevron", "sessions"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.showProjectsPath,
                 section: .appearance,
                 group: group,
@@ -365,24 +379,6 @@ extension SidebarSettingsSchema {
                 ]),
                 default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
                 keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupPalettePath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
-                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where group colors come from. A color you pick for a group stays."),
-                kind: .choice([
-                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
-                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
-                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
-                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
-                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
-                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
-                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
             ),
         ]
     }

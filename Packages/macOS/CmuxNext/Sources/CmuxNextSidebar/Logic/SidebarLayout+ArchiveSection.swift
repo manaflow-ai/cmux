@@ -102,7 +102,7 @@ nonisolated extension SidebarLayout {
         let dy = y - m.topPadding
         for var row in nested.rows {
             switch row.key {
-            case .section, .emptySection, .block, .folder, .status, .listHeader, .doneFold, .showMore: continue
+            case .section, .emptySection, .block, .folder, .status, .listHeader, .doneFold, .showMore, .subSession: continue
             default:
                 row.y += dy
                 rows.append(row)

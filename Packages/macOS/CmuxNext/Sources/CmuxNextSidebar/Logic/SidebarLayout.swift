@@ -349,6 +349,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 case let .workspace(ws):
                     var content = o.rowContent(ws, machine: machineLabel)
                     (content.treeDepth, content.treeFold, content.rollUp) = (tree.depth, tree.fold, tree.rollUp)
+                    let nested = Self.nesting(ws.id, content: &content, options: o, filtering: filtering)
                     let h = m.height(for: content)
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
@@ -356,6 +357,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         isCollapsed: false, childCount: 0, groupColor: nil, content: content
                     ))
                     y += h + m.rowSpacing
+                    Self.appendNested(nested, workspace: ws.id, depth: tree.depth, section: section.id, group: nil,
+                                      siblingIndex: index, parentIndex: nil, color: nil, metrics: m, to: &rows, y: &y)
                 case let .item(item):
                     let content = WorkspaceRowContent() // one line, as a compact workspace row
                     let h = m.height(for: content)

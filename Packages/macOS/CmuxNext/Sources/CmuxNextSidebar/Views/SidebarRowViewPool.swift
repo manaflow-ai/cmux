@@ -101,6 +101,7 @@ struct SidebarRowViewPool {
         case .folder: FolderHeaderRowView.self
         case .status: StatusHeaderRowView.self
         case .listHeader: ListHeaderRowView.self
+        case .subSession: SubSessionRowView.self
         case .doneFold, .showMore: SidebarDoneFoldRowView.self
         }
     }

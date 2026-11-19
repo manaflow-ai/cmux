@@ -97,6 +97,7 @@ extension SidebarListViewComponents {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
         o.pullRequests = SidebarSessionTree.shared.pullRequests
+        o.nestedSessions = SidebarSessionTree.shared.nested.drawn
         if let tree = SidebarSessionTree.shared.drawn {
             (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
             o.parentTitles = SidebarLayout.parentTitles(tree.parents, workspaces: model.allWorkspaces)
@@ -548,6 +549,8 @@ extension SidebarListViewComponents {
         case (.doneFold, let view as SidebarDoneFoldRowView), (.showMore, let view as SidebarDoneFoldRowView):
             view.isKeyboardFocused = showsFocusRing && focusedFold == row.key
             view.configure(row)
+        case let (.subSession(workspace, sub), view as SubSessionRowView):
+            view.configure(row, session: SidebarSessionTree.shared.nested.sessions[workspace]?.first { $0.id == sub })
         default:
             break
         }

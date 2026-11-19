@@ -29,6 +29,17 @@ public nonisolated enum SidebarLayoutStyle: String, Hashable, Sendable, CaseIter
     case rail
 }
 
+/// `sidebar.nestedSessions`: whether a workspace's sub-sessions list under it, and whether a
+/// parent nobody folded or opened draws folded or open.
+public nonisolated enum SidebarNestedSessionsMode: String, Hashable, Sendable, CaseIterable {
+    /// No sub-session rows (the default).
+    case never
+    /// Sub-session rows, each parent folded until the person opens it.
+    case collapsed
+    /// Sub-session rows, each parent open until the person folds it.
+    case expanded
+}
+
 /// `sidebar.groupBy`: how the Projects list buckets its loose workspaces
 /// (Leo 2026-10-06).
 public nonisolated enum SidebarGroupBy: String, Hashable, Sendable, CaseIterable {
@@ -186,6 +197,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// workspace's agent lists under it on a thin line, rows carry their pull requests, and the
     /// first rows their Command-number keycaps. Off by default: it changes the list's look.
     public var sessionTree = false
+    /// `sidebar.nestedSessions` (Claude desktop's Code tab): the sub-sessions an agent started
+    /// (Claude Code subagents, Codex spawned threads) list under its workspace row behind a
+    /// chevron. `never` by default, so the list is unchanged until a look or the person turns it on.
+    public var nestedSessions: SidebarNestedSessionsMode = .never
     /// `sidebar.style`: the standard sidebar (default) or the thin rail.
     public var style: SidebarLayoutStyle = .standard
 

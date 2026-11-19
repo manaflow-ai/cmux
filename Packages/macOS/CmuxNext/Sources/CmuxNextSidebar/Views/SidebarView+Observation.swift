@@ -34,6 +34,8 @@ extension SidebarViewComponents {
         var cards: SidebarBottomCards
         /// The session tree (`sidebar.sessionTree`): nesting, pull requests, keycaps.
         var tree: SidebarSessionTreeState?
+        /// The nested sessions (`sidebar.nestedSessions`): each workspace's sub-sessions and their folds.
+        var nested: SidebarNestedSessionsState?
         /// Every row's pull request badge, tree or not.
         var pullRequests: [WorkspaceID: SidebarPullRequestBadge]
         /// The session tree's chat history: Pinned and Earlier.
@@ -94,6 +96,7 @@ extension SidebarViewComponents {
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
             tree = SidebarSessionTree.shared.drawn
+            nested = SidebarSessionTree.shared.nested.drawn
             pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabsOn
@@ -176,7 +179,7 @@ extension SidebarViewComponents {
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
         let selectionChanged = lastState?.selection != state.selection || lastState?.selected != state.selected
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
-            || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
+            || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree || lastState?.nested != state.nested
             || lastState?.history != state.history
             || lastState?.workspacesAsTabs != state.workspacesAsTabs
             || lastState?.groupsByStatus != state.groupsByStatus

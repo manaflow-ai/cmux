@@ -100,14 +100,17 @@ nonisolated extension SidebarLayout {
             }
             var content = o.rowContent(ws, machine: machineLabel)
             content.treeDepth = depth
+            let nested = nesting(ws.id, content: &content, options: o, filtering: filtering)
             let h = m.height(for: content)
             rows.append(SidebarRow(
                 key: .workspace(ws.id), y: y, height: h, section: section,
                 group: group.id, siblingIndex: childIndex, parentIndex: index,
-                isLastInGroup: position == drawn.count - 1,
+                isLastInGroup: position == drawn.count - 1 && nested?.children.isEmpty != false,
                 isCollapsed: false, childCount: 0, groupColor: group.color, content: content
             ))
             y += h + m.rowSpacing
+            appendNested(nested, workspace: ws.id, depth: depth, section: section, group: group.id, siblingIndex: childIndex,
+                         parentIndex: index, color: group.color, metrics: m, to: &rows, y: &y)
         }
         // The next row follows the last member by the row spacing alone (Leo 2026-10-21: no padding after groups).
         openGapIfNeeded(members.count)

@@ -161,6 +161,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// `sidebar.sessionTree`: a workspace started by another's agent lists under it, and rows
     /// carry their pull requests and keycaps. Nil (off) draws the list as before.
     public var sessionTree: SidebarSessionTreeState?
+    /// `sidebar.nestedSessions`: each workspace's sub-sessions under its row (`SidebarLayout+NestedSessions`). Nil
+    /// (`never`) draws the list as before.
+    public var nestedSessions: SidebarNestedSessionsState?
     /// Each row's pull request badge, drawn with the tree off too.
     public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// The session tree's keycaps: each workspace's Command-number (`SidebarItemOrder`).

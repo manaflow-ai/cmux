@@ -27,6 +27,8 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case showMore(SidebarDoneFoldID)
     /// Projects and Recents' "Projects" or "Recents" header (`SidebarLayout+Recents`).
     case listHeader(SidebarListHeader)
+    /// A workspace's sub-session under its row (`sidebar.nestedSessions`): the workspace and the sub-session's id.
+    case subSession(WorkspaceID, String)
 }
 
 /// One laid-out row in document (flipped) coordinates.

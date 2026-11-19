@@ -316,6 +316,61 @@
           }
         },
         {
+          "key": "sidebar.nestedSessions",
+          "title": {
+            "key": "settings.sidebar.nestedSessions",
+            "text": "Nested Sessions"
+          },
+          "help": {
+            "key": "settings.sidebar.nestedSessions.help",
+            "text": "Lists the sub-sessions an agent started (Claude Code subagents, Codex spawned threads) under its workspace, behind a chevron after the title. Collapsed folds each one until you open it; Expanded shows them open."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.nestedSessionsNever",
+                "text": "Never"
+              }
+            },
+            {
+              "value": "collapsed",
+              "title": {
+                "key": "settings.choice.nestedSessionsCollapsed",
+                "text": "Collapsed"
+              }
+            },
+            {
+              "value": "expanded",
+              "title": {
+                "key": "settings.choice.nestedSessionsExpanded",
+                "text": "Expanded"
+              }
+            }
+          ],
+          "default": "never",
+          "keywords": [
+            "sidebar",
+            "nested",
+            "subagent",
+            "sub-session",
+            "child",
+            "tree",
+            "chevron",
+            "sessions"
+          ],
+          "swift_enum": {
+            "name": "SidebarNestedSessionsMode",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showProjects",
           "title": {
             "key": "settings.sidebar.showProjects",

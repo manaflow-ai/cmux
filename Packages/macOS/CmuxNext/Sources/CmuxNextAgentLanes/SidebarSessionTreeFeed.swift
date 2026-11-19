@@ -23,6 +23,8 @@ public final class SidebarSessionTreeFeed {
     public static let shared = SidebarSessionTreeFeed()
 
     public let recordedParents: AgentSessionParents
+    /// The nested sessions' feed, started with this one when it has an acpmux to read from.
+    public let nested = SidebarNestedSessionsFeed()
 
     public init(recordedParents: AgentSessionParents? = nil) {
         self.recordedParents = recordedParents ?? AgentSessionParents(defaults: .standard)
@@ -69,9 +71,14 @@ public final class SidebarSessionTreeFeed {
     /// tab's change re-reads its workspace only and the pass reads the joined chats, never a tab.
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
                       lanes: AgentLaneStore = .shared, remote: RemoteAgentSessionLinks = .shared,
-                      recorded: AgentSessionParents? = nil, tree: SidebarSessionTree = .shared) {
+                      recorded: AgentSessionParents? = nil, tree: SidebarSessionTree = .shared, acpmux: AcpmuxEnvironment? = nil) {
         guard task == nil else { return }
         self.localHost = localHost
+        // The nested sessions (`sidebar.nestedSessions`): each workspace's sub-sessions, read by this Mac's acpmux.
+        if let acpmux {
+            nested.start(workspaces: workspaces, localHost: localHost, read: { key in try await acpmux.chatSubsessions(key: key) },
+                         lanes: lanes, nested: tree.nested)
+        }
         let storedParents = recorded ?? self.recordedParents
         let pullRequests = pullRequests
         let fixture = SidebarPullRequestFixture.enabled

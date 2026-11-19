@@ -43,6 +43,8 @@ public nonisolated enum SidebarSectionsSetting {
         }
         result.minimalMode = ColumnLayoutSettings.choice(root, minimalModePath, fallback: minimalModeDefault, diagnostics: &diagnostics)
         result.sessionTree = flag(root, sessionTreePath, fallback: sessionTreeDefault, &diagnostics)
+        result.nestedSessions = ColumnLayoutSettings.choice(root, nestedSessionsPath, fallback: nestedSessionsDefault,
+                                                            diagnostics: &diagnostics)
         result.showsTips = flag(root, tipsPath, fallback: tipsDefault, &diagnostics)
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
