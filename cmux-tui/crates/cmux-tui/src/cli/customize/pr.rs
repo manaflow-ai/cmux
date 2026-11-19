@@ -762,6 +762,49 @@ fn fork_update_waits(published: &Published, layer: &CodeLayer) -> Option<String>
     ))
 }
 
+/// What refresh does with an entry that has a published layer.
+#[derive(Debug, PartialEq, Eq)]
+enum Step {
+    /// The branch moved past the layer: ask CI for one at this tip.
+    Ask(String),
+    /// Turn the entry off, saying why.
+    Off(String),
+    /// Leave it, saying why.
+    Wait(String),
+    /// Install the newer layer in the entry's place.
+    Take,
+    Same,
+}
+
+/// A layer whose web part this app cannot serve (another web ABI, or a head
+/// with no web change left) turns the entry off before a newer head is
+/// considered: installing it would serve nothing.
+fn refresh_step(
+    code: &CodeLayer,
+    layer: &CodeLayer,
+    published: &Published,
+    tip: Option<&str>,
+) -> Step {
+    if let Some(tip) = tip.filter(|tip| *tip != layer.head) {
+        return Step::Ask(tip.to_owned());
+    }
+    if code.has_web() && !layer.has_web() {
+        let why = layer.needs_build.first().filter(|line| line.contains("web ABI")).cloned();
+        return Step::Off(format!(
+            "no longer applies: {}",
+            why.unwrap_or_else(|| format!("{} has no web change", short(&layer.head)))
+        ));
+    }
+    let changed = !layer.same(code) || layer.base != code.base || layer.web != code.web;
+    if !changed {
+        return Step::Same;
+    }
+    match fork_update_waits(published, layer) {
+        Some(waits) => Step::Wait(waits),
+        None => Step::Take,
+    }
+}
+
 /// `cmux customize library refresh`: every code entry against what is
 /// published (a folder: built again) and what this app is.
 pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Result<Answer, Failure> {
@@ -811,26 +854,20 @@ pub(super) fn refresh(customize: &Customize, origin: &str, now_ms: u64) -> Resul
                 Published::Ref { kind: CodeKind::Branch, name } => branch_tip(&http, name),
                 _ => None,
             };
-            let changed = !layer.same(&code) || layer.base != code.base || layer.web != code.web;
-            if let Some(tip) = tip.filter(|tip| *tip != layer.head) {
-                let asked = request_publish(&published, app.commit.as_deref()).unwrap_or_default();
-                (format!("the branch is at {}; {asked}", short(&tip)), None)
-            } else if changed && let Some(waits) = fork_update_waits(&published, &layer) {
-                (waits, None)
-            } else if changed {
-                install(customize, &http, &layer)?;
-                customize.library_update_code(layer.clone(), origin, now_ms)?;
-                (format!("now at {} on {}", short(&layer.head), short(&layer.base)), None)
-            } else if code.has_web() && !layer.has_web() {
-                (
-                    format!(
-                        "no longer applies: {}",
-                        layer.needs_build.first().cloned().unwrap_or_default()
-                    ),
-                    Some(false),
-                )
-            } else {
-                (String::new(), None)
+            match refresh_step(&code, &layer, &published, tip.as_deref()) {
+                Step::Ask(tip) => {
+                    let asked =
+                        request_publish(&published, app.commit.as_deref()).unwrap_or_default();
+                    (format!("the branch is at {}; {asked}", short(&tip)), None)
+                }
+                Step::Off(note) => (note, Some(false)),
+                Step::Wait(note) => (note, None),
+                Step::Take => {
+                    install(customize, &http, &layer)?;
+                    customize.library_update_code(layer.clone(), origin, now_ms)?;
+                    (format!("now at {} on {}", short(&layer.head), short(&layer.base)), None)
+                }
+                Step::Same => (String::new(), None),
             }
         } else {
             ("no published layer".to_owned(), None)
@@ -923,6 +960,68 @@ mod tests {
         let layer = layer_of(&pointer_json(true, 3), &app).unwrap();
         assert!(!layer.has_web());
         assert!(layer.needs_build[0].contains("web ABI 3; this app has 4"));
+    }
+
+    /// The entry as `use` left it: the pointer's layer on an app with its ABI.
+    fn entry() -> CodeLayer {
+        layer_of(&pointer_json(true, 3), &App { abi: Some(3), ..App::default() }).unwrap()
+    }
+
+    #[test]
+    fn refresh_follows_the_design_table() {
+        let pr = Published::Pr(7);
+        let code = entry();
+        assert_eq!(refresh_step(&code, &code, &pr, None), Step::Same);
+        // A newer head, or the same head on a newer base: taken in place.
+        let newer = CodeLayer { head: "e".repeat(40), ..code.clone() };
+        assert_eq!(refresh_step(&code, &newer, &pr, None), Step::Take);
+        let rebased = CodeLayer { base: "f".repeat(40), ..code.clone() };
+        assert_eq!(refresh_step(&code, &rebased, &pr, None), Step::Take);
+        // A branch whose tip moved past the layer: CI is asked.
+        let branch = Published::Ref { kind: CodeKind::Branch, name: "feat-x".into() };
+        let tip = "9".repeat(40);
+        assert_eq!(refresh_step(&code, &code, &branch, Some(&tip)), Step::Ask(tip.clone()));
+        assert_eq!(refresh_step(&code, &code, &branch, Some(&code.head)), Step::Same);
+        // A fork's newer layer waits for `use`.
+        let fork = Published::Fork { repo: "someone/cmux".into(), reference: "theme".into() };
+        assert!(matches!(refresh_step(&code, &newer, &fork, None), Step::Wait(_)));
+    }
+
+    #[test]
+    fn refresh_turns_off_a_layer_on_another_web_abi() {
+        let code = entry();
+        // The app moved to ABI 4; the layer, at the same head or a newer one, needs 3.
+        let app = App { abi: Some(4), ..App::default() };
+        let mut newer = pointer_json(true, 3);
+        newer["head"] = json!("e".repeat(40));
+        for pointer in [pointer_json(true, 3), newer] {
+            let layer = layer_of(&pointer, &app).unwrap();
+            for published in [
+                Published::Pr(7),
+                Published::Ref { kind: CodeKind::Sha, name: "a".repeat(40) },
+                Published::Fork { repo: "someone/cmux".into(), reference: "theme".into() },
+            ] {
+                assert_eq!(
+                    refresh_step(&code, &layer, &published, None),
+                    Step::Off(
+                        "no longer applies: its web part needs web ABI 3; this app has 4".into()
+                    ),
+                    "{published:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn refresh_turns_off_a_head_with_no_web_change_left() {
+        let code = entry();
+        let mut pointer = pointer_json(false, 3);
+        pointer["head"] = json!("e".repeat(40));
+        let layer = layer_of(&pointer, &App { abi: Some(3), ..App::default() }).unwrap();
+        assert_eq!(
+            refresh_step(&code, &layer, &Published::Pr(7), None),
+            Step::Off("no longer applies: eeeeeeeeeeee has no web change".into())
+        );
     }
 
     fn archive(entries: &[(&str, &[u8])]) -> Vec<u8> {
