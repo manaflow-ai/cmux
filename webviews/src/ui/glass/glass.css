@@ -184,13 +184,13 @@
    content layer gets a near-solid surface). A card that sits in the content layer (a permission ask
    or a turn error in the transcript, a Settings card, a changelog figure, the cloud progress card)
    keeps .ui-glass for its shape and its Liquid Glass off and Reduce Transparency path, and adds
-   .ui-glass-content: the densest level's tint (the menu's, 80% light and 72% dark) with no
-   backdrop-filter, since it scrolls with the content (rule 7), and the hairline ring alone, with
-   no lit top edge. In the content layer what is behind it is the page, so it reads solid. Never
-   opaque (the glass rule's 90% cap, check-glass-never-opaque.ts); off and Reduce Transparency still
-   draw the opaque surface (below). */
+   .ui-glass-content: the design scale's content tint (--ds-glass-content-tint, 88% light and 86%
+   dark) with no backdrop-filter, since it scrolls with the content (rule 7), and the hairline ring
+   alone, with no lit top edge. It reads solid over the page and lets a wallpaper behind a
+   see-through page show only faintly. Never opaque (the glass rule's 90% cap,
+   check-glass-never-opaque.ts); off and Reduce Transparency still draw the opaque surface (below). */
 .ui-glass.ui-glass-content {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-content-tint), transparent);
   --glass-backdrop: none;
   --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
 }

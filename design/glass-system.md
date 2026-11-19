@@ -29,7 +29,7 @@ tooltip) is not changed by this page.
    view (the page root is a backdrop root), so a web tint there is glass on glass.
 2. **Web glass is for floating things.** Menus, popovers, hover cards, tooltips, and the composer
    while it floats. Cards, rows and bubbles in the content layer get a near-solid surface, not
-   glass: `.ui-glass.ui-glass-content`, the menu level's tint (80% / 72%) with no `backdrop-filter`
+   glass: `.ui-glass.ui-glass-content`, the content tint (`glassContent`, 88% / 86%) with no `backdrop-filter`
    (they scroll, rule 7) and the hairline ring alone. Never opaque (the glass rule's 90% cap); off
    and Reduce Transparency draw the opaque surface as for every `.ui-glass`.
 3. **Five levels, one saturation (1.6), light and dark apart.** Dark glass reads denser at the same

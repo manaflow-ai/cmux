@@ -66,6 +66,10 @@ function load() {
         `glass ${level.name} frosts at the one saturation, ${data.glassSaturation.value} (design/glass-system.md)`,
       );
   }
+  assert(
+    data.glassContent.darkTint <= data.glassContent.tint && data.glassContent.tint < 90,
+    "the content surface is near-solid, never opaque, and no denser in dark",
+  );
   assert(data.glassUnderlay.value > 0 && data.glassUnderlay.value <= 50, "the see-through underlay stays light");
   const levels = data.glass.filter((level) => level.kind === "level").map((level) => level.name);
   assert(
@@ -152,6 +156,8 @@ function cssBlock(data) {
   out.push(`  --ds-glass-saturation: ${data.glassSaturation.value};`);
   out.push(`  /* glass edge: ${data.glassEdge.for} */`);
   out.push(`  --ds-glass-edge-top: ${data.glassEdge.topLight}%;`);
+  out.push(`  /* glass content: ${data.glassContent.for} */`);
+  out.push(`  --ds-glass-content-tint: ${data.glassContent.tint}%;`);
   out.push(`  /* glass underlay: ${data.glassUnderlay.for} */`);
   out.push(`  --ds-glass-underlay: ${data.glassUnderlay.value}%;`);
   out.push(`  /* glass material: ${data.glassMaterial.for} */`);
@@ -175,6 +181,7 @@ function cssBlock(data) {
       .map((level) => `    ${glassVars(level).tint[0]}: ${level.darkTint}%;`),
     `    --ds-transient-web-tint: ${data.transientMaterial.webTintDark}%;`,
     `    --ds-glass-edge-top: ${data.glassEdge.topDark}%;`,
+    `    --ds-glass-content-tint: ${data.glassContent.darkTint}%;`,
   ];
   out.push("@media (prefers-color-scheme: dark) {", '  :root:not([data-theme="light"]) {', ...dark, "  }", "}");
   out.push(':root[data-theme="dark"] {', ...dark.map((line) => line.slice(2)), "}");

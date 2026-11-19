@@ -41,6 +41,8 @@ const POPOVER: CSSProperties = {
   borderRadius: "var(--ds-radius-composer)",
 } as CSSProperties;
 
+const TEXT_BLOCK: CSSProperties = { position: "absolute", lineHeight: 1.55, overflow: "hidden" };
+
 const MENU_ROWS = ["Open in New Tab", "Fork Conversation", "Copy Link", "Move to Cloud", "Archive"];
 
 function useMode(mode: Mode): void {
@@ -64,7 +66,11 @@ function GlassSystemGallery({ mode }: Props) {
       data-testid="glass-system"
       style={{ position: "relative", height: 400, color: "var(--cmux-text)", fontSize: "var(--text-body)" }}
     >
-      <div style={{ position: "absolute", inset: "56px 24px 0", lineHeight: 1.55 }}>{TEXT.repeat(5)}</div>
+      {/* The page's text, with a gap on the left where the content card sits in the flow (a content
+          card is never over text; the floating levels are). */}
+      <div style={{ ...TEXT_BLOCK, top: 56, left: 24, right: 24, height: 88 }}>{TEXT.repeat(2)}</div>
+      <div style={{ ...TEXT_BLOCK, top: 144, left: 370, right: 24, height: 110 }}>{TEXT.repeat(2)}</div>
+      <div style={{ ...TEXT_BLOCK, top: 254, left: 24, right: 24, bottom: 0 }}>{TEXT.repeat(3)}</div>
       <div
         className="ui-glass"
         data-level="chrome"

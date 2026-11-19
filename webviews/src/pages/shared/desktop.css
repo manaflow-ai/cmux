@@ -143,6 +143,8 @@ body {
   --ds-glass-saturation: 1.6;
   /* glass edge: the one edge of plain glass (design/glass-system.md, rule 4): the host's hairline ring (--glass-edge, the card rim) plus a lit top hairline, the light's share of --cmux-tone-light on each side */
   --ds-glass-edge-top: 60%;
+  /* glass content: a card in the content layer (.ui-glass-content: a permission ask, a turn error, a Settings card): the theme surface at this share with no backdrop-filter, since it scrolls with the content; near-solid, under the glass rule's 90% cap, so a wallpaper behind a see-through page shows only faintly (design/glass-system.md, rule 2) */
+  --ds-glass-content-tint: 88%;
   /* glass underlay: the theme surface a floating glass lays under its tint in a see-through Chromium page where the page cannot blur itself: the menu's 80% over 40% covers 88%, not 93% (design/glass-system.md, rule 6) */
   --ds-glass-underlay: 40%;
   /* glass material: the neutral glass every neutral overlay role is one of (FloatingGlassStyle.look; schemas/surface-roles): the gray its veil mixes at the role's opacity on each side, and the lit and shaded rims, so the sidebar's cards, group headers and sheets are one material with only their opacities apart */
@@ -190,6 +192,7 @@ body {
     --ds-glass-menu-tint: 72%;
     --ds-transient-web-tint: 72%;
     --ds-glass-edge-top: 24%;
+    --ds-glass-content-tint: 86%;
   }
 }
 :root[data-theme="dark"] {
@@ -200,6 +203,7 @@ body {
   --ds-glass-menu-tint: 72%;
   --ds-transient-web-tint: 72%;
   --ds-glass-edge-top: 24%;
+  --ds-glass-content-tint: 86%;
 }
 @media (prefers-reduced-transparency: reduce) {
   :root {
