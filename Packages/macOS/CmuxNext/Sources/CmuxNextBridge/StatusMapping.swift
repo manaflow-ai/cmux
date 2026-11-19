@@ -175,27 +175,26 @@ public struct StatusMapping {
         StatusStack.resolve(tabs.flatMap(reports) + reports(status), honoring: honored)
     }
 
-    /// A workspace's merged status, each tab's own (a hover card tab row's mark) and whether any tab has
-    /// agent work, from one read of each tab's reports: ``summary(tabs:status:)``, ``summary(_:)``
-    /// per tab and ``isWorking(tabs:)`` at once (u9696, Lawrence's scratch/a-hover-tabs).
-    public func summaries(tabs: [TabModel], status: WorkspaceStatus? = nil)
+    /// One tab's part of a workspace's merged status: its reports, its own state (a hover card tab row's mark) and
+    /// whether it has agent work, from one read of its reports (u9696). A row keeps it with the tab's part.
+    struct TabShare {
+        var reports: [StatusReport]
+        var state: StatusIndicatorState
+        var working: Bool
+    }
+
+    func share(of tab: TabModel) -> TabShare {
+        let own = reports(tab)
+        guard !own.isEmpty else { return TabShare(reports: [], state: .idle, working: false) }
+        return TabShare(reports: own, state: StatusStack.resolve(own, honoring: honored).state, working: own.contains { $0.state.isWorking })
+    }
+
+    /// A workspace's merged status over its tabs' parts and its `cmux status set` entries, each tab's own state and
+    /// whether any tab has agent work: ``summary(tabs:status:)``, ``summary(_:)`` per tab and ``isWorking(tabs:)``
+    /// at once.
+    func summaries(_ tabs: [TabShare], status: WorkspaceStatus? = nil)
         -> (workspace: StatusSummary, tabs: [StatusIndicatorState], working: Bool) {
-        let honored = honored
-        var all: [StatusReport] = []
-        var states: [StatusIndicatorState] = []
-        states.reserveCapacity(tabs.count)
-        var working = false
-        for tab in tabs {
-            let own = reports(tab)
-            if own.isEmpty {
-                states.append(.idle)
-                continue
-            }
-            states.append(StatusStack.resolve(own, honoring: honored).state)
-            working = working || own.contains { $0.state.isWorking }
-            all += own
-        }
-        return (StatusStack.resolve(all + reports(status), honoring: honored), states, working)
+        (StatusStack.resolve(tabs.flatMap(\.reports) + reports(status), honoring: honored), tabs.map(\.state), tabs.contains { $0.working })
     }
 
     /// The reports of a workspace's status entries that carry a state (`cmux status set --state`,

@@ -26,8 +26,9 @@ import Testing
             let request = SidebarFaceCostTests.request(index)
             let full = SidebarFaceBatch(home: SidebarFaceCostTests.home)
             full.reset(showsUnread: false, newTabTitled: false)
-            full.append(request.workspace, local: true, status: nil, selectedTab: selectedTab, newTabPages: request.newTabPages,
-                        listTitle: \.displayTitle, branded: { _ in false })
+            full.append(request.workspace, local: true, status: nil, selectedTab: selectedTab, facts: {
+                SidebarFaceBatch.facts($0, newTabPage: request.newTabPages.contains($0.id), listTitle: $0.displayTitle, branded: false)
+            })
             let all = try #require(full.run(), "the face rules read workspace \(index)").picks(0)
             let tabs = full.tabs
             let expected = Self.ids([all.front, all.label, all.face, all.work, all.chat].map { $0.map { tabs[$0] } })

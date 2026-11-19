@@ -1,4 +1,3 @@
-import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextSidebar
@@ -41,6 +40,8 @@ extension SidebarMapping {
         var foldersLabel = false
         /// The face rules' buffers to reuse (`sections(faces:)`); nil: the batch takes its own.
         var faces: SidebarFaceBatch?
+        /// The rows' kept tab parts (`sections(tabs:)`); nil: each row's parts are made at each map.
+        var tabs: SidebarTabParts?
     }
 
     /// The rows of one `sections` call (or one `faceRows`) as a ``SidebarRowBatch``: each row stages into the
@@ -50,7 +51,10 @@ extension SidebarMapping {
         let options: FaceOptions
         private var requests: [FaceRowRequest] = []
         private var icons: [HarnessIconLookup] = []
-        private var replies: [(face: SidebarFace, tabs: [TabModel], listTitles: [String])] = []
+        /// Each row's tab parts (`SidebarTabParts.parts`), taken as the row stages: the face rules read their
+        /// facts, and the row is assembled from them.
+        private var parts: [[SidebarTabParts.Part]] = []
+        private var replies: [(face: SidebarFace, tabs: [TabModel])] = []
         /// The buffers between `begin` and `run`: the options' (made with the mapping's home), unless another batch
         /// holds them (a row mapped while another batch stages); else a batch of its own.
         private var faces: SidebarFaceBatch?
@@ -63,6 +67,7 @@ extension SidebarMapping {
         func begin() {
             requests.removeAll(keepingCapacity: true)
             icons.removeAll(keepingCapacity: true)
+            parts.removeAll(keepingCapacity: true)
             replies.removeAll(keepingCapacity: true)
             let batch = options.faces.flatMap { $0.inUse || !$0.home.elementsEqual(mapping.home.utf8) ? nil : $0 }
                 ?? SidebarFaceBatch(home: mapping.home)
@@ -73,15 +78,18 @@ extension SidebarMapping {
 
         /// Adds `request`'s row and returns its slot.
         func stage(_ request: FaceRowRequest) -> Int {
-            let icons = options.harnessIcons(), workspace = request.workspace, newTabPages = request.newTabPages
-            let newTabTitle = options.newTabTitle, tabTitle = options.tabTitle
+            let icons = options.harnessIcons(), workspace = request.workspace
+            // One part for each tab, in the order in which the buffers ask for the tabs' facts (pane order).
+            let parts = SidebarTabParts.parts(request, icons: icons, options: options, mapping: mapping)
+            var next = 0
             faces?.append(workspace, local: options.machine == .local, status: request.status, selectedTab: options.selectedTab,
-                          focusedPane: options.focusedPane(workspace),
-                          newTabPages: newTabPages,
-                          listTitle: { SidebarMapping.listTitle($0, of: workspace, newTabPages: newTabPages, newTabTitle: newTabTitle, tabTitle: tabTitle) },
-                          branded: { $0.agentBrand != nil || icons.custom(for: $0.agentSession?.harness) != nil })
+                          focusedPane: options.focusedPane(workspace), facts: { _ in
+                              defer { next += 1 }
+                              return parts[next].facts
+                          })
             requests.append(request)
             self.icons.append(icons)
+            self.parts.append(parts)
             return requests.count - 1
         }
 
@@ -96,21 +104,19 @@ extension SidebarMapping {
                 faceLog.error("sidebar face rules could not read a batch of \(count, privacy: .public) rows; their rows keep their last mapping")
                 return false
             }
-            replies = decoded.enumerated().map { index, face in
-                let range = faces.tabRange(index)
-                return (face, Array(faces.tabs[range]), Array(faces.listTitles[range]))
-            }
+            replies = decoded.enumerated().map { index, face in (face, Array(faces.tabs[faces.tabRange(index)])) }
             return true
         }
 
         /// The row in `slot`, from the batch's reply.
         func finish(_ slot: Int) -> SidebarWorkspace {
             guard requests.indices.contains(slot) else { return SidebarWorkspace(id: SidebarWorkspaceID(""), machineID: options.machine, title: "") }
-            guard replies.indices.contains(slot), icons.indices.contains(slot) else {
+            guard replies.indices.contains(slot), icons.indices.contains(slot), parts.indices.contains(slot),
+                  parts[slot].count == replies[slot].tabs.count else {
                 return SidebarMapping.unmapped(requests[slot].workspace, machine: options.machine)
             }
             let reply = replies[slot]
-            return mapping.faceRow(requests[slot], face: reply.face, tabs: reply.tabs, listTitles: reply.listTitles,
+            return mapping.faceRow(requests[slot], face: reply.face, tabs: reply.tabs, parts: parts[slot],
                                    harnessIcons: icons[slot], options: options)
         }
 
@@ -141,29 +147,28 @@ extension SidebarMapping {
         return slots.map(batch.finish)
     }
 
-    /// One row from its face: the row's assembly, reading the face's tabs and texts.
-    func faceRow(_ request: FaceRowRequest, face facts: SidebarFace, tabs: [TabModel], listTitles: [String],
+    /// One row from its face: the row's assembly, reading the face's tabs and texts. `parts` are the tabs' parts
+    /// (`SidebarTabParts.parts`), one for each of `tabs` in their order: each tab's status, page and item come from
+    /// its part, so the row makes them again only for a tab whose part was made again.
+    func faceRow(_ request: FaceRowRequest, face facts: SidebarFace, tabs: [TabModel], parts: [SidebarTabParts.Part],
                  harnessIcons: HarnessIconLookup, options: FaceOptions) -> SidebarWorkspace {
         let workspace = request.workspace, newTabPages = request.newTabPages, machine = options.machine
         func at(_ index: Int?) -> TabModel? { index.flatMap { tabs.indices.contains($0) ? tabs[$0] : nil } }
-        let statuses = StatusMapping.shared.summaries(tabs: tabs, status: workspace.status)
+        let statuses = StatusMapping.shared.summaries(parts.map(\.status), status: workspace.status)
         let indicator = statuses.workspace
         // The focused tab; the label tab the row is named for (a chat over an idle shell); the face tab (the
         // label, or the work a page beside it was opened from) whose name, icon and kind the row shows.
         let focused = at(facts.front), front = at(facts.label), folder = at(facts.folderTab), face = at(facts.face)
         let page = face.flatMap { options.pageFace(workspace, $0, nil) }
-        // Each browser tab's face once: its favicon in the tab list, its sound on the row.
-        var browserFaces: [String: PageFace] = [:]
-        for tab in tabs where tab.kind == .browser {
-            browserFaces[tab.id] = tab.id == face?.id ? page : options.pageFace(workspace, tab, nil)
-        }
+        // Each browser tab's page is in its part: its favicon in the tab list, its sound on the row.
+        let focusedPage = facts.front.flatMap { parts.indices.contains($0) ? parts[$0].page : nil }
         // The row's icon is the favicon of the tab last focused in the workspace (user 23802: "workspace favicon
         // needs to reflect the latest focused/interacted entity"): a page's once it is focused, none once focus
         // goes back to a chat or terminal beside it. `focused` is the window's own focus (`focusedPane`), so a
         // page opened in a split no longer keeps the mark after a click back into the work (Leo, 2026-10-21:
         // "why did this turn into the githb favicon?" came from the daemon's stale focus stamp).
         let iconTab = focused ?? face
-        let iconPage = iconTab?.id == face?.id ? page : iconTab.flatMap { browserFaces[$0.id] ?? options.pageFace(workspace, $0, nil) }
+        let iconPage = iconTab?.id == face?.id ? page : iconTab.flatMap { focusedPage ?? options.pageFace(workspace, $0, nil) }
         let entries = workspace.status?.entries ?? []
         func entry(_ index: Int?) -> String? { index.flatMap { entries.indices.contains($0) ? entries[$0].text : nil } }
         // An unnamed Cloud workspace whose shell idles at its home reads "Terminal" (`homeShellTitle`), its header
@@ -203,31 +208,18 @@ extension SidebarMapping {
             agentIcon: rowAgent.icon,
             agentName: agentTab?.agentName,
             progress: facts.progress,
-            tabs: ObservationWork.counted(Array(zip(tabs, statuses.tabs)), "SidebarMapping.tabItems").enumerated().map { index, pair in
-                let (tab, state) = pair
+            tabs: parts.enumerated().map { index, part in
                 let listed = facts.listed.indices.contains(index) ? facts.listed[index] : nil
-                let blank = listed?.blank ?? false
-                let listTitle = listTitles.indices.contains(index) ? listTitles[index] : tab.displayTitle
-                let kind: SidebarTabKind = switch listed?.kind {
-                case 1?: .newTab
-                case 2?: .agentChat
-                default: Self.tabKind(tab.kind)
-                }
                 // The hover card's tab rows show each tab's own folder and status; a New Tab page shows neither.
-                var item = SidebarTab(id: TabID(tab.id), title: listed?.title ?? listTitle,
-                                      kind: kind, isUnread: tab.showsUnread,
-                                      brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon,
-                                      folder: listed?.folder,
-                                      state: blank ? .idle : state,
-                                      host: blank || tab.kind != .browser ? nil : Self.pageHost(tab.url),
-                                      branch: tab.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
-                                      lastActivity: (listed?.lastActivityMs ?? 0) == 0 ? nil : Self.date(ms: listed?.lastActivityMs ?? 0))
-                // Its chat's running subagents and commands, which the tab row counts.
-                item.pageIcon = browserFaces[tab.id]?.icon
-                (item.subagentsRunning, item.commandsRunning) = Self.running(tab)
-                item.isFreed = tab.kind == .pty && tab.dead && tab.relaunch?.onShow == true
-                // What the tab row's line says beyond its folder (Leo 2026-11-01: "not much metadata").
-                if !blank { Self.listedFacts(&item, of: tab, process: process(tab)) }
+                var item = listed?.blank == true ? part.blankItem : part.item
+                item.title = listed?.title ?? part.facts.listTitle
+                switch listed?.kind {
+                case 1?: item.kind = .newTab
+                case 2?: item.kind = .agentChat
+                default: break
+                }
+                item.folder = listed?.folder
+                item.lastActivity = (listed?.lastActivityMs ?? 0) == 0 ? nil : Self.date(ms: listed?.lastActivityMs ?? 0)
                 return item
             },
             muted: request.muted,
@@ -240,7 +232,7 @@ extension SidebarMapping {
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
         row.startsInCloud = page?.startsInCloud ?? false
-        row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
+        row.audio = SidebarWorkspaceAudio.merge(parts.lazy.map { $0.page?.audio })
         row.lastMessage = at(facts.chat)?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
         // What an agent needs the person to do in a tab says why the row is marked; it comes
         // before the newest notification's text (tab-attention-v1).

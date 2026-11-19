@@ -66,9 +66,14 @@ package final class ProxiedBrowserTabs {
     /// nil for a loopback icon of a remote store (a remote-localhost page or a
     /// proxied tab), which would load from this Mac (URL.isAppFetchableFavicon).
     package func appFetchableFavicon(_ address: String?, key: String, page: (any BrowserTab)?) -> String? {
-        let remote = (page as? CEFTab)?.machineStore != nil || isProxied(key)
         guard let address, let url = URL(string: address) else { return address }
-        return url.isAppFetchableFavicon(remoteStore: remote) ? address : nil
+        return url.isAppFetchableFavicon(remoteStore: faviconIsRemote(key: key, page: page)) ? address : nil
+    }
+
+    /// Whether the favicon of tab `key` is of a store of another machine: its live `page` has a machine's store, or
+    /// the tab is proxied. Nothing here is observable: who keeps a favicon asks again when it shows the tab again.
+    package func faviconIsRemote(key: String, page: (any BrowserTab)?) -> Bool {
+        (page as? CEFTab)?.machineStore != nil || isProxied(key)
     }
 
     /// `plan` as the cache's configuration hook: nil (a blank page) for a

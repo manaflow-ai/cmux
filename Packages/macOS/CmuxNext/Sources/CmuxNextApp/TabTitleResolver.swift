@@ -96,4 +96,12 @@ struct TabTitleResolver {
         if let incognito = incognitoTitle(tab, incognito) { return incognito ?? Strings.untitledBrowser }
         return TabItemMapping.shared.title(tab, fallbackTitle: untitled(tab))
     }
+
+    /// `tab`'s title where a source that no observation covers decides it (a page or app tab's page, an incognito
+    /// page's live title, a New Tab page's own title); nil for each other tab. Who keeps a tab's title from one map
+    /// to the next compares this at each map, and asks ``title(_:incognito:)`` again when it is another one.
+    func unobservedTitle(_ tab: TabModel, incognito: Bool) -> String? {
+        guard tab.page != nil || tab.appTab != nil || (incognito && tab.kind == .browser) || isNewTabPage(tab) else { return nil }
+        return title(tab, incognito: incognito)
+    }
 }

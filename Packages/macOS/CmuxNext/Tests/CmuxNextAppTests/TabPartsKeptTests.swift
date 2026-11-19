@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextBridge
 import CmuxNextCompat
 @testable import CmuxNextDaemon
 import CmuxNextHomeModel
@@ -125,6 +126,11 @@ struct TabPartsKeptTests {
             var faces: [String] = []
         }
         let calls = Calls()
+        /// What the window's sidebar keeps of its rows' tabs from pass to pass, with the counted page function.
+        private(set) lazy var parts = SidebarTabParts(page: { [calls = self.calls] _, tab in
+            calls.faces.append(tab.id)
+            return nil
+        })
         /// The rows the last pass listed.
         private(set) var listed = 0
 
@@ -152,7 +158,7 @@ struct TabPartsKeptTests {
                                                       calls.titles.append(tab.id)
                                                       return tab.displayTitle
                                                   },
-                                                  rows: feed.rowSource)
+                                                  rows: feed.rowSource, tabs: parts)
             listed = feed.fill(sections).flatMap(\.workspaces).count
         }
 

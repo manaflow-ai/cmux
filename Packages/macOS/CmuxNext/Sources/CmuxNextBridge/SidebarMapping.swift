@@ -102,8 +102,8 @@ public struct SidebarMapping {
     /// it gets the workspace and the mapping to run later (`SidebarRowFeed`),
     /// so a structural pass reads no row's status. Every row of one call is in one face batch
     /// (`FaceRowBatch`): the feed maps the ones it remaps together, in one Rust call; without a source
-    /// every listed row maps here in one call. `faces` are the face rules' buffers the batch reuses (a window's
-    /// sidebar keeps one across passes); without them it takes its own.
+    /// every listed row maps here in one call. `faces` are the face rules' buffers the batch reuses (a window's sidebar
+    /// keeps one across passes); without them it takes its own. `tabs` keeps each row's tab parts (``SidebarTabParts``).
     /// `workspaceFilter` drops workspaces that are no longer valid sidebar rows
     /// (for example, an acpmux session that was purged while its tab lingers).
     /// `listing`, when given, answers whether each workspace lists (the Home rule and `workspaceFilter`) from its own
@@ -126,14 +126,14 @@ public struct SidebarMapping {
                                 listing: ListingSource? = nil,
                                 workspaceFilter: @escaping (WorkspaceModel) -> Bool = { _ in true },
                                 terminalTitle: String? = nil,
-                                harnessIcons: @escaping () -> HarnessIconLookup = { .none }, faces: SidebarFaceBatch? = nil) -> [SidebarRowSection] {
+                                harnessIcons: @escaping () -> HarnessIconLookup = { .none }, faces: SidebarFaceBatch? = nil,
+                                tabs: SidebarTabParts? = nil) -> [SidebarRowSection] {
         // A personal group's icon lives on the home daemon, whichever machine's section shows it.
         func groupImage(_ icon: String) -> SidebarFavicon? { groupIconAsset.map { $0(icon) } ?? iconAsset(icon) }
         let batch = FaceRowBatch(mapping: self, options: FaceOptions(
             machine: machine.id, showsUnread: showsUnread, selectedTab: selectedTab, focusedPane: focusedPane,
-            newTabTitle: newTabTitle, pageFace: pageFace,
-            tabTitle: tabTitle, notificationText: notificationText, iconAsset: iconAsset, harnessIcons: harnessIcons,
-            homeShellTitle: machine.kind == .cloud ? terminalTitle : nil, faces: faces))
+            newTabTitle: newTabTitle, pageFace: pageFace, tabTitle: tabTitle, notificationText: notificationText, iconAsset: iconAsset,
+            harnessIcons: harnessIcons, homeShellTitle: machine.kind == .cloud ? terminalTitle : nil, faces: faces, tabs: tabs))
         // The home workspace (`kind` "home") and a window's own Home (cmux#27880) are what
         // the Home item in the top section shows; neither is also a workspace row (nxdog28)
         // while that item is in the layout (`hidesHomeWorkspace`).
