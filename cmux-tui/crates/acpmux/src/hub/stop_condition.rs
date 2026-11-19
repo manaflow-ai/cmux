@@ -11,8 +11,16 @@
 //! one prompt?"). Now its first prompt is its work, under the same check.
 //!
 //! Only text: acpmux writes the hook itself, so a caller can add no command hook through it (a
-//! preset's `args` refuse `--settings` for that reason). A harness other than Claude Code (stdio)
-//! keeps none, and the session/new answer then has no `stopCondition`.
+//! preset's `args` refuse `--settings` for that reason).
+//!
+//! Codex (codex-acp, an ACP harness of family `codex`) has its own goal: `_session/goal`
+//! `{action: "set", objective}` makes Codex go on, in turns it starts itself, until it marks the
+//! goal complete; Codex keeps it in its thread across a resume. acpmux sends the condition there
+//! once (`SessionMeta::stop_condition_sent`), right after the chat's first prompt is written
+//! (`codex_goal_after_prompt`): set on an idle thread, codex-acp would start a turn of its own
+//! with no task. codex-acp answers a `set` only once the goal's turns are over, so it is not
+//! awaited. Any other harness keeps none, and the session/new answer then has no
+//! `stopCondition`.
 
 use super::*;
 
@@ -41,6 +49,58 @@ pub(crate) fn requested(meta: Option<&Value>) -> Result<Option<String>, RpcError
         return Err(refused(&format!("at most {MAX_CHARS} characters")));
     }
     Ok(Some(text.to_owned()))
+}
+
+/// codex-acp's goal control request (1.10.0; `_codex/session/goal_control` before).
+pub(crate) const CODEX_GOAL_METHOD: &str = "_session/goal";
+
+/// Whether a chat on harness `profile` of `family` keeps a stop condition: Claude Code (stdio),
+/// or codex-acp. `codex app-server` bridged in process (`codex_app_server.rs`) has no goal
+/// control, so it keeps none.
+pub(crate) fn kept_by(profile: &HarnessProfile, family: &str) -> bool {
+    match profile.kind {
+        crate::config::HarnessKind::ClaudeStdio => true,
+        crate::config::HarnessKind::Acp => {
+            crate::goal::GoalProvider::from_name(family) == crate::goal::GoalProvider::Codex
+                && !crate::codex_app_server::is_profile_launch(&profile.argv)
+        }
+        crate::config::HarnessKind::Terminal => false,
+    }
+}
+
+impl Hub {
+    /// Called once a prompt of `session` is written to `child` (agent session `agent_sid`): a
+    /// Codex chat whose condition Codex has not been given gets it now as Codex's goal, sent
+    /// without waiting for the answer. Claude Code's comes with its start (`claude_args`).
+    pub(super) fn codex_goal_after_prompt(
+        &self,
+        session: &Session,
+        child: &Arc<ChildAgent>,
+        agent_sid: &str,
+    ) {
+        let objective = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let codex = m.family.as_deref().map(crate::goal::GoalProvider::from_name)
+                == Some(crate::goal::GoalProvider::Codex);
+            match m.stop_condition.clone() {
+                Some(c) if codex && !m.stop_condition_sent => {
+                    m.stop_condition_sent = true;
+                    c
+                }
+                _ => return,
+            }
+        };
+        self.save_meta(session);
+        let params = json!({"sessionId": agent_sid, "action": "set", "objective": objective});
+        let (child, id) = (child.clone(), session.id.clone());
+        // The hub's scope owns it: a shutdown cancels the wait for codex-acp's late answer.
+        self.scope.spawn_until_cancelled("codex-goal", async move {
+            match child.request(CODEX_GOAL_METHOD, params).await {
+                Ok(_) => tracing::info!(session = %id, "codex goal from the stop condition ended"),
+                Err(e) => tracing::warn!(session = %id, "codex goal from the stop condition: {e}"),
+            }
+        });
+    }
 }
 
 /// The settings document that holds the condition as a prompt Stop hook.

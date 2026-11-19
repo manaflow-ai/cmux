@@ -47,6 +47,7 @@
     "CmuxNextKeepAwake": {"layer": "service"},
     "CmuxNextPhoneAccess": {"layer": "service"},
     "CmuxNextComputerUse": {"layer": "service"},
+    "CmuxNextComputerUsePreview": {"layer": "ui"},
     "CmuxNextStash": {"layer": "service"},
     "CmuxNextHistoryPages": {"layer": "ui"},
     "CmuxNextTaskManagerPage": {"layer": "ui"},

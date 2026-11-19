@@ -174,10 +174,40 @@ public final class ScreenSharingViewer: Identifiable {
             switch session.state {
             case .pending?: phase = .waitingForApproval(sessionID: session.id, scope: scope)
             case .ended?: phase = .ended(reason: nil)
-            case .approved?, .live?, nil: phase = .approved(sessionID: session.id, scope: session.scope ?? scope)
+            case .approved?, .live?, nil:
+                phase = .approved(sessionID: session.id, scope: session.scope ?? scope)
+                scheduleTicketWait(session.id)
             }
         case let .failure(error):
             phase = .refused(ScreenSharingRefusal(error), requested: scope)
+        }
+    }
+
+    /// How long an approved session waits for its `session.ticket` push before asking the hub for it.
+    @ObservationIgnored var ticketWait: Duration = .seconds(8)
+
+    /// Approved, and the ticket never came: pushes have no backlog, so a ticket pushed while the
+    /// hub socket was down is gone and the screen said Connecting forever. Past the wait the
+    /// ticket is asked for directly (`/reattach` re-admits an approved session); if the hub has
+    /// none either, the screen says why, with Try Again.
+    private func scheduleTicketWait(_ id: String) {
+        reattachTask?.cancel()
+        let hub = hub, reattach = reattachSession, wait = ticketWait
+        reattachTask = Task { [weak self] in
+            do { try await Task.sleep(for: wait) } catch { return }
+            guard let self, case let .approved(current, scope) = self.phase, current == id else { return }
+            let answer: Result<SessionTicket, DeviceHubError>
+            do { answer = .success(try await reattach(hub, id)) } catch {
+                answer = .failure(error as? DeviceHubError ?? .transport("\(error)"))
+            }
+            guard !Task.isCancelled, case .approved(id, _) = self.phase else { return }
+            switch answer {
+            case let .success(ticket):
+                self.accept(ticket)
+            case let .failure(error):
+                self.end(id, reason: ScreenSharingEndReason.failed.rawValue)
+                self.phase = .refused(ScreenSharingRefusal(error), requested: scope)
+            }
         }
     }
 
