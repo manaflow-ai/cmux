@@ -31,12 +31,12 @@ pub use input_ffi::*;
 pub use line_reader_ffi::*;
 pub use rb_client_ffi::*;
 pub use receiver::{Carrier, Message, Receiver, ReceiverError, Stats};
-pub use session::{MAX_STREAMS, Session, SessionError};
+pub use session::{MAX_STREAMS, STALL_AFTER_US, Session, SessionError};
 pub use session_ffi::*;
 pub use upstream_ffi::*;
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
-pub const ABI_VERSION: u32 = 5;
+pub const ABI_VERSION: u32 = 6;
 
 pub const CMUX_RD_OK: i32 = 0;
 pub const CMUX_RD_ERR_NULL: i32 = -1;
