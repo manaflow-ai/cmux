@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { bakeOptionsFromArgv } from "../scripts/cmux-vm-image/bake";
 import type { Vm } from "../scripts/cmux-vm-image/guest";
-import { type GuestShape, growToShape, LARGE_IMAGE_SHAPE, largeImageName, parseGuestShape, ROOT_DEVICE_COMMAND, shapeProblems } from "../scripts/cmux-vm-image/large-image";
+import { type GuestShape, growToShape, LARGE_IMAGE_SHAPE, largeImageName, MEMORY_GUARD_REFRESH_COMMAND, memoryGuardProblems, parseGuestShape, ROOT_DEVICE_COMMAND, shapeProblems } from "../scripts/cmux-vm-image/large-image";
 import { bootShapeCheck, identityChecks } from "../scripts/cmux-vm-image/large-smoke";
 import { historyEntry } from "../scripts/cmux-vm-image/promote-record";
 import { guestShellProblems } from "../scripts/cmux-vm-image/shell-check";
@@ -89,6 +89,28 @@ describe("growToShape", () => {
 
   test("the guest steps are /bin/sh", () => {
     expect(guestShellProblems(ROOT_DEVICE_COMMAND).refused).toEqual([]);
+    expect(guestShellProblems(MEMORY_GUARD_REFRESH_COMMAND).refused).toEqual([]);
+  });
+});
+
+describe("memory guards after the grow", () => {
+  test("the reload comes before the read, so the limit read is the one the snapshot keeps", () => {
+    expect(MEMORY_GUARD_REFRESH_COMMAND.startsWith("systemctl daemon-reload && ")).toBe(true);
+  });
+
+  test("a user.slice limit still at 90% of the small size is refused", () => {
+    // What the first large bake's clones showed: the small size's limit on a grown machine.
+    expect(memoryGuardProblems("user-slice-max=3694657536\nmemtotal=8400146432\n")).toEqual(["user.slice memory.max 3694657536 of 8400146432 bytes (want 90%)"]);
+    expect(memoryGuardProblems("user-slice-max=3694657536\nmemtotal=16785604608\n")).toHaveLength(1);
+  });
+
+  test("a limit that followed the memory passes", () => {
+    expect(memoryGuardProblems("user-slice-max=15107043328\nmemtotal=16785604608\n")).toEqual([]);
+  });
+
+  test("no limit, or an unreadable answer, fails closed", () => {
+    expect(memoryGuardProblems("user-slice-max=max\nmemtotal=16785604608\n")).toHaveLength(1);
+    expect(memoryGuardProblems("")).toHaveLength(1);
   });
 });
 

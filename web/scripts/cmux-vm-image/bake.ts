@@ -114,7 +114,7 @@ import {
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
-import { growToShape, LARGE_IMAGE_SHAPE, type LargeImageRecord, largeImageName, ROOT_DEVICE_COMMAND } from "./large-image";
+import { growToShape, LARGE_IMAGE_SHAPE, type LargeImageRecord, largeImageName, MEMORY_GUARD_REFRESH_COMMAND, memoryGuardProblems, ROOT_DEVICE_COMMAND } from "./large-image";
 import {
   argValue,
   createVm,
@@ -1267,6 +1267,9 @@ async function snapshotLarge(vm: Vm, name: string, options: BakeOptions, ledger:
   const largeName = largeImageName(name);
   const grow = await growToShape(vm);
   L.log(`LARGE grow ${JSON.stringify(grow)}`);
+  // The memory guards are percentages systemd resolved at the small size: reload them, and refuse a stale one.
+  const guards = memoryGuardProblems(await L.step(vm, "large-memory-guards", MEMORY_GUARD_REFRESH_COMMAND));
+  if (guards.length > 0) throw new Error(`the memory guards did not follow the new size: ${guards.join("; ")}`);
   const rootDevice = (await L.step(vm, "large-root-device", ROOT_DEVICE_COMMAND)).trim();
   await L.step(vm, "large-tmp-no-writer", tmpWritersCommand());
   await L.step(vm, "large-snapshot-ready", snapshotReadyCommand());

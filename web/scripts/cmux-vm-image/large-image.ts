@@ -108,6 +108,29 @@ export async function growToShape(
 }
 
 /**
+ * systemd turns a percentage limit into bytes when it loads the unit, so after the memory grew the machine guard
+ * `user.slice MemoryMax=90%` (machine-health) still held 90% of the small size: 3.4 GiB on a 16 GiB machine, and a
+ * snapshot keeps that. A reload loads the units again against the memory the guest has now and applies the new
+ * limit to the cgroup. Prints the limit the kernel holds and the guest's memory, both in bytes, for
+ * memoryGuardProblems.
+ */
+export const MEMORY_GUARD_REFRESH_COMMAND =
+  "systemctl daemon-reload && echo \"user-slice-max=$(cat /sys/fs/cgroup/user.slice/memory.max)\" && echo \"memtotal=$(awk '/^MemTotal:/ {print $2 * 1024}' /proc/meminfo)\"";
+
+/** The share of the guest's memory user.slice may use (machine-health's guard drop-in), and how far off passes. */
+export const USER_SLICE_MEMORY_SHARE = 0.9;
+const MEMORY_SHARE_TOLERANCE = 0.02;
+
+/** Why the user.slice memory limit in MEMORY_GUARD_REFRESH_COMMAND's output is not 90% of the guest's memory; empty when it is. */
+export function memoryGuardProblems(stdout: string): string[] {
+  const value = (key: string) => Number(stdout.split("\n").find((line) => line.startsWith(`${key}=`))?.slice(key.length + 1).trim() || Number.NaN);
+  const max = value("user-slice-max");
+  const mem = value("memtotal");
+  if (Math.abs(max / mem - USER_SLICE_MEMORY_SHARE) < MEMORY_SHARE_TOLERANCE) return [];
+  return [`user.slice memory.max ${max} of ${mem} bytes (want ${USER_SLICE_MEMORY_SHARE * 100}%)`];
+}
+
+/**
  * The large image's entry in the bake record (bake-<name>.json `large`), beside the small image's own fields. The
  * workflow copies name, id and size into the dev channel candidate's `large` member once the large smoke passed.
  */
