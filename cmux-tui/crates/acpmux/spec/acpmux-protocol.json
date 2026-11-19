@@ -7930,6 +7930,17 @@
             "null"
           ]
         },
+        "rows": {
+          "anyOf": [
+            {
+              "$ref": "#/types/WatchRows"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What each `_acpmux/session_changed` of a chat this connection is not attached to carries;\nabsent or null is `full`. Every other notice of the watch (`harnesses_changed`,\n`permission_pending`, peer states) is the same in every mode."
+        },
         "withTools": {
           "description": "Include tool inventories explicitly; default census rows omit them.",
           "type": [
@@ -7939,6 +7950,26 @@
         }
       },
       "type": "object"
+    },
+    "WatchRows": {
+      "description": "`_acpmux/watch {rows}`: how much of a chat's row its change notices carry, for a watcher\nthat draws no row (the app's harness and permission readers).",
+      "oneOf": [
+        {
+          "const": "full",
+          "description": "The row (`session`), as before.",
+          "type": "string"
+        },
+        {
+          "const": "ids",
+          "description": "No row: `sessionId` (with `qualifiedSessionId` and `peer` for a peer's chat), `kind`,\n`recordKind`, `seq`, `listSeq`, and `session` holding only `sessionId`.",
+          "type": "string"
+        },
+        {
+          "const": "none",
+          "description": "No `_acpmux/session_changed` of such a chat at all.",
+          "type": "string"
+        }
+      ]
     },
     "WatchTakeOverParams": {
       "additionalProperties": false,

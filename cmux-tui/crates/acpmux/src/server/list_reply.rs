@@ -243,7 +243,9 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     crate::hub::session_pages::refuse_watch_filters(params)?;
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
     let tools = with_tools(params)?;
+    let rows = super::watch_rows_param(params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
+    conn.watch_rows.store(rows as u8, Ordering::SeqCst);
     conn.watch_all.store(on, Ordering::SeqCst);
     // The position the reply is current to, read once the watch is on: every change after it is
     // a notice on this connection (`row_log.rs`).

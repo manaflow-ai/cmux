@@ -209,8 +209,10 @@ extension AcpmuxEnvironment {
         ]
         // We only consume harness-change notifications. Keep the initial
         // session snapshot to one row; sending the whole watch page makes a
-        // large daemon's first reply needlessly multi-megabyte.
-        let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": ["enabled": true, "limit": 1]]
+        // large daemon's first reply needlessly multi-megabyte. `rows: none`:
+        // no chat's row change either (each ~7 KB, on every change of every chat).
+        let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch",
+                                    "params": ["enabled": true, "limit": 1, "rows": "none"]]
         var payload = Data()
         for request in [initialize, watch] {
             payload += try JSONSerialization.data(withJSONObject: request)

@@ -2357,9 +2357,21 @@ export interface WatchParams {
   limit?: (number | null);
   /** The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset. */
   listEpoch?: (string | null);
+  /**
+   * What each `_acpmux/session_changed` of a chat this connection is not attached to carries;
+   * absent or null is `full`. Every other notice of the watch (`harnesses_changed`,
+   * `permission_pending`, peer states) is the same in every mode.
+   */
+  rows?: (WatchRows | null);
   /** Include tool inventories explicitly; default census rows omit them. */
   withTools?: (boolean | null);
 }
+
+/**
+ * `_acpmux/watch {rows}`: how much of a chat's row its change notices carry, for a watcher
+ * that draws no row (the app's harness and permission readers).
+ */
+export type WatchRows = ("full" | "ids" | "none");
 
 export interface WatchTakeOverParams {
   _meta?: RequestMeta;
