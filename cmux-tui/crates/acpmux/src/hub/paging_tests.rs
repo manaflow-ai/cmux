@@ -685,8 +685,10 @@ impl SplitMix {
 /// The real Codex chat's bytes by group (353,235 records, 4.73 GiB): load replays 49.8%, raw
 /// harness lines 47.9% (`codex.response`, about 1.5 MB each, and small `codex.<method>` lines),
 /// `tool_call_update` snapshots 1.5%, the rest under 1%. The groups between transcript records
-/// (replays, responses, other raw lines, other wire records) are written to these shares of the whole log.
-const GEN_SHARES: [f64; 4] = [0.498, 0.455, 0.024, 0.005];
+/// (replays, responses, other raw lines, other wire records) are written to these shares of the
+/// generator's own count, which undercounts a small line's envelope: the small raw lines' 2.7%
+/// come out near the real 2.4% (`kind_shares` prints what was written).
+const GEN_SHARES: [f64; 4] = [0.498, 0.455, 0.027, 0.005];
 const GEN_REPLAY: usize = 0;
 const GEN_RESPONSE: usize = 1;
 const GEN_RAW: usize = 2;
@@ -953,7 +955,7 @@ impl Gen<'_> {
             ));
             let mut output = String::new();
             for _ in 0..self.rng.range(2, 8) {
-                let len = self.rng.range(4 << 10, 16 << 10);
+                let len = self.rng.range(2 << 10, 10 << 10);
                 let piece = self.text(len);
                 output.push_str(&piece);
                 out.push(agent(
