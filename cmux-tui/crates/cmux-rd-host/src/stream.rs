@@ -19,8 +19,12 @@ use cmux_rd_core::pacer::Pacer;
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
-use cmux_rd_proto::{DatagramHeader, DatagramKind};
+use cmux_rd_proto::{DatagramHeader, DatagramKind, FrameTimes};
+use paced::{PacedFrame, PacedFrames};
 use std::collections::VecDeque;
+
+#[path = "stream_paced.rs"]
+mod paced;
 
 #[derive(Clone)]
 pub struct SessionCfg {
@@ -90,8 +94,11 @@ pub struct MediaSession {
     /// datagrams is queued or dropped by a Wi-Fi radio or the kernel.
     pacer: Option<Pacer>,
     frame_interval_us: u64,
-    /// Timing lines of frames still in the pacer: datagrams left, the line without `sent_us`.
-    paced_logs: VecDeque<PacedLog>,
+    /// Frames still in the pacer that a timing line or the ledger waits on.
+    paced: PacedFrames,
+    /// The viewer offered cap `ledger`: each frame's host times follow its last shard
+    /// (a `FrameTimes` datagram).
+    ledger: bool,
 }
 
 /// Whether frames are paced (`CMUX_RD_PACE=0` turns it off, for A/B measurement).
@@ -111,8 +118,11 @@ fn is_media_datagram(datagram: &[u8]) -> bool {
 /// `scripts/measure/screen-stream-eval` reads it): `input_us`, the last viewer input injected before
 /// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
 /// `arrived_us`, when the capture handed it over; `damage_us`, when the session first saw damage
-/// since the last frame; `release_us`, when the gate let the encode start; `encoded_us`, when the
-/// encode ended; `sent_us`, when its last datagram was handed to the carrier. Every injected
+/// since the last frame; `release_us`, when the engine's gate released the frame's request;
+/// `capture_us`, the frame's `t_capture_us` (the capture ended; also on the viewer's frame);
+/// `encode_start_us`, when the encoder was handed the picture; `encoded_us`, when the encode
+/// ended; `first_sent_us` and `sent_us`, when the pacer handed its first and last datagram to the
+/// carrier (the times a `ledger` viewer gets in the frame's `FrameTimes`). Every injected
 /// input also gets a line of its own, `{"inject_us", "recv_us"}` (`recv_us`: when the datagram
 /// that carried it was read), so a remote viewer's key press can be matched to its injection
 /// (`scripts/screen-share-vs.py`). All on the protocol clock in µs.
@@ -122,6 +132,16 @@ struct Timing {
     damage_us: Option<u64>,
     /// When the datagram being handled now was read.
     recv_us: Option<u64>,
+}
+
+/// What [`Timing::frame`] logs besides the frame's [`FrameTimes`].
+struct FrameLog {
+    shown: Option<(u64, u64)>,
+    capture_us: u64,
+    release_us: u64,
+    encoded_bytes: usize,
+    /// Why the frame is an IDR, or `None` for a delta frame.
+    idr_reason: Option<&'static str>,
 }
 
 impl Timing {
@@ -136,32 +156,28 @@ impl Timing {
         }
     }
 
-    /// One frame's line, without `sent_us` (added when its last datagram leaves).
-    fn frame(
-        &mut self,
-        shown: Option<(u64, u64)>,
-        release_us: u64,
-        encoded_us: u64,
-        encoded_bytes: usize,
-        idr_reason: Option<&'static str>,
-    ) -> serde_json::Value {
+    /// One frame's line, without the send times (added when its last datagram leaves).
+    fn frame(&mut self, log: FrameLog, times: &FrameTimes) -> serde_json::Value {
         serde_json::json!({
             "input_us": self.input_us.take(),
-            "shown_us": shown.map(|t| t.0),
-            "arrived_us": shown.map(|t| t.1),
+            "shown_us": log.shown.map(|t| t.0),
+            "arrived_us": log.shown.map(|t| t.1),
             "damage_us": self.damage_us.take(),
-            "release_us": release_us,
-            "encoded_us": encoded_us,
-            "encoded_bytes": encoded_bytes,
-            "idr": idr_reason.is_some(),
-            "idr_reason": idr_reason,
+            "release_us": log.release_us,
+            "capture_us": log.capture_us,
+            "encode_start_us": times.encode_start_us,
+            "encoded_us": times.encoded_us,
+            "encoded_bytes": log.encoded_bytes,
+            "idr": log.idr_reason.is_some(),
+            "idr_reason": log.idr_reason,
         })
     }
 
-    /// Writes a frame's line once its last datagram was handed to the carrier at `sent_us`.
-    fn frame_sent(&mut self, mut line: serde_json::Value, sent_us: u64) {
+    /// Writes a frame's line once its last datagram was handed to the carrier.
+    fn frame_sent(&mut self, mut line: serde_json::Value, times: &FrameTimes) {
         use std::io::Write;
-        line["sent_us"] = serde_json::json!(sent_us);
+        line["first_sent_us"] = serde_json::json!(times.first_sent_us);
+        line["sent_us"] = serde_json::json!(times.last_sent_us);
         let _ = writeln!(self.out, "{line}");
     }
 
@@ -216,14 +232,6 @@ fn process_cpu_s() -> f64 {
     unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) };
     let tv = |t: libc::timeval| t.tv_sec as f64 + t.tv_usec as f64 / 1e6;
     tv(ru.ru_utime) + tv(ru.ru_stime)
-}
-
-/// A paced frame's timing line, written when its last datagram leaves.
-struct PacedLog {
-    /// (stream, frame)
-    frame: (u16, u32),
-    remaining: usize,
-    line: serde_json::Value,
 }
 
 impl MediaSession {
@@ -286,7 +294,8 @@ impl MediaSession {
             cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
             pacer: pacing_enabled().then(Pacer::new),
             frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
-            paced_logs: VecDeque::new(),
+            paced: PacedFrames::default(),
+            ledger: negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::LEDGER),
         })
     }
 
@@ -494,12 +503,19 @@ impl MediaSession {
     fn send_encoded(&mut self, carrier: &mut dyn Carrier) -> Res<()> {
         let Some(Done { req, result }) = self.encoder.take_done()? else { return Ok(()) };
         let frame = result?;
-        // Logged after the send, with the send time (`sent_us`).
-        let logged = self.timing.is_some().then(|| {
-            let len = frame.access_unit.len();
+        let mut times = FrameTimes {
+            display_us: frame.picked_times.map_or(0, |(shown, _)| shown),
+            encode_start_us: frame.encode_start_us,
+            encoded_us: frame.encoded_us,
+            ..FrameTimes::default()
+        };
+        let logged = self.timing.is_some().then_some(FrameLog {
+            shown: frame.picked_times,
+            capture_us: frame.t_capture_us,
+            release_us: frame.released_us,
+            encoded_bytes: frame.access_unit.len(),
             // An IDR the engine did not ask for is the encoder's own choice.
-            let idr = frame.idr.then(|| req.idr_reason.map_or("encoder", |r| r.as_str()));
-            (frame.picked_times, frame.t_capture_us, frame.encoded_us, len, idr)
+            idr_reason: frame.idr.then(|| req.idr_reason.map_or("encoder", |r| r.as_str())),
         });
         self.encode_ms.push_back(frame.encode_ms);
         if self.encode_ms.len() > 120 {
@@ -517,27 +533,35 @@ impl MediaSession {
             self.encoder.halve_bitrate();
         }
         let line = match (self.timing.as_mut(), logged) {
-            (Some(timing), Some((shown, t_capture_us, encoded_us, len, idr))) => {
-                Some(timing.frame(shown, t_capture_us, encoded_us, len, idr))
-            }
+            (Some(timing), Some(log)) => Some(timing.frame(log, &times)),
             _ => None,
         };
         let Some(pacer) = self.pacer.as_mut() else {
+            times.first_sent_us = now_us();
             for datagram in &out.datagrams {
                 carrier.send_datagram(datagram)?;
             }
+            times.last_sent_us = now_us();
+            if self.ledger && !out.datagrams.is_empty() {
+                // Measurement only: a lost one leaves the viewer's row without host times.
+                let _ = carrier.send_datagram(&times.datagram(req.stream, req.frame));
+            }
             if let (Some(timing), Some(line)) = (self.timing.as_mut(), line) {
-                timing.frame_sent(line, now_us());
+                timing.frame_sent(line, &times);
             }
             return Ok(());
         };
         if out.datagrams.is_empty() {
             return Ok(());
         }
-        if let Some(line) = line {
-            let frame = DatagramHeader::decode(&out.datagrams[0]).map(|(h, _)| (h.stream, h.frame));
-            let frame = frame.unwrap_or_default();
-            self.paced_logs.push_back(PacedLog { frame, remaining: out.datagrams.len(), line });
+        if line.is_some() || self.ledger {
+            self.paced.push(PacedFrame {
+                remaining: out.datagrams.len(),
+                stream: req.stream,
+                frame: req.frame,
+                times,
+                line,
+            });
         }
         pacer.push_frame(out.datagrams, self.engine.target_bps(), self.frame_interval_us, now_us());
         Ok(self.send_paced(carrier)?)
@@ -549,22 +573,18 @@ impl MediaSession {
         let now = now_us();
         let due = pacer.due(now);
         // Repairs left first; only the frame datagrams count toward a frame's send time.
-        let mut left = pacer.take_frame_datagrams_sent();
+        let left = pacer.take_frame_datagrams_sent();
         for datagram in &due {
             carrier.send_datagram(datagram)?;
             self.engine.datagram_sent(datagram, now);
         }
-        while left > 0 {
-            let Some(log) = self.paced_logs.front_mut() else { break };
-            let take = left.min(log.remaining);
-            log.remaining -= take;
-            left -= take;
-            if log.remaining == 0 {
-                if let (Some(log), Some(timing)) =
-                    (self.paced_logs.pop_front(), self.timing.as_mut())
-                {
-                    timing.frame_sent(log.line, now_us());
-                }
+        for done in self.paced.sent(left, now, now_us()) {
+            if self.ledger {
+                // Measurement only: a lost one leaves the viewer's row without host times.
+                let _ = carrier.send_datagram(&done.times.datagram(done.stream, done.frame));
+            }
+            if let (Some(timing), Some(line)) = (self.timing.as_mut(), done.line) {
+                timing.frame_sent(line, &done.times);
             }
         }
         Ok(())
@@ -589,7 +609,7 @@ impl MediaSession {
             })
         };
         let stale = pacer.take_where(is_dropped);
-        self.paced_logs.retain(|log| !drop.contains(&log.frame));
+        self.paced.forget(|stream, frame| drop.contains(&(stream, frame)));
         trace(&format!(
             "outage ended: dropped {} queued datagrams of {} unstarted frames",
             stale.len(),
