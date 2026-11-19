@@ -160,6 +160,7 @@ export function YouTubeAdd({
           <span className="youtube-add-option">
             <span className="row-help">{t("settingsWindow.backdropPicker.youtubeQuality")}</span>
             <Select
+              className="select youtube-add-quality"
               label={t("settingsWindow.backdropPicker.youtubeQuality")}
               value={String(quality)}
               closeOnPick

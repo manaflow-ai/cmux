@@ -1688,6 +1688,23 @@ mark {
   width: var(--page-size-96);
 }
 
+/* Quality is drawn as the Start and End fields are (ui/controls.css `.ui-input` filled, md): one
+   height, radius and fill, so the row reads as three fields of one kind in either look. */
+.youtube-add-quality .ui-select-button {
+  height: var(--ds-control-row);
+  min-height: var(--ds-control-row);
+  padding-inline-start: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-md); /* radius-allow: drawn as the Start and End fields beside it (.ui-input md), not as a button */
+  background: var(--ds-color-hover);
+  box-shadow: none;
+}
+
+:root[data-settings-look="refined"] .settings .youtube-add-quality .ui-select-button {
+  background: var(--look-control-fill);
+  box-shadow: var(--look-control-edge);
+}
+
 .youtube-add .youtube-add-problem {
   display: block;
   flex: 1;
