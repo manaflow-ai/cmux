@@ -45,6 +45,8 @@ struct ChatComposerField: UIViewRepresentable {
         view.setContentHuggingPriority(.required, for: .vertical)
         view.text = text
         view.placeholder = placeholder
+        // Launch to chat open: the frame that first shows a composer (LaunchMarks).
+        LaunchMarks.shared.markNextFrame("chat_composer_ready")
         return view
     }
 
