@@ -17,6 +17,8 @@ struct BoundActionCatalogTests {
     /// ignored, so the re-pin bot's pull request stays green. Add to it only for that case, never
     /// for a typo.
     static let awaitingRepin: Set<ActionID> = [
+        // View Screen on a sidebar machine header's menu lands with its handler; the pinned app FFI gains its row on re-pin.
+        "machine.viewScreen",
         // The release action lands with the Swift handler; the pinned app FFI gains its catalog row on re-pin.
         "home.showSetup",
         // #44169 (Screen Sharing viewer palette rows, step B) merged before its step A, #44164,
