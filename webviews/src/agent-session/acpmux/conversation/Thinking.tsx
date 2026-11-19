@@ -24,6 +24,8 @@ import { Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { LiveShimmer } from "./LiveShimmer";
+import { ThinkingGlyph } from "./ThinkingGlyph";
+import { useThinkingLook } from "./thinkingLook";
 import { Slot } from "../../../slots/Slot";
 import { slotVariant, useSlotVariant } from "../../../slots/registry";
 import { thinkingIndicatorSlot, type ThinkingIndicatorProps } from "../../../slots/thinkingIndicator";
@@ -366,6 +368,7 @@ export function Thinking({
   command = false,
   retry,
   pulse,
+  glyphTrigger = starting ? "turnStart" : "thinking",
 }: {
   /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
   starting?: boolean;
@@ -420,8 +423,11 @@ export function Thinking({
   retry?: AcpmuxTurnRetry;
   /// The transcript's live line hears its chunks and events here without a draw (liveLinePulse.ts).
   pulse?: LiveLinePulse;
+  /// What a look's thinking glyph plays (thinkingGlyphModel.ts `glyphTrigger`, from the row's activity).
+  glyphTrigger?: string;
 } = {}) {
   const t = useT();
+  const thinkingGlyph = useThinkingLook().glyph;
   const waiting = useContext(WaitingOnContext);
   const [answered, settled] = useAnswered(waiting);
   const [asked, grown] = useAsked(waiting);
@@ -657,6 +663,8 @@ export function Thinking({
         </output>
       ) : (
         <span className="cv-shimmer__row">
+          {/* A look's thinking dots before the words (thinkingLook.ts `glyph`, unset by default). */}
+          {thinkingGlyph && <ThinkingGlyph className="cv-thinking-glyph" doc={thinkingGlyph} trigger={glyphTrigger} />}
           {answered && (
             <span className="cv-needs-input-glyph is-answered" aria-hidden="true" onAnimationEnd={settled} />
           )}

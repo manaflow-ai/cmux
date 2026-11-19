@@ -4,6 +4,7 @@
 // only while some glyph is on screen, the page is visible and motion is full; Reduce Motion, calm motion
 // and `ui.animationSpeed: off` hold the glyph on its still (the first frame of what would play).
 // The scene's `Particles` node (SceneChoreography.tsx) and any other web surface mount it the same way.
+import "./choreographyGlyph.css";
 import { sceneMotionEnv, type SceneMotionEnv } from "./motionProps";
 import { ChoreographyPlayer, type ChoreoDot, type ChoreoRequest, type Choreography } from "./choreography";
 

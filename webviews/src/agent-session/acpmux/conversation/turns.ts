@@ -2848,6 +2848,7 @@ function codexLiveTurn(
       call.kind === "execute" && !call.description && (Boolean(call.command) || isBareShellName(call, call.title));
     line.doing = shell ? (call.command ? liveCommand(call.command) : "") : runningLabel(call, "");
     line.doingShell = shell;
+    if (call.kind) line.doingKind = call.kind;
     if (shell && !call.command && call.status === "pending") line.doingDraft = true;
     // A started command shows "⌃B to run in background" on the line, never on a transcript row
     // (Thinking.tsx; Leo, 2026-10-22: "this cmd b to run in background ... it should prob go down").

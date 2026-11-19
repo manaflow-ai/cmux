@@ -494,17 +494,7 @@
   height: 0;
   color: var(--cv-accent, currentColor);
 }
-.cmux-choreography-dot {
-  position: absolute;
-  left: 0;
-  top: 0;
-  border-radius: 50%;
-  will-change: transform;
-  transform-origin: center;
-}
-.cmux-choreography-dot[data-shape="square"] {
-  border-radius: 0;
-}
+/* The dots themselves: choreographyGlyph.css, with the player every surface mounts. */
 .cmux-app-scene-particles-canvas {
   position: absolute;
   inset: 0;
