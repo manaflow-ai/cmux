@@ -1202,7 +1202,7 @@ export async function runStartBench(args: {
   const vmHeaders = { authorization: `Bearer ${args.api.bearer}`, "x-cmux-team-id": vmTeam };
   const vm = (method: string, route: string, body?: unknown, timeoutMs = 130_000) => http(method, `${vmOrigin}${route}`, body, vmHeaders, timeoutMs, method !== "POST");
   const vmCreate = (snapshotId: string | null, asked: StartPath) => async (run: number) => {
-    const r = await vm("POST", "/v1/vms", { displayName: `start bench ${args.tag} ${asked} ${run}`, idleTimeoutSeconds: 300, autoDeleteSeconds: 3600, ...(snapshotId ? { snapshotId } : {}) });
+    const r = await vm("POST", "/v1/vms", { displayName: `start bench ${args.tag} ${asked} ${run}`, resources: { vcpus: size.cpu, memoryMib: size.memory_mb, diskMib: size.disk_mb }, idleTimeoutSeconds: 300, autoDeleteSeconds: 3600, ...(snapshotId ? { snapshotId } : {}) });
     if (r.status !== 200 && r.status !== 201 && r.status !== 202) throw new Error(`POST /v1/vms: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
     const id = r.body?.id ?? r.body?.vm?.id;
     if (typeof id !== "string") throw new Error(`POST /v1/vms answered no id: ${short(r.body)}`);
