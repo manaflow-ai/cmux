@@ -173,7 +173,7 @@ export function TasksSection({
       ]
     : [];
   return (
-    <div data-section="tasks">
+    <div data-section="tasks" data-finished-count={finishedCount}>
       {(running.length > 0 || active.length > 0) && (
         <ul className="acpmux-session-info-list">
           {running.map((command) =>

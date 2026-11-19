@@ -70,7 +70,7 @@ await requireBrowserLane("session-info-god-chat-cost.test.ts", async () => {
       const shape = await page.evaluate(() => window.__mode);
       const parses: number[] = [];
       for (let round = 0; round < 5; round += 1) parses.push(await page.evaluate(() => window.__parse()));
-      const finishedText = await page.locator(HEADS.finished).innerText();
+      const finishedText = (await page.locator('div[data-section="tasks"]').getAttribute("data-finished-count")) ?? "";
       const sources = await pressCost(page, HEADS.sources);
       const finished = await pressCost(page, HEADS.finished);
       const tasks = await pressCost(page, HEADS.tasks);
@@ -93,7 +93,7 @@ await requireBrowserLane("session-info-god-chat-cost.test.ts", async () => {
       `| ${r.mode} | ${r.held} | ${r.older} | ${r.parse.toFixed(1)} | ${r.sources.toFixed(1)} | ${r.tasks.toFixed(1)} | ${r.finished.toFixed(1)} | ${r.finishedText.trim()} |`;
     console.log(
       [
-        "| registry | rows held | counted, not held | parse reply ms | Sources press-to-paint ms | Background tasks press-to-paint ms | finished fold press-to-paint ms | finished row |",
+        "| registry | rows held | counted, not held | parse reply ms | Sources press-to-paint ms | Background tasks press-to-paint ms | finished fold press-to-paint ms | finished count |",
         "|---|---|---|---|---|---|---|---|",
         row(whole),
         row(windowed),
@@ -101,7 +101,8 @@ await requireBrowserLane("session-info-god-chat-cost.test.ts", async () => {
     );
     // The same count either way: the window's is the whole history's.
     expect(windowed.finishedText.trim()).toBe(whole.finishedText.trim());
-    expect(windowed.finishedText.replace(/\D/g, "")).toBe(String(N - 1));
+    expect(windowed.finishedText).toBe(String(N - 1));
+    expect(windowed.held + windowed.older).toBe(N);
     expect(windowed.held).toBeLessThan(1_000);
     // A section toggles within about a frame at this length.
     expect(windowed.sources).toBeLessThan(50);
