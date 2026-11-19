@@ -6,8 +6,8 @@
 //!
 //! Every message goes through this daemon's outbox, as `acpmux send --no-wait` does
 //! (`cli/run/send_async.rs`). A batch sends to each session in turn and to different sessions
-//! side by side ([`in_order`]), inside one [`STATUS_WAIT`]: a batch answers as fast as one
-//! message. A bad recipient is its own row's error; the rest still go.
+//! side by side ([`in_order`]), sharing one [`STATUS_WAIT`] deadline rather than spending that
+//! wait on each message. A bad recipient is its own row's error; the rest still go.
 //!
 //! A message may be a tool's notice (`notice`: `{sender?, host?, severity, title, links?}`, as
 //! `acpmux send --notice`, `cli/send_notice.rs`): the text is its body, the prompt the rendered
@@ -19,16 +19,12 @@
 
 use super::*;
 use cmux_json::JsonSet as _;
+use futures::StreamExt as _;
 use std::collections::BTreeMap;
 
-/// Most messages one call carries. A batch is a coordinator's round of orders (a handful of
-/// lanes); a bound keeps one call inside a harness's tool timeout and its result readable.
-pub(super) const MAX_MESSAGES: usize = 32;
-/// Most sessions one tag reaches. Beyond it the item is refused, never cut short: a tag that wide
-/// is a broadcast the sender did not mean (the CLI's `--tag --dry-run` lists it first).
-pub(super) const MAX_TAG_SESSIONS: usize = 32;
-/// Most recipients of one call, tags expanded. Over it nothing is sent.
-pub(super) const MAX_RECIPIENTS: usize = 64;
+/// Work in flight, not a limit on messages or recipients. Large batches keep taking turns in
+/// this window until every target has a result, without flooding the daemon's connection.
+const SEND_CONCURRENCY: usize = 32;
 /// Files past this inline threshold are streamed as attachments, never refused.
 const INLINE_FILE_BYTES: u64 = 256 << 10;
 /// How long a batch gives each session name to resolve to its id ([`aliases`]), before its
@@ -50,12 +46,11 @@ pub(super) fn tool() -> Value {
                 "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."},
                 "file": {"type": "string", "description": "Instead of text: a file of yours containing the message. Small UTF-8 text is sent inline; larger files are uploaded automatically as attachments for the receiver to open. Any size. Best an absolute path; a relative one is read from the folder your agent runs in."},
                 "attach": {"type": "array", "items": {"type": "string"}, "description": "Files to send with the message, as absolute paths on this machine (a screenshot, a log), of any size and number, as acpmux send --attach: an image reaches the receiver and its chat as an image (a preview), any other file as a link to its saved copy. Hand over an image this way, never as a provider's own file id (libfile_...), which nobody here can open."},
-                "tag": {"type": "string", "description": "Instead of to: every live session carrying this tag, key or key=value (as acpmux send --tag), at most 32, not yourself."},
+                "tag": {"type": "string", "description": "Instead of to: every live session carrying this tag, key or key=value (as acpmux send --tag), not yourself."},
                 "supersede": {"type": "string", "description": "A key: your message still queued at the receiver under the same key is replaced by this one, so a correction is never read after the order it corrects."},
                 "notice": notice_schema("Send it as a tool's or reconciler's notice: the receiver's chat draws a notice row (severity mark, sender, title, links) and the agent reads `[notice from SENDER on HOST · FIRE] TITLE`, the body (text, optional here), then the links."),
                 "messages": {
                     "type": "array",
-                    "maxItems": MAX_MESSAGES,
                     "description": "A batch: one message per item, sent in order. The fields above are each item's defaults; an item's to or tag replaces the default recipient, its text or file the default message.",
                     "items": {
                         "type": "object",
@@ -216,9 +211,6 @@ pub(super) fn items(args: &Value) -> Result<Vec<Result<Item, String>>, String> {
     };
     if list.is_empty() {
         return Err("messages is empty".to_owned());
-    }
-    if list.len() > MAX_MESSAGES {
-        return Err(format!("messages has {} items, at most {MAX_MESSAGES}", list.len()));
     }
     Ok(list
         .iter()
@@ -551,16 +543,10 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> 
             }
         }
     }
-    if targets.len() > MAX_RECIPIENTS {
-        return error_result(format!(
-            "this send reaches {} sessions, at most {MAX_RECIPIENTS}: nothing was sent",
-            targets.len()
-        ));
-    }
     let chains = same_session(&aliases(daemon, &targets).await);
     let now = tokio::time::Instant::now();
     let deadline = now.checked_add(STATUS_WAIT).unwrap_or(now);
-    let sent = futures::future::join_all(chains.into_iter().map(|chain| {
+    let sent = futures::stream::iter(chains.into_iter().map(|chain| {
         in_order(&targets, chain, deadline, move |target, wait| async move {
             match queue(daemon, target, sub).await {
                 Ok((prompt, queued)) => settle(daemon, target, &prompt, queued, wait).await,
@@ -571,6 +557,8 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value, sub: Option<&Value>) -> 
             }
         })
     }))
+    .buffer_unordered(SEND_CONCURRENCY)
+    .collect::<Vec<_>>()
     .await;
     for (seat, row) in sent.into_iter().flatten() {
         let index = targets.get(seat).map_or(0, |t| t.index);
@@ -620,7 +608,7 @@ pub(super) fn same_session(aliases: &[Vec<String>]) -> Vec<Vec<usize>> {
 
 /// Every name each target may go by, so a session named two ways (its name, its id,
 /// `host/name`, a tag's `peer/id`) is one chain: its key and name, and for a named target its
-/// session id, resolved (each distinct name once, side by side, within [`RESOLVE_WAIT`]) to the
+/// session id, resolved (each distinct name once, in bounded windows within [`RESOLVE_WAIT`]) to the
 /// form a tag's target has (`peer/id` on a peer, as [`crate::session_identity::routed_id`] gives).
 /// A name that resolves to nothing cannot be told apart from any session it might be: all such
 /// names are one chain, and one on a peer (`host/...`) also joins every target on that host.
@@ -629,14 +617,17 @@ pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec
         targets.iter().filter(|t| t.tag.is_none()).map(|t| t.key.as_str()).collect();
     names.sort_unstable();
     names.dedup();
+    let deadline = tokio::time::Instant::now() + RESOLVE_WAIT;
     let resolved: BTreeMap<&str, Option<String>> =
-        futures::future::join_all(names.into_iter().map(|name| async move {
-            let id = tokio::time::timeout(RESOLVE_WAIT, crate::cli::run::resolve_id(daemon, name))
+        futures::stream::iter(names.into_iter().map(|name| async move {
+            let id = tokio::time::timeout_at(deadline, crate::cli::run::resolve_id(daemon, name))
                 .await
                 .ok()
                 .and_then(Result::ok);
             (name, id)
         }))
+        .buffer_unordered(SEND_CONCURRENCY)
+        .collect::<Vec<_>>()
         .await
         .into_iter()
         .collect();
@@ -670,8 +661,8 @@ pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec
 /// receiver took it, or refused it). The outbox runs each delivery on its own and retries it, so
 /// two queued at once can arrive swapped, and a `supersede` correction be replaced by the order
 /// it corrects. A message whose predecessor is still on its way at `deadline` is not sent; its
-/// row says so. Chains to different sessions run side by side, so a batch answers inside one
-/// [`STATUS_WAIT`].
+/// row says so. Chains to different sessions run in bounded windows with one shared
+/// [`STATUS_WAIT`] deadline for settling their deliveries.
 pub(super) async fn in_order<'t, F, Fut>(
     targets: &'t [Target],
     chain: Vec<usize>,
@@ -725,12 +716,6 @@ async fn tag_recipients(
     let found = crate::cli::run::fanout::tag_targets(all, tag, own.as_deref());
     if found.is_empty() {
         return Err(format!("no live session carries the tag {tag}"));
-    }
-    if found.len() > MAX_TAG_SESSIONS {
-        return Err(format!(
-            "the tag {tag} names {} sessions, at most {MAX_TAG_SESSIONS}: nothing sent to them; narrow it with key=value",
-            found.len()
-        ));
     }
     Ok(found)
 }
