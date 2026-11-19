@@ -20,8 +20,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
-fn bin() -> &'static str {
-    env!("CARGO_BIN_EXE_cmux-tui")
+/// The `cmux-tui` both sides run: this build's, or `CMUX_PROJECTION_MATRIX_BIN` when the test
+/// binary was built on another host and is run here (the matrix's lane VM cells).
+fn bin() -> String {
+    std::env::var("CMUX_PROJECTION_MATRIX_BIN")
+        .unwrap_or_else(|_| env!("CARGO_BIN_EXE_cmux-tui").to_owned())
 }
 
 fn fuse_here() -> bool {
