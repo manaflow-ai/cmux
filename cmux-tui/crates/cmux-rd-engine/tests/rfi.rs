@@ -108,6 +108,13 @@ fn recovery_with_acknowledged_tokens_is_a_refresh_not_a_keyframe() {
     assert_eq!(FrameBody::decode(payload).expect("body").ref_frame, start.frame);
     assert_eq!(e.stats().keyframes, 1, "only the start keyframe");
     // The viewer decoded the refresh: a later loss is answered with a refresh again.
+    let decoded = Feedback {
+        acked_frame: req.frame,
+        acked_ltr_tokens: vec![7, 8],
+        arrivals: arrived(&sent, 45_000),
+        ..Feedback::default()
+    };
+    assert!(e.on_datagram(&feedback(&decoded), true, 50_000).outage_ended.is_none());
     let fb = Feedback { acked_frame: req.frame, acked_ltr_tokens: vec![7, 8], ..ask(0, &[]) };
     let again = e.on_datagram(&feedback(&fb), true, 400_000).encode.expect("second ask");
     assert!(again.force_ltr_refresh && !again.force_idr, "{again:?}");
@@ -147,8 +154,15 @@ fn a_lost_refresh_falls_back_to_a_keyframe() {
     assert!(late.force_idr, "{late:?}");
     assert!(!late.force_ltr_refresh, "{late:?}");
     assert_eq!(late.idr_reason, Some(IdrReason::Recovery));
-    send(&mut e, &late, true, 1_000, Some(9), 300_000);
+    let sent = send(&mut e, &late, true, 1_000, Some(9), 300_000);
     // After the keyframe is decoded, a new loss may be refreshed again.
+    let decoded = Feedback {
+        acked_frame: late.frame,
+        acked_ltr_tokens: vec![9],
+        arrivals: arrived(&sent, 305_000),
+        ..Feedback::default()
+    };
+    e.on_datagram(&feedback(&decoded), true, 310_000);
     let fb = ask(late.frame, &[9]);
     let next = e.on_datagram(&feedback(&fb), true, 600_000).encode.expect("next ask");
     assert!(next.force_ltr_refresh && !next.force_idr, "{next:?}");
