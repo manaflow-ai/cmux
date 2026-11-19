@@ -483,8 +483,41 @@ button.cv-subagent > :last-child {
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* A subagent's own pane: under its composer, a line names the chat that passes the message on
-   (SubagentComposer.tsx). It is a row of its own in the composer's flow, never drawn over the box:
+/* A subagent's own pane: its composer names the chat that passes the message on in the quiet row
+   (SubagentComposer.tsx), where the chat's composer names its mode: the row's first text at the +
+   glyph's left edge, in the mode's soft ink (Leo, 2026-11-19: "the composer is kinda odd looking for
+   subagents"). The `end` arm puts it on the right, where the model sits; the `chip` arm shows the
+   route mark and the chat's name (subagentComposerVia.experiment.ts). */
+.acpmux-composer-foot .acpmux-subagent-via {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: var(--grid-composer-quiet-row-height);
+  padding-inline: var(--grid-composer-quiet-row-text) var(--acpmux-row-inset, 8px);
+  color: var(--agent-soft);
+  white-space: nowrap;
+  user-select: none;
+}
+.acpmux-composer-foot .acpmux-subagent-via:is([data-via-place="foot"], [data-via-place="chip"]) {
+  order: -2;
+  margin-inline-end: auto;
+}
+.acpmux-composer-foot .acpmux-subagent-via[data-via-place="end"] {
+  padding-inline: var(--acpmux-row-inset, 8px) var(--grid-composer-quiet-row-text);
+  color: var(--agent-muted);
+}
+.acpmux-subagent-via-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-subagent-via-icon {
+  flex: none;
+  color: var(--agent-muted);
+}
+/* The `caption` arm (before 2026-11-19): a line of its own under the box, never drawn over it:
    placed over the box's bottom, it stood on the prompt's line and over its placeholder (#45911). */
 .cv-subagent-composer-via {
   flex: none;

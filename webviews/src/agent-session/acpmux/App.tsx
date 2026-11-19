@@ -6831,6 +6831,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The subagent pane's composer (SubagentComposer.tsx) while it shows: Quote in Reply goes there,
   // never held for the chat's composer, which a subagent pane does not mount.
   const subagentQuote = useRef<{ quoteReply(markdown: string): void } | null>(null);
+  /// The subagent pane composer's prompt while it shows: dictation writes there then, as its mic
+  /// sits in the chat composer's slot (Leo, 2026-11-19: "the composer is kinda odd looking for subagents").
+  const subagentPrompt = useRef<MarkdownFieldHandle | null>(null);
   const quoteReply = useCallback((markdown: string) => {
     if (subagentQuote.current) subagentQuote.current.quoteReply(markdown);
     else quoteIntoComposer(composerHandle, heldQuotes, markdown);
@@ -7168,7 +7171,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const newTabDictationField = useRef<DictationField | null>(null);
   const dictationTarget = useRef<{ readonly current: DictationField | null }>({
     get current() {
-      return newTabDictationField.current ?? prompt.current;
+      return newTabDictationField.current ?? prompt.current ?? subagentPrompt.current;
     },
   }).current;
   /// The chat's agent runs on this Mac (`localCwd`, set below each render): it can open a long
@@ -12484,6 +12487,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       draftKey={subagentDraftKey}
       onSend={sendToSubagent}
       quoteRef={subagentQuote}
+      accessory={composerMic}
+      dictation={dictation}
+      promptRef={subagentPrompt}
     />
   ) : (
     !reviewing && (

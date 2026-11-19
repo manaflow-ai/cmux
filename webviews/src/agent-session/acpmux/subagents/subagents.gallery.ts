@@ -8,13 +8,14 @@
 // #21564), so the card is the popover the header's Summary button opens, and a click outside it
 // closes it; a pane wide enough shows the column on its own, and it stays. A list line opens that subagent's own view (the child view): a "Subagent of" pill naming its
 // parent, then its rows, nested groups included. A pane the app opened on a subagent shows it with
-// its own composer (SubagentComposer.tsx): "Message <subagent>", and a line naming the chat that
+// its own composer (SubagentComposer.tsx): the chat composer's box and slots, "Message subagent", and the quiet row naming the chat that
 // passes the message on, where the chat's composer would be.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo, recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
+import { subagentComposerVia } from "./subagentComposerVia.experiment";
 
 /** A call the pane made to the host, as the gallery logs it. */
 type PaneCall = { method: string; params?: { subagent?: string; focus?: boolean } };
@@ -224,6 +225,37 @@ const openGroup = (count: number) => async (ctx: PlayContext) => {
 /** These variants show the group card in the transcript and the agents pill, which Debug Settings
  * agentPane.debug.subagentTray off keeps; the tray, the default, is SubagentTray.gallery.ts. The
  * summary card is the same either way. */
+/** The box's place on screen, to the half pixel the motion judge allows (schemas/layout-motion). */
+const boxAt = (ctx: PlayContext) => {
+  const box = ctx.document.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
+  return box && { top: box.top, bottom: box.bottom, left: box.left, right: box.right };
+};
+
+/** The pane switches from the chat to its subagent (a subagent: reveal), as the app opens one. */
+async function openOwnPane(ctx: PlayContext) {
+  const before = boxAt(ctx);
+  const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(id: string): void } };
+  page.cmuxAcpmuxBridge?.revealTurn?.(`subagent:${COVERAGE}`);
+  await ctx.waitFor(
+    () => ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".acpmux-subagent-composer"),
+  );
+  if (ctx.document.querySelector(".acpmux-composer:not(.acpmux-subagent-composer)"))
+    throw new Error("a subagent's own pane drew the chat's composer");
+  if (ctx.document.body.textContent?.includes("Read only")) throw new Error("a subagent's own pane says Read only");
+  const field = ctx.document.querySelector('.acpmux-subagent-composer [role="textbox"][aria-label]');
+  if (field?.getAttribute("aria-label") !== "Message Test coverage")
+    throw new Error(`the subagent's composer names ${field?.getAttribute("aria-label")}`);
+  // The chat's composer box and the subagent's stand in the same place: the switch moves nothing.
+  const after = boxAt(ctx);
+  if (before && after) {
+    const moved = (Object.keys(before) as (keyof typeof before)[]).filter(
+      (edge) => Math.abs(before[edge] - after[edge]) > 0.5,
+    );
+    if (moved.length)
+      throw new Error(`the composer box moved on the switch to the subagent: ${JSON.stringify({ before, after })}`);
+  }
+}
+
 const groupCards = (variants: Record<string, AgentPaneVariant>): Record<string, AgentPaneVariant> =>
   Object.fromEntries(
     Object.entries(variants).map(([name, variant]) => [
@@ -459,26 +491,30 @@ export default agentPaneEntry({
         );
       },
     },
-    "own-pane": {
-      note: 'A pane the app opened on a subagent (a subagent: reveal): its view and a composer of its own, "Message Test coverage", never "Read only"; the line under it names the chat that passes the message on, as a subagent has no session of its own.',
+    "own-pane-chat": {
+      note: "The chat own-pane starts from, before its subagent opens in the pane: the chat's composer the subagent's must match.",
       height: 640,
       snapshot: NESTED_MIXED,
-      play: async (ctx) => {
-        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(id: string): void } };
-        page.cmuxAcpmuxBridge?.revealTurn?.(`subagent:${COVERAGE}`);
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".acpmux-subagent-composer"),
-        );
-        if (ctx.document.querySelector(".acpmux-composer:not(.acpmux-subagent-composer)"))
-          throw new Error("a subagent's own pane drew the chat's composer");
-        if (ctx.document.body.textContent?.includes("Read only"))
-          throw new Error("a subagent's own pane says Read only");
-        const field = ctx.document.querySelector(".acpmux-subagent-composer [aria-label]");
-        if (field?.getAttribute("aria-label") !== "Message Test coverage")
-          throw new Error(`the subagent's composer names ${field?.getAttribute("aria-label")}`);
-      },
     },
+    "own-pane": {
+      note: 'A pane the app opened on a subagent (a subagent: reveal): its view and a composer of its own, never "Read only". It is the chat\'s composer box with the same slots (+ disabled, as the relay is text only; the mic; Send in the look\'s place), a short "Message subagent" placeholder, and the quiet row naming the chat that passes the message on, as a subagent has no session of its own. The composer box holds its place through the switch (Leo, 2026-11-19: "the composer is kinda odd looking for subagents" ... "and it layout shifts too").',
+      height: 640,
+      snapshot: NESTED_MIXED,
+      play: openOwnPane,
+    },
+    // Where the routing note sits (subagentComposerVia.experiment.ts): the default `foot` is above.
+    ...Object.fromEntries(
+      (["end", "chip", "caption"] as const).map((arm) => [
+        `own-pane-via-${arm}`,
+        {
+          note: `The subagent's own pane with the routing note's \`${arm}\` arm (subagentComposerVia.experiment.ts).`,
+          height: 640,
+          snapshot: NESTED_MIXED,
+          experiments: { [subagentComposerVia.id]: arm },
+          play: openOwnPane,
+        } satisfies AgentPaneVariant,
+      ]),
+    ),
     summary: {
       note: "The summary card the Summary button opens at the top right: every subagent with its state and time: waiting, then running, then ended.",
       snapshot: MIXED,
