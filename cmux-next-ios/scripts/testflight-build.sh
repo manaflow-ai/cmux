@@ -214,7 +214,7 @@ display_name=$(config_setting CMUX_MOBILE_DISPLAY_NAME)
 [[ -n "$display_name" ]] || die "$config sets no CMUX_MOBILE_DISPLAY_NAME in project.yml at $sha"
 
 # --- App Store Connect: credentials and the exact app record ----------------
-max_marketing="not checked (--no-asc)" max_build="not checked (--no-asc)"
+max_marketing="not checked (--no-asc)" max_build="not checked (--no-asc)" floor_kind="no App Store Connect check for"
 if [[ $no_asc == 0 ]]; then
 log "App Store Connect: profile, app record"
 [[ $ci_asc == 1 ]] || asc_ auth status --validate --output json | json '
