@@ -332,6 +332,38 @@ pub static ACTIONS: &[Action] = &[
         waits_for_result: true,
         ..Action::DEFAULT
     },
+    // Adopt Agent as Chief: makes an agent of the person's conversations a Chief, as `cmux chief
+    // adopt AGENT` (the CLI's own verb, chief.profile.adopt). The agent is listed by the App's
+    // homeAdoptableAgents source and the App's step B handler sends the adopt.
+    Action {
+        id: "home.adoptChief",
+        group: GROUP,
+        title: t("HomeActions", "action.home.adoptChief", "Adopt Agent as Chief…"),
+        keywords: &["home", "chief", "adopt", "agent", "promote", "make chief", "participant"],
+        category: "window",
+        symbol: "person.badge.plus",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::ADOPT_AGENT],
+        cli_name: "action home-adopt-chief",
+        ..Action::DEFAULT
+    },
+    // Set My Picture: the person's own picture (`participant.avatar.set` for user_local), as `cmux
+    // avatar set me FILE` sets it. The picture is a file the person picks, which no palette
+    // argument carries, so the App's step B handler opens the picker and sends the bytes, as the
+    // Chief picture does (`chief.profile.avatar.set`).
+    Action {
+        id: "home.setMyPicture",
+        group: GROUP,
+        title: t("HomeActions", "action.home.setMyPicture", "Set My Picture…"),
+        keywords: &["home", "picture", "avatar", "photo", "profile", "me", "my", "image", "account"],
+        category: "window",
+        symbol: "person.crop.circle",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-set-my-picture",
+        ..Action::DEFAULT
+    },
     Action {
         id: "home.previousConversation",
         group: GROUP,

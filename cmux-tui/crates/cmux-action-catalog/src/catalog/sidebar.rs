@@ -35,6 +35,37 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "sidebar customize",
         ..Action::DEFAULT
     },
+    // Pin and Unpin Last Output Line: the focused pane's terminal shows (or stops showing) its last
+    // output line under the workspace's sidebar row, as `cmux terminal <term>|current pin-tail
+    // on|off` (the CLI's own verb, set-terminal-tail-pin). The App's step B handler sends it for
+    // the pane. In the sidebar category, where the pinned line shows: a row in a terminal category
+    // needs its App handler before it lands (HandlerCoverage).
+    Action {
+        id: "terminal.pinTail",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.pinTail", "Pin Last Output Line to Sidebar"),
+        keywords: &["terminal", "pin", "tail", "last line", "output", "sidebar", "status", "progress", "watch"],
+        category: "sidebar",
+        symbol: "pin",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        targets: &["pane"],
+        cli_name: "action terminal-pin-tail",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "terminal.unpinTail",
+        group: GROUP,
+        title: t("ActionCatalog", "action.terminal.unpinTail", "Unpin Last Output Line from Sidebar"),
+        keywords: &["terminal", "unpin", "tail", "last line", "output", "sidebar", "status", "hide", "remove"],
+        category: "sidebar",
+        symbol: "pin.slash",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        targets: &["pane"],
+        cli_name: "action terminal-unpin-tail",
+        ..Action::DEFAULT
+    },
     Action {
         id: "focusSidebar",
         group: GROUP,
