@@ -260,13 +260,20 @@ const decodeRepoCursor = (value: string): RepoCursor | TokenFail => {
 /**
  * The last answer GitHub gave for an installation's repository page, with its ETag, per isolate: the next listing of
  * that page asks `If-None-Match`, and an unchanged page (304) is served from here without spending the installation's
- * rate limit. GitHub's answer for the installation, before any team filter (the filters below always run). Bounded.
+ * rate limit. GitHub's answer for the installation, before any team filter (the filters below always run), kept as
+ * only the fields read here (a full repository object is kilobytes) and for at most REPO_PAGES_KEPT pages.
  */
 const repoPages = new Map<string, { readonly etag: string; readonly body: string }>()
-const REPO_PAGES_KEPT = 500
-const rememberRepoPage = (key: string, etag: string, body: string) => {
+const REPO_PAGES_KEPT = 200
+const rememberRepoPage = (key: string, etag: string, answer: unknown) => {
+  const page = answer as { repositories?: unknown; total_count?: unknown } | undefined
+  if (!page || !Array.isArray(page.repositories)) return
+  const repositories = page.repositories.map((entry) => {
+    const r = (entry ?? {}) as { full_name?: unknown; private?: unknown; default_branch?: unknown }
+    return { full_name: r.full_name, private: r.private, default_branch: r.default_branch }
+  })
   repoPages.delete(key)
-  repoPages.set(key, { etag, body })
+  repoPages.set(key, { etag, body: JSON.stringify({ total_count: page.total_count, repositories }) })
   if (repoPages.size > REPO_PAGES_KEPT) repoPages.delete(repoPages.keys().next().value!)
 }
 
@@ -316,7 +323,7 @@ export const githubRepos = async (
       logGithubHeadroom(response, { installation, auth: "installation", op: "list_repos" })
       if (response.status === 304 && known) return { token, response: new Response(known.body, { status: 200, headers: { "content-type": "application/json" } }) }
       const etag = response.headers.get("etag")
-      if (response.ok && etag) rememberRepoPage(pageKey, etag, await response.clone().text())
+      if (response.ok && etag) rememberRepoPage(pageKey, etag, await response.clone().json().catch(() => undefined))
       return { token, response }
     }
     const stale = async (a: Attempt | null) => a !== null && "token" in a && !a.response.ok && (await githubRefusal(a.response, Date.now(), true)).kind === "relink"
