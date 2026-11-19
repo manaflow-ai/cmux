@@ -190,12 +190,25 @@ export function startedSessions(
 }
 
 /// The chats chat `chatId` started that are not archived, as the session list gives them.
-export function spawnedSessions(sessions: readonly AcpmuxSessionEntry[], chatId: string): AcpmuxSessionEntry[] {
+export function spawnedSessions(
+  sessions: readonly AcpmuxSessionEntry[],
+  chatId: string,
+): readonly AcpmuxSessionEntry[] {
+  // Once per list and chat: the pane reads it on every render, each streamed token included, and
+  // at Leo's scale thousands of chats were started by another.
+  const kept = spawnedOf.get(sessions);
+  if (kept?.chatId === chatId) return kept.spawned;
   // Among the chats another started only (sessionIndex.ts), not every listed chat.
-  return sessionIndex(sessions)
+  const spawned = sessionIndex(sessions)
     .of("started")
     .filter((entry) => entry.spawnedBy === chatId && !entry.archived);
+  spawnedOf.set(sessions, { chatId, spawned });
+  return spawned;
 }
+const spawnedOf = new WeakMap<
+  readonly AcpmuxSessionEntry[],
+  { chatId: string; spawned: readonly AcpmuxSessionEntry[] }
+>();
 
 /// The chats an offer's started tasks name, which their suggested tasks card draws.
 export function offerChildren(rows: readonly AcpmuxRow[]): Set<string> {

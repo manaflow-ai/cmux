@@ -14,7 +14,7 @@
 import type { IncomingMessage } from "./conversation/incomingMessage";
 import type { AcpmuxRow } from "./model";
 import type { AcpmuxSessionEntry } from "./sessionList";
-import { findSession } from "./sessionIndex";
+import { findSession, sessionIndex } from "./sessionIndex";
 
 export type ManagedBy =
   /** A Chief started it. */
@@ -41,7 +41,12 @@ export function chiefOf(
   if (!sessionId) return undefined;
   const own = findSession(sessions, sessionId);
   if (!own?.chiefChild) return undefined;
-  const turn = own.chiefHome ? sessions.find((entry) => entry.chiefTurn?.home === own.chiefHome) : undefined;
+  // Among the Chief turns only (sessionIndex.ts), not every listed chat.
+  const turn = own.chiefHome
+    ? sessionIndex(sessions as readonly AcpmuxSessionEntry[])
+        .of("chiefTurn")
+        .find((entry) => entry.chiefTurn?.home === own.chiefHome)
+    : undefined;
   return turn?.chiefTurn?.participant ?? DEFAULT_CHIEF;
 }
 
