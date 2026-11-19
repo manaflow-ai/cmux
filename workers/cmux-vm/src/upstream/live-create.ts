@@ -41,7 +41,11 @@ const IPV4 = /^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1?[0-9
  * is null, which claims nothing: a later attach sets the network declaratively.
  */
 const joinedOn = (answer: unknown, networkId: string): { readonly ipv4: string } | null => {
-  const listed = field(answer, "vpcs") ?? field(answer, "networks");
+  const vpcs = field(answer, "vpcs"), networks = field(answer, "networks");
+  // Both names present must say the same thing, as readVmAddress requires (live-mesh.ts): an answer whose two lists
+  // disagree is not "on exactly that network".
+  if (vpcs != null && networks != null && JSON.stringify(vpcs) !== JSON.stringify(networks)) return null;
+  const listed = vpcs ?? networks;
   if (!Array.isArray(listed) || listed.length !== 1) return null;
   const vpc = field(listed[0], "vpc"), vpcId = field(listed[0], "vpcId"), ipv4 = field(listed[0], "ipv4");
   if (vpc !== networkId || (vpcId !== undefined && vpcId !== null && vpcId !== networkId)) return null;

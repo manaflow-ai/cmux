@@ -159,6 +159,32 @@ describe("a create that names the mesh to join", () => {
     expect(reachable(vmId)).toBe(true);
   });
 
+  it("does not take the VM as joined when the create's answer names its networks two different ways", async () => {
+    const { key, meshId, networkId } = await meshWithDevice();
+    h.upstream.faults.splitCreateNetworks = true;
+    const made = await create(key, { meshId });
+    expect(made.status).toBe(201);
+    const vmId = String(record(await made.json())["id"]);
+    const attached = await h.request(`/v1/meshes/${meshId}/vms/${vmId}`, bearer(key), { method: "PUT" });
+    expect(attached.status).toBe(200);
+    expect(providerAttaches().map((call) => call.json)).toEqual([{ networks: [{ vpc: networkId }] }]);
+  });
+
+  it("answers a finished create again under its key from a caller the mesh checks would now refuse", async () => {
+    const { key, meshId } = await meshWithDevice();
+    const requestKey = "create-timing-mesh-replay";
+    const made = await create(key, { meshId }, requestKey);
+    expect(made.status).toBe(201);
+    const vmId = String(record(await made.json())["id"]);
+    // The same team's key without mesh:write: a new create naming the mesh is refused, a finished one is answered.
+    const writeOnly = await h.addKey(TEAM, ["vm:read", "vm:write"]);
+    expect((await create(writeOnly, { meshId }, "create-timing-mesh-replay-2")).status).toBe(403);
+    const again = await create(writeOnly, { meshId }, requestKey);
+    expect([200, 201]).toContain(again.status);
+    expect(String(record(await again.json())["id"])).toBe(vmId);
+    expect(providerCreates()).toHaveLength(1);
+  });
+
   it("needs mesh:write and the caller's own mesh before anything is created", async () => {
     const { meshId } = await meshWithDevice();
     const before = h.upstreamRequests.length;

@@ -108,9 +108,11 @@ export function makeFakeUpstream(apiKey: string) {
     lostSnapshotResponses: number;
     /** A create still joins the network it names, but its answer does not list the VM's networks. */
     hideCreateNetworks: boolean;
+    /** The create answer lists the joined network under `vpcs` and a second, different list under `networks`. */
+    splitCreateNetworks: boolean;
     /** The create answer's `debug` object (the provider's own phase timings), when set. */
     createDebug: unknown;
-  } = { lostCreateResponses: 0, lostSnapshotResponses: 0, hideCreateNetworks: false, createDebug: undefined };
+  } = { lostCreateResponses: 0, lostSnapshotResponses: 0, hideCreateNetworks: false, splitCreateNetworks: false, createDebug: undefined };
   /**
    * Private networks belong to mesh-fakes.ts, which sets this: a create that names a network joins it here. Answers the
    * VM's attachments, or null when the account has no such network (the create is then refused, as the provider's).
@@ -231,7 +233,7 @@ export function makeFakeUpstream(apiKey: string) {
         const { vpcs: joined, ...answer } = vmBody(created);
         return Response.json({
           ...answer,
-          ...(joined === undefined || faults.hideCreateNetworks ? {} : { vpcs: joined, networks: joined }),
+          ...(joined === undefined || faults.hideCreateNetworks ? {} : { vpcs: joined, networks: faults.splitCreateNetworks ? [...joined, { vpc: "vpc-some-other-network", ipv4: "10.99.0.2" }] : joined }),
           ...(faults.createDebug === undefined ? {} : { debug: faults.createDebug }),
         }, { status: 201 });
       }

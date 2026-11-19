@@ -469,7 +469,7 @@ const withMeshToJoin = <C, A, E, R>(
 
 const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined) =>
   withCaller("vm:write", "write", (caller, scope) =>
-    Effect.flatMap(Clock.currentTimeMillis, (entered) => withMeshToJoin(caller, requested.meshId, (mesh) =>
+    Effect.flatMap(Clock.currentTimeMillis, (entered) =>
     Effect.gen(function* () {
       const principal = caller.value;
       yield* forbidAllowlisted(principal);
@@ -524,6 +524,10 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
             const existing = yield* replayRecordedAttempt(caller, scope, prior, key);
             if (existing !== null) return existing;
             if (key === null) return yield* Effect.fail(unavailable());
+            // The mesh is proven here, after the replay above: a retry of a create that already finished answers its
+            // VM even when the mesh has since been deleted or the key has lost mesh:write, as a retry whose snapshot or
+            // image has gone does. A create that still has work to do is refused before quota or a provider request.
+            return yield* withMeshToJoin(caller, payload.meshId, (mesh) => Effect.gen(function* () {
             // A fresh allocation by an agent key must fit its live-VM and $/h budget; a resumed one already counted.
             // Its slot is settled by how the create ends (settleAgentCreate), so concurrent creates count it.
             let agentSlot: { readonly agent: string; readonly slotId: string } | undefined;
@@ -554,12 +558,13 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
             }
             const slot = agentSlot;
             return yield* create.pipe(Effect.onExit((exit) => settleAgentCreate(caller, slot, key, exit)));
+            }));
           }),
         (vmId) => replayVm(caller, scope, vmId),
         clientFingerprint,
         generated,
       ).pipe(Effect.map((vm) => new CreatedVm({ ...vm, ...(networkIntent === undefined ? {} : { initialNetwork: networkIntent.receipt }), ...(imageIntent === undefined ? {} : { bootImage: imageIntent.receipt }) }))), generated);
-    }))),
+    })),
   );
 
 /**
