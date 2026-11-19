@@ -7,7 +7,7 @@ extension SettingsPageLayout {
         SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
         SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [personalizationCategory, appearanceCategory, sidebarCategory, tabsCategory, newTabCategory]),
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
-        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, mcpServersCategory, modelsCategory, cloudCategory, chiefCategory]),
+        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, computerUseCategory, mcpServersCategory, modelsCategory, cloudCategory, chiefCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
         SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, keysCategory, mobileCategory, devicesCategory]),
         SidebarSection(id: "system", title: SettingsText.keyed("settings.sidebarSection.system", "Data and System"), categories: [importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory]),
@@ -173,12 +173,11 @@ extension SettingsPageLayout {
         ]
     )
 
-    /// Computer Use (#28997) comes first among the trailing cards: its card draws the on/off switch, the guided setup and the helper's grants together, and the `settings.group.computerUse` rows (the page does not draw that group a second time). Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and removes the ones you added. Agent integrations (optional help, collapsed) installs the hooks that report an agent's state, through `cmux agent hook`.
+    /// Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and removes the ones you added. Agent integrations (optional help, collapsed) installs the hooks that report an agent's state, through `cmux agent hook`. Computer Use has its own category (below).
     private static let agentsCategory = CategorySpec(
         id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
         groups: [
             GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"], title: SettingsText.keyed("settings.pageGroup.agentDefaults", "Defaults")),
-            GroupSpec(group: "settings.group.computerUse"),
             GroupSpec(group: "settings.group.cmuxRemote"),
             // The free AI model while signed out (cx-ds09i).
             GroupSpec(group: "settings.group.freeModel"),
@@ -194,8 +193,19 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.agentCache"),
             // Folders that start an agent without the trust question.
             GroupSpec(group: "settings.group.folderTrust"),
+            // Whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP server, Computer Use included (the onboarding step's question); the agentTools card under it lists the agents with Turn On.
+            GroupSpec(group: "settings.group.agentTools"),
         ],
-        trail: [.computerUse, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
+        trail: [.agentTools, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
+    )
+
+    /// Every Computer Use setting on one page (Aziz 2026-11-05: "all CU settings in their own Settings tab"): the Computer Use card draws the status (engine, permissions, worker), the mode, the denied apps, the saved approvals and the switches from the `settings.group.computerUse` rows; the page does not draw that group a second time.
+    private static let computerUseCategory = CategorySpec(
+        id: "computerUse", title: SettingsText.keyed("settings.category.computerUse", "Computer Use"), symbol: "cursorarrow.click.2",
+        groups: [
+            GroupSpec(group: "settings.group.computerUse"),
+        ],
+        lead: [.computerUse]
     )
 
     /// The services agents use for the person (Linear, Slack, GitHub...), who has each one, and its sign-in (user 2026-11-18 via Chief: an MCP Servers page with list, sign in and remove).
