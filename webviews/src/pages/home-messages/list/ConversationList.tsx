@@ -25,10 +25,9 @@ import {
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { DrivenList, DrivenRow } from "../../../ui/DrivenList";
 import { IllustratedEmpty } from "../../../ui/EmptyState/IllustratedEmpty";
-// Imported, not `new URL(...)`: the page's CSP allows `img-src data:` only, and bundle.mjs inlines it.
-import mascotOrb from "../../../agent-session/acpmux/mascots/ChiefMascotOrb.png";
 import { HomeIcon } from "../../home-channels/icons";
 import type { Strings } from "../../shared/i18n";
+import { lazyArt, NO_ART } from "../../shared/lazyArt";
 import type { HostMenuItem } from "../types";
 import { headerLayout, listMetrics, ROW, type Rect } from "./layout";
 import { ListRow, PinnedTile, type ItemEvents, type Modifiers } from "./ListItems";
@@ -78,6 +77,10 @@ export interface ConversationListProps {
 
 /** The draft row's id (the New Message page's). */
 export const DRAFT_ROW = "home.newMessage";
+// The no-results state's orb. Imported, not `new URL(...)`: the page's CSP allows `img-src data:` only,
+// and bundle.mjs inlines it; behind `import()` its base64 is out of the page's first load (lazyArt.ts).
+const orbArt = lazyArt(() => import("../../../agent-session/acpmux/mascots/ChiefMascotOrb.png").then((m) => m.default));
+
 const DRAG_THRESHOLD = 4;
 const OVERSCAN = 600;
 const SCROLL_QUANTUM = 64;
@@ -95,6 +98,7 @@ interface Drag {
 export function ConversationList(props: ConversationListProps) {
   const { model, width, selected, query, unreadOnly, strings, canPin, look = "messages" } = props;
   const { t, format } = strings;
+  const orb = orbArt.use() ?? NO_ART;
   const metrics = useMemo(() => listMetrics(width), [width]);
   const [searchFocused, setSearchFocused] = useState(false);
   const header = headerLayout(width, searchFocused || query !== "", props.windowControls, unreadOnly);
@@ -519,7 +523,7 @@ export function ConversationList(props: ConversationListProps) {
                 </>
               ) : (
                 <IllustratedEmpty
-                  art={mascotOrb}
+                  art={orb}
                   line={t("sidebar.noResults")}
                   action={{ label: t("sidebar.clearSearch"), onClick: () => props.onQuery("") }}
                 />
