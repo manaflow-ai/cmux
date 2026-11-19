@@ -267,7 +267,8 @@ fn index_and_worktree_snapshots_match_independently_for_every_change_kind() {
                 + carry.staged_patch.len()
                 + carry.intent_to_add.len()
                 + carry.intent_placeholders.len()
-                + carry.affected_paths.len(),
+                + carry.affected_paths.len()
+                + carry.recovery_paths.len(),
             "{name}"
         );
         sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
@@ -439,7 +440,7 @@ fn failed_index_publication_restores_the_worktree() {
     );
     sh(
         src.path(),
-        "printf 'two\\n' >> kept.txt && git add kept.txt && printf 'three\\n' >> kept.txt && git mv gone.txt renamed.txt && git rm -q empty.txt && mkdir empty.txt && printf child > empty.txt/child && git add empty.txt && ln -s kept.txt newlink && git rm -qr directory && printf replacement > directory && git add directory",
+        "printf 'two\\n' >> kept.txt && git add kept.txt && printf 'three\\n' >> kept.txt && git mv gone.txt renamed.txt && git rm -q empty.txt && mkdir -p empty.txt/deep/nested && printf child > empty.txt/deep/nested/child && git add empty.txt && ln -s kept.txt newlink && git rm -qr directory && printf replacement > directory && git add directory",
     );
     let carry = snapshot(&here, src.path(), true).unwrap();
     sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
@@ -561,7 +562,9 @@ fn a_real_partial_write_restores_the_worktree_and_allows_retry() {
         src.path(),
         "printf 'base first\\n' > a-first.txt && printf 'base last\\n' > z-last.txt && git add . && git commit -qm files",
     );
-    std::fs::write(src.path().join("a-first.txt"), b"changed first\n").unwrap();
+    std::fs::remove_file(src.path().join("a-first.txt")).unwrap();
+    std::fs::create_dir_all(src.path().join("a-first.txt/deep/nested")).unwrap();
+    std::fs::write(src.path().join("a-first.txt/deep/nested/child"), b"changed first\n").unwrap();
     std::fs::write(src.path().join("z-last.txt"), vec![b'x'; 128 * 1024]).unwrap();
     sh(src.path(), "git add a-first.txt z-last.txt");
     let carry = snapshot(&here, src.path(), true).unwrap();
@@ -572,7 +575,7 @@ fn a_real_partial_write_restores_the_worktree_and_allows_retry() {
     let write = "git -c core.fsmonitor=false -c core.symlinks=true -C \"$top\" apply --binary --whitespace=nowarn \"$s/patch\"";
     let failing = APPLY_SCRIPT.replace(
         &format!("if ! {write}; then"),
-        &format!("if ! (ulimit -f 2; {write}); then\n    printf 'PARTIAL_WRITE:'; cat a-first.txt"),
+        &format!("if ! (ulimit -f 2; {write}); then\n    printf 'PARTIAL_WRITE:'; cat a-first.txt/deep/nested/child"),
     );
     assert_ne!(failing, APPLY_SCRIPT);
     let out = here(&failing, &apply_input(&dst.path().to_string_lossy(), &carry).unwrap()).unwrap();
@@ -703,6 +706,7 @@ fn carry_transport_before_after() {
         intent_to_add: vec![],
         intent_placeholders: vec![],
         affected_paths: vec![],
+        recovery_paths: vec![],
         files: 1,
         left_out: vec![],
     };
@@ -859,6 +863,7 @@ fn a_base_that_moved_refuses() {
         intent_to_add: vec![],
         intent_placeholders: vec![],
         affected_paths: vec![],
+        recovery_paths: vec![],
         files: 0,
         left_out: vec![],
     };

@@ -69,3 +69,10 @@ transitions. The snapshot records affected directories without recursing into
 them; recovery removes only replacement files at those paths before unpacking
 the original children. `failed_index_publication_restores_the_worktree` checks
 both directions, renamed files and symlinks, then retries the carry.
+
+Recovery paths include ancestors as raw NUL-separated names, deduplicated and
+ordered deepest first. This records intermediate directories absent before an
+apply, so rollback can remove them when empty before restoring a file at their
+parent. Index conflict checks still cover only affected paths, preserving
+unrelated target staging. Both the real partial-write and publication-failure
+regressions include multi-level file-to-directory replacements.

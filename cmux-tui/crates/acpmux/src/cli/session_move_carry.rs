@@ -45,6 +45,8 @@ pub(crate) struct Carry {
     pub intent_placeholders: Vec<u8>,
     /// NUL-separated affected paths, including both sides of renames.
     pub affected_paths: Vec<u8>,
+    /// Affected paths and their ancestors, deepest first, for filesystem recovery.
+    pub recovery_paths: Vec<u8>,
     /// The files either snapshot changes, adds or deletes.
     pub files: usize,
     /// Untracked files that stay on the source, each with why.
@@ -56,7 +58,7 @@ impl Carry {
     pub fn record(&self) -> Value {
         let left: Vec<Value> =
             self.left_out.iter().map(|(p, why)| json!({"path": p, "why": why})).collect();
-        json!({"files": self.files, "bytes": self.staged_patch.len() + self.patch.len() + self.intent_to_add.len() + self.intent_placeholders.len() + self.affected_paths.len(), "leftOut": left})
+        json!({"files": self.files, "bytes": self.staged_patch.len() + self.patch.len() + self.intent_to_add.len() + self.intent_placeholders.len() + self.affected_paths.len() + self.recovery_paths.len(), "leftOut": left})
     }
 }
 
@@ -195,6 +197,16 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
         .filter(|p| !p.is_empty())
         .collect::<BTreeSet<_>>();
     let files = paths.len();
+    let mut recovery = paths.clone();
+    for path in &paths {
+        for (offset, byte) in path.iter().enumerate() {
+            if *byte == b'/' {
+                recovery.insert(&path[..offset]);
+            }
+        }
+    }
+    let recovery_paths =
+        recovery.into_iter().rev().flat_map(|p| p.iter().copied().chain([0])).collect();
     // Descendants precede their parent when rollback removes newly created paths.
     let affected_paths =
         paths.into_iter().rev().flat_map(|p| p.iter().copied().chain([0])).collect();
@@ -220,6 +232,7 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
         intent_to_add,
         intent_placeholders,
         affected_paths,
+        recovery_paths,
         files,
         left_out,
     })
@@ -301,7 +314,7 @@ fn leave_out(_top: &Path, _relative: &[u8]) -> Option<&'static str> {
 }
 
 /// The target folder and base commit are plain lines, followed by a tar stream containing
-/// only `staged`, `patch`, `intent`, `intent-placeholders` and `paths`. The candidate index is prepared under the target's
+/// only `staged`, `patch`, `intent`, `intent-placeholders`, `paths` and `recovery-paths`. The candidate index is prepared under the target's
 /// index lock and published only after the worktree apply succeeds. Exit 4: different HEAD.
 pub(crate) const APPLY_SCRIPT: &str = r#"read -r d || exit 2; read -r base || exit 2
 top=$(git -C "$d" rev-parse --show-toplevel) || exit 2
@@ -312,7 +325,7 @@ keep_backup=0
 cleanup() { if [ "$keep_backup" = 0 ]; then rm -rf -- "$s"; fi; }
 trap cleanup EXIT
 # Do not read multi-megabyte payloads into shell variables: tar consumes stdin directly.
-tar -xf - -C "$s" staged patch intent intent-placeholders paths || exit 2
+tar -xf - -C "$s" staged patch intent intent-placeholders paths recovery-paths || exit 2
 cd -- "$top" || exit 2
 real=$(git rev-parse --git-path index) || exit 3
 # Claim only our own lock. A concurrent Git writer makes the carry refuse unchanged.
@@ -360,6 +373,7 @@ restore_worktree() {
   if [ -s "$s/directories" ]; then
     xargs -0 sh -c 'for p do
       if [ -L "$p" ] || [ -f "$p" ]; then rm -f -- "$p" || exit 1; fi
+      mkdir -p -- "$p" || exit 1
     done' sh <"$s/directories" || restored=1
   fi
   if [ -s "$s/absent" ]; then
@@ -390,7 +404,7 @@ if [ -s "$s/patch" ]; then
     elif [ ! -e "$p" ]; then printf "%s\000" "$p" >>"$s/absent"
     elif [ -d "$p" ]; then printf "%s\000" "$p" >>"$s/directories"
     else exit 1; fi
-  done' sh "$s" <"$s/paths" || exit 5
+  done' sh "$s" <"$s/recovery-paths" || exit 5
   tar -cpf "$s/worktree-before.tar" --null -T "$s/present" || exit 5
   if ! git -c core.fsmonitor=false -c core.symlinks=true -C "$top" apply --binary --whitespace=nowarn "$s/patch"; then
     restore_worktree || exit 6
@@ -418,6 +432,7 @@ pub(crate) fn apply_input(folder: &str, carry: &Carry) -> Result<Vec<u8>> {
             ("intent", carry.intent_to_add.as_slice()),
             ("intent-placeholders", carry.intent_placeholders.as_slice()),
             ("paths", carry.affected_paths.as_slice()),
+            ("recovery-paths", carry.recovery_paths.as_slice()),
         ] {
             let mut header = tar::Header::new_ustar();
             header.set_size(bytes.len() as u64);
