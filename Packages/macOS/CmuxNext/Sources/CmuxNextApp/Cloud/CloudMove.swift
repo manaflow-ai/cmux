@@ -138,11 +138,11 @@ struct CloudMove {
         let progress = CloudMoveProgress(.move) { [services] in if !carded { Self.toast(services, toastID, CloudMoveStrings.moving + "\n" + $0, duration: Self.working, working: true) } }
         services.cloud.chatMoves.begin(tab, of: services.machines.daemon(forTab: tab).store, to: invocation["machine"]?.stringValue, progress: progress)
         let work: ActionWork = Task { @MainActor [services] in
-            defer { services.cloud.chatMoves.end(tab: tabID) }
             defer { progress.end() }
             do {
                 let machine = try await body(progress)
                 retries[tabID] = nil
+                services.cloud.chatMoves.landed(tab: tabID) // its row stays on the machine until the chat's own row is there
                 toast(toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
                 asks.moveEnded(tabID, failure: nil, services: services)
                 return nil

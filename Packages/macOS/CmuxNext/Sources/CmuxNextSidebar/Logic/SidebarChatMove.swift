@@ -31,15 +31,16 @@ public nonisolated struct SidebarChatMove: Hashable, Sendable {
             let show = { (row: inout SidebarWorkspace) in
                 row.status = move.line ?? moving
                 row.progress = SidebarProgress(value: move.fraction)
-                // Never selected, closed, renamed or dragged mid-move: it is neither machine's row until it lands.
-                row.rowState = .creating
-                row.isClosable = false
             }
             let target = move.machine.flatMap { machine in sections.firstIndex { $0.machine?.id == machine } }
             if let target, sections[target].workspaces.first(where: { $0.id == move.workspace }) == nil {
                 var removed = SidebarEdits.removeWorkspaces([move.workspace], from: &sections)
                 guard var row = removed.popLast() else { continue }
                 show(&row)
+                // A travelling row is never selected, closed, renamed or dragged: it is neither machine's row until
+                // the chat's own row lands. A row that stays (its other tabs stay) keeps working.
+                row.rowState = .moving
+                row.isClosable = false
                 row.machineID = sections[target].machine?.id ?? row.machineID
                 sections[target].nodes.append(.workspace(row))
             } else {

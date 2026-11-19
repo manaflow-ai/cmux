@@ -112,12 +112,12 @@ struct CloudBringBack {
         // Back here, the row goes to this Mac at once; to another machine, once the run picks it.
         cloud.chatMoves.begin(tab, of: services.machines.daemon(forTab: tab).store, to: toMachine ? nil : services.machines.local.machineID, progress: progress)
         let work: ActionWork = Task { @MainActor [services] in
-            defer { cloud.chatMoves.end(tab: tabID) }
             defer { cloud.movingBack.remove(tabID) }
             defer { progress.end() }
             do {
                 let machine = try await body(progress)
                 retries[tabID] = nil
+                cloud.chatMoves.landed(tab: tabID) // its row stays on the machine until the chat's own row is there
                 CloudMove.toast(services, toastID, toMachine ? CloudMoveStrings.moved(machine) : CloudBringBackStrings.broughtBack, duration: .seconds(6))
                 return nil
             } catch {

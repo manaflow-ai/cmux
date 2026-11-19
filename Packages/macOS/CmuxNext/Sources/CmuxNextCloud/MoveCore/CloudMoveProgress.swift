@@ -28,6 +28,8 @@ public final class CloudMoveProgress {
 
     /// Each new line with how far the whole move is (``ChatMoves``: the sidebar's moving chat row).
     public var stepped: (@MainActor (_ line: String, _ fraction: Double?) -> Void)?
+    /// Called once the run ends (``end()``), done or not.
+    public var ended: (@MainActor () -> Void)?
 
     private let direction: Direction
     private let show: @MainActor (String) -> Void
@@ -96,6 +98,7 @@ public final class CloudMoveProgress {
     public func end() {
         facts = nil
         stopWaking()
+        ended?()
     }
 
     private func stopWaking() { wake.cancel() }
