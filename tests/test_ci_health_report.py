@@ -634,10 +634,16 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn('- cron: "37 2,8,14,20 * * *"', self.text)
         self.assertIn("workflow_dispatch:", self.text)
 
-    def test_the_runner_comes_from_a_repository_variable(self):
+    def test_the_runner_is_the_one_linux_label(self):
+        # cmuxterm-hq#14156: every own-branch Linux job names the literal
+        # cmux-linux label; no LINUX_RUNNER or RUNNER_POOLS pool picks it.
         self.assertIn(
-            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}", self.text
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}", self.text
         )
+        for line in self.text.splitlines():
+            if line.strip().startswith("runs-on:"):
+                self.assertNotIn("LINUX_RUNNER", line)
+                self.assertNotIn("RUNNER_POOLS", line)
 
     def test_it_can_read_runs_and_write_issue_comments_but_not_cancel(self):
         self.assertIn("\npermissions: {}\n", self.text)

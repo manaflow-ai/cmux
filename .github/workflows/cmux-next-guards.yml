@@ -126,7 +126,7 @@ jobs:
     steps:
       - name: Runner variables that signing jobs read name ephemeral runners
         env:
-          LINUX_RUNNER: cmux-linux
+          LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
           MACOS_RUNNER_26: ${{ vars.MACOS_RUNNER_26 }}
         run: |
           bad=0

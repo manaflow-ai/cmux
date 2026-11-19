@@ -158,18 +158,21 @@ def test_portable_guard_runner_does_not_hide_a_native_change() -> None:
     assert actual.macos is True, (paths, actual)
 
 
-def test_portable_router_linux_placement_keeps_guard_references_linux_only() -> None:
+def test_router_on_the_linux_label_keeps_guard_references_linux_only() -> None:
+    # cmuxterm-hq#14156: the router takes the one literal cmux-linux label, no placement output.
     workflow = (ROOT / module.CI_WORKFLOW_PATH).read_text(encoding="utf-8")
     _, jobs = module.split_workflow_jobs(workflow)
     router = jobs["changes"]
+    assert "|| 'cmux-linux' }}" in router
     assert module.job_is_plainly_linux(router)
     references = module.macos_job_test_references("\njobs:\n  " + router)
     assert references is not None and references[0] == frozenset(), references
+    # A picker output or a matrix value in its place could name a Mac: not plainly Linux.
     for unknown in (
-        router.replace("outputs.linux_runner", "outputs.mini_runner"),
-        router.replace("outputs.placed_attempt", "outputs.unchecked_attempt"),
-        router.replace("' changes '", "' other-job '"),
+        router.replace("'cmux-linux'", "needs.portable-placement.outputs.mini_runner"),
+        router.replace("'cmux-linux'", "matrix.runner"),
     ):
+        assert unknown != router
         assert not module.job_is_plainly_linux(unknown), unknown
 
 
@@ -464,7 +467,7 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
         " && github.event.pull_request.head.repo.full_name != github.repository"
         " && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
         " && 'blacksmith-4vcpu-ubuntu-2404'"
-        " || fromJSON(vars.RUNNER_POOLS).linux }}"
+        " || 'cmux-linux' }}"
     ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
     assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
@@ -840,10 +843,11 @@ def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None
 def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
     jobs = yaml.safe_load(REMOTE_DAEMON_WORKFLOW.read_text())["jobs"]
     admission = jobs["remote-daemon-admission"]
-    # Secretless Linux jobs read the runner pool (#30878), not a fixed size.
+    # Secretless Linux jobs take the one cmux-linux label (cmuxterm-hq#14156), not a fixed size or a pool.
     cells = workflow_jobs.runs_on_cells(admission)
     assert cells is not None, "remote-daemon-admission: runs-on matrix does not resolve"
-    assert "fromJSON(vars.RUNNER_POOLS).linux" in "\n".join(cells)
+    assert cells and all(cell.rstrip().endswith("|| 'cmux-linux' }}") for cell in cells), cells
+    assert "RUNNER_POOLS" not in "\n".join(cells)
     assert jobs["remote-daemon-macos-tests"]["needs"] == "remote-daemon-admission"
     script = admission["steps"][0]["run"]
     with tempfile.TemporaryDirectory() as directory:

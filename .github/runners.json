@@ -242,14 +242,6 @@
       "reads no picker output and so waits on one fixed label (scripts/ci/runner_routing_table.py). All three",
       "lists only shrink."
     ],
-    "pr-red-checks-comment.yml#comment": "portable-checks",
-    "ci-guards.yml#guard-status": "portable-checks",
-    "pr-checks.yml#size": "portable-checks",
-    "pr-checks.yml#ui-review": "portable-checks",
-    "pr-checks.yml#split": "portable-checks",
-    "cmux-next-fast-gates.yml#resolve": "portable-checks",
-    "cmux-next-fast-gates.yml#post": "portable-checks",
-    "web-validation.yml#web-validation": "portable-checks",
     "agent-brands.yml#swift-test": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
@@ -323,7 +315,6 @@
     "cmux-next-dev-daily.yml#verify": "apple-signing-release",
     "cmux-next-fast-tier-seed.yml#seed": "apple-app-build",
     "cmux-next-frame-pacing.yml#bench": "apple-gui",
-    "cmux-next-guards.yml#tooling-tests": "portable-checks",
     "cmux-next-ios-kit.yml#kit-tests": "apple-swift-tests",
     "cmux-next-iphone-clips.yml#record": {
       "class": "apple-gui",
@@ -370,8 +361,6 @@
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "cmux-next.yml#app-compile-fleet": "apple-app-build",
-    "cmux-next.yml#checks": "portable-checks",
-    "cmux-next.yml#path_route": "portable-checks",
     "cmux-next.yml#cmux-scheme-compile": "apple-app-build",
     "cmux-next.yml#daemon-test": "apple-swift-tests",
     "cmux-next.yml#dev-landing-compile": "apple-app-build",

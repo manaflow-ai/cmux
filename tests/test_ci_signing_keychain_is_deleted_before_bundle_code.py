@@ -39,8 +39,8 @@ statically, so a reordered step fails in review and not on a release day:
    2026-10-24), never a reused machine. Its runs-on names either a literal
    ephemeral label or one of EPHEMERAL_RUNNER_VARIABLES, whose fallback literal
    is ephemeral too. A test cannot read a variable's live value, so
-   cmux-next-guards.yml's signing-runner-variables job (on a literal Blacksmith
-   runner) checks it on every feat-cmux-next pull request and push: pointing one
+   cmux-next-guards.yml's signing-runner-variables job (on the literal Linux label
+   cmux-linux, cmuxterm-hq#14156) checks it on every feat-cmux-next pull request and push: pointing one
    of those variables at an owned mini turns it red. It detects; it does not stop
    a signing job that starts before it. The one way onto an owned Mac is a
    picker output from scripts/ci/signing_runner.py (Leo, 2026-10-28: the
@@ -313,10 +313,8 @@ def mode_env_value(raw: object, value: str | None = None) -> re.Match | None:
 
 
 LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
-LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
-# `vars.CI_CLOUD_OVERFLOW_SAVED && '<blacksmith label>' ||`: the overflow failover,
-# a boolean record choosing between two literal Blacksmith Linux labels.
-OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED\s*&&\s*'blacksmith-\d+vcpu-ubuntu-2404'\s*\|\|\s*")
+# The guard job holds no secret; it runs on the one literal Linux label (cmuxterm-hq#14156).
+LIVE_VALUE_RUNNER = "cmux-linux"
 # `vars.NAME == '<label>' && '<label>' ||`: a variable that only chooses between literal labels.
 # Its value is compared, never used as the label, so the job still runs on the literal it names.
 LITERAL_SELECTOR = re.compile(
@@ -1221,12 +1219,10 @@ def check_live_runner_variables(failures: list[str]) -> None:
     document = workflow_jobs.document(ROOT / path)
     job = (document.get("jobs") or {}).get(job_name) or {}
     # The check's own runner must not come from the variables it checks: a variable
-    # pointed at a missing label would leave it queued instead of red. The one
-    # variable it may read is the overflow record as a switch between two literal
-    # Blacksmith labels (tests/test_ci_blacksmith_linux_failover.py requires it):
-    # the record holds no label, so both outcomes stay literal ephemeral runners.
+    # pointed at a missing label would leave it queued instead of red. It reads no
+    # variable at all, not even the overflow record (cmuxterm-hq#14156: one literal label).
     cells = workflow_jobs.runs_on_cells(job)
-    runs_on = OVERFLOW_FAILOVER.sub("", "\n".join(cells or []))
+    runs_on = "\n".join(cells or [])
     if cells is None:
         failures.append(f"{path} {job_name}: runs-on has a matrix value nothing resolves")
     if ANY_VARS.search(runs_on) or LIVE_VALUE_RUNNER not in runs_on:

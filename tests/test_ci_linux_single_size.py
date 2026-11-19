@@ -10,8 +10,11 @@ LINUX_RUNNER holds a single label (blacksmith-4vcpu-ubuntu-2404 since 2026-10-29
 overflow switch (cloud_overflow_switch.py) moves it only when every probed Blacksmith size stops
 starting jobs. A stall of that one size moves nothing. On 2026-10-31 `GhosttyKit release check`
 (ci.yml, run 41158893861, PR #28749) sat 41 minutes on blacksmith-4vcpu-ubuntu-2404 while the
-16 and 32 vCPU sizes started jobs. It now reads the Linux pool,
-`fromJSON(vars.RUNNER_POOLS).linux`, which runner_pools.py keeps on a live member.
+16 and 32 vCPU sizes started jobs. It read the Linux pool, `fromJSON(vars.RUNNER_POOLS).linux`, from
+then until 2026-11-19, when every own-branch Linux job moved to the one literal label `cmux-linux`
+(cmuxterm-hq#14156, "capacity comes to the job"): no LINUX_RUNNER, RUNNER_POOLS pool or overflow switch
+in a Linux selector, and overflow is more runners on that label. tests/test_ci_linux_runs_on.py holds
+that rule for every job; the ratchets here only keep the older single-size shapes from coming back.
 
 main's tests/test_ci_runner_set.py accepts LINUX_RUNNER as a live source and is not on this
 branch, so nothing caught it. SINGLE_SIZE counts, per workflow, the jobs that still read
@@ -54,12 +57,12 @@ FIXED_PAIR_TAIL = re.compile(
 LIVE_SOURCE = re.compile(r"\b(?:needs|matrix|inputs|steps|env)\.|vars\.(?!LINUX_RUNNER\b)[A-Z0-9_]+")
 
 # workflow file -> jobs that still read LINUX_RUNNER as their one size. Lower a count when a job
-# moves to fromJSON(vars.RUNNER_POOLS).<pool> or a picker; never raise one.
+# moves to the one Linux label 'cmux-linux'; never raise one.
 SINGLE_SIZE: dict[str, int] = {
     "actions-artifact-prune.yml": 0,
     "agent-brands.yml": 0,
     "app-ffi-release.yml": 0,
-    "auto-resume-nightly-notarization.yml": 1,
+    "auto-resume-nightly-notarization.yml": 0,
     "automation-bench.yml": 0,
     "backend.yml": 0,
     "ci-artifact-canary.yml": 0,
@@ -88,7 +91,7 @@ SINGLE_SIZE: dict[str, int] = {
     "cloud-vm-migrate.yml": 0,
     "cloud-vm-smoke.yml": 0,
     "cmux-art-publish.yml": 0,
-    "cmux-browser-host-release.yml": 1,
+    "cmux-browser-host-release.yml": 0,
     "cmux-next-chromium-staleness.yml": 0,
     "cmux-next-batch.yml": 0,
     "cmux-next-crash-class.yml": 0,
@@ -120,7 +123,7 @@ SINGLE_SIZE: dict[str, int] = {
     "cmux-tui-tree-request.yml": 0,
     "cmux-tui.yml": 0,
     "cmux-vm.yml": 0,
-    "coderouter-release.yml": 1,
+    "coderouter-release.yml": 0,
     "coderouter-verify-release.yml": 0,
     "docs-deploy-reusable.yml": 0,
     "dogfood-artifact-publish.yml": 0,
@@ -146,7 +149,7 @@ SINGLE_SIZE: dict[str, int] = {
     "nightly-next-canary.yml": 0,
     "nightly-next-feed-watch.yml": 0,
     "nightly-next-rollback.yml": 0,
-    "nightly-next-train.yml": 1,
+    "nightly-next-train.yml": 0,
     "nightly-next-verdict.yml": 0,
     "nightly-tag-permission-probe.yml": 0,
     "pr-media-prune.yml": 0,
@@ -188,7 +191,7 @@ SINGLE_SIZE: dict[str, int] = {
 
 
 # workflow file -> jobs whose runs-on ends in FIXED_PAIR_TAIL. Lower a count when a job moves to
-# fromJSON(vars.RUNNER_POOLS).<pool> or a picker; never raise one.
+# the one Linux label 'cmux-linux'; never raise one.
 FIXED_PAIR: dict[str, int] = {
     "backend.yml": 0,
     "ci-web.yml": 0,
@@ -284,7 +287,8 @@ class SingleSizeRuleTests(unittest.TestCase):
     def test_a_pool_or_picker_is_not(self) -> None:
         fork = ("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' "
                 "&& github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || ")
-        for expression in (fork + "fromJSON(vars.RUNNER_POOLS).linux",
+        for expression in (fork + "'cmux-linux'",
+                           fork + "fromJSON(vars.RUNNER_POOLS).linux",
                            "fromJSON(needs.runners.outputs.map).linux_16",
                            "needs.pick.outputs.label || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"):
             with self.subTest(expression=expression):
@@ -309,16 +313,23 @@ class FixedPairRuleTests(unittest.TestCase):
                 self.assertFalse(fixed_pair("${{ " + expression + " }}"))
 
 
+ONE_LINUX_LABEL_ROUTE = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
+    "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || "
+    "'cmux-linux' }}"
+)
+
+
 class WorkflowTests(unittest.TestCase):
-    def test_the_ghosttykit_release_check_reads_the_linux_pool(self) -> None:
+    def test_the_ghosttykit_release_check_takes_the_one_linux_label(self) -> None:
         document = yaml.safe_load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
         cells = runs_on_cells(document["jobs"]["ghosttykit-release-check"], "ci.yml", "ghosttykit-release-check")
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertTrue(runs_on.rstrip().endswith("fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
+        self.assertEqual(runs_on.strip(), ONE_LINUX_LABEL_ROUTE)
 
-    def test_web_subarea_scope_reads_the_linux_pool(self) -> None:
+    def test_web_subarea_scope_takes_the_one_linux_label(self) -> None:
         # Run 41275619982 (2026-11-01): job 124762739841 waited 50 minutes unassigned on LINUX_RUNNER's
         # stalled 32 vCPU size while every webview shard waited behind it.
         document = yaml.safe_load((WORKFLOWS / "ci-web.yml").read_text(encoding="utf-8"))
@@ -327,14 +338,14 @@ class WorkflowTests(unittest.TestCase):
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
         self.assertNotIn("LINUX_RUNNER", runs_on)
-        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
+        self.assertEqual(runs_on.strip(), ONE_LINUX_LABEL_ROUTE)
 
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:
         found = counts()
         grown = {name: (count, SINGLE_SIZE.get(name, 0)) for name, count in found.items()
                  if count > SINGLE_SIZE.get(name, 0)}
         self.assertEqual(grown, {}, "these workflows read LINUX_RUNNER as their one Linux size (found, allowed); "
-                                    "read fromJSON(vars.RUNNER_POOLS).linux after the fork branches instead")
+                                    "take 'cmux-linux' after the fork branches instead")
         shrunk = {name: (found.get(name, 0), count) for name, count in SINGLE_SIZE.items()
                   if found.get(name, 0) < count}
         self.assertEqual(shrunk, {}, "these workflows have fewer single-size Linux jobs (found, allowed); "
@@ -345,7 +356,7 @@ class WorkflowTests(unittest.TestCase):
         grown = {name: (count, FIXED_PAIR.get(name, 0)) for name, count in found.items()
                  if count > FIXED_PAIR.get(name, 0)}
         self.assertEqual(grown, {}, "these workflows wait on one fixed Blacksmith Linux size (found, allowed); "
-                                    "read fromJSON(vars.RUNNER_POOLS).linux after the fork branches instead")
+                                    "take 'cmux-linux' after the fork branches instead")
         shrunk = {name: (found.get(name, 0), count) for name, count in FIXED_PAIR.items()
                   if found.get(name, 0) < count}
         self.assertEqual(shrunk, {}, "these workflows have fewer fixed-pair Linux jobs (found, allowed); "

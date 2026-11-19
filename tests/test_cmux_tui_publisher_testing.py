@@ -23,8 +23,6 @@ spec = importlib.util.spec_from_file_location("publisher_testing", SCRIPT)
 publisher = importlib.util.module_from_spec(spec)
 sys.modules["publisher_testing"] = publisher
 spec.loader.exec_module(publisher)
-sys.path.insert(0, str(ROOT / "tests"))
-from runs_on_labels import disallowed_labels  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 21, 6, 30, tzinfo=dt.timezone.utc)
 POOL = "glaeda-side-light-xcode-26.6"
@@ -86,12 +84,10 @@ class WiringTests(unittest.TestCase):
     def test_both_deferrals_ask_the_script(self):
         self.assertIn('cmux_tui_publisher_testing.py --run-id "$source_run" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
         self.assertIn('cmux_tui_publisher_testing.py --run-id "$OWNER_RUN_ID" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
-        # DAEMON_POOL is the gate's Blacksmith route. A publisher job placed on the live fleet Linux label
-        # reads as off-pool, so a deferring run tests the tree itself instead of waiting on it.
-        fleet = "contains(needs.tree-preflight.outputs.linux_jobs, ' cmux-next-daemon-tests ') && needs.tree-preflight.outputs.linux_runner || "
+        # DAEMON_POOL is the gate's own runs-on, written the same way, so a publisher job on that label
+        # reads as on-pool and nothing else does.
         gate = gate_runs_on(self.WORKFLOW)
-        self.assertIn(fleet, gate)
-        self.assertEqual(self.WORKFLOW.count(f"DAEMON_POOL: {gate.replace(fleet, '')}"), 2)
+        self.assertEqual(self.WORKFLOW.count(f"DAEMON_POOL: {gate}"), 2)
 
     def test_the_owner_wait_sparse_checkout_has_the_script(self):
         owner_wait = self.WORKFLOW[self.WORKFLOW.index("sparse-checkout: |\n            scripts/ci/cmux-tui-tree-claim.sh"):]
@@ -114,10 +110,10 @@ class WiringTests(unittest.TestCase):
         self.assertFalse(publisher.is_daemon_job(None))
 
     def test_the_pool_matches_the_daemon_test_job(self):
-        # DAEMON_POOL names the gate job's own runs-on label.
-        # Which Blacksmith Linux size it picks is the workflow's call; it is never anything else.
+        # DAEMON_POOL names the gate job's own runs-on label: the one Linux label, cmux-linux, with no
+        # picker output or pool read (cmuxterm-hq#14156); a fork's own repository takes hosted Ubuntu.
         runs_on = gate_runs_on(self.WORKFLOW)
-        self.assertEqual(disallowed_labels(runs_on), {}, runs_on)
+        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

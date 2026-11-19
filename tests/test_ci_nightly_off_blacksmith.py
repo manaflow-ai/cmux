@@ -361,11 +361,14 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 self.assertNotIn("needs.pick-nightly-build-runner.outputs.", runs_on_text(jobs[name], name))
                 self.assertIsNone(workflow_jobs.resolve(jobs[name]).environment)
 
-    def test_no_job_takes_a_mac_only_while_the_overflow_switch_is_on(self) -> None:
-        """The overflow switch never sends a job to a macOS label it would not take otherwise.
+    def test_the_overflow_switch_routes_only_its_probe_and_never_a_mac(self) -> None:
+        """No job but the switch's own probe reads the overflow switch in its label.
 
-        GitHub fixes a job's label when it creates the job, so a macOS label the
-        switch adds strands every job created during a flap on the macOS queue.
+        cmuxterm-hq#14156: overflow is more runners on the one cmux-linux label, so
+        no Linux job's runs-on reads CI_CLOUD_OVERFLOW_SAVED. Any job that ever does
+        again is also checked never to take a macOS label it would not take
+        otherwise: GitHub fixes a job's label when it creates the job, so a macOS
+        label the switch adds strands every job created during a flap.
         """
         import yaml
         record = {"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD]}
@@ -398,7 +401,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                         off = {label for label in resolve_labels(runs_on, variables=SWITCH_OFF) if isinstance(label, str)}
                         self.assertFalse({label for label in on - off if "macos" in label.lower()},
                                          f"{path.name}#{name}: the overflow switch adds a macOS label")
-        self.assertGreater(checked, 10)
+        self.assertEqual(checked, len(OVERFLOW_UNREAD), "a job other than the probe reads the overflow switch")
         self.assertEqual(unread, set(OVERFLOW_UNREAD), "an OVERFLOW_UNREAD entry no longer names a job")
 
     def test_the_overflow_rules_fail_on_a_mac_overflow(self) -> None:
@@ -408,7 +411,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         on = resolve_labels(mac, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD]})
         self.assertIn("blacksmith-6vcpu-macos-26", on - resolve_labels(mac, variables=SWITCH_OFF))
 
-    def test_the_canary_takes_the_owned_side_label_then_blacksmith(self) -> None:
+    def test_the_canary_takes_the_owned_side_label_and_its_helpers_the_linux_label(self) -> None:
         import yaml
         jobs = yaml.safe_load((WORKFLOWS / "nightly-next-canary.yml").read_text(encoding="utf-8"))["jobs"]
         self.assertIn("vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_PR_POOL_OWNED == '1' && "
@@ -417,7 +420,11 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                       "fromJSON(vars.RUNNER_POOLS).macos_26) }}", runs_on_text(jobs["canary"], "canary"))
         for name in ("pick", "verdict"):
             with self.subTest(job=name):
-                self.assertRegex(runs_on_text(jobs[name], name), r"(?:'blacksmith-\d+vcpu-ubuntu-2404'|fromJSON\(vars\.RUNNER_POOLS\)\.linux_\d+) }}$")
+                # cmuxterm-hq#14156: own branches take the one literal Linux label.
+                text = runs_on_text(jobs[name], name)
+                self.assertRegex(text, r"\|\| 'cmux-linux' }}$")
+                self.assertNotIn("RUNNER_POOLS", text)
+                self.assertNotIn("LINUX_RUNNER", text)
 
     def test_promotion_requests_never_wait_on_blacksmith(self) -> None:
         """The jobs that start a NEXT nightly are part of the nightly path.
@@ -425,8 +432,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         A feat-cmux-next push asks main to promote nightly-next from
         cmux-next.yml and cmux-tui-artifacts.yml (`request-nightly-next`). On
         Blacksmith those requests queued behind its pool like the nightly's own
-        jobs, so no nightly started. They take LINUX_RUNNER, which the overflow
-        switch moves off a stalled Blacksmith label, never a single host.
+        jobs, so no nightly started. They take the one cmux-linux label
+        (cmuxterm-hq#14156), never a single host.
         """
         for name in ("cmux-next.yml", "cmux-tui-artifacts.yml"):
             text = (WORKFLOWS / name).read_text(encoding="utf-8")

@@ -22,7 +22,14 @@ WORKFLOW_ROOT = Path(os.environ.get("RUNNER_POOL_WORKFLOW_ROOT", Path(__file__).
 NOW = dt.datetime(2026, 11, 1, 12, tzinfo=dt.timezone.utc)
 SMALL = "blacksmith-4vcpu-ubuntu-2404"
 LARGE = "blacksmith-16vcpu-ubuntu-2404"
-LINUX_EPHEMERAL = {"blacksmith-8vcpu-ubuntu-2404", LARGE, SMALL}
+# Every own-branch Linux job, credentialed or not, runs on the one literal label (cmuxterm-hq#14156,
+# "capacity comes to the job"): no LINUX_RUNNER, no RUNNER_POOLS pool, no overflow switch in its selector.
+ONE_LINUX_LABEL = "cmux-linux"
+FORK_GUARDED_ROUTE = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
+    "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || "
+    f"'{ONE_LINUX_LABEL}' }}}}"
+)
 # backend.yml's credentialed jobs are read from the workflow by tests/workflow_jobs.py's YAML loader, not
 # kept by hand: the hand list (BACKEND_SECRET_JOBS) missed deploy-dashboard-staging when #36559 split it out of deploy-staging.
 # The anchors only stop a parser regression from emptying the derived set and the route check with it.
@@ -35,7 +42,7 @@ def backend_secret_jobs(workflow_text):
 
 
 def secret_route_failures(workflow_text):
-    """Each credentialed job whose runs-on can leave the ephemeral Linux mirror, with the reason."""
+    """Each credentialed job whose runs-on is not the fork-guarded one Linux label, with the reason."""
     failures = {}
     for name, job in workflow_jobs.jobs(workflow_text).items():
         if not workflow_jobs.holds_secret(job):
@@ -54,37 +61,34 @@ def secret_route_failures(workflow_text):
 
 
 def secret_route_failure(route):
-    """Why one route of a credentialed job can leave the ephemeral Linux mirror, or None."""
-    match = re.search(r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER", route)
-    if "fromJSON(vars.RUNNER_POOLS)" not in route:
-        return "runs-on does not read RUNNER_POOLS"
+    """Why one route of a credentialed job is not the fork-guarded one Linux label, or None.
+
+    A credentialed job's own-branch runs take the literal cmux-linux and nothing a variable, a
+    RUNNER_POOLS pool or the overflow switch can move (cmuxterm-hq#14156); a fork pull request
+    never reaches it (the fork guard sends it to a vendor label, where no secret is handed out)."""
+    if "vars." in route:
+        return "runs-on reads a repository variable (LINUX_RUNNER, RUNNER_POOLS or an overflow switch)"
+    if "needs." in route:
+        return "runs-on reads a picker job's output"
     if "github.event.pull_request.head.repo.full_name != github.repository" not in route:
         return "runs-on has no fork guard"
-    if match is None:
-        return "runs-on does not gate LINUX_RUNNER on the ephemeral mirror"
-    if set(json.loads(match[1])) != LINUX_EPHEMERAL:
-        return f"mirror is {sorted(json.loads(match[1]))}, not {sorted(LINUX_EPHEMERAL)}"
-    if not route.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}"):
-        return "runs-on does not fall back to linux_8"
+    if not route.endswith(f"|| '{ONE_LINUX_LABEL}' }}}}"):
+        return f"runs-on does not end on the one Linux label {ONE_LINUX_LABEL}"
     return None
 
 
 class SecretRouteBoundary(unittest.TestCase):
-    def test_routing_keys_never_follow_the_secretless_pool(self):
+    def test_routing_keys_take_the_one_linux_label(self):
         root = WORKFLOW_ROOT
         for name, job in (("ci.yml", "changes"), ("cmux-next-ios-kit.yml", "runner")):
             with self.subTest(workflow=name, job=job):
                 text = (root / ".github/workflows" / name).read_text()
                 block = text.split(f"\n  {job}:\n", 1)[1]
                 route = next(line for line in block.splitlines() if line.startswith("    runs-on:"))
-                self.assertIn("fromJSON(vars.RUNNER_POOLS)", route)
-                self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", route)
-                match = re.search(r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER", route)
-                self.assertIsNotNone(match)
-                self.assertEqual(set(json.loads(match[1])), {SMALL, LARGE, "blacksmith-8vcpu-ubuntu-2404"})
-                self.assertTrue(route.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}"))
+                self.assertEqual(route.split("runs-on:", 1)[1].split(" #", 1)[0].strip(), FORK_GUARDED_ROUTE)
+                self.assertIsNone(secret_route_failure(route.split("runs-on:", 1)[1].strip()))
 
-    def test_backend_secret_jobs_use_only_the_ephemeral_linux_mirror(self):
+    def test_backend_secret_jobs_take_only_the_fork_guarded_linux_label(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
         self.assertTrue(path.is_file(), f"backend workflow missing from trusted checkout: {path}")
         text = path.read_text()
@@ -96,6 +100,7 @@ class SecretRouteBoundary(unittest.TestCase):
     def test_a_new_secret_job_on_the_fleet_route_fails(self):
         """The class #36559 hit: a job split out with secrets.VERCEL_TOKEN and nobody lists it."""
         text = (WORKFLOW_ROOT / ".github/workflows/backend.yml").read_text()
+        # The pre-#14156 pool route: a RUNNER_POOLS read an own-branch run could follow anywhere.
         fleet = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}"
         for name, body in (
             ("deploy-dashboard-fixture", "    steps:\n      - run: vercel deploy --token \"${{ secrets.VERCEL_TOKEN }}\"\n"),
@@ -118,6 +123,7 @@ class SecretRouteBoundary(unittest.TestCase):
         a format() that writes JSON braces hid the index or whole-context read after it. Each job below reads a
         secret; each must be credentialed and its fleet route refused."""
         text = (WORKFLOW_ROOT / ".github/workflows/backend.yml").read_text()
+        # The pre-#14156 pool route: a RUNNER_POOLS read an own-branch run could follow anywhere.
         fleet = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}"
         for name, value in (
             ("deploy-tojson-filter-fixture", "${{ toJSON(secrets.*) }}"),
@@ -149,6 +155,7 @@ class SecretRouteBoundary(unittest.TestCase):
         """`  deploy-x: # note` is a job header to GitHub. A header-line regex that misses it folds the
         job into the one before, and its secret and its fleet route both escape the guard."""
         text = (WORKFLOW_ROOT / ".github/workflows/backend.yml").read_text()
+        # The pre-#14156 pool route: a RUNNER_POOLS read an own-branch run could follow anywhere.
         fleet = "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}"
         name = "deploy-commented-fixture"
         fixture = text.rstrip("\n") + (
@@ -172,10 +179,20 @@ class SecretRouteBoundary(unittest.TestCase):
         )
         self.assertEqual(workflow_jobs.runs_on(workflow_jobs.jobs(text)["derived"]), "ubuntu-latest")
 
-    def test_backend_migration_push_guard_keeps_the_secretless_fleet_route(self):
+    def test_a_variable_or_picker_route_is_refused_even_when_it_ends_on_the_label(self):
+        for route in (
+            "${{ github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'cmux-linux' }}",
+            "${{ github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || 'cmux-linux' }}",
+            "${{ github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.place.outputs.linux_runner || 'cmux-linux' }}",
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}",
+        ):
+            with self.subTest(route=route):
+                self.assertIsNotNone(secret_route_failure(route))
+
+    def test_backend_migration_push_guard_takes_the_one_linux_label(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
         route = workflow_jobs.runs_on(workflow_jobs.jobs(path)["migrations-push-guard"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", route)
+        self.assertEqual(route, FORK_GUARDED_ROUTE)
 
 
 @unittest.skipUnless(POLICY_ROOT, "set RUNNER_POOL_POLICY_ROOT to main's checked-out policy")

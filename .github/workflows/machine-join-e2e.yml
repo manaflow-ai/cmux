@@ -71,9 +71,9 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    # Blacksmith only (16 vCPU; 32 while the overflow switch's record exists): a VM that runs
-    # this one job and is destroyed. Never LINUX_RUNNER, which may name a persistent host, since
-    # this job adds an OS user and holds the stack secrets.
+    # The one Linux label (cmuxterm-hq#14156): its runners are one-job VMs, destroyed after the job,
+    # which this job needs because it adds an OS user and holds the stack secrets. Never a variable,
+    # which may name a persistent host.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 90
     env:

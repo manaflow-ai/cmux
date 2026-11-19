@@ -18,7 +18,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from blacksmith_linux_sizes import entry  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -244,33 +243,28 @@ class TheRoutedGroupsHaveTheirTools(unittest.TestCase):
         self.assertIn("GITHUB_PATH", runs)
 
 
-class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
+class TheGuardGroupRunsOnTheOneLinuxLabel(unittest.TestCase):
     """The job runs every routed guard group twice (the head, then the base) with a worker per core, and runs on
     every feat-cmux-next pull request and push. On 4 vCPU with 8 workers it took 175-359 s (runs 39873974117,
     39873712114), and on 32 vCPU 3.3 min mean, 4.9 p90 (2026-10-30/31), so the 32 vCPU size bought nothing. Leo,
-    2026-11-01: "we should have resized a long-ass time ago." It takes the size .github/runners.json linux_sizes
-    measured for it, with
-    the Blacksmith outage guard the compile jobs use (tests/test_ci_linux_compile_runners.py), and as many workers
-    as the runner has cores."""
+    2026-11-01: "we should have resized a long-ass time ago." Its own-branch runs take the one literal Linux label
+    cmux-linux, with no LINUX_RUNNER, RUNNER_POOLS pool or overflow switch in the selector (cmuxterm-hq#14156,
+    "capacity comes to the job"), and as many workers as the runner has cores."""
 
     def job(self) -> dict:
         workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
         return workflow["jobs"]["ci-guard-group"]
 
-    def test_the_job_runs_on_its_measured_size_and_follows_the_outage_switch(self):
-        # Linux only: fleet Linux, then Blacksmith at its measured size. On a mini 24 of its steps red (no
-        # python3.9 or node, temp-cwd scripts), so portable-placement never places it.
-        measured = entry("cmux-next-guards.yml", "ci-guard-group")
-        pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
-                      f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
+    def test_the_job_runs_on_the_one_linux_label(self):
+        # Linux only. On a mini 24 of its steps red (no python3.9 or node, temp-cwd scripts), so
+        # portable-placement never places it. Forks keep their own routes.
         self.assertNotIn("needs", self.job())
         self.assertEqual(self.job()["if"], "${{ !cancelled() }}")
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
             " && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'"
-            " || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER"
-            " || " + pool_route + " }}",
+            " || 'cmux-linux' }}",
         )
 
     def test_each_guard_pass_uses_a_worker_per_core(self):

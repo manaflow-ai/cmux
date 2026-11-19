@@ -6,10 +6,11 @@ solution to all these f***ing problems that these incessant f***ing pins?" On 20
 a literal 'blacksmith-4vcpu-ubuntu-2404' after it stopped starting jobs, and a re-run cannot move a literal label.
 475 runs-on lines in 185 workflows ended that way.
 
-A job names the size it was measured at by reading that size's pool, `fromJSON(vars.RUNNER_POOLS).<pool>`
-(.github/runners.json `pools` on main: linux_2, linux_4, linux_8, linux_16, linux_32, linux_arm64, macos_15,
-macos_26, macos_26_large, macos_latest, windows, ...). scripts/ci/runner_pools.py moves a pool off a member that
-starts nothing, so the job follows with no YAML edit.
+A non-Linux job names the size it was measured at by reading that size's pool, `fromJSON(vars.RUNNER_POOLS).<pool>`
+(.github/runners.json `pools` on main: macos_15, macos_26, macos_26_large, macos_latest, windows, ...).
+scripts/ci/runner_pools.py moves a pool off a member that starts nothing, so the job follows with no YAML edit.
+An own-branch Linux job names the one literal label `cmux-linux` (cmuxterm-hq#14156,
+scripts/ci/check_linux_runs_on.py); overflow is more runners on that label, never a Blacksmith size.
 
 Every value under a runner-selection key (runs-on, runs_on, os, labels, group, pool and any *runner* key: matrix
 entries, reusable-workflow inputs and env mirrors feed runs-on too) is scanned. A quoted Blacksmith label is
@@ -50,21 +51,12 @@ OWNER = re.compile(r"github\.repository_owner\s*!=\s*'manaflow-ai'\s*&&\s*$")
 LIST_OPEN = re.compile(r"fromJSON\('\[[^\]']*$")
 COMPARED = re.compile(r"(?:[!=]=|,|\w\()\s*$")  # a comparison or a function argument, never a bare group
 # The text before a literal that keeps it on purpose -> why. Nothing else may.
-EXCEPTIONS = {
-    re.compile(r"vars\.CI_TRUSTED_RUNNER\) && vars\.CI_TRUSTED_RUNNER \|\|\s*$"): (
-        "runner trust policy: a trusted-token job (pull_request_target, comment events, CLA) takes CI_TRUSTED_RUNNER "
-        "only from the allowlist written into its own expression, else one fixed ephemeral label. A RUNNER_POOLS "
-        "read would let whoever writes that variable route the token; scripts/ci/validate-cla-policy.rb allows the "
-        "CLA job's runs-on as one exact string"
-    ),
-}
-# Whole selections that keep their literal on purpose -> why.
-SELECTIONS_KEPT_LITERAL = {
-    ("cmux-next-guards.yml", "jobs.signing-runner-variables.runs-on"): (
-        "the job checks the runner variables themselves, so its own route must not read them: with a bad value it "
-        "would queue on that value instead of going red"
-    ),
-}
+# Empty since cmuxterm-hq#14156: the trusted-token jobs' CI_TRUSTED_RUNNER allowlist with a fixed Blacksmith fallback
+# became the literal cmux-linux, which reads no variable at all.
+EXCEPTIONS: dict[re.Pattern, str] = {}
+# Whole selections that keep their literal on purpose -> why. Empty since cmuxterm-hq#14156: the runner-variable
+# check (cmux-next-guards.yml signing-runner-variables) reads no variable in its route as cmux-linux.
+SELECTIONS_KEPT_LITERAL: dict[tuple[str, str], str] = {}
 # A job that holds signing or release material keeps its route under its own trust rules
 # (tests/test_ci_release_sdk_lane.sh, tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py).
 sys.path.insert(0, str(ROOT / "tests"))
@@ -202,12 +194,14 @@ class NoSingleSizePins(unittest.TestCase):
         for cell in cells:
             self.assertNotIn("RUNNER_POOLS", cell)
 
-    def test_the_trusted_selector_keeps_its_literal_and_nothing_else_does(self) -> None:
+    def test_a_trusted_selector_fallback_literal_is_a_pin(self) -> None:
+        # cmuxterm-hq#14156: trusted-token jobs take cmux-linux, so the old allowlist-then-literal form is a pin again.
         trusted = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\","
                    "\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
                    "'blacksmith-4vcpu-ubuntu-2404' }}")
-        self.assertEqual(pins_in(trusted), [])
+        self.assertTrue(pins_in(trusted))
         self.assertTrue(pins_in("${{ vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"))
+        self.assertEqual(pins_in("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"), [])
 
     def test_a_fork_branch_that_reads_a_variable_is_flagged(self) -> None:
         value = ("${{ github.event.pull_request.head.repo.full_name != github.repository && "

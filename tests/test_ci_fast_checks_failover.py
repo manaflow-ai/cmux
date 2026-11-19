@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-"""fast-checks.yml takes its Blacksmith Linux size from the linux runner pool.
+"""fast-checks.yml's Linux job runs on the one Linux label, cmux-linux.
 
-On 2026-10-27 the 32 vCPU Blacksmith Linux label started no job for the
-organization for a while, and fast-checks.yml named blacksmith-32vcpu-ubuntu-2404
-directly. A first fix chose 16 vCPU while the overflow switch's record was set,
-but the switch trips only when every probed size stalls, so one stalled size
-still held every run. The job now reads fromJSON(vars.RUNNER_POOLS).linux: the
-pool (.github/runners.json) declares the sizes, and scripts/ci/runner_pools.py
-moves it off a size the probe saw stall. The pool stays on Blacksmith: no job
-runs on GitHub-hosted Ubuntu, so it never names vars.LINUX_RUNNER (which the
-switch may point at hosted Linux) or a hosted label. Sticky disks work on every
-Blacksmith Linux size, so the cache steps stay as they are.
+On 2026-10-27 the 32 vCPU Blacksmith Linux label started no job for the organization for a while, and
+fast-checks.yml named blacksmith-32vcpu-ubuntu-2404 directly. Later fixes read the linux runner pool
+(fromJSON(vars.RUNNER_POOLS).linux) and let the lane-gh broker re-dispatch onto a listed Blacksmith size.
+Since cmuxterm-hq#14156 ("capacity comes to the job") the own-branch label is the literal 'cmux-linux':
+overflow is more runners on that label, so the job reads no pool, no broker-chosen label, no
+vars.LINUX_RUNNER and no overflow switch. No job runs on GitHub-hosted Ubuntu except the fork branch.
 """
 
 from __future__ import annotations
@@ -33,7 +29,8 @@ git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "fast-checks.yml"
-POOL = "|| fromJSON(vars.RUNNER_POOLS).linux }}"
+LABEL_TAIL = "|| 'cmux-linux' }}"
+PICKERS = re.compile(r"RUNNER_POOLS|LINUX_RUNNER|CI_CLOUD_OVERFLOW_SAVED|CI_TRUSTED_RUNNER|inputs\.runner")
 
 FORK_BRANCH = re.compile(r"github\.repository_owner != 'manaflow-ai' && 'ubuntu-[0-9.]+' \|\|")
 BLACKSMITH_LINUX = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d+(-arm)?")
@@ -73,23 +70,23 @@ class FastChecksFailoverTests(unittest.TestCase):
             receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else None
         return result, receipt
 
-    def test_the_label_comes_from_the_linux_pool(self) -> None:
-        # The Linux job's label; setup=kernel-free's Mac job (checks-mac) names the owned side-light pool.
-        lines = [line for line in runs_on_lines() if "RUNNER_POOLS" in line]
+    def linux_lines(self) -> list[str]:
+        # setup=kernel-free's Mac job (checks-mac) names the owned side-light Mac label; every other job is Linux.
+        return [line for line in runs_on_lines() if "macos" not in line and "xcode" not in line]
+
+    def test_the_linux_job_runs_on_cmux_linux(self) -> None:
+        lines = self.linux_lines()
         self.assertEqual(len(lines), 1)
         line = lines[0].rstrip()
-        self.assertTrue(line.endswith(POOL), line.strip())
-        # Past the re-dispatch input, no size is written down.
-        self.assertNotRegex(line.split("inputs.runner ||")[-1], BLACKSMITH_LINUX)
+        self.assertTrue(line.endswith(LABEL_TAIL), line.strip())
 
-    def test_the_linux_pool_is_selected_from_the_live_pool_variable(self) -> None:
-        lines = runs_on_lines()
-        self.assertTrue(lines)
-        self.assertTrue(any("fromJSON(vars.RUNNER_POOLS).linux" in line for line in lines))
-        for line in lines:
-            # The fallback after the broker input is the live pool value, never
-            # one hard-coded Blacksmith size.
-            self.assertNotRegex(line.split("inputs.runner ||")[-1], BLACKSMITH_LINUX)
+    def test_the_linux_job_reads_no_pool_or_picker(self) -> None:
+        # cmuxterm-hq#14156: no RUNNER_POOLS linux pool, no variable, no overflow switch, no broker input.
+        for line in self.linux_lines():
+            self.assertNotRegex(line, PICKERS, line.strip())
+            # Past the fork branches, no Blacksmith size is named.
+            own = line.rsplit("||", 1)[-1]
+            self.assertNotRegex(own, BLACKSMITH_LINUX, line.strip())
 
     def test_failover_never_reaches_github_hosted_linux(self) -> None:
         lines = runs_on_lines()
@@ -102,19 +99,11 @@ class FastChecksFailoverTests(unittest.TestCase):
             rest = BLACKSMITH_LINUX.sub("", rest)
             self.assertNotRegex(rest, HOSTED, line.strip())
 
-    def test_a_broker_redispatch_may_name_only_a_listed_blacksmith_linux_label(self) -> None:
-        # HQ's lane-gh broker dispatches a run again with `runner` when the first waited on a label that started
-        # nothing (Leo, 2026-10-28: "just pin the set of the shit that isn't hilariously slow").
-        text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertRegex(text, r"\n      runner:\n(?:        .*\n)*?        default: ''\n")
-        line = next(line for line in runs_on_lines() if "inputs.runner" in line)
-        listed = re.search(r"contains\(fromJSON\('(\[[^']*\])'\), inputs\.runner\) && inputs\.runner \|\|", line)
-        self.assertIsNotNone(listed, line.strip())
-        import json
-        labels = json.loads(listed.group(1))
-        self.assertTrue(labels)
-        for label in labels:
-            self.assertRegex(label, r"^blacksmith-\d+vcpu-ubuntu-2404$")
+    def test_a_broker_redispatch_cannot_choose_the_label(self) -> None:
+        # The lane-gh broker's `runner` input once moved a re-dispatch onto a listed Blacksmith size; the label is now
+        # the one literal (cmuxterm-hq#14156), so no dispatch input reaches runs-on.
+        for line in runs_on_lines():
+            self.assertNotIn("inputs.", line, line.strip())
 
     def test_the_hosted_check_catches_hosted_labels(self) -> None:
         for bad in ("runs-on: ubuntu-latest",

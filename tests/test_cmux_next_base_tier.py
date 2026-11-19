@@ -1216,9 +1216,9 @@ class Workflows(unittest.TestCase):
         checkout = next(step for step in steps if "actions/checkout@" in step.get("uses", ""))
         self.assertIn("scripts/ci/github_quota_client.py", checkout["with"]["sparse-checkout"])
 
-    def test_sleeping_dispatcher_reads_the_linux_pool(self):
-        # A pure Python timer/API call reads the reconciled Linux pool, never a fixed
-        # Blacksmith size that can stall (tests/test_ci_linux_single_size.py).
+    def test_sleeping_dispatcher_takes_the_one_linux_label(self):
+        # A pure Python timer/API call takes the one literal cmux-linux label (cmuxterm-hq#14156),
+        # never a fixed Blacksmith size that can stall, a pool or a runner variable.
         cells = workflow_jobs.runs_on_cells(workflow_jobs.jobs(KICK)["kick"])
         self.assertIsNotNone(cells, "kick runs-on reads a matrix value nothing resolves")
         self.assertEqual(len(cells), 1, cells)
@@ -1226,7 +1226,8 @@ class Workflows(unittest.TestCase):
         self.assertIn("'ubuntu-24.04'", expression)
         self.assertNotIn("32vcpu", expression)
         self.assertNotIn("vars.LINUX_RUNNER", expression)
-        self.assertTrue(expression.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), expression)
+        self.assertNotIn("RUNNER_POOLS", expression)
+        self.assertTrue(expression.rstrip().endswith("|| 'cmux-linux' }}"), expression)
 
     def test_the_push_and_the_kick_read_the_same_switch(self):
         env = route_step()["env"]

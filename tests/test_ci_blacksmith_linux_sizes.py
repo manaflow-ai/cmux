@@ -12,12 +12,14 @@ vCPUs: one 32 vCPU job holds the room of eight 4 vCPU jobs, and on 2026-10-31 th
 - a job whose runner text (runs-on, a matrix runner, an env or `with` value it hands on) names
   blacksmith-32vcpu-ubuntu-2404, or reads the capability map's `linux_32`, with no entry, or with an entry
   that neither says `why_32` nor is `pending` on a named open pull request;
-- an entry whose `size` or `failover` the job's runner text does not name (the table and the workflow drift);
+- an entry whose `size` or `failover` the job's runner text does not name (the table and the workflow drift),
+  for a job that still routes its own-branch runs to a vendor size. A job on the one Linux label `cmux-linux`
+  (cmuxterm-hq#14156) names no vendor size there: its entry is the measurement only, and only a fork's
+  `blacksmith-4vcpu` label is in its runner text;
 - an entry for a job that no longer exists;
 - a `pending` list longer or shorter than PENDING: it only shrinks, so a moved job cannot come back.
 
-Only literal labels are seen here. `vars.LINUX_RUNNER` and `fromJSON(vars.RUNNER_POOLS).linux` take the Linux
-pool's live member, which main's .github/runners.json `pools.linux` declares (scripts/ci/runner_pools.py).
+Only literal labels are seen here. Own-branch Linux jobs take the literal `cmux-linux`, which is no vendor size.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ BIG = "blacksmith-32vcpu-ubuntu-2404"
 LABEL = re.compile(r"blacksmith-(\d+)vcpu-ubuntu-2404(?![-\w])")
 POOL = re.compile(r"fromJSON\(vars\.RUNNER_POOLS\)\.linux_(\d+)\b")
 CAPABILITY_32 = re.compile(r"outputs\.map\)\.linux_32\b")
+ONE_LINUX_LABEL = re.compile(r"(?<![\w-])cmux-linux(?![\w-])")
 # Jobs still on 32 vCPU while an open pull request changes the same runs-on. Lower it as they move; never raise it.
 PENDING = 13
 
@@ -82,8 +85,9 @@ def problems(entries: dict, found: dict[str, str]) -> list[str]:
         if entry.get("pending"):
             continue
         named = sizes(found[key])
+        on_one_label = ONE_LINUX_LABEL.search(found[key]) is not None
         for field in ("size", "failover"):
-            if field in entry and entry[field] not in named:
+            if field in entry and entry[field] not in named and not on_one_label:
                 out.append(f"{key}: linux_sizes {field} {entry[field]} is not a label its runner text names {sorted(named)}")
         if "size" not in entry:
             out.append(f"{key}: entry has no size")
@@ -114,6 +118,11 @@ class BlacksmithLinuxSizesTest(unittest.TestCase):
                                    "a.yml#map": {"measured": {}, "pending": "#1"}}, fake), [])
         self.assertTrue(problems({"a.yml#small": {"size": 8, "measured": {}}}, fake))
         self.assertTrue(problems({"a.yml#gone": {"size": 4, "measured": {}}}, fake))
+        # A job on the one Linux label keeps its measurement; its size is no route to drift from.
+        one = {"a.yml#one": "github.event.pull_request.head.repo.full_name != github.repository && "
+                            "'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux'"}
+        self.assertEqual(problems({"a.yml#one": {"size": 8, "failover": 16, "measured": {}}}, one), [])
+        self.assertTrue(problems({"a.yml#one": {"measured": {}}}, one))
 
 
 if __name__ == "__main__":

@@ -164,30 +164,18 @@ WORKFLOW_RUN_GATE = "github.event.workflow_run.head_repository.full_name == gith
 HOSTED_LITERAL_RUNNER = re.compile(
     r"^\s*runs-on:\s*(?:ubuntu-\d+\.\d+|ubuntu-latest|macos-\d+)\s*(?:#.*)?$"
 )
-# The one runner selector a trusted-token job may use. CI_TRUSTED_RUNNER can
-# only choose among ephemeral labels listed here, in the base-branch workflow:
-# a Blacksmith VM that runs one job and is destroyed. Any other value,
-# including a persistent mini's label or GitHub-hosted Ubuntu (the hosted pool
-# started nothing for hours on 2026-11-18), falls back to Blacksmith, and a
-# fork running its own CI gets GitHub-hosted.
-TRUSTED_RUNNER_LABELS = ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")
-TRUSTED_RUNNER_EXPRESSION = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
-    + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
-    + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
-)
+# The one runner selector a trusted-token job may use: the literal Linux label, cmux-linux, whose runners are
+# one-job VMs, with no repository variable in it (cmuxterm-hq#14156, "capacity comes to the job"). It used to be
+# CI_TRUSTED_RUNNER limited to a list of ephemeral Blacksmith labels; a variable can no longer pick the runner at
+# all, so neither a persistent mini's label nor GitHub-hosted Ubuntu (the hosted pool started nothing for hours on
+# 2026-11-18) can reach these jobs. A fork running its own CI gets GitHub-hosted.
+TRUSTED_RUNNER_LABELS = ("cmux-linux",)
+TRUSTED_RUNNER_EXPRESSION = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
-# The one named exception: language-boundaries.yml keeps the selector that still admits ubuntu-24.04, because its
-# own guard refuses a change to it without Leo's leo-approved-port label; a follow-up PR carries it. Only that file.
-LEGACY_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace("('[", "('[\"ubuntu-24.04\",", 1)
-LEGACY_TRUSTED_RUNNER_WORKFLOWS = frozenset({"language-boundaries.yml"})
-LEGACY_TRUSTED_RUNNER_LINE = re.compile(
-    r"^\s*runs-on:\s*" + re.escape(LEGACY_TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
 
 
 def trusted_runner_line(workflow: str, line: str) -> bool:
-    return bool(TRUSTED_RUNNER_LINE.match(line) or (
-        workflow in LEGACY_TRUSTED_RUNNER_WORKFLOWS and LEGACY_TRUSTED_RUNNER_LINE.match(line)))
+    return bool(TRUSTED_RUNNER_LINE.match(line))
 
 
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
@@ -195,18 +183,9 @@ def trusted_runner_line(workflow: str, line: str) -> bool:
 # (scripts/ci/required_status_checks.py, kept honest by required-checks-drift.yml), plus the
 # jobs it needs. The hand list missed cla.yml's CLAAssistant and cla-policy-guard.yml's validate.
 # (workflow, job) -> why a merge-gating job takes another route.
-TRUSTED_RUNNER_EXEMPT = {
-    ("merge-group-policy-checks.yml", "cla-assistant"): (
-        "merge_group-only restatement of a check every queued pull request already passed: one echo "
-        "step, permissions {}, no checkout; it routes on LINUX_RUNNER / RUNNER_POOLS.linux_4, which "
-        "the Linux failover variables can move between providers"
-    ),
-    ("merge-group-policy-checks.yml", "cla-policy-guard"): (
-        "merge_group-only restatement of a check every queued pull request already passed: one echo "
-        "step, permissions {}, no checkout; it routes on LINUX_RUNNER / RUNNER_POOLS.linux_4, which "
-        "the Linux failover variables can move between providers"
-    ),
-}
+# Empty since cmuxterm-hq#14156: merge-group-policy-checks.yml's two restatement jobs, exempt while they read
+# LINUX_RUNNER / RUNNER_POOLS.linux_4, now take the trusted selector like every other merge-gating job.
+TRUSTED_RUNNER_EXEMPT: dict[tuple[str, str], str] = {}
 # (workflow, job) -> why a job whose name could report a required context only through a part nothing resolves
 # (job_lists_routing.unresolved_name_jobs) is not one. Any other such job counts as merge-gating, so it must take
 # the trusted route; an entry whose name now resolves, or that could no longer match, is stale.
@@ -308,10 +287,6 @@ OWNED_RUNNER_SELECTOR = re.compile(
 )
 # (workflow, stripped line) -> why a runner variable read there picks no runner.
 FORK_GATE_EXEMPT = {
-    ("cmux-tui-windows-check.yml", "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"): (
-        "windows-gnu-check's job if skips a fork pull request head (head.repo.full_name == "
-        "github.repository), so fork code never reaches this selector"
-    ),
     ("cmux-next-guards.yml", "LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}"): (
         "signing-runner-variables reads the value to check it is ephemeral; the job runs on a "
         "literal label and selects no runner"
@@ -684,11 +659,12 @@ def _runner_value_error(
     return "has no top-level fork pull-request branch"
 
 
-# `(<fork branch> && '<label>' || fromJSON(vars.RUNNER_POOLS).<pool>)`: a pool read that carries its own fork
-# branch. A fork evaluates it as '<label>', so the gate reads it as that literal.
+# `(<fork branch> && '<label>' || fromJSON(vars.RUNNER_POOLS).<pool>)`, or since cmuxterm-hq#14156
+# `(<fork branch> && '<label>' || 'cmux-linux')`: an own-branch route that carries its own fork branch. A fork
+# evaluates it as '<label>', so the gate reads it as that literal.
 FORK_WRAPPED_POOL_READ = re.compile(
     r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
-    r"github\.repository && ('blacksmith-[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)"
+    r"github\.repository && ('blacksmith-[^']+') \|\| (?:fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+|'cmux-linux')\)"
 )
 # A route whose owned fallback is itself behind the macOS Blacksmith switch.
 # The fork branch still wins before the fallback; reduce the whole expression
@@ -1413,7 +1389,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 )
 
                 # A mixed macOS/Linux selector (cmux-next.yml's fast tier, whose
-                # fleet-client fallback runs on vars.LINUX_RUNNER) is fork-safe when
+                # fleet-client fallback runs on cmux-linux) is fork-safe when
                 # its first clause is a hosted fork branch: a fork's own repository
                 # stops there and never reads the Linux label, and a fork PR into
                 # manaflow-ai still has to pass the macOS checks below.
@@ -1423,7 +1399,9 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 )
 
                 with self.subTest(workflow=path.name, line=number):
-                    if "vars.LINUX_RUNNER" in line:
+                    # Own-branch Linux is the one label cmux-linux since cmuxterm-hq#14156; a fork never has
+                    # a runner for it, so it needs the hosted branch the variable read needed.
+                    if "vars.LINUX_RUNNER" in line or "'cmux-linux'" in line:
                         saw_linux += 1
                         self.assertTrue(
                             hosted_linux or (fork_short_circuits and hosted_macos),
@@ -1541,7 +1519,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             errors.extend(workflow_run_gate_errors(path.name, path.read_text(encoding="utf-8")))
         self.assertEqual(errors, [], "\n" + "\n".join(errors))
     def test_merge_gating_checks_route_through_the_trusted_runner(self) -> None:
-        """A GitHub Actions outage must not stop every merge; Blacksmith carries them."""
+        """A GitHub Actions outage must not stop every merge; cmux-linux carries them."""
         texts = workflow_texts()
         derived = trusted_runner_jobs(texts)
         self.assertLessEqual(TRUSTED_RUNNER_ANCHORS, derived)
@@ -1681,19 +1659,16 @@ class ForkRunnerRoutingTests(unittest.TestCase):
 
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
-        for label in TRUSTED_RUNNER_LABELS:
-            self.assertTrue(label.startswith("blacksmith-"), label)
-        widened = TRUSTED_RUNNER_EXPRESSION.replace('"blacksmith-2vcpu-ubuntu-2404",', '"glaeda-std-xcode-26.6","blacksmith-2vcpu-ubuntu-2404",')
-        renamed = TRUSTED_RUNNER_EXPRESSION.replace("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER")
+        self.assertEqual(TRUSTED_RUNNER_LABELS, ("cmux-linux",))
+        # A persistent label, a repository variable, the old CI_TRUSTED_RUNNER pick, or a missing fork branch fails.
+        widened = TRUSTED_RUNNER_EXPRESSION.replace("'cmux-linux'", "'glaeda-std-xcode-26.6'")
+        renamed = TRUSTED_RUNNER_EXPRESSION.replace("'cmux-linux'", "vars.LINUX_RUNNER")
+        picked = TRUSTED_RUNNER_EXPRESSION.replace(
+            "'cmux-linux'", "vars.CI_TRUSTED_RUNNER || 'cmux-linux'")
         unforked = TRUSTED_RUNNER_EXPRESSION.replace("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", "")
-        for variant in (widened, renamed, unforked):
+        for variant in (widened, renamed, picked, unforked):
             with self.subTest(variant=variant):
                 self.assertNotEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {variant}\n"), [])
-        # The hosted-admitting selector passes only in the one named file.
-        self.assertIn('"ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404"', LEGACY_TRUSTED_RUNNER_EXPRESSION)
-        legacy = f"jobs:\n  a:\n    runs-on: {LEGACY_TRUSTED_RUNNER_EXPRESSION}\n"
-        self.assertNotEqual(outsider_runner_errors("x.yml", legacy), [])
-        self.assertEqual(outsider_runner_errors("language-boundaries.yml", legacy), [])
 
     def test_no_workflow_falls_back_to_blacksmith_outside_manaflow_ai(self) -> None:
         """Scheduled, dispatched and push-only workflows need a fork branch too.

@@ -6,8 +6,9 @@ hold for good: manual dispatch only; feat-cmux-next only; top-level
 `permissions: contents: read` and nothing else (no job-level grants); the stack
 secrets (the account and the share's guest account) reach exactly one step,
 through `env`; no `set -x`; the platform origin
-is development's; the runner is an ephemeral Blacksmith label (never a runner
-variable that can name a persistent host); the evidence check, the upload and
+is development's; the runner is the one literal Linux label `cmux-linux`
+(cmuxterm-hq#14156), never a runner variable or RUNNER_POOLS pool that can name
+another host; the evidence check, the upload and
 the disposable user's removal run under `always()`, the upload only when the
 check found the evidence clean; nothing else is uploaded. The disposable
 user's base is root:root 0755 before the user exists (acpmux refuses a state
@@ -30,11 +31,7 @@ import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/machine-join-e2e.yml"
 SCRIPT = ROOT / "scripts/cmux-next/machine-join-e2e.ts"
 DEV = "https://cmux-platform-development.debussy.workers.dev"
-RUNS_ON = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-    "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
-    "fromJSON(vars.RUNNER_POOLS).linux_8 }}"
-)
+RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 
 
 def load() -> dict:
@@ -116,11 +113,14 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertIn(f'export const DEV_PLATFORM = "{DEV}"', script)
         self.assertIn("if (opts.origin !== DEV_PLATFORM)", script)
 
-    def test_ephemeral_blacksmith_runner(self) -> None:
+    def test_one_linux_label_never_a_runner_variable(self) -> None:
         job = load()["jobs"]["e2e"]
         cells = workflow_jobs.runs_on_cells(job)
         self.assertEqual(cells, [RUNS_ON])
-        self.assertNotIn("LINUX_RUNNER", "\n".join(cells))
+        joined = "\n".join(cells)
+        self.assertNotIn("LINUX_RUNNER", joined)
+        self.assertNotIn("RUNNER_POOLS", joined)
+        self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED", joined)
         self.assertIn("timeout-minutes", job)
 
     def test_cleanup_and_evidence_run_always(self) -> None:

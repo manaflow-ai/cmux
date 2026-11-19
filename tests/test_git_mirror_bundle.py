@@ -37,6 +37,10 @@ def runs_on_text(job: dict, where: str) -> str:
     return "\n".join(cells)
 
 
+# Both jobs run on the one Linux label (cmuxterm-hq#14156); a fork repository keeps hosted Ubuntu.
+LINUX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
+PICKERS = ("RUNNER_POOLS", "LINUX_RUNNER", "CI_CLOUD_OVERFLOW_SAVED")
+
 WRITER_ENVIRONMENT = {"name": "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}"}
 
 
@@ -76,16 +80,17 @@ class Contract(unittest.TestCase):
         self.assertEqual(DOC["concurrency"]["group"], "git-mirror-bundle-${{ github.ref }}")
         self.assertFalse(DOC["concurrency"]["cancel-in-progress"])
         self.assertEqual(JOB["needs"], "probe")
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4", runs_on_text(JOB, "bundle"))
+        self.assertEqual(runs_on_text(JOB, "bundle"), LINUX)
 
-    def test_cheap_probe_is_separate_from_the_32_vcpu_bundle_writer(self) -> None:
+    def test_cheap_probe_is_separate_from_the_bundle_writer(self) -> None:
         # Frequent pushes require only a HEAD/read; the full 2.36 GB bundle
-        # remains on the larger runner and only starts when the probe says due.
+        # is fetched only when the probe says due. Both run on cmux-linux and read no picker.
         self.assertEqual(PROBE["permissions"], {})
         self.assertEqual(PROBE["outputs"]["due"], "${{ steps.due.outputs.due }}")
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", runs_on_text(PROBE, "probe"))
-        self.assertNotIn("vars.LINUX_RUNNER", runs_on_text(PROBE, "probe"))
-        self.assertIn("vars.LINUX_RUNNER", runs_on_text(JOB, "bundle"))
+        self.assertEqual(runs_on_text(PROBE, "probe"), LINUX)
+        for job, where in ((PROBE, "probe"), (JOB, "bundle")):
+            for picker in PICKERS:
+                self.assertNotIn(picker, runs_on_text(job, where))
         self.assertNotIn("Fetch the mirrored branches", PROBE_STEPS)
         self.assertNotIn("Publish the bundle", PROBE_STEPS)
         self.assertNotIn("Is a bundle due", STEPS)

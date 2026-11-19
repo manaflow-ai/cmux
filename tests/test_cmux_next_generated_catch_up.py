@@ -212,11 +212,11 @@ class Workflow(unittest.TestCase):
         # Dry run until the repo variable turns it on: it logs what it would push.
         self.assertIn("vars.CMUX_NEXT_GENERATED_CATCH_UP == '1'", self.text)
 
-    def test_the_write_token_is_contents_only_on_an_ephemeral_runner(self):
+    def test_the_write_token_is_contents_only_on_the_literal_linux_label(self):
         job = self.doc["jobs"]["catch-up"]
-        # A Blacksmith VM runs one job and is destroyed; no variable can move
-        # the write token to a reused mini.
-        self.assertEqual(workflow_jobs.runs_on_cells(job), ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}"])
+        # The one literal Linux label (cmuxterm-hq#14156): no repository variable, pool or
+        # overflow switch can move the write token to another runner, such as a reused mini.
+        self.assertEqual(workflow_jobs.runs_on_cells(job), ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"])
         mint = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/create-github-app-token"))
         self.assertEqual(mint["with"].get("permission-contents"), "write")
         self.assertNotIn("permission-pull-requests", mint["with"])

@@ -332,14 +332,15 @@ class TheResolverStartsAnywhere(unittest.TestCase):
         workflow = Path(__file__).resolve().parents[1] / ".github/workflows/resolve-runners.yml"
         jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
         # A fork takes GitHub-hosted Linux first. In manaflow-ai the resolver
-        # reads the CI_TRUSTED_RUNNER selector, else Blacksmith, on every attempt:
-        # it took GitHub-hosted Ubuntu on attempt 1 until 2026-11-18, when hosted
-        # runners left light jobs queued for hours (cmux#45735).
+        # takes the one literal Linux label, cmux-linux, on every attempt, with
+        # no repository variable read (cmuxterm-hq#14156). It took GitHub-hosted
+        # Ubuntu on attempt 1 until 2026-11-18, when hosted runners left light
+        # jobs queued for hours (cmux#45735).
         for name, job in jobs.items():
             with self.subTest(job=name):
                 self.assertEqual(
                     workflow_jobs.runs_on_cells(job),
-                    ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
+                    ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"],
                 )
 
 

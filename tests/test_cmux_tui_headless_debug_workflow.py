@@ -66,15 +66,19 @@ class HeadlessDebugDaemon(unittest.TestCase):
     def test_it_runs_on_the_runner_a_same_repository_pull_request_uses(self) -> None:
         # The key names RUNNER_OS and RUNNER_ARCH only, so the runner type
         # must be the one conformance picks for a same-repository pull request.
-        trusted = ("!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
-                   "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
-                   "fromJSON(vars.RUNNER_POOLS).linux_8 }}")
-        # The two jobs share one Blacksmith size (.github/runners.json linux_sizes).
+        # Both take the one Linux label, cmux-linux, with no pool or variable read (cmuxterm-hq#14156).
+        trusted = "'cmux-linux' }}"
+        # A fork pull request's conformance keeps the same Blacksmith size the producer's own size names
+        # (.github/runners.json linux_sizes).
         self.assertEqual(blacksmith_route("cmux-tui-sdks.yml", "conformance"),
                          blacksmith_route("cmux-tui-headless-debug.yml", "build"))
         consumer = workflow_jobs.single_runs_on(self.consumer)
         self.assertTrue(consumer.endswith("|| " + trusted), consumer)
-        self.assertEqual(workflow_jobs.single_runs_on(self.producer), "${{ " + trusted)
+        producer = workflow_jobs.single_runs_on(self.producer)
+        self.assertIn(producer, ("cmux-linux", "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + trusted))
+        for runs_on in (consumer, producer):
+            self.assertNotIn("RUNNER_POOLS", runs_on)
+            self.assertNotIn("LINUX_RUNNER", runs_on)
 
     def test_a_pull_request_builds_incrementally_from_the_feat_target_dir(self) -> None:
         # The exact-binary key names the whole cmux-tui tree, so a pull request that

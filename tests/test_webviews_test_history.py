@@ -68,17 +68,20 @@ EVENTS = {
     "fork pull request": event("pull_request", head=FORK),
     "fork repository": event("push", owner="someone"),
 }
+# cmux-linux counts as 4 vCPU, the size the own-branch shards were last sized for (linux_4): the minutes below
+# assume no smaller runner carries the label.
 VCPU = {"blacksmith-2vcpu-ubuntu-2404": 2, "blacksmith-4vcpu-ubuntu-2404": 4, "blacksmith-16vcpu-ubuntu-2404": 16,
-        "ubuntu-24.04": 4}
+        "ubuntu-24.04": 4, "cmux-linux": 4}
 
 
 class ShardSize(unittest.TestCase):
     """The head shards' widths are declared for 16 vCPU (8 jobs, 4 dev-server files). On 2026-11-18 the pool writer
     marked 8, 16 and 32 vCPU dead and RUNNER_POOLS.linux_16 held 4, then 2 vCPU: every shard of run 44249075431
     (attempt 2) and shards 1, 4, 6 and 8 of run 44258208231 ran 8 files at once on 2 cores into the 40 min limit, and
-    run 44304196887's attempt 2 shards queued over an hour on 2 vCPU. The jobs now read the 4 vCPU pool (linux_4, which
-    the pool writer keeps on a member that starts jobs), run at the share of the widths the runner has, and get the
-    minutes that takes."""
+    run 44304196887's attempt 2 shards queued over an hour on 2 vCPU. The jobs then read the 4 vCPU pool (linux_4).
+    Since cmuxterm-hq#14156 ("capacity comes to the job") an own-branch run takes the one Linux label, cmux-linux, with
+    no pool or variable read; the shards run at the share of the widths the runner has, and get the minutes that
+    takes."""
 
     # About 690 s of tests a shard at 16 vCPU (run 43342256133's manifest split 12 ways) and 8 min for setup,
     # uploads and the slack the retries leave.
@@ -91,19 +94,19 @@ class ShardSize(unittest.TestCase):
         self.shard = self.jobs["react-apps-check-shard"]
         self.test_step = next(s for s in self.shard["steps"] if s["name"] == "Test webviews")
 
-    def test_the_webview_jobs_read_the_4_vcpu_pool_not_linux_16(self):
+    def test_the_webview_jobs_run_on_cmux_linux(self):
         for name in WEBVIEW_JOBS:
             runs_on = self.jobs[name]["runs-on"]
-            self.assertNotIn("linux_16", runs_on, name)
-            self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), name)
-            small = evaluate(runs_on, EVENTS["push"], {"linux_4": "blacksmith-2vcpu-ubuntu-2404"})
-            self.assertEqual(small, "blacksmith-2vcpu-ubuntu-2404", f"{name} follows the pool")
-            self.assertEqual(evaluate(runs_on, EVENTS["push"]), "blacksmith-4vcpu-ubuntu-2404", name)
-            self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "blacksmith-4vcpu-ubuntu-2404", name)
+            self.assertNotIn("RUNNER_POOLS", runs_on, name)
+            self.assertNotIn("CI_LINUX_GATE_OWNED_RUNNER", runs_on, name)
+            self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), name)
+            self.assertEqual(evaluate(runs_on, EVENTS["push"]), "cmux-linux", name)
+            self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "blacksmith-16vcpu-ubuntu-2404", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork repository"]), "ubuntu-24.04", name)
+            # No repository variable moves it (the owned-gate variable used to).
             owned = {**EVENTS["push"], "vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"}
-            self.assertEqual(evaluate(runs_on, owned), "glaeda-linux-gate", name)
+            self.assertEqual(evaluate(runs_on, owned), "cmux-linux", name)
 
     def test_each_runner_gets_minutes_for_its_share_of_the_work(self):
         for label, context in EVENTS.items():
@@ -113,13 +116,6 @@ class ShardSize(unittest.TestCase):
             need = self.TESTS_AT_16 * max(1, 16 / vcpu) + self.SETUP
             self.assertGreaterEqual(minutes * 60, need * 1.25, f"{label} on {runner}: {minutes} min")
         self.assertEqual(evaluate(self.shard["timeout-minutes"], EVENTS["fork pull request"]), 40)
-        # While the pool holds 2 vCPU, a shard runs 1 file at a time and gets the minutes for that.
-        small = {"linux_4": "blacksmith-2vcpu-ubuntu-2404"}
-        for label in ("push", "same-repository pull request"):
-            runner = evaluate(self.shard["runs-on"], EVENTS[label], small)
-            minutes = evaluate(self.shard["timeout-minutes"], EVENTS[label], small)
-            need = self.TESTS_AT_16 * 16 / VCPU[runner] + self.SETUP
-            self.assertGreaterEqual(minutes * 60, need * 1.25, f"{label} on {runner}: {minutes} min")
 
     def test_the_test_step_reads_the_jobs_minutes_and_its_declared_size(self):
         env = self.test_step["env"]

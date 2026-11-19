@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """No new Linux job picks one Blacksmith size where the live Linux pool would pick for it.
 
+Superseded for own-branch jobs by the one label (cmuxterm-hq#14156): every own-branch Linux job runs on
+cmux-linux (scripts/ci/check_linux_runs_on.py), so no job reads a size, a pool or LINUX_RUNNER. The counts
+below only fall.
+
 Leo, 2026-11-01: "ok. we clearly are not able to use them. so we should have resized a long-ass time ago."
 
 Two runs-on shapes keep sending jobs to a Blacksmith size after it stops starting jobs:
@@ -236,9 +240,9 @@ class ClassifierTests(unittest.TestCase):
 
 class WorkflowTests(unittest.TestCase):
     def test_the_stuck_cmux_tui_spec_jobs_read_the_pool(self) -> None:
-        # Run 41299099061: inventory and rustfmt waited on LINUX_RUNNER's stalled 4 vCPU size. Its other
-        # waiting jobs (acpmux-tests, acpmux-protocol-ir, clippy) are measured 8 vCPU compile jobs and keep
-        # their size and outage switch (tests/test_ci_linux_compile_runners.py).
+        # Run 41299099061: inventory and rustfmt waited on LINUX_RUNNER's stalled 4 vCPU size. Since
+        # cmuxterm-hq#14156 they, like every own-branch Linux job, take the one label cmux-linux
+        # (scripts/ci/check_linux_runs_on.py), which no size switch can strand.
         jobs = workflow_jobs.jobs(WORKFLOWS / "cmux-tui-spec.yml")
         for name in ("inventory", "rustfmt"):
             with self.subTest(job=name):
@@ -247,7 +251,8 @@ class WorkflowTests(unittest.TestCase):
                 self.assertEqual(len(cells), 1, cells)
                 runs_on = cells[0]
                 self.assertFalse(picks_one_size(runs_on), runs_on)
-                self.assertTrue(runs_on.rstrip().endswith("|| " + POOL + " }}"), runs_on)
+                self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
+                self.assertNotIn("LINUX_RUNNER", runs_on)
 
     def test_no_workflow_adds_a_one_size_linux_pick(self) -> None:
         grown = {name: (count, PICKS.get(name, 0)) for name, count in counts().items() if count > PICKS.get(name, 0)}

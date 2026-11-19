@@ -19,6 +19,8 @@ self-hosted-runner:
     - blacksmith-16vcpu-ubuntu-2404
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
+    # The one own-branch Linux label (cmuxterm-hq#14156).
+    - cmux-linux
     - cmux-fleet-linux-x64
     - warp-ubuntu-latest-x64-4x
     # GitHub-hosted, not self-hosted (1.7.12 knows this label; the entry stays

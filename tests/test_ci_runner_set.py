@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""The CI paths that have stalled must resolve through the live Linux pool.
+"""The CI paths that have stalled run on the one Linux label, cmux-linux.
 
-The broker can move a fast-check run only when its workflow accepts the
-declared overflow set.  These jobs therefore must read RUNNER_POOLS for their
-normal route and may not fall back to one Blacksmith label.
+They used to read the live Linux pool (RUNNER_POOLS) so a stalled vendor size
+could be moved; a label is fixed when a job queues, so that never helped a job
+already waiting. Since cmuxterm-hq#14156 ("capacity comes to the job") every
+own-branch Linux job says cmux-linux and the scaler-hosted provider brings a
+runner to it; only a fork's run keeps the label it had.
 """
 
 from __future__ import annotations
@@ -21,7 +23,8 @@ import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
-POOL = "fromJSON(vars.RUNNER_POOLS).linux"
+LABEL = "'cmux-linux'"
+TAIL = f"|| {LABEL} }}}}"
 TARGETS = {
     "app-platform.yml": {"check"},
     "cmux-next-terminal.yml": {"rust-terminal-linux", "swift-terminal-linux"},
@@ -45,46 +48,43 @@ def runs_on_text(job: dict, where: str) -> str:
 
 
 class RunnerSetTests(unittest.TestCase):
-    def test_secret_bearing_changes_takes_live_placement_then_ephemeral_blacksmith(self) -> None:
-        # Its credentialed body takes a live verified fleet Linux placement when available, then
-        # ephemeral Blacksmith on every attempt: GitHub-hosted Ubuntu left it queued for hours on
-        # 2026-11-18 (cmux#45735), so no attempt takes hosted Ubuntu.
+    def test_secret_bearing_changes_takes_the_one_linux_label(self) -> None:
+        # Its credentialed body runs on cmux-linux, whose runners are one-job VMs; GitHub-hosted Ubuntu left it
+        # queued for hours on 2026-11-18 (cmux#45735), so no attempt takes hosted Ubuntu. The placement step
+        # stays (its other outputs are read) but no longer picks this job's label.
         job = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]
         runs_on = runs_on_text(job, "ci.yml#changes")
-        self.assertIn("needs.portable-placement.outputs.linux_runner", runs_on)
-        self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", runs_on)
+        self.assertNotIn("needs.portable-placement.outputs.linux_runner", runs_on)
         self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
-        self.assertTrue(runs_on.rstrip().endswith(
-            "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"), runs_on)
+        self.assertNotIn("RUNNER_POOLS", runs_on)
+        self.assertTrue(runs_on.rstrip().endswith(TAIL), runs_on)
         self.assertEqual(job["needs"], ["portable-placement"])
         self.assertEqual(yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["portable-placement"]["steps"][-1]["env"]["LINUX_ONLY"], "changes")
 
-    def test_light_report_jobs_run_on_blacksmith_every_attempt(self) -> None:
+    def test_light_report_jobs_run_on_the_one_linux_label_every_attempt(self) -> None:
         # A few seconds of report or routing work each. They took hosted Ubuntu on attempt 1 until
-        # 2026-11-18, when GitHub-hosted runners left them queued for hours (cmux#45735); Blacksmith
-        # is the rule for all CI, so every attempt reads the declared pool.
+        # 2026-11-18, when GitHub-hosted runners left them queued for hours (cmux#45735); every attempt
+        # now takes cmux-linux (cmuxterm-hq#14156).
         import json
 
         declared = json.loads((ROOT / ".github" / "runners.json").read_text())["hosted_light_jobs"]
         hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
-        # The job that holds a pull-requests write token, or runs the checked-out revision's
-        # scripts, retries only on ephemeral Blacksmith; the rest may take the reconciled pool.
-        ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
+        # The jobs that hold a pull-requests write token, or run the checked-out revision's scripts, rely on
+        # cmux-linux's runners being one-job VMs, like the rest.
         cases = {
-            ("pr-red-checks-comment.yml", "comment"): ephemeral,
-            ("cmux-next.yml", "path_route"): ephemeral,
-            ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
-            ("pr-checks.yml", "size"): f"|| {POOL} }}}}",
-            ("pr-checks.yml", "ui-review"): f"|| {POOL} }}}}",
+            ("pr-red-checks-comment.yml", "comment"): TAIL,
+            ("cmux-next.yml", "path_route"): TAIL,
+            ("ci-guards.yml", "guard-status"): TAIL,
+            ("pr-checks.yml", "size"): TAIL,
+            ("pr-checks.yml", "ui-review"): TAIL,
         }
         for (workflow, name), tail in cases.items():
             with self.subTest(job=f"{workflow}#{name}"):
                 self.assertNotIn(f"{workflow}#{name}", declared)
                 runs_on = runs_on_text(yaml.safe_load((WORKFLOWS / workflow).read_text())["jobs"][name], f"{workflow}#{name}")
-                # A fork's run keeps the label it had; every other run reads the pool.
-                runs_on = re.sub(r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
-                                 r" != github\.repository && 'blacksmith-\d+vcpu-ubuntu-2404' \|\| (fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+)\)", r"\1", runs_on)
+                # A fork's run keeps the label it had; every other run takes cmux-linux.
                 self.assertNotIn(hosted, runs_on)
+                self.assertNotIn("RUNNER_POOLS", runs_on)
                 self.assertTrue(runs_on.rstrip().endswith(tail), runs_on)
                 self.assertNotIn("cmux-fleet-linux-x64", runs_on)
 
@@ -109,20 +109,21 @@ class RunnerSetTests(unittest.TestCase):
             for name in names:
                 with self.subTest(workflow=workflow, job=name):
                     runs_on = runs_on_text(jobs[name], f"{workflow}#{name}")
-                    self.assertIn(POOL, runs_on)
+                    self.assertTrue(runs_on.rstrip().endswith(TAIL), runs_on)
+                    self.assertNotIn("RUNNER_POOLS", runs_on)
                     self.assertNotIn("vars.LINUX_RUNNER || 'blacksmith-", runs_on)
                     self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-", runs_on)
                     self.assertNotIn("outputs.map", runs_on)
                     # Past the fork branches, no Blacksmith size is written down.
                     self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
-                    self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
+                    self.assertNotIn("inputs.runner", runs_on)
 
-    def test_gallery_health_reads_the_live_16_vcpu_pool(self) -> None:
-        # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases): the 16 vCPU
-        # pool, never a fixed size, so a stalled 16 vCPU moves it to 32 like any pool.
+    def test_gallery_health_takes_the_one_linux_label(self) -> None:
+        # A CPU-bound render (ask-378f0fa70e: 4 vCPU 30.5 s, 16 vCPU 13.4 s for the same cases), on cmux-linux,
+        # whose pool VMs are 16 vCPU; never a fixed vendor size.
         job = yaml.safe_load((WORKFLOWS / "gallery-health.yml").read_text(encoding="utf-8"))["jobs"]["health"]
         runs_on = runs_on_text(job, "gallery-health.yml#health")
-        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux_16 }}"), runs_on)
+        self.assertTrue(runs_on.rstrip().endswith(TAIL), runs_on)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
 
@@ -144,11 +145,11 @@ class RunnerSetTests(unittest.TestCase):
         # landing.md: a leo-named-fix PR lands with no wait.
         self.assertIn("!contains(github.event.pull_request.labels.*.name, 'leo-named-fix')", gate["if"])
         # Hosted Ubuntu only outside manaflow-ai; a fork PR takes the smallest fixed size, every other
-        # run the smallest pool (review F1 of #36353: a sleep never takes a bigger runner than it needs).
+        # run cmux-linux (cmuxterm-hq#14156).
         self.assertEqual(gate_runs_on.count("'ubuntu-24.04'"), 1)
         self.assertTrue(gate_runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "))
         self.assertEqual(re.findall(r"'blacksmith-[^']+'", gate_runs_on), ["'blacksmith-2vcpu-ubuntu-2404'"])
-        self.assertTrue(gate_runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux_2 }}"))
+        self.assertTrue(gate_runs_on.rstrip().endswith(TAIL), gate_runs_on)
         self.assertEqual(gate["permissions"], {})
         self.assertTrue(all(step.get("continue-on-error") for step in gate["steps"]))
         # Only the Mac jobs wait for it (Leo, 2026-11-08, choosing "the Linux checks start at once and only
@@ -206,13 +207,13 @@ class RunnerSetTests(unittest.TestCase):
                 self.assertRegex(str(job.get("if", "")), r"always\(\)|cancelled\(\)|failure\(\)",
                                  f"{name} would skip whenever pr-quiet-period skips")
 
-    def test_fast_checks_keeps_the_broker_overflow_set(self) -> None:
+    def test_fast_checks_takes_no_label_from_the_broker(self) -> None:
+        # The broker's re-dispatch onto another vendor size moved nothing a queued job could use; with one label
+        # a re-dispatch waits on the same label as the first run, and its runner input picks nothing.
         runs_on = runs_on_text((yaml.safe_load((WORKFLOWS / "fast-checks.yml").read_text()) or {})["jobs"]["checks"],
                                "fast-checks.yml#checks")
-        self.assertIn("inputs.runner", runs_on)
-        self.assertIn("blacksmith-8vcpu-ubuntu-2404", runs_on)
-        self.assertIn("blacksmith-16vcpu-ubuntu-2404", runs_on)
-        self.assertIn("blacksmith-32vcpu-ubuntu-2404", runs_on)
+        self.assertNotIn("inputs.runner", runs_on)
+        self.assertTrue(runs_on.rstrip().endswith(TAIL), runs_on)
 
 
 if __name__ == "__main__":

@@ -2500,12 +2500,14 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["env"]["RESCUE_SECONDS"], "${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}")
         self.assertEqual(step["env"]["POOL_OWNED"], "${{ vars.CI_PR_POOL_OWNED }}")
 
-    def test_polls_from_an_ephemeral_runner(self):
-        # Never from an owned pool it may rescue, and never only from
-        # GitHub-hosted: a GitHub billing block must not stop the rescue.
+    def test_polls_from_the_one_linux_label(self):
+        # Never from an owned Mac pool it may rescue, and never only from
+        # GitHub-hosted: a GitHub billing block must not stop the rescue. Its
+        # own-branch label is the literal cmux-linux, with no CI_TRUSTED_RUNNER
+        # read (cmuxterm-hq#14156: one Linux label, no variable).
         self.assertEqual(
             workflow_jobs.runs_on_cells(self.doc["jobs"]["rescue"]),
-            ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
+            ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"],
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):

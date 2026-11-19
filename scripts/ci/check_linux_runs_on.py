@@ -28,6 +28,8 @@ Allowed:
   - a literal marked `# github-hosted-required: <why>` (npm provenance, PyPI trusted
     publishing, attestations need GitHub's OIDC);
   - arm64 labels (the provider serves x86_64 only);
+  - GitHub-hosted ubuntu-* in the nightly workflows, whose hosted tail jobs the
+    nightly policy lists;
   - non-Linux values (macOS, Windows, owned Mac pools and gateways, picker outputs
     that do not say linux);
   - the files in ALLOWED, each with its reason.
@@ -43,6 +45,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
+
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "cmux-linux"
 LINUX_LABEL = re.compile(r"^(?:blacksmith-\d+vcpu-ubuntu-\d{4}|ubuntu-(?:latest|slim|\d\d\.\d\d)|cmux-gcp-[a-z0-9-]+"
@@ -54,6 +59,10 @@ FORK_COND = re.compile(r"github\.repository_owner != '[^']+'|head\.repo\.full_na
                        r"|!contains\(fromJSON\(inputs\.owned_head_repos\)")
 HOSTED_MARK = re.compile(r"#\s*github-hosted-required:\s*\S")
 MATRIX_KEYS = ("runner", "os", "pool", "runs_on")
+# The nightly workflows keep their GitHub-hosted tail jobs: their routes are the nightly policy's
+# (CLAUDE.md "Nightlies never use Blacksmith", tests/test_nightly_owned_minis_only.py HOSTED_TAIL_JOBS).
+NIGHTLY = re.compile(r"nightly|notariz")
+HOSTED = re.compile(r"^ubuntu-")
 # Workflows that keep a vendor Linux label, each with why. Nothing is added without naming what retires it.
 ALLOWED = {
     "ci-cloud-overflow-probe.yml": ("the vendor overflow switch's own probe: it asks for one vendor label to learn "
@@ -231,11 +240,11 @@ def linux_pools(root: Path) -> set[str]:
     return out
 
 
-def value_problem(node, pools: set[str]) -> str | None:
+def value_problem(node, pools: set[str], hosted_ok: bool = False) -> str | None:
     """Why one own-branch value is a Linux route other than cmux-linux, or None."""
     if node[0] == "str":
         label = node[1]
-        if label != TARGET and LINUX_LABEL.match(label) and not ARM.search(label):
+        if label != TARGET and LINUX_LABEL.match(label) and not ARM.search(label) and not (hosted_ok and HOSTED.match(label)):
             return f"names the Linux label {label!r}"
         return None
     if node[0] == "prop" and node[1][0] == "call" and node[1][1] == "fromJSON" and node[1][2] \
@@ -249,19 +258,22 @@ def value_problem(node, pools: set[str]) -> str | None:
     return None
 
 
-def expression_problems(value: str, pools: set[str]) -> list[str]:
+def expression_problems(value: str, pools: set[str], hosted_ok: bool = False) -> list[str]:
     """Every refusal for one runs-on value (an expression or a literal)."""
     body = value.split(" #", 1)[0].strip() if not value.startswith("${{") else value
     if not value.startswith("${{"):
         label = body.strip("'\"[] ")
         if HOSTED_MARK.search(value) or label == TARGET:
             return []
-        if any(LINUX_LABEL.match(part.strip("'\" ")) and not ARM.search(part.strip("'\" "))
+        if any(LINUX_LABEL.match(part.strip("'\" ")) and not ARM.search(part.strip("'\" ")) and not (hosted_ok and HOSTED.match(part.strip("'\" ")))
                for part in label.split(",")):
             return [f"names the Linux label {label!r}; say runs-on: {TARGET}"]
         return []
-    match = re.match(r"^\$\{\{(.*)\}\}\s*(?:#.*)?$", value)
-    if not match:
+    try:
+        match = gh_expressions.EXPRESSION.search(value)
+    except gh_expressions.Unterminated:
+        match = None
+    if not match or match.start() != 0 or not re.fullmatch(r"\s*(?:#.*)?", value[match.end():]):
         return [f"cannot read {value!r}"]
     try:
         tree = Parser(match.group(1)).parse()
@@ -271,7 +283,7 @@ def expression_problems(value: str, pools: set[str]) -> list[str]:
     for node, fork in own_values(tree):
         if fork:
             continue
-        why = value_problem(node, pools)
+        why = value_problem(node, pools, hosted_ok)
         if why:
             out.append(f"{why}; an own-branch Linux job takes the literal '{TARGET}'")
     for node in walk(tree):
@@ -298,7 +310,7 @@ def problems(workflows: Path, root: Path = ROOT) -> list[str]:
         for number, key, value in logical_lines(path.read_text()):
             if key != "runs-on" and not (value.startswith("${{") or LINUX_LABEL.match(value.split("#")[0].strip())):
                 continue
-            for why in expression_problems(value, pools):
+            for why in expression_problems(value, pools, bool(NIGHTLY.search(path.name))):
                 out.append(f"{path.name}:{number}: {key} {why}")
     return out
 

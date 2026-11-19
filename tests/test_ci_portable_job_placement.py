@@ -4,7 +4,9 @@
 scripts/ci/portable_job_placement.py places the cmux-next checks, the
 release-notary guards, the tooling tests and the cmux-tui macOS targets (Leo, 2026-10-31: "i mean
 the linux things cant our minis just run them"). These cases pin its order and its refusals, and
-the workflows' wiring of its outputs.
+the workflows' wiring of its outputs. Since cmuxterm-hq#14156 ("capacity comes to the job") no
+Linux job's own-branch label reads a placement output: it is the literal `cmux-linux`, fork
+branches keep their own route, and the Wiring cases pin that.
 """
 from __future__ import annotations
 
@@ -551,6 +553,21 @@ def routes(job: dict, name: str) -> list[str]:
     return cells
 
 
+LINUX_LABEL = "cmux-linux"
+# What a Linux job's label never reads since cmuxterm-hq#14156: a picker output, a pool, a runner variable, the
+# overflow switch.
+NOT_IN_A_LINUX_LABEL = ("portable-placement.outputs", "tree-preflight.outputs", "inputs.linux_runner",
+                        "inputs.linux_build_runner", "inputs.guard_tests_runner", "RUNNER_POOLS", "LINUX_RUNNER",
+                        "CI_TRUSTED_RUNNER", "CI_LINUX_GATE_OWNED_RUNNER", "CI_CLOUD_OVERFLOW_SAVED")
+
+
+def assert_one_linux_label(case: unittest.TestCase, runs_on: str) -> None:
+    """The own-branch value is the literal cmux-linux; only fork branches route elsewhere."""
+    case.assertTrue(runs_on.strip().endswith(f"|| '{LINUX_LABEL}' }}}}"), runs_on)
+    for read in NOT_IN_A_LINUX_LABEL:
+        case.assertNotIn(read, runs_on)
+
+
 class SharedWait(unittest.TestCase):
     def test_wait_uses_document_once_then_observes_idle_capacity_live(self):
         idle_row = dict(runner("synthetic-glaeda"), id=1, os="macOS")
@@ -659,71 +676,43 @@ class Wiring(unittest.TestCase):
                 runners, queue = placement.read({**config, "CI_RUNNER_STATE": raw}, NOW)
                 self.assertEqual(placement.decide(config, runners, queue, NOW).mini_jobs, expected)
 
-    def test_status_reports_consume_live_capacity_without_a_routing_app(self):
-        offered = 0
+    def test_status_reports_take_the_one_linux_label(self):
+        # cmuxterm-hq#14156: the status reports' own-branch label is cmux-linux, never a placement output.
         for workflow, name in (("pr-red-checks-comment.yml", "comment"),
                                ("ci-guards.yml", "guard-status")):
             with self.subTest(workflow=workflow):
                 workflow_jobs = jobs(workflow)
-                bootstrap = workflow_jobs.get("portable-placement")
-                if bootstrap is None:
-                    continue
-                step = bootstrap["steps"][-1]
-                config = {key: str(value) for key, value in step["env"].items() if "${{" not in str(value)}
-                config.update(SIDE_LABEL=SIDE, FLEET_LINUX="", GITHUB_RUN_ATTEMPT="1")
-                placed = placement.decide(config, idle(1), snapshot(), NOW)
-                self.assertEqual(placed.mini_jobs, (name,))
-                self.assertEqual(placed.mini_runner, SIDE)
-                self.assertEqual(placement.decide(config, idle(0), snapshot(), NOW).mini_jobs, ())
                 job = workflow_jobs[name]
-                needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
-                self.assertIn("portable-placement", needs)
                 self.assertIn("always()", job["if"])
                 self.assertIn("!cancelled()", job["if"])
-                route = "\n".join(routes(job, name))
-                self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
-                              route)
-                self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", route)
-                self.assertEqual(bootstrap["permissions"], {"contents": "read"})
-                self.assertEqual(secret_names(bootstrap), set())
-                self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", bootstrap["if"])
-                offered += len(placed.mini_jobs)
-        print(f"status reports offered an idle mini: {offered}/2")
-        self.assertEqual(offered, 2)
+                for runs_on in routes(job, name):
+                    assert_one_linux_label(self, runs_on)
+                bootstrap = workflow_jobs.get("portable-placement")
+                if bootstrap is not None:
+                    self.assertEqual(bootstrap["permissions"], {"contents": "read"})
+                    self.assertEqual(secret_names(bootstrap), set())
+                    self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", bootstrap["if"])
 
-    PLACED = {"cmux-next.yml": {"checks": "linux_16"},
-              "cmux-next-guards.yml": {"tooling-tests": "linux_4"}}
+    PLACED = {"cmux-next.yml": ("checks",),
+              "cmux-next-guards.yml": ("tooling-tests",)}
 
-    def test_each_placed_job_reads_fleet_linux_then_its_mini_then_blacksmith(self):
-        for workflow, expected_pools in self.PLACED.items():
+    def test_each_formerly_placed_job_takes_the_one_linux_label(self):
+        # cmuxterm-hq#14156: no fleet-Linux, mini or pool pick in the label; overflow is more cmux-linux runners.
+        for workflow, expected in self.PLACED.items():
             workflow_jobs = jobs(workflow)
-            place = workflow_jobs["portable-placement"]
-            listed = place["steps"][-1]["env"]["JOBS"].split()
-            for name, pool in expected_pools.items():
+            for name in expected:
                 with self.subTest(job=f"{workflow}#{name}"):
                     job = workflow_jobs[name]
-                    self.assertIn(name, listed)
-                    # tooling-tests also needs hot-route: a hot-only pull request skips the mini leg
-                    # (tests/test_cmux_next_route.py HotAwareWorkflows).
-                    self.assertEqual([need for need in job["needs"] if need != "hot-route"], ["portable-placement"])
                     self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
                     for runs_on in routes(job, name):
-                        linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
-                        mini = runs_on.index(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')")
-                        blacksmith = runs_on.rindex(f"fromJSON(vars.RUNNER_POOLS).{pool}")
-                        self.assertLess(linux, mini)
-                        self.assertLess(mini, blacksmith)
-                        self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
-                                      runs_on)
+                        assert_one_linux_label(self, runs_on)
 
-    def test_release_notary_takes_the_placement_through_ci_guards(self):
-        guards = jobs("cmux-next-guards.yml")
-        self.assertIn("release-notary", guards["portable-placement"]["steps"][-1]["env"]["JOBS"].split())
-        runner = guards["nightly-guards"]["with"]["guard_tests_runner"]
-        self.assertIn("contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ')", runner)
+    def test_release_notary_guard_tests_take_the_one_linux_label(self):
+        # cmuxterm-hq#14156: the guard tests no longer take a caller's guard_tests_runner pick; a fork pull
+        # request keeps its own route ahead of the label.
         for tests in routes(jobs("ci-guards.yml")["workflow-guard-tests"], "workflow-guard-tests"):
-            self.assertIn("inputs.guard_tests_runner != '' && inputs.guard_tests_runner", tests)
-            self.assertLess(tests.index("head.repo.full_name != github.repository"), tests.index("inputs.guard_tests_runner"))
+            assert_one_linux_label(self, tests)
+            self.assertIn("head.repo.full_name != github.repository", tests)
 
     def test_the_cmux_tui_macos_targets_take_a_free_mini_before_the_linux_cross_build(self):
         preflight = jobs("cmux-tui-artifacts.yml")["tree-preflight"]
@@ -736,95 +725,41 @@ class Wiring(unittest.TestCase):
         plan = (WORKFLOWS / "cmux-tui-build-package.yml").read_text(encoding="utf-8")
         self.assertIn('target["runner"] = darwin_mac_runner', plan)
 
-    def test_cmux_tui_daemon_uses_live_gcp_output_before_measured_overflow(self):
+    def test_cmux_tui_daemon_and_build_calls_take_the_one_linux_label(self):
+        # cmuxterm-hq#14156: the daemon tests and the Linux build calls take cmux-linux, never a picked GCP label.
         workflow = jobs("cmux-tui-artifacts.yml")
-        preflight = workflow["tree-preflight"]
-        picker = next(step for step in preflight["steps"] if step.get("id") == "linux-placement")
-        self.assertEqual(picker["env"]["FLEET_LINUX"], "cmux-fleet-linux-x64")
-        self.assertEqual(picker["env"]["REQUIRE_LIVE_CAPACITY"], "1")
-        daemon = single_runs_on(workflow["cmux-next-daemon-tests"])
-        live = daemon.index("needs.tree-preflight.outputs.linux_runner")
-        fallback = daemon.index("fromJSON(vars.RUNNER_POOLS).linux_8")
-        self.assertLess(live, fallback)
-        self.assertEqual(workflow["tree-preflight"]["outputs"]["linux_runner"],
-                         "${{ steps.linux-placement.outputs.linux_runner }}")
-        # The placement counts room for the daemon job only, so no build leg takes its label. The build calls take
-        # only the GCP build lane's placement (gcp-placement), which counts room for them (2026-11-18).
+        assert_one_linux_label(self, single_runs_on(workflow["cmux-next-daemon-tests"]))
         self.assertNotIn("linux_runner", workflow["build-windows"].get("with", {}))
-        gcp = next(step for step in preflight["steps"] if step.get("id") == "gcp-placement")
-        self.assertEqual(gcp["env"]["FLEET_LINUX"], "${{ vars.LINUX_RUNNER_DARWIN_CROSS }}")
-        self.assertEqual(gcp["env"]["REQUIRE_LIVE_CAPACITY"], "1")
-        self.assertEqual(set(gcp["env"]["JOBS"].split()), set(gcp["env"]["LINUX_ONLY"].split()))
         for name in ("build", "build-linux"):
             with self.subTest(call=name):
                 runner = workflow[name]["with"]["linux_runner"]
                 self.assertNotIn("outputs.linux_runner", runner)
-                self.assertIn(f"contains(needs.tree-preflight.outputs.gcp_jobs, ' {name} ')", runner)
-                self.assertIn(name, gcp["env"]["JOBS"].split())
+                self.assertNotIn("outputs.gcp_runner", runner)
+                self.assertNotIn("LINUX_RUNNER", runner)
 
-    def test_the_nightly_tree_musl_legs_route_owned_gcp_linux_first_then_blacksmith(self):
+    def test_the_nightly_tree_musl_legs_take_the_one_linux_label(self):
         # 2026-11-18: tree 453a2f94's musl legs sat on blacksmith-16vcpu behind about 346 queued runs while
-        # the NEXT nightly waited (Leo: "i thought we had a priority option / hey what about setting up those
-        # linux vms finally on our end? what about teh gcp ones?"). Route order: the owned GCP fleet label,
-        # picked live, then the legs' Blacksmith pools, never the other way round.
-        workflow = jobs("cmux-tui-artifacts.yml")
-        preflight = workflow["tree-preflight"]
-        ids = [step.get("id") for step in preflight["steps"]]
-        picker = preflight["steps"][ids.index("linux-build-placement")]
-        config = picker["env"]
-        self.assertEqual(config["FLEET_LINUX"], "cmux-fleet-linux-x64")
-        self.assertEqual(config["JOBS"].split(), ["tree-x86_64-musl", "tree-aarch64-musl",
-                                                  "machine-x86_64-musl", "machine-aarch64-musl"])
-        self.assertEqual(config["LINUX_ONLY"].split(), config["JOBS"].split())
-        # The nightly's tree pair first, then the Cloud machine channel's thin pair, each whole or not at all.
-        self.assertEqual(config["LINUX_GROUPS"].split(),
-                         ["tree-x86_64-musl,tree-aarch64-musl", "machine-x86_64-musl,machine-aarch64-musl"])
-        for knob in ("REQUIRE_LIVE_CAPACITY", "NIGHTLY_WAIT_FOR_FLEET", "FLEET_WAIT_NEEDS_MEMBER"):
-            with self.subTest(knob=knob):
-                self.assertEqual(config[knob], "1")
-        # N minutes: the owned fleet gets at most 3 before the legs fall to Blacksmith.
-        self.assertTrue(0 < int(config["NIGHTLY_WAIT_SECONDS"]) <= 180)
-        self.assertNotIn("SIDE_LABEL", config)
-        self.assertTrue(picker.get("continue-on-error"))
-        self.assertIn("steps.inspect.outputs.place_macos == 'true'", picker["if"])
-        self.assertIn("github.run_attempt == 1", picker["if"])
-        for ref in ("refs/heads/feat-cmux-next", "refs/heads/nightly-next"):
-            self.assertIn(ref, picker["if"])
-        self.assertLess(ids.index("inspect"), ids.index("linux-build-placement"))
-        # The placement can wait 2 minutes inside the preflight job's own bound.
-        self.assertGreaterEqual(int(preflight["timeout-minutes"]), 9)
-        for name, call, pair in (("linux_build_runner", "build", ("tree-x86_64-musl", "tree-aarch64-musl")),
-                                 ("machine_build_runner", "build-linux",
-                                  ("machine-x86_64-musl", "machine-aarch64-musl"))):
-            with self.subTest(output=name):
-                output = preflight["outputs"][name]
-                for job in config["JOBS"].split():
-                    needle = f"contains(steps.linux-build-placement.outputs.linux_jobs, ' {job} ')"
-                    if job in pair:
-                        self.assertIn(needle, output)
-                    else:
-                        self.assertNotIn(needle, output)
-                self.assertTrue(output.endswith("&& steps.linux-build-placement.outputs.linux_runner || '' }}"))
-                self.assertEqual(
-                    workflow[call]["with"]["linux_build_runner"],
-                    f"${{{{ github.run_attempt == 1 && needs.tree-preflight.outputs.{name} || '' }}}}")
+        # the NEXT nightly waited. cmuxterm-hq#14156: the legs' own-branch label is cmux-linux on every
+        # attempt, never a picked GCP label or a Blacksmith pool; a fork pull request keeps its own route.
         package = jobs("cmux-tui-build-package.yml")
         legs = next(step for step in package["plan-build"]["steps"] if step.get("id") == "targets")
-        route = legs["env"]["LINUX_BUILD_RUNNER"]
-        owned = route.index("inputs.linux_build_runner != '' && inputs.linux_build_runner")
-        for overflow in ("fromJSON(vars.RUNNER_POOLS).linux_16", "fromJSON(vars.RUNNER_POOLS).linux_8",
-                         "'blacksmith-16vcpu-ubuntu-2404'"):
-            with self.subTest(overflow=overflow):
-                self.assertLess(owned, route.index(overflow))
-        # Only the musl legs take it: plan-build and packaging keep their own runners.
-        self.assertNotIn("linux_build_runner", single_runs_on(package["plan-build"]))
+        for name in ("LINUX_BUILD_RUNNER", "LINUX_DARWIN_RUNNER"):
+            with self.subTest(env=name):
+                assert_one_linux_label(self, legs["env"][name])
+        assert_one_linux_label(self, single_runs_on(package["plan-build"]))
         plan = (WORKFLOWS / "cmux-tui-build-package.yml").read_text(encoding="utf-8")
         self.assertEqual(plan.count('"runner": os.environ["LINUX_BUILD_RUNNER"]'), 2)
 
+    # The script's paired placement (LINUX_GROUPS), on a fleet label of its own. Since cmuxterm-hq#14156 no
+    # Linux job's label reads its output; these pin the script's grouping, not a workflow route.
+    MUSL_PICK = {"JOBS": "tree-x86_64-musl tree-aarch64-musl machine-x86_64-musl machine-aarch64-musl",
+                 "LINUX_ONLY": "tree-x86_64-musl tree-aarch64-musl machine-x86_64-musl machine-aarch64-musl",
+                 "LINUX_GROUPS": "tree-x86_64-musl,tree-aarch64-musl machine-x86_64-musl,machine-aarch64-musl",
+                 "FLEET_LINUX": "cmux-fleet-linux-x64", "REQUIRE_LIVE_CAPACITY": "1", "NIGHTLY_WAIT_FOR_FLEET": "1",
+                 "NIGHTLY_WAIT_SECONDS": "120", "FLEET_WAIT_NEEDS_MEMBER": "1", "GITHUB_RUN_ATTEMPT": "1"}
+
     def test_the_tree_musl_pick_places_both_legs_or_neither_and_waits_only_for_a_live_fleet(self):
-        picker = next(step for step in jobs("cmux-tui-artifacts.yml")["tree-preflight"]["steps"]
-                      if step.get("id") == "linux-build-placement")
-        config = {**picker["env"], "GITHUB_RUN_ATTEMPT": "1"}
+        config = dict(self.MUSL_PICK)
         tree = ("tree-x86_64-musl", "tree-aarch64-musl")
         both = tree + ("machine-x86_64-musl", "machine-aarch64-musl")
         for count, expected in ((0, ()), (1, ()), (2, tree), (3, tree), (4, both), (5, both)):
@@ -869,9 +804,7 @@ class Wiring(unittest.TestCase):
 
     def test_the_machine_channel_pair_takes_the_fleet_only_when_free_and_never_holds_the_tree_pair(self):
         # goals/cloud-fix-to-machine.md: the thin legs queued 18-27 min on blacksmith-16vcpu on 2026-11-18.
-        picker = next(step for step in jobs("cmux-tui-artifacts.yml")["tree-preflight"]["steps"]
-                      if step.get("id") == "linux-build-placement")
-        config = {**picker["env"], "GITHUB_RUN_ATTEMPT": "1"}
+        config = dict(self.MUSL_PICK)
         # Four free: both pairs take the fleet.
         placed = placement.decide(config, [fleet_runner(f"gcp-{i}") for i in range(4)], snapshot(), NOW)
         self.assertEqual(placed.linux_jobs, ("tree-x86_64-musl", "tree-aarch64-musl",
@@ -933,28 +866,22 @@ class Wiring(unittest.TestCase):
                                   runs_on)
 
 
-    def test_new_light_workflows_place_status_jobs_before_hosted_overflow(self):
+    def test_new_light_workflows_status_jobs_take_the_one_linux_label(self):
+        # cmuxterm-hq#14156: no hosted Ubuntu, no placement output, no pool; the one cmux-linux label.
         expected = {
-            "pr-checks.yml": {"jobs": ("size", "ui-review", "split"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
-            "cmux-next-fast-gates.yml": {"jobs": ("resolve", "post"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
-            "web-validation.yml": {"jobs": ("web-validation",), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
+            "pr-checks.yml": ("size", "ui-review", "split"),
+            "cmux-next-fast-gates.yml": ("resolve", "post"),
+            "web-validation.yml": ("web-validation",),
         }
-        for workflow, spec in expected.items():
+        for workflow, names in expected.items():
             with self.subTest(workflow=workflow):
                 workflow_jobs = jobs(workflow)
-                place = workflow_jobs["portable-placement"]
-                self.assertEqual(place["steps"][-1]["env"]["JOBS"].split(), list(spec["jobs"]))
-                for name in spec["jobs"]:
-                    job = workflow_jobs[name]
-                    needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
-                    self.assertIn("portable-placement", needs)
-                    route = "\n".join(routes(job, name))
-                    self.assertIn(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')", route)
-                    self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", route)
-                    self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", route)
-                    self.assertIn(spec["fallback"], route)
+                for name in names:
+                    for runs_on in routes(workflow_jobs[name], name):
+                        assert_one_linux_label(self, runs_on)
+                        self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
 
-    def test_remaining_light_routers_use_live_placement_before_blacksmith_fallback(self):
+    def test_remaining_light_routers_take_the_one_linux_label(self):
         # No hosted Ubuntu attempt: GitHub-hosted runners left these queued for hours (cmux#45735).
         ci = jobs("ci.yml")
         placement = ci["portable-placement"]
@@ -967,11 +894,9 @@ class Wiring(unittest.TestCase):
         self.assertIn("always()", changes["if"])
         self.assertIn("!cancelled()", changes["if"])
         changes_route = single_runs_on(changes)
-        live_linux = changes_route.index("contains(needs.portable-placement.outputs.linux_jobs, ' changes ')")
         self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", changes_route)
-        paid = changes_route.rindex("fromJSON(vars.RUNNER_POOLS).linux_8")
-        self.assertNotIn("contains(needs.portable-placement.outputs.mini_jobs, ' changes ')", changes_route)
-        self.assertLess(live_linux, paid)
+        # cmuxterm-hq#14156: the one cmux-linux label, no placement output or pool.
+        assert_one_linux_label(self, changes_route)
 
         next_jobs = jobs("cmux-next.yml")
         path_route = next_jobs["path_route"]
@@ -982,12 +907,8 @@ class Wiring(unittest.TestCase):
         self.assertIn("always()", path_route["if"])
         self.assertIn("!cancelled()", path_route["if"])
         route = single_runs_on(path_route)
-        live_linux = route.index("contains(needs.portable-placement.outputs.linux_jobs, ' path_route ')")
-        live_mini = route.index("contains(needs.portable-placement.outputs.mini_jobs, ' path_route ')")
         self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
-        paid = route.rindex("fromJSON(vars.RUNNER_POOLS).linux_8")
-        self.assertLess(live_linux, live_mini)
-        self.assertLess(live_mini, paid)
+        assert_one_linux_label(self, route)
 
     def test_portable_bootstraps_are_bounded_and_kill_switch_skips_the_job(self):
         expected = {
@@ -1004,9 +925,10 @@ class Wiring(unittest.TestCase):
                 if workflow == "web-validation.yml":
                     self.assertIn("github.event_name != 'merge_group'", placement_if)
                 route = "\n".join(routes(placement_job, "portable-placement"))
-                # Blacksmith on every attempt: GitHub-hosted Ubuntu left these queued for hours (cmux#45735).
+                # Never GitHub-hosted Ubuntu: it left these queued for hours (cmux#45735). The one
+                # cmux-linux label on every attempt (cmuxterm-hq#14156).
                 self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
-                self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", route)
+                assert_one_linux_label(self, route)
                 self.assertNotIn("vars.CI_LIGHT_LANE_RUNNER", route)
                 self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", route)
                 # Owned labels remain inputs to capacity validation, never the

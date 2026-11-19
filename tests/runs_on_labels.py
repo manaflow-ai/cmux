@@ -53,6 +53,9 @@ FLEET_LINUX_OUTPUTS = ("needs.tree-preflight.outputs.linux_runner",)
 # Our persistent GCP build-lane runners (Ubuntu, one label each). The cmux-tui tree's short jobs take it on
 # attempt 1 of a nightly-path run (cmux-tui-artifacts.yml's jobs: comment).
 GCP_LANE_BUILD_LINUX = "cmux-gcp-lane-build-x64"
+# The one literal Linux label every own-branch Linux job runs on (cmuxterm-hq#14156, "capacity comes to the job";
+# scripts/ci/check_linux_runs_on.py).
+OWN_LINUX = "cmux-linux"
 
 TOKEN = re.compile(
     r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])|(?P<prop>\.[A-Za-z_][A-Za-z0-9_]*)"
@@ -413,7 +416,7 @@ def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = N
 
     GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
     """
-    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX}
+    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX, OWN_LINUX}
     personal = personal_machine_names()
     if isinstance(runs_on, str):
         for output in FLEET_LINUX_OUTPUTS:
