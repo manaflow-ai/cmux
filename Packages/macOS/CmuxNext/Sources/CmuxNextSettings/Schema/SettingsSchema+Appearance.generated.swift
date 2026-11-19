@@ -51,6 +51,12 @@ extension HighlightColorSetting {
     public nonisolated static let configPath = ["appearance", "highlightColor"]
 }
 
+extension CmuxConfigSnapshot {
+    /// `customize.doctorNotice`: The app's quiet notice (a toast) at launch and when customization changes, naming a file or layer that changes the person's setup (`cmux customize doctor --announce`, cmux-customize library/doctor.rs). Informational: it changes nothing. Off: no toast; Settings' doctor card and the CLI still list findings. Leo 2026-11-19: "if there's errant files etc that affect customizations it should be able to automatically tell the user and inform them".
+    public nonisolated static let customizeDoctorNoticePath = ["customize", "doctorNotice"]
+    public nonisolated static let customizeDoctorNoticeDefault = true
+}
+
 extension BackdropArtSetting {
     /// `appearance.backdropArt`: Legacy: the bundled paintings (BackdropArt) follow None; appearance.background wins when both are set.
     public nonisolated static let configPath = ["appearance", "backdropArt"]

@@ -111,6 +111,16 @@ extension AppearanceSettingsSchema {
                 defaultLabel: SettingsText.keyed("settings.default.terminalTheme", "Terminal Theme"),
                 keywords: ["highlight", "selection", "selected text", "selection-background", "color", "colour", "theme"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.customizeDoctorNoticePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.customize.doctorNotice", "Customization notices"),
+                summary: SettingsText.keyed("settings.customize.doctorNotice.summary", "Tell me when a file or layer changes my setup"),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.customizeDoctorNoticeDefault),
+                keywords: ["customize", "customization", "doctor", "notice", "toast", "theme", "layer", "broken", "file"]
+            ),
         ]
     }
 }

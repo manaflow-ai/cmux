@@ -93,6 +93,9 @@ Before choosing a preset, template, starter config, or known workflow pattern, r
 - Keep valid JSONC, no duplicate keys.
 - `cmux settings reload-configuration` when the app is running.
 - Confirm the exact user-facing result: action title, shortcut, or palette entry.
+- `cmux customize doctor` (MCP `customize_doctor`) before and after: a file that does not load, a key no setting
+  has, a theme that overrides a setting, a file in the wrong folder, or a `pr-N` layer left on. The app shows the
+  same findings as a notice; a fix (`doctor fix ID off|remove`) is the person's to choose.
 
 ## Rules
 

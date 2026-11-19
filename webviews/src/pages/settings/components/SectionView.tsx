@@ -35,6 +35,7 @@ import { ContextMenusCard } from "./ContextMenusCard";
 import { ServerCard } from "./ServerCard";
 import { SharedLinksCard } from "./SharedLinksCard";
 import { CustomizeLibraryCard } from "./CustomizeLibraryCard";
+import { CustomizeDoctorCard } from "./CustomizeDoctorCard";
 import { KeysCard } from "./KeysCard";
 import { McpServersCard } from "./McpServersCard";
 import { TailnetCard } from "./TailnetCard";
@@ -88,7 +89,13 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   cloudEnvironments: () => <CloudEnvironmentsCard />,
   cloudModels: (focus) => <CloudModelsCard focus={focus} />,
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
-  customizeLibrary: (_focus, _workspace, reveal) => <CustomizeLibraryCard reveal={reveal} />,
+  // Customization Problems draws above the library in its slot; `focus=card.customizeDoctor` opens on it.
+  customizeLibrary: (focus, _workspace, reveal) => (
+    <>
+      <CustomizeDoctorCard focus={focus} />
+      <CustomizeLibraryCard reveal={reveal} />
+    </>
+  ),
   keys: (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />,
   mcpServers: () => <McpServersCard />,
   tailnet: () => <TailnetCard />,

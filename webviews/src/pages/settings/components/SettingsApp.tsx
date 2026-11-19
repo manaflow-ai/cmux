@@ -11,6 +11,7 @@ import { managedOf, valueOf } from "../store";
 import { ReadOnlyNotice } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
 import { TryOnSlot } from "./TryOnBar";
+import { DoctorNoticeSlot } from "./CustomizeDoctorCard";
 import { SearchResults } from "./SearchResults";
 import { SectionList } from "./SectionList";
 import { personalizationPartOf } from "./PersonalizationCard";
@@ -145,6 +146,7 @@ export function SettingsApp() {
         <ScrollArea fade className="sidebar-scroll" viewportClassName="sidebar-scroll-viewport">
           <SectionList current={searching ? null : section} onSelect={select} />
         </ScrollArea>
+        <DoctorNoticeSlot place="chip" />
       </aside>
       <main className="content" ref={content}>
         <div className="scroll-edge" aria-hidden="true">
@@ -156,6 +158,7 @@ export function SettingsApp() {
         <div className="column">
           <ReadOnlyNotice connected={state.connected} loaded={state.loaded} readable={state.readable} />
           <TryOnSlot />
+          <DoctorNoticeSlot place="banner" />
           {searching ? <SearchResults query={shownQuery} /> : <Outlet />}
         </div>
       </main>

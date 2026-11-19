@@ -19,7 +19,7 @@ enum WindowHandlers {
         context.services.pages.register(context.services.debugSettings)
         registry.bind("openSettings", run: { invocation in
             let link = SettingsDeepLink(invocation)
-            try context.services.settingsWindow.show(section: link.section, setting: link.setting, focus: invocation.allowsViewChange)
+            try context.services.settingsWindow.show(section: link.section, setting: link.setting, focus: invocation.allowsViewChange, route: link.route)
         })
         // DEV and NIGHTLY only: the descriptor is `isDebugOnly` (`DevTools`).
         registry.bind("openDebugSettings", run: { invocation in try context.services.debugSettings.show(focus: invocation.allowsViewChange) })

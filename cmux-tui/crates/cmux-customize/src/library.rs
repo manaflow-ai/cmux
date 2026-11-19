@@ -48,6 +48,7 @@ use crate::{Customize, Error, validate};
 
 pub mod code;
 mod collection;
+pub mod doctor;
 pub mod expire;
 pub mod keys;
 pub mod overlay;
