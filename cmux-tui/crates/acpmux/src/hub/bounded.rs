@@ -238,6 +238,7 @@ impl RecentIds {
         self.order.len()
     }
 
+    #[cfg(test)]
     pub(crate) fn clear(&mut self) {
         self.order.clear();
         self.set.clear();
