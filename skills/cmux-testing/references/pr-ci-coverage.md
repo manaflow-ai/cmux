@@ -26,3 +26,20 @@ existing run or a rerun of that event.
 
 Inspect the tests that actually executed on the current SHA. A green skipped job
 is not coverage.
+
+The `ran` line of the PR's **cmux status** comment says which workflows the diff
+started and the changed file that started each one, then the workflows that start
+on every PR whatever the diff, then how many did not start
+(`scripts/ci/pr_ran_line.py`, written by the red-checks comment job). Read it
+before asking why a check ran or did not. To see it for a diff before you push:
+
+```bash
+git diff --name-only origin/feat-cmux-next... > /tmp/changed.txt
+python3 scripts/ci/pr_ran_line.py --base-branch feat-cmux-next --changed-files /tmp/changed.txt
+```
+
+A workflow listed under "on every PR" should earn that: if it cannot fail for
+most diffs, give it a path filter, or route its jobs the way `cmux-next.yml`
+(`scripts/ci/cmux_next_route.py`) and `cmux-tui-spec.yml`
+(`scripts/ci/affected_jobs.py`) do. A workflow that produces a check required on
+the base branch must keep starting (`tests/test_ci_required_checks_have_no_path_filters.py`).
