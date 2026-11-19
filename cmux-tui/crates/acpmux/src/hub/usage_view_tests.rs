@@ -69,8 +69,8 @@ async fn a_pass_reads_the_chats_a_walk_of_every_session_reads() {
     let every: Vec<String> = hub.session_handles().iter().map(|s| s.id.clone()).collect();
     let gone = |sources: &[(String, Source)]| {
         let mut trackers: HashMap<String, ()> = every.iter().map(|id| (id.clone(), ())).collect();
-        let mut stats = trackers.clone();
-        let mut gone = prune_unlisted(&mut trackers, &mut stats, sources);
+        let stats: HashSet<String> = every.iter().cloned().collect();
+        let mut gone = prune_unlisted(&mut trackers, &stats, sources);
         gone.sort();
         gone
     };
@@ -105,7 +105,7 @@ async fn a_whole_pass_counts_the_chats_it_read() {
 fn stats_found(hub: &Hub, id: &str) {
     let stats: UsageStats =
         serde_json::from_value(json!({"autocompact": "unknown", "updatedAt": 1})).unwrap();
-    hub.usage_stats.stats.lock().unwrap().insert(id.to_owned(), stats);
+    hub.usage_stats.stats.lock().unwrap().insert_for_test(id, stats);
 }
 
 fn every_row_generation(hub: &Hub) -> u64 {
@@ -124,7 +124,7 @@ async fn a_chat_aged_out_between_passes_tells_its_own_row_only() {
     let session = hub.insert_test_session(chat);
     stats_found(&hub, "aging");
     hub.refresh_usage_stats().await;
-    assert!(hub.usage_stats.stats.lock().unwrap().contains_key("aging"), "read today: kept");
+    assert!(hub.usage_stats.stats.lock().unwrap().get("aging").is_some(), "read today: kept");
     assert_eq!(hub.usage_passes_for_test(), (1, 1));
 
     hub.edit_test_meta(&session, |m| m.updated_at = now - 2 * DAY_MS);
@@ -133,7 +133,7 @@ async fn a_chat_aged_out_between_passes_tells_its_own_row_only() {
     hub.usage_pass_due_for_test();
     hub.refresh_usage_stats().await;
     assert_eq!(hub.usage_passes_for_test(), (2, 0), "no chat to read");
-    assert!(!hub.usage_stats.stats.lock().unwrap().contains_key("aging"), "its stats went");
+    assert!(!hub.usage_stats.stats.lock().unwrap().get("aging").is_some(), "its stats went");
     assert!(session.summary_gen.load(Ordering::SeqCst) > own, "its own row was told");
     assert_eq!(every_row_generation(&hub), every, "no other closed row went stale");
     let told = hub.events.list_since(head).unwrap().rows;
@@ -151,7 +151,7 @@ async fn a_purged_chats_stats_make_every_closed_row_stale() {
     stats_found(&hub, "purged");
     let every = every_row_generation(&hub);
     hub.refresh_usage_stats().await;
-    assert!(!hub.usage_stats.stats.lock().unwrap().contains_key("purged"));
+    assert!(!hub.usage_stats.stats.lock().unwrap().get("purged").is_some());
     assert!(every_row_generation(&hub) > every, "every closed row went stale");
 }
 
@@ -211,4 +211,42 @@ async fn a_warm_usage_read_answers_before_its_slow_pass() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert_eq!(hub.usage_passes_for_test(), (2, 3), "the revalidation ran behind the read");
+}
+
+/// A chat's cached stats carry its tags: its turn's end and a change the chat index's file watch
+/// saw in its transcript each leave them stale, one write whatever is cached, and a stale entry
+/// is still what a row draws until the read behind it writes the new one.
+#[tokio::test]
+async fn a_chats_stats_go_stale_by_its_turn_and_its_transcript() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let chat = meta("c", "claude", Some("s1"), "idle", crate::store::now_ms());
+    hub.store.save(&chat).unwrap();
+    let session = hub.insert_test_session(chat);
+    let key = ChatKey { harness: AdapterKind::ClaudeCode, session_id: "s1".into() };
+    let other = ChatKey { harness: AdapterKind::ClaudeCode, session_id: "s2".into() };
+    let write = || {
+        let stats: UsageStats =
+            serde_json::from_value(json!({"autocompact": "unknown", "updatedAt": 1})).unwrap();
+        let tags = vec![UsageTag::Chat("c".into()), UsageTag::Transcript(key.clone())];
+        let mut cache = hub.usage_stats.stats();
+        let now = cache.cache.stamp();
+        cache.insert_at("c".into(), stats, tags, now);
+    };
+    let fresh = || hub.usage_stats.stats().fresh("c").is_some();
+    let kept = || hub.usage_stats.stats().get("c").is_some();
+    write();
+    assert!(fresh());
+
+    hub.usage_transcripts_changed(std::iter::once(&ChatChange::Removed { key: other }));
+    assert!(fresh(), "another chat's transcript leaves it fresh");
+    hub.usage_stats.dirty.store(false, Ordering::SeqCst);
+    hub.usage_transcripts_changed(std::iter::once(&ChatChange::Removed { key: key.clone() }));
+    assert!(!fresh() && kept(), "its transcript changed: stale, still served");
+    assert!(hub.usage_stats.dirty.load(Ordering::SeqCst), "the next read starts a pass");
+    assert!(hub.usage_stats_of(&session, &session.meta()).is_some(), "the row draws it");
+
+    write();
+    assert!(fresh(), "read again: fresh");
+    hub.refresh_usage_stats_of(&session);
+    assert!(!fresh() && kept(), "its turn ended: stale, still served");
 }
