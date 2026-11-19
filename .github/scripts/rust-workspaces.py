@@ -176,14 +176,22 @@ class Tree:
                     queue.append((dependency, ("dependencies", "build-dependencies")))
         return seen
 
-    def read_paths(self, directories: set[str]) -> set[str]:
+    def read_paths(self, directories: set[str], built_only: set[str] = frozenset()) -> set[str]:
         """Repository paths outside `directories`' own trees that their Rust sources read by literal path. A file
         inside a nested workspace below one of them is outside its own tree, so it counts (cmux#41767 review F2:
-        `include_str!("../tool/data.txt")` in solo read a file of the nested solo/tool workspace)."""
+        `include_str!("../tool/data.txt")` in solo read a file of the nested solo/tool workspace).
+
+        In `built_only` (the path dependencies, not the workspace's own packages) only what the workspace builds
+        counts: their tests/, benches/ and examples/ are built by their own workspace's `cargo test`, never by this
+        one's. cmux-action-catalog's tests join CARGO_MANIFEST_DIR with "../../.." (the repository root), which
+        read as a read of the whole tree and planned five workspaces that use it on every change."""
         found = set()
         for directory in directories:
             for source in self.sources:
                 if not self.owns(directory, source) or not (self.repo / source).is_file():
+                    continue
+                if directory in built_only and PurePosixPath(source).relative_to(directory).parts[0] in (
+                        "tests", "benches", "examples"):
                     continue
                 text = (self.repo / source).read_text(encoding="utf-8", errors="replace")
                 # A concat! prefix may stop inside a file name: watch its directory.
@@ -279,7 +287,8 @@ def plan(repo: Path, base: str) -> list[dict]:
             watched = reach | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, reach) if above}
             # Files named explicitly (read by literal path, or listed as inputs) count wherever they are, inside a
             # nested workspace too: no workspace boundary stops a file a source reads (cmux#41767 review F2).
-            explicit = tree.read_paths(reach) | set(entry.get("inputs", []))
+            explicit = tree.read_paths(reach, built_only=reach - tree.members(root) - {root}) \
+                | set(entry.get("inputs", []))
             if not any(tree.owns(directory, path) for path in paths for directory in watched) \
                     and not any(under(path, named) for path in paths for named in explicit):
                 continue
