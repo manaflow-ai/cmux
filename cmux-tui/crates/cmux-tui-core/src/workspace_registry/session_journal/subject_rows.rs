@@ -210,6 +210,8 @@ pub(crate) fn write_through(transaction: &Transaction<'_>, through: u64) -> anyh
         while let Some(row) = rows.next()? {
             let sequence = row.get::<_, i64>(0)?;
             let named = row.get::<_, String>(1)?;
+            #[cfg(test)]
+            ROWS_TAKEN_BY_WRITES.with(|rows| rows.set(rows.get() + 1));
             for (kind, id) in subjects_of(sequence, &named, &mut skips) {
                 written += write.execute(params![sequence, kind, id])?;
             }
@@ -357,6 +359,38 @@ enum Found {
     AfterTheMark(i64, Vec<(String, String)>),
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The journal rows after the mark that the reads of this thread took.
+    static ROWS_READ_AFTER_THE_MARK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// The journal rows that the writes of subject rows of this thread took.
+    static ROWS_TAKEN_BY_WRITES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// The stores that the rollback's checks of this thread opened for a
+    /// write.
+    static STORES_OPENED_FOR_A_WRITE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The stores that the rollback's checks of this thread opened for a write
+/// of subject rows ([`stored_number_for_a_rollback`]).
+#[cfg(test)]
+pub(crate) fn stores_opened_for_a_write() -> u64 {
+    STORES_OPENED_FOR_A_WRITE.with(std::cell::Cell::get)
+}
+
+/// The journal rows after the mark that the reads by subject of this thread
+/// took from the store and parsed.
+#[cfg(test)]
+pub(crate) fn rows_read_after_the_mark() -> u64 {
+    ROWS_READ_AFTER_THE_MARK.with(std::cell::Cell::get)
+}
+
+/// The journal rows whose subjects the writes of subject rows of this thread
+/// took from the store ([`write_through`]).
+#[cfg(test)]
+pub(crate) fn rows_taken_by_writes() -> u64 {
+    ROWS_TAKEN_BY_WRITES.with(std::cell::Cell::get)
+}
+
 /// The one read of the table: the rows of the table that `statement` asks
 /// for, and each journal row after the mark in its range with the subjects
 /// that the row names. `statement` is one SQL statement, so the table, the
@@ -381,6 +415,8 @@ fn read(
             let named = row.get::<_, Option<String>>(2)?;
             found(match (sequence, named) {
                 (Some(sequence), Some(named)) => {
+                    #[cfg(test)]
+                    ROWS_READ_AFTER_THE_MARK.with(|rows| rows.set(rows.get() + 1));
                     Found::AfterTheMark(sequence, subjects_of(sequence, &named, &mut skips))
                 }
                 (Some(sequence), None) => Found::Sequence(sequence),

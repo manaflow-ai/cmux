@@ -824,6 +824,14 @@ fn a_period_of_journal_rows_writes_its_subject_rows_one_time() {
         pages.iter().filter(of_subjects).count()
     };
     let subject_frames = in_subject_trees(&pages);
+    // The last row of the loop ends the period: its commit wrote the subject
+    // rows of the period, so the count is not 0 and the mark is at the head.
+    let (mark, head) = (store.file_state().0, store.head());
+    assert!(
+        subject_frames > 0 && mark == head,
+        "{PERIOD} journal rows to the end of a period wrote {subject_frames} frames in the \
+         subject table and its index, and the mark is {mark} with the journal's head at {head}"
+    );
     // The same count with a write after each journal row, as the write at
     // record time was: the next period's rows, each with the stop's write.
     let mut row_by_row = Vec::new();
@@ -1003,6 +1011,14 @@ fn a_crash_at_each_point_of_a_period_and_an_open_lose_no_subject_row() {
                 "after a journal row in a commit of its own: {}",
                 problem.unwrap_or_default()
             );
+            // The row that ends a period writes the subject rows, so the
+            // journal rows after the mark stay fewer than a period.
+            let (mark, after, _) = store.file_state();
+            assert!(
+                after < PERIOD,
+                "after a journal row in a commit of its own, {after} journal rows are after the \
+                 mark {mark}; a period has {PERIOD}"
+            );
         }
         let what = format!("a crash {rows} journal rows after the end of a period");
         let head = store.head();
@@ -1056,16 +1072,8 @@ fn the_rollback_check_reads_15_for_a_store_at_16_that_a_running_owner_has() {
     );
 }
 
-#[test]
-fn the_rollback_check_reads_16_for_a_store_at_16_whose_owner_ended_with_no_stop_step() {
-    let mut store = store_with_rows_due("rollback-not-owned");
-    drop(store.registry.take());
-    assert_eq!(
-        store.rollback_number(),
-        16,
-        "no owner runs: the store stays at 16 until a build that knows the rule opens it"
-    );
-}
+// The rows of a store at 16 that no owner has, and of the check while a
+// session starts and ends: `late_subject_rows/rollback_check.rs`.
 
 #[test]
 fn the_rollback_check_reads_a_number_above_16_as_it_is_with_a_running_owner() {
@@ -1074,59 +1082,6 @@ fn the_rollback_check_reads_a_number_above_16_as_it_is_with_a_running_owner() {
         open_registry_database_with_flags(&store.database(), OpenFlags::default()).unwrap();
     connection.execute("UPDATE meta SET value = '17' WHERE key = 'schema_version'", []).unwrap();
     assert_eq!(store.rollback_number(), 17);
-}
-
-/// The starts of the row below.
-const STARTS: usize = 100;
-
-/// The rollback's check asks if an owner runs by a try of the session's
-/// guard. A start tries that guard with no wait, so a try that it meets
-/// would fail it. The check runs in a loop on a thread of its own while the
-/// session starts and ends in a loop: no start fails.
-#[test]
-fn no_start_fails_while_the_rollback_check_asks_in_a_loop_if_an_owner_runs() {
-    use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
-
-    let mut store = store_with_rows_due("rollback-loop");
-    drop(store.registry.take());
-    let component = crate::workspace_registry::session_guard_component(SESSION);
-    let done = AtomicBool::new(false);
-    let (asked, owned, failed) = std::thread::scope(|scope| {
-        let check = scope.spawn(|| {
-            let (mut asked, mut owned) = (0_u64, 0_u64);
-            while !done.load(Relaxed) {
-                let runs = crate::workspace_registry::session_guard::session_owner_runs(
-                    &store.root,
-                    &component,
-                );
-                asked += 1;
-                owned += u64::from(runs == Some(true));
-            }
-            (asked, owned)
-        });
-        let mut failed = Vec::new();
-        for start in 0..STARTS {
-            match WorkspaceRegistry::open(&store.root, SESSION) {
-                Ok(registry) => drop(registry),
-                Err(error) => failed.push(format!("start {start}: {error:#}")),
-            }
-        }
-        done.store(true, Relaxed);
-        let (asked, owned) = check.join().unwrap();
-        (asked, owned, failed)
-    });
-    println!(
-        "late_subject_rows: {STARTS} starts of a session while the rollback's check asked \
-         {asked} times if an owner runs ({owned} answers `an owner runs`): {} starts failed",
-        failed.len()
-    );
-    assert!(
-        failed.is_empty(),
-        "{} of {STARTS} starts failed:\n{}",
-        failed.len(),
-        failed.join("\n")
-    );
-    assert!(asked > 0, "the check ran while the session started and ended");
 }
 
 /// The files of `dir` that are product code: no test file and no file of a
@@ -1188,3 +1143,6 @@ fn no_product_file_outside_the_one_module_names_the_subject_table() {
         found.join("\n")
     );
 }
+
+mod counted_rows;
+mod rollback_check;
