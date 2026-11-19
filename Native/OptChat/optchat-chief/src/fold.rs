@@ -137,6 +137,13 @@ pub struct TurnFold {
     /// steered into it too late (acpmux `carried_turn.rs`): each is folded
     /// as more of this turn.
     carries: usize,
+    /// The ended turn's `turn_result` named the turn Claude Code runs on
+    /// into (`carriedTo`), or the prompt's answer said so: its
+    /// `turn_started` follows, and the turn is not over until it does.
+    expect_carry: bool,
+    /// The `turn_result` that follows the last `turn_end` was read: it says
+    /// whether another carried turn follows.
+    result_after_end: bool,
     /// The last raw Claude Code line came from one of its own subagents
     /// (Task/Agent): it is not timed, and its result and usage are not the turn's.
     in_subagent: bool,
@@ -231,14 +238,24 @@ impl TurnFold {
             self.last_seq = event.seq;
         }
         let mut out = Vec::new();
-        // The turn's result names the turn Claude Code runs on into, with a
-        // message steered in after its last answer (`carriedTo`): the turn
-        // goes on in it, so that message is answered in this turn.
-        if event.dir == "mux"
-            && event.kind == "turn_result"
-            && event.msg.get("carriedTo").is_some_and(|c| !c.is_null())
-        {
-            self.resume_carried();
+        // After a `turn_end`: its `turn_result` says whether Claude Code runs
+        // on into a turn of its own with a message steered in after its last
+        // answer (`carriedTo`), and that turn's `turn_started` (`carried`,
+        // which acpmux always writes for it) resumes this fold, in event
+        // order, so its output is more of this turn.
+        if self.ended.is_some() && event.dir == "mux" {
+            match event.kind.as_str() {
+                "turn_result" => {
+                    self.result_after_end = true;
+                    if event.msg.get("carriedTo").is_some_and(|c| !c.is_null()) {
+                        self.expect_carry = true;
+                    }
+                }
+                "turn_started" if event.msg.get("carried").is_some_and(|c| !c.is_null()) => {
+                    self.resume_carried();
+                }
+                _ => {}
+            }
             return out;
         }
         if self.ended.is_some() {
@@ -382,6 +399,7 @@ impl TurnFold {
                         .and_then(stop_error)
                 };
                 self.ended = Some(Ended { error });
+                self.result_after_end = false;
             }
             _ => {}
         }
@@ -423,19 +441,41 @@ impl TurnFold {
         }
     }
 
-    /// Claude Code runs on into a turn of its own with messages steered in
-    /// after this turn's last answer (`_meta.claude.carried` on the prompt's
-    /// answer, `carriedTo` on its `turn_result`): fold that turn as more of
-    /// this one. The answer so far is kept and posted first. Only a clean
-    /// end goes on; once per end, whichever sign comes first.
-    pub fn resume_carried(&mut self) {
-        if self.ended.as_ref().is_some_and(|e| e.error.is_none()) {
-            if let Some(text) = self.last_talk.take() {
-                self.answered.push(text);
-            }
-            self.ended = None;
-            self.carries += 1;
+    /// The carried turn started: fold it as more of this one. The answer so
+    /// far is kept and posted first. A turn that ended in error goes on too
+    /// (the carried turn answers the message); its error is dropped.
+    fn resume_carried(&mut self) {
+        if let Some(text) = self.last_talk.take() {
+            self.answered.push(text);
         }
+        self.ended = None;
+        self.carries += 1;
+        self.expect_carry = false;
+        self.result_after_end = false;
+    }
+
+    /// The prompt's answer says Claude Code runs on into a carried turn
+    /// (`_meta.claude.carried`): wait for its `turn_started`, unless it came.
+    pub fn expect_carry(&mut self) {
+        if self.ended.is_some() && self.carries == 0 {
+            self.expect_carry = true;
+        }
+    }
+
+    /// Whether the turn is over: it ended, no carried turn is to start, and
+    /// after a carried turn its own `turn_result` was read (it may carry
+    /// again). `answered`: the prompt's answer came (it ends the first turn).
+    pub fn settled(&self, answered: bool) -> bool {
+        self.ended.is_some()
+            && answered
+            && !self.expect_carry
+            && (self.carries == 0 || self.result_after_end)
+    }
+
+    /// Whether a carried turn was announced and has not started (the turn
+    /// may still run in the session).
+    pub fn expects_carry(&self) -> bool {
+        self.expect_carry
     }
 
     /// How many carried turns this fold went on into.

@@ -855,7 +855,11 @@ pub fn run_with_drafts(
         // running tool is not at work, and nobody may ever answer.
         let idle_at = start
             .idle_limit
-            .filter(|_| (!fold.tool_running() || fold.awaits_permission()) && last_cancel.is_none())
+            .filter(|_| {
+                (!fold.tool_running() || fold.awaits_permission())
+                    && last_cancel.is_none()
+                    && fold.ended().is_none()
+            })
             .map(|limit| last_event + limit);
         if idle_at.is_some_and(|at| Instant::now() >= at) {
             answered = true;
@@ -955,10 +959,10 @@ pub fn run_with_drafts(
                 if let Err(e) = fetch(&mut fold) {
                     log(&format!("turn {}: {e}", start.key));
                 }
+                if fold.settled(answered) {
+                    break;
+                }
                 if fold.ended().is_some() {
-                    if answered {
-                        break;
-                    }
                     ended_at.get_or_insert_with(Instant::now);
                 } else {
                     ended_at = None;
@@ -968,20 +972,22 @@ pub fn run_with_drafts(
                 answered = true;
                 answer_failed = answer.is_err();
                 forced_end |= answer.as_ref().is_ok_and(acpmux_forced_end);
-                if answer.as_ref().is_ok_and(carried) && !interrupt.is_set() {
+                if answer.as_ref().is_ok_and(carried) {
                     // The prompt's answer came at the end of its first turn;
-                    // the carried turn sends none: its `turn_end` ends this.
+                    // the carried turn sends none: its own `turn_end` (and
+                    // `turn_result`) end this. Also under a stop: acpmux moves
+                    // the stop to the carried turn, which ends cancelled.
                     totals = answer.as_ref().ok().and_then(answer_usage);
                     cost = answer.as_ref().ok().and_then(answer_cost);
                     if let Err(e) = fetch(&mut fold) {
                         log(&format!("turn {}: {e}", start.key));
                     }
-                    // The answer is the prompt's first turn's: its
-                    // `turn_result` may have resumed the fold already.
-                    if fold.carries() == 0 {
-                        fold.resume_carried();
+                    fold.expect_carry();
+                    if fold.settled(answered) {
+                        break;
                     }
-                    ended_at = None;
+                    // Bounded: a carried turn that never starts or ends.
+                    ended_at = fold.ended().map(|_| Instant::now());
                     log(&format!(
                         "turn {}: Claude Code runs on with a message steered in late; following it",
                         start.key
@@ -1000,6 +1006,13 @@ pub fn run_with_drafts(
                 let error = answer.err().or_else(|| fetched.err()).or(stopped);
                 let seq = fold.seq();
                 append_at(fold.finish(error), seq);
+                break;
+            }
+            // The connection closed after the turn ended: as before, only
+            // its answer is missing.
+            TurnSignal::Lost if fold.settled(true) => {
+                answered = true;
+                answer_failed = true;
                 break;
             }
             TurnSignal::Lost => {
@@ -1086,6 +1099,7 @@ pub fn run_with_drafts(
     // a new Claude Code and wrote its whole input to the cache again.
     let resumable = cancelled && interrupt.keeps_session() && !forced_end;
     let kept = (start.keep
+        && !fold.expects_carry()
         && orphan.is_none()
         && moved.is_none()
         && (error.is_none() || resumable)

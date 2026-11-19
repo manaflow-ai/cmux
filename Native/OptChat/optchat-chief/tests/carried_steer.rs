@@ -71,10 +71,49 @@ fn the_turn_follows_a_carried_turn_named_by_its_turn_result_and_the_answer() {
 }
 
 #[test]
-fn the_turn_follows_a_carried_turn_named_by_the_answer_alone() {
+fn the_turn_follows_a_carried_turn_started_with_no_turn_result_read() {
     let h = run_carried(true, false);
     let all = posts(&h).join("\n---\n");
     assert!(all.contains("Corrected: 418."), "the carried answer: {all}");
+}
+
+#[test]
+fn the_turn_follows_a_carried_turn_that_carries_again() {
+    let mut h = Harness::new(default_script());
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.hold = true;
+        inner.answer = Some(json!({"stopReason": "end_turn",
+            "_meta": {"claude": {"carried": {"seq": 7, "promptIds": ["optchat-steer:x:1"]}}}}));
+    }
+    h.connect();
+    h.say("user_local", "what is 19 times 21?");
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        h.step();
+    }
+    let mut events = carried_events();
+    events.push(json!({"dir": "mux", "kind": "turn_result", "msg": {"status": "completed", "carriedTo": {"turnId": "t3"}}}));
+    events.push(
+        json!({"dir": "mux", "kind": "turn_started", "msg": {"carried": ["optchat-steer:x:2"]}}),
+    );
+    events.push(update(
+        "agent_message_chunk",
+        json!({"content": {"type": "text", "text": "And the ttl is 600."}}),
+    ));
+    events.push(json!({"dir": "mux", "kind": "turn_end", "msg": {}}));
+    events.push(json!({"dir": "mux", "kind": "turn_result", "msg": {"status": "completed"}}));
+    h.agents.append_events("s1", events);
+    h.agents.hold(false);
+    h.settle_posts();
+    let all = posts(&h).join("\n---\n");
+    assert!(
+        all.contains("Corrected: 418."),
+        "the first carried answer: {all}"
+    );
+    assert!(
+        all.contains("And the ttl is 600."),
+        "the second carried answer: {all}"
+    );
 }
 
 #[test]
