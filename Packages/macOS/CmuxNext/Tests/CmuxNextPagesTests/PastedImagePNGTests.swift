@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextPages
+import CmuxNextPagesTestSupport
 import CoreText
 import Foundation
 import ImageIO
@@ -53,15 +54,6 @@ struct PastedImagePNGTests {
         return out as Data
     }()
 
-    /// Whether this process reaches a pasteboard server: a fleet test step often does not, and there
-    /// every write fails and every read returns nil (as AttachmentSourceTests finds).
-    nonisolated static let hasPasteboard: Bool = {
-        let board = NSPasteboard(name: NSPasteboard.Name("cmux-pasted-png-probe-\(UUID().uuidString)"))
-        defer { board.releaseGlobally() }
-        board.clearContents()
-        return board.setString("probe", forType: .string) && board.string(forType: .string) == "probe"
-    }()
-
     private func board() -> NSPasteboard {
         NSPasteboard(name: NSPasteboard.Name("cmux-pasted-png-\(UUID().uuidString)"))
     }
@@ -82,7 +74,7 @@ struct PastedImagePNGTests {
         #expect(!converter.needsPNG(items: [["public.tiff", "com.apple.pasteboard.promised-file-url"]]))
     }
 
-    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    @Test(.enabled(if: TestPasteboard.isReachable, "needs a pasteboard server"))
     func thePasteboardKeepsEveryTypeAndGainsAPNGOfTheSamePicture() async throws {
         let board = board()
         defer { board.releaseGlobally() }
@@ -103,7 +95,7 @@ struct PastedImagePNGTests {
         #expect((image.width, image.height) == (3456, 2234))
     }
 
-    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    @Test(.enabled(if: TestPasteboard.isReachable, "needs a pasteboard server"))
     func aPasteboardThatChangedMeanwhileIsLeftAsItIs() async {
         let board = board()
         defer { board.releaseGlobally() }
@@ -148,7 +140,7 @@ struct PastedImagePNGTests {
     /// hold is measured and printed. It asserts on the resume, not on the milliseconds: a fixed
     /// wall-clock bound fails on a loaded runner and is refused by the test-determinism gate
     /// (assert-on-duration). Part one compares the encode with Chromium's on the same machine.
-    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    @Test(.enabled(if: TestPasteboard.isReachable, "needs a pasteboard server"))
     func aHeldPasteResumesWithItsPNG() async {
         let board = board()
         defer { board.releaseGlobally() }
@@ -169,7 +161,7 @@ struct PastedImagePNGTests {
         #expect(!heldAgain)
     }
 
-    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    @Test(.enabled(if: TestPasteboard.isReachable, "needs a pasteboard server"))
     func aSecondPasteDuringTheHoldWaitsForThePNGToo() async {
         let board = board()
         defer { board.releaseGlobally() }
@@ -195,7 +187,7 @@ struct PastedImagePNGTests {
 
     /// A conversion that takes longer than its deadline (the copying app is slow to hand over its
     /// picture) lets the paste go on without it, so no Cmd-V waits behind a hung app.
-    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    @Test(.enabled(if: TestPasteboard.isReachable, "needs a pasteboard server"))
     func aPastePastItsDeadlineGoesOnWithoutThePNG() async {
         let board = board()
         defer { board.releaseGlobally() }

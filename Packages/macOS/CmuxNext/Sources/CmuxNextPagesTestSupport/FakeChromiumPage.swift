@@ -57,6 +57,11 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var onCall: (() -> Void)?
     /// Answers a call by its method and params before the defaults (nil: the defaults answer).
     public var answer: ((_ method: String, _ params: [String: any Sendable]) -> String?)?
+    /// Whether a call waits for ``releaseHeldCalls()`` before it is answered (nil: no call waits). A test
+    /// keeps an answer back this way until it checked what the host shows before that answer; the call is
+    /// in ``calls`` while it waits.
+    public var holds: ((_ method: String, _ params: [String: any Sendable]) -> Bool)?
+    private var held: [CheckedContinuation<Void, Never>] = []
     /// Runs when the host closes the page.
     public var onClose: (() -> Void)?
     /// Runs after each ``load(_:)`` and ``reload()``, once it is recorded: a new document starts.
@@ -73,10 +78,21 @@ public final class FakeChromiumPage: PageChromiumPage {
     /// Makes a page with no calls yet.
     public init() {}
 
+    /// Lets each call that ``holds`` kept back go on to its answer.
+    public func releaseHeldCalls() {
+        let waiting = held
+        held = []
+        for call in waiting { call.resume() }
+    }
+
     /// Records the call and answers it: ``answer`` first, then the sender check, then an empty result.
+    /// A call that ``holds`` keeps back is answered after ``releaseHeldCalls()``.
     public func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
         calls.append((method, params))
         defer { onCall?() }
+        if holds?(method, params) == true {
+            await withCheckedContinuation { held.append($0) }
+        }
         if let answered = answer?(method, params) { return answered }
         if method == "Page.addScriptToEvaluateOnNewDocument" { return #"{"identifier":"test-script"}"# }
         if method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" {

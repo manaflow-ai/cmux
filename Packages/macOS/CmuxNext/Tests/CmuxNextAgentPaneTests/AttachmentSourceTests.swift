@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPagesTestSupport
 import CmuxNextTestSupport
 import Foundation
 import Testing
@@ -58,15 +59,6 @@ struct AttachmentSourceTests {
         #expect(AttachmentSource.source(bundleId: "com.gone.App", apps: Self.apps) == nil)
     }
 
-    /// Whether this process reaches a pasteboard server: a fleet test step often does not, and there
-    /// every write fails and every read returns nil (aws-m4pro-1 and -7, 2026-10-31).
-    nonisolated private static let hasPasteboard: Bool = {
-        let board = NSPasteboard(name: NSPasteboard.Name("cmux-source-probe-\(UUID().uuidString)"))
-        defer { board.releaseGlobally() }
-        board.clearContents()
-        return board.setString("probe", forType: .string) && board.string(forType: .string) == "probe"
-    }()
-
     /// A 4 x 4 red picture, as Screenshot Tab copies one.
     private static func picture() throws -> NSImage {
         let context = try #require(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
@@ -95,7 +87,7 @@ struct AttachmentSourceTests {
         #expect(!AttachmentSource.item(for: image, on: board, source: nil).types.contains(AttachmentSource.pasteboardSourceType))
     }
 
-    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server")) func cmuxClaimsWhatItCopies() {
+    @Test(.enabled(if: TestPasteboard.isReachable, "needs a pasteboard server")) func cmuxClaimsWhatItCopies() {
         let board = NSPasteboard(name: NSPasteboard.Name("cmux-source-\(UUID().uuidString)"))
         defer { board.releaseGlobally() }
         board.clearContents()
@@ -116,7 +108,7 @@ struct AttachmentSourceTests {
 
     /// Screenshot Tab's copy: a picture, written with cmux as its source, pastes as a picture and
     /// says cmux wrote it.
-    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    @Test(.enabled(if: TestPasteboard.isReachable, "needs a pasteboard server"))
     func aCopiedPictureStillPastesAsAPictureAndSaysItIsCmuxs() throws {
         let board = NSPasteboard(name: NSPasteboard.Name("cmux-source-\(UUID().uuidString)"))
         defer { board.releaseGlobally() }

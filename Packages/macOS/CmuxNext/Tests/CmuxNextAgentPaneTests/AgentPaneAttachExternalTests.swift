@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPagesTestSupport
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -165,17 +166,8 @@ struct AgentPaneAttachExternalTests {
         #expect(ran == 1 && model.whenClientReady == nil)
     }
 
-    /// Whether this process reaches a pasteboard server: a fleet test step often does not, and there
-    /// every write fails and every read returns nil (as `AttachmentSourceTests` finds).
-    nonisolated private static let hasPasteboard: Bool = {
-        let board = NSPasteboard(name: NSPasteboard.Name("cmux-external-probe-\(UUID().uuidString)"))
-        defer { board.releaseGlobally() }
-        board.clearContents()
-        return board.setString("probe", forType: .string) && board.string(forType: .string) == "probe"
-    }()
-
     /// Without image files the Service takes a picture's bytes, PNG first, else TIFF.
-    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server")) func theServiceReadsAPicturePNGFirst() throws {
+    @Test(.enabled(if: TestPasteboard.isReachable, "needs a pasteboard server")) func theServiceReadsAPicturePNGFirst() throws {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("external-image-data-\(UUID().uuidString)"))
         defer { pasteboard.releaseGlobally() }
         pasteboard.clearContents()

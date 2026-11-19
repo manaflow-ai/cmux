@@ -137,8 +137,16 @@ struct AgentPaneChromiumMoveTests {
             view.frame.size.width = 1400
             return nil
         }
-        var moves = 0
-        view.placeMovedChromiumPage { moves += 1 }
+        // The size wait at the new width gets no answer until the row looked. So only the old-width answer can show
+        // the page before the checks below, whenever the layout that is due runs: the row runs it, and AppKit can run
+        // it first (the row slept 200 ms here before, and a layout pass in that time made it fail).
+        page.holds = { method, params in
+            resized && method == "Runtime.evaluate" && (params["expression"] as? String)?.contains("innerWidth") == true
+        }
+        defer { page.releaseHeldCalls() }
+        // The count of size waits at each move of the page: its move out of view, then its move into view.
+        var waitsAtMove: [Int] = []
+        view.placeMovedChromiumPage { waitsAtMove.append(sizeWaits(page)) }
         let window = pane(NSSize(width: 1000, height: 700))
         defer { window.close() }
         window.contentView?.addSubview(view)
@@ -147,18 +155,25 @@ struct AgentPaneChromiumMoveTests {
         try #require(view.holdsPageAway)
 
         let deadline = Date().addingTimeInterval(5)
-        while !resized, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
-        try #require(resized, "the page never answered the first size wait")
-        try await Task.sleep(for: .milliseconds(200)) // let the fake's old-size answer return before the next layout
+        while sizeWaits(page) < 2, view.holdsPageAway, Date() < deadline {
+            if resized { view.layoutSubtreeIfNeeded() }
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(view.holdsPageAway, "the old-width frame revealed the page at the workspace's new width")
-        #expect(moves == 1, "the page moved into view before it drew at the new width")
-
+        #expect(waitsAtMove == [0], "the page moved into view before it drew at the new width")
+        let asked = page.calls.filter { $0.method == "Runtime.evaluate" }.compactMap { $0.params["expression"] as? String }
+            .filter { $0.contains("innerWidth") }
+        try #require(asked.count == 2, "the pane never asked for a frame at its new width")
+        #expect(asked[0] != asked[1], "the second size wait is for the same size as the first")
         view.layoutSubtreeIfNeeded()
         let final = pagePlace(view, in: view.bounds)
         #expect(view.pageContent.frame == AgentPaneView.awayFrame(of: final))
+
+        page.releaseHeldCalls()
         while view.holdsPageAway, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         #expect(sizeWaits(page) == 2)
         #expect(!view.holdsPageAway)
+        #expect(waitsAtMove == [0, 2], "the page moved into view before its frame at the new width")
         #expect(view.pageContent.frame == final)
     }
 

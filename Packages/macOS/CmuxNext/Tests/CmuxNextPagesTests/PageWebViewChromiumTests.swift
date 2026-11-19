@@ -362,7 +362,8 @@ extension PageWebViewChromiumTests {
     }
 
     /// Leo, 2026-11-09: "feel like this should have a copy link button". A right-click on a link in
-    /// the Chromium page offers Copy Link, as WebKit's page menu keeps it, and it copies the href.
+    /// the Chromium page offers Copy Link, as WebKit's page menu keeps it. Needs no pasteboard server:
+    /// what the item copies is ``copyLinkWritesTheHrefToThePasteboard()``.
     @Test func aRightClickOnALinkInTheChromiumPageOffersCopyLink() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
@@ -377,12 +378,19 @@ extension PageWebViewChromiumTests {
         await PageMenuCallout.drain { shown != nil }
         #expect(shown?.items.map(\.title) == [PageWebView.copyLinkTitle])
         #expect(shown?.items.first?.identifier?.rawValue == PageSelectionMenu.copyLinkItem)
+        view.close()
+    }
 
+    /// Copy Link writes the link's href as text. It reads a pasteboard back, so it runs only where the
+    /// test process reaches a pasteboard server (``TestPasteboard``).
+    @Test(.enabled(if: TestPasteboard.isReachable, "needs a pasteboard server"))
+    func copyLinkWritesTheHrefToThePasteboard() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let link = try #require(URL(string: "https://github.com/manaflow-ai/cmux/commit/50a4e17d"))
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.copyLink.\(UUID().uuidString)"))
         defer { pasteboard.releaseGlobally() }
         PageWebView.copyLink(link, to: pasteboard)
         #expect(pasteboard.string(forType: .string) == link.absoluteString)
-        view.close()
     }
 }
 
