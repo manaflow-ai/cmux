@@ -49,6 +49,12 @@ public struct WelcomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     /// The lockup's chevron grows with the wordmark (capped).
     @ScaledMetric(relativeTo: .title2) private var scaledLockupMark: CGFloat = 22
+    /// Prototype: which top section shows (`WelcomeHero.swift`), whether a
+    /// launch argument pinned it (no picker), and when a picker switch or
+    /// replay re-mounted it (its entrance plays from there).
+    @State private var hero: WelcomeHeroVariant
+    @State private var heroPinned: Bool
+    @State private var heroShownAt: Date?
 
     /// `playsLaunchIntro`: the welcome replaces the launch screen (cold launch);
     /// false after sign-out, where the root crossfades it in, settled.
@@ -62,6 +68,9 @@ public struct WelcomeView: View {
         if !playsLaunchIntro, clock.t == nil { clock.t = .infinity }
         _started = State(initialValue: clock.t != nil)
         _lockupMark = State(initialValue: clock.lockupMark)
+        let choice = WelcomeHeroVariant.launchChoice
+        _hero = State(initialValue: choice.variant)
+        _heroPinned = State(initialValue: choice.pinned)
     }
 
     private var lockupMarkSize: CGFloat { min(scaledLockupMark, 48) }
@@ -70,12 +79,13 @@ public struct WelcomeView: View {
     public var body: some View {
         TimelineView(.animation(paused: !animating)) { context in
             let t = WelcomeIntroClock.shared.time(at: context.date)
-            content(t: t, idle: idleTime(at: context.date))
+            content(t: t, idle: idleTime(at: context.date), date: context.date)
         }
         .sheet(isPresented: $showsEmail) {
             EmailSignInSheet(auth: auth, initialEmail: initialEmail)
         }
         .task(id: started) { await runClock() }
+        .task(id: heroShownAt) { await runHeroEntrance() }
         // Leaving Welcome (signed in) ends the intro; a later sign-out shows it settled.
         .onDisappear { WelcomeIntroClock.shared.t = .infinity }
         .cmuxMobileSensoryFeedback(.error, trigger: auth.errorMessage)
@@ -89,7 +99,7 @@ public struct WelcomeView: View {
         #endif
     }
 
-    private func content(t rawT: Double, idle: Double?) -> some View {
+    private func content(t rawT: Double, idle: Double?, date: Date) -> some View {
         typealias E = IntroEase
         // Reduce Motion: everything crossfades into its settled state.
         let fade = reduceMotion ? E.seg(rawT, 0, 0.35) : 1
@@ -101,47 +111,59 @@ public struct WelcomeView: View {
         let introStarted = (WelcomeIntroClock.shared.t ?? -1) >= 0
         let controls = !introStarted ? 0 : reduceMotion ? fade : 0.35 + 0.65 * E.out(E.seg(t, 0, 0.22))
         let large = dynamicTypeSize.isAccessibilitySize
+        // A picker switch or replay plays the new hero's entrance from that moment.
+        let heroT = reduceMotion ? .infinity : heroShownAt.map { date.timeIntervalSince($0) } ?? t
         return ZStack {
             theme.colors.bg.color.ignoresSafeArea()
             ViewThatFits(in: .vertical) {
                 // Fits: the hero centers in the space between the lockup and
                 // the buttons.
-                column(t: t, idle: idle, fade: fade, controls: controls, showsArt: !large, fills: true)
+                column(t: t, heroT: heroT, idle: idle, fade: fade, controls: controls, showsArt: !large, fills: true)
                 // Larger text: the same column, scrolling.
                 ScrollView {
-                    column(t: t, idle: idle, fade: fade, controls: controls, showsArt: false, fills: false)
+                    column(t: t, heroT: heroT, idle: idle, fade: fade, controls: controls, showsArt: false, fills: false)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
             launchMark(t: rawT)
+            #if DEBUG
+            if !heroPinned {
+                WelcomeHeroPicker(selection: $hero) { heroShownAt = .now }
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.top, 4)
+                    .onChange(of: hero) { heroShownAt = .now }
+            }
+            #endif
         }
     }
 
-    private func column(t: Double, idle: Double?, fade: Double, controls: Double, showsArt: Bool, fills: Bool) -> some View {
+    /// Keeps the timeline running while a re-mounted hero plays its entrance.
+    private func runHeroEntrance() async {
+        guard heroShownAt != nil else { return }
+        animating = true
+        try? await ContinuousClock().sleep(for: .seconds(hero == .now ? WelcomeArt.introDuration + 0.1 : 1.6))
+        guard !Task.isCancelled else { return }
+        if (WelcomeIntroClock.shared.t ?? 0) >= WelcomeArt.introDuration { animating = false }
+    }
+
+    private func column(t: Double, heroT: Double, idle: Double?, fade: Double, controls: Double, showsArt: Bool, fills: Bool) -> some View {
         VStack(spacing: 0) {
-            lockup(t: t)
-                .opacity(fade)
-                .padding(.top, 8)
-            if fills { Spacer(minLength: 24) }
-            VStack(spacing: 32) {
-                if showsArt {
-                    WelcomeArt(t: t, idle: reduceMotion ? nil : idle)
-                        .opacity(fade)
-                }
-                Text("Your Macs, in your pocket.")
-                    .font(theme.type.welcomeTitle)
-                    .foregroundStyle(theme.colors.label)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(showsArt ? 2 : nil)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, theme.metrics.sideMargin)
-                    .opacity(controls)
-                    .accessibilityAddTraits(.isHeader)
+            switch hero.lockup {
+            case .topCenter:
+                lockup(t: t).opacity(fade).padding(.top, 8)
+            case .topLeading:
+                lockup(t: t).opacity(fade).padding(.top, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, theme.metrics.sideMargin + 4)
+            case .inHero:
+                EmptyView()
             }
-            // Optical center: a little above the middle of the free space.
-            .offset(y: fills ? -16 : 0)
-            .padding(.vertical, fills ? 0 : 32)
-            if fills { Spacer(minLength: 72) }
+            if fills { Spacer(minLength: 24) }
+            heroSection(t: t, heroT: heroT, idle: idle, fade: fade, controls: controls, showsArt: showsArt)
+                // Optical center: a little above the middle of the free space.
+                .offset(y: fills && hero != .statement ? -16 : 0)
+                .padding(.vertical, fills ? 0 : 32)
+            if fills { Spacer(minLength: hero == .statement ? 40 : 72) }
             buttons
                 .opacity(controls)
                 .overlay(alignment: .top) { errorLine }
@@ -155,6 +177,40 @@ public struct WelcomeView: View {
         }
     }
 
+    /// The top section above the sign-in rows, per prototype variant.
+    @ViewBuilder
+    private func heroSection(t: Double, heroT: Double, idle: Double?, fade: Double, controls: Double, showsArt: Bool) -> some View {
+        switch hero {
+        case .now:
+            VStack(spacing: 32) {
+                if showsArt {
+                    WelcomeArt(t: heroT, idle: reduceMotion ? nil : idle)
+                        .opacity(fade)
+                }
+                Text("Your Macs, in your pocket.")
+                    .font(theme.type.welcomeTitle)
+                    .foregroundStyle(theme.colors.label)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(showsArt ? 2 : nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, theme.metrics.sideMargin)
+                    .opacity(controls)
+                    .accessibilityAddTraits(.isHeader)
+            }
+        case .terminal:
+            WelcomeHeroTerminal(t: heroT, showsArt: showsArt).opacity(fade)
+        case .statement:
+            WelcomeHeroStatement(t: heroT).opacity(fade)
+        case .mark:
+            WelcomeHeroMark(t: heroT, showsArt: showsArt) {
+                markSlot(size: showsArt ? 72 : lockupMarkSize)
+            }
+            .opacity(fade)
+        case .feed:
+            WelcomeHeroFeed(t: heroT, showsArt: showsArt).opacity(fade)
+        }
+    }
+
     // MARK: Lockup
 
     /// The chevron slot (drawn by `launchMark`) and the "cmux" wordmark.
@@ -162,14 +218,7 @@ public struct WelcomeView: View {
         typealias E = IntroEase
         let word = E.outQuint(E.seg(t, 0.15, 0.5))
         return HStack(spacing: 7) {
-            Color.clear
-                .frame(width: lockupMarkSize, height: lockupMarkSize)
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
-                    lockupMark = rect
-                    WelcomeIntroClock.shared.lockupMark = rect
-                    startIntroIfReady()
-                }
-                .onChange(of: scenePhase, initial: true) { _, _ in startIntroIfReady() }
+            markSlot(size: lockupMarkSize)
             Text(verbatim: "cmux")
                 .font(theme.type.welcomeWordmark)
                 .foregroundStyle(theme.colors.label)
@@ -178,6 +227,18 @@ public struct WelcomeView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: "cmux"))
+    }
+
+    /// Where the launch mark lands: measured, so the mark glides here.
+    private func markSlot(size: CGFloat) -> some View {
+        Color.clear
+            .frame(width: size, height: size)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                lockupMark = rect
+                WelcomeIntroClock.shared.lockupMark = rect
+                startIntroIfReady()
+            }
+            .onChange(of: scenePhase, initial: true) { _, _ in startIntroIfReady() }
     }
 
     /// The launch screen's mark (72 pt, centered, the app icon's gradient) on
