@@ -120,7 +120,7 @@ impl WireFake {
     /// `answer` is a wire value for a success, or an `{error: {...}}` object.
     pub fn answer(&mut self, op: &str, params: Value, key: Option<&str>, answer: Value) {
         let path = if key.is_some() { "/v1/ops" } else { "/v1/read" };
-        let body = match answer.get("error") {
+        let body = match answer.get("error").filter(|error| !error.is_null()) {
             Some(error) => json!({ "ok": false, "op": op, "error": error, "transaction": "",
                 "idempotency_key": key.unwrap_or_default(), "replayed": false, "stream": "", "sequence": 0 }),
             None if key.is_some() => {

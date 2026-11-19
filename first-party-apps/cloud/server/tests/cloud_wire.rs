@@ -24,8 +24,8 @@ fn listed() -> Server<WireFake> {
     s
 }
 
-fn lifecycle_observation(s: &mut Server<WireFake>, n: u32) {
-    let value = if let Some(machine) = s.projection().get(&vm(n)) {
+fn lifecycle_observation(s: &mut Server<WireFake>, id: &str) {
+    let value = if let Some(machine) = s.projection().get(id) {
         serde_json::to_value(machine).unwrap()
     } else {
         let vectors = wire_common::vectors();
@@ -38,11 +38,11 @@ fn lifecycle_observation(s: &mut Server<WireFake>, n: u32) {
             .as_array()
             .unwrap()
             .iter()
-            .find(|m| m["id"] == vm(n))
+            .find(|m| m["id"] == id)
             .unwrap()
             .clone()
     };
-    s.control_plane_mut().answer("cloud.machine.get", json!({"machine":vm(n)}), None, value);
+    s.control_plane_mut().answer("cloud.machine.get", json!({"machine":id}), None, value);
 }
 
 fn record(s: &Server<WireFake>, id: &str) -> Value {
@@ -170,7 +170,7 @@ fn an_indeterminate_create_is_retried_with_the_same_key() {
 #[test]
 fn a_delete_after_mutation_indeterminate_retries_with_the_same_key() {
     let mut s = listed();
-    lifecycle_observation(&mut s, 3);
+    lifecycle_observation(&mut s, &vm(3));
     let delete = mutation("cloud.machine.delete", json!({ "machine": vm(3) }), "key-delete-cut");
     let cut = err_json(s.handle(&delete));
     assert_eq!(cut["code"], "cmux.cloud.indeterminate", "{cut}");
@@ -192,7 +192,7 @@ fn a_delete_after_mutation_indeterminate_retries_with_the_same_key() {
 #[test]
 fn a_delete_retry_after_the_delete_answers_deleted() {
     let mut s = listed();
-    lifecycle_observation(&mut s, 2);
+    lifecycle_observation(&mut s, &vm(2));
     let first = mutation("cloud.machine.delete", json!({ "machine": vm(2) }), "key-delete-1");
     assert_eq!(s.handle(&first), Ok(json!({ "deleted": true })));
     assert_eq!(s.handle(&first), Ok(json!({ "deleted": true })), "same key");
@@ -250,7 +250,7 @@ fn quota_and_plan_errors_map_to_typed_cloud_errors() {
     assert_eq!(quota["upstream_code"], "cloud.quota.exceeded");
     assert_eq!(quota["details"]["plan"], "max", "the plan that lifts the limit");
 
-    lifecycle_observation(&mut s, 2);
+    lifecycle_observation(&mut s, &vm(2));
     let start = err_json(s.handle(&mutation(
         "cloud.machine.start",
         json!({ "machine": vm(2) }),
@@ -327,7 +327,7 @@ fn an_agent_principal_refusal_surfaces_as_forbidden() {
     assert_eq!(create["code"], "cmux.cloud.forbidden", "{create}");
     assert_eq!(create["upstream_code"], "auth.forbidden");
     s.control_plane_mut().agent = false;
-    lifecycle_observation(&mut s, 1);
+    lifecycle_observation(&mut s, &vm(1));
     s.control_plane_mut().agent = true;
     let delete = err_json(s.handle(&mutation(
         "cloud.machine.delete",
@@ -548,13 +548,26 @@ fn every_vector_op_the_server_serves_reaches_the_backend_by_its_wire_name() {
         if let Some(key) = case["idempotency_key"].as_str() {
             request = request.key(key);
         }
+        let lifecycle =
+            matches!(op, "cloud.machine.start" | "cloud.machine.pause" | "cloud.machine.delete");
+        if lifecycle {
+            let id = case["params"]["machine"].as_str().expect("lifecycle machine");
+            lifecycle_observation(&mut s, id);
+        }
         let out = s.handle(&request);
         let calls = &s.control_plane().calls;
-        assert_eq!(calls.len(), 1, "{}: one backend call, got {calls:?} ({out:?})", case["name"]);
-        assert_eq!(calls[0].op, op, "{}", case["name"]);
-        assert_eq!(calls[0].params, case["params"], "{}", case["name"]);
+        let expected_calls = if lifecycle { 2 } else { 1 };
         assert_eq!(
-            calls[0].idempotency_key.as_deref(),
+            calls.len(),
+            expected_calls,
+            "{}: backend calls, got {calls:?} ({out:?})",
+            case["name"]
+        );
+        let call = calls.last().expect("backend call");
+        assert_eq!(call.op, op, "{}", case["name"]);
+        assert_eq!(call.params, case["params"], "{}", case["name"]);
+        assert_eq!(
+            call.idempotency_key.as_deref(),
             case["idempotency_key"].as_str(),
             "{}",
             case["name"]
