@@ -35,7 +35,8 @@ export function lazyView<P extends object>(load: () => Promise<ComponentType<P>>
 export function preloadWhenIdle(views: readonly { preload: () => Promise<void> }[], timeout = 2000): () => void {
   let cancelled = false;
   let handle: number | undefined;
-  const idle = globalThis.requestIdleCallback;
+  // WebKit's pages lack requestIdleCallback though the DOM types declare it, so it may be undefined.
+  const idle = globalThis.requestIdleCallback as typeof globalThis.requestIdleCallback | undefined;
   const next = (index: number) => {
     if (cancelled || index >= views.length) return;
     const run = () => {

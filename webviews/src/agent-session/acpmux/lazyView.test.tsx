@@ -29,7 +29,8 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
-  if (root) await settleReact(() => root?.unmount());
+  if (root) act(() => root?.unmount());
+  await settleReact();
   root = undefined;
   dom?.window.close();
   dom = undefined;
