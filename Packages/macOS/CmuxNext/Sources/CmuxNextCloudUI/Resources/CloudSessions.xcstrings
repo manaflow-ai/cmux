@@ -190,6 +190,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Tài khoản hoặc nhóm Cloud của bạn đã thay đổi trong khi %2$@ đang khởi động trên %1$@, nên việc khởi động đã dừng. Chạy lại `%3$@` trong tài khoản bạn muốn."}}
       }
     },
+    "cloud.startSession.setupRequired": {
+      "comment": "cmux cloud start-session refused because no connection serves the agent in Cloud (the composer shows Set up Cloud). %1$@ is the agent (codex). %2$@ is the command to run again. Keep the command and the Settings button names as the app shows them.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Nothing on this Mac or your team serves %1$@ in Cloud yet, so no Cloud machine was started. Cloud chats use a connection from Settings > Cloud (Continue with ChatGPT, Set up Claude, or an API key); a Codex or Claude Code sign-in in your terminal serves chats on this Mac only. Connect one, then run `%2$@` again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Mac にもチームにも Cloud で %1$@ を使える接続がまだないため、Cloud マシンは起動しませんでした。Cloud のチャットは「設定 > Cloud」の接続(ChatGPT で続行、Claude を設定、または API キー)を使います。ターミナルでの Codex や Claude Code のサインインは、この Mac のチャットでのみ使われます。接続を追加してから、`%2$@` をもう一度実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Weder dieser Mac noch dein Team stellt %1$@ in Cloud bereit, daher wurde keine Cloud-Maschine gestartet. Cloud-Chats nutzen eine Verbindung aus Einstellungen > Cloud (Mit ChatGPT fortfahren, Claude einrichten oder ein API-Schlüssel); eine Codex- oder Claude-Code-Anmeldung im Terminal gilt nur für Chats auf diesem Mac. Verbinde eine und führe dann `%2$@` erneut aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ni ce Mac ni votre équipe ne fournit encore %1$@ dans Cloud, donc aucune machine Cloud n'a été démarrée. Les chats Cloud utilisent une connexion de Réglages > Cloud (Continuer avec ChatGPT, Configurer Claude ou une clé API) ; une connexion Codex ou Claude Code dans votre terminal ne sert que les chats sur ce Mac. Connectez-en une, puis relancez `%2$@`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ni este Mac ni tu equipo ofrecen %1$@ en Cloud todavía, así que no se inició ninguna máquina Cloud. Los chats de Cloud usan una conexión de Ajustes > Cloud (Continuar con ChatGPT, Configurar Claude o una clave de API); un inicio de sesión de Codex o Claude Code en tu terminal solo sirve para chats en este Mac. Conecta una y vuelve a ejecutar `%2$@`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا يوفّر هذا الـ Mac ولا فريقك %1$@ في Cloud بعد، لذلك لم تبدأ أي آلة Cloud. تستخدم محادثات Cloud اتصالًا من الإعدادات > Cloud (المتابعة باستخدام ChatGPT أو إعداد Claude أو مفتاح API)؛ وتسجيل الدخول إلى Codex أو Claude Code في الطرفية يخدم المحادثات على هذا الـ Mac فقط. أضف اتصالًا، ثم شغّل `%2$@` مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "이 Mac이나 팀에 Cloud에서 %1$@을(를) 제공하는 연결이 아직 없어 Cloud 머신을 시작하지 않았습니다. Cloud 채팅은 설정 > Cloud의 연결(ChatGPT로 계속, Claude 설정 또는 API 키)을 사용합니다. 터미널의 Codex 또는 Claude Code 로그인은 이 Mac의 채팅에서만 사용됩니다. 연결을 추가한 다음 `%2$@`을(를) 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "这台 Mac 和你的团队都还没有在 Cloud 中提供 %1$@ 的连接，因此没有启动 Cloud 机器。Cloud 聊天使用“设置 > Cloud”中的连接（使用 ChatGPT 继续、设置 Claude 或 API 密钥）；终端中的 Codex 或 Claude Code 登录只用于这台 Mac 上的聊天。添加一个连接后，再次运行 `%2$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "這台 Mac 和你的團隊都還沒有在 Cloud 中提供 %1$@ 的連線，因此沒有啟動 Cloud 機器。Cloud 聊天使用「設定 > Cloud」中的連線（使用 ChatGPT 繼續、設定 Claude 或 API 金鑰）；終端機中的 Codex 或 Claude Code 登入只用於這台 Mac 上的聊天。新增一個連線後，再次執行 `%2$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Ni ovaj Mac ni tvoj tim još ne pružaju %1$@ u Cloudu, pa nijedna Cloud mašina nije pokrenuta. Cloud chatovi koriste vezu iz Postavke > Cloud (Nastavi s ChatGPT-om, Postavi Claude ili API ključ); prijava u Codex ili Claude Code u terminalu služi samo chatovima na ovom Macu. Poveži jednu, pa ponovo pokreni `%2$@`."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hverken denne Mac eller dit team leverer %1$@ i Cloud endnu, så ingen Cloud-maskine blev startet. Cloud-chats bruger en forbindelse fra Indstillinger > Cloud (Fortsæt med ChatGPT, Konfigurer Claude eller en API-nøgle); et Codex- eller Claude Code-login i din terminal gælder kun chats på denne Mac. Opret en forbindelse, og kør derefter `%2$@` igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Né questo Mac né il tuo team forniscono ancora %1$@ in Cloud, quindi non è stata avviata nessuna macchina Cloud. Le chat Cloud usano una connessione da Impostazioni > Cloud (Continua con ChatGPT, Configura Claude o una chiave API); un accesso a Codex o Claude Code nel terminale serve solo le chat su questo Mac. Collegane una, poi esegui di nuovo `%2$@`."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "Mac នេះ និងក្រុមរបស់អ្នក មិនទាន់ផ្តល់ %1$@ នៅក្នុង Cloud នៅឡើយទេ ដូច្នេះគ្មានម៉ាស៊ីន Cloud ណាត្រូវបានចាប់ផ្តើមទេ។ ការជជែក Cloud ប្រើការតភ្ជាប់ពី ការកំណត់ > Cloud (បន្តជាមួយ ChatGPT, រៀបចំ Claude ឬសោ API); ការចូល Codex ឬ Claude Code នៅក្នុងទែមីណាល់ ប្រើសម្រាប់តែការជជែកនៅលើ Mac នេះប៉ុណ្ណោះ។ សូមតភ្ជាប់មួយ រួចដំណើរការ `%2$@` ម្តងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Verken denne Macen eller teamet ditt leverer %1$@ i Cloud ennå, så ingen Cloud-maskin ble startet. Cloud-chatter bruker en tilkobling fra Innstillinger > Cloud (Fortsett med ChatGPT, Konfigurer Claude eller en API-nøkkel); en Codex- eller Claude Code-pålogging i terminalen gjelder bare chatter på denne Macen. Koble til én, og kjør deretter `%2$@` på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Ani ten Mac, ani Twój zespół nie udostępnia jeszcze %1$@ w Cloud, więc nie uruchomiono żadnej maszyny Cloud. Czaty Cloud korzystają z połączenia z Ustawienia > Cloud (Kontynuuj z ChatGPT, Skonfiguruj Claude lub klucz API); logowanie do Codex lub Claude Code w terminalu obsługuje tylko czaty na tym Macu. Dodaj połączenie, a potem ponownie uruchom `%2$@`."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Nem este Mac nem sua equipe oferecem %1$@ no Cloud ainda, então nenhuma máquina Cloud foi iniciada. Chats do Cloud usam uma conexão de Ajustes > Cloud (Continuar com ChatGPT, Configurar Claude ou uma chave de API); um login do Codex ou do Claude Code no seu terminal atende apenas chats neste Mac. Conecte uma e execute `%2$@` novamente."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ни этот Mac, ни ваша команда пока не предоставляют %1$@ в Cloud, поэтому Cloud-машина не запущена. Чаты Cloud используют подключение из «Настройки > Cloud» (Продолжить с ChatGPT, Настроить Claude или ключ API); вход в Codex или Claude Code в терминале работает только для чатов на этом Mac. Добавьте подключение и снова выполните `%2$@`."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ทั้ง Mac นี้และทีมของคุณยังไม่มีการเชื่อมต่อที่ให้บริการ %1$@ ใน Cloud จึงไม่ได้เริ่มเครื่อง Cloud แชท Cloud ใช้การเชื่อมต่อจาก การตั้งค่า > Cloud (ดำเนินการต่อด้วย ChatGPT, ตั้งค่า Claude หรือคีย์ API) ส่วนการลงชื่อเข้าใช้ Codex หรือ Claude Code ในเทอร์มินัลใช้ได้กับแชทบน Mac นี้เท่านั้น เพิ่มการเชื่อมต่อแล้วเรียกใช้ `%2$@` อีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ne bu Mac ne de ekibiniz henüz Cloud'da %1$@ sunuyor, bu yüzden hiçbir Cloud makinesi başlatılmadı. Cloud sohbetleri Ayarlar > Cloud'daki bir bağlantıyı kullanır (ChatGPT ile devam et, Claude'u kur veya bir API anahtarı); terminalinizdeki Codex veya Claude Code oturumu yalnızca bu Mac'teki sohbetlere hizmet eder. Bir bağlantı ekleyin, ardından `%2$@` komutunu yeniden çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ні цей Mac, ні ваша команда ще не надають %1$@ у Cloud, тому Cloud-машину не запущено. Чати Cloud використовують підключення з «Налаштування > Cloud» (Продовжити з ChatGPT, Налаштувати Claude або ключ API); вхід у Codex або Claude Code у терміналі працює лише для чатів на цьому Mac. Додайте підключення й знову виконайте `%2$@`."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cả máy Mac này và nhóm của bạn đều chưa cung cấp %1$@ trong Cloud, nên không có máy Cloud nào được khởi động. Chat Cloud dùng một kết nối trong Cài đặt > Cloud (Tiếp tục với ChatGPT, Thiết lập Claude hoặc khóa API); đăng nhập Codex hoặc Claude Code trong terminal chỉ phục vụ chat trên máy Mac này. Hãy thêm một kết nối, rồi chạy lại `%2$@`."}}
+      }
+    },
     "cloud.startSession.needsMachine": {
       "comment": "cmux cloud start-session run by a script or agent without a machine. %1$@ is the agent (claude). Keep the commands as written.",
       "extractionState": "manual",
@@ -1106,6 +1133,60 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Không có lần khởi động đám mây %1$@ nào đang chờ trả lời: nó đã được trả lời, hết thời gian hoặc đã kết thúc. `cmux agents dialog list` hiển thị những gì vẫn đang chờ."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "没有等待回答的云端启动 %1$@：它已被回答、已超时或已结束。`cmux agents dialog list` 会显示仍在等待的项目。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "沒有等待回答的雲端啟動 %1$@：它已被回答、已逾時或已結束。`cmux agents dialog list` 會顯示仍在等待的項目。"}}
+      }
+    },
+    "cloud.startSession.sizeLocked": {
+      "comment": "Why a Cloud machine was not created (the reason inside createFailed): the folder needs a larger size than the plan. %1$@ size name (md, lg, xl), %2$@ vCPUs, %3$@ GB of memory, %4$@ plan name (Pro or Max, never translated).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يحتاج هذا المجلد إلى جهاز %1$@ (%2$@ vCPU، %3$@ GB ذاكرة)، وخطتك لا تتضمنه. رقِّ إلى cmux %4$@ لاستخدامه"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "ova mapa treba mašinu %1$@ (%2$@ vCPU, %3$@ GB memorije), koju vaš plan ne uključuje. Nadogradite na cmux %4$@ da je koristite"}},
+        "da": {"stringUnit": {"state": "translated", "value": "denne mappe kræver en %1$@-maskine (%2$@ vCPU, %3$@ GB hukommelse), som din plan ikke omfatter. Opgrader til cmux %4$@ for at bruge en"}},
+        "de": {"stringUnit": {"state": "translated", "value": "dieser Ordner braucht eine %1$@-Maschine (%2$@ vCPU, %3$@ GB Arbeitsspeicher), die dein Plan nicht enthält. Wechsle zu cmux %4$@, um eine zu nutzen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), which your plan doesn't include. Upgrade to cmux %4$@ to use one"}},
+        "es": {"stringUnit": {"state": "translated", "value": "esta carpeta necesita una máquina %1$@ (%2$@ vCPU, %3$@ GB de memoria), que tu plan no incluye. Pasa a cmux %4$@ para usarla"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "ce dossier nécessite une machine %1$@ (%2$@ vCPU, %3$@ Go de mémoire), que votre forfait n'inclut pas. Passez à cmux %4$@ pour l'utiliser"}},
+        "it": {"stringUnit": {"state": "translated", "value": "questa cartella richiede una macchina %1$@ (%2$@ vCPU, %3$@ GB di memoria), non inclusa nel tuo piano. Passa a cmux %4$@ per usarla"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このフォルダには %1$@ マシン（%2$@ vCPU、メモリ %3$@ GB）が必要ですが、ご利用のプランには含まれていません。使うには cmux %4$@ にアップグレードしてください"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ថតនេះត្រូវការម៉ាស៊ីន %1$@ (%2$@ vCPU, អង្គចងចាំ %3$@ GB) ដែលគម្រោងរបស់អ្នកមិនរួមបញ្ចូល។ ដំឡើងទៅ cmux %4$@ ដើម្បីប្រើវា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 폴더에는 %1$@ 머신(%2$@ vCPU, 메모리 %3$@ GB)이 필요하지만 현재 플랜에 포함되어 있지 않습니다. 사용하려면 cmux %4$@로 업그레이드하세요"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "denne mappen trenger en %1$@-maskin (%2$@ vCPU, %3$@ GB minne), som planen din ikke inkluderer. Oppgrader til cmux %4$@ for å bruke en"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "ten folder wymaga maszyny %1$@ (%2$@ vCPU, %3$@ GB pamięci), której Twój plan nie obejmuje. Przejdź na cmux %4$@, aby z niej korzystać"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "esta pasta precisa de uma máquina %1$@ (%2$@ vCPU, %3$@ GB de memória), que seu plano não inclui. Mude para o cmux %4$@ para usá-la"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "этой папке нужна машина %1$@ (%2$@ vCPU, %3$@ ГБ памяти), которой нет в вашем плане. Перейдите на cmux %4$@, чтобы её использовать"}},
+        "th": {"stringUnit": {"state": "translated", "value": "โฟลเดอร์นี้ต้องใช้เครื่อง %1$@ (%2$@ vCPU, หน่วยความจำ %3$@ GB) ซึ่งแพ็กเกจของคุณไม่รวมไว้ อัปเกรดเป็น cmux %4$@ เพื่อใช้งาน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "bu klasör %1$@ makine (%2$@ vCPU, %3$@ GB bellek) gerektiriyor ve planınız bunu içermiyor. Kullanmak için cmux %4$@ planına geçin"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "цій папці потрібна машина %1$@ (%2$@ vCPU, %3$@ ГБ пам'яті), якої немає у вашому плані. Перейдіть на cmux %4$@, щоб її використати"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "thư mục này cần máy %1$@ (%2$@ vCPU, %3$@ GB bộ nhớ), gói của bạn không bao gồm. Nâng cấp lên cmux %4$@ để dùng"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "此文件夹需要 %1$@ 机器（%2$@ vCPU，%3$@ GB 内存），你的方案不包含。升级到 cmux %4$@ 即可使用"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "此資料夾需要 %1$@ 機器（%2$@ vCPU，%3$@ GB 記憶體），你的方案不包含。升級至 cmux %4$@ 即可使用"}}
+      }
+    },
+    "cloud.startSession.sizeLockedNoUpgrade": {
+      "comment": "Why a Cloud machine was not created: the folder needs a larger size than any plan upgrade gives. %1$@ size name, %2$@ vCPUs, %3$@ GB of memory.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يحتاج هذا المجلد إلى جهاز %1$@ (%2$@ vCPU، %3$@ GB ذاكرة)، وهو أكبر مما تتضمنه خطتك"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "ova mapa treba mašinu %1$@ (%2$@ vCPU, %3$@ GB memorije), veću nego što vaš plan uključuje"}},
+        "da": {"stringUnit": {"state": "translated", "value": "denne mappe kræver en %1$@-maskine (%2$@ vCPU, %3$@ GB hukommelse), større end din plan omfatter"}},
+        "de": {"stringUnit": {"state": "translated", "value": "dieser Ordner braucht eine %1$@-Maschine (%2$@ vCPU, %3$@ GB Arbeitsspeicher), größer als dein Plan enthält"}},
+        "en": {"stringUnit": {"state": "translated", "value": "this folder needs a %1$@ machine (%2$@ vCPU, %3$@ GB memory), larger than your plan includes"}},
+        "es": {"stringUnit": {"state": "translated", "value": "esta carpeta necesita una máquina %1$@ (%2$@ vCPU, %3$@ GB de memoria), más grande de lo que incluye tu plan"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "ce dossier nécessite une machine %1$@ (%2$@ vCPU, %3$@ Go de mémoire), plus grande que ce qu'inclut votre forfait"}},
+        "it": {"stringUnit": {"state": "translated", "value": "questa cartella richiede una macchina %1$@ (%2$@ vCPU, %3$@ GB di memoria), più grande di quanto includa il tuo piano"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このフォルダには %1$@ マシン（%2$@ vCPU、メモリ %3$@ GB）が必要で、ご利用のプランの上限を超えています"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ថតនេះត្រូវការម៉ាស៊ីន %1$@ (%2$@ vCPU, អង្គចងចាំ %3$@ GB) ដែលធំជាងគម្រោងរបស់អ្នករួមបញ្ចូល"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 폴더에는 %1$@ 머신(%2$@ vCPU, 메모리 %3$@ GB)이 필요하며 현재 플랜이 포함하는 것보다 큽니다"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "denne mappen trenger en %1$@-maskin (%2$@ vCPU, %3$@ GB minne), større enn planen din inkluderer"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "ten folder wymaga maszyny %1$@ (%2$@ vCPU, %3$@ GB pamięci), większej niż obejmuje Twój plan"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "esta pasta precisa de uma máquina %1$@ (%2$@ vCPU, %3$@ GB de memória), maior do que seu plano inclui"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "этой папке нужна машина %1$@ (%2$@ vCPU, %3$@ ГБ памяти), больше, чем включает ваш план"}},
+        "th": {"stringUnit": {"state": "translated", "value": "โฟลเดอร์นี้ต้องใช้เครื่อง %1$@ (%2$@ vCPU, หน่วยความจำ %3$@ GB) ซึ่งใหญ่กว่าที่แพ็กเกจของคุณรวมไว้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "bu klasör, planınızın içerdiğinden büyük bir %1$@ makine (%2$@ vCPU, %3$@ GB bellek) gerektiriyor"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "цій папці потрібна машина %1$@ (%2$@ vCPU, %3$@ ГБ пам'яті), більша, ніж включає ваш план"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "thư mục này cần máy %1$@ (%2$@ vCPU, %3$@ GB bộ nhớ), lớn hơn mức gói của bạn bao gồm"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "此文件夹需要 %1$@ 机器（%2$@ vCPU，%3$@ GB 内存），超出你的方案所含"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "此資料夾需要 %1$@ 機器（%2$@ vCPU，%3$@ GB 記憶體），超出你的方案所含"}}
       }
     }
   },

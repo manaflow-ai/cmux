@@ -2,6 +2,7 @@
 //! sent (`_acpmux/attachment`, `hub/prompt_images.rs`).
 
 use super::*;
+use crate::hub::page_replies;
 
 pub(super) fn handle(
     hub: &Arc<Hub>,
@@ -67,6 +68,17 @@ pub(super) fn handle(
             "cursor_future: afterSeq {after} is beyond the last event {last}"
         )));
     }
+    // The same ask of an unchanged log is answered as it was (`hub/page_replies.rs`): an app
+    // asks for a chat's newest page again and again while nothing is appended.
+    let kept = (caller.is_none() && max_bytes.is_some_and(|b| b <= page_replies::MAX_PAGE_BYTES))
+        .then(|| hub.page_log_stamp(&s.id))
+        .flatten()
+        .map(|stamp| (page_replies::key(params), stamp));
+    if let Some((key, stamp)) = &kept
+        && let Some(reply) = hub.page_replies.get(&s.id, key, last, *stamp)
+    {
+        return Ok(reply);
+    }
     // beforeSeq pages backwards: the newest `limit` records before it.
     let page = hub
         .events_page(&s.id, after, before, limit, max_bytes, before.is_some(), &filter)
@@ -76,14 +88,24 @@ pub(super) fn handle(
     // own last record.
     let through = if before.is_none() && !page.has_more { last } else { newest_seq(&page.events) };
     hub.lane_report_events_read(caller, &s.id, &page.events);
-    Ok(json!({
+    // Kept only when the log neither grew nor changed while the page was read.
+    let keep = kept.filter(|(_, stamp)| {
+        page_replies::keepable(&page.events)
+            && s.meta().last_seq == last
+            && hub.page_log_stamp(&s.id) == Some(*stamp)
+    });
+    let reply = json!({
         "events": values(&s.id, page.events),
         "hasMore": page.has_more,
         "lastSeq": last,
         "pageThrough": through,
         // The session the page is of: a copy never joins another journal of the same id.
         "createdAt": created,
-    }))
+    });
+    if let Some((key, stamp)) = keep {
+        hub.page_replies.put(&s.id, key, last, stamp, reply.clone());
+    }
+    Ok(reply)
 }
 
 /// `toolOutputMaxBytes`: the most bytes a tool call record goes whole with (none: every one).

@@ -7,6 +7,16 @@
 	     profile and the token environment the backend sends to. -->
 	<key>aps-environment</key>
 	<string>production</string>
+	<!-- Time Sensitive notifications: a push that asks for an answer (an
+	     agent's question or approval) carries interruption-level
+	     time-sensitive (backend/apps/api push/apns.ts and home-push.ts,
+	     cmux-next-ios/backend push.ts) and the notification service extension
+	     sets .timeSensitive (ServicePush.swift). Without this key iOS delivers
+	     them as active and Focus holds them back. The App IDs have the
+	     capability (USERNOTIFICATIONS_TIMESENSITIVE: dev.cmux.app.internal per
+	     verify/deep-links.md, com.cmux.app from the classic app). -->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
 	<!-- Sign in with Apple (the first Welcome button). The Stack SDK uses the
 	     native ASAuthorizationController flow; the identity token's audience
 	     is this bundle id, which the production Stack project must accept. -->
