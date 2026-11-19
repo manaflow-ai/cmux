@@ -2,9 +2,10 @@
 //! the branch and makes a fresh worktree of it on the target (`run/session_move.rs`); this adds
 //! what the branch lacks, so the agent finds its folder there as it left it here.
 //!
-//! - [`snapshot`] reads the working tree against HEAD on the source: tracked changes, deletions
-//!   and untracked files that are not ignored, as one binary patch. It goes through a copy of
-//!   the index, so the person's index, working tree and refs never change (the seed's way,
+//! - [`snapshot`] reads the index against HEAD and then the working tree against that index:
+//!   tracked changes, deletions and untracked files that are not ignored are carried as binary
+//!   patches while staged and unstaged changes stay distinct. It goes through a copy of the index,
+//!   so the person's index, working tree and refs never change (the seed's way,
 //!   cmux-tui `link/seed/plan.rs`). Untracked files that likely hold secrets stay behind, by
 //!   the same rule a Cloud seed uses (`cmux_git::secrets`), and so do nested repositories.
 //! - [`APPLY_SCRIPT`] applies it on the target in the new worktree, only when that worktree is at
@@ -17,8 +18,8 @@
 //! VM or a mini on an older build still gives up its changes and takes them. On another machine
 //! a registry file (`.npmrc`, `.pypirc`) is not read for a token, so it stays there.
 //!
-//! The changes land unstaged on the target (what was staged here is not told apart), and the
-//! source keeps its own copy: the chat never runs here again, so nothing writes it.
+//! The target receives the staged patch in its index and the remaining patch in its working tree;
+//! the source keeps its own copy: the chat never runs here again, so nothing writes it.
 
 use crate::cli::hosts::RemoteOut;
 use anyhow::{Context as _, Result, anyhow, bail};
@@ -35,6 +36,8 @@ pub(crate) struct Carry {
     pub base: String,
     /// `git diff --binary` from `base` to the working tree; empty when nothing is carried.
     pub patch: Vec<u8>,
+    /// `git diff --cached --binary` from `base` to the source index.
+    pub staged_patch: Vec<u8>,
     /// The files the patch changes, adds or deletes.
     pub files: usize,
     /// Untracked files that stay on the source, each with why.
@@ -61,10 +64,11 @@ git -c core.fsmonitor=false ls-files -z --others --exclude-standard >"$s" || exi
 base64 <"$s" | tr -d '\n'
 echo"#;
 
-/// The fixed script that makes the patch: the top folder, the base commit and the untracked files
-/// to add (NUL-separated, base64) on three lines of stdin. Prints the number of files the patch
-/// touches, its size, then the whole patch in base64, whatever its size: a move never leaves work
-/// behind for being large. Exit 4: HEAD is no longer the base.
+/// The fixed script that makes the patches: the top folder, the base commit and the untracked
+/// files to add (NUL-separated, base64) on three lines of stdin. Prints the number of files the
+/// final patch touches, the staged and final patch sizes, then both patches in base64, whatever
+/// their size: a move never leaves work behind for being large. Exit 4: HEAD is no longer the
+/// base.
 const PATCH_SCRIPT: &str = r#"read -r top || exit 2; read -r base || exit 2; read -r keep
 cd -- "$top" || exit 2
 head=$(git rev-parse HEAD) || exit 3
@@ -84,6 +88,7 @@ else git read-tree HEAD || exit 3; fi
 # Every path is a file name, never pathspec magic: `:(glob)**` must not add the secrets left out.
 GIT_LITERAL_PATHSPECS=1; export GIT_LITERAL_PATHSPECS
 g() { git -c core.fsmonitor=false -c core.quotepath=false "$@"; }
+g diff --cached --binary --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base" >"$s/staged" || exit 3
 # `--sparse`: a sparse checkout's changes inside its cone carry like any other.
 g add --sparse --update -- . || exit 3
 if [ -n "$keep" ]; then
@@ -93,9 +98,12 @@ fi
 tree=$(g write-tree) || exit 3
 g diff --name-only -z --no-renames "$base" "$tree" >"$s/names" || exit 3
 tr -cd '\000' <"$s/names" | wc -c | tr -d ' '
+wc -c <"$s/staged" | tr -d ' '
 g diff --binary --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base" "$tree" >"$s/patch" || exit 3
 size=$(wc -c <"$s/patch" | tr -d ' ')
 echo "$size"
+base64 <"$s/staged" | tr -d '\n'
+echo
 base64 <"$s/patch" | tr -d '\n'
 echo"#;
 
@@ -154,14 +162,21 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
     }
     let mut lines = out.stdout.lines();
     let mut number = || lines.next().and_then(|l| l.trim().parse::<usize>().ok());
-    let (Some(files), Some(size)) = (number(), number()) else {
+    let (Some(files), Some(staged_size), Some(size)) = (number(), number(), number()) else {
         bail!("reading the uncommitted changes answered no counts");
     };
+    let staged_patch = decode(lines.next().unwrap_or_default()).context("the staged patch")?;
+    if staged_patch.len() != staged_size {
+        bail!(
+            "the staged changes came over cut short ({} of {staged_size} bytes)",
+            staged_patch.len()
+        );
+    }
     let patch = decode(lines.next().unwrap_or_default()).context("the patch")?;
     if patch.len() != size {
         bail!("the uncommitted changes came over cut short ({} of {size} bytes)", patch.len());
     }
-    Ok(Carry { base, patch, files, left_out })
+    Ok(Carry { base, patch, staged_patch, files, left_out })
 }
 
 /// Why an untracked file stays behind (`cmux_git::secrets`), or None when it goes.
@@ -177,20 +192,40 @@ fn leave_out(_top: &Path, _relative: &[u8]) -> Option<&'static str> {
     Some("untracked files are carried only from macOS and Linux")
 }
 
-/// The fixed script that applies a carried patch in the chat's new folder on the target: the
-/// folder and the base commit on the first two lines of stdin, the patch after them. Exit 4:
-/// the worktree there is not at the base.
-pub(crate) const APPLY_SCRIPT: &str = r#"read -r d || exit 2; read -r base || exit 2
+/// The fixed script that applies carried patches in the chat's new folder on the target: the
+/// folder, base commit, staged patch and final worktree patch are base64 lines on stdin. The
+/// staged patch updates only the index; the final patch updates only the worktree. Exit 4: the
+/// worktree there is not at the base.
+pub(crate) const APPLY_SCRIPT: &str = r#"read -r d || exit 2; read -r base || exit 2; read -r staged || exit 2; read -r patch || exit 2
 top=$(git -C "$d" rev-parse --show-toplevel) || exit 2
 head=$(git -C "$top" rev-parse HEAD) || exit 2
 if [ "$head" != "$base" ]; then echo "the new worktree is at $head, not $base" >&2; exit 4; fi
-git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn -"#;
+s=$(mktemp -d) || exit 2
+trap 'rm -rf -- "$s"' EXIT
+decode() { base64 -d 2>/dev/null || base64 -D; }
+printf '%s' "$staged" | decode >"$s/staged" || exit 2
+printf '%s' "$patch" | decode >"$s/patch" || exit 2
+if [ -s "$s/patch" ]; then
+  git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --check "$s/patch" || exit 5
+fi
+if [ -s "$s/staged" ]; then
+  git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --cached --check "$s/staged" || exit 5
+  git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --cached "$s/staged" || exit 5
+fi
+if [ -s "$s/patch" ]; then
+  if ! git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn "$s/patch"; then
+    if [ -s "$s/staged" ]; then
+      git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --cached --reverse "$s/staged" || exit 6
+    fi
+    exit 5
+  fi
+fi"#;
 
 /// [`APPLY_SCRIPT`]'s stdin for `carry` in `folder`.
 pub(crate) fn apply_input(folder: &str, carry: &Carry) -> Vec<u8> {
-    let mut input = format!("{folder}\n{}\n", carry.base).into_bytes();
-    input.extend_from_slice(&carry.patch);
-    input
+    let staged = base64::engine::general_purpose::STANDARD.encode(&carry.staged_patch);
+    let patch = base64::engine::general_purpose::STANDARD.encode(&carry.patch);
+    format!("{folder}\n{}\n{staged}\n{patch}\n", carry.base).into_bytes()
 }
 
 /// The base a carry was read against must be the commit the move pushed: one that moved on

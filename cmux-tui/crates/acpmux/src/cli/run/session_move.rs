@@ -496,7 +496,7 @@ async fn prepare(
         move || prepare_folder(&host, &folder)
     })
     .await??;
-    if let Some(carry) = carry.filter(|c| !c.patch.is_empty()) {
+    if let Some(carry) = carry.filter(|c| !c.patch.is_empty() || !c.staged_patch.is_empty()) {
         tokio::task::spawn_blocking({
             let (host, there) = (target.ssh.clone(), there.clone());
             move || apply_carry(&host, &there, &carry)

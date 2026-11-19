@@ -73,6 +73,9 @@ fn uncommitted_work_arrives_in_a_fresh_checkout_of_the_same_commit() {
     sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
     let out = apply(dst.path(), &carry);
     assert!(out.ok, "{}", out.stderr);
+    assert!(sh(dst.path(), "git diff --cached -- kept.txt").contains("+two"));
+    assert!(!sh(dst.path(), "git diff --cached -- kept.txt").contains("+three"));
+    assert!(sh(dst.path(), "git diff -- kept.txt").contains("+three"));
     let read = |d: &Path, f: &str| std::fs::read(d.join(f)).ok();
     for f in ["kept.txt", "bin.dat", "new/deep/file.rs", "with space é.md"] {
         assert_eq!(read(dst.path(), f), read(src.path(), f), "{f}");
@@ -102,12 +105,68 @@ fn a_worktree_at_another_commit_takes_nothing() {
 }
 
 #[test]
+fn a_failed_apply_leaves_the_target_safe_for_a_retry() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(
+        src.path(),
+        "printf 'two\\n' >> kept.txt && git add kept.txt && printf 'three\\n' >> kept.txt",
+    );
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    sh(dst.path(), "printf 'target-only\\n' > kept.txt");
+    let index_before = std::fs::read(dst.path().join(".git/index")).unwrap();
+    let out = apply(dst.path(), &carry);
+    assert!(!out.ok, "a conflicting target must refuse the apply");
+    assert_eq!(std::fs::read_to_string(dst.path().join("kept.txt")).unwrap(), "target-only\n");
+    assert_eq!(std::fs::read(dst.path().join(".git/index")).unwrap(), index_before);
+
+    sh(dst.path(), "git restore kept.txt");
+    let out = apply(dst.path(), &carry);
+    assert!(out.ok, "retry after restoring the target: {}", out.stderr);
+    assert!(sh(dst.path(), "git diff --cached -- kept.txt").contains("+two"));
+    assert!(sh(dst.path(), "git diff -- kept.txt").contains("+three"));
+}
+
+#[test]
 fn a_clean_checkout_carries_an_empty_patch() {
     let src = tempfile::tempdir().unwrap();
     repo(src.path());
     let carry = snapshot(&here, src.path(), true).unwrap();
     assert!(carry.patch.is_empty());
+    assert!(carry.staged_patch.is_empty());
     assert_eq!(carry.files, 0);
+}
+
+#[test]
+fn staged_only_work_arrives_staged() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(src.path(), "printf 'two\\n' >> kept.txt && git add kept.txt");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    assert!(!carry.staged_patch.is_empty());
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    let out = apply(dst.path(), &carry);
+    assert!(out.ok, "{}", out.stderr);
+    assert!(sh(dst.path(), "git diff --cached -- kept.txt").contains("+two"));
+    assert!(sh(dst.path(), "git diff --quiet && echo clean").contains("clean"));
+}
+
+#[test]
+fn unstaged_only_work_arrives_unstaged() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(src.path(), "printf 'two\\n' >> kept.txt");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    assert!(carry.staged_patch.is_empty());
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    let out = apply(dst.path(), &carry);
+    assert!(out.ok, "{}", out.stderr);
+    assert!(sh(dst.path(), "git diff --cached --quiet && echo clean").contains("clean"));
+    assert!(sh(dst.path(), "git diff -- kept.txt").contains("+two"));
 }
 
 #[test]
@@ -209,7 +268,13 @@ fn a_head_that_moves_between_the_two_reads_refuses() {
 
 #[test]
 fn a_base_that_moved_refuses() {
-    let carry = Carry { base: "a".repeat(40), patch: vec![], files: 0, left_out: vec![] };
+    let carry = Carry {
+        base: "a".repeat(40),
+        patch: vec![],
+        staged_patch: vec![],
+        files: 0,
+        left_out: vec![],
+    };
     assert!(check_base(&carry, &"a".repeat(40)).is_ok());
     assert!(check_base(&carry, &"b".repeat(40)).is_err());
 }
