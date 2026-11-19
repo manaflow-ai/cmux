@@ -39,11 +39,16 @@ main() {
   [[ -z "$base" || ( "$dmg" == build && "$base" =~ ^[0-9a-f]{40}$ ) ]] || { echo "base= takes a 40-hex commit, with dmg=build" >&2; exit 2; }
   echo "NFL host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
   if [[ "$dmg" == build ]]; then
+    # build_dmg resolves each side's acpmux with this copy: a base commit may predate resolve-acpmux.sh. Each side's
+    # Screen Sharing helper phase runs this copy too (NFL_SCREEN_HELPER_PHASE).
+    cp scripts/cmux-next/resolve-acpmux.sh "$out/resolve-acpmux.sh" && export NFL_RESOLVE_ACPMUX="$out/resolve-acpmux.sh"
+    cp scripts/cmux-next/bundle-screen-sharing-helper.sh "$out/bundle-screen-sharing-helper.sh" \
+      && export NFL_SCREEN_HELPER_PHASE="$out/bundle-screen-sharing-helper.sh"
     build_ab "$out" "$rounds" "$arms" "$base" "$config"
     return $?
   fi
   if [[ "$dmg" == nightly ]]; then
-    dmg="$(curl -fsSL --proto '=https' --retry 3 -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
+    dmg="$(curl -fsSL --proto '=https' --retry 3 --retry-all-errors -H "Cache-Control: no-cache" https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
       | grep -oE 'url="https://[^"]+-macos-arm64-[0-9]+\.dmg"' | head -1 | cut -d'"' -f2)"
   fi
   [[ "$dmg" == https://* ]] || { echo "NFL no nightly DMG in the feed"; exit 3; }
@@ -75,8 +80,34 @@ build_dmg() {
     fi
     ./scripts/download-prebuilt-ghosttykit.sh >>"$out/build-$name.log" 2>&1 || { echo "NFL GhosttyKit download failed" >&2; return 3; }
   fi
+  # acpmux before reload.sh, for this commit's tree: a fleet measurement Mac never runs Cargo, and an older commit's
+  # reload.sh stops on a cache miss ("no cached acpmux for this checkout"). The copy taken before any checkout
+  # (NFL_RESOLVE_ACPMUX) also resolves a base commit that predates resolve-acpmux.sh; reload.sh takes the path as given.
+  # One Mac's launch: the app and its acpmux for this Mac's architecture, as a fleet measurement step's reload.sh
+  # already builds it, also when this runs outside one (the published acpmux is arm64 only).
+  export CMUX_RELOAD_NATIVE_ARCH="${CMUX_RELOAD_NATIVE_ARCH:-1}"
+  local resolve="${NFL_RESOLVE_ACPMUX:-$PWD/scripts/cmux-next/resolve-acpmux.sh}" acpmux=() arch=()
+  [[ "$CMUX_RELOAD_NATIVE_ARCH" == 1 && -z "${CMUX_NEXT_ACPMUX_ARCHS:-}" ]] \
+    && arch=(CMUX_NEXT_ACPMUX_ARCHS="$([[ "$(sysctl -n hw.optional.arm64 2>/dev/null)" == 1 ]] && echo arm64 || uname -m)")
+  if [[ -z "${CMUX_NEXT_ACPMUX_BIN:-}" && -x "$resolve" ]]; then
+    local bin
+    bin="$(env ${arch[@]+"${arch[@]}"} "$resolve" --repo "$PWD" 2>>"$out/build-$name.log")" \
+      || { echo "NFL acpmux for $name: none (build-$name.log)" >&2; return 3; }
+    acpmux=(CMUX_NEXT_ACPMUX_BIN="$bin")
+    echo "NFL acpmux $name $bin"
+  fi
+  # The Screen Sharing helper phase from the copy taken before any checkout (NFL_SCREEN_HELPER_PHASE), on a commit
+  # that has the phase: one from before #45226 named the helper "File Doesn't Exist, Will Create: ..." when this
+  # DerivedData's second build found no Info.plist, and the head build failed (launch-ready A/Bs, 2026-11-17). The
+  # commit's own copy is back before the next checkout.
+  local phase=scripts/cmux-next/bundle-screen-sharing-helper.sh overlaid=0
+  if [[ -n "${NFL_SCREEN_HELPER_PHASE:-}" && -f "$NFL_SCREEN_HELPER_PHASE" && -f "$phase" ]] \
+    && ! cmp -s "$NFL_SCREEN_HELPER_PHASE" "$phase"; then
+    cp "$NFL_SCREEN_HELPER_PHASE" "$phase" && overlaid=1 && echo "NFL $name builds with this checkout's $phase"
+  fi
   local started=$SECONDS
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag nflab --no-global-cli-links "${configuration[@]}" >>"$out/build-$name.log" 2>&1
+  env ${acpmux[@]+"${acpmux[@]}"} CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag nflab --no-global-cli-links "${configuration[@]}" >>"$out/build-$name.log" 2>&1
+  [[ "$overlaid" == 0 ]] || git checkout --quiet -- "$phase"
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/build-$name.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "NFL build $name failed: no app path" >&2
@@ -95,7 +126,10 @@ build_ab() {
   if [[ -n "$base" ]]; then
     local depth=()
     [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth=1) # a full clone stays full
-    git cat-file -e "$base^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$base" || { echo "NFL cannot fetch base $base" >&2; exit 3; }
+    # A fleet step's warm checkout comes from the fleet mirror and has no `origin` remote: fetch from the repository's URL.
+    git cat-file -e "$base^{commit}" 2>/dev/null \
+      || git fetch --quiet ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$base" \
+      || { echo "NFL cannot fetch base $base" >&2; exit 3; }
     git -c advice.detachedHead=false checkout --quiet --detach "$base" || exit 3
     build_dmg "$out" base "$config"; rc=$?
     git -c advice.detachedHead=false checkout --quiet --detach "$head" || exit 3

@@ -133,17 +133,54 @@ pub(super) fn pull_kept(
     keep_new: &dyn Fn(&str) -> bool,
     links_ok: bool,
 ) -> anyhow::Result<Pulled> {
+    pull_based(socket, local, remote_root, keep_new, links_ok, None)
+}
+
+/// A pull into a folder this Mac never pushed (Transfer to This Mac,
+/// `cmux link seed fetch`): `fresh` is the base, standing for "nothing was
+/// pushed" (no files; in git, this Mac's empty repository on the machine's
+/// branch), never the machine's record. Only a new, empty folder may take
+/// it: every file the machine has is new here, so nothing of this Mac's is
+/// overwritten. With `adopt` (the chat moves here) the records are kept on
+/// both sides, so the move's last pull and a later Bring Back build on this
+/// one; without it (a copy, the chat stays) nothing on the machine changes
+/// and its record stays the one its own pusher's pulls trust.
+pub(super) fn pull_fresh(
+    socket: &Path,
+    local: &Path,
+    remote_root: &str,
+    keep_new: &dyn Fn(&str) -> bool,
+    fresh: Manifest,
+    adopt: bool,
+) -> anyhow::Result<Pulled> {
+    pull_based(socket, local, remote_root, keep_new, true, Some((fresh, adopt)))
+}
+
+fn pull_based(
+    socket: &Path,
+    local: &Path,
+    remote_root: &str,
+    keep_new: &dyn Fn(&str) -> bool,
+    links_ok: bool,
+    fresh: Option<(Manifest, bool)>,
+) -> anyhow::Result<Pulled> {
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
     if !std::fs::metadata(&local)?.is_dir() {
         bail!("{} is not a folder", local.display());
     }
     let git = GitDirs::of(&local)?;
-    let manifest_name = if git.is_some() { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
     let mut remote = Remote::connect(socket)?;
-    let manifest_path = format!("{remote_root}/{manifest_name}");
-    let record = remote.read(&manifest_path)?;
-    let manifest = base::trusted(&local, remote_root, record.as_deref())?;
+    // A fresh base (Transfer to This Mac, seed fetch) stands for "nothing was pushed"; otherwise the
+    // machine's record, the plain one included for a git folder's first pass past the copy's limits.
+    let keeps_record = fresh.as_ref().is_none_or(|(_, adopt)| *adopt);
+    let (manifest_path, manifest, plain_in_git) = match fresh {
+        Some((fresh, _)) => {
+            let name = if git.is_some() { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
+            (format!("{remote_root}/{name}"), fresh, false)
+        }
+        None => base::machine_record(&mut remote, &local, remote_root, git.is_some())?,
+    };
     let staging = Staging::make(git.as_ref().map_or(&local, |dirs| &dirs.own))?;
     let root = Dir::open(&local)?;
 
@@ -341,7 +378,7 @@ pub(super) fn pull_kept(
 
     let mut git_plan: Option<GitPlan> = None;
     let mut reasons = Vec::new();
-    if let Some(dirs) = &git {
+    if let Some(dirs) = git.as_ref().filter(|_| !plain_in_git) {
         let at = git_back::Where { folder: &local, common_dir: &dirs.common, staging: &staging.0 };
         match git_back::plan(&mut remote, remote_root, &at, &manifest, &hooks)? {
             Ok(plan) => git_plan = plan,
@@ -470,10 +507,11 @@ pub(super) fn pull_kept(
     // The next base, on the machine and here: a pull that ran again finds
     // nothing new. This Mac's copy moves only once the machine's did, so
     // the two stay equal when the machine's write fails.
-    let saved = serde_json::to_vec(&next)
-        .ok()
-        .and_then(|manifest| remote.write(&manifest_path, &mut manifest.as_slice(), 0o600).ok())
-        .is_some()
+    let saved = keeps_record
+        && serde_json::to_vec(&next)
+            .ok()
+            .and_then(|manifest| remote.write(&manifest_path, &mut manifest.as_slice(), 0o600).ok())
+            .is_some()
         && base::save(&local, remote_root, &next).is_ok();
     Ok(Pulled::Done(json!({
         "ok": true,

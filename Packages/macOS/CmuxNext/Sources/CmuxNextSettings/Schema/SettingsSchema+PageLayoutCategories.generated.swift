@@ -7,7 +7,7 @@ extension SettingsPageLayout {
         SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
         SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [personalizationCategory, appearanceCategory, sidebarCategory, tabsCategory, newTabCategory]),
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
-        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory]),
+        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, computerUseCategory, mcpServersCategory, modelsCategory, cloudCategory, chiefCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
         SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, keysCategory, mobileCategory, devicesCategory]),
         SidebarSection(id: "system", title: SettingsText.keyed("settings.sidebarSection.system", "Data and System"), categories: [importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory]),
@@ -49,7 +49,7 @@ extension SettingsPageLayout {
         groups: [
             GroupSpec(group: "settings.group.appTheme"),
         ],
-        lead: [.personalization], legacyIDs: ["theme"]
+        lead: [.personalization], trail: [.customizeLibrary], legacyIDs: ["theme"]
     )
 
     /// Change Background… lands here: the art picker draws appearance.background and appearance.backgroundOpacity (search still shows them as rows). The density card draws appearance.density, .customDensity and .customDensities.
@@ -173,12 +173,11 @@ extension SettingsPageLayout {
         ]
     )
 
-    /// Computer Use (#28997) comes first among the trailing cards: its card draws the on/off switch, the guided setup and the helper's grants together, and the `settings.group.computerUse` rows (the page does not draw that group a second time). Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and removes the ones you added. Agent integrations (optional help, collapsed) installs the hooks that report an agent's state, through `cmux agent hook`.
+    /// Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and removes the ones you added. Agent integrations (optional help, collapsed) installs the hooks that report an agent's state, through `cmux agent hook`. Computer Use has its own category (below).
     private static let agentsCategory = CategorySpec(
         id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
         groups: [
             GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"], title: SettingsText.keyed("settings.pageGroup.agentDefaults", "Defaults")),
-            GroupSpec(group: "settings.group.computerUse"),
             GroupSpec(group: "settings.group.cmuxRemote"),
             // The free AI model while signed out (cx-ds09i).
             GroupSpec(group: "settings.group.freeModel"),
@@ -194,8 +193,45 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.agentCache"),
             // Folders that start an agent without the trust question.
             GroupSpec(group: "settings.group.folderTrust"),
+            // Whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP server, Computer Use included (the onboarding step's question); the agentTools card under it lists the agents with Turn On.
+            GroupSpec(group: "settings.group.agentTools"),
         ],
-        trail: [.computerUse, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
+        trail: [.agentTools, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
+    )
+
+    /// Every Computer Use setting on one page (Aziz 2026-11-05: "all CU settings in their own Settings tab"): the Computer Use card draws the status (engine, permissions, worker), the mode, the denied apps, the saved approvals and the switches from the `settings.group.computerUse` rows; the page does not draw that group a second time.
+    private static let computerUseCategory = CategorySpec(
+        id: "computerUse", title: SettingsText.keyed("settings.category.computerUse", "Computer Use"), symbol: "cursorarrow.click.2",
+        groups: [
+            GroupSpec(group: "settings.group.computerUse"),
+        ],
+        lead: [.computerUse]
+    )
+
+    /// The services agents use for the person (Linear, Slack, GitHub...), who has each one, and its sign-in (user 2026-11-18 via Chief: an MCP Servers page with list, sign in and remove).
+    private static let mcpServersCategory = CategorySpec(
+        id: "mcpServers", title: SettingsText.keyed("settings.category.mcpServers", "MCP Servers"), symbol: "server.rack",
+        groups: [
+            // Whether new agent chats get the saved servers (agents.mcpServers.enabled).
+            GroupSpec(group: "settings.group.mcpServers"),
+        ],
+        lead: [.mcpServers]
+    )
+
+    /// Which subscription or key each Cloud thread runs on: the person's own connections in order, the organization's after them, and what members may do (cmux-tui/docs/model-connections.md). cmux://settings/models/add opens it with Add a Connection (focus=models.add).
+    private static let modelsCategory = CategorySpec(
+        id: "models", title: SettingsText.keyed("settings.category.models", "Models"), symbol: "cpu",
+        groups: [],
+        lead: [.models]
+    )
+
+    /// Everything Cloud chats need in one place (owner, 2026-11-12: "we should have this setup stuff in CLOUD in the settings"): Models for Cloud says plainly whether Claude, ChatGPT and an API key are set up for Cloud and opens the same setup steps as Settings > Models; then the team's Cloud Environments and the Cloud Workspaces rows (both moved here from Accounts). cmux://settings/cloud opens it; the Set up Cloud card opens it on the row it needs (focus=cloud.claude, cloud.chatgpt, cloud.apiKey).
+    private static let cloudCategory = CategorySpec(
+        id: "cloud", title: SettingsText.keyed("settings.category.cloud", "Cloud"), symbol: "cloud",
+        groups: [
+            GroupSpec(group: "settings.group.cloudWorkspaces"),
+        ],
+        lead: [.cloudModels, .cloudEnvironments]
     )
 
     /// Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets) draws the preview, Show/Hide and the characters from its group's two rows; then the chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings. Notices last: a row that opens Notifications (the Chief's notices are the app's notifications; their rows keep their one home there).
@@ -257,9 +293,8 @@ extension SettingsPageLayout {
         groups: [
             GroupSpec(group: "settings.group.messagesServer"),
             GroupSpec(group: "settings.group.machineColors"),
-            GroupSpec(group: "settings.group.cloudWorkspaces"),
         ],
-        lead: [.accounts, .machines, .cloudEnvironments], actions: [.accounts, .machines], aliases: [.accounts, .machines]
+        lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]
     )
 
     /// Keys agents store and use without seeing them (Leo 2026-11-15: "letting agents safely write keys and store them"), and the requests waiting for the person.

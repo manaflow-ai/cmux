@@ -8,7 +8,8 @@ import Testing
 /// host answered where the paste's files are. Both took the gesture's one grant, so whichever came
 /// second was refused: the send ("Not sent: it needs your own key press or click.") or, once the
 /// send bound first, the upload, and a PDF or a video (no preview to fall back on) kept the send
-/// waiting for good. A gesture now gives an upload credit of its own beside the grant.
+/// waiting for good. A gesture then gave an upload credit of its own beside the grant; now neither
+/// the send nor the upload needs one (Leo, 2026-11-17: "go remove this").
 @MainActor
 struct AgentPaneUploadSendGestureTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -61,14 +62,15 @@ struct AgentPaneUploadSendGestureTests {
         #expect(begun() == 1)
     }
 
-    /// The upload credit is the gesture's: one batch per key press or click, and none without one.
-    @Test func noGestureNoUploadAndOneBatchPerGesture() async throws {
+    /// An upload needs no key press or click (Leo, 2026-11-17: "go remove this"): a batch begins
+    /// with no gesture, and a second after the gesture's credit is spent.
+    @Test func anUploadBeginsWithNoGestureAndAfterTheCreditIsSpent() async throws {
         let (model, begun) = pane()
-        #expect(!(await begins(model, "script.pdf")))
+        #expect(await begins(model, "script.pdf"))
         try enterBindsSend(model)
         #expect(await begins(model, "first.pdf"))
-        #expect(!(await begins(model, "second.pdf")))
-        #expect(begun() == 1)
+        #expect(await begins(model, "second.pdf"))
+        #expect(begun() == 3)
     }
 
     /// The upload spends only its own credit: the send's grant is still there after it.

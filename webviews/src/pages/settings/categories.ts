@@ -18,6 +18,7 @@ export const CATEGORY_CARDS = [
   "accounts",
   "agentHarnesses",
   "agentIntegrations",
+  "agentTools",
   "chiefs",
   "advancedInfo",
   "advancedActions",
@@ -34,12 +35,16 @@ export const CATEGORY_CARDS = [
   "notices",
   "server",
   "cloudEnvironments",
+  "cloudModels",
   "worktreeSetup",
   "contextMenus",
   "personalization",
   "sharedLinks",
+  "customizeLibrary",
   "tailnet",
+  "models",
   "keys",
+  "mcpServers",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */

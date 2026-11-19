@@ -5,6 +5,8 @@ use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
+use crate::entry::ChatEntry;
+
 /// Identity and size of a store file at one moment.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -128,12 +130,29 @@ pub struct FileState {
     /// Print of the folded head; None (an older cache) reads from byte 0.
     #[serde(default)]
     pub head: Option<HeadPrint>,
+    /// What the adapter made of the file at `stamp`, so a scan that finds the file unchanged
+    /// takes this instead of opening it. None: an older cache, or a format whose read depends
+    /// on more than the file (`adapters::read_inputs`); the file is read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept: Option<KeptRead>,
+}
+
+/// One file's read result, kept with its read state.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptRead {
+    /// The adapter's entry before root-level names were applied (None: not a chat).
+    pub entry: Option<ChatEntry>,
+    /// The stamp of the one other file the read took from (a Claude Code title sidecar) when
+    /// it was read; None when the format has none or it was missing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side: Option<FileStamp>,
 }
 
 impl FileState {
     /// State after folding `path` up to `offset`.
     pub(crate) fn folded(path: &Path, stamp: FileStamp, offset: u64, tally: Tally) -> Self {
-        Self { stamp, offset, tally, head: HeadPrint::of(path, offset).ok() }
+        Self { stamp, offset, tally, head: HeadPrint::of(path, offset).ok(), kept: None }
     }
 
     /// Where to continue reading `path` (now `now`): after `prev` when the

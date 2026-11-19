@@ -126,7 +126,7 @@ enum WorkspaceVerbHandlers {
     /// caller workspace, and a workspace the person started from another window went there (cmux#37366). It goes to
     /// the window the person acts in.
     static func window(for anchor: WorkspaceModel?, _ context: AppActionContext) -> String? {
-        anchor.flatMap { $0.isAnyHome ? nil : context.services.windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
+        anchor.flatMap { $0.isAnyHome ? nil : context.services.windows.actingWindow(for: $0.id) } ?? context.activeWindow?.state.id
     }
 
     private static func spawn(_ context: AppActionContext, anchor: WorkspaceModel?, cwd: String?, slot: WorkspaceSlot?,
@@ -241,7 +241,7 @@ enum WorkspaceVerbHandlers {
     /// The sidebar of the window that lists `workspace`, else the active one.
     static func sidebar(showing workspace: WorkspaceModel, _ context: AppActionContext) throws -> SidebarBridge {
         let windows = context.services.windows
-        if let owner = windows.registry.value.owner(of: workspace.id), let controller = windows.controller(for: owner) { return controller.sidebar }
+        if let owner = windows.actingWindow(for: workspace.id), let controller = windows.controller(for: owner) { return controller.sidebar }
         return try context.sidebar()
     }
 

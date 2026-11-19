@@ -15,7 +15,7 @@ public final class AllThemesPlaygroundView: NSView, NSTableViewDataSource, NSTab
     private let failuresOnly = NSButton(checkboxWithTitle: AllThemesPlaygroundStrings.failuresOnly, target: nil, action: nil)
     private let summary = NSTextField(labelWithString: "")
     private let table = NSTableView()
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     /// The shown entries, as the table last read them.
     private(set) var shown: [AllThemesPlaygroundEntry] = []
     // task-owner: the view's `following`, started when it joins a window and cancelled when it leaves.

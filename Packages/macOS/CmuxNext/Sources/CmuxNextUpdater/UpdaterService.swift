@@ -109,6 +109,8 @@ public final class UpdaterService {
     /// What's New after an update (WHATS-NEW-AFTER-UPDATE): the bundled
     /// documents and this feed's nightly digests. The App loads it at launch.
     public let whatsNew: WhatsNewCenter
+    /// The one-time ask to star cmux on GitHub, in the tip card's slot (``StarPromptCenter``).
+    public let starPrompt: StarPromptCenter
     /// Where a staged update is recorded for the next build's What's New (nil: not recorded).
     @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
     /// The record last written, so an unchanged one is not written again.
@@ -136,9 +138,16 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
-    /// The staged build whose first launch was pre-warmed (``prewarmStagedUpdate()``, once per build).
-    @ObservationIgnored var prewarmedBuild: String?
-    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:)``) in tests; returns its log line.
+    /// The staged build's pre-warm, running or ended (``prewarmStagedUpdate(trigger:)``, once per build).
+    @ObservationIgnored var prewarmRun: StagedPrewarmRun?
+    /// The install click waiting for that pre-warm (``installAfterPrewarm(_:)``), and the bound of its wait.
+    @ObservationIgnored var prewarmWaitingInstall: PrewarmWaitingInstall?
+    @ObservationIgnored let prewarmWaitTimer: DemandTimer
+    /// ``prewarmInstallBound``; tests shorten or lengthen it.
+    @ObservationIgnored var prewarmInstallWait: Duration = UpdaterService.prewarmInstallBound
+    /// The last skipped pre-warm's build and reason (``prewarmStagedUpdate(trigger:)``), logged once.
+    @ObservationIgnored var prewarmSkipLogged: String?
+    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:urgency:progress:)``) in tests; returns its log line.
     @ObservationIgnored var prewarmRunner: (@Sendable (StagedUpdatePrewarm) async -> String)?
     /// This build's own verified notes, read once when the Updated card has
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
@@ -298,6 +307,7 @@ public final class UpdaterService {
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
+        prewarmWaitTimer = DemandTimer(owner: "UpdaterService.prewarmWait", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
         tipCheck = TipUpdateCheck(clock: clock)
         releasePushRetry = DemandTimer(owner: "UpdaterService.releasePush", clock: clock)
@@ -308,6 +318,7 @@ public final class UpdaterService {
         self.switcher = switcher
         let lastUpdates = recordsUpdates ? WhatsNewLastUpdateStore.app(bundleIdentifier: identity.bundleIdentifier) : nil
         self.lastUpdates = lastUpdates
+        starPrompt = StarPromptCenter(defaults: defaults, now: now)
         whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, currentBuild: identity.build, defaults: defaults,
                                   sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)
         // On disk too (``UpdateLogFile``): unified logging kept none of a nightly's updater lines.

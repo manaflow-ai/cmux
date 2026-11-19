@@ -8,9 +8,9 @@ import Testing
 /// - On a 2x screen a moving frame's edges round to half points, so the last frames of a key spring are 0.5 pt from
 ///   rest. The held content picked its edge again on those frames, took the other edge, and kept it through the landing:
 ///   the content jumped by the press step, then back at the reflow. The edge is chosen once, when the hold starts.
-/// - A split, a close or a zoom during a key spring: a pane already on the key spring does not start a new spring, so it
-///   kept the key hold (its pre-press size) through the structural spring. A structural change ends the key hold of every
-///   pane of the screen; they follow that spring live, as any split does.
+/// - A split, a close or a zoom during a key spring takes the screen over: it is one commit, so it ends the key hold of
+///   every pane of the screen, and the frame that shows it shows each pane at its place in the new layout with its
+///   content at that size. No pane keeps the key hold (its pre-press size) past it.
 @MainActor
 @Suite(.closesItsWindows)
 struct KeyboardResizeHoldTakeoverTests {
@@ -66,28 +66,30 @@ struct KeyboardResizeHoldTakeoverTests {
         #expect(abs(trailingInWindow() - start) < 0.01, "the landing frame moved the held content to the other edge (\(trailingInWindow()) vs \(start))")
     }
 
-    @Test func aSplitDuringAKeySpringResizesThePanesThatWereMovingLive() throws {
+    @Test func aSplitDuringAKeySpringShowsWholeAndEndsTheKeyHold() throws {
         let rig = Rig()
         defer { rig.window.closeAfterTest() }
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         _ = rig.root.advanceFrame(1.0 / 120)
         _ = rig.root.advanceFrame(1.0 / 120)
-        // A split of p2 while the key spring runs: p1 and p2 were on the key spring and keep moving on the split's.
+        let screen = try rig.screen
+        try #require(screen.hasMotion, "SETUP: the key press is not on its spring any more")
+        // A split of p2 while the key spring runs: p1 and p2 were on the key spring.
         let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.45, a: .leaf("p1"),
                                                                      b: .split("y", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3"))))]
         rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))])
         rig.root.syncWithModel()
-        var frames = 0
-        while frames < 240, rig.root.advanceFrame(1.0 / 120) {
-            rig.root.layoutSubtreeIfNeeded()
-            for pane in ["p1", "p2"] as [PaneID] {
-                let content = try #require(rig.provider.views[pane])
-                #expect(content.frame.size == content.superview?.bounds.size,
-                        "frame \(frames): \(pane) kept the key hold (\(content.frame.size)) on the split's spring (\(String(describing: content.superview?.bounds.size)))")
-            }
-            frames += 1
+        #expect(!screen.hasMotion, "the split left a pane or a divider on a spring")
+        // The frame tick that shows the split: every pane at its place, and nothing moves on.
+        #expect(!rig.root.advanceFrame(1.0 / 120), "the split asks for frames after the tick that shows it")
+        rig.root.layoutSubtreeIfNeeded()
+        for pane in ["p1", "p2", "p3"] as [PaneID] {
+            let host = try #require(rig.root.context.hosts[pane])
+            #expect(host.frame == screen.displayedFrame(of: pane), "\(pane) is not at its place in the split's layout: \(host.frame)")
+            let content = try #require(rig.provider.views[pane])
+            #expect(content.frame.size == content.superview?.bounds.size,
+                    "\(pane) kept the key hold (\(content.frame.size)) after the split showed (\(String(describing: content.superview?.bounds.size)))")
         }
-        #expect(frames > 0, "the split did not spring")
     }
 }

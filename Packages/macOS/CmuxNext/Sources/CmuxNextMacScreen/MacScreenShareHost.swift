@@ -8,29 +8,49 @@ import SystemConfiguration
 
 /// The permissions this Mac needs to share its screen through the device
 /// hub ("Allow Mac Screen on this Mac", `MacScreenHubHost`): Screen
-/// Recording (the picture) and Accessibility (the input), rechecked when
-/// the app becomes active (after System Settings). Link-mode sharing (a
-/// pairing link anyone could use) is gone.
+/// Recording (the picture) and Accessibility (the input). They belong to the
+/// Screen Sharing helper (``MacScreenHelper``, plans/cmux-next/screen-sharing-helper.md),
+/// which serves every session: the reads and the requests run in a fresh helper
+/// process, so macOS prompts for, lists and restarts the helper, and a grant
+/// never relaunches this app. A build without the helper reads and requests
+/// them for this app, as before. Rechecked when the app becomes active (after
+/// System Settings). Link-mode
+/// sharing (a pairing link anyone could use) is gone.
 @Observable
 public final class MacScreenShareHost {
     public private(set) var screenRecordingGranted = false
     public private(set) var accessibilityGranted = false
+    /// The name System Settings lists the two grants under: the helper's
+    /// ("cmux NIGHTLY Screen Sharing"), or nil while unknown and in a build
+    /// without the helper (then they are this app's own).
+    public private(set) var grantHolderName: String?
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
-    /// Permission checks; tests replace them. Each is a synchronous TCC query (an IPC to tccd: Screen
-    /// Recording waits on TCC's serial `com.apple.tcc.preflight.kTCCServiceScreenCapture` queue), so they
-    /// run on the system lane, never on the main thread.
-    @ObservationIgnored public var checkScreenRecording: @Sendable () -> Bool = { CGPreflightScreenCaptureAccess() }
-    @ObservationIgnored public var checkAccessibility: @Sendable () -> Bool = { AXIsProcessTrusted() }
+    /// A build without the helper: a fresh child reads TCC under this app's responsibility, just like
+    /// `rd serve`. A long-running process can cache Screen Recording denial even after the person
+    /// grants it in Settings. Tests replace it.
+    @ObservationIgnored var readPermissions: @Sendable () async throws -> (screen: Bool, control: Bool) = {
+        try await MacScreenPermissionProbe().read()
+    }
+    /// This build's Screen Sharing helper (a disk lookup, run on the system lane); tests replace it.
+    @ObservationIgnored var helper: @Sendable () -> MacScreenHelper? = { MacScreenHelper.bundled() }
+    /// The helper once found; a build never gains or loses it.
+    @ObservationIgnored private var found: MacScreenHelper?
     @ObservationIgnored private let work: BackgroundWork
     /// The number of reads started; a read applies its answer only when no later read has started.
     @ObservationIgnored private var reads: UInt64 = 0
 
-    /// - Parameter work: the app's blocking-work lanes; the permission checks run on its system lane.
+    /// - Parameter work: the app's blocking-work lanes; the helper lookup runs on its system lane.
     public init(work: BackgroundWork) {
         self.work = work
     }
 
-    /// At launch: reads the permissions and rechecks them whenever the app becomes active.
+    /// Production callers that do not already own the app's shared blocking-work lanes.
+    public convenience init() {
+        self.init(work: BackgroundWork())
+    }
+
+    /// At launch: reads the permissions and rechecks them whenever the app becomes active (back
+    /// from System Settings, where the switches are).
     public func activate() {
         Task { await refreshPermissions() }
         guard activation == nil else { return }
@@ -42,27 +62,77 @@ public final class MacScreenShareHost {
         }
     }
 
-    /// Reads both permissions off the main thread and shows them. When reads overlap, the last one
-    /// started decides (an older answer that arrives later is dropped). A failed read (cancelled, or the
-    /// app is quitting) changes nothing.
+    /// Reads both permissions off the main thread and shows them: the helper's, from a fresh
+    /// helper process, or this app's from a fresh child in a build without the helper. When reads
+    /// overlap, the last one started decides (an older answer that arrives later is dropped).
+    /// Cancellation changes nothing; an unavailable or failed read clears permission state rather
+    /// than keeping an old grant.
     public func refreshPermissions() async {
         reads &+= 1
         let read = reads
-        let screenRecording = checkScreenRecording, accessibility = checkAccessibility
-        // Shown on the Mac Screen page and in Settings soon: userVisible.
-        guard let granted = try? await work.run(.userVisible, mayBlock: .system, { (screenRecording(), accessibility()) }),
-              read == reads else { return }
-        screenRecordingGranted = granted.0
-        accessibilityGranted = granted.1
+        let helper = helper, readPermissions = readPermissions
+        // Shown on the Mac Screen page and in Settings: userVisible.
+        let holder = await lookUpHelper(helper)
+        let granted: (screen: Bool, control: Bool)?
+        if let holder {
+            granted = await holder.permissions().map { ($0.screenRecording, $0.accessibility) }
+        } else {
+            granted = try? await readPermissions()
+        }
+        guard read == reads, !Task.isCancelled else { return }
+        grantHolderName = holder?.name
+        screenRecordingGranted = granted?.screen ?? false
+        accessibilityGranted = granted?.control ?? false
     }
 
+    /// The helper, found once on the system lane; nil in a build without one.
+    private func lookUpHelper(_ helper: @escaping @Sendable () -> MacScreenHelper?) async -> MacScreenHelper? {
+        if let found { return found }
+        let looked = (try? await work.run(.userVisible, mayBlock: .system, { helper() })) ?? nil
+        if let looked { found = looked }
+        return looked
+    }
+
+    /// macOS's Screen Recording prompt for the helper (System Settings when macOS no longer prompts).
     public func requestScreenRecording() {
-        if !CGRequestScreenCaptureAccess() { openSettings(screenRecording: true) }
+        request(screenRecording: true)
     }
 
+    /// macOS's Accessibility prompt for the helper (System Settings when macOS no longer prompts).
     public func requestAccessibility() {
+        request(screenRecording: false)
+    }
+
+    /// Accessibility for this app itself: the viewer's Send System Shortcuts tap
+    /// (``MacScreenSystemShortcuts``) runs in the app, not in the helper.
+    public func requestAppAccessibility() {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         if !AXIsProcessTrustedWithOptions(options) { openSettings(screenRecording: false) }
+    }
+
+    private func request(screenRecording: Bool) {
+        let helper = helper
+        // task-owner: one request; it ends with the helper's answer
+        Task { [weak self] in
+            guard let self else { return }
+            guard let found = await lookUpHelper(helper) else {
+                requestInApp(screenRecording: screenRecording)
+                return
+            }
+            let answer = await found.request(screenRecording: screenRecording)
+            // macOS prompts once per grant; until it is on, the pane to switch it on is open too.
+            if (screenRecording ? answer?.screenRecording : answer?.accessibility) != true { openSettings(screenRecording: screenRecording) }
+            await refreshPermissions()
+        }
+    }
+
+    /// A build without the helper: this app's own prompt, as before the helper.
+    private func requestInApp(screenRecording: Bool) {
+        if screenRecording {
+            if !CGRequestScreenCaptureAccess() { openSettings(screenRecording: true) }
+        } else {
+            requestAppAccessibility()
+        }
     }
 
     public func openSettings(screenRecording: Bool) {
