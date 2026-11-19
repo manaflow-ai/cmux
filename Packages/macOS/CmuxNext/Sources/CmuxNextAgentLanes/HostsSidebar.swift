@@ -8,8 +8,6 @@ public import Observation
 @Observable @MainActor
 public final class HostsSidebar {
     public struct Host {
-        @MainActor private static func noRefresh() async {}
-
         public var rows: @MainActor () -> [MachineSectionRow]
         public var add: @MainActor () -> Void
         public var joined: JoinedMachineStore?
@@ -25,7 +23,7 @@ public final class HostsSidebar {
                     openJoined: @escaping @MainActor (JoinedMachine) -> Void,
                     joined: JoinedMachineStore? = nil) {
             self.init(rows: rows, add: add, openConnected: openConnected, openJoined: openJoined,
-                      joined: joined, refresh: Self.noRefresh, startAging: { _, _ in }, stopAging: { _ in })
+                      joined: joined, refresh: { }, startAging: { _, _ in }, stopAging: { _ in })
         }
 
         public init(rows: @escaping @MainActor () -> [MachineSectionRow],
