@@ -993,7 +993,6 @@ class MacBuildSpaceTests(unittest.TestCase):
         debug = 'com.cmuxterm.app.debug'
         cases = [
             ({'CFBundleIdentifier': f'{debug}.cu.all', 'LSEnvironment': {'CMUX_TAG': 'cu-all'}}, 'dev:cu-all'),
-            ({'CFBundleIdentifier': f'{debug}.my.tag'}, 'dev:my-tag'),  # the bundle suffix, sanitized
             ({'CFBundleIdentifier': f'{debug}.x', 'LSEnvironment': {'CMUX_TAG': 'Ios_Scroll V3'}}, 'dev:ios-scroll-v3'),
             ({'CFBundleIdentifier': debug, 'LSEnvironment': {}}, 'dev:x'),  # the `cmux DEV x` name
             ({'CFBundleIdentifier': f'{debug}.x', 'LSEnvironment': {'CMUX_TAG': 'a' * 65}}, 'unusable'),
@@ -1005,6 +1004,8 @@ class MacBuildSpaceTests(unittest.TestCase):
             with self.subTest(plist=plist):
                 r = self.space(plist)
                 self.assertEqual((r.returncode, r.stdout.strip()), (0, want), r.stderr)
+        # With no CMUX_TAG and no `cmux DEV <tag>` name, the bundle suffix, sanitized; with neither, none.
+        self.assertEqual(self.space({'CFBundleIdentifier': f'{debug}.my.tag'}, name='cmux').stdout.strip(), 'dev:my-tag')
         self.assertEqual(self.space({'CFBundleIdentifier': debug}, name='cmux').stdout.strip(), 'unusable')
 
     def test_no_app_says_why(self):
