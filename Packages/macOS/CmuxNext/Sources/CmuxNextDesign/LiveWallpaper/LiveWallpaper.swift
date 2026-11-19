@@ -35,7 +35,7 @@ public nonisolated struct LiveWallpaper: Sendable, Equatable, Identifiable {
 
     /// The ABI the app was written against (`cmux_wallpaper_abi_version`): 4 has the first-party
     /// Metal programs translated at build time and no WGSL compiler in the app.
-    static let abiVersion: UInt32 = 4
+    static let abiVersion: UInt32 = 5
 
     /// The ABI of the linked library (`cmux_wallpaper_abi_version`).
     static var linkedABIVersion: UInt32 { cmux_wallpaper_abi_version() }
