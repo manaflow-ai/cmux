@@ -9,6 +9,13 @@
 //! half the scale; the host resets the count to 0 when the scale it draws at
 //! changes. At [`MIN_SCALE`] the answer is `Hold(TooHeavy)`, for as long as
 //! the host keeps the count.
+//!
+//! A motion scene (plans/cmux-next/motion-scenes.md) with no keyframes whose
+//! physics sleeps is at rest (`Player::at_rest`): the host passes that as
+//! [`ScheduleInput::at_rest`] and the answer is `Hold(AtRest)`, after every
+//! unseen and power reason and the GPU budget, and before `Idle`. Input still
+//! wakes it: the host asks again after a pointer move or a press, the frame it
+//! draws for that input wakes the scene's physics, and the next ask runs.
 
 /// Nothing for this long (no pointer motion over the window, no key press in
 /// it, no size or theme change, and for a wallpaper with `agents` no agent
@@ -50,6 +57,9 @@ pub enum HoldReason {
     TooHeavy = 11,
     /// Nothing happened for [`IDLE_AFTER_S`].
     Idle = 12,
+    /// A motion scene with nothing moving: no keyframes, and its physics, if
+    /// any, asleep. Its frame does not change until input wakes it.
+    AtRest = 13,
 }
 
 impl HoldReason {
@@ -68,6 +78,7 @@ impl HoldReason {
             Self::AnimationsOff => "animations_off",
             Self::TooHeavy => "too_heavy",
             Self::Idle => "idle",
+            Self::AtRest => "at_rest",
         }
     }
 
@@ -123,6 +134,8 @@ pub struct ScheduleInput {
     pub scale: f32,
     /// The view has drawn at least one frame.
     pub has_frame: bool,
+    /// A motion scene at rest (`Player::at_rest`); false for a program wallpaper.
+    pub at_rest: bool,
 }
 
 impl Default for ScheduleInput {
@@ -148,6 +161,7 @@ impl Default for ScheduleInput {
             gpu_strikes: 0,
             scale: MAX_SCALE,
             has_frame: true,
+            at_rest: false,
         }
     }
 }
@@ -213,6 +227,12 @@ pub fn schedule(input: &ScheduleInput) -> Decision {
             return hold(HoldReason::TooHeavy, MIN_SCALE);
         }
         scale = (scale / 2.0).max(MIN_SCALE);
+    }
+
+    // Nothing on screen would change: holding costs nothing, and `draw_one`
+    // still gives a view with no frame its picture.
+    if input.at_rest {
+        return hold(HoldReason::AtRest, scale);
     }
 
     let quiet = |s: f64| s.is_nan() || s >= IDLE_AFTER_S;
@@ -293,6 +313,7 @@ mod tests {
             seconds_since_activity: 100.0,
             gpu_strikes: 9,
             scale: 0.25,
+            at_rest: true,
             ..Default::default()
         };
         assert_eq!(held(&all).0, HoldReason::Occluded);
@@ -315,6 +336,8 @@ mod tests {
         };
         assert_eq!(held(&i).0, HoldReason::TooHeavy);
         let i = ScheduleInput { gpu_strikes: 0, ..i };
+        assert_eq!(held(&i).0, HoldReason::AtRest);
+        let i = ScheduleInput { at_rest: false, ..i };
         assert_eq!(held(&i).0, HoldReason::Idle);
     }
 
@@ -355,6 +378,40 @@ mod tests {
         i.seconds_since_agent_event = 0.0;
         i.visible = false;
         assert_eq!(held(&i).0, HoldReason::Occluded);
+    }
+
+    #[test]
+    fn a_scene_at_rest_holds_until_it_moves_again() {
+        let mut i =
+            ScheduleInput { at_rest: true, seconds_since_pointer: 0.0, ..Default::default() };
+        // At rest holds even while the pointer moves: the host asks again
+        // after the frame in which that input wakes the physics.
+        assert_eq!(held(&i), (HoldReason::AtRest, false));
+        assert!(!HoldReason::AtRest.unseen());
+        // With no frame yet, it draws its one picture first.
+        i.has_frame = false;
+        assert_eq!(held(&i), (HoldReason::AtRest, true));
+        // Woken (a press, a drag), it runs.
+        i.at_rest = false;
+        run(&i);
+        // At rest comes before idle.
+        let i =
+            ScheduleInput { at_rest: true, seconds_since_activity: 100.0, ..Default::default() };
+        assert_eq!(held(&i).0, HoldReason::AtRest);
+        // Every unseen and power reason comes before it.
+        let i = ScheduleInput { at_rest: true, visible: false, ..Default::default() };
+        assert_eq!(held(&i).0, HoldReason::Occluded);
+        let i = ScheduleInput { at_rest: true, animations_off: true, ..Default::default() };
+        assert_eq!(held(&i).0, HoldReason::AnimationsOff);
+        // Too heavy too: the picker marks it.
+        let i = ScheduleInput { at_rest: true, gpu_strikes: 3, scale: 0.25, ..Default::default() };
+        assert_eq!(held(&i).0, HoldReason::TooHeavy);
+        // A halved scale is kept while at rest.
+        let i = ScheduleInput { at_rest: true, gpu_strikes: 3, scale: 1.0, ..Default::default() };
+        assert!(matches!(
+            schedule(&i),
+            Decision::Hold { reason: HoldReason::AtRest, scale: 0.5, .. }
+        ));
     }
 
     #[test]
@@ -456,6 +513,7 @@ mod tests {
             HoldReason::AnimationsOff,
             HoldReason::TooHeavy,
             HoldReason::Idle,
+            HoldReason::AtRest,
         ];
         let names: std::collections::HashSet<_> = all.iter().map(|r| r.name()).collect();
         assert_eq!(names.len(), all.len());

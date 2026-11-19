@@ -5,19 +5,24 @@
 //! draw scheduler, the `Frame` uniform packer and the pointer's smoothing.
 //! The app's `BackdropLiveView` keeps only the Metal layer, the display link
 //! and the events; every rule and every number lives once, in cmux-wallpaper.
+//! Motion scenes (plans/cmux-next/motion-scenes.md) add a scene player handle
+//! (`cmux_wallpaper_scene_*`): it packs the 2048-byte Scene block each frame
+//! and says when the scene is at rest, for the scheduler.
 //!
-//! No function panics across the boundary: the ones that allocate run under
-//! `catch_unwind`, and the rest are panic-free arithmetic. A null pointer is
-//! answered with a defined value, never read.
+//! No function panics across the boundary: the ones that allocate or run a
+//! scene run under `catch_unwind`, and the rest are panic-free arithmetic. A
+//! null pointer is answered with a defined value, never read.
 
 use cmux_wallpaper::frame::{ActivityState, FrameInput, PointerState};
 use cmux_wallpaper::schedule::{Decision, ScheduleInput};
-use cmux_wallpaper::{FRAME_FLOATS, Manifest};
+use cmux_wallpaper::{FRAME_FLOATS, Manifest, Player, SCENE_FLOATS};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-/// Bumped on any change to a type or function in the header.
-const ABI_VERSION: u32 = 3;
+/// Bumped on any change to a type or function in the header. 4: motion
+/// scenes (`cmux_wallpaper_scene_*`), the scheduler's `at_rest` input and hold
+/// reason 13.
+const ABI_VERSION: u32 = 4;
 
 /// The result of `cmux_wallpaper_validate_manifest`; free it with
 /// `cmux_wallpaper_manifest_result_free`. On success `json` is the manifest
@@ -71,13 +76,18 @@ pub struct CmuxWallpaperScheduleInput {
     pub agents: bool,
     /// The view has drawn at least one frame.
     pub has_frame: bool,
+    /// A motion scene at rest (`cmux_wallpaper_scene_at_rest`); false for a
+    /// program wallpaper.
+    pub at_rest: bool,
 }
 
 /// The scheduler's answer. `run` false: hold (stop the display link, no
 /// timer), for `hold_reason`: 1 occluded, 2 covered, 3 minimized, 4 app
 /// hidden, 5 screens asleep, 6 session inactive, 7 Low Power Mode, 8 thermal,
 /// 9 Reduce Motion, 10 animations off, 11 too heavy (mark it in the picker),
-/// 12 idle; with `draw_one`, draw one frame at `scale` first (the view has
+/// 12 idle, 13 a motion scene at rest (ask again after a pointer move or a
+/// press has gone through `cmux_wallpaper_scene_evaluate`); with `draw_one`,
+/// draw one frame at `scale` first (the view has
 /// none yet). `run` true: draw every `interval_s` seconds (`fps`, the display
 /// link's preferred rate) at backing scale `scale`; `hold_reason` is 0. When
 /// `scale` differs from the input's, set the strikes to 0.
@@ -241,6 +251,7 @@ impl From<&CmuxWallpaperScheduleInput> for ScheduleInput {
             gpu_strikes: i.gpu_strikes,
             scale: i.scale,
             has_frame: i.has_frame,
+            at_rest: i.at_rest,
         }
     }
 }
@@ -675,6 +686,202 @@ pub unsafe extern "C" fn cmux_wallpaper_activity_settled(
     ActivityState::from(unsafe { *state }).settled(t)
 }
 
+// MARK: Motion scenes (plans/cmux-next/motion-scenes.md)
+
+/// A motion scene running in one backdrop: its keyframes and its physics
+/// world. Made by `cmux_wallpaper_scene_new` or
+/// `cmux_wallpaper_scene_new_first_party`, freed by `cmux_wallpaper_scene_free`.
+/// Not thread-safe: use one handle from one thread at a time (the view's main
+/// thread).
+#[derive(Debug)]
+pub struct CmuxWallpaperScene {
+    player: Player,
+}
+
+fn scene_from(manifest_json: &[u8], scene: &[u8]) -> Result<CmuxWallpaperScene, String> {
+    let manifest = Manifest::parse(manifest_json).map_err(|e| pointed(&e.pointer, &e.message))?;
+    if manifest.scene.is_none() && manifest.lottie.is_none() {
+        return Err("the wallpaper names no scene or lottie file".to_string());
+    }
+    let scene = cmux_wallpaper::scene::load(&manifest, scene)
+        .map_err(|e| pointed(&e.pointer, &format!("scene: {}", e.message)))?;
+    Ok(CmuxWallpaperScene { player: Player::new(scene) })
+}
+
+fn pointed(pointer: &str, message: &str) -> String {
+    if pointer.is_empty() { message.to_string() } else { format!("{pointer}: {message}") }
+}
+
+fn set_error(error: *mut *mut c_char, text: &str) {
+    if !error.is_null() {
+        // SAFETY: `error` is non-null and writable per the callers' contracts.
+        unsafe { error.write(owned(text)) };
+    }
+}
+
+/// A scene player for a wallpaper's `wallpaper.json` (which names `scene` or
+/// `lottie`) and that file's bytes. Null when either is refused; then, when
+/// `error` is not null, `*error` is the reason (a JSON pointer, a colon and
+/// the message), freed with `cmux_wallpaper_string_free`. On success `*error`
+/// is set to null. Free the handle with `cmux_wallpaper_scene_free`.
+///
+/// # Safety
+/// `manifest_json` and `scene` are null or point to their lengths' readable
+/// bytes; `error` is null or points to a writable `char *`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_scene_new(
+    manifest_json: *const u8,
+    manifest_len: usize,
+    scene: *const u8,
+    scene_len: usize,
+    error: *mut *mut c_char,
+) -> *mut CmuxWallpaperScene {
+    // SAFETY: per this function's contract.
+    let (manifest_json, scene) =
+        unsafe { (bytes(manifest_json, manifest_len), bytes(scene, scene_len)) };
+    if !error.is_null() {
+        // SAFETY: `error` is non-null and writable per this function's contract.
+        unsafe { error.write(std::ptr::null_mut()) };
+    }
+    match catch_unwind(AssertUnwindSafe(|| scene_from(manifest_json, scene))) {
+        Ok(Ok(s)) => Box::into_raw(Box::new(s)),
+        Ok(Err(why)) => {
+            set_error(error, &why);
+            std::ptr::null_mut()
+        }
+        Err(_) => {
+            set_error(error, "the scene check failed");
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// A scene player for first-party wallpaper `index` (`cmux_wallpaper_first_party_*`
+/// order) from the scene bytes embedded in the library. Null when that
+/// wallpaper is not a scene or the index is past the count. Free it with
+/// `cmux_wallpaper_scene_free`.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_wallpaper_scene_new_first_party(index: usize) -> *mut CmuxWallpaperScene {
+    let Some(w) = cmux_wallpaper::first_party_at(index) else { return std::ptr::null_mut() };
+    let Some(scene) = w.scene_json else { return std::ptr::null_mut() };
+    match catch_unwind(AssertUnwindSafe(|| {
+        scene_from(w.manifest_json.as_bytes(), scene.as_bytes())
+    })) {
+        Ok(Ok(s)) => Box::into_raw(Box::new(s)),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Frees a scene player. Null is a no-op.
+///
+/// # Safety
+/// `scene` is null or a handle `cmux_wallpaper_scene_new*` returned, not yet freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_scene_free(scene: *mut CmuxWallpaperScene) {
+    if !scene.is_null() {
+        // SAFETY: `scene` came from Box::into_raw in cmux_wallpaper_scene_new* and is freed once.
+        drop(unsafe { Box::from_raw(scene) });
+    }
+}
+
+/// Frees a string this library returned through an out-parameter
+/// (`cmux_wallpaper_scene_new`'s `error`). Null is a no-op.
+///
+/// # Safety
+/// `text` is null or such a string, not yet freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_string_free(text: *mut c_char) {
+    release(text);
+}
+
+/// The floats in the Scene block (`cmux_wallpaper_scene_evaluate` writes this
+/// many: 512, 2048 bytes, fragment buffer 1). Size the buffer from this.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_wallpaper_scene_floats() -> u32 {
+    u32::try_from(SCENE_FLOATS).unwrap_or(0)
+}
+
+/// Steps the scene's physics to `now` (the host's monotonic clock in
+/// seconds, `CACurrentMediaTime`, the pointer's clock: a double, so the fixed
+/// step stays exact after hours), with the pointer and button in `input`,
+/// and writes the Scene block for `input` (its keyframes at `input->time`)
+/// to `out`. Call it once per drawn frame, with the same `input` as
+/// `cmux_wallpaper_frame_pack`; while the view holds at rest, call it on each
+/// press, release and pointer move (no draw): a press on a draggable body
+/// wakes the physics, and the button's edges are seen only through these
+/// calls. Then ask `cmux_wallpaper_scene_at_rest` and the scheduler again.
+/// False, and nothing written, when a pointer is null or `out_len` is below
+/// `cmux_wallpaper_scene_floats()`.
+///
+/// # Safety
+/// `scene` is null or a live handle not used on another thread meanwhile;
+/// `input` is null or points to a valid `CmuxWallpaperFrameInput`; `out` is
+/// null or points to `out_len` writable floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_scene_evaluate(
+    scene: *mut CmuxWallpaperScene,
+    input: *const CmuxWallpaperFrameInput,
+    now: f64,
+    out: *mut f32,
+    out_len: usize,
+) -> bool {
+    if scene.is_null() || input.is_null() || out.is_null() || out_len < SCENE_FLOATS {
+        return false;
+    }
+    // SAFETY: non-null and valid per this function's contract; no other reference to them lives.
+    let (scene, input) = unsafe { (&mut *scene, FrameInput::from(&*input)) };
+    let mut block = [0.0_f32; SCENE_FLOATS];
+    let ok = catch_unwind(AssertUnwindSafe(|| scene.player.evaluate_at(&input, now, &mut block)))
+        .is_ok();
+    if ok {
+        // SAFETY: `out` has room for `out_len` >= SCENE_FLOATS floats per this function's contract.
+        unsafe { std::ptr::copy_nonoverlapping(block.as_ptr(), out, SCENE_FLOATS) };
+    }
+    ok
+}
+
+/// True when nothing on screen changes without input: no keyframes, and the
+/// physics, if any, asleep. The scheduler's `at_rest`. True for null.
+///
+/// # Safety
+/// `scene` is null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_scene_at_rest(scene: *const CmuxWallpaperScene) -> bool {
+    if scene.is_null() {
+        return true;
+    }
+    // SAFETY: non-null and live per this function's contract.
+    unsafe { &*scene }.player.at_rest()
+}
+
+/// True when the scene shows the image slot (`badge`: the person's avatar and
+/// name): bind that image at fragment texture 0. False for null.
+///
+/// # Safety
+/// `scene` is null or a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_scene_has_image(scene: *const CmuxWallpaperScene) -> bool {
+    if scene.is_null() {
+        return false;
+    }
+    // SAFETY: non-null and live per this function's contract.
+    unsafe { &*scene }.player.scene().image().is_some()
+}
+
+/// The scene engine program in Metal Shading Language 2.1, translated when the
+/// library was built: one program draws every scene. `vertex vs_main`,
+/// `fragment fs_main`, the Frame uniform at buffer 0 in both, the Scene block
+/// at fragment buffer 1, the image at fragment texture 0 and its sampler at
+/// fragment sampler 0. Static UTF-8 bytes (not NUL-terminated, never freed),
+/// their count in `*len`; null and 0 when this library carries no engine.
+///
+/// # Safety
+/// `len` is null or points to a writable `size_t`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_scene_engine_msl(len: *mut usize) -> *const u8 {
+    static_text(Some(cmux_wallpaper::first_party::SCENE_ENGINE_MSL), len)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -701,8 +908,255 @@ mod tests {
     }
 
     #[test]
-    fn abi_version_is_three() {
-        assert_eq!(cmux_wallpaper_abi_version(), 3);
+    fn abi_version_is_four() {
+        assert_eq!(cmux_wallpaper_abi_version(), 4);
+    }
+
+    const SCENE_MANIFEST: &str = r#"{"id": "scene-test", "name": "Scene test",
+        "description": "A test scene.", "scene": "scene.json", "fps": 30, "scale": 1,
+        "interactive": true, "params": [], "still": {"time": 0, "pointer": [0.5, 0.5]},
+        "variants": [{"name": "Plain"}]}"#;
+
+    /// Makes a scene from `manifest` and `scene`, or the error text.
+    fn new_scene(manifest: &str, scene: &str) -> Result<*mut CmuxWallpaperScene, String> {
+        let mut error: *mut c_char = std::ptr::dangling_mut();
+        // SAFETY: valid bytes; `error` is writable.
+        let s = unsafe {
+            cmux_wallpaper_scene_new(
+                manifest.as_ptr(),
+                manifest.len(),
+                scene.as_ptr(),
+                scene.len(),
+                &mut error,
+            )
+        };
+        if s.is_null() {
+            let why = text(error).expect("an error with a null scene");
+            // SAFETY: `error` came from this library and is freed once.
+            unsafe { cmux_wallpaper_string_free(error) };
+            Err(why)
+        } else {
+            assert!(error.is_null());
+            Ok(s)
+        }
+    }
+
+    #[test]
+    fn a_scene_packs_its_block_and_rests() {
+        assert_eq!(cmux_wallpaper_scene_floats(), 512);
+        let still = r##"{"field": {"points": [
+            {"at": [0, 0], "color": "#FF0000"}, {"at": [1, 0], "color": "paper"},
+            {"at": [1, 1], "color": "accent"}, {"at": [0, 1], "color": "ink"}]},
+            "shapes": [{"kind": "circle", "size": [0.4, 0.4]}],
+            "image": {"slot": "badge"}}"##;
+        let moving = r#"{"shapes": [{"kind": "ring",
+            "at": {"keys": [[0, [0.2, 0.5]], [2, [0.8, 0.5]]]}, "size": [0.3, 0.3]}]}"#;
+        let input = CmuxWallpaperFrameInput {
+            time: 1.0,
+            width: 800.0,
+            height: 400.0,
+            backing_scale: 2.0,
+            presence: 1.0,
+            ..Default::default()
+        };
+        let s = new_scene(SCENE_MANIFEST, still).unwrap();
+        let m = new_scene(SCENE_MANIFEST, moving).unwrap();
+        // SAFETY: live handles; `out` has 512 floats; null is allowed.
+        unsafe {
+            let mut out = [7.0_f32; 512];
+            assert!(cmux_wallpaper_scene_evaluate(s, &input, 1.0, out.as_mut_ptr(), out.len()));
+            // Header: one shape, no guides, no ropes.
+            assert_eq!(&out[0..4], &[1.0, 0.0, 0.0, 0.0]);
+            // Grain row: image shown.
+            assert_eq!(out[7], 1.0);
+            // Shape 0 (row 12): a circle at the center, in rendered pixels.
+            assert_eq!(&out[48..51], &[1.0, 400.0, 200.0]);
+            assert!(cmux_wallpaper_scene_at_rest(s));
+            assert!(cmux_wallpaper_scene_has_image(s));
+
+            assert!(cmux_wallpaper_scene_evaluate(m, &input, 1.0, out.as_mut_ptr(), out.len()));
+            assert_eq!(out[48], 8.0);
+            assert!(!cmux_wallpaper_scene_at_rest(m));
+            assert!(!cmux_wallpaper_scene_has_image(m));
+
+            // Too short a buffer or a null: false, nothing written.
+            let mut short = [7.0_f32; 511];
+            assert!(!cmux_wallpaper_scene_evaluate(
+                s,
+                &input,
+                1.0,
+                short.as_mut_ptr(),
+                short.len()
+            ));
+            assert!(short.iter().all(|x| *x == 7.0));
+            assert!(!cmux_wallpaper_scene_evaluate(
+                std::ptr::null_mut(),
+                &input,
+                1.0,
+                out.as_mut_ptr(),
+                512
+            ));
+            assert!(!cmux_wallpaper_scene_evaluate(
+                s,
+                std::ptr::null(),
+                1.0,
+                out.as_mut_ptr(),
+                512
+            ));
+            assert!(!cmux_wallpaper_scene_evaluate(s, &input, 1.0, std::ptr::null_mut(), 512));
+            assert!(cmux_wallpaper_scene_at_rest(std::ptr::null()));
+            assert!(!cmux_wallpaper_scene_has_image(std::ptr::null()));
+
+            cmux_wallpaper_scene_free(s);
+            cmux_wallpaper_scene_free(m);
+            cmux_wallpaper_scene_free(std::ptr::null_mut());
+            cmux_wallpaper_string_free(std::ptr::null_mut());
+        }
+    }
+
+    /// The hold end to end: a hanging card settles and the scene is at rest
+    /// (the scheduler holds it, reason 13); a pointer move alone keeps it at
+    /// rest; a press on the card wakes it, and the scheduler runs it.
+    #[test]
+    fn a_press_on_the_card_wakes_a_resting_scene() {
+        let lanyard = r#"{
+            "physics": {
+                "bodies": [{"id": "card", "at": [0.5, 0.6], "size": [0.2, 0.28], "draggable": true, "damping": 0.6}],
+                "ropes": [{"id": "strap", "anchor": [0.5, -0.02], "to": "card", "toAt": [0, -0.5],
+                           "length": 0.45, "segments": 6, "width": 0.012, "color": "accent"}]
+            },
+            "shapes": [{"kind": "roundRect", "size": [0.2, 0.28], "body": "card"}],
+            "image": {"slot": "badge", "body": "card", "inset": 0.02}
+        }"#;
+        let s = new_scene(SCENE_MANIFEST, lanyard).unwrap();
+        let mut input = CmuxWallpaperFrameInput {
+            width: 800.0,
+            height: 400.0,
+            backing_scale: 1.0,
+            pointer_x: 10.0,
+            pointer_y: 390.0,
+            ..Default::default()
+        };
+        let mut out = [0.0_f32; 512];
+        let mut schedule = CmuxWallpaperScheduleInput {
+            seconds_since_activity: 0.0,
+            seconds_since_pointer: 0.0,
+            seconds_since_agent_event: f64::INFINITY,
+            settings_fps_cap: 30,
+            manifest_fps: 30,
+            gpu_strikes: 0,
+            scale: 1.0,
+            visible: true,
+            coverage_resting: false,
+            minimized: false,
+            app_hidden: false,
+            screens_asleep: false,
+            session_inactive: false,
+            low_power: false,
+            thermal_serious: false,
+            reduce_motion: false,
+            animations_off: false,
+            interactive: true,
+            agents: false,
+            has_frame: true,
+            at_rest: false,
+        };
+        // SAFETY: a live handle; `out` has 512 floats; `schedule` is valid.
+        unsafe {
+            let mut now = 1000.0_f64;
+            let mut frames = 0;
+            while !cmux_wallpaper_scene_at_rest(s) {
+                assert!(frames < 60 * 60, "the card never settled");
+                now += 1.0 / 60.0;
+                frames += 1;
+                assert!(cmux_wallpaper_scene_evaluate(s, &input, now, out.as_mut_ptr(), out.len()));
+            }
+            schedule.at_rest = cmux_wallpaper_scene_at_rest(s);
+            assert_eq!(cmux_wallpaper_schedule(&schedule).hold_reason, 13);
+            // The card's center, from the image row (126).
+            let (cx, cy) = (out[126 * 4], out[126 * 4 + 1]);
+            assert!(cx > 0.0 && cy > 0.0, "no card pose: {cx} {cy}");
+
+            // A move over the card, no button: still at rest.
+            (input.pointer_x, input.pointer_y) = (cx, cy);
+            now += 1.0 / 60.0;
+            assert!(cmux_wallpaper_scene_evaluate(s, &input, now, out.as_mut_ptr(), out.len()));
+            assert!(cmux_wallpaper_scene_at_rest(s));
+
+            // A press away from the card: still at rest.
+            (input.pointer_x, input.pointer_y, input.button_down) = (10.0, 390.0, true);
+            assert!(cmux_wallpaper_scene_evaluate(s, &input, now, out.as_mut_ptr(), out.len()));
+            assert!(cmux_wallpaper_scene_at_rest(s));
+            input.button_down = false;
+            assert!(cmux_wallpaper_scene_evaluate(s, &input, now, out.as_mut_ptr(), out.len()));
+
+            // A press on the card wakes it, and the scheduler runs.
+            (input.pointer_x, input.pointer_y, input.button_down) = (cx, cy, true);
+            assert!(cmux_wallpaper_scene_evaluate(s, &input, now, out.as_mut_ptr(), out.len()));
+            assert!(!cmux_wallpaper_scene_at_rest(s));
+            schedule.at_rest = cmux_wallpaper_scene_at_rest(s);
+            assert!(cmux_wallpaper_schedule(&schedule).run);
+            cmux_wallpaper_scene_free(s);
+        }
+    }
+
+    #[test]
+    fn a_refused_scene_says_where() {
+        // A program wallpaper is not a scene.
+        let smoke = cmux_wallpaper::smoke().unwrap().manifest_json;
+        assert!(new_scene(smoke, "{}").unwrap_err().contains("no scene"));
+        // A bad manifest names its pointer.
+        assert!(new_scene(r#"{"id": "Bad"}"#, "{}").unwrap_err().starts_with("/id: "));
+        // A bad scene names its pointer.
+        let why = new_scene(SCENE_MANIFEST, r#"{"shapes": [{"kind": "star", "size": [1, 1]}]}"#)
+            .unwrap_err();
+        assert!(why.starts_with("/shapes/0/kind: scene: "), "{why}");
+        assert!(new_scene(SCENE_MANIFEST, "not json").is_err());
+        // A null error pointer is allowed.
+        // SAFETY: valid bytes; a null `error` is allowed.
+        let s = unsafe {
+            cmux_wallpaper_scene_new(
+                SCENE_MANIFEST.as_ptr(),
+                SCENE_MANIFEST.len(),
+                b"{".as_ptr(),
+                1,
+                std::ptr::null_mut(),
+            )
+        };
+        assert!(s.is_null());
+    }
+
+    #[test]
+    fn first_party_scenes_load_and_programs_are_not_scenes() {
+        let mut engine_len = 99;
+        // SAFETY: `engine_len` is writable.
+        let engine = unsafe { cmux_wallpaper_scene_engine_msl(&mut engine_len) };
+        assert!(!engine.is_null() && engine_len > 0);
+        // SAFETY: the library returned `engine_len` bytes at `engine`.
+        let msl =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(engine, engine_len) }).unwrap();
+        // The engine's entry points and the Frame uniform at buffer 0, as every program's.
+        assert!(
+            msl.contains("vs_main") && msl.contains("fs_main") && msl.contains("[[buffer(0)]]")
+        );
+        // The host binds the Scene block at fragment buffer 1, the image at texture 0, its sampler at 0.
+        assert!(msl.contains("[[buffer(1)]]"), "the Scene block is not at buffer 1");
+        assert!(msl.contains("[[texture(0)]]"), "the image is not at texture 0");
+        assert!(msl.contains("[[sampler(0)]]"), "the sampler is not at sampler 0");
+        for (i, w) in cmux_wallpaper::first_party().iter().enumerate() {
+            let m = Manifest::parse(w.manifest_json.as_bytes()).unwrap();
+            let s = cmux_wallpaper_scene_new_first_party(i);
+            if m.scene.is_some() || m.lottie.is_some() {
+                assert!(!s.is_null(), "{} does not load", w.folder);
+                // Its program is the engine's.
+                assert_eq!(static_bytes(cmux_wallpaper_first_party_msl, i).as_deref(), Some(msl));
+            } else {
+                assert!(s.is_null(), "{} is a program, not a scene", w.folder);
+            }
+            // SAFETY: null or a live handle, freed once.
+            unsafe { cmux_wallpaper_scene_free(s) };
+        }
+        assert!(cmux_wallpaper_scene_new_first_party(usize::MAX).is_null());
     }
 
     #[test]
@@ -766,6 +1220,7 @@ mod tests {
             interactive: true,
             agents: false,
             has_frame: true,
+            at_rest: false,
         };
         // SAFETY: `input` is valid.
         let d = unsafe { cmux_wallpaper_schedule(&input) };
@@ -777,6 +1232,11 @@ mod tests {
         let d = unsafe { cmux_wallpaper_schedule(&input) };
         assert_eq!((d.run, d.hold_reason, d.draw_one), (false, 7, true));
         input.low_power = false;
+        input.at_rest = true;
+        // SAFETY: `input` is valid.
+        let d = unsafe { cmux_wallpaper_schedule(&input) };
+        assert_eq!((d.run, d.hold_reason, d.draw_one), (false, 13, true));
+        input.at_rest = false;
         input.gpu_strikes = cmux_wallpaper_gpu_strikes(
             cmux_wallpaper_gpu_strikes(cmux_wallpaper_gpu_strikes(0, 5.0), 5.0),
             5.0,
@@ -874,6 +1334,7 @@ mod tests {
                 interactive: true,
                 agents: true,
                 has_frame: true,
+                at_rest: false,
             };
             assert!(cmux_wallpaper_schedule(&s).run);
             s.agents = false;

@@ -61,6 +61,17 @@ nonisolated struct LiveWallpaperFrame: Sendable {
     /// The Frame uniform: ``floats`` floats.
     // perf-hot: 0.05ms live-wallpaper-frame (every drawn live wallpaper frame packs its uniform)
     func packed() -> [Float] {
+        var input = self.input()
+        var out = [Float](repeating: 0, count: Self.floats)
+        out.withUnsafeMutableBufferPointer { buffer in
+            withUnsafePointer(to: &input) { _ = cmux_wallpaper_frame_pack($0, buffer.baseAddress) }
+        }
+        return out
+    }
+
+    /// The frame's values as the library takes them: the packer's and a motion scene's input
+    /// (``LiveWallpaperScenePlayer/evaluate(_:into:)``).
+    func input() -> CmuxWallpaperFrameInput {
         var input = CmuxWallpaperFrameInput()
         input.time = time
         input.delta = delta
@@ -83,11 +94,7 @@ nonisolated struct LiveWallpaperFrame: Sendable {
         input.still = still
         input.button_down = buttonDown
         input.dark = colors.dark
-        var out = [Float](repeating: 0, count: Self.floats)
-        out.withUnsafeMutableBufferPointer { buffer in
-            withUnsafePointer(to: &input) { _ = cmux_wallpaper_frame_pack($0, buffer.baseAddress) }
-        }
-        return out
+        return input
     }
 
     /// The Frame uniform's size in floats, from the library that packs it (`cmux_wallpaper_frame_floats`),

@@ -104,6 +104,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
         }
         root = WindowRootView(sidebar: sidebar.container, activeLook: services.activeLook)
+        services.wallpaperBadge.add(root.backdropView) // a live wallpaper's badge shows the signed-in account
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
