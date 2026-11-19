@@ -41,6 +41,19 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
     private var scaleBuffer: [UInt8] = []
     private var transfer: VTPixelTransferSession?
     private var failed = false
+    private var outcomes = Outcomes()
+
+    /// What became of the frames VideoToolbox took: encoded, dropped by its rate
+    /// control, failed, or not packable as Annex B.
+    struct Outcomes: Equatable {
+        var encoded = 0
+        var dropped = 0
+        var failed = 0
+        var unpackable = 0
+        var lastStatus: OSStatus = noErr
+    }
+
+    var frameOutcomes: Outcomes { lock.withLock { outcomes } }
 
     func setCallback(_ callback: RTCVideoEncoderCallback?) {
         lock.withLock { self.callback = callback }
@@ -80,8 +93,14 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
         let captureMs = frame.timeStampNs / 1_000_000
         let rotation = frame.rotation
         let status = VTCompressionSessionEncodeFrame(session, imageBuffer: pixels, presentationTimeStamp: pts, duration: .invalid,
-                                                     frameProperties: options, infoFlagsOut: nil) { [weak self] status, _, sample in
-            guard let self, status == noErr, let sample else { return }
+                                                     frameProperties: options, infoFlagsOut: nil) { [weak self] status, flags, sample in
+            guard let self else { return }
+            guard status == noErr, !flags.contains(.frameDropped), let sample else {
+                lock.withLock {
+                    if status != noErr { outcomes.failed += 1; outcomes.lastStatus = status } else { outcomes.dropped += 1 }
+                }
+                return
+            }
             deliver(sample, width: width, height: height, rtpTimestamp: rtpTimestamp, captureMs: captureMs, rotation: rotation)
         }
         return status == noErr ? 0 : -1
@@ -222,7 +241,11 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
 
     private func deliver(_ sample: CMSampleBuffer, width: Int32, height: Int32, rtpTimestamp: UInt32, captureMs: Int64, rotation: RTCVideoRotation) {
         let keyframe = Self.isKeyframe(sample)
-        guard let annexB = Self.annexB(sample, withParameterSets: keyframe) else { return }
+        guard let annexB = Self.annexB(sample, withParameterSets: keyframe) else {
+            lock.withLock { outcomes.unpackable += 1 }
+            return
+        }
+        lock.withLock { outcomes.encoded += 1 }
         let image = RTCEncodedImage()
         image.buffer = annexB
         image.encodedWidth = width

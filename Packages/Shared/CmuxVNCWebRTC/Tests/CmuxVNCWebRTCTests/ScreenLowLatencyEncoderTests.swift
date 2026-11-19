@@ -39,6 +39,50 @@ struct ScreenLowLatencyEncoderTests {
         #expect(result.outputs.filter(\.keyframe).count == 2, "no keyframe libwebrtc did not ask for")
         #expect(result.implementation == ScreenLowLatencyEncoder.implementation)
     }
+
+    /// What VideoToolbox's low-latency mode does with a burst of frames at full size, by
+    /// bitrate and content. Prints SCREEN-ENCODER-PROBE lines; a frame its rate control
+    /// drops never reaches libwebrtc, so a screen that then stops changing would keep
+    /// showing the frame before.
+    @Test(.timeLimit(.minutes(1)), arguments: [(3456, 2234, 120), (1920, 1080, 60), (2154, 1392, 120)])
+    func aBurstAtFullSize(width: Int, height: Int, fps: Int) async throws {
+        for bitrate: UInt32 in [12000, 48000] {
+            for content in ["flat", "text"] {
+                let encoder = ScreenLowLatencyEncoder()
+                encoder.setCallback { _, _ in true }
+                let settings = RTCVideoEncoderSettings()
+                settings.name = kRTCVideoCodecH264Name
+                settings.width = UInt16(width)
+                settings.height = UInt16(height)
+                settings.startBitrate = bitrate
+                settings.maxBitrate = bitrate * 2
+                settings.minBitrate = 300
+                settings.maxFramerate = UInt32(fps)
+                settings.mode = .screensharing
+                #expect(encoder.startEncode(with: settings, numberOfCores: 4) == 0)
+                let pictures = ScrollingPictures(width: width, height: height)
+                var flat: CVPixelBuffer?
+                let attributes = [kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()] as CFDictionary
+                CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, attributes, &flat)
+                let frames = 12
+                for index in 0 ..< frames {
+                    guard let pixels = content == "flat" ? flat : pictures.next() else { continue }
+                    let frame = RTCVideoFrame(buffer: RTCCVPixelBuffer(pixelBuffer: pixels), rotation: ._0,
+                                              timeStampNs: Int64(index) * 1_000_000_000 / Int64(fps))
+                    let type: RTCFrameType = index == 0 ? .videoFrameKey : .videoFrameDelta
+                    _ = encoder.encode(frame, codecSpecificInfo: nil, frameTypes: [NSNumber(value: type.rawValue)])
+                }
+                for _ in 0 ..< 30 {
+                    let o = encoder.frameOutcomes
+                    if o.encoded + o.dropped + o.failed + o.unpackable >= frames { break }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                let o = encoder.frameOutcomes
+                print("SCREEN-ENCODER-PROBE size=\(width)x\(height) fps=\(fps) kbps=\(bitrate) content=\(content) frames=\(frames) encoded=\(o.encoded) dropped=\(o.dropped) failed=\(o.failed) unpackable=\(o.unpackable) status=\(o.lastStatus)")
+                _ = encoder.release()
+            }
+        }
+    }
 }
 
 /// Encodes a scrolling text-like screen through one H.264 encoder at a fixed rate and
