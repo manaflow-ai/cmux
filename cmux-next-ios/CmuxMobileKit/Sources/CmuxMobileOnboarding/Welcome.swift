@@ -108,7 +108,11 @@ public struct WelcomeView: View {
         // and reach 100% together in 0.22 s: no stagger, no rise.
         // Until the intro starts, the welcome is the launch screen: the 72 pt
         // mark alone (iOS is still crossfading its launch screen into it).
-        let introStarted = (WelcomeIntroClock.shared.t ?? -1) >= 0
+        var introStarted = (WelcomeIntroClock.shared.t ?? -1) >= 0
+        #if DEBUG
+        // A frozen intro (verification) shows the controls at the frozen time.
+        if let frozen = WelcomeIntroClock.debugFreeze { introStarted = frozen >= 0 }
+        #endif
         let controls = !introStarted ? 0 : reduceMotion ? fade : 0.35 + 0.65 * E.out(E.seg(t, 0, 0.22))
         let large = dynamicTypeSize.isAccessibilitySize
         // A picker switch or replay plays the new hero's entrance from that moment.

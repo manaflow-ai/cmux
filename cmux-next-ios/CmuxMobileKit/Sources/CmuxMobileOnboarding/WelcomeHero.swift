@@ -102,8 +102,8 @@ struct WelcomeHeroTerminal: View {
 
     private let lines: [Line] = [
         Line(id: 0, glyph: "❯", tint: blue, text: "fix the flaky login test", dim: false),
-        Line(id: 1, glyph: "⏺", tint: .white.opacity(0.55), text: "Reading auth/session.ts", dim: true),
-        Line(id: 2, glyph: "⏺", tint: .white.opacity(0.55), text: "Edited 2 files  +18 −4", dim: true),
+        Line(id: 1, glyph: "●", tint: .white.opacity(0.55), text: "Reading auth/session.ts", dim: true),
+        Line(id: 2, glyph: "●", tint: .white.opacity(0.55), text: "Edited 2 files  +18 −4", dim: true),
         Line(id: 3, glyph: "✓", tint: green, text: "42 tests passed", dim: false),
         Line(id: 4, glyph: "?", tint: amber, text: "Open a pull request?", dim: false),
     ]
