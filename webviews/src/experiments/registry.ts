@@ -92,6 +92,8 @@ import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
+import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
+import { menuRowStates } from "../ui/menuRowStates.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -191,6 +193,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   teamAudit,
   jumpPairLook,
   glassToolbarLook,
+  menuStyleV2,
+  menuRowStates,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

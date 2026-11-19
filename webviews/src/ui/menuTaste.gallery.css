@@ -1,0 +1,37 @@
+.menu-taste-stage {
+  box-sizing: border-box;
+  display: flex;
+  min-height: 480px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 40px 48px;
+  background: var(--cmux-page-background, var(--cmux-window-background, Canvas));
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+.menu-taste-target,
+.menu-taste-trigger {
+  min-width: 160px;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+.menu-taste-target {
+  min-width: 220px;
+  cursor: context-menu;
+}
+.menu-taste-popup {
+  min-width: 240px;
+}
+.menu-taste-receipt {
+  color: color-mix(in srgb, currentColor 65%, transparent);
+  font-variant-numeric: tabular-nums;
+}
