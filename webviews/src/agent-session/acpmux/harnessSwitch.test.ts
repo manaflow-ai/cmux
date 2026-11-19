@@ -369,3 +369,34 @@ test("pickSession gives up on a start that never answers, and answers none for a
   await Promise.resolve();
   expect(await trust.pickSession(1000)).toBeUndefined();
 });
+
+test("a mode picked on a harness comes back when the pane switches away and back to it", async () => {
+  // agent-pane-picks-hold (real acpmux): Full access on Codex, Claude Code, back to Codex read "Mode".
+  const calls: string[] = [];
+  let shown: ReturnType<SwitchPort["shown"]>;
+  let next = 0;
+  const harnessOf = new Map<string, string>();
+  const port: SwitchPort = {
+    ...trustRefusingPort(),
+    shown: () => shown,
+    create: async (harness) => {
+      const id = `s${++next}`;
+      harnessOf.set(id, harness);
+      return id;
+    },
+    open: async (sessionId) => {
+      shown = { sessionId, harness: harnessOf.get(sessionId), modeId: "agent", empty: true, configOptions: [] };
+      return sessionId;
+    },
+    setMode: async (mode) => void calls.push(`mode ${mode}`),
+  };
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(port);
+  void harnessSwitch.switchTo("codex", "/work");
+  harnessSwitch.pickMode("agent-full-access");
+  void harnessSwitch.switchTo("claude", "/work");
+  const back = harnessSwitch.switchTo("codex", "/work");
+  expect(await back).toBeDefined();
+  expect(shown?.harness).toBe("codex");
+  expect(calls).toEqual(["mode agent-full-access"]);
+});
