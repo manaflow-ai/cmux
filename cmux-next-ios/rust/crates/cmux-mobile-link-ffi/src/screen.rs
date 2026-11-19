@@ -701,13 +701,21 @@ mod tests {
         }
     }
 
+    /// The fake rd host: its link and the events it read but has not looked at yet
+    /// (one `Net::events` batch can hold hello and start together).
+    struct FakeHost {
+        net: Net,
+        backlog: std::collections::VecDeque<NetEvent>,
+    }
+
     /// Reads the fake host's events until `pick` returns something, for at most 5 s;
     /// a timeout names what it waited for and the kinds of event it saw instead.
-    fn host_wait<T>(host: &Net, what: &str, mut pick: impl FnMut(NetEvent) -> Option<T>) -> T {
+    fn host_wait<T>(host: &mut FakeHost, what: &str, mut pick: impl FnMut(NetEvent) -> Option<T>) -> T {
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut other = Vec::new();
         while Instant::now() < deadline {
-            for event in host.events() {
+            host.backlog.extend(host.net.events());
+            while let Some(event) = host.backlog.pop_front() {
                 let kind = match &event {
                     NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(_))) => "datagram".to_owned(),
                     NetEvent::Endpoint(EndpointEvent::Link(Event::Control(_))) => "control".to_owned(),
@@ -723,7 +731,7 @@ mod tests {
         panic!("the fake host waited 5 s for {what}; it saw {other:?}");
     }
 
-    fn host_control(host: &Net, what: &str) -> Control {
+    fn host_control(host: &mut FakeHost, what: &str) -> Control {
         host_wait(host, what, |event| match event {
             NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
                 Some(serde_json::from_slice::<Control>(&record).expect("a typed control record"))
@@ -732,7 +740,7 @@ mod tests {
         })
     }
 
-    fn host_input(host: &Net) -> InputPacket {
+    fn host_input(host: &mut FakeHost) -> InputPacket {
         host_wait(host, "an input datagram", |event| match event {
             NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
                 let (h, payload) = DatagramHeader::decode(&d).ok()?;
@@ -819,7 +827,7 @@ mod tests {
         let offer_doc = RdDocument::parse(&offer.text()).unwrap();
         let session = "sid-loopback";
         let host_keys = KeyPair::generate().unwrap();
-        let host = Net::start(NetConfig {
+        let net = Net::start(NetConfig {
             role: Role::Responder,
             session: session.as_bytes().to_vec(),
             local: host_keys.clone(),
@@ -830,9 +838,10 @@ mod tests {
             relay_only: false,
         })
         .unwrap();
+        let mut host = FakeHost { net, backlog: Default::default() };
         let answer = RdDocument {
             key: doc::hex(&host_keys.public),
-            candidates: vec![Candidate { kind: CandidateKind::Host, addr: host.local_addr() }.to_wire()],
+            candidates: vec![Candidate { kind: CandidateKind::Host, addr: host.net.local_addr() }.to_wire()],
             ..RdDocument::default()
         };
 
@@ -854,10 +863,10 @@ mod tests {
         // An offer's key opens one stream.
         assert!(matches!(open(observer), Err(CmuxMobileError::InvalidArgument { .. })));
         // Signaling would carry the phone's candidate; on loopback its bound address is it.
-        host.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: stream.local_addr });
+        host.net.add_remote_candidate(Candidate { kind: CandidateKind::Host, addr: stream.local_addr });
 
         // hello names the desktop service and start asks for control.
-        match host_control(&host, "hello") {
+        match host_control(&mut host, "hello") {
             Control::Hello { service, user, max_datagram, caps, .. } => {
                 assert_eq!(
                     (service.as_str(), user.as_str(), max_datagram),
@@ -867,7 +876,7 @@ mod tests {
             }
             other => panic!("expected hello, got {other:?}"),
         }
-        match host_control(&host, "start") {
+        match host_control(&mut host, "start") {
             Control::Start { mode, .. } => assert_eq!(mode, "control"),
             other => panic!("expected start, got {other:?}"),
         }
@@ -880,7 +889,7 @@ mod tests {
             service: SERVICE_DESKTOP.into(),
             caps: Vec::new(),
         };
-        host.send_control(serde_json::to_vec(&welcome).unwrap());
+        host.net.send_control(serde_json::to_vec(&welcome).unwrap());
 
         // Three access units, the first a keyframe; the third spans several datagrams.
         let mut packetizer = Packetizer::new(0, MAX_DATAGRAM);
@@ -894,7 +903,7 @@ mod tests {
             };
             let fl = if frame == 1 { flags::KEYFRAME } else { 0 };
             for datagram in packetizer.packetize(frame, fl, &body, 0).unwrap().datagrams {
-                host.send_datagram(datagram);
+                host.net.send_datagram(datagram);
             }
         }
 
@@ -929,7 +938,7 @@ mod tests {
         stream.send_input(r#"{"e":"button","button":1,"down":true}"#.into()).unwrap();
         let (mut events, mut next_seq) = (Vec::new(), None::<u32>);
         while events.len() < 2 {
-            let packet = host_input(&host);
+            let packet = host_input(&mut host);
             // Repeats until acknowledged: keep each sequence number once, in order.
             for (i, event) in packet.events.into_iter().enumerate() {
                 let seq = packet.first_seq.wrapping_add(i as u32);
@@ -947,7 +956,7 @@ mod tests {
         // Close sends stop and reports the app's close.
         stream.close();
         loop {
-            match host_control(&host, "stop") {
+            match host_control(&mut host, "stop") {
                 Control::Stop => break,
                 _ => continue,
             }
