@@ -161,7 +161,7 @@ func appWindow(_ pid: Int32) -> (CGRect, Int)? {
 }
 
 func window(_ pid: Int32) {
-    if let (rect, id) = appWindow(pid) { emit(["window": box(rect), "id": id]) } else { emit(["window": NSNull()]) }
+    if let found = appWindow(pid) { emit(["window": box(found.0), "id": found.1]) } else { emit(["window": NSNull()]) }
 }
 
 func setFrame(_ pid: Int32, _ rect: CGRect) throws {
@@ -176,7 +176,7 @@ func setFrame(_ pid: Int32, _ rect: CGRect) throws {
     let b = AXUIElementSetAttributeValue(first, kAXSizeAttribute as CFString, extent)
     Thread.sleep(forTimeInterval: 0.3)
     var fields: [String: Any] = ["position": a.rawValue, "size": b.rawValue]
-    if let (now, _) = appWindow(pid) { fields["window"] = box(now) }
+    if let found = appWindow(pid) { fields["window"] = box(found.0) }
     emit(fields)
 }
 
