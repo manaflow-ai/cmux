@@ -179,9 +179,32 @@ struct MacScreenHubCardTests {
         #expect(refusal("host_offline", status: 409) == .hostOffline)
         #expect(refusal("not_shared") == .notShared)
         #expect(refusal("not_found", status: 404) == .notFound)
-        #expect(refusal("internal", status: 500) == .other)
+        #expect(refusal("internal", status: 500) == .other(reason: "internal"))
         #expect(MacScreenHubRefusal(.notSignedIn) == .notSignedIn)
-        #expect(MacScreenHubRefusal(.transport("offline")) == .other)
+        #expect(MacScreenHubRefusal(.transport("offline")) == .other(reason: "offline"))
+    }
+
+    /// A refusal with no card of its own keeps the hub's words (Leo, on a gate audit: a refusal
+    /// names its reason); the card says them, and the generic text is left for a refusal with none.
+    @Test func anUnknownRefusalKeepsTheHubsReason() {
+        let rateLimited = MacScreenHubRefusal(.server(status: 429, code: .rateLimited, message: "too many requests; wait a minute"))
+        #expect(rateLimited == .other(reason: "too many requests; wait a minute"))
+        #expect(MacScreenHubRefusal(.server(status: 403, code: DeviceHubError.Code("new_code"), message: " ")) == .other(reason: "new_code"))
+        #expect(MacScreenHubRefusal(.http(status: 502)) == .other(reason: "HTTP 502"))
+        #expect(MacScreenHubRefusal(.decoding("missing session")) == .other(reason: "missing session"))
+        #expect(MacScreenHubRefusal(.transport("")) == .other(reason: nil))
+        #expect(rateLimited.canRetry)
+
+        let said = MacScreenCardView.refusedBody(rateLimited, host: "Studio")
+        #expect(said == String(format: L.t("macScreen.hub.otherBodyReason", "The device hub could not start the session: %@"),
+                               "too many requests; wait a minute"))
+        #expect(said.contains("too many requests; wait a minute"))
+        #expect(MacScreenCardView.refusedBody(.other(reason: nil), host: "Studio")
+            == L.t("macScreen.hub.otherBody", "The device hub could not start the session. Try again."))
+        // A known code keeps its own step.
+        #expect(MacScreenCardView.refusedBody(.notFound, host: "Studio")
+            == L.t("macScreen.hub.notFoundBody", "This device was removed from your devices."))
+        #expect(MacScreenCardView.refusedTitle(rateLimited, host: "Studio") == L.t("macScreen.card.failedTitle", "Couldn’t connect"))
     }
 
     @Test func endReasonsReadTheProtocolsAuthoritativeReasons() {

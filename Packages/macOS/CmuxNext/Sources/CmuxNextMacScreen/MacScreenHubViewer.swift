@@ -299,7 +299,8 @@ public final class MacScreenHubViewer {
             pendingSignaling = try makeSignaling(ticket, hub)
         } catch {
             end(ticket.sessionId, reason: MacScreenHubReason.failed.rawValue, on: hub)
-            phase = .refused(.other, requested: ticket.scope)
+            phase = .refused(.other(reason: MacScreenHubRefusal.reason(error as? DeviceHubError ?? .transport(error.localizedDescription))),
+                             requested: ticket.scope)
             return
         }
         lastScope = ticket.scope
