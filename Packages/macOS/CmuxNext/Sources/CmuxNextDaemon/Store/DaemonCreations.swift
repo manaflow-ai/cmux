@@ -55,6 +55,12 @@ public enum StandInFate: Equatable, Sendable {
     /// `close-tabs`; a failure rejects the intent, so the records show what the daemon kept).
     public func onClose(_ close: @escaping (ClientTransactionID, SurfaceID) -> Void) { store.intentLog.closeCancelled = close }
 
+    /// NEVER MERGE: the fault that a test row turned on in the app's code for a creation's answer (0 = none).
+    public var neverMergeFault: Int { store.intentLog.neverMergeFault }
+
+    /// NEVER MERGE: a test row turns the fault `fault` on for this store only (0 = none).
+    public func turnOnNeverMergeFault(_ fault: Int) { store.intentLog.neverMergeFault = fault }
+
     /// The close of `transaction`'s daemon surface timed out (it may or may not have committed):
     /// once the records say (call after a refresh), a creation whose tab is still there sends
     /// its close again, at most ``closeAttemptLimit`` times; one whose tab is gone has left.

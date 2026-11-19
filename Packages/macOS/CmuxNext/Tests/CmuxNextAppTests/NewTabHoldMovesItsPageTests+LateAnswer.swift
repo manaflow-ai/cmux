@@ -76,9 +76,16 @@ extension NewTabHoldMovesItsPageTests {
         return list
     }
 
-    @Test func anAnswerForATabThatACloseTabKeyClosedChangesNothingThatThePaneShows() async throws {
-        try await Self.row("cn-hold-moves-page-late-answer") { services, pane, views, _ in
+    /// NEVER MERGE: the row with a fault turned on. 0 = no fault (the control); 1 and 2 = the 2 faults of the app's code
+    /// for the answer, which read the fault's number from the row's own store (no other store has it); 3 = the app
+    /// sends no close for the daemon's tab of a cancelled creation (the row puts its own handler that does nothing in
+    /// the place of the app's).
+    @Test(arguments: [0, 1, 2, 3]) func anAnswerForATabThatACloseTabKeyClosedChangesNothingThatThePaneShows(fault: Int) async throws {
+        try await Self.row("cn-hold-moves-page-late-answer-\(fault)") { services, pane, views, _ in
             let tabs = services.agentTabs, router = services.keyRouter, store = pane.daemon.store, creations = store.creations
+            if fault == 1 || fault == 2 { creations.turnOnNeverMergeFault(fault) }
+            if fault == 3 { creations.onClose { _, _ in } }
+            print("NewTabHoldMovesItsPageTests: row 15 with the fault \(fault) (0 = none)")
             let held = await Self.hold(5, in: pane, services, views)
             try #require(held.pressed == 5 && held.made == 0,
                          "setup: the hold of 5 New Tab keys pressed \(held.pressed) keys and made \(held.made) page views, want 5 and 0")

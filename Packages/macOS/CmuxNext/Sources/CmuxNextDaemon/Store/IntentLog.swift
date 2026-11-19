@@ -108,6 +108,8 @@ struct IntentLog {
     var workspaceModels = ProvisionalWorkspaceModels()
     /// Closes the daemon's surface of a creation the person closed first (``DaemonCreations/onClose(_:)``).
     var closeCancelled: ((ClientTransactionID, SurfaceID) -> Void)?
+    /// NEVER MERGE: the fault that a test row turned on in the app's code for a creation's answer (0 = none).
+    var neverMergeFault = 0
     /// Recently settled transactions (bounded), so a late echo, reply or
     /// rejection for one never settles it again.
     private var settled: [ClientTransactionID] = []

@@ -111,11 +111,11 @@ extension AgentTabStore {
                                                                                           splitID: sendsSplitID ? $0.1.splitID : nil, around: around) })
                 // Closed first (CancelledCreation): nothing moves to the store's tab, which the store
                 // hides and closes; the page's view state goes.
-                if !store.creations.wasCancelled(transaction) { tabCreated(key, as: created, machine: daemon.machineID) }
+                if !store.creations.wasCancelled(transaction) || store.creations.neverMergeFault == 1 { tabCreated(key, as: created, machine: daemon.machineID) }
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
-                if store.creations.wasCancelled(transaction) { throw CancellationError() }
+                if store.creations.wasCancelled(transaction), store.creations.neverMergeFault != 2 { throw CancellationError() }
                 // A chat its page started (or the harness acpmux reported) before the store answered binds now.
                 if let started = sessions[AgentTabKey(machine: daemon.machineID, key: created.key)], !remote {
                     sendSession(started, for: created.key, machine: daemon.machineID)
