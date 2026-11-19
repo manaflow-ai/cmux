@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxCore
+import CmuxSettings
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
@@ -91,6 +92,85 @@ import Testing
         #expect(await transport.requests.paths.isEmpty)
     }
 
+    @Test func guestPreviewDownloadsTheRemoteFileAndPreservesFocus() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            defer {
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                appDelegate.tabManager = nil
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let suite = "guest-preview-\(UUID())"
+            let defaults = try #require(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            defaults.set(true, forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey)
+
+            let selected = manager.addWorkspace(select: true)
+            let workspace = manager.addWorkspace(select: false)
+            let sourcePanelID = try #require(workspace.focusedPanelId)
+            let configuration = remoteConfiguration()
+            workspace.remoteConfiguration = configuration
+            let catalog = SurfaceCatalog.shared
+            let resource = SurfaceResourceID(
+                machine: SurfaceMachineID(rawValue: SSHTuiConnection(configuration: configuration).id),
+                kind: .terminal, key: "term_\(UUID().uuidString)"
+            )
+            catalog.restore([SurfaceProjectionRecord(panelID: sourcePanelID, resource: resource)],
+                            workspaceID: workspace.id, restoringWorkspace: workspace)
+            defer { catalog.endProjections(panelID: sourcePanelID, reason: .replaced) }
+            let transport = PreviewDownloadTransport(files: ["/remote/project/guest.md": Data("# Guest preview".utf8)])
+            let coordinator = RemoteTerminalFilePreviewCoordinator(
+                defaults: defaults,
+                transport: transport,
+                cacheDirectory: root.appendingPathComponent("cache")
+            )
+            let focusedPane = workspace.bonsplitController.focusedPaneId
+
+            #expect(await coordinator.openGuest(
+                workspace: workspace, sourcePanelID: sourcePanelID, path: "/remote/project/guest.md", line: 12
+            ))
+            #expect(await transport.requests.paths.filter { $0 != "HOME" } == ["/remote/project/guest.md"])
+            #expect(manager.selectedTabId == selected.id)
+            #expect(workspace.focusedPanelId == sourcePanelID)
+            #expect(workspace.bonsplitController.focusedPaneId == focusedPane)
+            let preview = try #require(workspace.panels.values.compactMap { $0 as? MarkdownPanel }.first)
+            #expect((preview.filePath as NSString).lastPathComponent == "guest.md")
+            #expect(try String(contentsOfFile: preview.filePath, encoding: .utf8) == "# Guest preview")
+        }
+    }
+
+    @Test func guestPreviewRejectsInvalidPathsAndLocalSourcesWithoutDownloading() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let suite = "guest-preview-rejections-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let transport = PreviewDownloadTransport(files: ["/tmp/remote.md": Data("unexpected".utf8)])
+        let workspace = Workspace()
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        defer { workspace.teardownAllPanels() }
+        let coordinator = RemoteTerminalFilePreviewCoordinator(
+            defaults: defaults,
+            transport: transport,
+            cacheDirectory: root.appendingPathComponent("cache")
+        )
+
+        #expect(!(await coordinator.openGuest(workspace: workspace, sourcePanelID: sourcePanelID, path: "notes.md", line: nil)))
+        #expect(!(await coordinator.openGuest(workspace: workspace, sourcePanelID: sourcePanelID, path: "/tmp/a\n.md", line: nil)))
+        #expect(!(await coordinator.openGuest(workspace: workspace, sourcePanelID: sourcePanelID, path: "/tmp/remote.md", line: nil)))
+        #expect(await transport.requests.paths.isEmpty)
+        #expect(workspace.panels.count == 1)
+    }
+
     private func makeLoader(transport: PreviewDownloadTransport, cache: URL) -> RemoteTerminalFilePreviewLoader {
         RemoteTerminalFilePreviewLoader(
             provider: SSHFileExplorerProvider(
@@ -99,6 +179,15 @@ import Testing
             ),
             cacheDirectory: cache,
             fileManager: FileManager()
+        )
+    }
+
+    private func remoteConfiguration() -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "fixture@remote.invalid", port: 2222, identityFile: "/tmp/fixture-key",
+            sshOptions: ["ProxyJump=fixture-jump"], localProxyPort: nil, relayPort: nil,
+            relayID: nil, relayToken: nil, localSocketPath: nil, terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
         )
     }
 }
