@@ -129,7 +129,8 @@ fn status_after(socket: &Path, within: Duration, want: impl Fn(&Value) -> bool) 
             return status;
         }
         assert!(Instant::now() < deadline, "the daemon did not serve again within {within:?}");
-        std::thread::sleep(Duration::from_millis(50));
+        // Short: the bench's pauses are tens of ms, and a longer wait here was a third of them.
+        std::thread::sleep(Duration::from_millis(5));
     }
 }
 
@@ -258,6 +259,10 @@ struct Pause {
     request: f64,
     /// Of `request`: sent until the check's child runs.
     dispatch: f64,
+    /// Of `dispatch`: sent until the daemon's `handoff-check` thread runs.
+    to_thread: f64,
+    /// The old image's thread count as the request was sent.
+    threads: f64,
     /// Of `request`: the check's child, from its start to its reaping.
     check: f64,
     /// The old image's resident MiB as the request was sent.
@@ -275,13 +280,26 @@ struct Pause {
 }
 
 impl Pause {
-    const PARTS: [&'static str; 9] =
-        ["request", "dispatch", "check", "stop", "init", "start", "status", "rss_mib", "nice"];
+    const PARTS: [&'static str; 11] = [
+        "request",
+        "dispatch",
+        "to_thread",
+        "check",
+        "stop",
+        "init",
+        "start",
+        "status",
+        "rss_mib",
+        "threads",
+        "nice",
+    ];
 
     fn part(&self, name: &str) -> f64 {
         match name {
             "request" => self.request,
             "dispatch" => self.dispatch,
+            "to_thread" => self.to_thread,
+            "threads" => self.threads,
             "check" => self.check,
             "rss_mib" => self.rss_mib,
             "nice" => self.check_nice,
@@ -297,6 +315,8 @@ impl Pause {
 /// it).
 #[derive(Default)]
 struct Seen {
+    /// The daemon's `handoff-check` thread first listed (`daemon/handoff.rs`).
+    thread: Option<Instant>,
     /// The `daemon handoff-check` child first listed under one of the daemon's threads.
     check_from: Option<Instant>,
     /// That child no longer listed: it ended and was reaped.
@@ -330,6 +350,9 @@ fn watch_restart(pid: u64, n: u64) -> std::thread::JoinHandle<Seen> {
         }
         let deadline = Instant::now() + BENCH_WITHIN;
         while Instant::now() < deadline {
+            if seen.thread.is_none() && check_thread(pid) {
+                seen.thread = Some(Instant::now());
+            }
             if seen.check_to.is_none() {
                 let now = children(pid);
                 match (seen.check_from, now.first()) {
@@ -358,10 +381,20 @@ fn watch_restart(pid: u64, n: u64) -> std::thread::JoinHandle<Seen> {
     })
 }
 
-/// The resident KiB of `pid` now (`VmRSS`), on Linux.
-fn rss_kib(pid: u64) -> Option<u64> {
+/// Whether one of `pid`'s threads is its `handoff-check` thread.
+fn check_thread(pid: u64) -> bool {
+    let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return false };
+    tasks.flatten().any(|task| {
+        std::fs::read_to_string(task.path().join("comm")).is_ok_and(|c| c.trim() == "handoff-check")
+    })
+}
+
+/// A number field of `pid`'s `/proc/<pid>/status` (`VmRSS` in KiB, `Threads`), on Linux.
+fn proc_status(pid: u64, field: &str) -> Option<u64> {
     let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
-    status.lines().find(|l| l.starts_with("VmRSS:"))?.split_whitespace().nth(1)?.parse().ok()
+    let line =
+        status.lines().find(|l| l.strip_prefix(field).is_some_and(|r| r.starts_with(':')))?;
+    line.split_whitespace().nth(1)?.parse().ok()
 }
 
 /// The new image's `daemon::run` start and its `requests ready` mark, from a status it answered
@@ -418,7 +451,8 @@ fn pauses(shape: &Shape, runs: u64) -> [Vec<Pause>; 2] {
             }
         }
         let watch = watch_restart(pid, n);
-        let rss = rss_kib(pid).map_or(-1.0, |kib| kib as f64 / 1024.0);
+        let rss = proc_status(pid, "VmRSS").map_or(-1.0, |kib| kib as f64 / 1024.0);
+        let threads = proc_status(pid, "Threads").map_or(-1.0, |n| n as f64);
         let asked = Instant::now();
         let answer = call(dial(&socket), "_acpmux/shutdown", restart_request())
             .expect("the restart request was answered")
@@ -443,6 +477,8 @@ fn pauses(shape: &Shape, runs: u64) -> [Vec<Pause>; 2] {
             total: ms(asked, got),
             request: ms(asked, answered),
             dispatch: ms(asked, check_from),
+            to_thread: ms(asked, seen.thread.unwrap_or(check_from)),
+            threads,
             check: ms(check_from, check_to),
             rss_mib: rss,
             check_nice: seen.check_nice.map_or(-99.0, |nice| nice as f64),

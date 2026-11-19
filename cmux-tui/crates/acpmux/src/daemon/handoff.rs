@@ -67,6 +67,9 @@ const VERSION: u64 = 1;
 /// restart is v1's exit.
 // timeout: the restart request waits for this child; a build that is slow to launch must not hold it.
 const CHECK_WITHIN: Duration = Duration::from_secs(2);
+/// The thread `daemon handoff-check` runs and is waited for on (`tests/daemon_handoff.rs` times
+/// it by this name).
+const CHECK_THREAD: &str = "handoff-check";
 
 /// The flags of `daemon run` that name one of this process's own descriptors or a handoff, each
 /// with its value: none of them is the next process's.
@@ -241,10 +244,18 @@ async fn arm() -> Result<bool, String> {
     let mut check_args: Vec<String> = args.iter().take(run).cloned().collect();
     check_args.push("handoff-check".into());
     let (program, name) = (installed.clone(), arg0.clone());
-    // bare blocking (daemon): one short child the restart request waits for, bounded by its deadline.
-    let checked = tokio::task::spawn_blocking(move || check(&program, &name, &check_args))
-        .await
-        .map_err(|e| format!("the check's task: {e}"))?;
+    // Its own thread, not tokio's blocking pool: while a large home's startup reads its chats, that
+    // pool holds one task per chat (each chat's inbox read, `hub/log_load.rs`), and a check queued
+    // behind them waits for those reads (`tests/daemon_handoff.rs`, `part=to_thread`). The thread
+    // ends with the check, within its deadline.
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name(CHECK_THREAD.into())
+        .spawn(move || {
+            let _ = tx.send(check(&program, &name, &check_args));
+        })
+        .map_err(|e| format!("the check's thread: {e}"))?;
+    let checked = rx.await.map_err(|e| format!("the check's thread: {e}"))?;
     let Some(build) = checked? else {
         return v1(format!(
             "{} daemon handoff-check gave no answer within {CHECK_WITHIN:?}",
