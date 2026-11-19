@@ -292,8 +292,7 @@ extension AgentPaneModel {
             guard transport.gestures.consume() else {
                 return Self.transportFailure(.gestureRequired)
             }
-            NSPasteboard.general.clearContents()
-            guard NSPasteboard.general.setString(text, forType: .string) else {
+            guard writeClipboard(text) else {
                 return AgentPaneReply.failure(code: "unavailable", message: "Could not copy text")
             }
             return AgentPaneReply.success()

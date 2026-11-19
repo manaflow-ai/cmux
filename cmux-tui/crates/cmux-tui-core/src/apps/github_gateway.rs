@@ -73,12 +73,22 @@ fn number_segment(s: &str) -> bool {
     !s.is_empty() && s.len() <= 12 && s.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// A git object id: 40 hex digits.
+fn sha_segment(s: &str) -> bool {
+    s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 /// Admits an app's path and returns the `gh api` endpoint (no leading
 /// slash). The read paths:
 /// `/user`, `/search/issues`, `/repos/{o}/{r}/pulls`,
 /// `/repos/{o}/{r}/pulls/{n}`, `/repos/{o}/{r}/pulls/{n}/reviews`,
+/// `/repos/{o}/{r}/pulls/{n}/comments`, `/repos/{o}/{r}/pulls/{n}/files`,
+/// `/repos/{o}/{r}/issues/{n}/comments`, `/repos/{o}/{r}/commits`,
 /// `/repos/{o}/{r}/commits/{ref}/check-runs`,
-/// `/repos/{o}/{r}/commits/{ref}/status`, each with an optional query.
+/// `/repos/{o}/{r}/commits/{ref}/status`,
+/// `/repos/{o}/{r}/contents/{path...}` (one or more plain name segments),
+/// `/repos/{o}/{r}/git/trees/{ref}`, `/repos/{o}/{r}/git/blobs/{sha}`
+/// (40 hex digits), each with an optional query.
 /// The query is printable ASCII with no `#` or braces (`gh` would fill
 /// `{owner}` placeholders from its working directory).
 pub(super) fn admit_path(path: &str) -> Result<String, Value> {
@@ -104,10 +114,21 @@ pub(super) fn admit_path(path: &str) -> Result<String, Value> {
         ["search", "issues"] => true,
         ["repos", o, r, "pulls"] => repo(o, r),
         ["repos", o, r, "pulls", n] => repo(o, r) && number_segment(n),
-        ["repos", o, r, "pulls", n, "reviews"] => repo(o, r) && number_segment(n),
+        ["repos", o, r, "pulls", n, "reviews" | "comments" | "files"] => {
+            repo(o, r) && number_segment(n)
+        }
+        ["repos", o, r, "issues", n, "comments"] => repo(o, r) && number_segment(n),
+        ["repos", o, r, "commits"] => repo(o, r),
         ["repos", o, r, "commits", git_ref, "check-runs" | "status"] => {
             repo(o, r) && ref_segment(git_ref)
         }
+        // A file or folder: its path is plain name segments, so no `..`,
+        // `.`, empty segment or `%` escape reaches GitHub.
+        ["repos", o, r, "contents", file @ ..] => {
+            repo(o, r) && !file.is_empty() && file.iter().all(|s| name_segment(s))
+        }
+        ["repos", o, r, "git", "trees", git_ref] => repo(o, r) && ref_segment(git_ref),
+        ["repos", o, r, "git", "blobs", sha] => repo(o, r) && sha_segment(sha),
         _ => false,
     };
     if !allowed {

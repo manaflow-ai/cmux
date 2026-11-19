@@ -284,7 +284,7 @@ public final class ImportSuggestionsCenter {
         }
         guard let card = deck.cards().first(where: { $0.id == id }), card.kind.startReadsAnotherApp else { return nil }
         let confirm = CmuxDialogButton(id: "confirm", title: ImportSuggestionStrings.confirmButton(action), role: .default)
-        return CmuxDialogSpec(title: ImportSuggestionStrings.confirmTitle(card.title), lines: [card.facts, card.benefit].filter { !$0.isEmpty },
+        return CmuxDialogSpec(usesTransientMaterial: true, title: ImportSuggestionStrings.confirmTitle(card.title), lines: [card.facts, card.benefit].filter { !$0.isEmpty },
                               buttons: [.cancel(), confirm], identifier: "cmux.dialog.importCard")
     }
 

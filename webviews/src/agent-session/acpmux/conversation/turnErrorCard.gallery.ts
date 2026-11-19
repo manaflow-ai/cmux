@@ -4,11 +4,14 @@
 // erros for acpmux"): the cause in one human line, the way out first, the agent's own words under
 // Details with Copy. Compare arms shows the three surfaces of the `turn-error-card` experiment.
 import { agentPaneEntry } from "../../../gallery/format";
-import { assistant, CATALOG, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, CATALOG, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { TURN_RETRY } from "../model";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 
 const prompt = "Run the sidebar tests and fix what fails";
+/// The 429 acpmux recorded on Leo's coordinator, as its `turn_result` carried it (`errorText`).
+const rateLimit =
+  "API Error: Request rejected (429) \u00b7 This request would exceed your account's rate limit. Please try again later.";
 
 const failed = (error: string, errorCode?: string, fields: Parameters<typeof chat>[1] = {}) =>
   chat(
@@ -19,6 +22,24 @@ const failed = (error: string, errorCode?: string, fields: Parameters<typeof cha
     ],
     fields,
   );
+
+/// One dead turn of the run: the calls it got through before the 429, then its failed summary. The
+/// work matters — the time's line only draws over a turn with something to fold, so a prompt and a
+/// summary alone would show no "Failed after" at all (caught in review of #44475).
+const deadTurn = (workAt: number, endAt: number, durationMs: number) => [
+  activity(
+    [
+      tool("git pull -q --ff-only", "execute", "completed", {
+        description: "Pulled the base",
+        output: "ok\n",
+        exitCode: 0,
+      }),
+      tool("Read webviews/src/pages/settings/Sidebar.tsx", "read", "completed", { output: "…\n" }),
+    ],
+    workAt,
+  ),
+  summary(endAt, { status: "failed", durationMs, toolCount: 2, error: rateLimit }),
+];
 
 /// Claude Code's own /compact, as its `available_commands_update` lists it.
 const compactCommand = { name: "compact", description: "Clear conversation history but keep a summary in context" };
@@ -125,12 +146,40 @@ export default agentPaneEntry({
       note: "Capacity after the turn did work (Lawrence 2026-10-29): Continue leads and resumes the turn with its context (Return on the focused card), Switch model beside it.",
       snapshot: failed("API Error: 529 overloaded_error"),
     },
+    // Leo's coordinator looped on 429s for hours and every dead turn read "Worked for Ns", so the
+    // chat looked busy while nothing ran (cmux#24312 gave the card; the time's own line still said
+    // work). A run of dead turns has to read as dead at a glance, before anything is expanded.
+    "failed-run": {
+      note: "A chat whose turns all died on a 429: every time reads Failed after, never Worked for, so a dead chat never looks like it is quietly working.",
+      height: 560,
+      snapshot: chat([
+        user("Land the sidebar fix", 24),
+        ...deadTurn(23.6, 23.4, 38_000),
+        user("Retry the land", 16),
+        ...deadTurn(15.7, 15.5, 41_000),
+        user("Try once more", 8),
+        ...deadTurn(7.8, 7.6, 36_000),
+      ]),
+    },
     "rate-limited-before-work": {
       note: "Capacity before anything ran: Retry leads and sends the prompt again, Switch model beside it.",
       snapshot: chat([
         user(prompt, 6),
         summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: 529 overloaded_error" }),
       ]),
+    },
+    // c-763204aef8 (asks board: "API-error turn shows an empty 'Worked for Ns'"): the turn's only step
+    // was an omitted thought, which draws nothing, and it folded under a line that opened to nothing.
+    "rate-limited-after-omitted-thought": {
+      note: "A Codex turn that thought (omitted, nothing to read) and then hit a 429: the card stands alone, with no Worked for or Failed after line over nothing, and Retry leads since nothing ran.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          activity([{ kind: "thought", text: "" }], 5.95),
+          summary(5.9, { status: "failed", durationMs: 6_000, error: rateLimit }),
+        ],
+        { harness: "codex", model: "gpt-6-astra" },
+      ),
     },
     "details-placement-wide": {
       note: "Rate-limit card at a wide width: Details reserves its own action row before and after opening.",
