@@ -21,6 +21,8 @@ public final class ScaleWork: Sendable {
         case bandRows = "band_rows"
         /// Whole lists laid over a store (every session of a watch written again).
         case listReloads = "list_reloads"
+        /// Steps of a binary search into a sorted list of sessions: O(log n), so not in ``total``.
+        case probes
     }
 
     /// The counter of the task that makes the change; nil counts nothing.
@@ -36,8 +38,8 @@ public final class ScaleWork: Sendable {
     /// Every kind's count so far.
     public var all: [Kind: Int] { counts.withLock { $0 } }
 
-    /// Every kind's count, summed.
-    public var total: Int { counts.withLock { $0.values.reduce(0, +) } }
+    /// Every kind's count but ``Kind/probes``, summed: the work that would grow with the sessions.
+    public var total: Int { counts.withLock { $0.filter { $0.key != .probes }.values.reduce(0, +) } }
 
     /// Adds `amount` of `kind` when a counter is set for the current task.
     @inline(__always)

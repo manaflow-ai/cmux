@@ -51,6 +51,13 @@ extension AgentTurnStateStore {
         for id in Set(own).union(links.keys) where !keeping.contains(id) { setStartedBy(links[id], session: id, source: source) }
     }
 
+    /// ``replaceStartedBy(_:source:keeping:)`` for the sessions `only` alone (a follow's rows).
+    public func replaceStartedBy(_ links: [String: String], only: Set<String>, source: String = AgentTurnStateStore.localSource) {
+        for id in only where links[id] != nil || (sessions[id]?.source == source && sessions[id]?.startedBy != nil) {
+            setStartedBy(links[id], session: id, source: source)
+        }
+    }
+
     // MARK: Reads
 
     /// Whether `session` belongs to chat `chat`'s family: a sub-session under it at any depth, or

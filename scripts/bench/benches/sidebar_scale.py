@@ -28,7 +28,7 @@ from benchlib.bench import Bench, BenchError, Context
 
 HARNESS = "scripts/ci/package-test-lane.sh"
 SUITE = "SidebarScaleWorkTests"
-KINDS = ("lanes_walked", "sets_built", "rebuilds", "band_rows", "list_reloads", "total")
+KINDS = ("lanes_walked", "sets_built", "rebuilds", "band_rows", "list_reloads", "probes", "total")
 LINE = re.compile(r"SIDEBAR-SCALE(-RATIO)? (\{.*\})\s*$")
 
 

@@ -519,6 +519,28 @@ public final class AgentTurnStateStore {
         }
     }
 
+    /// ``replace(states:lastMessages:muted:titles:generatedTitles:sessionNames:details:source:peers:keeping:keepingPeers:)``
+    /// for the sessions `only` alone: a follow's rows laid over a list the store already holds, so every other
+    /// session stands as it is. Each of them ends up as the whole replace leaves it, at O(`only`), not O(sessions).
+    public func replace(only: Set<String>, states: AgentTurnStates, lastMessages: [String: String], muted: Set<String>,
+                        titles: [String: String], generatedTitles: [String: String] = [:], sessionNames: [String: String] = [:],
+                        details: [String: AgentChatDetail], source: String = AgentTurnStateStore.localSource,
+                        peers: [String: [String: AgentPeerRow]] = [:]) {
+        ScaleWork.add(.lanesWalked, only.count)
+        for id in only {
+            let listed = states[id] != nil || lastMessages[id] != nil || muted.contains(id) || titles[id] != nil
+                || generatedTitles[id] != nil || sessionNames[id] != nil || details[id] != nil || peers[id] != nil
+            let own = sessions[id]?.source == source
+            guard listed || own else { continue }
+            apply(session: id, sessionName: sessionNames[id], state: states[id], lastMessage: lastMessages[id], muted: muted.contains(id),
+                  title: titles[id], generatedTitle: generatedTitles[id], detail: details[id], source: source)
+            let rows = peers[id] ?? [:]
+            if record(id).peers != rows { record(id).peers = rows }
+            // A session of this watch that its list no longer has: acpmux dropped it.
+            if own, !listed { sessionEnded(id) }
+        }
+    }
+
     /// Lays a usage read's numbers (`_acpmux/sessions` with `usage: true`, by session id) over
     /// `source`'s sessions, leaving every other fact as it is; writes only what changed. A session
     /// the store does not hold from `source` is skipped: the watch has not listed it.
