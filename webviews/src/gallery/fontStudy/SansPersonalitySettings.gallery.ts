@@ -15,7 +15,7 @@ export default settingsPageEntry({
   area: "Settings",
   height: 760,
   covers: ["page:cmux.settings", "gallery/fontStudy/sansPersonality.ts"],
-  keywords: ["font", "typeface", "typography", "cmux sans", "hanken", "squat", "candy", "sharp", "interface font"],
+  keywords: ["font", "typeface", "typography", "cmux sans", "hanken", "squat", "candy", "interface font"],
   variants: Object.fromEntries(
     SANS_PERSONALITY_NAMES.map((name): [string, SettingsPageVariant] => {
       const { value, note, pairing } = SANS_PERSONALITIES[name];

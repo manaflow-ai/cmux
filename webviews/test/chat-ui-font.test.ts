@@ -40,7 +40,6 @@ test("each other choice sets the face and its own tracking on the type scale", (
   expect(squat["--text-heading--letter-spacing"]).toBe("-0.024em");
   expect(squat["--cv-tracking"]).toBe("-0.01em");
   expect(chatUiFontVariables("cmux-sans-candy")["--font-ui"]).toStartWith('"cmux Sans Candy"');
-  expect(chatUiFontVariables("cmux-sans-sharp")["--text-caption--letter-spacing"]).toBe("0.014em");
   expect(chatUiFontVariables("cmux-sans")["--cv-tracking"]).toBe("0px");
   // Inter's own curve is for tuned Inter: stock Inter draws at its designed spacing.
   expect(chatUiFontVariables("inter")["--text-heading--letter-spacing"]).toBe("0em");

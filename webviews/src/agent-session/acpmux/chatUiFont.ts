@@ -6,7 +6,7 @@
 // letter-spacing, so the default sets nothing. Each other choice sets `--font-ui` on the page and its
 // own tracking on the type scale's letter-spacing tokens. Inter (cmux Inter, with the calculated
 // tracking the app used through 2026-11-07, or stock), Roboto, IBM Plex Sans, Source Sans 3, Geist,
-// Hanken Grotesk, Atkinson Hyperlegible Next, cmux Sans and its Squat, Candy and Sharp cuts are bundled (chatFonts/FONTS.md) and load
+// Hanken Grotesk, Atkinson Hyperlegible Next, cmux Sans and its Squat and Candy cuts are bundled (chatFonts/FONTS.md) and load
 // only when chosen; Verdana and the system font come with macOS. Leo, 2026-11-05: "I feel like we can
 // look into a hell of a lot more and try out a hell of a lot more" (the font study,
 // webviews/src/gallery/fontStudy, picked cmux Sans, Hanken Grotesk and Atkinson Hyperlegible Next).
@@ -26,7 +26,6 @@ export type ChatUiFont =
   | "cmux-sans"
   | "cmux-sans-squat"
   | "cmux-sans-candy"
-  | "cmux-sans-sharp"
   | "hanken"
   | "atkinson"
   | "system-ui"
@@ -48,7 +47,6 @@ export const CHAT_UI_FONTS: readonly ChatUiFont[] = [
   "cmux-sans",
   "cmux-sans-squat",
   "cmux-sans-candy",
-  "cmux-sans-sharp",
   "hanken",
   "atkinson",
 ];
@@ -67,7 +65,6 @@ export type BundledChatFont =
   | "cmux-sans"
   | "cmux-sans-squat"
   | "cmux-sans-candy"
-  | "cmux-sans-sharp"
   | "hanken"
   | "atkinson";
 export const BUNDLED_FAMILY: Record<BundledChatFont, string> = {
@@ -80,7 +77,6 @@ export const BUNDLED_FAMILY: Record<BundledChatFont, string> = {
   "cmux-sans": "cmux Sans",
   "cmux-sans-squat": "cmux Sans Squat",
   "cmux-sans-candy": "cmux Sans Candy",
-  "cmux-sans-sharp": "cmux Sans Sharp",
   hanken: "cmux Hanken Grotesk",
   atkinson: "cmux Atkinson Hyperlegible Next",
 };
@@ -102,7 +98,6 @@ const STACKS: Record<ChatUiFont, string> = {
   "cmux-sans": `"${BUNDLED_FAMILY["cmux-sans"]}", ${SYSTEM}`,
   "cmux-sans-squat": `"${BUNDLED_FAMILY["cmux-sans-squat"]}", ${SYSTEM}`,
   "cmux-sans-candy": `"${BUNDLED_FAMILY["cmux-sans-candy"]}", ${SYSTEM}`,
-  "cmux-sans-sharp": `"${BUNDLED_FAMILY["cmux-sans-sharp"]}", ${SYSTEM}`,
   hanken: `"${BUNDLED_FAMILY.hanken}", "Hanken Grotesk", ${SYSTEM}`,
   atkinson: `"${BUNDLED_FAMILY.atkinson}", "Atkinson Hyperlegible Next", ${SYSTEM}`,
   "system-ui": SYSTEM,
@@ -135,8 +130,7 @@ const INTER_TUNED: Record<(typeof STEPS)[number], string> = {
 
 /// cmux Sans's personality cuts (scripts/fonts/cmux-sans/build.py; Leo, 2026-11-19: cmux Sans looks "a bit
 /// like generic school font ... It just doesn't have that like pizzazz"): each set to its own width. Squat,
-/// 8 % wider, closes up, most at the larger steps; Candy, 5 % wider, a little less; Sharp, 5 % narrower,
-/// opens at the small steps so its tall lowercase does not clot.
+/// 8 % wider, closes up, most at the larger steps; Candy, 5 % wider, a little less.
 const PERSONALITY: Partial<Record<ChatUiFont, Record<(typeof STEPS)[number], string>>> = {
   "cmux-sans-squat": {
     caption: "-0.002em",
@@ -153,14 +147,6 @@ const PERSONALITY: Partial<Record<ChatUiFont, Record<(typeof STEPS)[number], str
     field: "-0.008em",
     title: "-0.012em",
     heading: "-0.02em",
-  },
-  "cmux-sans-sharp": {
-    caption: "0.014em",
-    detail: "0.01em",
-    body: "0.004em",
-    field: "0em",
-    title: "-0.006em",
-    heading: "-0.014em",
   },
 };
 

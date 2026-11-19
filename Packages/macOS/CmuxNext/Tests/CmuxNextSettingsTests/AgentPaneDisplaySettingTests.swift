@@ -48,7 +48,7 @@ struct AgentPaneDisplaySettingTests {
             accepted: [.string("verdana"), .string("roboto"), .string("plex"), .string("source-sans"), .string("geist"),
                        .string("inter"), .string("inter-tuned"), .string("system-ui-tight"),
                        .string("cmux-sans"), .string("cmux-sans-squat"), .string("cmux-sans-candy"),
-                       .string("cmux-sans-sharp"), .string("hanken"), .string("atkinson")],
+                       .string("hanken"), .string("atkinson")],
             refused: [.string("comic"), .string("system"), .bool(true)]),
         Row(key: "agentPane.display.font.size", fallback: .number(14), accepted: [.number(10), .number(28)],
             refused: [.number(4), .number(40)]),

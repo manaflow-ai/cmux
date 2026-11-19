@@ -41,12 +41,6 @@ export const SANS_PERSONALITIES = {
     label: "cmux Sans Candy",
     note: "Candy: single-storey a, tailed l, 105 % wide, heavier.",
   },
-  sharp: {
-    pairing: "cmux-sans-sharp",
-    value: "cmux-sans-sharp",
-    label: "cmux Sans Sharp",
-    note: "Sharp: 95 % narrow, tall x-height, serifed I, slashed zero.",
-  },
 } as const satisfies Record<string, { pairing: string; value: string | undefined; label: string; note: string }>;
 export type SansPersonality = keyof typeof SANS_PERSONALITIES;
 export const SANS_PERSONALITY_NAMES = Object.keys(SANS_PERSONALITIES) as SansPersonality[];
@@ -58,7 +52,7 @@ export const sansPersonality = defineExperiment({
   id: "sans-personality",
   title: "cmux Sans personality",
   description:
-    "The same screen in the system font, Folio's sans (Hanken Grotesk, the reference), cmux Sans and its Squat, Candy and Sharp cuts. Judge the reply, its table and code, the composer and the Settings rows.",
+    "The same screen in the system font, Folio's sans (Hanken Grotesk, the reference), cmux Sans and its Squat and Candy cuts. Judge the reply, its table and code, the composer and the Settings rows.",
   arms: Object.fromEntries(
     SANS_PERSONALITY_NAMES.map((name) => [
       name,

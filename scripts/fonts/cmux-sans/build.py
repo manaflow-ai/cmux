@@ -26,7 +26,7 @@ Needs fontTools and brotli. Usage:
     build.py --all --out DIR               every preset
     build.py --all --out DIR --subset latin  Fontsource's Latin subset (the gallery's and the chat's files)
     build.py --preset c --subset latin --release --out DIR   the chat's cmux Sans (family "cmux Sans")
-    build.py --preset squat --subset latin --release --out DIR   cmux Sans Squat (likewise candy and sharp)
+    build.py --preset squat --subset latin --release --out DIR   cmux Sans Squat (likewise candy)
 The source zip is fetched once into ~/.cache/cmux-sans and checked against its sha256.
 """
 
@@ -69,7 +69,7 @@ DESCRIPTION = (
 # that like pizzazz"; he likes Folio's sans, Hanken Grotesk, for looking "a bit squat") add three parameters: `width`, every
 # outline, advance and kern scaled horizontally by this factor; `weight`, the weight that draws at the CSS weight
 # 400 (the whole axis shifts with it, 200 and 900 stay put); `name`, the family's suffix in a release build
-# ("cmux Sans Squat"). ss01 is the serifed I, ss02 the single-storey a, ss10 the slashed zero.
+# ("cmux Sans Squat"). ss02 is the single-storey a.
 PRESETS: dict[str, dict] = {
     "b": {"scale": 1.04, "xheight": 502},  # half a pixel larger, x-height +5 %
     "c": {"scale": 1.0, "xheight": 516},  # Source's size, x-height +8 %
@@ -80,8 +80,6 @@ PRESETS: dict[str, dict] = {
     "squat": {"scale": 1.0, "xheight": 548, "width": 1.08, "weight": 440, "name": "Squat"},
     # Round and soft: the single-storey a, the tailed l, wider and heavier still.
     "candy": {"scale": 1.0, "xheight": 536, "width": 1.05, "weight": 470, "sets": ["ss02", "ss05"], "name": "Candy"},
-    # Narrow and crisp: a tall lowercase, the serifed I and the slashed zero, set tight.
-    "sharp": {"scale": 1.0, "xheight": 532, "width": 0.95, "weight": 430, "sets": ["ss01", "ss10"], "name": "Sharp"},
 }
 
 # Fontsource's "latin" subset, the range every other bundled chat face is cut to (chatFonts/FONTS.md).

@@ -614,13 +614,6 @@
               }
             },
             {
-              "value": "cmux-sans-sharp",
-              "title": {
-                "key": "settings.choice.agentChatUiFontCmuxSansSharp",
-                "text": "cmux Sans Sharp"
-              }
-            },
-            {
               "value": "hanken",
               "title": {
                 "key": "settings.choice.agentChatUiFontHanken",

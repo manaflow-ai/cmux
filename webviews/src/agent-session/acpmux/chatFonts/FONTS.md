@@ -17,7 +17,6 @@ A character outside Latin falls back to the system font. The licence notices are
 | `cmuxSans-latin-wght.woff2`                 | cmux Sans                  | `ef16f0da63bd8946187083e17cb5e89909735f6bae3f159fc04b94ebf9a5d8a9` |
 | `cmuxSansSquat-latin-wght.woff2`            | cmux Sans Squat            | `141a246b968d230228f44a47dc2aaf00f152b9e9d0e1c5b7c2e753fce4f92364` |
 | `cmuxSansCandy-latin-wght.woff2`            | cmux Sans Candy            | `d69bb5a89d81737869c12ef385c7da94ca2115b6526d811bea3fd6357f14fd74` |
-| `cmuxSansSharp-latin-wght.woff2`            | cmux Sans Sharp            | `8c4b8a6603de0b2fc56859bd82353b2ac64a409c4a29052d3780a9f0d8a094f2` |
 
 cmux Sans is ours: Source Sans 3 3.052R (Adobe's variable font, sha256-checked) with its lowercase 8 %
 taller at Source's own size, cut to the same Latin range and features, built by
@@ -26,11 +25,11 @@ file is reproducible). The OFL reserves the name "Source", so its family is "cmu
 study (webviews/src/gallery/fontStudy) ranked it with Source Sans 3 above Inter, the app's UI font until 2026-11-07,, and picked
 Hanken Grotesk and Atkinson Hyperlegible Next as the other two to try.
 
-cmux Sans Squat, Candy and Sharp are cmux Sans with more character, opt-in (Leo, 2026-11-19: cmux Sans looks "a
+cmux Sans Squat and Candy are cmux Sans with more character, opt-in (Leo, 2026-11-19: cmux Sans looks "a
 bit like generic school font ... It just doesn't have that like pizzazz", and he likes a face that "looks a bit
-squat"). Each is `build.py --preset squat|candy|sharp --subset latin --release --out DIR`: Squat 8 % wider with a
+squat"). Each is `build.py --preset squat|candy --subset latin --release --out DIR`: Squat 8 % wider with a
 lowercase 15 % taller than Source's and its regular a touch heavier (440); Candy 5 % wider, the single-storey a
-and the tailed l, heavier (470); Sharp 5 % narrower, a tall lowercase, the serifed I and the slashed zero (430).
+and the tailed l, heavier (470).
 The width scales every outline, advance and kern; the weight moves the axis (avar), so 400 draws heavier and 200
 and 900 stay. Their tracking is chatUiFont.ts's, per width.
 

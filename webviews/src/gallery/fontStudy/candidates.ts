@@ -39,7 +39,6 @@ import sourceSans from "../../agent-session/acpmux/chatFonts/SourceSans3-latin-w
 import cmuxSans from "../../agent-session/acpmux/chatFonts/cmuxSans-latin-wght.woff2";
 import cmuxSansSquat from "../../agent-session/acpmux/chatFonts/cmuxSansSquat-latin-wght.woff2";
 import cmuxSansCandy from "../../agent-session/acpmux/chatFonts/cmuxSansCandy-latin-wght.woff2";
-import cmuxSansSharp from "../../agent-session/acpmux/chatFonts/cmuxSansSharp-latin-wght.woff2";
 
 /// A face: its files, each a weight range (a variable axis) or one static weight.
 type Face = { family: string; files: { url: string; weight: string }[] };
@@ -49,7 +48,6 @@ export const FACES = {
   cmuxSans: variable("Study cmux Sans", cmuxSans, "200 900"),
   cmuxSansSquat: variable("Study cmux Sans Squat", cmuxSansSquat, "200 900"),
   cmuxSansCandy: variable("Study cmux Sans Candy", cmuxSansCandy, "200 900"),
-  cmuxSansSharp: variable("Study cmux Sans Sharp", cmuxSansSharp, "200 900"),
   atkinson: variable("Study Atkinson Hyperlegible Next", atkinson),
   cmuxSansB: variable("Study cmux Sans B", cmuxSansB),
   cmuxSansC: variable("Study cmux Sans C", cmuxSansC),
@@ -257,13 +255,6 @@ export const PAIRINGS: readonly Pairing[] = [
     why: "Single-storey a, tailed l, 105 % wide and heavier: round and friendly.",
     ui: "cmuxSansCandy",
     tracking: { caption: 0.004, detail: 0, body: -0.006, field: -0.008, title: -0.012, heading: -0.02 },
-  },
-  {
-    id: "cmux-sans-sharp",
-    label: "cmux Sans Sharp",
-    why: "95 % narrow, a tall x-height, a serifed I and a slashed zero: a tool's face.",
-    ui: "cmuxSansSharp",
-    tracking: { caption: 0.014, detail: 0.01, body: 0.004, field: 0, title: -0.006, heading: -0.014 },
   },
   { id: "fira-sans", label: "Fira Sans", why: "Mozilla's humanist sans, Meta's lineage.", ui: "fira" },
   { id: "figtree", label: "Figtree", why: "Friendly geometric with a large x-height.", ui: "figtree" },

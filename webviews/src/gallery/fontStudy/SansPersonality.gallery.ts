@@ -2,7 +2,7 @@
 // cmux Sans's personalities on the chat: the font study's screen (FontStudy.gallery.ts: a long reply
 // with code, a table, CJK and emoji, and the composer) in the system font, Folio's sans (Hanken
 // Grotesk, the reference for "squat"), cmux Sans, and its Squat,
-// Candy and Sharp cuts. Leo, 2026-11-19: cmux Sans looks "a bit like generic school font ... It just
+// and Candy cuts. Leo, 2026-11-19: cmux Sans looks "a bit like generic school font ... It just
 // doesn't have that like pizzazz"; he likes squat faces. Pick one here. With the sidebar, open a
 // variant in the mock app:
 //   mock-app.html?fixture=font-study.sans-personality/squat&colorScheme=light
@@ -18,7 +18,7 @@ export default agentPaneEntry({
   title: "cmux Sans personality",
   area: "Agent pane",
   covers: ["gallery/fontStudy/sansPersonality.ts", "gallery/fontStudy/candidates.ts"],
-  keywords: ["font", "typeface", "typography", "cmux sans", "hanken", "squat", "candy", "sharp", "sidebar"],
+  keywords: ["font", "typeface", "typography", "cmux sans", "hanken", "squat", "candy", "sidebar"],
   variants: Object.fromEntries(
     SANS_PERSONALITY_NAMES.map((name): [string, AgentPaneVariant] => [
       name,

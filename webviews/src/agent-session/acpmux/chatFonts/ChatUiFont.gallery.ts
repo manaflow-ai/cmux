@@ -45,7 +45,6 @@ const NOTES: Record<ChatUiFont, string> = {
   "cmux-sans": "cmux Sans, ours: Source Sans 3 with an 8 % taller lowercase, bundled (Latin).",
   "cmux-sans-squat": "cmux Sans Squat: 108 % wide, a bigger x-height, a touch heavier, bundled (Latin).",
   "cmux-sans-candy": "cmux Sans Candy: single-storey a, tailed l, 105 % wide, heavier, bundled (Latin).",
-  "cmux-sans-sharp": "cmux Sans Sharp: 95 % narrow, tall x-height, serifed I, slashed zero, bundled (Latin).",
   hanken: "Hanken Grotesk, a warm grotesque, bundled (Latin).",
   atkinson: "Atkinson Hyperlegible Next, built for legibility, bundled (Latin).",
   "system-ui": "The default: the system font (SF Pro on macOS) at its own spacing. Linux draws its own sans.",
