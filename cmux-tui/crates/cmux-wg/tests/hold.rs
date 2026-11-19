@@ -210,6 +210,49 @@ async fn an_unheld_tunnel_with_path_probes_sends_its_silent_peer_datagrams() {
     pair.mac.shutdown().await;
 }
 
+/// Output the Mac sent just as the phone went silent is never acknowledged
+/// (its ACK is lost with the phone). Held, the Mac does not retransmit it
+/// through the hold: no RTO, no tail-loss probe. Released, with the phone
+/// back, it resends at once and the output arrives. The counts are printed
+/// for the PR's cost table (`--nocapture`).
+#[tokio::test(start_paused = true)]
+async fn a_held_tunnel_does_not_retransmit_unacknowledged_output() {
+    let mut pair = pair().await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    pair.sim.set_link(addr(PHONE), addr(MAC), link(true));
+    pair.accepted.write_all(b"late output").await.unwrap();
+    // Its first transmission goes out (and is lost) before the hold.
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    pair.mac.hold(Some(Duration::from_secs(10 * 60))).await.unwrap();
+    let sent = |sim: &SimNet| (sim.sent_from(addr(MAC)), sim.sent_bytes_from(addr(MAC)));
+    let before = sent(&pair.sim);
+    tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+    let after = sent(&pair.sim);
+    let (held, held_bytes) = (after.0 - before.0, after.1 - before.1);
+    println!("outstanding data: held 5 min: {held} datagrams, {held_bytes} bytes");
+    assert_eq!(
+        held, 0,
+        "a held Mac retransmitted to its suspended phone: {held} datagrams in 5 minutes"
+    );
+
+    // The phone is back: the output arrives.
+    pair.sim.set_link(addr(PHONE), addr(MAC), link(false));
+    pair.phone.refresh().await.unwrap();
+    pair.mac.hold(None).await.unwrap();
+    let mut late = [0u8; 11];
+    tokio::time::timeout(Duration::from_secs(10), pair.dialed.read_exact(&mut late))
+        .await
+        .expect("the held output arrives after the release")
+        .unwrap();
+    assert_eq!(&late, b"late output");
+    assert!(
+        alive(&mut pair.dialed, &mut pair.accepted).await,
+        "the connection ended at the release"
+    );
+    pair.phone.shutdown().await;
+    pair.mac.shutdown().await;
+}
+
 /// A connection idle through the whole hold (a link's input lane with no
 /// keystroke yet) last heard its peer minutes ago. Releasing the hold must
 /// not put its 60 s user timeout back at once, or it aborts at the next
