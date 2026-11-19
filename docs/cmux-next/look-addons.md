@@ -30,6 +30,10 @@ change often, so a look sets only these custom properties, on `:root`
 | `--cv-text`, `--cv-text-muted`, `--cv-text-dim` | body, secondary and quietest transcript text |
 | `--cv-link`, `--agent-link` | links in replies, and in the rest of the pane |
 | `--cv-card-fill`, `--cv-card-ring` | every card in the transcript (tool output, code, edited files) and its hairline; unset, each card keeps its own strength |
+| `--cv-activity-text` | tool rows, Worked for and other agents' messages (the secondary reading level) |
+| `--cv-heading-text` | headings in replies; unset, the body text |
+| `--cv-code-fill`, `--cv-code-radius` | inline code's fill and corner (a fenced block is a card) |
+| `--cv-card-radius` | every transcript card's corner; unset, each keeps its own |
 | `--cv-user-bubble-tint`, `--cv-user-bubble-edge` | the prompt bubble's glass tint and its hairline |
 | `--cv-user-bubble-radius` | the prompt bubble's corner |
 | `--cv-reply-fill`, `--cv-reply-ring`, `--cv-reply-radius`, `--cv-reply-padding` | the agent's reply as a card: its fill, hairline, corner and room around the text; unset, no card |

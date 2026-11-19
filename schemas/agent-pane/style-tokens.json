@@ -162,6 +162,36 @@
       "kind": "color",
       "owner": "webviews/src/syntax-theme.ts",
       "about": "Type and class names in highlighted code. Unset: palette slot 6."
+    },
+    {
+      "name": "--cv-activity-text",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The text of tool rows, Worked for and other agents' messages: the transcript's secondary reading level. Unset: the theme's text at 58%."
+    },
+    {
+      "name": "--cv-heading-text",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "Headings in replies. Unset: the body text (--cv-text)."
+    },
+    {
+      "name": "--cv-code-fill",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The fill behind inline code in replies. Unset: the theme's text at 11%. Fenced code blocks are cards (--cv-card-fill)."
+    },
+    {
+      "name": "--cv-code-radius",
+      "kind": "length",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "Inline code's corner radius. Unset: 5 px. A corner never changes the code's box."
+    },
+    {
+      "name": "--cv-card-radius",
+      "kind": "length",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The corner of every card in the transcript: code blocks, edits, tool output, shell blocks, tool details, plans (an error card keeps its corner, which is concentric with its buttons). Unset: each card keeps its own (16 px code blocks, 12 px edits and tool output, the grid's card radius elsewhere). A corner never changes a card's box."
     }
   ]
 }

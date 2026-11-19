@@ -268,6 +268,8 @@ const mockDaemonFrames = {
 // them all and holds them to moving no box.
 const LOOK_TOKEN_SHEETS = {
   reply: `:root {
+  --cv-card-radius: 6px;
+  --cv-activity-text: color-mix(in srgb, var(--agent-text) 64%, transparent);
   --cv-reply-fill: color-mix(in srgb, var(--agent-text) 5%, transparent);
   --cv-reply-ring: color-mix(in srgb, var(--agent-text) 16%, transparent);
   --cv-reply-radius: 10px;
@@ -284,6 +286,9 @@ const LOOK_TOKEN_SHEETS = {
   --cv-popover-row-selected: color-mix(in srgb, var(--agent-accent) 30%, transparent);
 }`,
   code: `:root {
+  --cv-code-fill: color-mix(in srgb, var(--agent-accent) 14%, transparent);
+  --cv-code-radius: 3px;
+  --cv-heading-text: var(--agent-accent);
   --cv-code-comment: color-mix(in srgb, var(--agent-text) 50%, transparent);
   --cv-code-string: var(--agent-ansi-2);
   --cv-code-constant: var(--agent-ansi-3);
@@ -315,7 +320,7 @@ const lookTokensChat = chat([
     { id: "look-tokens-tools" },
   ),
   assistant(
-    "The delay now stops growing at the cap:\n\n```ts\n// Never wait longer than the cap.\nexport function delayFor(attempt: number, cap = 8000): number {\n  return Math.min(cap, 250 * 2 ** attempt);\n}\n```\n\nThe retry tests pass.",
+    "## Retry cap\n\nThe delay from `delayFor` now stops growing at the cap:\n\n```ts\n// Never wait longer than the cap.\nexport function delayFor(attempt: number, cap = 8000): number {\n  return Math.min(cap, 250 * 2 ** attempt);\n}\n```\n\nThe retry tests pass.",
     5.5,
     { id: "look-tokens-answer" },
   ),
@@ -1778,7 +1783,7 @@ export default agentPaneEntry({
       snapshot: messageSurfaceChat,
     },
     "look-tokens-reply-card": {
-      note: "A look's reply card (--cv-reply-fill, -ring, -radius, -padding): the fill on the reply's row, its room painted outward, so nothing moves. Unset, the reply has no card. No speaker label: the reply draws none to paint.",
+      note: "A look's reply card (--cv-reply-fill, -ring, -radius, -padding), with 6px card corners (--cv-card-radius) and a stronger tool-row tone (--cv-activity-text): the fill on the reply's row, its room painted outward, so nothing moves. Unset, the reply has no card. No speaker label: the reply draws none to paint.",
       snapshot: lookTokensChat,
       play: applyLookSheet(LOOK_TOKEN_SHEETS.reply),
     },
@@ -1804,7 +1809,7 @@ export default agentPaneEntry({
       },
     },
     "look-tokens-code": {
-      note: "A look's code colors (--cv-code-comment, -string, -constant, -keyword, -function, -type) on a fenced block; unset, each keeps its terminal palette slot.",
+      note: "A look's code colors (--cv-code-comment, -string, -constant, -keyword, -function, -type) on a fenced block, inline code's fill and corner (--cv-code-fill, --cv-code-radius) and heading ink (--cv-heading-text); unset, each keeps today's.",
       snapshot: lookTokensChat,
       play: applyLookSheet(LOOK_TOKEN_SHEETS.code),
     },

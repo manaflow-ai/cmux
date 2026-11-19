@@ -356,6 +356,11 @@ await requireBrowserLane("look-addons.test.ts", async () => {
   --cv-popover-radius: 14px;
   --cv-popover-row-selected: color-mix(in srgb, var(--agent-accent) 30%, transparent);
   --cv-code-keyword: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
+  --cv-activity-text: color-mix(in srgb, var(--agent-text) 64%, transparent);
+  --cv-heading-text: var(--agent-text);
+  --cv-code-fill: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --cv-code-radius: 3px;
+  --cv-card-radius: 6px;
 }`;
   for (const theme of ["dark", "light"] as const) {
     test(`the chat-pane tokens (${theme}): land where they name and move no box`, async () => {
@@ -428,6 +433,11 @@ await requireBrowserLane("look-addons.test.ts", async () => {
             rowSelected:
               getComputedStyle(root).getPropertyValue("--acpmux-menu-highlight").trim() ===
               getComputedStyle(root).getPropertyValue("--cv-popover-row-selected").trim(),
+            cardRadius: getComputedStyle(document.querySelector(".cv-codeblock")!).borderTopLeftRadius,
+            codeRadius: getComputedStyle(document.querySelector(".cv-code")!).borderTopLeftRadius,
+            codeFill:
+              getComputedStyle(document.querySelector(".cv-code")!).backgroundColor ===
+              resolve("color-mix(in srgb, var(--agent-text) 14%, transparent)"),
           };
         }, reply);
         expect(after).toEqual({
@@ -440,6 +450,9 @@ await requireBrowserLane("look-addons.test.ts", async () => {
           hoverReduced: "0s",
           popupRadius: "14px",
           rowSelected: true,
+          cardRadius: "6px",
+          codeRadius: "3px",
+          codeFill: true,
         });
 
         // The code block's keywords take the look's color; the rest keep their palette slots.

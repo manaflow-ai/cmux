@@ -122,3 +122,13 @@ test("a script owner names its token as a string literal and declares nothing", 
     "unused",
   ]);
 });
+
+test("text, inline code and card corners (GAPS G10, G11)", () => {
+  expect(
+    kinds(
+      ":root { --cv-activity-text: color-mix(in srgb, var(--agent-text) 62%, transparent); --cv-heading-text: var(--agent-accent); --cv-code-fill: color-mix(in srgb, var(--agent-accent) 12%, transparent); --cv-code-radius: 3px; --cv-card-radius: 6px; }",
+    ),
+  ).toEqual([]);
+  expect(kinds(":root { --cv-heading-text: #ffcc00; }")).toEqual(["literal-color"]);
+  expect(kinds(":root { --cv-code-fill: rgb(0 0 0 / 0.2); }")).toEqual(["literal-color"]);
+});
