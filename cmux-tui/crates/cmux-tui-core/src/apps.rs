@@ -39,6 +39,8 @@ mod deploy;
 mod egress;
 pub(crate) mod envelope;
 #[cfg(unix)]
+mod fleet_hosts;
+#[cfg(unix)]
 mod github_gateway;
 #[cfg(unix)]
 mod grants;

@@ -55,6 +55,131 @@
       "pollFloorSeconds": 5,
       "staleAfterSeconds": 60
     },
+    "fleet.hosts": {
+      "docs": "The person's machines (this one first, then the acpmux peers by name) and how busy each is, from acpmux's peer status: each peer's own host health, asked live. The daemon reads it at most once per 30 s for every app and widget that watches it, and never while nothing watches. A number a machine did not report is null, never 0; an unreachable machine has only its name.",
+      "scopes": [
+        "fleet:read"
+      ],
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "value": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "name",
+            "self",
+            "reachable",
+            "device",
+            "deviceSymbol",
+            "cpus",
+            "load1",
+            "loadLimit",
+            "busy",
+            "pressure",
+            "overBudget",
+            "liveSessions",
+            "ramFreeFraction"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The machine's name: its host name for this machine, the peer's name for the others."
+            },
+            "self": {
+              "type": "boolean",
+              "description": "True for the machine cmux runs on."
+            },
+            "reachable": {
+              "type": "boolean",
+              "description": "False when the peer is not connected or did not answer in 5 s; its numbers are then null."
+            },
+            "device": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "What kind of device it is (mac-mini, macbook, linux-server, ...)."
+            },
+            "deviceSymbol": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The SF Symbol that kind draws."
+            },
+            "cpus": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Logical CPUs."
+            },
+            "load1": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The 1-minute load average."
+            },
+            "loadLimit": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The load the machine's budget allows (its cores times the budget's factor)."
+            },
+            "busy": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "load1 / loadLimit, clamped to 0..1; null when either is unknown."
+            },
+            "pressure": {
+              "enum": [
+                "normal",
+                "warn",
+                "critical",
+                "unknown",
+                null
+              ],
+              "description": "The machine's memory pressure verdict."
+            },
+            "overBudget": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "True when the machine is over its CPU or RAM budget."
+            },
+            "liveSessions": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "description": "Agent sessions live on it."
+            },
+            "ramFreeFraction": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "description": "The fraction of RAM available, 0..1."
+            }
+          }
+        }
+      },
+      "read": {
+        "op": "fleet.hosts"
+      },
+      "push": [],
+      "pollFloorSeconds": 30,
+      "staleAfterSeconds": 60
+    },
     "github.changes": {
       "docs": "Pull requests with their lines added and removed, check rollup and review decision, newest update first. `show` picks which: a repository's branch (a workspace's, from git.status github: true), the person's own, mentioning them, asking for their review, or a saved search. Read through the person's GitHub sign-in (the token stays in the gateway); with none, the public API (needs net:api.github.com, and `login` for the person's own lists). Every read is conditional (ETag). Pushed by github.changed (webhooks); polled every 60 s until that push is live.",
       "scopes": [

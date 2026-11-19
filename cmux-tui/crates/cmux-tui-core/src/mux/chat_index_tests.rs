@@ -60,6 +60,7 @@ fn a_row_has_every_listed_field_with_pinned_and_unread_from_acpmux() {
             "step": "Running tests", "error": "Credit balance too low",
             "since_ms": "900", "updated_ms": "1000", "created_ms": "500",
             "pull_requests": ["https://github.com/o/r/pull/7"],
+            "family": null, "usage": null, "limits": null,
         })
     );
     // No lane title: the chat's title, then its name.
@@ -75,6 +76,49 @@ fn a_row_has_every_listed_field_with_pinned_and_unread_from_acpmux() {
     for state in ["working", "input", "idle", "failed", "lost"] {
         assert_eq!(row(&summary("s", state)).unwrap()["state"], state);
     }
+}
+
+#[test]
+fn a_row_carries_the_chats_spend_and_its_accounts_plan_limits() {
+    let used = with(
+        summary("s1", "working"),
+        json!({
+            "family": "claude",
+            "usageStats": {"tokens24h": 1_234_567, "costUsd24h": 4.25, "calls24h": 88,
+                           "contextTokens": 51_000, "contextWindow": 200_000, "updatedAt": 1_700,
+                           "launcher": "claude", "subagentsLive": 1},
+            "usageLimits": {"plan": "max", "windows": [
+                {"id": "session", "usedPercent": 41.5, "resetsAt": 1_790_000_000},
+                {"id": "weekly", "usedPercent": 140.0},
+                {"usedPercent": 3.0},
+            ]},
+        }),
+    );
+    let listed = row(&used).unwrap();
+    assert_eq!(listed["family"], "claude");
+    assert_eq!(
+        listed["usage"],
+        json!({"tokens_24h": 1_234_567, "cost_usd_24h": 4.25, "calls_24h": 88,
+               "context_tokens": 51_000, "context_window": 200_000})
+    );
+    // A window past its cap reads 100; one without an id is dropped.
+    assert_eq!(
+        listed["limits"],
+        json!({"plan": "max", "windows": [
+            {"id": "session", "used_percent": 41.5, "resets_at": 1_790_000_000_i64},
+            {"id": "weekly", "used_percent": 100.0, "resets_at": null},
+        ]})
+    );
+    // A count acpmux could not read stays null; no windows is no limits.
+    let partial = with(
+        summary("s2", "idle"),
+        json!({"usageStats": {"tokens24h": null, "costUsd24h": null, "calls24h": 3},
+               "usageLimits": {"windows": []}}),
+    );
+    let partial = row(&partial).unwrap();
+    assert_eq!(partial["usage"]["tokens_24h"], Value::Null);
+    assert_eq!(partial["usage"]["calls_24h"], 3);
+    assert_eq!(partial["limits"], Value::Null);
 }
 
 #[test]
