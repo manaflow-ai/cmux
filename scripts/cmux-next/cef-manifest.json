@@ -7,7 +7,7 @@
   "tag": "cef-157-in-tree-pages-36e-macos-arm64",
   "asset": "cef-157-in-tree-pages-36e-macos-arm64.tar.xz",
   "url": "https://github.com/manaflow-ai/cef/releases/download/cef-157.0.0-cmux.52/cef-157.0.0-cmux.52-macos-arm64.tar.xz",
-  "sha256": "7d17246d829791dfe33900752b6a66b269ce4408f1d214a61fab13548da01005",
+  "sha256": "c8464a08b055ad181b82d53f0396eedf50d4f92a66aa37be429cec4d791be79a",
   "r2_bucket": "cmux-cef",
   "r2_key": "cef/ea0124be30aa3b370718c2680d35f7e492ee8e249038e7114d2ed817b73094d1/cef-157.0.0-cmux.52-macos-arm64.tar.xz",
   "debug_asset": "cef-157.0.0-cmux.52-macos-arm64-debug.tar.xz",
