@@ -69,7 +69,8 @@ extension PaneCommitMotionTests {
     /// on from where it shows, with the velocity that it has. The zoom's move stays on the pane's layer and the
     /// unzoom's move adds to it. The unzoom's move starts at the rect that the zoom gave the pane, so the sum of the
     /// two at the tick of the key is the place where the pane showed; and it starts with no velocity of its own, so
-    /// the sum's velocity at that tick is the zoom's. The motion ends with the grid alone.
+    /// the sum's velocity at that tick is the zoom's. The move ends with the grid alone. The dim goes on its own fade
+    /// from the frame that shows the unzoom: it is gone when that fade's time is spent, which can be after the move.
     @Test func aSecondKeyInAZoomsMoveGoesOnFromThePanesPlaceAndVelocity() throws {
         let zoom = try Self.zooming(frames: 3)
         defer { zoom.harness.window.closeAfterTest() }
@@ -99,8 +100,13 @@ extension PaneCommitMotionTests {
         #expect(springs.count == second.animations.count && springs.allSatisfy { $0.initialVelocity == 0 },
                 "the unzoom's move starts with a velocity of its own: the pane's velocity jumps at the key")
 
-        _ = Self.toTheEnd(harness, screen)
-        #expect(!Self.inFlight(screen) && zoom.grid.isShown(by: Commit.shown(screen)) && Dim.dim(harness) == nil,
-                "after the motion's end the screen does not show the grid alone with no dim: \(Commit.shown(screen).panes)")
+        let end = Self.toTheEnd(harness, screen)
+        #expect(!Self.inFlight(screen) && zoom.grid.isShown(by: Commit.shown(screen)),
+                "after the move's end the screen does not show the grid alone: \(Commit.shown(screen).panes)")
+        // The dim's fade has its own time, from the frame that shows the unzoom. The unzoom's move can end before it.
+        let fade = Int((screen.zoomDim.fade(on: screen) / Self.dt).rounded(.up))
+        try #require(fade > 0, "SETUP: the dim has no fade on this screen")
+        for _ in 0..<max(0, fade - end.ticks) { _ = harness.root.advanceFrame(Self.dt) }
+        #expect(Dim.dim(harness) == nil, "\(max(fade, end.ticks)) frames after the frame that showed the unzoom (the dim's fade has \(fade)) a dim shows")
     }
 }
