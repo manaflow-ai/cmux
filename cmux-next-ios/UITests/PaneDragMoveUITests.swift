@@ -80,12 +80,20 @@ final class PaneDragMoveUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 30), "workspace row\n\(app.debugDescription)")
         row.tap()
 
-        let menu = app.buttons["Page Menu"].firstMatch
-        XCTAssertTrue(menu.waitForExistence(timeout: 15), "page menu\n\(app.debugDescription)")
-        menu.tap()
-        let panes = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Panes'")).firstMatch
-        XCTAssertTrue(panes.waitForExistence(timeout: 5), "Panes in the page menu\n\(app.debugDescription)")
+        // A terminal's bottom pill shows its title: a tap on it (or on the glyph) opens the page
+        // menu; a collapsed pill takes its first tap to expand.
+        let glyph = app.buttons["Page Menu"].firstMatch
+        let pill = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'build, '")).firstMatch
+        let panes = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Panes'")).firstMatch
+        XCTAssertTrue(glyph.waitForExistence(timeout: 15), "page menu\n\(app.debugDescription)")
+        for _ in 0..<3 where !panes.exists {
+            if pill.exists, pill.isHittable { pill.tap() } else if glyph.isHittable { glyph.tap() }
+            _ = panes.waitForExistence(timeout: 4)
+        }
+        XCTAssertTrue(panes.exists, "Panes in the page menu\n\(app.debugDescription)")
+        attach(app, "page-menu")
         panes.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["panes.screen"].waitForExistence(timeout: 10), "Panes page\n\(app.debugDescription)")
         return app
     }
 
