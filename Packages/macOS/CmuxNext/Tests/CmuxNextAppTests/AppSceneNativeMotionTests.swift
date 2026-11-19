@@ -382,4 +382,35 @@ import Testing
         let fx = try #require(Self.node("fx", in: root) as? AppSceneParticlesNSView)
         #expect(fx.field.emitterCells == nil)
     }
+
+    // MARK: Particles choreography
+
+    @Test func choreographyDrawsOneLayerPerDotAndHoldsItsStillUnderReduceMotion() throws {
+        try Self.withReduceMotion(true) {
+            let document = AppJSON.object(AppSceneChoreographyTests.fixture())
+            let model = Self.scene([
+                .create(id: "fx", type: "Particles", props: ["preset": "snow", "choreography": document, "trigger": "execute",
+                                                             "frame": ["width": 60, "height": 40]]),
+                .root(id: "fx"),
+            ])
+            let (window, root) = Self.host(model)
+            defer { window.contentView = nil; window.close() }
+            let fx = try #require(Self.node("fx", in: root) as? AppSceneParticlesNSView)
+            let glyph = try #require(fx.glyph, "a valid choreography builds a glyph")
+            #expect(fx.field.emitterCells == nil, "a valid choreography wins over the preset")
+            #expect(glyph.dots.count == 4, "one layer per dot, up to particle.max")
+            #expect(!glyph.isRunning, "Reduce Motion asks for no frames")
+            #expect(glyph.dots.filter { !$0.isHidden }.count == 3, "the still: the trade's first frame")
+            #expect(glyph.dots.allSatisfy { $0.animationKeys() == nil }, "no layer animates")
+            // A new trigger reaches the running player; the same document keeps the glyph.
+            model.apply([.update(id: "fx", props: ["trigger": "idle"])])
+            root.layoutSubtreeIfNeeded()
+            #expect(fx.glyph === glyph)
+            // A document the player cannot read draws nothing and gives the preset back.
+            model.apply([.update(id: "fx", props: ["choreography": ["$schema": "cmux.particles/2"]])])
+            root.layoutSubtreeIfNeeded()
+            #expect(fx.glyph == nil)
+            #expect(fx.field.emitterCells?.isEmpty == false)
+        }
+    }
 }

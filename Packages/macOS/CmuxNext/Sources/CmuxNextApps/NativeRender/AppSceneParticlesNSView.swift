@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// `Particles`: a particle field the render server runs (`CAEmitterLayer`), with no script and no
 /// layout per frame. `preset` is `confetti`, `sparkles`, `rain`, `snow`, `embers` or `stars` (any
@@ -12,6 +13,11 @@ import CmuxNextDesign
 /// It fills its frame (in a `ZStack`, the stack's whole size, behind the siblings after it) and
 /// takes no input. It emits only while it is in a window, and not at all under Reduce Motion or
 /// with the indicators' motion off.
+///
+/// `choreography` (a `cmux.particles/1` document, ABI "Particles choreography") draws a glyph of dots
+/// centred in the frame instead (``AppSceneChoreographyGlyph``), and wins over `preset`; `trigger` and
+/// `phase` say what it plays (read when a phase ends), `size` and `colors[0]` override the document's
+/// particle size and color.
 final class AppSceneParticlesNSView: AppSceneNodeNSView {
     enum Preset: String, CaseIterable {
         case confetti, sparkles, rain, snow, embers, stars
@@ -31,6 +37,10 @@ final class AppSceneParticlesNSView: AppSceneNodeNSView {
     /// What the cells were built for, so a redraw with nothing new keeps the particles in flight.
     private var built: (preset: Preset, colors: [CGColor], size: CGSize)?
     private var settings: MotionSubscription?
+    /// The `choreography` glyph, while the prop parses.
+    private(set) var glyph: AppSceneChoreographyGlyph?
+    /// The window whose sight reports restart the glyph (its clock settles out of sight).
+    private weak var followedWindow: NSWindow?
 
     override init(id: String, node: AppSceneNode) {
         super.init(id: id, node: node)
@@ -42,14 +52,19 @@ final class AppSceneParticlesNSView: AppSceneNodeNSView {
         bursts.birthRate = 0
         burstHost.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull()]
         layer?.addSublayer(burstHost)
-        settings = Motion.changes.subscribe { [weak self] _ in self?.updateEmission() }
+        settings = Motion.changes.subscribe { [weak self] _ in
+            self?.updateEmission()
+            self?.updateGlyph()
+        }
         setAccessibilityElement(false)
     }
 
     var preset: Preset? { node.string("preset").flatMap(Preset.init(rawValue:)) }
+    /// The preset it draws: none while a `choreography` glyph plays.
+    var drawnPreset: Preset? { glyph == nil ? preset : nil }
     private var rate: Float {
         let given = AppSceneNode.finite(node.number("rate"), in: 0...10).map { Float($0) }
-        guard let preset else { return 0 }
+        guard let preset = drawnPreset else { return 0 }
         return given ?? (preset.isContinuousByDefault ? 1 : 0)
     }
 
@@ -57,11 +72,12 @@ final class AppSceneParticlesNSView: AppSceneNodeNSView {
     /// not drawn, so its emitter costs nothing there.
     var isEmitting: Bool {
         guard window != nil, Motion.appScenes.animatesLoops else { return false }
-        return preset != nil
+        return drawnPreset != nil
     }
 
     override func configure(_ node: AppSceneNode) {
         super.configure(node)
+        configureGlyph(node)
         let burst = node.number("burst").flatMap { $0.isFinite ? $0 : nil }
         if let burst, let lastBurst, burst > lastBurst { fireBurst() }
         lastBurst = burst
@@ -70,7 +86,9 @@ final class AppSceneParticlesNSView: AppSceneNodeNSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        observeOcclusion()
         updateEmission()
+        updateGlyph()
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -84,10 +102,19 @@ final class AppSceneParticlesNSView: AppSceneNodeNSView {
         for emitter in [field, bursts, burstHost] { emitter.frame = rect }
         for burst in burstHost.sublayers ?? [] { burst.frame = burstHost.bounds }
         CATransaction.commit()
-        performWithTheme { buildCells() }
+        if let glyph {
+            glyph.layout(center: CGPoint(x: rect.midX, y: rect.midY), size: glyphSize(glyph.choreography))
+        }
+        performWithTheme {
+            buildCells()
+            paintGlyph()
+        }
     }
 
-    override func paint() { buildCells() }
+    override func paint() {
+        buildCells()
+        paintGlyph()
+    }
 
     /// Fires one burst from the middle (nothing while it does not emit).
     func fireBurst() {
@@ -135,7 +162,7 @@ final class AppSceneParticlesNSView: AppSceneNodeNSView {
 
     /// The cells for the preset, colors and size (only when one of them changed).
     private func buildCells() {
-        guard let preset else {
+        guard let preset = drawnPreset else {
             field.emitterCells = nil
             bursts.emitterCells = nil
             built = nil
@@ -150,6 +177,66 @@ final class AppSceneParticlesNSView: AppSceneNodeNSView {
         ParticlePresets.configure(field, preset: preset, colors: tones, size: size, down: down, burst: false)
         ParticlePresets.configure(bursts, preset: preset, colors: tones, size: size, down: down, burst: true)
         updateEmission()
+    }
+
+    // MARK: Choreography
+
+    /// Builds the glyph for a new `choreography` value (none when it does not parse), or hands the
+    /// running one the node's `trigger` and `phase`.
+    private func configureGlyph(_ node: AppSceneNode) {
+        let request = AppSceneChoreography.Request(phase: Self.text(node.props["phase"]), trigger: Self.text(node.props["trigger"]))
+        let document = node.props["choreography"]
+        if let glyph, let document, glyph.document == document {
+            glyph.setRequest(request)
+            return
+        }
+        if let glyph {
+            glyph.stop()
+            glyph.host.removeFromSuperlayer()
+            self.glyph = nil
+        }
+        guard let document, let choreography = AppSceneChoreography(json: document) else { return }
+        let made = AppSceneChoreographyGlyph(document: document, choreography: choreography, request: request)
+        layer?.addSublayer(made.host)
+        glyph = made
+        needsLayout = true
+        updateGlyph()
+    }
+
+    /// A non-empty string prop, else nil.
+    private static func text(_ value: AppJSON?) -> String? {
+        guard let text = value?.stringValue, !text.isEmpty else { return nil }
+        return text
+    }
+
+    /// `size` (points, above 0) over the document's `particle.size`.
+    private func glyphSize(_ choreography: AppSceneChoreography) -> CGFloat {
+        if let size = AppSceneNode.finite(node.number("size"), in: 0...256), size > 0 { return CGFloat(size) }
+        return CGFloat(choreography.size)
+    }
+
+    /// `colors[0]`, else the document's `particle.color`, else the accent (in the theme scope).
+    private func paintGlyph() {
+        guard let glyph else { return }
+        let color = node.props["colors"]?.arrayValue?.first?.sceneColor
+            ?? AppJSON.string(glyph.choreography.color).sceneColor
+            ?? Palette.accentFill
+        glyph.paint(color: color.cgColor)
+    }
+
+    /// Starts or stops the glyph's clock for the window and the motion settings.
+    func updateGlyph() {
+        glyph?.update(in: self)
+    }
+
+    /// Follows the window's sight reports (from the app's one occlusion observer): back in sight,
+    /// the glyph's clock starts again.
+    private func observeOcclusion() {
+        guard followedWindow !== window else { return }
+        if let followedWindow { FrameScheduler.unfollowSight(of: followedWindow, owner: self) }
+        followedWindow = window
+        guard let window else { return }
+        FrameScheduler.followSight(of: window, owner: self) { [weak self] in self?.updateGlyph() }
     }
 
     /// Each preset's tones from the theme, so it reads right in light and dark.
