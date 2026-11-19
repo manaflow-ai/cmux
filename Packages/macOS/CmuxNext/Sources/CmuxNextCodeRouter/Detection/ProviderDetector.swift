@@ -46,8 +46,9 @@ public struct ProviderDetector: Sendable {
             guard let raw = environment.environment[key] else { return nil }
             return (key, raw.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        var sources = environmentKeys.map { DetectionSource.environment($0.0) }
-        if environment.savedKeys.contains(provider) { sources.append(.cmuxKeychain) }
+        let hasSavedKey = environment.savedKeys.contains(provider)
+        let allSources = environmentKeys.map { DetectionSource.environment($0.0) }
+            + (hasSavedKey ? [.cmuxKeychain] : [])
         // Presence alone used to make a typo in the shell look ready until the
         // first prompt. Mark it unknown so Accounts can offer a replacement key
         // before the user starts a chat. Only the key Connect would send is
@@ -59,8 +60,12 @@ public struct ProviderDetector: Sendable {
         let malformed = if let selectedEnvironmentKey {
             !CredentialResolver.isWellFormedKey(selectedEnvironmentKey.1, for: provider)
         } else {
-            !environmentKeys.isEmpty && !environment.savedKeys.contains(provider)
+            !environmentKeys.isEmpty && !hasSavedKey
         }
+        let selectedSource = selectedEnvironmentKey.map { DetectionSource.environment($0.0) }
+            ?? (hasSavedKey ? .cmuxKeychain : allSources.first)
+        var sources = allSources.filter { $0 != selectedSource }
+        if let selectedSource { sources.insert(selectedSource, at: 0) }
         let status: LocalAuthStatus = malformed ? .unknown : (sources.isEmpty ? .missing : .signedIn)
         return ProviderDetection(provider: provider, status: status, sources: sources)
     }

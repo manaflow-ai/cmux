@@ -143,7 +143,7 @@ struct ProviderDetectionSourcesTests {
     @Test func emptyEnvironmentKeyFallsBackToSavedKey() {
         let detection = Self.detector(env: ["OPENAI_API_KEY": ""], savedKeys: [.openAI]).detectLocal(.openAI)
         #expect(detection.status == .signedIn)
-        #expect(detection.sources == [.environment("OPENAI_API_KEY"), .cmuxKeychain])
+        #expect(detection.sources == [.cmuxKeychain, .environment("OPENAI_API_KEY")])
     }
 
     /// Gemini reads `GEMINI_API_KEY` before `GOOGLE_API_KEY`: only the key that would be sent is judged.
