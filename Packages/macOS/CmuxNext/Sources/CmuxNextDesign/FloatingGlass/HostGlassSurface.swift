@@ -25,4 +25,27 @@ extension Glass {
     public nonisolated static func hostTintLevel(_ level: GlassLevel) -> GlassLevel {
         level == .chrome ? .popover : level
     }
+
+    /// The App's whole native surface under a web surface of `level` (host glass: the agent pane's page,
+    /// the Liquid Glass Parity playground), or of the role it names (`data-host-glass-role`): the surface
+    /// the App's own UI draws for it, veil and rim included, so the page lays only its content on it and
+    /// the two match by construction. A menu is the native menu panel (its veil, ``makeMenuPanel(content:cornerRadius:interactive:)``),
+    /// a popover or hover card the one transient material of the native popovers (the palette, page
+    /// info: ``FloatingGlassStyle/transient``), a chip the tooltip's glass, a named role its own.
+    @MainActor
+    public static func makeHostSurface(level: GlassLevel, role: SurfaceRole? = nil) -> OverlaySurfaceView {
+        if let role {
+            let view = makeSurface(role, interactive: false)
+            view.tintLevel = hostTintLevel(level)
+            return view
+        }
+        switch level {
+        case .menu:
+            return makeMenuPanel(interactive: false)
+        case .chip:
+            return makeSurface(.tooltip, interactive: false)
+        case .chrome, .popover:
+            return makeOverlayPanel(interactive: false, tone: .neutralGlass(.transient))
+        }
+    }
 }
