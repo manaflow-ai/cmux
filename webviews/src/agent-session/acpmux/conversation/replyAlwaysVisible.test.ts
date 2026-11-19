@@ -10,7 +10,7 @@
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import type { AcpmuxRow } from "../model";
-import { turnView, WORKED } from "./turns";
+import { isTakeaway, turnView, WORKED } from "./turns";
 
 const ANSWER =
   "Sorry, that's frustrating. I did answer, but the chat drew the answer above your question, so it looked like I ignored you.\n\nMy answer was **no**, it shouldn't say cmux.";
@@ -305,13 +305,10 @@ function random(seed: number) {
   };
 }
 
-/// What the agent wrote between two of the person's messages (a prompt, a steer or a notice), and
-/// whether each piece reads as a reply to the person (turns.ts `isTakeaway`) rather than a short
-/// note before more work.
+/// What the agent wrote between two of the person's messages (a prompt, a steer or a notice).
 /// `stepped`: a call came after its last reply. `steered`: the person's steer ended it.
 type Stretch = {
   replies: string[];
-  takeaways: boolean[];
   stepped: boolean;
   steered?: boolean;
 };
@@ -327,7 +324,7 @@ function chat(seed: number): { events: EventRecord[]; stretches: Stretch[] } {
     const byNotice = t > 0 && pick(3) === 0;
     const opener = byNotice ? noticeText : `Prompt ${seed}-${t}: what changed?`;
     events.push(byNotice ? notice() : prompt(opener), started());
-    let turn: Stretch = { replies: [], takeaways: [], stepped: false };
+    let turn: Stretch = { replies: [], stepped: false };
     stretches.push(turn);
     let open = false;
     let message = "";
@@ -345,10 +342,8 @@ function chat(seed: number): { events: EventRecord[]; stretches: Stretch[] } {
           if (!open) {
             message = `msg-${seed}-${t}-${s}`;
             turn.replies.push(words);
-            turn.takeaways.push(full);
           } else {
             turn.replies[turn.replies.length - 1] += ` ${words}`;
-            turn.takeaways[turn.takeaways.length - 1] ||= full;
           }
           const cut = 1 + pick(words.length - 1);
           events.push(say(open ? ` ${words.slice(0, cut)}` : words.slice(0, cut), message));
@@ -375,7 +370,7 @@ function chat(seed: number): { events: EventRecord[]; stretches: Stretch[] } {
           events.push(steer(`Steer ${seed}-${t}-${s}: also check CI`, `p-${seed}-${t}-${s}`));
           events.push(steerRead(`p-${seed}-${t}-${s}`));
           turn.steered = true;
-          turn = { replies: [], takeaways: [], stepped: false };
+          turn = { replies: [], stepped: false };
           stretches.push(turn);
           open = false;
           break;
@@ -418,11 +413,14 @@ test("each answer to the person draws closed, in order, never in a fold, for ran
     let floor = -1;
     for (const stretch of stretches) {
       // The stretch's answer is its last words when the person steered after them or no step came
-      // after them (turns.ts `steerDialogueIn`), else its last reply to the person; notes and work
-      // after that fold above it (`answerAt`).
+      // after them (turns.ts `steerDialogueIn`), else its last reply that reads as one (`isTakeaway`,
+      // as `answerAt` reads it); notes and work after that fold above it. Only that answer draws
+      // beside a closed fold (Lawrence, 2026-11-19), so the oracle reads takeaways as turns.ts does.
       const words =
         stretch.stepped && !stretch.steered
-          ? stretch.replies.filter((_, index) => stretch.takeaways[index]).at(-1)
+          ? stretch.replies
+              .filter((reply) => isTakeaway({ id: "reply", kind: "assistant", version: 1, at: 0, text: reply }))
+              .at(-1)
           : stretch.replies.at(-1);
       if (words === undefined) continue;
       const at = closed.findIndex(
