@@ -455,9 +455,13 @@ jobs:
               rm -rf "$trusted_root"
               mkdir -p "$trusted_root"
               trusted_ok=true
+              # Every file the router reads: package-test-lane.sh holds the
+              # package lane's PACKAGES list. Without it a router-policy PR
+              # that also edits a package skipped that package's tests.
               for trusted_path in \
                 scripts/ci/detect_ci_change_areas.py \
                 scripts/ci/select_package_tests.py \
+                scripts/ci/package-test-lane.sh \
                 scripts/ci/workloads/ci-guard.sh \
                 .github/workflows/ci.yml \
                 .github/workflows/ci-guards.yml \

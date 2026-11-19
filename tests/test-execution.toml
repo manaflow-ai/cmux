@@ -988,15 +988,7 @@ path = "tests/test_ios_testflight_external_distribution.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ios_testflight_main_push_filter.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ios_testflight_notes.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ios_testflight_pro_distribution.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1460,14 +1452,6 @@ path = "tests/test_ios_screenshot_capture_guard.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ios_testflight_archive_log.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ios_testflight_assignment_after_upload.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ios_upload_array_expansion.py"
 lane = "linux-guard"
 
@@ -1771,6 +1755,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_pr_media_privacy.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_install_axe_ci.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/install-axe-ci.sh (the sha256 refusal) and ios-e2e.yml's and iroh-release-gate.yml's use of it instead of the Homebrew tap; run python3 tests/test_install_axe_ci.py yourself after changing any of them (under a second, no build)."
 
 [[test]]
 path = "tests/test_install_git_hooks.py"
@@ -2337,6 +2326,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_resource_lifetimes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_billing_lane.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_billing_nightly.py"
 lane = "linux-guard"
 
 [[test]]
