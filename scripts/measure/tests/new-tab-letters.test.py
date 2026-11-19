@@ -169,6 +169,8 @@ class App:
             if self.refuse:
                 return {"error": self.refuse}
             self.sequences.append(params)
+            if [step["key_code"] for step in params["sequence"] if step["down"]] == [M.X]:
+                self.texts[self.builder.selected] = "x"  # a letter alone goes to the field of the shown tab
             for step in params["sequence"]:
                 if step["key_code"] == M.T and step["down"]:
                     self.builder.add()
@@ -210,6 +212,14 @@ class Case(unittest.TestCase):
         self.assertTrue(record["pass"], record)
         self.assertEqual([action for action in builder.actions if action[0] == "tab.focus"][:2], [("tab.focus", "tab:t1"), ("tab.focus", "tab:t2")])
         self.assertEqual(len(app.sequences), 2)
+
+    def test_a_switch_form_records_the_2_fields_of_its_setup_and_sends_the_switch_key(self):
+        letters, builder, app = self.letters(CHORD, {"t3": "x"})
+        record = letters.case("switch-previous", 0)
+        self.assertEqual((record.get("not_run"), record["setup_fields"], record["tabs_made"]), (None, ["x", "x"], 2))
+        last = [step["key_code"] for step in app.sequences[-1]["sequence"] if step["down"]]
+        self.assertEqual(last[:3], [M.CMD, M.SHIFT, M.PREVIOUS_TAB])
+        self.assertEqual(M.judge("switch-previous", record["notes"], record["field"])["pass"], record["pass"])
 
     def test_a_refused_sequence_is_a_case_not_run_and_the_workspace_is_closed(self):
         letters, builder, _ = self.letters(CHORD, {}, refuse="no Chromium page window for pane p")
