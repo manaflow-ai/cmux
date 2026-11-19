@@ -195,6 +195,12 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
         "harness_unavailable" => return "harness down".into(),
         other => return other.replace('_', " "),
     }
+    // A registered desktop chat the daemon cannot reach (`hub/bridge.rs` `UNREACHABLE_TAG`):
+    // its state, before the command that ends it (`--json` and `session info` show it whole).
+    let unreachable = row.pointer("/tags/bridge.unreachable").and_then(Value::as_str);
+    if let Some(state) = unreachable.and_then(|t| t.split(':').next()).filter(|s| !s.is_empty()) {
+        return state.to_owned();
+    }
     let lane = &row["lane"];
     if let Some(since) = lane["stalledSince"].as_u64() {
         return format!("stalled {}", ago(now, since));
