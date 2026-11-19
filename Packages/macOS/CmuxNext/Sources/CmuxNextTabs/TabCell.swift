@@ -175,6 +175,7 @@ final class TabCell {
     var audioLayer: CALayer? // speaker of a tab playing sound (TabCell+AudioBadge)
     var audioBackgroundLayer: CALayer? // the speaker button's hover and press fill
     var hibernationRingLayer: CAShapeLayer? // dotted ring of a hibernated tab (TabCell+HibernationRing)
+    var countPillLayer: CALayer? // an agent chat's count pill, `experiments.agentBadges` (TabCell+CountPill)
 
     var hasCloseLayers: Bool { closeBackgroundLayer != nil || closeGlyphLayer != nil }
 
@@ -257,6 +258,7 @@ final class TabCell {
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
         if previous?.presence != item.presence { updatePresenceDot() }
         if previous?.audio != item.audio { updateAudioBadge() }
+        if previous?.agentBadgeCount != item.agentBadgeCount { updateCountPill(from: previous?.agentBadgeCount, animated: previous != nil) }
         // Animated only for a tab that hibernates or wakes while it is in the strip.
         if (previous?.isDormant ?? false) != item.isDormant { updateHibernationRing(animated: previous != nil) }
         updateColors(animated: false)
@@ -373,6 +375,7 @@ final class TabCell {
             applyProfileDotColors()
             applyPresenceDotColor()
             applyAudioIcon()
+            applyCountPillColors()
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             var spinnerColors = indicatorColors
             if combinedBusyUnread == .tintedSpinner {
@@ -396,7 +399,7 @@ final class TabCell {
     }
 
     /// The tab draws its unread or status mark (`badgeColor`, or a status icon set's glyph).
-    var hasStateMark: Bool { item.status != .none || item.isUnread }
+    var hasStateMark: Bool { item.status != .none || showsUnreadDot }
 
     /// How a busy tab with unread output draws (`TabStripMetrics.busyUnreadMark`, else the Debug tunable).
     var busyUnreadLook: TabBusyUnreadMark { metrics.busyUnreadMark ?? TabTunables.busyUnreadMark.value }
@@ -404,7 +407,7 @@ final class TabCell {
     /// The look the unread dot and the busy indicator share as one mark in the status slot, nil while they draw
     /// apart (the `pair` look, no spinner showing, or a status, which keeps its own mark).
     var combinedBusyUnread: TabBusyUnreadMark? {
-        guard item.status == .none, item.isUnread, let spinnerLayer, !isSpinnerExiting, spinnerLayer.plan.glyph != .none else { return nil }
+        guard item.status == .none, showsUnreadDot, let spinnerLayer, !isSpinnerExiting, spinnerLayer.plan.glyph != .none else { return nil }
         let look = busyUnreadLook
         return look == .pair ? nil : look
     }
@@ -415,7 +418,7 @@ final class TabCell {
         case .needsInput: return Palette.statusAttention // the sidebar's needs-input dot too
         case .success: return Palette.success
         case .failure: return Palette.danger
-        case .none: return item.isUnread ? Palette.notificationBlue : nil
+        case .none: return showsUnreadDot ? Palette.notificationBlue : nil
         }
     }
 
@@ -631,6 +634,10 @@ final class TabCell {
         } else {
             titleLayer.opacity = 0
             for badge in [machineLayer, machineIconLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
+            if let countPillLayer {
+                countPillLayer.removeAnimation(forKey: "opacity")
+                countPillLayer.opacity = 0
+            }
             if onPath {
                 pathTitle = nil
             } else {

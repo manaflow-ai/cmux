@@ -77,6 +77,11 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     public var presence: TabPresence?
     /// A browser tab playing sound, or muted: a speaker after the title.
     public var audio: TabAudio?
+    /// An agent chat's count for `experiments.agentBadges` (taste build 5): its unread agent messages plus its
+    /// pending approvals, drawn as a neutral count pill while the experiment is on (TabCell+CountPill). Nil for a
+    /// tab that is no agent chat: it reserves no pill slot. 0: an agent chat with nothing to count, which keeps
+    /// the slot so its title never moves when a count comes.
+    public var agentBadgeCount: Int?
     /// What the hover card says beyond the title and subtitle (Leo 2026-10-14).
     public var hover = TabHoverFacts()
 

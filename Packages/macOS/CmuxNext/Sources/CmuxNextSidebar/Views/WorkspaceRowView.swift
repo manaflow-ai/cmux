@@ -31,6 +31,13 @@ final class WorkspaceRowView: SidebarRowView {
     /// when the same workspace's work finishes (`configureBadges`), never on a first configure or a
     /// row the pool hands to another workspace (cleared in `prepareForReuse`).
     var shownBadges: (workspace: WorkspaceID, states: [StatusIndicatorState])?
+    /// `experiments.agentBadges` (WorkspaceRowView+AgentPill): the setting this row drew with, the pill it shows (nil:
+    /// none) and for which workspace (a pill cross-fades only when the same workspace's state changes). The views are
+    /// made the first time the experiment is on; off, the row has neither.
+    var agentBadges = AgentBadgesExperiment.off
+    var agentPill: SidebarAgentPill?
+    var shownAgentPill: (workspace: WorkspaceID, pill: SidebarAgentPill?)?
+    var agentPillView: SidebarAgentPillView?, agentBeamView: SidebarAgentBeamView?
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()
     /// An agent driving the screen or a browser in the workspace (`sidebar.driveIndicator`), shown with the dots off.
@@ -238,6 +245,7 @@ final class WorkspaceRowView: SidebarRowView {
         placeholderBar.layer?.removeAllAnimations()
         placeholderBar.alphaValue = 1
         shownBadges = nil
+        shownAgentPill = nil
     }
 
     private struct Content: Hashable {
@@ -248,6 +256,7 @@ final class WorkspaceRowView: SidebarRowView {
         var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, driveIndicator: SidebarDriveIndicatorVariant
         var rowBadge: SidebarRowBadgeStyle, stackLimit: Int
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
+        var agentBadges: AgentBadgesExperiment
         var row: WorkspaceRowContent?
     }
 
@@ -259,6 +268,7 @@ final class WorkspaceRowView: SidebarRowView {
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: SidebarStyle.leadingGlyphSide,
             agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, driveIndicator: tunables.driveIndicator, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
             rowTitle: tunables.rowTitle, rowTitleSingleChat: tunables.rowTitleSingleChat,
+            agentBadges: tunables.agentBadges,
             row: row.content
         )
         guard needsConfigure(content) else { return }
@@ -277,6 +287,9 @@ final class WorkspaceRowView: SidebarRowView {
         // agent brand with it: a row without the user's icon or a favicon stays text only, and
         // its corner badge sits in the trailing slot (`layoutColumnMark`).
         let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
+        // `experiments.agentBadges`: the row's one status pill stands in for its status mark (the badge, the status
+        // glyph, an agent mark in the status's place); nil (off, idle, failed) keeps the shipped mark.
+        let pill = content.agentBadges.showsPills && !isPlaceholderRow && !isShowingPlaceholder ? SidebarAgentPill.of(ws) : nil
         // A Cloud row with no icon of its own leads with the cloud, in the icon column Home's glyph sits in
         // (Austin, 2026-11-12); a row that has its own icon keeps it and shows the cloud after its name.
         let leadsWithCloud = shown.icon == nil && shown.runsInCloud && !isShowingPlaceholder
@@ -321,13 +334,13 @@ final class WorkspaceRowView: SidebarRowView {
         (isExpanded, timeText) = (shown.expanded, trailingText)
         timeLabel.setString(trailingText ?? "")
         metaLabel.setString(shown.meta ?? "")
-        activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
+        activity.configure(badgesLead || pill != nil ? .idle : shown.activity, style: badgesLead || pill != nil ? nil : ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = Self.agentMarkImage(ws, variant: agentMarkVariant, placeholder: isShowingPlaceholder)
         agentMarkFallbackColor = isShowingPlaceholder ? nil : Self.agentMarkFallbackColor(ws, variant: agentMarkVariant)
         agentMark.image = markImage
-        agentMark.isHidden = markImage == nil
+        agentMark.isHidden = markImage == nil || (pill != nil && agentMarkVariant == .replacesStatus)
         badge.configure(badgesLead ? .none : ws.unread)
         // An agent driving the screen or a browser has its own mark, dots or not; the dots show the rest.
         presenceDots.configure(content.presenceDots && !isShowingPlaceholder ? ws.presence.filter { $0.drive == nil } : [])
@@ -359,6 +372,11 @@ final class WorkspaceRowView: SidebarRowView {
         statusHeight = statusBlock.isHidden ? 0 : SidebarLayoutMetrics.standard.statusHeight(shown)
         rowBadgeStyle = content.rowBadge
         configureBadges(ws, shown: shown, style: content.rowBadge, stackLimit: content.stackLimit)
+        if pill != nil {
+            shownBadges = (ws.id, [])
+            rowBadge.configure([], look: .plain)
+        }
+        configureAgentBadges(ws.id, experiment: content.agentBadges, pill: pill)
         themedToolTip = nil // the workspace hover card shows the cwd (and CPU and memory)
         // A placeholder says nothing; its section header says it connects.
         setAccessibilityElement(!isShowingPlaceholder)
@@ -367,7 +385,8 @@ final class WorkspaceRowView: SidebarRowView {
         applyControlIdentifiers()
         setAccessibilityLabel(accessibilityText(ws, content: shown,
                                                 title: shown.subagentOf.map(Strings.subagentOf)
-                                                    ?? ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)))
+                                                    ?? ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat))
+                                + (pill.map { ", " + $0.title } ?? ""))
         needsLayout = true
         needsDisplay = true
     }

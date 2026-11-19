@@ -156,12 +156,17 @@ extension WorkspaceRowView {
         // counts, the keycap and the hover close and more sit left of it.
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
-        let columnMark = layoutColumnMark(cy: cy, rowWidth: b.width, markReplacesStatus: markReplacesStatus)
+        // `experiments.agentBadges`: the status pill owns the column in the status mark's place, and every row keeps
+        // the widest pill's slot while the pills are on, so no title moves as a pill comes, changes or goes.
+        let pillEdge = layoutAgentBadges(rowWidth: b.width, cy: cy, full: full)
+        let showsPill = pillEdge != nil && agentPill != nil
+        let columnMark = showsPill ? nil : layoutColumnMark(cy: cy, rowWidth: b.width, markReplacesStatus: markReplacesStatus)
         if let columnMark { trailing = columnMark.trailing }
+        if let pillEdge { trailing = min(trailing, pillEdge) }
         // The hover controls give way at once as the pointer leaves to a column mark, or to the unread count the close
         // covers (the `trailing` badge style), so a mark fading back never draws beside a control fading out (Leo
         // 2026-10-28: "just don't show the spinner" while hovering).
-        let controlFades = fades && columnMark == nil && !badge.state.isUnread
+        let controlFades = fades && columnMark == nil && !showsPill && !badge.state.isUnread
         tabCount.isHidden = count == nil || isShowingPlaceholder
         if count != nil {
             let h = ceil(tabCount.intrinsicContentSize.height)
@@ -231,6 +236,8 @@ extension WorkspaceRowView {
         let markGivesWay = placeCloseSpot(columnMark: columnMark?.view, rowWidth: b.width, cy: cy, control: control,
                                           showClose: showClose, showMore: showMore, close: &closeFrame, more: &moreFrame)
         (closeSlot.frame, moreSlot.frame) = (closeFrame, moreFrame)
+        // The pill gives way to the hover controls as the column's mark does; they keep their slots.
+        if let pillView = agentPillView { fadeOpacity(pillView, to: showsPill && (showClose || showMore) ? 0 : 1, fades: fades) }
         let pinStart = layoutPin(rowWidth: b.width, showMore: showMore, moreFrame: moreFrame, control: control, fades: controlFades)
         let overlayStart = [showClose ? closeFrame.minX : nil, showMore ? moreFrame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize

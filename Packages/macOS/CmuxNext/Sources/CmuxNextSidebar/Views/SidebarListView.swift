@@ -385,7 +385,13 @@ final class SidebarListView: NSView {
         // then on capturing ones in Release).
         var pending: [NSView] = subviews.reversed()
         while let view = pending.popLast() {
-            if let indicator = view as? StatusIndicatorView { indicator.isWindowVisible = visible } else { pending.append(contentsOf: view.subviews.reversed()) }
+            if let indicator = view as? StatusIndicatorView {
+                indicator.isWindowVisible = visible
+            } else if let beam = view as? SidebarAgentBeamView {
+                beam.setWindowVisible(visible) // `experiments.agentBadges` beam: no lap in a covered window
+            } else {
+                pending.append(contentsOf: view.subviews.reversed())
+            }
         }
     }
     nonisolated override var isFlipped: Bool { true }
