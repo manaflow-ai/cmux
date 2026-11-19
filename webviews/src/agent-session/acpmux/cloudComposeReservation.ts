@@ -20,6 +20,9 @@ type Attempt = {
   intentAt: number;
   /// Reserves for this key that failed in a row (none: the last one answered, or is out).
   failures: number;
+  /// The platform said this key's reservation is over for good (ENDED_CODES): no reserve of it can answer
+  /// again, so the next intent reserves with a new key.
+  ended?: boolean;
   /// The empty local chat this compose's Send would replace (App.tsx `emptyLocalChat`), named on each reserve.
   replacesChat?: string;
   /// An abandoned compose's release, settled: the next compose reserves only after it, since the native
@@ -43,6 +46,16 @@ export const RESERVATION_RETRY_MS = 2_000;
 /// hold ends at the same bound after its last renewal (RESERVATION_HOLD_MS), so a page that went
 /// away without releasing costs no more.
 export const RESERVATION_IDLE_RELEASE_MS = 10 * 60_000;
+
+/// The platform's refusals of a reserve whose key is over for good: its hold ran out unbound, or it was
+/// released (cmux-tui reservations.rs `unbound` reads the same two at the bind). Seen on a dev build,
+/// 2026-11-19: the first reserve got no answer in the CLI's 120 s, the platform's hold then ran out, and
+/// every retry with that key was refused `reservation.terminal`, so the compose never reserved again.
+const ENDED_CODES: ReadonlySet<unknown> = new Set(["reservation.terminal", "reservation.expired"]);
+
+function keyEnded(error: unknown): boolean {
+  return typeof error === "object" && error !== null && ENDED_CODES.has((error as { code?: unknown }).code);
+}
 
 /// One speculative machine per compose. The platform owns its expiry; the page renews its hold
 /// only on the person's intent and releases it after RESERVATION_IDLE_RELEASE_MS without one.
@@ -71,14 +84,21 @@ export class CloudComposeReservation {
       after = before.gone ?? after;
     }
     const live = this.attempt;
+    let failures = 0;
     if (live && !live.abandoned && !live.released) {
       live.intentAt = now;
       // Renew (or retry) with the same key: idempotent at the platform, never a second machine.
       const gap = live.failures
         ? Math.min(RESERVATION_RENEW_MS, RESERVATION_RETRY_MS * 2 ** (live.failures - 1))
         : RESERVATION_RENEW_MS;
-      if (!live.transferred && now - live.reservedAt >= gap) this.reserve(live, live.ready);
-      return;
+      const due = !live.transferred && now - live.reservedAt >= gap;
+      if (!due || !live.ended) {
+        if (due) this.reserve(live, live.ready);
+        return;
+      }
+      // The key is over at the platform (nothing of it is left to release): the retry takes a new one, and
+      // keeps the count of failures in a row, so new keys that fail too are still spaced out.
+      failures = live.failures;
     }
     this.attempt = undefined;
     const attempt: Attempt = {
@@ -89,7 +109,7 @@ export class CloudComposeReservation {
       released: false,
       reservedAt: now,
       intentAt: now,
-      failures: 0,
+      failures,
       ...(replacesChat ? { replacesChat } : {}),
     };
     this.attempt = attempt;
@@ -111,7 +131,10 @@ export class CloudComposeReservation {
       )
       .then(
         () => true,
-        () => false,
+        (error) => {
+          if (keyEnded(error)) attempt.ended = true;
+          return false;
+        },
       )
       .then((ready) => {
         attempt.failures = ready ? 0 : attempt.failures + 1;

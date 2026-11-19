@@ -318,6 +318,44 @@ test("a reserve that failed (Cloud remembered on load, no gesture) is tried agai
   ]);
 });
 
+test("a key the platform says is over is not retried: the next intent reserves with a new key", async () => {
+  // The dev build of 2026-11-19: the first reserve got no answer in time, the platform's hold ran out, and each
+  // retry of that key was refused `reservation.terminal`.
+  const answers: (() => Promise<unknown>)[] = [
+    () => Promise.reject({ code: "unavailable" }),
+    () => Promise.reject({ code: "reservation.terminal" }),
+    async () => ({}),
+  ];
+  const h = harness(() => answers.shift()!());
+  h.reservation.selected();
+  await settle();
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("x");
+  await settle();
+  expect(await h.reservation.ready("compose-1")).toBe(false);
+  // Inside the gap after two failures in a row nothing goes out, old key or new.
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("xy");
+  await settle();
+  expect(h.calls).toHaveLength(2);
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("xyz");
+  await settle();
+  expect(h.calls).toEqual([
+    ["cloud.reserve", { composeKey: "compose-1" }],
+    ["cloud.reserve", { composeKey: "compose-1" }],
+    ["cloud.reserve", { composeKey: "compose-2" }],
+  ]);
+  // The Send binds the new key's machine, and the ended key is never released: nothing of it is left.
+  const request = { task: "xyz", reservationKey: h.reservation.handoff() };
+  expect(await h.start(request, "send-1")).toEqual({ ok: true });
+  expect(h.calls.at(-1)).toEqual([
+    "cloud.startChat",
+    { task: "xyz", key: "send-1", reservationKey: "compose-2", gestureTicket: "ticket-1" },
+  ]);
+  expect(h.calls.some(([method]) => method === "cloud.releaseReservation")).toBe(false);
+});
+
 test("a renewal that failed keeps the Send off the key: it goes as an ordinary one", async () => {
   let fail = false;
   const h = harness(async () => {
