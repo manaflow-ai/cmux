@@ -252,6 +252,7 @@ client "$own"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "run of ${app_again:0:12} is building tree" "$TMP/err"' "a stalled alternate is passed over for a progressing same-key publisher (took $took s)"
 rm -f "$runs_dir/runs-$app" "$runs_dir/runs-$app_again"; rm -rf "$TMP/api/repos/o/r/actions/runs"
 set_runs "$no_runs"
+git_q -C "$TMP/src" checkout "$app"
 
 # 6. Bad usage.
 status=0; (cd "$TMP/src" && bash scripts/cmux-next/await-tree-client.sh nope "$own" 2>/dev/null) || status=$?
