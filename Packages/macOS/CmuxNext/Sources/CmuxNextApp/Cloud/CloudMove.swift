@@ -381,7 +381,7 @@ struct CloudMove {
         }
         let firstID = first.machineID
         let result: (winner: String?, candidates: [String], error: String?) = await withTaskGroup(of: Attempt.self) { group in
-            group.addTask { @MainActor in
+            group.addTask(operation: { @MainActor () -> Attempt in
                 do {
                     _ = try await connectedOnce(first, invocation)
                     try Task.checkCancellation()
@@ -389,8 +389,8 @@ struct CloudMove {
                 } catch {
                     return Attempt(candidateID: firstID, connectedID: nil, error: (error as? Failure)?.message)
                 }
-            }
-            group.addTask { @MainActor in
+            })
+            group.addTask(operation: { @MainActor () -> Attempt in
                 do {
                     try await Task.sleep(for: hedge.after)
                     try Task.checkCancellation()
@@ -406,7 +406,7 @@ struct CloudMove {
                 } catch {
                     return Attempt(candidateID: "", connectedID: nil, error: (error as? Failure)?.message)
                 }
-            }
+            })
             var candidates: [String] = []
             var lastError: String?
             while let attempt = await group.next() {

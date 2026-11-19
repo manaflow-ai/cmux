@@ -106,7 +106,7 @@ extension CloudStartChat {
             }
             invocation.arguments["machine"] = .string(created.machineID)
         }
-        let id = invocation.arguments["machine"]?.stringValue, text = CloudStartCore().accountText(account)
+        let id = invocation.arguments["machine"]?.stringValue, text = CloudStartCore().accountText(account), hedgePick = await pick()
         let hedge: CloudMove.ConnectionHedge? = {
             let milliseconds = CloudMoveCore.deadlines.startHedgeAfterMs
             guard plan.madeForStart, milliseconds > 0 else { return nil }
@@ -115,7 +115,7 @@ extension CloudStartChat {
                 create: { @MainActor in
                     try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
                     let key = "\(plan.createKey)-hedge-\(UUID().uuidString)"
-                    let request = CloudMachineRequest(startChatKey: key, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil), size: start.size, diskMb: start.grownDiskMb)
+                    let request = CloudMachineRequest(startChatKey: key, sizedFor: hedgePick, team: plan.createTeam ?? (account.last ?? nil), size: start.size, diskMb: start.grownDiskMb)
                     let created = try await cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user,
                                                                 request: request)
                     do {
@@ -124,7 +124,7 @@ extension CloudStartChat {
                     } catch {
                         if account == cloud.account {
                             do { try await cloud.deleteMachine(created.machineID) }
-                            catch { cloud.logger.error("cloud start hedge: account changed; could not delete (created.machineID, privacy: .public): \(String(describing: error), privacy: .public)") }
+                            catch { cloud.logger.error("cloud start hedge: account changed; could not delete \(created.machineID, privacy: .public): \(String(describing: error), privacy: .public)") }
                         }
                         throw error
                     }
