@@ -94,7 +94,7 @@ before() {
   fi
   binaries
   local f sizes=""
-  for f in "${FILES[@]}"; do sizes="$sizes $(short "$f")_bytes=$(bytes "$f")"; done
+  for f in ${FILES[@]+"${FILES[@]}"}; do sizes="$sizes $(short "$f")_bytes=$(bytes "$f")"; done
   echo "LB-COPY reboot=$REBOOT installed=$installed version=$(plist CFBundleShortVersionString)-$(plist CFBundleVersion)$sizes path=\"$APP\""
   guard_bundle
   # Launched once since its install (its first-exec check paid), then quit with Keep Sessions and gone.
@@ -197,7 +197,7 @@ guard_bundle() {
 # read_all: each binary through `time -l cat FILE >/dev/null`; wall from "real", cpu from user + sys, maxrss in bytes.
 read_all() {
   local f out
-  for f in "${FILES[@]}"; do
+  for f in ${FILES[@]+"${FILES[@]}"}; do
     out="$("$TIME_BIN" -l cat "$f" 2>&1 >/dev/null)"
     echo "LB-READ reboot=$REBOOT arm=$ARM s_since_login=$(since) file=$(short "$f") bytes=$(bytes "$f") $(awk '
       / real / { wall = $1 * 1000; cpu = ($3 + $5) * 1000 }
@@ -209,7 +209,7 @@ read_all() {
 # resident_all T: each binary's resident fraction (launch-premain's mincore reader, which faults nothing in).
 resident_all() {
   local f r
-  for f in "${FILES[@]}"; do
+  for f in ${FILES[@]+"${FILES[@]}"}; do
     r="$("$PROBE" resident "$f" 2>/dev/null)"
     echo "LB-RESIDENT reboot=$REBOOT arm=$ARM t=$1 s_since_login=$(since) file=$(short "$f") $(awk '
       $1 == "LP-RESIDENT" && NF == 4 { printf "resident_pct=%.1f resident_pages=%d pages=%d", $2 * 100, $3, $4; ok = 1 }

@@ -430,6 +430,7 @@
         "CmuxNextAgentCursor",
         "CmuxNextAgentCursorVisibility",
         "CmuxNextAgentLanes",
+        "CmuxNextAgentPane",
         "CmuxNextAgentPermissions",
         "CmuxNextAgentUpdates",
         "CmuxNextApp",
@@ -1825,6 +1826,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextPalette",
         "CmuxNextTestSupport"
       ],

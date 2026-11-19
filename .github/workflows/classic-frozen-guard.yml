@@ -18,17 +18,23 @@ on:
 
 permissions: {}
 
+# `edited` is for a base change. A title or body edit decides nothing here (the check reads labels
+# and the diff, never the description): its run takes no runner and its own group, so it never
+# cancels a push's run (pattern pr-edit-fans-out-ci, tests/test_ci_pr_runs_cancel_superseded.py).
 concurrency:
-  group: classic-frozen-guard-${{ github.event.pull_request.number }}
+  group: classic-frozen-guard-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !github.event.changes.base && '-metadata' || '' }}
   cancel-in-progress: true
 
 jobs:
   classic-frozen:
-    name: classic-frozen-guard
+    # The skipped metadata-edit run publishes another name: a skipped `classic-frozen-guard` would
+    # read as a pass and replace a failing one.
+    name: ${{ github.event.action == 'edited' && !github.event.changes.base && 'classic-frozen-guard metadata edit (ignored)' || 'classic-frozen-guard' }}
+    if: ${{ !(github.event.action == 'edited' && !github.event.changes.base) }}
     # Every label change re-runs it (a skipped run would read as a pass and replace a failing one).
     # A base-revision control-plane job (cla-policy-guard.yml's runner rule): a VM destroyed after one job,
     # never a persistent or contributor-controlled machine.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
