@@ -118,7 +118,8 @@ extension SettingsSchema {
         "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "media.pictureInPicture.enabled", "sidebar.showProjects",
         "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton",
         "sidebar.showNewWorkspaceChooser", "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide",
-        "sidebar.groupBy", "sidebar.priorityView.enabled", "sidebar.priorityView.shown", "browser.defaultEngine",
+        "sidebar.groupBy", "sidebar.priorityView.enabled", "sidebar.priorityView.shown", "sidebar.priorityView.filters",
+        "sidebar.priorityView.showIdle", "sidebar.priorityView.statusWords", "browser.defaultEngine",
         "browser.siteEngines", "browser.newTabPage", "browser.showBookmarksBar", "browser.vimKeys",
         "browser.showLoadingBar",
         // Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.
@@ -276,6 +277,8 @@ extension SettingsSchema {
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
+        // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.
+        "models.spreadUsage",
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil

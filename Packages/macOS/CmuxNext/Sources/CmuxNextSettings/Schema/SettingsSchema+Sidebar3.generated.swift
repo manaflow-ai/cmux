@@ -70,6 +70,36 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "priority", "activity", "bell", "show", "hide"]
             ),
             SettingDescriptor(
+                SidebarPriorityViewSetting.filtersPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.priorityView.filters", "Priority Filters"),
+                help: SettingsText.keyed("settings.sidebar.priorityView.filters.help", "All, Waiting, Unread and Running chips with counts, and Mark All as Read."),
+                kind: .toggle,
+                default: .bool(SidebarPriorityViewSetting.filtersDefault),
+                keywords: ["sidebar", "priority", "activity", "filter", "unread", "running", "waiting", "mark all as read"]
+            ),
+            SettingDescriptor(
+                SidebarPriorityViewSetting.showIdlePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.priorityView.showIdle", "Idle Chats in Priority"),
+                help: SettingsText.keyed("settings.sidebar.priorityView.showIdle.help", "Off, Priority lists only chats that need you or are running."),
+                kind: .toggle,
+                default: .bool(SidebarPriorityViewSetting.showIdleDefault),
+                keywords: ["sidebar", "priority", "activity", "idle", "hide"]
+            ),
+            SettingDescriptor(
+                SidebarPriorityViewSetting.statusWordsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.priorityView.statusWords", "Priority Status Words"),
+                help: SettingsText.keyed("settings.sidebar.priorityView.statusWords.help", "Each Priority row says its state, such as Needs you or Done."),
+                kind: .toggle,
+                default: .bool(SidebarPriorityViewSetting.statusWordsDefault),
+                keywords: ["sidebar", "priority", "activity", "status", "label"]
+            ),
+            SettingDescriptor(
                 ChromePlacementSetting.sidebarSidePath,
                 section: .appearance,
                 group: group,

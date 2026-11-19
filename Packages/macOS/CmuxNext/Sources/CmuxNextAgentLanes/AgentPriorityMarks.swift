@@ -1,4 +1,5 @@
 public import CmuxNextAgentActivity
+public import CmuxNextSidebar
 public import Foundation
 public import Observation
 
@@ -22,6 +23,8 @@ public final class AgentPriorityMarks {
         /// Session id to the place (0 is the top) the person dragged it to: it shows there until
         /// they drag it again, whatever its state (Leo 2026-10-21).
         public var placed: [String: Int] = [:]
+        /// The filter chip picked while `sidebar.priorityView.filters` is on.
+        public var filter: SidebarPriorityFilter = .all
 
         public nonisolated struct Snooze: Codable, Hashable, Sendable {
             public var stamp: String
@@ -30,7 +33,7 @@ public final class AgentPriorityMarks {
 
         public init() {}
 
-        enum CodingKeys: String, CodingKey { case pinned, read, snoozed, archived, collapsed, placed }
+        enum CodingKeys: String, CodingKey { case pinned, read, snoozed, archived, collapsed, placed, filter }
 
         /// Each mark may be missing: marks saved by an older build still load.
         public init(from decoder: any Decoder) throws {
@@ -41,6 +44,8 @@ public final class AgentPriorityMarks {
             archived = try c.decodeIfPresent(Set<String>.self, forKey: .archived) ?? []
             collapsed = try c.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false
             placed = try c.decodeIfPresent([String: Int].self, forKey: .placed) ?? [:]
+            // A filter a later build added reads as All here.
+            filter = (try? c.decodeIfPresent(SidebarPriorityFilter.self, forKey: .filter)) ?? .all
         }
 
         public func isSnoozed(_ id: String, stamp: String, now: Date) -> Bool {
@@ -86,6 +91,8 @@ public final class AgentPriorityMarks {
     public func unarchive(_ id: String) { state.archived.remove(id) }
 
     public func setCollapsed(_ collapsed: Bool) { state.collapsed = collapsed }
+
+    public func setFilter(_ filter: SidebarPriorityFilter) { state.filter = filter }
 
     /// The person dragged `id` in the Priority view, which now shows `order`: it keeps that place,
     /// and each chat dragged before keeps the place it shows at now.

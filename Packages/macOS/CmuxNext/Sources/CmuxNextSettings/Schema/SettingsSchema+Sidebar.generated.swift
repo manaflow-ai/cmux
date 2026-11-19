@@ -137,6 +137,15 @@ extension SidebarPriorityViewSetting {
     /// `sidebar.priorityView.shown`.
     public nonisolated static let shownPath = ["sidebar", "priorityView", "shown"]
     public nonisolated static let shownDefault = true
+    /// `sidebar.priorityView.filters`.
+    public nonisolated static let filtersPath = ["sidebar", "priorityView", "filters"]
+    public nonisolated static let filtersDefault = false
+    /// `sidebar.priorityView.showIdle`.
+    public nonisolated static let showIdlePath = ["sidebar", "priorityView", "showIdle"]
+    public nonisolated static let showIdleDefault = true
+    /// `sidebar.priorityView.statusWords`.
+    public nonisolated static let statusWordsPath = ["sidebar", "priorityView", "statusWords"]
+    public nonisolated static let statusWordsDefault = false
 }
 
 extension ChromePlacementSetting {
