@@ -429,6 +429,7 @@ export function MenuPopup({
         {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
         sideOffset={nested ? submenuOffset : UI_ANCHOR_GAP}
+        {...(nested ? { alignOffset: submenuAlignOffset } : {})}
       >
         <BaseMenu.Popup
           // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
@@ -516,8 +517,18 @@ function focusAfterClose(
  *  overlaps the menu), else the gap every anchored menu takes. Read as the submenu is placed, so a
  *  look's stylesheet applies on the next open with no reload. */
 function submenuOffset(): number {
-  const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--menu-submenu-offset"));
-  return Number.isFinite(value) ? value : UI_ANCHOR_GAP;
+  return rootLength("--menu-submenu-offset") ?? UI_ANCHOR_GAP;
+}
+
+/** A submenu's shift along its row: a look's `--menu-submenu-align-offset` (px; negative moves a
+ *  submenu that grows down up, so its first row lines up with the row that opened it), else none. */
+function submenuAlignOffset(): number {
+  return rootLength("--menu-submenu-align-offset") ?? 0;
+}
+
+function rootLength(token: string): number | undefined {
+  const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue(token));
+  return Number.isFinite(value) ? value : undefined;
 }
 
 /** What a menu opened from: its `anchor` (an element or a virtual anchor), else its open trigger. */

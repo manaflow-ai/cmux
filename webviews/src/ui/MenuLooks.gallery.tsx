@@ -19,37 +19,39 @@ const ink = (percent: number) => `color-mix(in srgb, ${text} ${percent}%, transp
 /** Each pack's tokens: the values its agent-pane/theme.css sets (none for cmux: today's menus). */
 export const MENU_LOOKS: Record<Look, Record<string, string>> = {
   cmux: {},
-  // Claude desktop's row menu (Leo's screenshots): a solid 12 px panel, 28 pt rows, an 8 px hover
-  // inset from the edges, muted single-letter shortcuts, a red Delete, a flush submenu.
+  // Claude desktop's row menu (measured, chameleon-claude MENUS-AND-PROPORTIONS.md): a 9 px corner,
+  // 24 pt rows on a 4 pt inset, an 8 px hover, a 1 pt edge at text 10%, separators inset 11, muted
+  // shortcuts, labels and subtitles at 50%, Delete in its red, a submenu flush right and top aligned.
   claude: {
-    "--menu-radius": "12px",
-    "--menu-padding": "8px",
+    "--menu-radius": "9px",
+    "--menu-padding": "4px",
     "--menu-fill": `color-mix(in srgb, ${text} 9%, ${page})`,
-    "--menu-border": ink(12),
+    "--menu-border": ink(10),
     "--menu-shadow": "0 8px 24px color-mix(in srgb, black 32%, transparent)",
-    "--menu-row-height": "28px",
+    "--menu-row-height": "24px",
     "--menu-hover-fill": ink(9),
     "--menu-hover-radius": "8px",
     "--menu-separator": ink(10),
-    "--menu-separator-inset": "12px",
+    "--menu-separator-inset": "11px",
     "--menu-label-color": ink(50),
     "--menu-label-weight": "400",
-    "--menu-shortcut-color": ink(45),
+    "--menu-shortcut-color": ink(50),
     "--menu-subtitle-color": ink(50),
-    "--menu-destructive": `color-mix(in srgb, var(--agent-danger, #e5534b) 80%, ${text})`,
+    "--menu-destructive": "#de8481",
     "--menu-disabled-opacity": "0.4",
-    "--menu-submenu-offset": "8px",
+    "--menu-submenu-offset": "4px",
+    "--menu-submenu-align-offset": "-4px",
   },
-  // Codex desktop's thread menu: frosted glass kept, a 12 px corner, 24 pt rows, separators that
-  // start under the labels, a lighter rim and a deeper shadow.
+  // Codex desktop's picker popovers (measured; its right-click menus are AppKit's, as cmux's are): a
+  // 15 px corner, the hairline edge, 12.5 pt padding and 28.5 pt rows, frosted glass kept.
   codex: {
-    "--menu-radius": "12px",
-    "--menu-padding": "6px",
+    "--menu-radius": "15px",
+    "--menu-padding": "12.5px",
     "--menu-border": ink(14),
     "--menu-shadow": "0 10px 30px color-mix(in srgb, black 30%, transparent)",
-    "--menu-row-height": "24px",
+    "--menu-row-height": "28.5px",
     "--menu-hover-fill": ink(8),
-    "--menu-hover-radius": "6px",
+    "--menu-hover-radius": "8px",
     "--menu-separator": ink(12),
     "--menu-separator-inset": "16px",
     "--menu-label-color": ink(45),
@@ -57,8 +59,8 @@ export const MENU_LOOKS: Record<Look, Record<string, string>> = {
     "--menu-subtitle-color": ink(45),
     "--menu-submenu-offset": "4px",
   },
-  // Studio's composer menus: a near-black solid panel, an 8 px corner, a 1 px edge, 28 px rows on a
-  // 4 px inset, plain section labels and a quiet second line.
+  // Studio's composer menus (measured): a near-black solid panel, an 8 px corner, 28 pt rows, a hover
+  // at text 8% with radius 4 on a 4 pt inset, separators inset 12, 12 pt labels at 49%, subtitles at 39%.
   studio: {
     "--menu-radius": "8px",
     "--menu-padding": "4px",
@@ -67,13 +69,14 @@ export const MENU_LOOKS: Record<Look, Record<string, string>> = {
     "--menu-shadow": "0 4px 12px color-mix(in srgb, black 25%, transparent)",
     "--menu-row-height": "28px",
     "--menu-hover-fill": ink(8),
-    "--menu-hover-radius": "6px",
+    "--menu-hover-radius": "4px",
     "--menu-separator": ink(10),
-    "--menu-separator-inset": "8px",
-    "--menu-label-color": ink(50),
+    "--menu-separator-inset": "12px",
+    "--menu-label-color": ink(49),
     "--menu-label-weight": "400",
+    "--menu-label-size": "12px",
     "--menu-shortcut-color": ink(45),
-    "--menu-subtitle-color": ink(45),
+    "--menu-subtitle-color": ink(39),
     "--menu-submenu-offset": "4px",
   },
 };

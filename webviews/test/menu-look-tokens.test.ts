@@ -11,14 +11,14 @@ const sheets = (fs.readdirSync(src, { recursive: true }) as string[])
   .map((file) => ({ file, text: fs.readFileSync(path.join(src, file), "utf8") }));
 
 const readme = fs.readFileSync(path.join(src, "ui/README.md"), "utf8");
-const documented = [...readme.matchAll(/^\| `(--menu-[\w-]+)` \|/gm)].map((match) => match[1]);
+const documented = [...readme.matchAll(/^\| `(--menu-[\w-]+)`\s*\|/gm)].map((match) => match[1]);
 
 // `var(--menu-x)` with no fallback, allowed only where unset changes nothing (popupSurface.css).
 const bareReads = new Set(["--menu-shortcut-color", "--menu-destructive", "--menu-disabled-opacity"]);
 
 describe("menu look tokens", () => {
   test("the README lists every token", () => {
-    expect(documented.length).toBeGreaterThanOrEqual(17);
+    expect(documented.length).toBeGreaterThanOrEqual(19);
   });
 
   test("no shipped sheet sets a token: only a look does", () => {

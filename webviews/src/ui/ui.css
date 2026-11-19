@@ -228,7 +228,7 @@
 .ui-drill-section {
   padding: 6px 8px 2px;
   color: var(--menu-label-color, var(--ui-fg-2));
-  font-size: var(--text-caption);
+  font-size: var(--menu-label-size, var(--text-caption));
   font-weight: var(--menu-label-weight, var(--weight-emphasis));
   letter-spacing: var(--text-caption--letter-spacing);
 }
