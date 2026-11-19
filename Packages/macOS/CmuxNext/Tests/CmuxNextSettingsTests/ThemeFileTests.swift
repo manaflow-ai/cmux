@@ -147,6 +147,21 @@ import Testing
         ])
     }
 
+    /// Leo, 2026-11-08: "Every conceivable possible aspect of the app… how we work, how we look like to other
+    /// people". A theme sets how a workspace's color shows on its sidebar row; a style that is none of the three
+    /// is refused and the rest of the file still applies.
+    @Test func aThemeFileSetsTheWorkspaceColorStyle() {
+        for style in ["dot", "leftRail", "fill"] {
+            let overlay = Self.overlay(#"{ "workspaceColors.indicatorStyle": "\#(style)" }"#)
+            #expect(overlay.diagnostics.isEmpty)
+            let root = overlay.applied(to: .object(["workspaceColors": .object(["indicatorStyle": "leftRail"])]))
+            #expect(root.value(at: ["workspaceColors", "indicatorStyle"]) == .string(style))
+        }
+        let refused = Self.overlay(#"{ "workspaceColors": { "indicatorStyle": "stripes" }, "appearance.borders": "none" }"#)
+        #expect(refused.values.map { $0.path.joined(separator: ".") } == ["appearance.borders"])
+        #expect(refused.diagnostics.map(\.path) == ["workspaceColors.indicatorStyle"])
+    }
+
     /// A theme's own density shapes its tabs (the blockiness of horizontal and sidebar tabs) and sizes the
     /// sidebar: a built-in with the playground's tokens over it, clamped, with unknown tokens refused.
     @Test func aThemeFileCarriesItsOwnDensity() throws {

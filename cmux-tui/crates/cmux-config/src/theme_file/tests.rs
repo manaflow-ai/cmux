@@ -215,6 +215,31 @@ fn a_theme_file_sets_the_buttons_session_info_and_its_own_density() {
     assert!(!validator.is_valid(&json!({"density": {"tokens": {"tabCornerRadius": "round"}}})));
 }
 
+/// Leo, 2026-11-08: "Every conceivable possible aspect of the app… how we
+/// work, how we look like to other people". A theme sets how a workspace's
+/// color shows on its sidebar row, and a style that is none of the three is
+/// refused while the rest of the file applies.
+#[test]
+fn a_theme_file_sets_the_workspace_color_style() {
+    for style in ["dot", "leftRail", "fill"] {
+        let file = overlay(&format!(r#"{{ "workspaceColors.indicatorStyle": "{style}" }}"#));
+        assert!(file.diagnostics.is_empty(), "{style}: {:?}", file.diagnostics);
+        let root =
+            file.applied(&json!({"workspaceColors": {"indicatorStyle": "leftRail"}}), &none());
+        assert_eq!(at(&root, "workspaceColors.indicatorStyle"), Some(&json!(style)));
+    }
+    let file = overlay(
+        r#"{ "workspaceColors": { "indicatorStyle": "stripes" }, "appearance.borders": "none" }"#,
+    );
+    assert_eq!(file.keys(), vec!["appearance.borders"]);
+    let refused = file
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "workspaceColors.indicatorStyle")
+        .expect("stripes refused");
+    assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
+}
+
 #[test]
 fn a_relative_picture_resolves_against_the_themes_folder() {
     let folder = Path::new("/tmp/cmux-config/themes");

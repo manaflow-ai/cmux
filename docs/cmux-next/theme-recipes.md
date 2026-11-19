@@ -36,7 +36,8 @@ Each one is in the Theme File list by name. Your own file with the same name win
 A theme file is a pit of success: it can only set how cmux looks, never what it does.
 
 - It takes look settings only: `appearance.*`, `ui.animation*`, `ui.calm`, the terminal font and the
-  sidebar's shape. A key that does something (a shortcut, a command, an agent setting) is refused
+  sidebar's shape. That includes how a workspace's color shows on its sidebar row:
+  `"workspaceColors.indicatorStyle": "dot"`, `"leftRail"` (the default) or `"fill"`. A key that does something (a shortcut, a command, an agent setting) is refused
   with "a theme file sets only look settings".
 - Each value gets the same check as `cmux settings set`. A bad one is dropped and the rest still
   applies.

@@ -58,16 +58,18 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     static let lookPrefixes = ["appearance.", "ui.animation", "ui.calm", "ui.paneAnimations", "ui.reducedBackgrounds",
                                "browser.omnibar.glass", "app.uiScale"]
     /// Look keys outside those prefixes: the terminal font; the sidebar's shape, edges, text, group headers and
-    /// buttons; the tab strip's and titlebar's buttons and inactive tabs; pane corners; and the agent chat's text
-    /// sizes, sender marks and Session Info (Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a
-    /// lot deeper too. prob likewise the session info and the top right buttons as well"). Keep in step with
-    /// cmux-config's `LOOK_KEYS`.
+    /// buttons, and how a workspace's color shows on its row (dot, leading rail or filled row); the tab strip's
+    /// and titlebar's buttons and inactive tabs; pane corners; and the agent chat's text sizes, sender marks and
+    /// Session Info (Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot deeper too. prob
+    /// likewise the session info and the top right buttons as well"). Keep in step with cmux-config's
+    /// `LOOK_KEYS`.
     static let lookKeys: Set<String> = [
         "terminal.fontFamily", "terminal.fontSize",
         "sidebar.style", "sidebar.border", "sidebar.borderWidth", "sidebar.sectionLook", "sidebar.density",
         "sidebar.textSize", "sidebar.groupHeader.background", "sidebar.groupPalette", "sidebar.groupGradient",
         "sidebar.showSearchButton", "sidebar.showProfileControl", "sidebar.showNewWorkspaceChooser",
         "sidebar.controlsOnHover", "sidebar.detailedStatusIcons", "sidebar.showColors", "sidebar.spacesVisibility",
+        "workspaceColors.indicatorStyle",
         "tabs.toolbarButtons", "tabs.plusButton", "window.titlebarButtons", "focus.inactiveTabStyle",
         "layout.paneCornerRadius", "layout.cornerPadding", "layout.paneBorderWidth",
         "agentPane.display.sessionInfo.placement", "agentPane.display.font.preset", "agentPane.display.font.ui",
