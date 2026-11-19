@@ -966,6 +966,10 @@ pub struct Brain {
     /// The wall clock (ms since the epoch) the subagent watch reads; tests
     /// set their own (`set_clock`).
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// When this host started (wall clock, ms since the epoch, as acpmux
+    /// stamps events): a subagent session that closed before it closed
+    /// with the last host (`resume_closed`).
+    born_ms: u64,
     /// Each running subagent's folded events (sub_watch.rs), by id: kept
     /// between ticks so each tick reads only the new events.
     watches: HashMap<String, crate::sub_watch::Watch>,
@@ -1211,6 +1215,7 @@ impl Brain {
             agent_key_grace: crate::agent_keys::REVOKE_AFTER_DONE,
             max_live: None,
             clock: Arc::new(now_ms),
+            born_ms: now_ms(),
             watches: HashMap::new(),
             sub_close_on_finish: false,
             resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
