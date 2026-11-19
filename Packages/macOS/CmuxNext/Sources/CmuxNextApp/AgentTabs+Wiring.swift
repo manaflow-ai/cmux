@@ -305,6 +305,7 @@ extension AgentTabStore {
             services.daemon(for: pane).placeFork(tab.surface, beside: pane, left: left, rowHeight: height) { TabMoves.toNewColumn(tab, anchor: pane, afterColumn: $0, services: services, completion: $1) }
         }
         tabs.moveToNewWorkspace = { [weak services] key, machine, newWindow in guard let services, let (tab, _) = services.locateTab(key, onMachine: machine), TabPromotion.refusal(tab: tab, services: services) == nil else { return false }; return await TabHandlers.newWorkspaceMove(of: tab, with: [tab], newWindow: newWindow, services: services)() == nil }
+        tabs.chatInAgentDockScoped = { [weak services] chat in services?.locateTab(chat.key, onMachine: chat.machine).flatMap { services?.paneController(for: $0.1) }.flatMap { $0.workspace?.layoutModel.screen(containing: $0.layoutPaneID)?.inAgentChatDock($0.layoutPaneID) } ?? false }
         tabs.holdOutbound = { [weak services] pane, daemon in daemon.store.pane(pane).flatMap { services?.paneController(for: $0) }.map { OutboundTab.begin(in: $0) } }
         tabs.selectInPaneScoped = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTab(key.key, onMachine: key.machine) else { return }
