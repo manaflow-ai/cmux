@@ -110,7 +110,11 @@ def measure(pane: str, folder: Path) -> dict:
             "split": data.get("split"), "opened": data.get("opened"), "chat_pane": data.get("chat_pane"),
             "error": data.get("error"), "rest": data.get("rest"),
             "drags": [{"gesture": d.get("gesture"), "acted": d.get("acted"),
-                       "first": (d.get("samples") or [None])[0], "last": (d.get("samples") or [None])[-1]}
+                       "first": (d.get("samples") or [None])[0], "last": (d.get("samples") or [None])[-1],
+                       # Each frame's divider x positions: whether the divider followed the pointer through the drag,
+                       # or only moved after the release (the 2026-11-19 runs: first and last the same, moved after).
+                       "divider_x": [[round(float(row[1])) for row in s.get("dividers") or []]
+                                     for s in d.get("samples") or []]}
                       for d in (data.get("drags") or [])[:3]]}
     except (OSError, ValueError) as error:
         report["harness"] = {"unread": repr(error)}

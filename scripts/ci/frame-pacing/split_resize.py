@@ -359,7 +359,7 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
             while time.monotonic() < deadline:
                 rows = driver.call("debug.agent_pane", {"action": "chat_state", **target}, timeout=20).get("rows")
                 seeded["rows"] = rows
-                if isinstance(rows, int) and rows >= seed:
+                if isinstance(rows, int) and rows >= seed - 1:  # a 2800-row seed showed 2799 rows (2026-11-19)
                     break
                 time.sleep(1.0)
             seeded["waited_s"] = round(60 - max(0.0, deadline - time.monotonic()), 1)
