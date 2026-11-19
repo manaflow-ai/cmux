@@ -22,7 +22,7 @@ final class SidebarBridge {
     /// Client-only machine groups. The model owns grouping and pagination; the bridge supplies
     /// the daemon transport and puts their transient rows beside the Hosts section.
     let remoteMachines = RemoteMachinesSidebar()
-    lazy var hosts = HostsSidebar(host: services.hostsSidebar)
+    lazy var hosts = HostsSidebar()
     let container: SidebarContainerView
     unowned let services: AppServices
     /// Weak: a daemon command's `Task` can outlive the window.
@@ -125,6 +125,7 @@ final class SidebarBridge {
             focus.send(.focusTarget(.content, source: .keyboard))
         }
         seedFromSnapshot(state)
+        hosts.bind(host: services.hostsSidebar, visible: { [weak state] in state?.sidebarHidden == false })
         bindRemoteMachines()
         // Clear until real content (`markReadyForReveal`, or the deadline); a no-op once it is ready.
         services.launchReveal.hold(container, until: .sidebar)

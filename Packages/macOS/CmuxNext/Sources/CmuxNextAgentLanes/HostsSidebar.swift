@@ -12,7 +12,7 @@ public final class HostsSidebar {
         public var add: @MainActor () -> Void
         public var refresh: @MainActor () async -> Void
         public var startAging: @MainActor (AnyObject, @escaping @MainActor () -> Bool) -> Void
-        public var stopAging: @MainActor (AnyObject) -> Void
+        public var stopAging: (AnyObject) -> Void
         private var openConnected: @MainActor (String) -> Void
         private var openJoined: @MainActor (JoinedMachine) -> Void
 
@@ -22,7 +22,7 @@ public final class HostsSidebar {
                     openJoined: @escaping @MainActor (JoinedMachine) -> Void,
                     refresh: @escaping @MainActor () async -> Void = {},
                     startAging: @escaping @MainActor (AnyObject, @escaping @MainActor () -> Bool) -> Void = { _, _ in },
-                    stopAging: @escaping @MainActor (AnyObject) -> Void = { _ in }) {
+                    stopAging: @escaping (AnyObject) -> Void = { _ in }) {
             self.rows = rows
             self.add = add
             self.openConnected = openConnected
@@ -58,23 +58,23 @@ public final class HostsSidebar {
     @ObservationIgnored private var initialRefresh: Task<Void, Never>?
     public private(set) var expanded = true
 
-    public init(host: Host? = nil) {
+    public init(host: Host? = nil, visible: @escaping @MainActor () -> Bool = { true }) {
         self.host = host
         if let host {
             initialRefresh = Task { await host.refresh() }
-            host.startAging(self) { true }
+            host.startAging(self, visible)
         }
     }
 
-    public func bind(host: Host) {
+    public func bind(host: Host, visible: @escaping @MainActor () -> Bool = { true }) {
         initialRefresh?.cancel()
         if let previous = self.host { previous.stopAging(self) }
         self.host = host
         initialRefresh = Task { await host.refresh() }
-        host.startAging(self) { true }
+        host.startAging(self, visible)
     }
 
-    deinit {
+    nonisolated deinit {
         initialRefresh?.cancel()
         host?.stopAging(self)
     }
