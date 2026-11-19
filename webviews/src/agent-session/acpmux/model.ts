@@ -1641,6 +1641,11 @@ export type ConversationLayout = {
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
+/// Whether the row being measured is the agent's reply, whose prose a font pack can set apart
+/// (chatDisplay.ts `replyMeasureFont`, conversation.css `.cv-reply`); layoutConversation sets it around each row.
+let measuringReply = false;
+/// The canvas font of the text being measured: the reply's while a reply is, else the chat's.
+const proseFont = () => (measuringReply ? metrics().replyMeasureFont : metrics().measureFont);
 /// Codex's user bubble keeps 10px padding on each side, at the chat's density text scale (`.cv-user__bubble`:
 /// the grid's Interface Size scale times the bubble's own, which together are the text scale).
 const userBubblePadding = () => 5 * gridLength("base") * chatDensityTextScale();
@@ -1861,14 +1866,49 @@ const sendsMessage = (tool: NonNullable<AcpmuxActivity["tool"]>): boolean =>
 /// summary line, with its steps under it when the line starts open (`runOpen`; ToolRunSteps.tsx draws
 /// each call on its own line, a quiet thought not at all); another stretch is its entries, groups
 /// closed or open alike.
-function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: number): number {
+/// A line or group the reader opened or closed (transcriptDisclosureModel.ts) is estimated as they left
+/// it, read with the same key, default and links ToolRows gives it (TurnRows.tsx): the estimate is what
+/// places the row whenever its drawn height is gone (another width, its fold closed and opened again,
+/// history paged out and back).
+function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: number, sessionId?: string): number {
   // `.cv-tools` and `.cv-tool-run` stack their lines flush (conversation.css), 22 apart.
   const stretches = runStretches(row, groups);
   return stretches.reduce((height, stretch) => {
     const start = stretchStart(row, stretch);
-    if (stretch.fold) return height + toolRowHeight() + (start.lineOpen ? openRunStepsHeight(stretch.items, width) : 0);
-    return height + stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group, width, start.groupsClosed), 0);
+    const runKey = runDisclosureKey(stretch, row.id);
+    if (stretch.fold) {
+      const open = disclosureOpen(sessionId, runKey, start.lineOpen, {
+        ...runLinks(stretch, row.id),
+        members: callDisclosureKeys(stretch.items),
+      });
+      return height + toolRowHeight() + (open ? openRunBody(openRunStepsHeight(stretch.items, width)) : 0);
+    }
+    return (
+      height +
+      stretch.groups.reduce((sum, group, offset) => {
+        const key = group.type === "group" ? groupDisclosureKey(group, stretch.from + offset, row.id) : undefined;
+        // ToolGroupRow.tsx: open by default unless the run keeps it closed; an edits group keeps its own state.
+        const edits = group.type === "group" && group.kind === "edits";
+        const open =
+          key !== undefined &&
+          disclosureOpen(sessionId, key, !edits && !start.groupsClosed, {
+            inherits: edits ? undefined : [runKey],
+            closedBy: edits ? undefined : [runKey],
+            members: callDisclosureKeys("items" in group ? group.items : [group.item]),
+          });
+        return sum + foldedGroupHeight(group, width, !open);
+      }, 0)
+    );
   }, 0);
+}
+
+/// An opened run line's or group's body under its line (ToolRun.tsx, ToolGroupRow.tsx): the line's
+/// gap, held inside the fold (conversation.css `.cv-tools > * + .cv-fold::before`), over its steps,
+/// which the default arm keeps to a 56-unit (224px) scroll box (RunScroll.tsx `.cv-run-scroll`).
+const RUN_SCROLL_UNITS = 56;
+export function openRunBody(steps: number): number {
+  const base = gridLength("base") * chromeScale;
+  return base + (experimentArm(runScroll) === "box" ? Math.min(steps, RUN_SCROLL_UNITS * base) : steps);
 }
 
 /// An open run line's steps (ToolRunSteps.tsx): a line per call, nothing for a quiet thought.
@@ -1886,7 +1926,7 @@ function openRunStepsHeight(items: readonly AcpmuxActivity[], width: number): nu
 /// (ToolGroupRow.tsx).
 function foldedGroupHeight(group: ToolGroup, width: number, closed = true): number {
   if (group.type === "group" && !closed && group.kind !== "edits")
-    return toolRowHeight() + group.items.reduce((sum, item) => sum + activityStepHeight(item, width), 0);
+    return toolRowHeight() + openRunBody(group.items.reduce((sum, item) => sum + activityStepHeight(item, width), 0));
   if (group.type === "send")
     return messageRowHeight(group.send.state !== "failed" && Boolean(group.send.text?.trim() || group.send.file));
   // A group of sends starts closed: its head, a message row naming the recipients
@@ -2366,6 +2406,8 @@ function fallbackRowHeight(
   beforeFooter = false,
   lastTurn = false,
   actions = false,
+  /// The chat the row is from, which keys the lines the reader opened (transcriptDisclosureModel.ts).
+  sessionId?: string,
 ): number {
   const finish = (height: number) =>
     height === 0 || !lastTurn
@@ -2395,10 +2437,10 @@ function fallbackRowHeight(
     // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
     if (row.foldRun && items.length) {
       const groups = toolGroups(items);
-      // A run line open from the start (`runOpen`) draws each stretch's line over its steps.
-      if (row.runOpen || groups.some(staysInSight))
-        return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width));
-      if (isFoldedRun(items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
+      // A run line open from the start (`runOpen`) draws each stretch's line over its steps; one the
+      // reader opened draws them too.
+      if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items))
+        return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width, sessionId));
     }
     let steps = items.length
       ? items.reduce((height, item) => height + activityStepHeight(item, width), 0)
@@ -2615,9 +2657,12 @@ export function measuredText(tokens: Token[] | undefined, fallback: string): str
 }
 
 /// The prepared text cache is per row, so its key is the text revision (and the font that measured
-/// it). Keep enough entries for the current blocks plus a bounded tail of older streaming revisions.
-const PREPARED_CACHE_MIN = 64;
-const PREPARED_CACHE_PER_BLOCK = 4;
+/// it). A streamed tail never goes back to an earlier text, so a revision the row's last measure did
+/// not use is dead: the cache keeps the ones it used and this many more, the most recent (a font or
+/// look that flips back). It kept max(64, 4 x blocks) before, each a whole prepared block, in every
+/// row of every chat in the renderer the chats share, and a session of streaming agents grew that
+/// renderer's live heap until it stopped answering input (cmux#45888).
+export const PREPARED_CACHE_SPARE = 4;
 
 /// The rows whose prepared text (PreparedRow) the transcript keeps, the most recently measured: the
 /// rows around the view and the live ones, which every pass measures, and a short tail of the rest.
@@ -2686,12 +2731,8 @@ function trimPreparedRows(cache: Map<string, PreparedRow>): void {
   }
 }
 
-function trimPreparedCache(
-  prepared: Map<string, PreparedText | null>,
-  blockCount: number,
-  used: ReadonlySet<string>,
-): void {
-  const limit = Math.max(PREPARED_CACHE_MIN, PREPARED_CACHE_PER_BLOCK * blockCount, used.size);
+function trimPreparedCache(prepared: Map<string, PreparedText | null>, used: ReadonlySet<string>): void {
+  const limit = used.size + PREPARED_CACHE_SPARE;
   if (prepared.size <= limit) return;
   for (const key of prepared.keys()) {
     if (prepared.size <= limit) break;
@@ -2707,7 +2748,7 @@ function textHeight(
   /// The rows' line height when it is not the prose's (a folded note's 20px lines).
   lineHeight = metrics().lineHeight,
 ): number {
-  const { measureFont } = metrics();
+  const measureFont = proseFont();
   // Keyed by font too: a new chat font measures the text again.
   const key = `${measureFont}\n${text}`;
   used?.add(key);
@@ -3012,7 +3053,7 @@ function measuredRowHeight(
   if (row.incoming?.kind === "hidden") return finish(0);
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return finish(0);
-  if (!row.text) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  if (!row.text) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions, sessionId);
   // A prompt with only attachments in its recorded parts draws them in the strip and no bubble
   // (UserBubble.tsx `inlineAttachmentOnly`), so its text is never measured as a bubble's.
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text) && attachmentOnlyPrompt(row))
@@ -3107,7 +3148,7 @@ function measuredRowHeight(
   // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
   // trim stale revisions once per row, never once per token or across the transcript. `usedPrepared`
   // includes list items, whose text count can be much larger than the block count.
-  trimPreparedCache(entry.prepared, entry.blocks.length, usedPrepared);
+  trimPreparedCache(entry.prepared, usedPrepared);
   // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
   // Chief's draws its own bubble (ChiefPromptBubble.tsx).
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
@@ -3143,12 +3184,13 @@ function preparedLines(
   prepared: PreparedRow["prepared"],
   used: Set<string>,
 ): PreparedTextWithSegments | null {
-  const key = `lines\n${metrics().measureFont}\n${text}`;
+  const font = proseFont();
+  const key = `lines\n${font}\n${text}`;
   used.add(key);
   let measured = prepared.get(key) as PreparedTextWithSegments | null | undefined;
   if (measured === undefined) {
     try {
-      measured = prepareWithSegments(text, metrics().measureFont, {
+      measured = prepareWithSegments(text, font, {
         whiteSpace: "pre-wrap",
       });
       notePreparedText(text.length);
@@ -3504,20 +3546,26 @@ export function layoutConversation(
         height = kept.height;
         remembered = true;
       } else {
-        height = custom
-          ? customHeight
-          : edge === LIVE_STEP_EDGE
-            ? TRANSCRIPT_LIVE_STEP_HEIGHT * chromeScale
-            : measuredRowHeight(
-                row,
-                width,
-                cache,
-                edge?.startsWith("footer") === true,
-                edge?.startsWith("last-turn") === true,
-                sessionId,
-                edge?.startsWith("continuation") === true,
-                edge?.endsWith(ACTIONS_EDGE) === true,
-              );
+        // A reply's text measures in the reply's face (`proseFont`).
+        measuringReply = row.kind === "assistant";
+        try {
+          height = custom
+            ? customHeight
+            : edge === LIVE_STEP_EDGE
+              ? TRANSCRIPT_LIVE_STEP_HEIGHT * chromeScale
+              : measuredRowHeight(
+                  row,
+                  width,
+                  cache,
+                  edge?.startsWith("footer") === true,
+                  edge?.startsWith("last-turn") === true,
+                  sessionId,
+                  edge?.startsWith("continuation") === true,
+                  edge?.endsWith(ACTIONS_EDGE) === true,
+                );
+        } finally {
+          measuringReply = false;
+        }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
         known?.set(row, { width, height, edge, scale });
@@ -3929,6 +3977,9 @@ import {
 } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { runStretches, staysInSight, stretchStart, toolGroups, type ToolGroup } from "./conversation/toolGroups";
+import { callDisclosureKeys, disclosureOpen } from "./conversation/transcriptDisclosureModel";
+import { groupDisclosureKey, runDisclosureKey, runLinks } from "./conversation/turnRowsModel";
+import { runScroll } from "./conversation/runScroll.experiment";
 import { acpmuxSendCalls } from "./conversation/acpmuxSends";
 import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
