@@ -1,5 +1,6 @@
 public import CmuxNextControl
 import CmuxNextRemoteView
+import CmuxNextSettings
 import CoreGraphics
 import CoreImage
 import Foundation
