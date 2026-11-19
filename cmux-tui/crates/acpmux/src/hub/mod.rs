@@ -3262,3 +3262,7 @@ impl Drop for LogsReady<'_> {
 #[cfg(test)]
 #[path = "update_cost_bench.rs"]
 mod update_cost_bench;
+
+// The reads the app waits on at launch, at 5 and 500 chats (manual, `--ignored`).
+#[cfg(all(test, target_os = "linux"))]
+mod launch_read_bench_tests;

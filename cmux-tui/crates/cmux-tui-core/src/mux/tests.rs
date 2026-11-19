@@ -103,7 +103,7 @@ mod view_close_replay;
 mod viewport_columns;
 mod window_record_put_cost;
 #[cfg(unix)]
-mod workspace_close_cost;
+pub(crate) mod workspace_close_cost;
 #[cfg(unix)]
 mod workspace_close_time;
 mod workspace_materialize;
