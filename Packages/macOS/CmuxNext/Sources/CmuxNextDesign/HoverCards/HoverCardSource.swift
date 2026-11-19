@@ -27,10 +27,14 @@ public struct HoverCardBody {
     public var cornerRadius: CGFloat?
     /// How the card's first show plays.
     public var entrance: HoverCardEntrance
+    /// How a card that hangs from its target (`.below`, `.above`) moves to the next target while it shows:
+    /// switched in place by default (Leo 2026-11-18: "the hover preview bounces for some reason").
+    public var retarget: HoverCardRetarget
     public init(view: NSView, placement: HoverCardPlacement, themeAnchor: NSView?, interactive: Bool = false,
-                cornerRadius: CGFloat? = nil, entrance: HoverCardEntrance = .slide,
+                cornerRadius: CGFloat? = nil, entrance: HoverCardEntrance = .slide, retarget: HoverCardRetarget = .jump,
                 applyTheme: @escaping () -> Void) {
         self.entrance = entrance
+        self.retarget = retarget
         self.view = view
         self.placement = placement
         self.themeAnchor = themeAnchor

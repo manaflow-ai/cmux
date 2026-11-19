@@ -1,0 +1,21 @@
+id: visible-only-reload-data
+language: swift
+severity: warning
+message: "reloadData() rebuilds every visible row and drops the table's reuse state: apply a diff (a diffable data source snapshot, insertRows/removeRows, reloadData(forRowIndexes:columnIndexes:)), or `// visible-only: <reason>` where the reload is guarded by a real change"
+note: >-
+  Any reloadData() with no arguments on a table, outline or collection. Quick Look's preview panel and controller
+  (`panel.reloadData()`, a reload in a function that names QLPreview) are not lists and are not matched.
+  Ratcheted per file by scripts/cmux-next/check-visible-only.py (visible-only-baseline.tsv).
+rule:
+  all:
+    - any:
+        - pattern: $T.reloadData()
+        - pattern: reloadData()
+    # Quick Look: `panel.reloadData()`, `previewPanel?.reloadData()`, `QLPreviewPanel.shared()?.reloadData()`.
+    - not:
+        regex: '(^|\.)([Pp]anel|[Pp]reviewPanel|[Qq]uickLookPanel)\??\.reloadData\(\)$|QLPreview'
+    - not:
+        inside:
+          kind: function_declaration
+          stopBy: end
+          regex: 'QLPreview'
