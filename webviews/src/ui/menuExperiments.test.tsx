@@ -153,7 +153,13 @@ describe("arrangeMenuRows", () => {
       { id: "c", separatorBefore: true },
       { id: "d" },
     ]);
-    expect(rows.map((row) => row.iconSlot)).toEqual([true, true, false, false]);
+    expect(rows.map((row) => row.iconSlot)).toEqual([false, false, false, false]);
+    const full = arrangeMenuRows([
+      { id: "a", icon: "i" },
+      { id: "b", icon: "i" },
+      { id: "c", separatorBefore: true },
+    ]);
+    expect(full.map((row) => row.iconSlot)).toEqual([true, true, false]);
   });
 });
 
@@ -174,13 +180,13 @@ describe("ContextMenu", () => {
     expect(doc.querySelector(".ui-context-submenu-host, .ui-menu-async, .ui-menu-reason")).toBeNull();
   });
 
-  test("v2 sorts the destructive row last, in red, and fills its group's icon slots", async () => {
+  test("v2 sorts the destructive row last, in red, and drops the icons of a mixed group", async () => {
     const doc = render(contextMenu(workspaceRows()), { "menu-style-v2": "v2" });
     await rightClick(doc);
     expect(doc.querySelector(".ui-context-menu")!.getAttribute("data-menu-style")).toBe("v2");
     expect(labels(doc)).toEqual([
-      { label: "Rename", separator: false, slot: true },
-      { label: "Pin", separator: false, slot: true },
+      { label: "Rename", separator: false, slot: false },
+      { label: "Pin", separator: false, slot: false },
       { label: "New Workspace Below", separator: true, slot: false },
       { label: "Copy Path", separator: false, slot: false },
       { label: "Close Workspace", separator: true, slot: false },

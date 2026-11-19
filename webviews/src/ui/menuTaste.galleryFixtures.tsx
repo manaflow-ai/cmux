@@ -13,6 +13,8 @@ export type MenuTasteProps = {
   scene: MenuScene;
   /** Arms the variant pins for experiments other than its entry's own (the compare view's arm wins). */
   arms?: Record<string, string>;
+  /** Open PR's work settles after this many ms (the clip: spin, then close); absent, it never does (stills). */
+  settleMs?: number;
 };
 
 /** A 14 box glyph: a plain stroke shape, standing in for the app's icon pack. */
@@ -28,9 +30,11 @@ const PIN = "M7 12V8M4.5 8h5L9 3.5H5z";
 const PLUS = "M7 3v8M3 7h8";
 const SPLIT = "M2.5 3h9v8h-9zM7 3v8";
 const TRASH = "M3.5 4.5h7M5 4.5V3h4v1.5M4.5 4.5l.5 7h4l.5-7";
+const SWATCH = "M7 2.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 0 0 0-9zM7 2.5v9";
 
 // Close Workspace sits mid-menu here, as an older layout had it: menu-style-v2 moves it last.
-// The first group mixes rows with and without icons (Workspace Color has none): v2 gives it the slot.
+// Icons are all-or-none per group under v2: the first group has one on every row and keeps them; the
+// Split group mixes (Copy Path has none), so v2 draws that group with no icons.
 const workspaceItems = (receipt: (text: string) => void): ContextMenuItem[] => [
   {
     id: "rename",
@@ -39,7 +43,7 @@ const workspaceItems = (receipt: (text: string) => void): ContextMenuItem[] => [
     onSelect: () => receipt("Rename"),
   },
   { id: "pin", label: "Pin Workspace", icon: <Glyph d={PIN} />, onSelect: () => receipt("Pin") },
-  { id: "color", label: "Workspace Color", onSelect: () => receipt("Color") },
+  { id: "color", label: "Workspace Color", icon: <Glyph d={SWATCH} />, onSelect: () => receipt("Color") },
   {
     id: "new-below",
     label: "New Workspace Below",
@@ -101,7 +105,7 @@ function Stage({ children, receipt }: { children: ReactNode; receipt: string }) 
   );
 }
 
-export function MenuTasteGallery({ scene, arms }: MenuTasteProps) {
+export function MenuTasteGallery({ scene, arms, settleMs }: MenuTasteProps) {
   // The variant's pinned arms, under any the stage frame set from the URL (the compare view's).
   useState(() => {
     if (arms) globalThis.cmuxExperiments = { ...arms, ...globalThis.cmuxExperiments };
@@ -154,8 +158,21 @@ export function MenuTasteGallery({ scene, arms }: MenuTasteProps) {
           Actions
         </MenuButton>
         <MenuPopup label="Actions" className="menu-taste-popup">
-          {/* Its work never settles here, so the still holds the row mid-spin. */}
-          <MenuItem async shortcut="⌥⌘P" onSelect={() => new Promise<void>(() => setReceipt("Opening PR"))}>
+          {/* Without settleMs its work never settles, so the still holds the row mid-spin. */}
+          <MenuItem
+            async
+            shortcut="⌥⌘P"
+            onSelect={() =>
+              new Promise<void>((done) => {
+                setReceipt("Opening PR");
+                if (settleMs !== undefined)
+                  setTimeout(() => {
+                    setReceipt("Opened PR");
+                    done();
+                  }, settleMs);
+              })
+            }
+          >
             Open PR
           </MenuItem>
           <MenuItem async onSelect={() => new Promise<void>(() => setReceipt("Restarting"))}>
@@ -196,6 +213,12 @@ export const openPrMidSpin: Play = async (ctx) => {
   await ctx.waitFor(
     () => ctx.document.querySelector("[data-pending]") !== null || ctx.document.querySelector('[role="menu"]') === null,
   );
+};
+
+/** Open PR picked and its work settled: the menu has closed and the receipt reads "Opened PR". */
+export const openPrSettled: Play = async (ctx) => {
+  await openPrMidSpin(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') === null);
 };
 
 /** The scene's menu open, whichever scene the variant draws (the compare view's one script). */

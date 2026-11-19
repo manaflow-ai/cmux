@@ -502,7 +502,7 @@ export function ContextMenu({
             {item.checked ? <MenuCheckGlyph /> : null}
           </span>
         ) : null}
-        {item.icon || (iconSlot && look !== "off") ? (
+        {(look === "off" ? item.icon : iconSlot) ? (
           <span className="ui-menu-icon" aria-hidden="true">
             {item.icon}
           </span>

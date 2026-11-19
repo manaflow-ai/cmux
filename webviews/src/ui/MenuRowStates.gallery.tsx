@@ -9,6 +9,7 @@ import {
   MenuTasteGallery,
   openPicker,
   openPrMidSpin,
+  openPrSettled,
   openSceneMenu,
   type MenuTasteProps,
 } from "./menuTaste.galleryFixtures";
@@ -59,6 +60,11 @@ export default componentEntry<MenuTasteProps>({
       note: "Row states on: Open PR mid-spin.",
       props: { scene: "actions", arms: on },
       play: openPrMidSpin,
+    },
+    "open-pr-settles-on": {
+      note: "Row states on: Open PR spins about a second at the menu's size, then the menu closes.",
+      props: { scene: "actions", arms: onV2, settleMs: 1200 },
+      play: openPrSettled,
     },
     "open-pr-on-v2": {
       note: "Row states on with menu style v2: Open PR mid-spin, Stop Agent in red.",
