@@ -43,7 +43,7 @@ jobs:
   # (#47060 among them) sat with only this check queued for hours.
   scope:
     name: React Doctor scope
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     outputs:
       base: ${{ steps.base.outputs.base }}
@@ -85,11 +85,10 @@ jobs:
     needs: scope
     # A scope job that failed or was skipped never skips the scan (a skip passes a required check).
     if: ${{ !cancelled() && (needs.scope.result != 'success' || needs.scope.outputs.projects != '') }}
-    # Blacksmith, never GitHub-hosted; fork pull requests get a fixed Blacksmith label. A
-    # non-Blacksmith LINUX_RUNNER (the outage switch) wins, and while the overflow switch's
-    # record exists the job takes the 8 vCPU pool, as the other 4 vCPU jobs do
-    # (docs/ci-runners.md, "Blacksmith outage").
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # Blacksmith, never GitHub-hosted; fork pull requests get a fixed Blacksmith label. A required
+    # check reads only its measured pool (tests/test_ci_required_checks_keep_their_size.py): a
+    # stalled pool member moves through scripts/ci/runner_pools.py, not through this line.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 30
     env:
       REACT_DOCTOR_NO_TELEMETRY: "1"
