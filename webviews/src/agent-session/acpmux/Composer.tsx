@@ -21,6 +21,7 @@ import type { ConnectKind, OffloadKind, OffloadReasons } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import { Listbox } from "../../ui/Listbox";
+import { listChordArrow } from "../../ui/listChords";
 import { ComposerListLayer } from "./backdropLayer";
 import { useComposerListBox } from "./backdropLayerModel";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
@@ -2608,9 +2609,11 @@ function ComposerFrame({
     }
     if (matches.length === 0) return;
     const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
-    if (event.key === "ArrowDown" || event.key === "ArrowUp" || (control && (event.key === "j" || event.key === "k"))) {
+    // Arrows, Ctrl-N/P (Lawrence 2026-10-28: "up arrow ctrl n/p etc") and Ctrl-J/K step the list.
+    const arrow = event.key === "ArrowDown" || event.key === "ArrowUp" ? event.key : listChordArrow(event);
+    if (arrow || (control && (event.key === "j" || event.key === "k"))) {
       event.preventDefault();
-      const step = event.key === "ArrowDown" || event.key === "j" ? 1 : -1;
+      const step = arrow === "ArrowDown" || event.key === "j" ? 1 : -1;
       setActive((selected + step + matches.length) % matches.length);
       setArrowed(true);
     } else if ((event.key === "Enter" || event.key === "Tab") && plain) {

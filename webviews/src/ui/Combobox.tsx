@@ -18,6 +18,7 @@ import { measureElement, useVirtualizer, type Virtualizer } from "@tanstack/reac
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
+import { replayListChord } from "./listChords";
 import { useScrollEdges } from "./scrollEdges";
 import { ScrollArea } from "./ScrollArea";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
@@ -378,6 +379,9 @@ export function Combobox({
         (event.ctrlKey && (event.key === "n" || event.key === "p")))
     )
       setNativeSessionOpen(true);
+    // Ctrl-N and Ctrl-P step the page's list as Down and Up do (listChords.ts): Base UI owns the
+    // arrows, so the chord plays as the arrow it stands for.
+    if (!native && replayListChord(event)) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const typed = event.currentTarget.value;
     if (event.key === "Enter") {

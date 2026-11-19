@@ -28,6 +28,7 @@ import { popupCollision, type UiPopupFlip } from "./openSide";
 import { usePopupPadding } from "./popupInset";
 import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
+import { replayListChord } from "./listChords";
 import { focusWithRing } from "./focusWithRing";
 import { useNativeFinalFocus } from "./useNativeFinalFocus";
 
@@ -454,6 +455,9 @@ export function MenuPopup({
           }}
           onKeyDown={(event) => {
             if (menu) menu.keyed.current = true;
+            // Ctrl-N and Ctrl-P step the rows as Down and Up: Base UI owns the arrows, so the chord
+            // plays as the arrow it stands for (listChords.ts; Lawrence 2026-10-28: "ctrl n/p").
+            if (replayListChord(event)) return;
             // Escape puts the keyboard back on the menu button (escapeFocus.ts). Its own Escape
             // only, not a submenu's (React carries that one up through the portal).
             if (
@@ -740,6 +744,8 @@ export function MenuSearchField({ value, onChange, label }: MenuSearchFieldProps
       autoComplete="off"
       onChange={(event) => onChange(event.target.value)}
       onKeyDown={(event) => {
+        // Ctrl-N/P from the field step the rows below, as Down and Up do.
+        if (replayListChord(event)) return;
         if (!MENU_SEARCH_PASSES.has(event.key)) event.stopPropagation();
       }}
     />
