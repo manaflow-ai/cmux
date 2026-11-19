@@ -37,6 +37,7 @@ jobs:
       contents: read
       actions: read
     outputs:
+      chat_memory: ${{ steps.chat-memory.outputs.chat_memory }}
       db: ${{ steps.scope.outputs.db }}
       diff_sidecar: ${{ steps.scope.outputs.diff_sidecar }}
       instant: ${{ steps.scope.outputs.instant }}
@@ -65,6 +66,20 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           WEB_SUBAREAS_BASE: ${{ inputs.push_base }}
         run: python3 scripts/ci/web_subareas.py route
+
+      # chat-renderer-memory's path filter: a pull request that changes the chat renderer, the bench or its suite
+      # entry. Not one of web_subareas.py's subareas: that job is advisory and Web status never reads it.
+      - name: Route the chat renderer memory budget
+        id: chat-memory
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          if git diff --no-renames --name-only HEAD^1 HEAD -- \
+              webviews/src/agent-session/ webviews/bench/chat-100k-flat.bench.ts webviews/bench/web-ui-suite.ts |
+              grep -q .; then
+            echo "chat_memory=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "chat_memory=false" >> "$GITHUB_OUTPUT"
+          fi
 
       # The webview test shards split their files by recorded duration
       # (scripts/ci/webviews_test_shards.py). One copy of the manifest for the
@@ -347,6 +362,67 @@ jobs:
           path: ${{ runner.temp }}/agent-pane-real-acpmux
           if-no-files-found: ignore
           retention-days: 3
+
+  # Chat renderer memory against chat length (cmuxterm-hq goal chats-flat-at-any-length; Leo: "the bigger question is
+  # of memory and cpu staying flat on infinite chats"). The perf cron runs the full size (100k rows x 20 chats grown
+  # live, about 30 min) on tips only; this is its pull request size: webviews/bench/chat-100k-flat.bench.ts
+  # CASES=grown-many at CHAT_MEMORY_ROWS x CHAT_MEMORY_CHATS, failing when grown_xN.renderer_mb_ratio (the renderers'
+  # PSS with N chats grown live to ROWS rows each, over N empty chats) is above CHAT_MEMORY_BOUND.
+  # Advisory: continue-on-error keeps a red here out of this workflow's result (and so out of ci.yml's verdict), and
+  # Web status does not read it. Do not make it required.
+  # The bound is a ratchet: only ever lower it. It is the measured ratio plus a margin (see CHAT_MEMORY_BOUND).
+  # The goal target is 1.2x.
+  chat-renderer-memory:
+    needs: web-subarea-scope
+    if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.chat_memory == 'true' }}
+    name: Chat renderer memory budget (advisory)
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 20
+    env:
+      CHAT_MEMORY_ROWS: "10000"
+      CHAT_MEMORY_CHATS: "4"
+      # Provisional while the pull request size is measured.
+      CHAT_MEMORY_BOUND: "99"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Install webviews dependencies
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Cache Playwright's apt packages
+        continue-on-error: true
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
+      - name: Install Chrome
+        working-directory: webviews
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+
+      - name: Renderer PSS, grown chats over empty chats
+        working-directory: webviews
+        env:
+          CASES: grown-many
+          IDLE_S: "5"
+          STREAM_S: "5"
+          BUDGET_MB_RATIO: ${{ env.CHAT_MEMORY_BOUND }}
+        run: bun bench/chat-100k-flat.bench.ts "$CHAT_MEMORY_ROWS" "$CHAT_MEMORY_CHATS"
 
   web-instant-navigation:
     needs: web-subarea-scope

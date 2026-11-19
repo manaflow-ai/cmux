@@ -20,6 +20,9 @@
 // taken over a floor of CPU_FLOOR_PCT (default 1 % of a core) on both sides, so two near-idle readings are not a ratio
 // of noise. An xN ratio's empty side is the mean of two empty xN launches, one before the xN launches it is compared
 // with and one after (empty_xN_after; see the bracket below the launches).
+// BUDGET_MB_RATIO=X (default unset: no budget, the perf cron's runs are unchanged) fails the run, exit 1, when any
+// renderer_mb_ratio row it measured is above X, with one line naming the row, its value and the bound. The pull
+// request check (ci-web.yml, chat-renderer-memory) runs a small grown-many case with it.
 // HIDDEN=0 keeps every chat shown; HIDDEN_FOCUS=1 lets the hidden chats keep their composer's focus (the fake hide
 // before cmux#45531).
 // TRACE=DIR (with WAKES=1 for the rAF sites) writes browser-wide Chrome traces of each xN launch's idle windows, of a
@@ -109,6 +112,11 @@ const heapDropped = (before: number, after: number) => before - after > Math.max
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
 if (!["all", "main", "grown-many", "running", "long-many"].includes(CASES)) {
   console.error("chat-100k-flat: CASES is all, main, grown-many, running or long-many");
+  process.exit(2);
+}
+const BUDGET_MB_RATIO = process.env.BUDGET_MB_RATIO ? Number(process.env.BUDGET_MB_RATIO) : undefined;
+if (BUDGET_MB_RATIO !== undefined && !(BUDGET_MB_RATIO > 0)) {
+  console.error("chat-100k-flat: BUDGET_MB_RATIO is a positive number (the bound on every renderer_mb_ratio row)");
   process.exit(2);
 }
 const GROW_OPEN = process.env.GROW_OPEN === "1";
@@ -1199,6 +1207,23 @@ try {
   // What a long chat adds to the empty chats' own settle, the number the goal reads (target 2 s).
   const excess = Math.max(0, settleMax - emptySettle);
   perfRow({ name: `${ROW}.cpu_settle_excess_s`, p50: excess, p95: excess, unit: "s", target: 2 });
+  // BUDGET_MB_RATIO (above): every renderer PSS ratio this run measured against the bound, last, so the rows above
+  // are all printed first.
+  if (BUDGET_MB_RATIO !== undefined) {
+    const mbRatios = ratios.filter(([name]) => name.endsWith(".renderer_mb_ratio"));
+    if (!mbRatios.length) {
+      console.error(`chat-100k-flat: BUDGET_MB_RATIO set but CASES=${CASES} measured no renderer_mb_ratio row`);
+      process.exitCode = 1;
+    }
+    for (const [name, value] of mbRatios) {
+      const over = value > BUDGET_MB_RATIO;
+      (over ? console.error : console.log)(
+        `chat-100k-flat: budget ${over ? "FAIL" : "ok"}: ${ROW}.${name} ${value.toFixed(3)}x ` +
+          `${over ? ">" : "<="} bound ${BUDGET_MB_RATIO}x (BUDGET_MB_RATIO; goal target 1.2x)`,
+      );
+      if (over) process.exitCode = 1;
+    }
+  }
 } finally {
   await release();
 }
