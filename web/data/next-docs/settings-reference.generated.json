@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 622,
+  "count": 623,
   "sections": [
     {
       "id": "general",
@@ -6704,6 +6704,14 @@
       "id": "advanced",
       "title": "Advanced",
       "rows": [
+        {
+          "key": "customize.fromTheApp",
+          "title": "Customize From the Window",
+          "help": "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
         {
           "key": "developerTools.appPages",
           "title": "Developer Tools for cmux Pages",
