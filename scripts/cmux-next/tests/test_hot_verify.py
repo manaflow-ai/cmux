@@ -645,6 +645,9 @@ class PlanTest(unittest.TestCase):
 
     def assert_run_app_case(self, swift):
         app = self.fake_app(self.fx.base)
+        abi = app / hv.hot().APP_ABI
+        abi.parent.mkdir(parents=True, exist_ok=True)
+        abi.write_text('{"abi": 3}\n')
         files = {"webviews/src/app.tsx": "export const title = 'new'\n"}
         if swift:
             files["Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift"] = "struct App { let x = 4 }\n"
