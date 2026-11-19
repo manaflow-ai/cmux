@@ -7756,8 +7756,8 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
-  -webkit-backdrop-filter: blur(var(--glass-frost)) saturate(1.4);
-  backdrop-filter: blur(var(--glass-frost)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--glass-frost)) saturate(var(--ds-glass-saturation));
+  backdrop-filter: blur(var(--glass-frost)) saturate(var(--ds-glass-saturation));
   box-shadow: var(--elevation-2);
   color: var(--agent-text);
   font-family: var(--cv-font);

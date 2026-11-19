@@ -107,14 +107,22 @@
   ); /* theme-fixed: red's complement, the other side of the split; never the accent */
 }
 
-/* Plain glass: today's blur glass, the default (any root that is not lens or spectrum). */
+/* Plain glass: today's blur glass, the default (any root that is not lens or spectrum).
+   THE ONE EDGE (design/glass-system.md, rule 4): the host's hairline ring (--glass-edge, the card
+   rim, transparent with borders off) and one lit hairline along the top, --cmux-tone-light at the
+   design scale's --ds-glass-edge-top (60% light, 24% dark). No second border; the specular sheen is
+   the composer's alone (.ui-glass-material). Reduce Transparency and Liquid Glass off keep the ring
+   only (below). */
 :root:not([data-glass="lens"], [data-glass="spectrum"]) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
   --glass-backdrop: var(--surface-blur);
 }
 :root:not([data-glass="lens"], [data-glass="spectrum"]),
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .ui-glass {
-  --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+  --glass-edge-top: color-mix(in srgb, var(--cmux-tone-light, #fff) calc(var(--ds-glass-edge-top) * var(--glass-rim)), transparent);
+  --glass-rim-shadow:
+    inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-edge-top),
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
 }
 
 /* The lens draws the bend and its frost behind the glass; the surface keeps only a light frost
@@ -191,8 +199,8 @@
    rim. Reduce Transparency keeps the opaque fill and the hairline rim (below), and
    appearance.borders none clears the rim and the sheen (--glass-rim 0); the shadow stays. */
 :root {
-  --glass-material-blur: var(--ds-glass-popover-radius); /* the popover level's radius; the material keeps its own vivid saturation */
-  --glass-material-saturate: 1.8;
+  --glass-material-blur: var(--ds-glass-popover-radius); /* the popover level's radius and its saturation */
+  --glass-material-saturate: var(--ds-glass-saturation); /* the one saturation (design/glass-system.md); 1.8 until the one glass system */
   --glass-material-backdrop: blur(var(--glass-material-blur)) saturate(var(--glass-material-saturate));
 }
 :root,
@@ -290,16 +298,18 @@
    (chromiumUnderlay.experiment.ts, which desktop.ts puts on <html>). A surface whose page blurs
    itself under it (seeThroughBlur.ts, below) needs no underlay and draws none. */
 :root {
-  --glass-underlay: 70%;
+  /* The design scale's underlay (design/glass-system.md, rule 6): a menu's 80% over 40% covers
+     88% of the text under it. 70% (93%, a grey slab with no blur) until the one glass system. */
+  --glass-underlay: var(--ds-glass-underlay);
 }
 :root[data-glass-underlay="none"] {
   --glass-underlay: 0%;
 }
 :root[data-glass-underlay="light"] {
-  --glass-underlay: 50%;
+  --glass-underlay: 25%;
 }
 :root[data-glass-underlay="heavy"] {
-  --glass-underlay: 85%;
+  --glass-underlay: 70%;
 }
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
