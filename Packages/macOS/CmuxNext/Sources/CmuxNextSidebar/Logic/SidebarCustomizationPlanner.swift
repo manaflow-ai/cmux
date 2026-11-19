@@ -7,7 +7,7 @@ import Foundation
 /// which rows survive, their order, and valid group targets; this type only
 /// copies the returned ids into the existing document projection.
 struct SidebarCustomizationPlanner {
-    private struct Reply: Decodable {
+    struct Reply: Decodable {
         var sectionOrder: [String]
         var hiddenSections: [String]
         var hiddenWorkspaces: [String]
