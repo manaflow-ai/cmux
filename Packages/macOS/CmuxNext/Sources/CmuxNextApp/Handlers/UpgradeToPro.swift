@@ -15,7 +15,7 @@ struct UpgradeToPro {
             // The agent pane's Add Credits… names the model router's paywall; the source is for logs only.
             let source = invocation["source"]?.stringValue.flatMap(PaidPlanUpgrade.Source.init(rawValue:)) ?? .palette
             // task-owner: one upgrade start; ends when the page opened
-            Task { await context.services.paidPlanUpgrade().start(source: source) }
+            Task { await context.services.paidPlanUpgrade().start(plan: PaidPlanUpgrade.plan(invocation["plan"]?.stringValue), source: source) } // the pricing card's Subscribe names Pro or Max
         })
         // Manage Billing: the page `cmux billing portal` opens, where its `--open auto` opens it.
         registry.bindEffect("billing.openPortal", effect: { _ in

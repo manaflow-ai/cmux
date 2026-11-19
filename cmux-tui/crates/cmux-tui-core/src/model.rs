@@ -628,7 +628,7 @@ impl Screen {
         self.viewport_splits = snapshot.viewport_splits;
         self.viewport_base_width = snapshot.viewport_base_width;
         self.layout_columns = snapshot.layout_columns;
-        self.set_floating_panes(snapshot.floating);
+        self.restore_floating_panes(snapshot.floating);
         // The pane that has the focus now is the front pane, also in a list from before it got the focus.
         self.raise_floating_pane(self.active_pane);
     }

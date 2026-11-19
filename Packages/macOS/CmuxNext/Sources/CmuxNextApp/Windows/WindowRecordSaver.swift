@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextSidebar
 import CmuxNextControl
 import CmuxNextWakeups
 
@@ -281,7 +282,7 @@ extension AppServices {
             }
             let display = (window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
             return LaunchRecordWindowSnapshot(id: controller.state.id, frame: window.frame, displayID: display,
-                backgroundRGBA: rgba, barRGBA: rgba, imagePath: image?.path ?? "",
+                backgroundRGBA: rgba, barRGBA: rgba, imageKey: image?.key ?? "",
                 imagePixelSize: (image?.pixelWidth ?? 0, image?.pixelHeight ?? 0),
                 workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs)
         }

@@ -144,6 +144,24 @@
 #                          session, as PTY bytes or as lean frames, the app's own
 #                          DaemonTerminalSession on a fake Mac; x6 for an hour)
 #           SUMMARY.md gets one row per run; the artifact keeps energy/.
+#   handoff tag=TAG   (through the fleet controller: shots handoff=TAG, the same step)
+#           the end-of-task build of the cmux-next iPhone app for one task tag
+#           (cmux-next-ios/scripts/review.sh runs it): the Demo configuration
+#           (optimized, DEBUG developer surface, so automated dev sign-in
+#           works) with bundle dev.cmux.mobile.TAG, display name "cmux TAG"
+#           and this commit in Info.plist, for the simulator and for devices.
+#           The device app is unsigned (CODE_SIGNING_ALLOWED=NO); the person's
+#           Mac signs it with its Apple Development identity. Then the
+#           simulator check: the app signed in with the agent account's session
+#           from the submitter's Mac (cmux-ci run --sign-in agent, read with
+#           scripts/lib/fleet-signin-session.sh, never printed), proven by
+#           its DEBUG readiness receipt (session auto_login), then relaunched
+#           with no credentials and proven again (session restored), with a
+#           screenshot of each and a recording. The artifact (evidence.zip)
+#           holds both apps zipped, handoff.json (the build's identity and the
+#           simulator verdict), the screens and the recording. A simulator
+#           check that fails keeps the step green with the verdict in
+#           handoff.json, so the device app still comes back.
 #
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
@@ -160,11 +178,26 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
-case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf or energy, got '$mode'" >&2; exit 2 ;; esac
+# handoff through the fleet controller's shots form: the controller's MODE list (hq
+# build-fleet/cmd/controller/ios_next_sim_step.go iosNextSimModes) does not name handoff yet, and
+# shots takes name=WORDS scenes, so `shots handoff=TAG` (exactly that one scene) is handoff tag=TAG.
+if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == handoff=* ]]; then
+  set -- handoff "tag=${2#handoff=}"
+  mode=handoff
+fi
+case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy or handoff, got '$mode'" >&2; exit 2 ;; esac
 if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
 fi
 scenes=("${@:2}")
+# handoff's one argument: the task tag (already a slug: lowercase letters, digits, dashes).
+handoff_tag=""
+if [[ "$mode" == handoff ]]; then
+  [[ $# -eq 2 && "${2:-}" == tag=* ]] || { echo "cmux-next-ios-sim.sh: handoff takes one argument, tag=TAG" >&2; exit 2; }
+  handoff_tag="${2#tag=}"
+  [[ "$handoff_tag" =~ ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$ && "$handoff_tag" != default ]] ||
+    { echo "cmux-next-ios-sim.sh: handoff tag= wants lowercase letters, digits and dashes (at most 64), got '$handoff_tag'" >&2; exit 2; }
+fi
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
 fi
@@ -588,6 +621,11 @@ if [[ "$mode" == release-build ]]; then
   configuration=Release
   build_settings=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
 fi
+if [[ "$mode" == handoff ]]; then
+  # The task's own install beside every other build: its bundle id, home-screen name and commit.
+  build_settings+=("CMUX_MOBILE_TAG=.$handoff_tag" "CMUX_MOBILE_DISPLAY_NAME=cmux $handoff_tag"
+    "CMUX_MOBILE_SOURCE_COMMIT=$(git rev-parse HEAD)")
+fi
 build_command=(xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$configuration"
   -destination 'generic/platform=iOS Simulator' -derivedDataPath "$dd"
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES
@@ -614,6 +652,29 @@ if [[ "$mode" == release-build ]]; then
 fi
 bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"
 note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Demo simulator app), bundle $bundle_id"
+
+# --- handoff: the device app ------------------------------------------------
+device_app=""
+if [[ "$mode" == handoff ]]; then
+  [[ "$bundle_id" == "dev.cmux.mobile.$handoff_tag" ]] ||
+    { echo "error: the simulator app is $bundle_id, not dev.cmux.mobile.$handoff_tag" >&2; exit 1; }
+  t0=$SECONDS
+  # Unsigned: the person's Mac signs it for its phones. DEVELOPMENT_TEAM still names the team, so
+  # Info.plist's CmuxMobileKeychainGroup is the group the local signature grants.
+  set +e
+  xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
+    -destination 'generic/platform=iOS' -derivedDataPath "$work/dd-device" \
+    CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=7WLXT3NR37 \
+    ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "${build_settings[@]}" build >"$work/build-device.log" 2>&1
+  status=$?
+  set -e
+  grep -E "error:|BUILD (SUCCEEDED|FAILED)" "$work/build-device.log" | sort -u | head -40 || true
+  [[ $status -eq 0 ]] || { tail -40 "$work/build-device.log"; exit 1; }
+  device_app="$work/dd-device/Build/Products/Demo-iphoneos/CmuxMobileApp.app"
+  device_bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$device_app/Info.plist")"
+  [[ "$device_bundle" == "$bundle_id" ]] || { echo "error: the device app is $device_bundle, not $bundle_id" >&2; exit 1; }
+  note "- device build: $((SECONDS - t0)) s (Demo, unsigned), bundle $device_bundle"
+fi
 
 # --- listperf: the base app -------------------------------------------------
 base_app=""
@@ -701,6 +762,81 @@ if [[ -n "${CMUX_CI_SIMSLIM:-}" && -x "${CMUX_CI_SIMSLIM}" ]] &&
   note "- simulator memory at launch: $(tr -d '\n' <"$out/simulator-memory.json" | head -c 300)"
 else
   rm -f "$out/simulator-memory.json"
+fi
+
+# --- handoff: the simulator check, signed in ---------------------------------
+# The agent account the worker keeps for simulator sign-in (hq build-fleet README, "Sign-in"):
+# KEY=VALUE lines, read here without sourcing the file and never printed. The app proves each
+# launch with its DEBUG readiness receipt (cmux-next-ios/scripts/handoff_receipt.py checks it):
+# first signed in from the injected account (auto_login), then relaunched with no credentials
+# and signed in from its own Keychain (restored). A check that fails is recorded, not fatal.
+handoff_sim_status="" handoff_sim_reason=""
+if [[ "$mode" == handoff ]]; then
+  t0=$SECONDS
+  handoff_check() {
+    # The step's own sign-in session, sealed from the submitter's Mac (cmux-ci run --sign-in agent,
+    # hq build-fleet `sign_in`): no worker account file, no password. Only the auto_login launch
+    # gets its refresh token, and it is dropped from this shell after the legs.
+    local receipt client nonce data rec_pid=""
+    # shellcheck source=scripts/lib/fleet-signin-session.sh
+    source scripts/lib/fleet-signin-session.sh
+    cmux_fleet_signin_load || { handoff_sim_reason="$CMUX_FLEET_SIGNIN_ERROR"; return 1; }
+    local account
+    account="$CMUX_FLEET_SIGNIN_EMAIL"
+    client="$(python3 -I -c 'import uuid,sys; print(uuid.uuid5(uuid.NAMESPACE_URL, "cmux-ios-dogfood-client:%s:%s" % (sys.argv[1], sys.argv[2])))' "$bundle_id" "$udid")"
+    receipt="$work/readiness.json"
+    # xcrun itself in the background, never the simctl() wrapper: `wrapper &` is a subshell, which
+    # ignores SIGINT (an async command in a non-interactive shell) and waits on its xcrun, so the
+    # SIGINT below never reached the recorder and the step hung until its 6 h timeout (2026-11-18).
+    xcrun simctl --set "$sims" io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
+    rec_pid=$!
+    sleep 1  # the recorder's first frame; a bounded start, it has no ready signal
+    for leg in auto_login restored; do
+      nonce="$(python3 -I -c 'import secrets; print(secrets.token_hex(16))')"
+      simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+      if [[ "$leg" == auto_login ]]; then
+        SIMCTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$nonce" SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$client" \
+          cmux_fleet_signin_simctl --set "$sims" launch "$udid" "$bundle_id" >/dev/null ||
+          { handoff_sim_reason="simctl launch failed ($leg)"; break; }
+      else
+        SIMCTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$nonce" SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$client" \
+          xcrun simctl --set "$sims" launch "$udid" "$bundle_id" >/dev/null ||
+          { handoff_sim_reason="simctl launch failed ($leg)"; break; }
+      fi
+      data="$(simctl get_app_container "$udid" "$bundle_id" data)"
+      local deadline=$((SECONDS + 120)) verdict="" rc=1
+      while (( SECONDS < deadline )); do
+        rm -f "$receipt"
+        cp "$data/Library/Application Support/cmux-dogfood/readiness.json" "$receipt" 2>/dev/null || { sleep 2; continue; }
+        rc=0
+        verdict="$(python3 -I cmux-next-ios/scripts/handoff_receipt.py check "$receipt" --nonce "$nonce" \
+          --client-id "$client" --bundle-id "$bundle_id" --account "$account" --session "$leg" \
+          --git-sha "$(git rev-parse HEAD)" --dev-tag "$handoff_tag" 2>&1)" || rc=$?
+        [[ $rc -eq 1 ]] || break
+        sleep 2
+      done
+      sleep 3  # the signed-in screen settles after the receipt (bounded; for the screenshot only)
+      simctl io "$udid" screenshot "$out/screens/signed-in-$leg.png" >/dev/null 2>&1 || true
+      cp "$receipt" "$out/readiness-$leg.json" 2>/dev/null || true
+      if [[ $rc -ne 0 ]]; then
+        handoff_sim_reason="$leg: ${verdict:-no readiness receipt in 120 s}"
+        break
+      fi
+      note "- simulator $leg: $verdict (screens/signed-in-$leg.png)"
+    done
+    cmux_fleet_signin_forget
+    # recordVideo finishes the file on SIGINT; one that has not stopped in 30 s is ended (bounded).
+    if [[ -n "$rec_pid" ]]; then kill -INT "$rec_pid" 2>/dev/null || true; for _ in $(seq 1 30); do kill -0 "$rec_pid" 2>/dev/null || break; sleep 1; done; ! kill -0 "$rec_pid" 2>/dev/null || kill -TERM "$rec_pid" 2>/dev/null || true; wait "$rec_pid" 2>/dev/null || true; fi
+    simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+    [[ -z "$handoff_sim_reason" ]]
+  }
+  if handoff_check; then
+    handoff_sim_status=pass
+  else
+    handoff_sim_status=fail
+    note "- simulator check: FAIL: $handoff_sim_reason"
+  fi
+  note "- simulator check: $((SECONDS - t0)) s, $handoff_sim_status"
 fi
 
 # keep_test_logs LOG XCRESULT NAME: the run's log, console output (print
@@ -1387,10 +1523,19 @@ if [[ "$mode" == pair-e2e ]]; then
     ./scripts/download-prebuilt-ghosttykit.sh >"$work/ghosttykit.log" 2>&1 ||
       { tail -20 "$work/ghosttykit.log"; echo "error: could not download GhosttyKit.xcframework" >&2; exit 1; }
   fi
+  # ghostty-vt-sys (ghostty-next) needs the fleet's pinned Zig 0.17 (the worker's tools, as
+  # its probe reports); PATH can name /usr/local's 0.16, which it refuses ("Your Zig version
+  # v0.16.0 does not meet the required build version of v0.17.0", steps
+  # e00987962032845838c55ef5 and b9658de920bf40d484a998ac). Only ZIG, which ghostty-vt-sys
+  # reads first: the classic Ghostty CLI helper reads CMUX_ZIG and needs its own 0.16, as
+  # scripts/measure/projection.sh sets it.
+  fleet_zig=/Users/Shared/cmux-build-fleet/tools/bin/zig
+  vt_zig="${ZIG:-}"
+  [[ -z "$vt_zig" && -x "$fleet_zig" ]] && vt_zig="$fleet_zig"
   # A fleet build (CMUX_FLEET_BUILD_TAG) builds acpmux, optchat-chief and
   # cmux-mobile-host on a cache miss and requires them in the bundle.
   set +e
-  CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
+  ZIG="$vt_zig" CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
     --no-global-cli-links >"$work/mac-build.log" 2>&1
   status=$?
   set -e
@@ -1420,6 +1565,12 @@ else
   cp "$work/build.log" "$out/build.log" 2>/dev/null || true
   # The app (so the same build runs on another Mac's simulator) and the recordings.
   ditto -c -k --keepParent "$app" "$out/CmuxMobileApp-Demo-simulator.app.zip"
+  if [[ "$mode" == handoff ]]; then
+    ditto -c -k --keepParent "$device_app" "$out/CmuxMobileApp-Demo-device-unsigned.app.zip"
+    python3 -I cmux-next-ios/scripts/handoff_receipt.py manifest "$out/handoff.json" --tag "$handoff_tag" \
+      --sha "$(git rev-parse HEAD)" --bundle-id "$bundle_id" --host "$(hostname -s)" \
+      --simulator "${device_type##*.} on ${runtime##*.}" --sim-status "$handoff_sim_status" --sim-reason "$handoff_sim_reason"
+  fi
   if [[ -d "$work/corpus" ]]; then
     mkdir -p "$out/corpus"
     cp "$work/corpus/"*.typescript "$work/corpus/"*.rate "$out/corpus/" 2>/dev/null || true

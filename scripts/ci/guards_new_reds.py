@@ -233,6 +233,11 @@ def main(argv: list[str]) -> int:
         for step in red:
             print(red_step_line(label, "tip", step))
         print(f"{len(red)} {label.lower()} steps red at the tip")
+        if not result_complete(argv[0]):
+            # A run cut short (its caller's timeout) never finished every step: its greens are not a verdict.
+            print(f"::error title={label} run timed out::the guard run timed out after {len(head)} finished steps; "
+                  "the unfinished steps have no verdict")
+            return 1
         return 1 if red else 0
     base = load(argv[1])
     base_complete = result_complete(argv[1])

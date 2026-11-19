@@ -31,3 +31,9 @@ declare module "virtual:cmux-gallery/entry-index" {
   const index: Record<string, string>;
   export default index;
 }
+declare module "virtual:cmux-gallery/looks" {
+  /** The golden screen's looks (golden/looks.json resolved, dev-server/goldenLooks.ts), and the ones
+   *  this checkout lacks the files of. */
+  const looks: { looks: import("./golden/look").GoldenLook[]; skipped: { id: string; reason: string }[] };
+  export default looks;
+}

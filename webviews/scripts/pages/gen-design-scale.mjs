@@ -65,7 +65,30 @@ function load() {
   const material = data.glassMaterial;
   for (const key of ["neutralLight", "neutralDark", "rimLit", "rimShade"])
     assert(material[key] >= 0 && material[key] <= 1, `glassMaterial.${key} is a gray level from 0 to 1`);
+  const transient = data.transientMaterial;
+  const menu = data.glass.find((level) => level.name === "menu");
+  assert(
+    menu.veil === transient.hostVeil * 100 && menu.tint === transient.webTint,
+    "menu and transient material stay in sync",
+  );
+  for (const key of ["darkVeilAlpha", "lightVeilAlpha", "hostVeil"])
+    assert(transient[key] > 0 && transient[key] < 0.9, `transientMaterial.${key} stays translucent`);
+  assert(transient.webTint > 0 && transient.webTint < 90, "transient web tint stays translucent");
+  // Native parity belongs to check-surface-roles.py. Web-only sparse checkouts
+  // generate this scale from schemas without loading platform source files.
   assert(data.elevation.length === 2, "exactly two shadows");
+  const surfaces = data.surfaces.levels.map((level) => level.name);
+  assert(
+    surfaces.join() === "card,inset,control",
+    "the surface levels are card, inset and control (design/chat-surfaces.md)",
+  );
+  for (const level of data.surfaces.levels)
+    for (const key of ["fill", "line"])
+      if (level[key] !== undefined)
+        assert(
+          level[key] > 0 && level[key] < 30,
+          `surface ${level.name}.${key} is a small share of the ink, never opaque`,
+        );
   for (const color of data.colors)
     assert(color.var.startsWith("--cmux-") && !color.var.includes("#"), `colour ${color.name} names a host variable`);
   return { data, type: read(TYPE_SOURCE), motion: read(MOTION_SOURCE) };
@@ -99,6 +122,13 @@ const materialVars = (material) => [
   ["--ds-material-rim-lit", gray(material.rimLit), "the lit rim: a top edge, and a dark side's bottom edge"],
   ["--ds-material-rim-shade", gray(material.rimShade), "the shaded rim: a light side's bottom edge"],
 ];
+// A surface level's fill and line: the page's ink over clear at the level's share (design/chat-surfaces.md).
+const ink = (percent) => `color-mix(in srgb, var(--ds-surface-ink) ${percent}%, transparent)`;
+export const surfaceVars = (level) =>
+  [
+    level.fill === undefined ? null : [`--ds-surface-${level.name}`, ink(level.fill)],
+    level.line === undefined ? null : [`--ds-surface-${level.name}-line`, ink(level.line)],
+  ].filter(Boolean);
 const colorValue = (color) =>
   `var(${color.var}, ${color.app ? `var(${color.app}, ${color.fallback})` : color.fallback})`;
 const shadow = (entry, mode) => `${entry.geometry} color-mix(in srgb, black ${entry[mode]}%, transparent)`;
@@ -126,10 +156,37 @@ function cssBlock(data) {
   out.push("  --ds-glass-edge: var(--cmux-hairline);");
   out.push(`  /* glass material: ${data.glassMaterial.for} */`);
   for (const [name, value, note] of materialVars(data.glassMaterial)) out.push(`  ${name}: ${value}; /* ${note} */`);
+  for (const [key, value] of Object.entries(data.transientMaterial)) {
+    if (typeof value !== "number") continue;
+    const name = key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    const unit = key === "webTint" ? "%" : key === "webBlur" ? "px" : "";
+    out.push(`  --ds-transient-${name}: ${value}${unit};`);
+  }
   for (const entry of data.elevation)
     out.push(`  --elevation-${entry.name}: ${shadow(entry, "light")}; /* ${entry.for} */`);
   for (const color of data.colors) out.push(`  --ds-color-${color.name}: ${colorValue(color)}; /* ${color.for} */`);
+  out.push(
+    "  /* content surfaces: the page's ink over clear; a page whose ink is another variable sets --ds-surface-ink */",
+  );
+  out.push("  --ds-surface-ink: var(--ds-color-fg);");
+  for (const level of data.surfaces.levels)
+    for (const [name, value] of surfaceVars(level)) out.push(`  ${name}: ${value}; /* ${level.for} */`);
   out.push("}");
+  // appearance.borders none clears every line; Increase Contrast draws them in the ink itself, as the
+  // page's other hairlines (desktop.css prefers-contrast).
+  const lines = data.surfaces.levels.filter((level) => level.line !== undefined);
+  out.push(
+    ':root[data-borders="none"] {',
+    ...lines.map((level) => `  --ds-surface-${level.name}-line: transparent;`),
+    "}",
+  );
+  out.push(
+    "@media (prefers-contrast: more) {",
+    '  :root:not([data-borders="none"]) {',
+    ...lines.map((level) => `    --ds-surface-${level.name}-line: var(--ds-surface-ink);`),
+    "  }",
+    "}",
+  );
   const dark = data.elevation.map((entry) => `    --elevation-${entry.name}: ${shadow(entry, "dark")};`);
   out.push("@media (prefers-color-scheme: dark) {", '  :root:not([data-theme="light"]) {', ...dark, "  }", "}");
   out.push(':root[data-theme="dark"] {', ...dark.map((line) => line.slice(2)), "}");
@@ -183,6 +240,8 @@ function theme(data, type, motion) {
   out.push("  --font-ui: var(--font-ui);");
   for (const color of data.colors) out.push(`  --color-${color.name}: var(--ds-color-${color.name});`);
   for (const entry of data.elevation) out.push(`  --shadow-elevation-${entry.name}: var(--elevation-${entry.name});`);
+  for (const level of data.surfaces.levels)
+    for (const [name] of surfaceVars(level)) out.push(`  --color-${name.slice("--ds-".length)}: var(${name});`);
   for (const step of motion.steps) out.push(`  --transition-duration-${step.name}: var(--cmux-motion-${step.name});`);
   out.push("  --ease-standard: var(--cmux-ease-out);", "}");
   return `${out.join("\n")}\n`;
@@ -239,6 +298,18 @@ function ts(data, type, motion) {
       "ELEVATION",
       "The two shadows.",
       data.elevation.map((e) => ({ name: e.name, variable: `--elevation-${e.name}`, for: e.for })),
+    ],
+    [
+      "SURFACES",
+      "Content surface levels: the page's ink over clear (design/chat-surfaces.md).",
+      data.surfaces.levels.flatMap((level) =>
+        surfaceVars(level).map(([variable, value]) => ({
+          name: variable.slice("--ds-surface-".length),
+          variable,
+          value,
+          for: level.for,
+        })),
+      ),
     ],
     [
       "COLORS",

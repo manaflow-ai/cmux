@@ -24,8 +24,9 @@ import Testing
 
         func present(tab index: CGFloat, body: NSView, after: CFTimeInterval = 1) {
             clock.time += after
+            // The glide is `HoverCardRetarget.glide` (the default switches in place: TabHoverCardSwitchInPlaceTests).
             panel.present(body: body, anchor: tab(index), placement: .below, parent: parent, themeAnchor: nil, sliding: true,
-                          applyTheme: {})
+                          retarget: .glide, applyTheme: {})
         }
 
         /// The translation the card's glide starts from (nil: no glide runs).
