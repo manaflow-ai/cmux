@@ -16,7 +16,29 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
-import { ShareDialogHost } from "./share/ShareControl";
+import { ShareDialogBody, ShareDialogHost } from "./share/ShareControl";
+import { lazyView, preloadWhenIdle } from "./lazyView";
+
+// Screens and panels a chat's first frame never draws load in their own chunks, out of the page's
+// first JavaScript (the pane's startup set), and preload at idle moments once the page has drawn
+// (`preloadWhenIdle` in AcpmuxApp), so opening one later still draws in its first frame.
+const HistoryScreen = lazyView(() => import("./newtab/HistoryScreen").then((module) => module.HistoryScreen));
+const HarnessesScreen = lazyView(() => import("./harnesses/HarnessesScreen").then((module) => module.HarnessesScreen));
+const ContextScreen = lazyView(() => import("./context/ContextScreen").then((module) => module.ContextScreen));
+const BackgroundTasksPanel = lazyView(() =>
+  import("./backgroundTasks/BackgroundTasksPanel").then((module) => module.BackgroundTasksPanel),
+);
+const CloudStartView = lazyView(() => import("./CloudStartView").then((module) => module.CloudStartView));
+const ReplayScreen = lazyView(() => import("./replay/ReplayScreen").then((module) => module.ReplayScreen));
+const LAZY_VIEWS = [
+  CloudStartView,
+  BackgroundTasksPanel,
+  ShareDialogBody,
+  HistoryScreen,
+  ContextScreen,
+  HarnessesScreen,
+  ReplayScreen,
+];
 import { ShareNudge } from "./share/ShareNudge";
 import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
@@ -94,15 +116,12 @@ import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
-import { HistoryScreen } from "./newtab/HistoryScreen";
 import { NewTabAppPage } from "./newtab/NewTabAppPage";
 import { historyPages } from "./queue/historyPages";
 import type { AllChatsPage } from "./newtab/allChatsListModel";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
-import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
-import { ContextScreen } from "./context/ContextScreen";
 import { contextAccess, contextSave } from "./context/contextAccess";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import {
@@ -326,7 +345,6 @@ import { TrayPullTab } from "./subagents/TrayPullTab";
 import { pullTabCounts, tuckTray } from "./subagents/trayPullTabModel";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
-import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
 import { isBackgroundPane, openBackgroundPane } from "./backgroundTasks/backgroundPane";
 import { OpenBackgroundTasks, requestBackgroundFocus, useBackgroundFocus } from "./backgroundTasks/openBackgroundTasks";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
@@ -611,7 +629,6 @@ import {
   cloudStartSignedIn,
   type CloudStartProgress,
 } from "./cloudStartProgress";
-import { CloudStartView } from "./CloudStartView";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
 import { cloudPlanHoldsSend } from "./cloudPlans";
 import { startAfterSignIn, waitForCloudSignIn, type CloudSignInWait } from "./cloudSignIn";
@@ -804,7 +821,6 @@ import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedSendsContext, type FailedSends } from "./conversation/promptDeliveryModel";
 import { failedRuns, failedSendText, type FailedRun, heldSendNotice } from "./sendFailure";
 import { clientWaiter, lostPrompt, resentAfterLoss, keepLostPrompt } from "./lostPrompt";
-import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { readSteerLog, recordSteer, type SteerAct } from "./steerQueue/log";
 import { steerQueue } from "./steerQueue/model";
@@ -1616,6 +1632,8 @@ function newestSettledForkSeq(settled: AcpmuxSnapshot["settled"]): number | unde
 
 export function AcpmuxApp({ initialChat }: { initialChat?: InitialChat } = {}) {
   const [queryClient] = useState(createPaneQueryClient);
+  // The lazy screens' chunks, once, at idle moments after the page's first frame (LAZY_VIEWS).
+  useEffect(() => preloadWhenIdle(LAZY_VIEWS), []);
   return (
     <QueryClientProvider client={queryClient}>
       <AcpmuxPane initialChat={initialChat} />
