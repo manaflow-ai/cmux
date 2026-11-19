@@ -17,7 +17,8 @@ import QuartzCore
 /// - `after_commit`: the observers after it, to this probe's last one. An observer added later at the last order
 ///   runs after it and is in no part: the layout's work after a commit has its own spans (`layout.release`).
 ///
-/// A turn at or above ``noteMilliseconds`` leaves one `MotionTrace` note with its parts, written at its end.
+/// A turn at or above ``noteMilliseconds`` leaves one `MotionTrace` note with its parts, written at its end. Each turn,
+/// long or not, leaves its end, its length and its commit part in ``each`` (4 numbers, no text).
 /// ``callbacks`` counts the probe's own observer calls: its cost in the frames that it measures.
 public final class MotionTurnProbe {
     /// A turn at or above this leaves a note.
@@ -26,6 +27,20 @@ public final class MotionTurnProbe {
     public private(set) var callbacks = 0
     public private(set) var turns = 0
     public private(set) var noted = 0
+    /// Each turn that ended since the last ``start()``, in order, long or not: its end (`CACurrentMediaTime`), its
+    /// length, its part before the commit and its commit part, in ms. A reader finds the commits near a late frame
+    /// with it, or that there was none. At most ``keptTurns``: ``turns`` above this count says that the keep was full.
+    /// The space is reserved at ``start()``, so a turn's end adds one value and allocates nothing.
+    public private(set) var each: [Turn] = []
+    static let keptTurns = 8192
+
+    /// One turn of ``each``.
+    public struct Turn {
+        public var end: CFTimeInterval
+        public var total: Double
+        public var beforeCommit: Double
+        public var commit: Double
+    }
 
     private static let labels = ["wake", "passes", "events", "before_commit", "commit", "after_commit"]
     private static let wake = 0
@@ -56,6 +71,8 @@ public final class MotionTurnProbe {
         callbacks = 0
         turns = 0
         noted = 0
+        each.removeAll(keepingCapacity: true)
+        each.reserveCapacity(Self.keptTurns)
         isOpen = false
         let wait = CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue
         // Run-loop observers: a turn's stages have no async-native signal. Each runs on the main thread (they are
@@ -144,6 +161,9 @@ public final class MotionTurnProbe {
         isOpen = false
         turns += 1
         let total = (mark - began) * 1_000
+        if each.count < Self.keptTurns {
+            each.append(Turn(end: mark, total: total, beforeCommit: seconds[Self.beforeCommit] * 1_000, commit: seconds[Self.commit] * 1_000))
+        }
         guard total >= Self.noteMilliseconds else { return }
         noted += 1
         let views = LayoutPassGuard.shared.viewLayoutCalls &- viewMark

@@ -34,6 +34,7 @@ BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_appli
                                                     "late_frames", "motion_arms", "commit_notes", "commit_placements",
                                                     "layout_spans", "placed_at", "part_times", "probe_notes",
                                                     "record_offset", "turn_notes", "stalls_in", "turn_text", "stall_text",
+                                                    "our_frame", "turns_each", "turns_around", "around_text",
                                                     "arm_tag", "window_look", "look_tag", "look_config",
                                                     "look_terminal_lines", "look_problem", "look_resolved",
                                                     "windows_behind"})
@@ -212,14 +213,91 @@ class TurnsAndStallsOnTheActionsClock(unittest.TestCase):
             {"duration_ms": 5.0}, {"cpu_ms": 1.0}, None]}
         stalls = self.bench["stalls_in"](hangs, 100.0, keep=2)
         self.assertEqual(stalls[0], {"ms": 11.3, "cpu_ms": 10.9, "after_action_ms": 98.0, "verdict": "ours", "called": "observer",
-                                     "frames": hangs["records"][0]["frames"][:2]})
-        self.assertEqual(stalls[1], {"ms": 5.0, "cpu_ms": None, "after_action_ms": None, "verdict": None, "called": None, "frames": []})
+                                     "frames": hangs["records"][0]["frames"][:2], "frame_count": 3, "ours": None})
+        self.assertEqual(stalls[1], {"ms": 5.0, "cpu_ms": None, "after_action_ms": None, "verdict": None, "called": None, "frames": [],
+                                     "frame_count": 0, "ours": None})
         self.assertEqual(len(stalls), 2)  # a record with no duration is left out
         self.assertEqual(self.bench["stalls_in"]({"count": 0}, 100.0), [])
         self.assertEqual(self.bench["stalls_in"](None, 100.0), [])
         self.assertIn("11.3 ms (cpu 10.9) from 98.0 ms after the action, ours, the run loop called: observer: AppKit -[NSView setHidden:] < ",
                       self.bench["stall_text"](stalls[0]))
         self.assertIn("no stack sample", self.bench["stall_text"](stalls[1]))
+
+    def test_a_stall_keeps_40_frames_and_names_the_first_frame_of_the_apps_own_code(self):
+        # A walk of the system that is deeper than the kept frames: the caller of ours is below them.
+        walk = ["AppKit -[NSView _buildLayerTreeWithOwnLayerRequirement:someAncestorWantsLayer:singleLayerOut:layerArrayOut:] + 812"] * 44
+        ours = "cmux CmuxNextLayout.PaneHostView.leave() -> () + 96"
+        frames = walk + ["cmux +0x45eb624", "AppKit -[NSView removeFromSuperview] + 40", ours,
+                         "cmux CmuxNextApp.WindowController.close() -> () + 12", "CoreFoundation __CFRUNLOOP_IS_CALLING_OUT_TO_A_SOURCE0_PERFORM_FUNCTION__"]
+        stall = self.bench["stalls_in"]({"records": [{"duration_ms": 13.8, "frames": frames}]}, None)[0]
+        self.assertEqual(len(stall["frames"]), 40)
+        self.assertEqual(stall["frame_count"], 49)
+        # The first frame that names a module of ours, the leaf = depth 0: a frame of the binary with no symbol names none.
+        self.assertEqual(stall["ours"], [46, ours])
+        self.assertEqual(stall["called"], "source0")
+        self.assertIn(f"; the first frame of the app's own code = frame 46 of 49: {ours}", self.bench["stall_text"](stall))
+        self.assertIsNone(self.bench["our_frame"](walk))
+        self.assertIsNone(self.bench["our_frame"](None))
+        self.assertNotIn("the app's own code", self.bench["stall_text"]({**stall, "ours": None}))
+
+
+class TurnsAroundALateFrame(unittest.TestCase):
+    """The turn probe's `turns_each` (a measure branch's field): each turn's end, length and commit part, so a late
+    frame's row says which commits came in the 2 refreshes before it, or that none did."""
+
+    def setUp(self):
+        self.bench = loaded()
+        # Ends at 90.0, 255.0, 262.0, 268.5, 275.0 and 300.0 ms after the action (the record started 20 ms before it).
+        self.each = [[110.0, 11.5, 10.5, 0.2], [275.0, 0.3, 0.0, 0.0], [282.0, 0.4, 0.1, 0.07], [288.5, 0.2, 0.0, 0.04],
+                     [295.0, 1.6, 0.2, 0.15], [320.0, 0.2, 0.0, 0.0]]
+        self.miss = {"at_ms": 400.0, "interval_ms": 32.0, "after_action_ms": 269.8}
+
+    def test_each_turn_has_its_end_after_the_action(self):
+        turns = self.bench["turns_each"](self.each[:2] + [[1, 2], None, ["a", 1, 2, 3], [True, 1, 2, 3]], -20.0)
+        self.assertEqual(turns, [{"end_after_action_ms": 90.0, "total": 11.5, "before_commit": 10.5, "commit": 0.2},
+                                 {"end_after_action_ms": 255.0, "total": 0.3, "before_commit": 0.0, "commit": 0.0}])
+        # No clock for the record: the turns are there, with no place.
+        self.assertIsNone(self.bench["turns_each"](self.each, None)[0]["end_after_action_ms"])
+        # A build without the field is not a record with no turn.
+        self.assertIsNone(self.bench["turns_each"](None, -20.0))
+        self.assertEqual(self.bench["turns_each"]([], -20.0), [])
+
+    def test_a_late_frame_has_the_commits_of_the_2_refreshes_before_it_and_of_its_interval(self):
+        turns = self.bench["turns_each"](self.each, -20.0)
+        around = self.bench["turns_around"](turns, self.miss, 8.33)
+        # Before: the ends from 253.14 to 269.8. A commit part below 0.05 ms committed nothing (the commit probe's floor).
+        self.assertEqual(around, {"turns_before": 3, "commits_before": [[262.0, 0.07]], "turns_in": 2, "commits_in": [[275.0, 0.15]]})
+        text = self.bench["around_text"]({**self.miss, **around})
+        self.assertEqual(text, "at 269.8 ms: 3 turns ended in the 2 refreshes before it, with a commit: 0.07 ms at 262.0; "
+                               "2 turns ended in its interval, with a commit: 0.15 ms at 275.0")
+
+    def test_no_commit_before_it_is_said_plainly(self):
+        turns = self.bench["turns_each"]([self.each[0], self.each[1], self.each[3], self.each[5]], -20.0)
+        around = self.bench["turns_around"](turns, self.miss, 8.33)
+        self.assertEqual(around, {"turns_before": 2, "commits_before": [], "turns_in": 1, "commits_in": []})
+        self.assertEqual(self.bench["around_text"]({**self.miss, **around}),
+                         "at 269.8 ms: no commit before it (2 turns ended in the 2 refreshes before it); no commit in its interval (1 turn)")
+        # No turn at all there is said too.
+        around = self.bench["turns_around"](turns[:1], self.miss, 8.33)
+        self.assertEqual(around, {"turns_before": 0, "commits_before": [], "turns_in": 0, "commits_in": []})
+        self.assertIn("no commit before it (0 turns ended", self.bench["around_text"]({**self.miss, **around}))
+
+    def test_a_late_frame_with_no_turns_or_no_place_says_nothing(self):
+        turns = self.bench["turns_each"](self.each, -20.0)
+        around = self.bench["turns_around"]
+        self.assertIsNone(around(None, self.miss, 8.33))  # a build without the field: never `no commit`
+        self.assertIsNone(around(turns, {"interval_ms": 32.0, "after_action_ms": None}, 8.33))
+        self.assertIsNone(around(turns, self.miss, None))
+        self.assertIsNone(around(self.bench["turns_each"](self.each, None), self.miss, 8.33))  # the turns have no place
+        self.assertIsNone(self.bench["around_text"](self.miss))
+
+    def test_a_made_shift_of_one_refresh_moves_a_commit_out_of_the_window(self):
+        # The window is 253.14 to 269.8. The same turns one refresh earlier: the commit of the interval comes into the
+        # window and the first one stays (253.67). Two refreshes earlier: the first one is out.
+        turns = self.bench["turns_each"](self.each, -20.0 - 8.33)
+        self.assertEqual(self.bench["turns_around"](turns, self.miss, 8.33)["commits_before"], [[253.7, 0.07], [266.7, 0.15]])
+        turns = self.bench["turns_each"](self.each, -20.0 - 16.66)
+        self.assertEqual(self.bench["turns_around"](turns, self.miss, 8.33)["commits_before"], [[258.3, 0.15]])
 
 
 class ZoomSampleFrames(unittest.TestCase):

@@ -46,7 +46,11 @@ resize's p95/max interval, missed intervals and largest geometry step, and rejec
 is). Beside it each action keeps `missed_refreshes` (the refreshes those intervals skipped, summed), the probe's
 `missed_at_ms`, `missed_split` (main_late, commit_late, presented_late), `main_max_ms` and `missed_frames`: each
 long interval with its cause, the refreshes it skipped and `after_action_ms` (when its frame ticked, after the
-action was sent; below 0 is the action's own frame). See `late_frames`.
+action was sent; below 0 is the action's own frame). See `late_frames`. On a build with the measure branch's turn
+probe each of them also has `turns_before` and `commits_before` (the main run loop's turns that ended in the 2
+refreshes before its tick, and those with a Core Animation commit of 0.05 ms or more: an empty list is no commit
+before it) and `turns_in` and `commits_in` (the same for its long interval). See `turns_around`. With --stall-ms each
+stall keeps 40 frames of its stack and `ours`: the first frame that names a module of the app, at any depth.
 
 With --pane-motion on,off each round runs its actions one time for each arm, in the same app and layout
 (`ui.paneAnimations`, set with `debug.motion` kind): the off arm's rows and summary are named <layout>-motion-off,
@@ -600,13 +604,25 @@ def turn_notes(notes, offset):
     return turns
 
 
-def stalls_in(hangs, action_s, keep=10):
+def our_frame(frames):
+    """The first frame of the app's own code in a sampled stack (the leaf first): [depth, frame] of the first frame
+    that names a module of ours (each is `CmuxNext...`), the leaf at depth 0. None when no frame names one: a frame of
+    the app's binary with no symbol names none."""
+    for depth, frame in enumerate(frames or []):
+        if "CmuxNext" in str(frame):
+            return [depth, str(frame)]
+    return None
+
+
+def stalls_in(hangs, action_s, keep=40):
     """The main thread's stalls of a `debug.hangs` reply (the watchdog's records; with `--stall-ms` the app runs with
     its threshold there): each with `ms`, `cpu_ms`, `after_action_ms` (its start: the record's `start_uptime_ns` and
     `action_s` are both the uptime clock; None without one of them), the watchdog's `verdict`, `called` (what the
     run loop called, from the innermost run loop frame of the stack: main queue, timer, observer, source0, source1 or
-    block; None with no such frame) and `frames` (the first `keep` frames of the ONE stack that the watchdog sampled
-    in the stall, the leaf first; empty with no sample). A record with no duration is left out."""
+    block; None with no such frame), `frames` (the first `keep` frames of the ONE stack that the watchdog sampled
+    in the stall, the leaf first; empty with no sample), `frame_count` (the frames of that sample, kept or not) and
+    `ours` (`our_frame` of the whole sample: a walk of the system deeper than `keep` still names its caller of
+    ours). A record with no duration is left out."""
     # What the run loop called, by a part of the name of its frame in a sampled stack.
     calls = (("SERVICING_THE_MAIN_DISPATCH_QUEUE", "main queue"), ("TIMER_CALLBACK", "timer"), ("OBSERVER_CALLBACK", "observer"),
              ("SOURCE0_PERFORM", "source0"), ("SOURCE1_PERFORM", "source1"), ("CALLING_OUT_TO_A_BLOCK", "block"))
@@ -621,8 +637,64 @@ def stalls_in(hangs, action_s, keep=10):
                       "after_action_ms": round(start / 1e6 - action_s * 1000, 1) if timed else None,
                       "verdict": record.get("verdict"),
                       "called": next((name for frame in frames for mark, name in calls if mark in frame), None),
-                      "frames": frames[:keep]})
+                      "frames": frames[:keep], "frame_count": len(frames), "ours": our_frame(frames)})
     return found
+
+
+def turns_each(each, offset):
+    """The turn probe's `turns_each` of a `debug.motion` record (a measure branch's field): each turn of the main run
+    loop that ended in the record, as [its end in ms from the record's start, its length, its part before the commit,
+    its Core Animation commit part] (ms). Gives each as a dict with `end_after_action_ms` (`offset` is
+    `record_offset`; None with no offset), `total`, `before_commit` and `commit`. An entry that is not 4 numbers is
+    left out. None on a build without the field: no turn was read, which is not a record with no turn."""
+    if not isinstance(each, list):
+        return None
+    turns = []
+    for entry in each:
+        if not (isinstance(entry, list) and len(entry) == 4
+                and all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in entry)):
+            continue
+        end, total, before, commit = entry
+        turns.append({"end_after_action_ms": round(end + offset, 1) if offset is not None else None,
+                      "total": total, "before_commit": before, "commit": commit})
+    return turns
+
+
+def turns_around(turns, miss, refresh, refreshes=2, floor=0.05):
+    """The turns of `turns_each` around one late frame (`miss`: a stamp of `late_frames`; its `after_action_ms` is the
+    tick that its long interval starts at): `turns_before` counts the turns that ended in the `refreshes` refreshes
+    before that tick, `commits_before` lists [end, commit ms] of those with a commit part of `floor` or more (the
+    commit probe's floor: a shorter pass committed nothing), and `turns_in` and `commits_in` say the same for the
+    turns that ended in the long interval. None when it is not known: a build without the turns, turns with no
+    place, a stamp with no place, or no refresh period. An empty `commits_before` is `no commit before it`."""
+    at, interval = (miss or {}).get("after_action_ms"), (miss or {}).get("interval_ms")
+    numbers = all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in (at, interval, refresh))
+    if turns is None or not numbers or any(turn["end_after_action_ms"] is None for turn in turns):
+        return None
+
+    def ended(low, high):
+        return [turn for turn in turns if low <= turn["end_after_action_ms"] <= high]
+
+    def commits(found):
+        return [[turn["end_after_action_ms"], turn["commit"]] for turn in found if turn["commit"] >= floor]
+    before = ended(at - refreshes * refresh, at)
+    inside = [turn for turn in ended(at, at + interval) if turn["end_after_action_ms"] > at]
+    return {"turns_before": len(before), "commits_before": commits(before), "turns_in": len(inside), "commits_in": commits(inside)}
+
+
+def around_text(miss, refreshes=2):
+    """One late frame's turns (`turns_around` in its stamp) as a row's text; None for a stamp without them."""
+    if not isinstance(miss.get("commits_before"), list):
+        return None
+
+    def listed(commits):
+        return ", ".join(f"{commit} ms at {end}" for end, commit in commits)
+    before, inside = miss["turns_before"], miss["turns_in"]
+    first = (f"{before} turns ended in the {refreshes} refreshes before it, with a commit: {listed(miss['commits_before'])}"
+             if miss["commits_before"] else f"no commit before it ({before} turns ended in the {refreshes} refreshes before it)")
+    second = (f"{inside} turns ended in its interval, with a commit: {listed(miss['commits_in'])}"
+              if miss["commits_in"] else f"no commit in its interval ({inside} turn{'' if inside == 1 else 's'})")
+    return f"at {miss.get('after_action_ms')} ms: {first}; {second}"
 
 
 def turn_text(turn):
@@ -637,8 +709,10 @@ def stall_text(stall, frames=6, width=90):
     """One stall of `stalls_in` as a row's text: its length, its CPU time, its start, the verdict, what the run loop
     called, and the first `frames` frames of its stack (each cut to `width` characters)."""
     stack = " < ".join(frame[:width] for frame in stall["frames"][:frames]) or "no stack sample"
+    ours = stall.get("ours")
+    own = f"; the first frame of the app's own code = frame {ours[0]} of {stall.get('frame_count')}: {ours[1][:width]}" if ours else ""
     return (f"{stall['ms']} ms (cpu {stall['cpu_ms']}) from {stall['after_action_ms']} ms after the action, {stall['verdict']}, "
-            f"the run loop called: {stall['called']}: {stack}")
+            f"the run loop called: {stall['called']}: {stack}{own}")
 
 
 def late_frames(frames, action_s=None):
@@ -992,6 +1066,11 @@ def measure(label, name):
     committed = commit_frames(motion.get("samples")) if isinstance(motion, dict) else 0
     late = late_frames(frames, action_s)
     offset = record_offset(motion, action_s)
+    # A measure branch's field: each turn of the record with its commit part, so each late frame says the commits
+    # of the 2 refreshes before it and of its interval (no key in a stamp on a build without the field).
+    each_turn = turns_each(motion.get("turns_each") if isinstance(motion, dict) else None, offset)
+    for miss in late["missed_frames"]:
+        miss.update(turns_around(each_turn, miss, frames.get("refresh_ms")) or {})
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
     result = {
         "label": label, "action": name, "error": error,
@@ -1008,6 +1087,10 @@ def measure(label, name):
         "record_start_after_action_ms": offset,
         "turns": turn_notes(motion.get("notes"), offset) if isinstance(motion, dict) else [],
         "turn_probe": motion.get("turn_probe") if isinstance(motion, dict) else None,
+        # The turns that the probe kept (below `turn_probe.turns`: its keep was full, and a late frame after that
+        # has no turn), and each turn with a commit of 0.05 ms or more as [end after the action, length, commit] (ms).
+        "turns_kept": len(each_turn) if each_turn is not None else None,
+        "turn_commits": [[turn["end_after_action_ms"], turn["total"], turn["commit"]] for turn in each_turn or [] if turn["commit"] >= 0.05],
         "stalls": stalls_in(hangs, action_s),
         "background_cpu": background_cpu,
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
@@ -1103,6 +1186,9 @@ def measure(label, name):
             extra += f"  placed {round(start + offset, 1)} ms after the action"
     if result["turns"] or result["turn_probe"]:
         extra += f"  long turns [{', '.join(turn_text(turn) for turn in result['turns'][:8])}]  turn probe {result['turn_probe']}"
+    around = [text for text in (around_text(miss) for miss in late["missed_frames"][:8]) if text]
+    if around:
+        extra += f"  the turns at each late frame [{' | '.join(around)}] (the probe kept {result['turns_kept']} turns)"
     if opts.stall_ms:
         extra += f"  stalls [{', '.join(stall_text(stall) for stall in result['stalls'][:8])}]"
     print(f"  {label:<22} moved {moving:>3} commit {committed:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
@@ -1406,6 +1492,11 @@ def main():
                 row(f"{label} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
                     f"<= {opts.missed_budget}", f"{missed} ({run['missed_refreshes']} refreshes)",
                     missed is not None and missed <= opts.missed_budget or not opts.gate)
+                if run["turns_kept"] is not None:
+                    # A measure branch's row: a late frame's `no commit before it` holds only when no turn is lost.
+                    ended = (run["turn_probe"] or {}).get("turns")
+                    row(f"{label} {step} #{index}: the turn probe kept each turn of the record", "each turn that ended",
+                        f"{run['turns_kept']} of {ended}", run["turns_kept"] == ended)
                 if opts.json:
                     json.dump(report, open(opts.json, "w"), indent=1)
                 time.sleep(0.4)  # test harness: idle between runs

@@ -65,7 +65,16 @@ public struct MotionDebug {
                 }
             }
         case "stop":
-            let last = Self.report(windows: windows, turns: commitProbe?.turns)
+            var last = Self.report(windows: windows, turns: commitProbe?.turns)
+            // A measure branch's field, in the stop's reply only: each turn of the record that the turn probe kept, as
+            // [its end in ms from `start`, its length, its part before the commit, its commit part] (ms). Made here,
+            // when the record is read, never in a turn.
+            if let turns = commitProbe?.turns {
+                last["turns_each"] = turns.each.map { turn -> [Double] in
+                    [((turn.end - MotionTrace.startedAt) * 100_000).rounded() / 100, (turn.total * 100).rounded() / 100,
+                     (turn.beforeCommit * 100).rounded() / 100, (turn.commit * 100).rounded() / 100]
+                }
+            }
             commitProbe?.stop()
             commitProbe?.turns.stop()
             MotionTrace.stop()

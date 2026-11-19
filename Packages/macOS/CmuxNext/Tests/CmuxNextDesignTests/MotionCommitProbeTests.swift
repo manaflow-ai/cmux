@@ -47,6 +47,26 @@ import Testing
         #expect(MotionTrace.work[MotionCommitProbe.workName] == [7])
     }
 
+    /// A measure branch's probe: each turn that ends leaves its end, its length and its commit part, long or not, and
+    /// only the stop's reply has them (`turns_each`: 4 numbers a turn).
+    @Test func eachTurnLeavesItsEndAndItsCommitPartInTheStopsReply() {
+        let probe = MotionCommitProbe(record: { _ in })
+        _ = MotionDebug.handle(["action": "start"], windows: [], commitProbe: probe)
+        probe.turns.woke()
+        probe.turns.waitBegan()
+        probe.turns.commitWillStart()
+        probe.turns.turnEnded()
+        #expect(probe.turns.each.count == 1)
+        #expect(probe.turns.turns == 1)
+        #expect(probe.turns.noted == 0)
+        let read = MotionDebug.handle(["action": "read"], windows: [], commitProbe: probe)
+        #expect(read["turns_each"] == nil)
+        let last = MotionDebug.handle(["action": "stop"], windows: [], commitProbe: probe)
+        let each = last["turns_each"] as? [[Double]]
+        #expect(each?.count == 1)
+        #expect(each?.first?.count == 4)
+    }
+
     /// Review 2: the probe was a static of `MotionTrace` (global run-loop observers on a package type). The
     /// `debug.motion` handler owns it now: `start` adds its observers, `stop` removes them, and a recording without
     /// one adds none.
