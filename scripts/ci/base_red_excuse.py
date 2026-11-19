@@ -2054,6 +2054,11 @@ BARE_WHY = ("its failed steps' own lines name no failing test or error line (a s
             "in a whole-log comparison)")
 UNPLACED_WHY = ("its log does not map one to one onto its steps (step_owners: a composite action, a silent step or a "
                 "header that is not its step's own), so no line can be told to the step that printed it")
+# What a placed head says when its red base verdict's log is the one step_owners does not place: compared whole too,
+# never refused as the head's own red (hq#13746, whose base Fleet tests log carried a git fetch's own `##[error]`
+# lines and failed the same 4 subtests).
+BASE_UNPLACED_WHY = ("its red base verdict's log does not map one to one onto its steps (step_owners), so no base line "
+                     "can be told to a failed step")
 
 
 def signature(view: "FailedView | Unplaced") -> tuple[set[str], set[str], set[str]] | Unplaced:
@@ -2255,8 +2260,9 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
                           f": more on this head: {'; '.join(more)[:500]}"
                           + (f"; more on the base: {'; '.join(fewer)[:300]}" if fewer else ""))
     said = sorted(head.tests) or sorted(head.errors)
-    said_why = ("its log does not map onto its steps" if why == UNPLACED_WHY
-                else "its failed steps name no failing test or error line")
+    said_why = {UNPLACED_WHY: "its log does not map onto its steps",
+                BASE_UNPLACED_WHY: "its base verdict's log does not map onto its steps"}.get(
+                    why, "its failed steps name no failing test or error line")
     besides = sum(((found.steps - head.steps) + (found.tests - head.tests) + (found.errors - head.errors)).values())
     if besides:
         return (f"excused '{name}': {said_why}, so it was compared whole: its failed steps "
@@ -7706,16 +7712,20 @@ def compile_base_evidence(repo: str, run: dict, found: dict, github, run_reads: 
     return compile_errors(test_reds.lines_of(text) if view is UNPLACED else list(lines_of(view_text(view))), found)
 
 
+class BaseUnplaced(Refused):
+    """base_evidence's refusal of a red base job whose log step_owners does not place (BASE_UNPLACED_WHY)."""
+
+
 def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, github, run_reads: dict) -> tuple:
     """(RUN, the failed_view of red base job FOUND's log, its signature, its step_errors), the window entry
     compare_window reads: the one reader of a compared base job's raw log. A base log failed_view does not place is
-    never base evidence: Refused."""
+    never base evidence: BaseUnplaced, which judge() answers with a whole-log comparison."""
     text = github.log(repo, found)
     view = failed_view(found, text, step_names=job_step_names(repo, found, github, run_reads, path=run.get("path")),
                        base=True)
     if view is UNPLACED:
-        raise Refused(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
-                      "(step_owners), so no base line can be told to a failed step; nothing is compared")
+        raise BaseUnplaced(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
+                           "(step_owners), so no base line can be told to a failed step; nothing is compared")
     return run, view, signature(view), step_errors(view)
 
 
@@ -8392,7 +8402,30 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # BASE_WINDOW_HOURS of it, read only while a head failure is on none so far. A green verdict ends it.
         def red(run: dict, found: dict) -> tuple:
             return base_evidence(repo, base, name, run, found, github, run_reads)
-        window, newest, read = [red(base_run, base_job)], created(base_run), 1
+        try:
+            window, newest, read = [red(base_run, base_job)], created(base_run), 1
+        except BaseUnplaced as unplaced:
+            # The newest red base verdict's log is not placed (hq#13746): this head is compared whole with it, as an
+            # unplaced head is (unplaced_verdict, only within it), then per step; never refused as the head's own.
+            mine = unplaced_signature(job, github.log(repo, job))
+            theirs = unplaced_base_evidence(repo, base_job, github)
+            if aside is not None:
+                mine, theirs = unplaced_without_ffi_pin(mine), unplaced_without_ffi_pin(theirs)
+            try:
+                audit.append(unplaced_verdict(repo, name, base, mine, theirs, base_run, why=BASE_UNPLACED_WHY)
+                             + (f"; {aside}" if aside is not None else ""))
+                continue
+            except Final:
+                raise
+            except Refused as whole:
+                try:
+                    audit.append(by_step())
+                    continue
+                except Final:
+                    raise
+                except Refused as step_why:
+                    raise Refused(f"{unplaced}; compared whole: {whole}; per step: {step_why}; unread, not this "
+                                  f"PR's own red: retry once a {base} verdict of it is placed") from None
         while True:
             try:
                 audit.append(compare_window(repo, base, name, head, view, window, chromium_without_diagnostics,
@@ -8420,7 +8453,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     except Refused as step_why:
                         raise Refused(f"{why}; per step: {step_why}") from None
                 read += 1
-                window.append(red(run, found))
+                try:
+                    window.append(red(run, found))
+                except BaseUnplaced:
+                    pass  # an older verdict not placed adds nothing to compare; the window reads on
     # A status judged by its job (status_job) is named too, the way merge_hold reads the head's reds: by the
     # status's own context. Every job above was excused or ignored, or judge() raised.
     for job in jobs:

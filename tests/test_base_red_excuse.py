@@ -10671,6 +10671,29 @@ class UnplacedSignature(unittest.TestCase):
                 # Head and base serve the same unplaced log: compared whole and excused on identity (UnplacedSignature).
                 self.assertIn("compared whole", "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)))
 
+    def test_13746_a_placed_head_is_compared_whole_with_an_unplaced_base(self):
+        # hq#13746 at bcaa0c93: its 'Fleet tests' red was placed and failed test_open_pr_query_fails_closed's 4
+        # subtests; main's red verdict of the job failed the same 4, but its log (a git fetch's own `##[error]` lines)
+        # was not placed, and base_evidence refused before any line was compared: read as the PR's own red. A base log
+        # not placed is compared whole with the head, never refused as the head's.
+        for columns in (False, True):
+            with self.subTest(columns=columns):
+                github = FakeGitHub()
+                github.jobs = {1: self.job(), 2: dict(self.job(), id=2, run_id=20, head_sha=BASE_SHA)}
+                github.logs = {1: framed_log(self.lines(NEW_RED, placed=True), SWIFT, columns=columns),
+                               2: framed_log(self.lines(NEW_RED), SWIFT, columns=columns)}
+                said = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+                self.assertIn("its base verdict's log does not map onto its steps, so it was compared whole", said)
+
+    def test_13746_a_different_red_beside_an_unplaced_base_is_unread_not_own(self):
+        github = FakeGitHub()
+        github.jobs = {1: self.job(), 2: dict(self.job(), id=2, run_id=20, head_sha=BASE_SHA)}
+        github.logs = {1: framed_log(self.lines(NEW_RED, placed=True), SWIFT),
+                       2: framed_log(self.lines(OLD_RED), SWIFT)}
+        with self.assertRaisesRegex(excuse.Refused, r"log does not map one to one onto its steps.*compared whole: "
+                                                    r".*not this PR's own red: retry once"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
 
 class StepNamesAreRequired(unittest.TestCase):
     """step_owners and every reader of it take the workflow's step names as a required keyword (step_names): a call
