@@ -46,6 +46,7 @@ public final class ControlService {
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil,
         sessionHandoff: SessionHandoffResponder? = nil,
+        sessionConsent: SessionConsentResponder? = nil,
         classicMode: String? = ControlService.classicStoredMode(.standard)
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
@@ -72,7 +73,8 @@ public final class ControlService {
             identity: identity,
             frameSource: frameSource,
             watchdog: watchdog,
-            sessionHandoff: sessionHandoff
+            sessionHandoff: sessionHandoff,
+            sessionConsent: sessionConsent
         )
     }
 
@@ -85,7 +87,8 @@ public final class ControlService {
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil,
-        sessionHandoff: SessionHandoffResponder? = nil
+        sessionHandoff: SessionHandoffResponder? = nil,
+        sessionConsent: SessionConsentResponder? = nil
     ) throws -> ControlService {
         let bridge = RegistryControlBridge(registry: registry)
         let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, settingsWriter: settingsWriter,
@@ -94,6 +97,7 @@ public final class ControlService {
         bridge.attach(to: router)
         let server = ControlSocketServer(configuration: configuration, router: router)
         server.setSessionHandoff(sessionHandoff)
+        server.setSessionConsent(sessionConsent)
         try server.start()
         return ControlService(server: server, router: router, bridge: bridge)
     }

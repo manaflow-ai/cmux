@@ -99,6 +99,8 @@ public final class ControlSocketServer: Sendable {
         var acceptSuspended = false
         /// Answers `auth.session.handoff` (cmux NIGHTLY only; ``setSessionHandoff(_:)``).
         var sessionHandoff: SessionHandoffResponder?
+        /// Answers `auth.session.request` (cmux NIGHTLY only; ``setSessionConsent(_:)``).
+        var sessionConsent: SessionConsentResponder?
     }
 
     /// `accept(2)`, replaceable in tests.
@@ -134,6 +136,13 @@ public final class ControlSocketServer: Sendable {
     /// one; ``SessionHandoffResponder`` says who it answers.
     public func setSessionHandoff(_ responder: SessionHandoffResponder?) {
         state.withLock { $0.sessionHandoff = responder }
+    }
+
+    /// Makes this socket answer `auth.session.request` with `responder`, ahead of the access mode, for
+    /// connections accepted from now on (nil: the method is an unknown one again). Only cmux NIGHTLY sets
+    /// one; ``SessionConsentResponder`` says who it asks the person about.
+    public func setSessionConsent(_ responder: SessionConsentResponder?) {
+        state.withLock { $0.sessionConsent = responder }
     }
 
     /// Open client connections.
@@ -308,8 +317,8 @@ public final class ControlSocketServer: Sendable {
             setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
             _ = fcntl(client, F_SETFL, fcntl(client, F_GETFL) | O_NONBLOCK)
             let peer = Self.peer(of: client)
-            let handoff = state.withLock { $0.sessionHandoff }
-            let authorizer = ControlAuthorizer(configuration: configuration, peer: peer, handoff: handoff)
+            let (handoff, consent) = state.withLock { ($0.sessionHandoff, $0.sessionConsent) }
+            let authorizer = ControlAuthorizer(configuration: configuration, peer: peer, handoff: handoff, consent: consent)
             let limits = ControlConnection.Limits(
                 maxLineBytes: configuration.maxLineBytes,
                 maxQueuedLines: configuration.maxQueuedLinesPerConnection,
