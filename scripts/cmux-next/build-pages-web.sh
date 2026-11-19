@@ -68,7 +68,7 @@ PAGES="$PAGES cookie-import"
 PAGES="$PAGES sidebar-chats"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
-SPLIT_STRINGS="settings"
+SPLIT_STRINGS="settings onboarding"
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
 "$ROOT/scripts/check-webviews-bun-version.sh"
 
