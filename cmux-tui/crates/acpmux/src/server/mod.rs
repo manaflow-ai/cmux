@@ -2547,3 +2547,7 @@ mod update_cost_bench;
 #[cfg(test)]
 #[path = "chat_window_activity_tests.rs"]
 mod chat_window_activity_tests;
+// A watch that asked for row patches hears only a row's changed fields (`row_patch.rs`).
+#[cfg(test)]
+#[path = "row_patch_tests.rs"]
+mod row_patch_tests;
