@@ -49,6 +49,8 @@ public final class AgentPaneTailCache {
     private var configuredDisk: AgentPaneTailDisk??
     /// The chats' drawn copies, kept beside their tails and cleared with them (``AgentPaneChatSnapshots``).
     public let snapshots = AgentPaneChatSnapshots()
+    /// The chats this app showed recently, whose next pane opens with no busy mark (``AgentPaneSeenChats``).
+    let seen = AgentPaneSeenChats()
     /// Chats whose tail is kept, as the page keeps the same number.
     public nonisolated static let chats = 20
     /// Most records one chat's tail may carry, as many as an attach page holds. A tail over this
