@@ -153,7 +153,7 @@ extension AgentTabStore {
     func openBeside(_ provisional: String, machine: String? = nil, in paneKey: String? = nil, split: Bool = true, direction: String = "right", origin: ActionOrigin = .user, main: String? = nil, open: AgentTabOpen, created: (@MainActor (String) -> Void)? = nil, finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
         let scoped = tabKey(provisional, machine: machine)
         if split, let main, let placed = openInMainPaneScoped(resolvedKey(AgentTabKey(machine: scoped.machine, key: main)), origin == .user, { try open($0, $1, nil) }, created, finished) { return placed }
-        if split, paneKey == nil, direction == "right", chatInAgentDockScoped(resolvedKey(scoped)) { return openFork(nil, at: .columnRight, beside: provisional, machine: scoped.machine, open: open, created: created, finished: finished) } // the agent chat dock takes no split right (`dock-column-agent-chat`): a new column right of it (#46926)
+        if split, paneKey == nil, direction == "right", chatInAgentDockScoped(resolvedKey(scoped)) { return withoutActuallyEscaping(open) { openFork(nil, at: .columnRight, beside: provisional, machine: scoped.machine, open: $0, created: created, finished: finished) } } // the agent chat dock takes no split right (`dock-column-agent-chat`): a new column right of it (#46926)
         let located = if let paneKey { locatePaneScoped(resolvedKey(scoped), paneKey) } else { locateScoped(resolvedKey(scoped)) }
         guard let (pane, daemon) = located else { return false }
         let inSplit = split ? SplitDirection(splitFirst: direction, served: daemon.supports(DaemonCapability.conversationTabSplit.rawValue)) : nil
