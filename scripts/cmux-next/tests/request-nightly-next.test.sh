@@ -112,11 +112,15 @@ STUB
 # for a --jq it does not know, so a count is never right by accident. A run's
 # jobs (`api repos/.../actions/runs/<id>/jobs?...`) come from $TMP/gh-run-jobs
 # (`name|status|conclusion`, one job a line; every run has the same jobs): the
-# stub counts the build rows in work or ended green for the one --jq it knows,
-# and fails for another one or when the file is missing (an unreadable list).
-# A build row is a job that compiles the tree's binaries; $build_row is its name
-# in a run (`<caller job> / <job of cmux-tui-build-package.yml>`).
-build_row='^build[^/]* / build '
+# stub prints the needed build rows as those lines for the one --jq it knows
+# ($jobs_query), and fails for another one or when the file is missing (an
+# unreadable list). A needed build row is a job that compiles the binaries of
+# the manifest a nightly waits for: a `build <target>` job of
+# cmux-tui-build-package.yml under a caller job that `publish` needs
+# ($build_row_callers). $build_row is its name in a run (`<caller> / <job>`).
+build_row_callers='build build-darwin-fallback'
+build_row="^(${build_row_callers// /|}) / build "
+jobs_query='.jobs[] | select(.name | test("'"$build_row"'")) | "\(.name)|\(.status)|\(.conclusion // "")"'
 cat > "$TMP/bin/gh" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$TMP/gh.log"
@@ -147,8 +151,7 @@ if [[ "\$1" == api && "\$2" == repos/*/actions/runs/*/jobs\?* ]]; then
     prev="\$arg"
   done
   case "\$jq" in
-    '[.jobs[] | select(.name | test("$build_row")) | select(.status == "in_progress" or .conclusion == "success")] | length')
-      awk -F'|' '\$1 ~ "$build_row" && (\$2 == "in_progress" || \$3 == "success")' "$TMP/gh-run-jobs" | grep -c . || true ;;
+    '$jobs_query') grep -E '$build_row' "$TMP/gh-run-jobs" || true ;;
     *) echo "gh stub: unknown --jq in a run's jobs: \$jq" >&2; exit 1 ;;
   esac
   exit 0
@@ -772,40 +775,72 @@ grep -q "no active cmux-tui-artifacts run builds tree" <<<"$out" || fail "the wa
 #
 # The run's status alone does not say that a tree is in work: a run whose preflight or select job
 # runs is in progress while each build row still waits for a runner, and a run goes back to queued
-# when none of its jobs runs (run 44383172213 said queued with 2 jobs ended green and 3 queued). So
-# a run builds the tree only when one of its build rows (`build / build <target>`,
-# `build-linux / build <target>`) is in progress or ended green. Each case below writes its first
-# failed assert to a file and the block fails once at its end, so one run shows every case.
+# when none of its jobs runs (run 44383172213 said queued with 2 jobs ended green and 3 queued).
+#
+# The nightly waits for the commit's manifest (await-tree-client.sh), which the job `publish` uploads
+# last, and `publish` needs the whole `build` call or the macOS fallback call. So a run builds the
+# tree only when one of those calls can still publish: at least one of its `build <target>` rows is
+# in progress or ended green, none waits for a runner and none failed. A skipped row is not read.
+# After the rows, the package, verify and publish jobs need a runner again: the rule lowers the risk
+# of a nightly that waits in vain, it does not end it. Each case below writes its first failed
+# assert to a file and the block fails once at its end, so one run shows every case.
 echo 1 > "$TMP/gh-runs"
 : > "$TMP/tree-run-fails"
-# The rule knows a build row by its name, so the names come from the workflow files here: a rename of
-# a build job must fail this test and not a nightly. Every job of cmux-tui-build-package.yml that has
-# a compile line is a build row under each job of cmux-tui-artifacts.yml that calls it, and no other
-# job of it is one.
-workflow_jobs() { # <workflow file> -> `name|1` for a job with a compile line, `name|0` for another job
+# The rule knows a needed build row by its name, so the names come from the files here: a rename of a
+# build job, or a change of what the nightly waits for, must fail this test and not a nightly.
+workflow_jobs() { # <workflow file> -> `id|name|kind`: kind 2 calls the build workflow, 1 has a compile line, else 0
   awk '
-    function flush() { if (id != "") print name "|" compiles }
+    function flush() { if (id != "") print id "|" name "|" kind }
     /^jobs:[[:space:]]*$/ { injobs = 1; next }
     !injobs { next }
-    /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { flush(); id = $1; sub(/:$/, "", id); name = id; compiles = 0; next }
+    /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { flush(); id = $1; sub(/:$/, "", id); name = id; kind = 0; next }
     /^    name: / { name = $0; sub(/^    name: /, "", name); next }
-    /^    uses: \.\/\.github\/workflows\/cmux-tui-build-package\.yml[[:space:]]*$/ { compiles = 2; next }
+    /^    uses: \.\/\.github\/workflows\/cmux-tui-build-package\.yml[[:space:]]*$/ { kind = 2; next }
     /^[[:space:]]*#/ { next }
-    /cargo (zig)?build/ && compiles == 0 { compiles = 1 }
+    /cargo (zig)?build/ && kind == 0 { kind = 1 }
     END { flush() }
   ' "$1"
 }
-build_callers=$(workflow_jobs "$ROOT/.github/workflows/cmux-tui-artifacts.yml" | sed -n 's/|2$//p')
+job_text() { # <workflow file> <job id> -> the job's lines that are no comment
+  awk -v job="$2" '
+    $0 ~ "^  " job ":[[:space:]]*$" { injob = 1; next }
+    injob && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { exit }
+    injob && !/^[[:space:]]*#/ { print }
+  ' "$1"
+}
+artifacts_yml="$ROOT/.github/workflows/cmux-tui-artifacts.yml"
+# 1. What the nightly waits for: its step runs the bundle script, which waits in await-tree-client.sh for a manifest.
+# Each text goes into a variable first: `... | grep -q` fails under pipefail on an early match.
+bundle_step=$(awk '/^        name: Bundle the cmux-tui client$/ { instep = 1; next } instep && /^      - / { exit } instep' "$ROOT/.github/workflows/nightly.yml")
+grep -q 'run: bash scripts/ci/nightly-steps/app-bundle-cmux-tui-client\.sh$' <<<"$bundle_step" \
+  || fail "nightly.yml's step 'Bundle the cmux-tui client' no longer runs app-bundle-cmux-tui-client.sh: read again what the nightly waits for"
+grep -q 'scripts/cmux-next/await-tree-client\.sh' "$ROOT/scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh" \
+  || fail "app-bundle-cmux-tui-client.sh no longer waits in await-tree-client.sh: read again what the nightly waits for"
+await_code=$(grep -v '^[[:space:]]*#' "$ROOT/scripts/cmux-next/await-tree-client.sh")
+grep -q '/manifest\.json' <<<"$await_code" \
+  || fail "await-tree-client.sh no longer waits for a commit's manifest.json: read again what the nightly waits for"
+# 2. The job that uploads that manifest, and the build calls it needs: they are the rule's callers.
+publish_job=$(job_text "$artifacts_yml" publish)
+grep -q 'assets/cmux-tui/manifest\.json' <<<"$publish_job" \
+  || fail "the job publish of cmux-tui-artifacts.yml no longer uploads the cmux-tui manifest: read again which job the nightly waits for"
+publish_needs=$(sed -n 's/^    needs: \[\(.*\)\][[:space:]]*$/\1/p' <<<"$publish_job" | tr -d ' ' | tr ',' '\n')
+artifacts_jobs=$(workflow_jobs "$artifacts_yml")
+needed_callers=""
+while IFS='|' read -r id name kind; do
+  if [[ "$kind" == 2 ]] && grep -qx "$id" <<<"$publish_needs"; then needed_callers+="$name"$'\n'; fi
+done <<<"$artifacts_jobs"
+needed_callers=$(sort <<<"${needed_callers%$'\n'}" | tr '\n' ' ')
+rule_callers=$(tr ' ' '\n' <<<"$build_row_callers" | sort | tr '\n' ' ')
+[[ -n "${needed_callers% }" && "$needed_callers" == "$rule_callers" ]] \
+  || fail "the rule reads the build rows of '$build_row_callers', but the job publish needs the build calls '${needed_callers% }'"
+# 3. Under such a caller, a job of the build workflow is a build row exactly when it has a compile line.
 build_jobs=$(workflow_jobs "$ROOT/.github/workflows/cmux-tui-build-package.yml")
-[[ -n "$build_callers" ]] || fail "no job of cmux-tui-artifacts.yml calls cmux-tui-build-package.yml: the build row rule has no job to read"
 grep -q '|1$' <<<"$build_jobs" || fail "no job of cmux-tui-build-package.yml has a compile line: the build row rule has no job to read" "$build_jobs"
-while IFS= read -r caller; do
-  while IFS='|' read -r job compiles; do
-    if [[ "$caller / $job" =~ $build_row ]]; then is_row=1; else is_row=0; fi
-    [[ "$is_row" == "$compiles" ]] \
-      || fail "the build row rule ($build_row) and the workflow files do not agree on the job '$caller / $job' (it compiles: $compiles, the rule takes it: $is_row)"
-  done <<<"$build_jobs"
-done <<<"$build_callers"
+while IFS='|' read -r _ job kind; do
+  if [[ "${build_row_callers%% *} / $job" =~ $build_row ]]; then is_row=1; else is_row=0; fi
+  [[ "$is_row" == "$kind" ]] \
+    || fail "the build row rule ($build_row) and cmux-tui-build-package.yml do not agree on the job '$job' (it compiles: $kind, the rule takes it: $is_row)"
+done <<<"$build_jobs"
 tree_run_case() { # <name> <wait|request> <run status> <job>... -> the case's first failed assert, if any
   local name="$1" want="$2" why=""
   printf '%s\n' completed "$3" > "$TMP/gh-run-statuses"
@@ -832,20 +867,56 @@ tree_run_case "a run in progress whose preflight runs" wait in_progress 'cmux-tu
 tree_run_case "a run in progress whose select job runs and whose build rows wait" wait in_progress "$preflight_done" "$publisher_done" \
   'build / select binary targets|in_progress|' 'build-linux|completed|skipped' \
   'build / build aarch64-apple-darwin|queued|' 'build / build x86_64-unknown-linux-musl|queued|'
+selects_done=('build / select binary targets|completed|success' 'build-linux / select binary targets|completed|success')
+skipped_rows=('build / build x86_64-pc-windows-gnu|completed|skipped' 'build / build acpmux x86_64-pc-windows-gnu|completed|skipped')
+mac='build / build aarch64-apple-darwin' arm='build / build aarch64-unknown-linux-musl' x64='build / build x86_64-unknown-linux-musl'
 tree_run_case "a run in progress whose select job ended and whose build rows wait" wait in_progress "$preflight_done" "$publisher_done" \
-  'build / select binary targets|completed|success' 'build-linux / select binary targets|completed|success' \
-  'build / build aarch64-apple-darwin|queued|' 'build-linux / build x86_64-unknown-linux-musl|queued|'
-tree_run_case "one build row in progress" request in_progress "$preflight_done" "$publisher_done" \
-  'build / select binary targets|completed|success' \
-  'build / build aarch64-apple-darwin|in_progress|' 'build / build x86_64-unknown-linux-musl|queued|'
-tree_run_case "a build row ended green, the others queued" request queued "$preflight_done" "$publisher_done" \
-  'build-linux / select binary targets|completed|success' \
-  'build-linux / build aarch64-unknown-linux-musl|completed|success' 'build-linux / build x86_64-unknown-linux-musl|queued|'
-[[ ! -s "$TMP/tree-run-fails" ]] || fail "a tip is requested before its tree only when a build row of its run is in work or ended green:" "$(cat "$TMP/tree-run-fails")"
+  "${selects_done[@]}" "${skipped_rows[@]}" "$mac|queued|" "$arm|queued|" "$x64|queued|"
+tree_run_case "one needed row in progress, the others queued" wait in_progress "$preflight_done" "$publisher_done" \
+  "${selects_done[@]}" "${skipped_rows[@]}" "$mac|in_progress|" "$arm|queued|" "$x64|queued|"
+tree_run_case "only rows that publish does not need are in work, the macOS row queued" wait in_progress "$preflight_done" "$publisher_done" \
+  "${selects_done[@]}" 'build-windows / build x86_64-pc-windows-gnu|in_progress|' 'build-linux / build x86_64-unknown-linux-musl|in_progress|' \
+  'build-linux / build aarch64-unknown-linux-musl|completed|success' "$mac|queued|" "$arm|queued|" "$x64|queued|"
+tree_run_case "one needed row failed, no fallback row" wait in_progress "$preflight_done" "$publisher_done" \
+  "${selects_done[@]}" "${skipped_rows[@]}" "$mac|in_progress|" "$arm|completed|failure" "$x64|in_progress|"
+tree_run_case "each needed row failed and the fallback's plan waits" wait queued "$preflight_done" "$publisher_done" \
+  "${selects_done[@]}" "$mac|completed|failure" "$arm|completed|failure" "$x64|completed|failure" 'plan the macOS fallback build|queued|'
+# The runs that build the tree, in one table: $1 is what the tip gets for each of them. With the rule
+# above it is requested. A rule that requests a tip only when its manifest is published turns the
+# whole table to `wait` with this one word.
+building_runs() { # <wait|request>
+  tree_run_case "each needed row in progress" "$1" in_progress "$preflight_done" "$publisher_done" \
+    "${selects_done[@]}" "${skipped_rows[@]}" "$mac|in_progress|" "$arm|in_progress|" "$x64|in_progress|" \
+    'build-linux / build x86_64-unknown-linux-musl|queued|'
+  tree_run_case "a needed row ended green, the others in progress" "$1" in_progress "$preflight_done" "$publisher_done" \
+    "${selects_done[@]}" "${skipped_rows[@]}" "$mac|completed|success" "$arm|in_progress|" "$x64|in_progress|"
+  tree_run_case "each needed row ended green and the package job waits" "$1" queued "$preflight_done" "$publisher_done" \
+    "${selects_done[@]}" "${skipped_rows[@]}" "$mac|completed|success" "$arm|completed|success" "$x64|completed|success" \
+    'build / package distributions|queued|'
+  tree_run_case "the macOS row of build failed, the fallback's row in progress" "$1" in_progress "$preflight_done" "$publisher_done" \
+    "${selects_done[@]}" "$mac|completed|failure" "$arm|completed|success" "$x64|completed|success" \
+    'plan the macOS fallback build|completed|success' 'build-darwin-fallback / build aarch64-apple-darwin|in_progress|'
+}
+building_runs request
+# A tick reads the jobs of at most 10 runs, the newest first: 3 commits with the tip's key and 5
+# waiting runs each are 15 runs with no build row. The tip waits, says so, and costs 10 jobs reads.
+git_q -C "$src" commit --allow-empty -m "app on top"
+git_q -C "$src" commit --allow-empty -m "app on top, again"
+stacked=$(git -C "$src" rev-parse HEAD)
+branch "$stacked"
+printf '%s\n' queued queued queued queued queued > "$TMP/gh-run-statuses"
+printf '%s\n' "$preflight_done" 'build / select binary targets|queued|' > "$TMP/gh-run-jobs"
+request --tree-ready "$stacked"
+jobs_reads=$(grep -c '^api repos/o/r/actions/runs/[0-9]*/jobs?' "$TMP/gh.log" || true)
+why=""
+if [[ "$status" != 0 ]] || dispatched "$stacked"; then why="no run of these builds a tree yet and the tip must wait"
+elif ! grep -q "no build row in the 10 newest runs" <<<"$out"; then why="the wait must say that it read 10 runs"
+elif [[ "$jobs_reads" != 10 ]]; then why="a tick reads the jobs of at most 10 runs, this one read $jobs_reads"; fi
+[[ -z "$why" ]] || printf '%s: %s:\n%s\n%s\n' "15 waiting runs on 3 commits" "$why" "$out" "$(cat "$TMP/gh.log")" >> "$TMP/tree-run-fails"
+[[ ! -s "$TMP/tree-run-fails" ]] \
+  || fail "a tip is requested before its tree only when a build call of its run can still publish (a row in work or green, none waiting, none failed):" "$(cat "$TMP/tree-run-fails")"
 rm -f "$TMP/gh-run-statuses" "$TMP/gh-run-jobs" "$TMP/tree-run-fails"
 # A commit behind the tip is never requested this way.
-git_q -C "$src" commit --allow-empty -m "app on top"
-branch "$(git -C "$src" rev-parse HEAD)"
 git_q -C "$src" checkout -q --detach "$pending"
 request --tree-ready "$pending"
 ! dispatched "$pending" || fail "only the feat-cmux-next tip is requested before its tree:" "$out"
