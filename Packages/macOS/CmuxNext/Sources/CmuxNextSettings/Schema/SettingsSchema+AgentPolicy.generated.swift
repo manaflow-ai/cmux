@@ -51,7 +51,7 @@ extension SettingsSchema {
         "app.hideDockIconWithoutWindows",
         // The menu bar item; looks only, ends no work.
         "app.showMenuBarIcon",
-        "tabs.overflow",
+        "tabs.overflow", "experiments.tabBarStyle", "experiments.tabOverflow",
         // How tabs are listed (looks only)
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover",
         // Whether a lone chat's tab draws (looks only)
@@ -276,6 +276,8 @@ extension SettingsSchema {
         "agents.chats.coldArchive", "agents.chats.coldArchiveAfterDays",
         // Whether a chat's pull request link opens the cmux GitHub page or github.com in a cmux tab: both stay in cmux, with no network, privacy or destructive effect.
         "browser.openPullRequestsInGitHubPage",
+        // Which of the person's own connections a thread may move to when one runs out: it adds no connection and spends nothing past a connection's own limit.
+        "models.spreadUsage",
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil

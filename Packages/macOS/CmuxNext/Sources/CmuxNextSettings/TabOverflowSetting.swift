@@ -31,3 +31,30 @@ extension TabOverflowSetting {
     /// The cmux.json value: the default (shrink) removes the key.
     public static func fileValue(_ mode: TabOverflow) -> JSONValue? { mode == fallback ? nil : .string(mode.rawValue) }
 }
+
+/// `experiments.tabBarStyle` and `experiments.tabOverflow` in cmux.json (Settings > Experimental, off by default):
+/// the tab strip's look and overflow experiments. A missing key is off with no diagnostic; a bad value is off plus
+/// a diagnostic.
+public nonisolated struct TabStripExperimentsSetting: Sendable {
+
+    public init() {}
+
+    static func parseStyle(_ root: JSONValue) -> (TabBarStyleExperiment, SettingsDiagnostic?) {
+        parse(root, at: tabBarStylePath, path: "experiments.tabBarStyle", fallback: tabBarStyleDefault)
+    }
+
+    static func parseOverflow(_ root: JSONValue) -> (TabOverflowExperiment, SettingsDiagnostic?) {
+        parse(root, at: tabOverflowPath, path: "experiments.tabOverflow", fallback: tabOverflowDefault)
+    }
+
+    private static func parse<Arm: RawRepresentable & CaseIterable>(
+        _ root: JSONValue, at configPath: [String], path: String, fallback: Arm
+    ) -> (Arm, SettingsDiagnostic?) where Arm.RawValue == String {
+        guard let value = root.value(at: configPath) else { return (fallback, nil) }
+        guard let text = value.stringValue, let arm = Arm(rawValue: text) else {
+            let choices = Arm.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: path, message: "expected one of \(choices)"))
+        }
+        return (arm, nil)
+    }
+}

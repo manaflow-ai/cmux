@@ -247,6 +247,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var nativeNewTabPage: Bool = NativeNewTabPageSetting.fallback
     /// `tabs.overflow`; shrink when unset or invalid.
     public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
+    /// `experiments.tabBarStyle`; off when unset or invalid.
+    public var tabBarStyleExperiment: TabBarStyleExperiment = TabStripExperimentsSetting.tabBarStyleDefault
+    /// `experiments.tabOverflow`; off when unset or invalid.
+    public var tabOverflowExperiment: TabOverflowExperiment = TabStripExperimentsSetting.tabOverflowDefault
     /// `tabs.verticalTabs`; off when unset or invalid.
     public var verticalTabs: Bool = VerticalTabsSetting.fallback
     /// `tabs.verticalTabsExpandOnHover`; on when unset or invalid.
@@ -468,6 +472,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }
         snapshot.take(NativeNewTabPageSetting.parse(root), \.nativeNewTabPage)
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
+        snapshot.take(TabStripExperimentsSetting.parseStyle(root), \.tabBarStyleExperiment)
+        snapshot.take(TabStripExperimentsSetting.parseOverflow(root), \.tabOverflowExperiment)
         snapshot.take(VerticalTabsSetting.parse(root), \.verticalTabs)
         snapshot.take(VerticalTabsSetting.parseExpandOnHover(root), \.verticalTabsExpandOnHover)
         snapshot.take(LoneChatTabSetting.parse(root), \.hideLoneChatTab)

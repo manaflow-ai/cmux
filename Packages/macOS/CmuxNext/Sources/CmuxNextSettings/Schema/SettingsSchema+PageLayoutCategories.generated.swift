@@ -356,6 +356,8 @@ extension SettingsPageLayout {
         groups: [
             GroupSpec(group: "settings.group.labs", keys: ["appearance.experimentalControls"]),
             GroupSpec(group: "settings.group.appearanceTuning"),
+            // Taste builds 3 and 14 (2026-11-19): the tab strip look and overflow experiments, off by default.
+            GroupSpec(keys: ["experiments.tabBarStyle", "experiments.tabOverflow"], title: SettingsText.keyed("settings.group.tabBarExperiments", "Tab Bar")),
         ]
     )
 

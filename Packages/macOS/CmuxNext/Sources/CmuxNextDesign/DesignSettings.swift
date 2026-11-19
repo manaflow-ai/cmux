@@ -171,6 +171,10 @@ public final class DesignSettings {
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `tabs.overflow`: crowded tab strips shrink their tabs (default) or scroll sooner.
     public var tabOverflow: TabOverflow = .shrink
+    /// `experiments.tabBarStyle` (Settings > Experimental): the strip's look; off is the shipped one.
+    public var tabBarStyleExperiment: TabBarStyleExperiment = .off
+    /// `experiments.tabOverflow` (Settings > Experimental): a crowded strip's overflow; off is `tabOverflow`'s.
+    public var tabOverflowExperiment: TabOverflowExperiment = .off
     /// `tabs.verticalTabs`: every workspace shows its tabs as a vertical list unless it turned them off.
     public var verticalTabs = false
     /// `tabs.verticalTabsExpandOnHover`: a collapsed vertical tab list widens while the pointer is over it.
