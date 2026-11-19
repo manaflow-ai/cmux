@@ -14709,19 +14709,19 @@
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El servicio en segundo plano de cmux no se ejecuta, así que Mac Screen se rechaza."
+            "value": "El servicio en segundo plano de cmux no se está ejecutando, así que Mac Screen se rechaza."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le service d'arrière-plan de cmux ne tourne pas : Mac Screen est refusé."
+            "value": "Le service d'arrière-plan de cmux ne tourne pas, donc Mac Screen est refusé."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il servizio in background di cmux non è attivo, quindi Mac Screen viene rifiutato."
+            "value": "Il servizio in background di cmux non è in esecuzione, quindi Mac Screen viene rifiutato."
           }
         },
         "ja": {
@@ -14733,13 +14733,13 @@
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux មិនដំណើរការទេ ដូច្នេះ Mac Screen ត្រូវបានបដិសេធ។"
+            "value": "សេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux មិនកំពុងដំណើរការទេ ដូច្នេះ Mac Screen ត្រូវបានបដិសេធ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux의 백그라운드 서비스가 실행되고 있지 않아 Mac Screen이 거부됩니다."
+            "value": "cmux의 백그라운드 서비스가 실행되고 있지 않아 Mac Screen은 거부됩니다."
           }
         },
         "nb": {
@@ -14763,7 +14763,7 @@
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Фоновая служба cmux не запущена, поэтому Mac Screen отклонён."
+            "value": "Фоновая служба cmux не запущена, поэтому Mac Screen отклоняется."
           }
         },
         "th": {
@@ -14781,7 +14781,7 @@
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Фонова служба cmux не працює, тому Mac Screen відхилено."
+            "value": "Фонова служба cmux не працює, тому Mac Screen відхиляється."
           }
         },
         "vi": {
@@ -14793,13 +14793,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 的后台服务未运行，因此 Mac Screen 被拒绝。"
+            "value": "cmux 的后台服务未运行，因此 Mac Screen 会被拒绝。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 的背景服務未執行，因此 Mac Screen 被拒絕。"
+            "value": "cmux 的背景服務未執行，因此 Mac Screen 會被拒絕。"
           }
         }
       }
@@ -14810,7 +14810,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux doesn't trust the program answering as its background service, so Mac Screen is refused."
+            "value": "cmux doesn't trust the program answering for its background service, so Mac Screen is refused."
           }
         },
         "ar": {
@@ -14822,115 +14822,115 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ne vjeruje programu koji se javlja kao njegova pozadinska usluga, pa je Mac Screen odbijen."
+            "value": "cmux ne vjeruje programu koji se javlja umjesto njegove pozadinske usluge, pa je Mac Screen odbijen."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux stoler ikke på programmet, der svarer som dens baggrundstjeneste, så Mac Screen afvises."
+            "value": "cmux stoler ikke på det program, der svarer for dens baggrundstjeneste, så Mac Screen afvises."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux vertraut dem Programm nicht, das als sein Hintergrunddienst antwortet, daher wird Mac Screen abgelehnt."
+            "value": "cmux vertraut dem Programm nicht, das für seinen Hintergrunddienst antwortet, daher wird Mac Screen abgelehnt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux no confía en el programa que responde como su servicio en segundo plano, así que Mac Screen se rechaza."
+            "value": "cmux no confía en el programa que responde por su servicio en segundo plano, así que Mac Screen se rechaza."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ne fait pas confiance au programme qui répond comme son service d'arrière-plan : Mac Screen est refusé."
+            "value": "cmux ne fait pas confiance au programme qui répond pour son service d'arrière-plan, donc Mac Screen est refusé."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux non si fida del programma che risponde come suo servizio in background, quindi Mac Screen viene rifiutato."
+            "value": "cmux non si fida del programma che risponde per il suo servizio in background, quindi Mac Screen viene rifiutato."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmuxはバックグラウンドサービスとして応答するプログラムを信頼していないため、Mac Screenは拒否されます。"
+            "value": "cmuxはバックグラウンドサービスとして応答しているプログラムを信頼していないため、Mac Screenは拒否されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux មិនទុកចិត្តកម្មវិធីដែលឆ្លើយតបជាសេវាកម្មផ្ទៃខាងក្រោយរបស់វាទេ ដូច្នេះ Mac Screen ត្រូវបានបដិសេធ។"
+            "value": "cmux មិនទុកចិត្តកម្មវិធីដែលឆ្លើយតបជំនួសសេវាកម្មផ្ទៃខាងក្រោយរបស់វាទេ ដូច្នេះ Mac Screen ត្រូវបានបដិសេធ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux가 백그라운드 서비스로 응답하는 프로그램을 신뢰하지 않아 Mac Screen이 거부됩니다."
+            "value": "cmux가 백그라운드 서비스 대신 응답하는 프로그램을 신뢰하지 않아 Mac Screen은 거부됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux stoler ikke på programmet som svarer som bakgrunnstjenesten, så Mac Screen avvises."
+            "value": "cmux stoler ikke på programmet som svarer for bakgrunnstjenesten, så Mac Screen avvises."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux nie ufa programowi, który odpowiada jako jego usługa w tle, więc Mac Screen jest odrzucany."
+            "value": "cmux nie ufa programowi, który odpowiada za jego usługę w tle, więc Mac Screen jest odrzucany."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux não confia no programa que responde como seu serviço em segundo plano, então o Mac Screen é recusado."
+            "value": "O cmux não confia no programa que responde pelo seu serviço em segundo plano, então o Mac Screen é recusado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux не доверяет программе, отвечающей вместо его фоновой службы, поэтому Mac Screen отклонён."
+            "value": "cmux не доверяет программе, отвечающей вместо его фоновой службы, поэтому Mac Screen отклоняется."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ไม่เชื่อถือโปรแกรมที่ตอบในนามบริการเบื้องหลังของตน Mac Screen จึงถูกปฏิเสธ"
+            "value": "cmux ไม่เชื่อถือโปรแกรมที่ตอบแทนบริการเบื้องหลังของตน Mac Screen จึงถูกปฏิเสธ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux, arka plan hizmeti olarak yanıt veren programa güvenmiyor, bu yüzden Mac Screen reddedilir."
+            "value": "cmux, arka plan hizmeti adına yanıt veren programa güvenmiyor, bu yüzden Mac Screen reddedilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux не довіряє програмі, що відповідає замість його фонової служби, тому Mac Screen відхилено."
+            "value": "cmux не довіряє програмі, яка відповідає замість його фонової служби, тому Mac Screen відхиляється."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux không tin chương trình đang trả lời thay dịch vụ nền của nó nên Mac Screen bị từ chối."
+            "value": "cmux không tin chương trình đang trả lời thay cho dịch vụ nền của nó nên Mac Screen bị từ chối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 不信任替其后台服务应答的程序，因此 Mac Screen 被拒绝。"
+            "value": "cmux 不信任替其后台服务应答的程序，因此 Mac Screen 会被拒绝。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 不信任代替其背景服務回應的程式，因此 Mac Screen 被拒絕。"
+            "value": "cmux 不信任代替其背景服務回應的程式，因此 Mac Screen 會被拒絕。"
           }
         }
       }
@@ -15203,127 +15203,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Another copy of cmux's background service is running (%@): cmux can't change what this Mac allows. Quit it so cmux runs its own."
+            "value": "Another copy of cmux's background service is running (%@), so these can't change. Quit it so cmux runs its own."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تعمل نسخة أخرى من خدمة cmux في الخلفية (%@): لا يستطيع cmux تغيير ما يسمح به جهاز Mac هذا. أنهِها كي يشغّل cmux نسخته."
+            "value": "تعمل نسخة أخرى من خدمة cmux في الخلفية (%@)، لذا لا يمكن تغيير هذه. أنهِها كي يشغّل cmux نسخته."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Radi druga kopija pozadinske usluge cmux-a (%@): cmux ne može promijeniti šta ovaj Mac dozvoljava. Zatvorite je da cmux pokrene svoju."
+            "value": "Radi druga kopija pozadinske usluge cmux-a (%@), pa se ovo ne može promijeniti. Zatvorite je da cmux pokrene svoju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En anden kopi af cmux' baggrundstjeneste kører (%@): cmux kan ikke ændre, hvad denne Mac tillader. Afslut den, så cmux kører sin egen."
+            "value": "En anden kopi af cmux' baggrundstjeneste kører (%@), så disse kan ikke ændres. Afslut den, så cmux kører sin egen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Eine andere Kopie des Hintergrunddienstes von cmux läuft (%@): cmux kann nicht ändern, was dieser Mac erlaubt. Beende sie, damit cmux seinen eigenen ausführt."
+            "value": "Eine andere Kopie des Hintergrunddienstes von cmux läuft (%@), daher können diese nicht geändert werden. Beende sie, damit cmux seinen eigenen ausführt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Se está ejecutando otra copia del servicio en segundo plano de cmux (%@): cmux no puede cambiar lo que este Mac permite. Ciérrala para que cmux ejecute el suyo."
+            "value": "Se está ejecutando otra copia del servicio en segundo plano de cmux (%@), así que no se pueden cambiar. Ciérrala para que cmux ejecute el suyo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Une autre copie du service d'arrière-plan de cmux tourne (%@) : cmux ne peut pas modifier ce que ce Mac autorise. Quittez-la pour que cmux lance le sien."
+            "value": "Une autre copie du service d'arrière-plan de cmux est en cours d'exécution (%@) : ces réglages ne peuvent pas changer. Quittez-la pour que cmux lance le sien."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "È in esecuzione un'altra copia del servizio in background di cmux (%@): cmux non può modificare cosa consente questo Mac. Chiudila perché cmux avvii il proprio."
+            "value": "È in esecuzione un'altra copia del servizio in background di cmux (%@), quindi queste impostazioni non possono cambiare. Chiudila perché cmux avvii il proprio."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmuxのバックグラウンドサービスの別のコピーが動作しているため（%@）、cmuxはこのMacが許可している内容を変更できません。終了すると、cmuxが自身のサービスを起動します。"
+            "value": "cmuxのバックグラウンドサービスの別のコピーが動作しているため（%@）、これらは変更できません。終了すると、cmuxが自身のサービスを起動します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ច្បាប់ចម្លងមួយផ្សេងទៀតនៃសេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux កំពុងដំណើរការ (%@)៖ cmux មិនអាចផ្លាស់ប្តូរអ្វីដែល Mac នេះអនុញ្ញាតបានទេ។ បិទវា ដើម្បីឱ្យ cmux ដំណើរការរបស់ខ្លួនវិញ។"
+            "value": "ច្បាប់ចម្លងមួយផ្សេងទៀតនៃសេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux កំពុងដំណើរការ (%@) ដូច្នេះការកំណត់ទាំងនេះមិនអាចផ្លាស់ប្តូរបានទេ។ បិទវា ដើម្បីឱ្យ cmux ដំណើរការរបស់ខ្លួនវិញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 백그라운드 서비스의 다른 사본이 실행 중이어서(%@) cmux가 이 Mac이 허용하는 항목을 변경할 수 없습니다. 종료하면 cmux가 자체 서비스를 실행합니다."
+            "value": "cmux 백그라운드 서비스의 다른 사본이 실행 중이어서(%@) 이 항목을 변경할 수 없습니다. 종료하면 cmux가 자체 서비스를 실행합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En annen kopi av bakgrunnstjenesten til cmux kjører (%@): cmux kan ikke endre hva denne Macen tillater. Avslutt den så cmux kjører sin egen."
+            "value": "En annen kopi av bakgrunnstjenesten til cmux kjører (%@), så disse kan ikke endres. Avslutt den så cmux kjører sin egen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Działa inna kopia usługi w tle cmux (%@): cmux nie może zmienić, na co ten Mac zezwala. Zamknij ją, aby cmux uruchomił własną."
+            "value": "Działa inna kopia usługi w tle cmux (%@), więc nie można tego zmienić. Zamknij ją, aby cmux uruchomił własną."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Outra cópia do serviço em segundo plano do cmux está em execução (%@): o cmux não pode alterar o que este Mac permite. Encerre-a para que o cmux execute o seu."
+            "value": "Outra cópia do serviço em segundo plano do cmux está em execução (%@), então isso não pode mudar. Encerre-a para que o cmux execute o seu."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запущена другая копия фоновой службы cmux (%@): cmux не может изменить, что разрешает этот Mac. Завершите её, чтобы cmux запустил свою."
+            "value": "Запущена другая копия фоновой службы cmux (%@), поэтому это нельзя изменить. Завершите её, чтобы cmux запустил свою."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สำเนาอื่นของบริการเบื้องหลังของ cmux กำลังทำงานอยู่ (%@) cmux จึงเปลี่ยนสิ่งที่ Mac เครื่องนี้อนุญาตไม่ได้ ปิดมันเพื่อให้ cmux เรียกใช้ของตัวเอง"
+            "value": "สำเนาอื่นของบริการเบื้องหลังของ cmux กำลังทำงานอยู่ (%@) จึงเปลี่ยนค่าเหล่านี้ไม่ได้ ปิดมันเพื่อให้ cmux เรียกใช้ของตัวเอง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux'un arka plan hizmetinin başka bir kopyası çalışıyor (%@): cmux bu Mac'in neye izin verdiğini değiştiremiyor. cmux'un kendisininkini çalıştırması için onu kapatın."
+            "value": "cmux'un arka plan hizmetinin başka bir kopyası çalışıyor (%@), bu yüzden bunlar değiştirilemez. cmux'un kendisininkini çalıştırması için onu kapatın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Працює інша копія фонової служби cmux (%@): cmux не може змінити, що дозволяє цей Mac. Закрийте її, щоб cmux запустив свою."
+            "value": "Працює інша копія фонової служби cmux (%@), тому це не можна змінити. Закрийте її, щоб cmux запустив свою."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Một bản khác của dịch vụ nền cmux đang chạy (%@) nên cmux không thay đổi được máy Mac này cho phép gì. Hãy thoát nó để cmux chạy bản của chính mình."
+            "value": "Một bản khác của dịch vụ nền cmux đang chạy (%@) nên không thể thay đổi những mục này. Hãy thoát nó để cmux chạy bản của chính mình."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在运行 cmux 后台服务的另一个副本（%@），因此 cmux 无法更改这台 Mac 允许的内容。退出它，让 cmux 运行自己的服务。"
+            "value": "正在运行 cmux 后台服务的另一个副本（%@），因此这些无法更改。退出它，让 cmux 运行自己的服务。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在執行 cmux 背景服務的另一個副本（%@），因此 cmux 無法變更這台 Mac 允許的內容。結束它，讓 cmux 執行自己的服務。"
+            "value": "正在執行 cmux 背景服務的另一個副本（%@），因此這些無法變更。結束它，讓 cmux 執行自己的服務。"
           }
         }
       }

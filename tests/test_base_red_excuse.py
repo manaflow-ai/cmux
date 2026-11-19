@@ -7679,6 +7679,68 @@ class WsCheckPerTest(unittest.TestCase):
                          [f"no red run or check named on {HEAD}: no failure to excuse"])
 
 
+class WsCheckFleetRoute(unittest.TestCase):
+    """2026-11-18: merge_hold refused teamleaderleo/leo-workspace#5992 twice, "'ws-check' has no result: job 'checks'
+    in run 44407040407 is completed/cancelled: no result to read". The broker had cancelled that run and the build
+    fleet ran it; the verdict is in the fleet log the broker keeps beside the run's record (fleet_kept_log)."""
+    RED = WsCheckPerTest.DEPLOY
+
+    def setUp(self):
+        self.gh = WsCheckGitHub()
+        red = {self.RED: WsCheckPerTest.ws_deploy(None, "test_a")}
+        self.gh.verdict(HEAD, 1, red)
+        self.gh.verdict(self.gh.TIP, 2, red)
+        # HEAD's run 1 as the broker leaves it: its one check job cancelled, its log only on the fleet.
+        log = self.gh.logs.pop(11)
+        self.fleet_lines = [line.split(" ", 1)[1] for line in log.splitlines()]
+        for job in self.gh.jobs[1]:
+            job["conclusion"] = "cancelled"
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        self.folder = Path(folder)
+        env = unittest.mock.patch.dict(os.environ, {excuse.FLEET_RECORDS_ENV: folder})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def keep(self, *, run=1, receipt_run=1, conclusion="failure", state="done", ran_on="build-fleet"):
+        record = {"id": "j1", "repo": self.gh.REPO, "dispatch": self.gh.HOST, "run_id": run, "conclusion": conclusion,
+                  "fleet": {"from_run": run, "state": state, "steps": [{"where": "linux-pool", "job_id": "f1"}]}}
+        (self.folder / "j1.json").write_text(json.dumps(record))
+        receipt = {"source_sha": HEAD, "run_id": str(receipt_run), "ran_on": ran_on, "exit_code": 1}
+        (self.folder / "j1.fleet-log").write_text(
+            "\n".join(self.fleet_lines + ["FAST_CHECKS_RECEIPT=" + json.dumps(receipt)]) + "\n")
+
+    def judge(self):
+        return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh)
+
+    def test_a_fleet_run_with_no_kept_log_has_no_result(self):
+        with self.assertRaisesRegex(excuse.Refused, r"'ws-check' has no result on .*completed/cancelled: no result "
+                                                    r"to read \(and this host keeps no build-fleet log"):
+            self.judge()
+
+    def test_a_fleet_runs_kept_log_is_read_and_its_base_red_excused(self):
+        self.keep()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+
+    def test_a_fleet_runs_own_red_is_still_refused(self):
+        self.fleet_lines = [line.replace("test_a", "test_b") for line in self.fleet_lines]
+        self.keep()
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_b"):
+            self.judge()
+
+    def test_a_kept_log_not_held_to_this_run_and_verdict_is_not_read(self):
+        for kwargs in ({"run": 7}, {"conclusion": "success"}, {"state": "running"}):
+            with self.subTest(**kwargs):
+                self.keep(**kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "has no result on"):
+                    self.judge()
+        for kwargs in ({"receipt_run": 7}, {"ran_on": "actions"}):
+            with self.subTest(**kwargs):
+                self.keep(**kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "has no FAST_CHECKS_RECEIPT naming that run"):
+                    self.judge()
+
+
 class WsCheckFailureText(unittest.TestCase):
     """2026-11-17: teamleaderleo/leo-workspace#5683 at 16b96c09 merged through merge_hold with its ws-check red excused
     as a base red, since main d240eaab failed the same test_text_io_encoding.py test. The head's failure listed a new
