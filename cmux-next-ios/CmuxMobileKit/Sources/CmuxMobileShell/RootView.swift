@@ -325,7 +325,7 @@ public struct RootView: View {
     private func planSetup() {
         guard auth.teamList.isLoaded, setupPlan == nil, let asksNotifications else { return }
         var steps: [SetupFlow.Step] = []
-        let count = auth.isMock ? store.teams.count : auth.teamList.teams.count
+        let count = auth.isMock || auth.isReviewDemo ? store.teams.count : auth.teamList.teams.count
         if count != 1 { steps.append(.team) }
         if !(store.activeTeam?.macs.contains(where: \.isOnline) ?? false) { steps.append(.pairMac) }
         if asksNotifications { steps.append(.notifications) }
@@ -338,6 +338,8 @@ public struct RootView: View {
     private func syncTeams() {
         let teams = auth.teams
         log.info("Stack teams: \(teams.count, privacy: .public)")
+        // The review demo account keeps its demo space (accountChanged).
+        guard !auth.isReviewDemo else { return }
         if let live {
             // Live: Macs come from the cmux-next-ios service, never the samples. An
             // account with no team uses its personal space, once that is known.
@@ -423,6 +425,14 @@ public struct RootView: View {
             live?.stop()
             live = nil
             setupPlan = nil
+            return
+        }
+        // The App Review demo account: its demo Mac and workspaces, and no live
+        // data (nothing dials a Mac, nothing registers this phone for pushes).
+        if auth.isReviewDemo {
+            live?.stop()
+            live = nil
+            if store.teams.first?.id != AppStore.reviewDemoTeamID { store.loadReviewDemo() }
             return
         }
         #if DEBUG

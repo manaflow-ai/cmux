@@ -37,6 +37,17 @@ public final class CmuxMobileAuthModel {
         public let id: String
         public let name: String
         public let email: String?
+        /// The App Review demo account (Stack's read-only `cmuxReviewDemoContent`
+        /// metadata, which only the server writes): the app shows a demo Mac and
+        /// never dials a real one.
+        public let reviewDemo: Bool
+
+        public init(id: String, name: String, email: String?, reviewDemo: Bool = false) {
+            self.id = id
+            self.name = name
+            self.email = email
+            self.reviewDemo = reviewDemo
+        }
 
         public var initials: String {
             let parts = name.split(separator: " ").prefix(2)
@@ -66,6 +77,11 @@ public final class CmuxMobileAuthModel {
     /// (`CloudIdentity.workerUserID` on the Mac). Nil in mock mode.
     public let stackProjectID: String?
     private var mockSignedIn: Bool
+    /// DEBUG `CMUX_MOBILE_REVIEW_DEMO=1`: the signed-in account (a development or the
+    /// mock one) acts as the App Review demo account, for fleet simulator and UI test
+    /// proof of the demo, which the server flag gates in shipping builds. Always false
+    /// outside DEBUG.
+    @ObservationIgnored var forcesReviewDemo = false
 
     /// The provider whose flow is in flight (its button shows a spinner).
     public private(set) var busyProvider: Provider?
@@ -101,6 +117,7 @@ public final class CmuxMobileAuthModel {
         if environment["CMUX_MOBILE_MOCK_AUTH"] == "1" || DeveloperOptions.mockData {
             let model = CmuxMobileAuthModel(coordinator: nil, isMock: true)
             model.mockSignedIn = environment["CMUX_MOBILE_CLEAR_AUTH"] != "1"
+            model.forcesReviewDemo = environment["CMUX_MOBILE_REVIEW_DEMO"] == "1"
             return model
         }
         #else
@@ -180,10 +197,14 @@ public final class CmuxMobileAuthModel {
             teamAPIBase: URL(string: config.apiBaseURL),
             mobileServiceBase: apiBase
         )
-        return CmuxMobileAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase,
-                                   teamCreationRoute: teamCreationRoute, accountAPIBase: URL(string: config.apiBaseURL),
-                                   isMock: false, stackProjectID: config.stack.projectId,
-                                   billingOriginOverride: isDebug ? environment["CMUX_MOBILE_BILLING_ORIGIN"] : nil)
+        let model = CmuxMobileAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase,
+                                        teamCreationRoute: teamCreationRoute, accountAPIBase: URL(string: config.apiBaseURL),
+                                        isMock: false, stackProjectID: config.stack.projectId,
+                                        billingOriginOverride: isDebug ? environment["CMUX_MOBILE_BILLING_ORIGIN"] : nil)
+        #if DEBUG
+        model.forcesReviewDemo = environment["CMUX_MOBILE_REVIEW_DEMO"] == "1"
+        #endif
+        return model
     }
 
     /// The token store a launch uses: the app's own, which a DEBUG build fills, while it holds no
@@ -233,7 +254,14 @@ public final class CmuxMobileAuthModel {
         }
         guard let user = coordinator?.currentUser else { return nil }
         let name = user.displayName?.isEmpty == false ? user.displayName! : (user.primaryEmail ?? "cmux user")
-        return User(id: user.id, name: name, email: user.primaryEmail)
+        return User(id: user.id, name: name, email: user.primaryEmail, reviewDemo: user.demonstrationContentEnabled)
+    }
+
+    /// Signed in to the App Review demo account (``User/reviewDemo``): its teams, Mac
+    /// and workspaces are the demo's (`AppStore.loadReviewDemo`), with no live data.
+    public var isReviewDemo: Bool {
+        guard isSignedIn, let user else { return false }
+        return forcesReviewDemo || (!isMock && user.reviewDemo)
     }
 
     /// Stack teams for the signed-in account (empty in mock mode, whose

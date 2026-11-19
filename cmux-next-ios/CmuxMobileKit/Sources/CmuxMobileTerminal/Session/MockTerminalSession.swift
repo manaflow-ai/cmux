@@ -1,5 +1,5 @@
-// DEBUG and Demo builds only: mock content is never compiled into Production.
-#if DEBUG
+// In every build: DEBUG mock mode and the App Review demo account (server-flagged,
+// AppStore.loadReviewDemo) use it. A live account never does (TerminalSessionChoice).
 import CmuxMobileTransport
 import Foundation
 
@@ -283,7 +283,7 @@ public final class MockTerminalSession: TerminalSession {
             write("\u{1B}[H\u{1B}[2J")
             write("\u{1B}[32m❯\u{1B}[0m \(line)")
         case .control("d"):
-            if line.isEmpty { write("\r\n\u{1B}[2m(mock) exit is disabled\u{1B}[0m"); prompt() }
+            if line.isEmpty { write("\r\n\u{1B}[2mexit is disabled in this session\u{1B}[0m"); prompt() }
         case .up:
             guard let last = history.last else { return }
             write(String(repeating: "\u{8} \u{8}", count: line.count))
@@ -341,7 +341,7 @@ public final class MockTerminalSession: TerminalSession {
             // `codex N`: N rows of an earlier answer above the box.
             let rule = String(repeating: "-", count: max(10, min(40, columns - 2)))
             let earlier = (0..<(parts.count > 1 ? Int(parts[1]) ?? 0 : 0)).map { "• earlier answer row \($0 + 1)\r\n" }.joined()
-            write("\u{1B}[H\u{1B}[2J\u{1B}[3J" + earlier + "╭\(rule)╮\r\n│ >_ OpenAI Codex (mock)\r\n│ model: gpt-6 high   /model to change\r\n│ directory: ~/cmux-next\r\n╰\(rule)╯\r\n\r\n"
+            write("\u{1B}[H\u{1B}[2J\u{1B}[3J" + earlier + "╭\(rule)╮\r\n│ >_ OpenAI Codex\r\n│ model: gpt-6 high   /model to change\r\n│ directory: ~/cmux-next\r\n╰\(rule)╯\r\n\r\n"
                 + "  To get started, describe a task or try one of these commands:\r\n\r\n  /init - create an AGENTS.md file\r\n  /status - show current session configuration\r\n\r\n"
                 + "› Ask Codex to do anything\r\n\r\n  ? for shortcuts                          100% context left")
             write("\u{1B}[2A\r\u{1B}[2C")
@@ -441,4 +441,3 @@ enum MockKey: Equatable {
         }
     }
 }
-#endif

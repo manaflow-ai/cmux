@@ -73,6 +73,7 @@ final class ShellModel {
     /// The same load is retried from Workspaces; mock recovery reloads its fixture.
     func retryWorkspaces() async {
         if let live { live.retry(); return }
+        if reviewDemo { store.loadReviewDemo(); return }
         #if DEBUG
         if mockMode {
             let loaded = AppStore.mock()
@@ -92,6 +93,9 @@ final class ShellModel {
     private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
     let mockMode: Bool
+    /// The App Review demo account (server-flagged, any build): demo terminals
+    /// and pages on its demo Mac, no live link (`AppStore.loadReviewDemo`).
+    let reviewDemo: Bool
     /// Send Message… on a workspace or a tab: the message to the Chief being written.
     var messagingChief: ChiefMessageAbout?
     /// Message Chief (an App Intent, the Mac's Message the Chief from Any App): its draft.
@@ -148,8 +152,10 @@ final class ShellModel {
         terminalTabs.accountUserIDProvider = { [weak auth] in auth?.user?.id }
         // Mock content only in DEBUG mock mode (mock auth); a live account
         // never falls back to it.
-        let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock
+        // The review demo (a DEBUG test forces it on the mock account too) has its own content.
+        let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock && !auth.isReviewDemo
         self.mockMode = mockMode
+        reviewDemo = auth.isReviewDemo
         #if DEBUG
         // `-cmux-mobile-mock-create-delay <seconds>` holds mock creations open, so
         // the list's pending row can be seen (verify/record-wsdesign.sh).
@@ -232,7 +238,7 @@ final class ShellModel {
         // New Task's drafts: on disk for a signed-in account, in memory on sample data.
         creator = WorkspaceCreator(store: store, backend: offlineCreation,
                                    taskDrafts: TaskDraftStore(directory: mockMode ? nil : Self.taskDraftsFolder(account: auth.user?.id)))
-        terminalTabs.mockDataEnabled = mockMode
+        terminalTabs.mockDataEnabled = mockMode || reviewDemo
         terminalTabs.macName = { [weak store] workspace in
             store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name
         }

@@ -1,5 +1,5 @@
-// DEBUG and Demo builds only: mock content is never compiled into Production.
-#if DEBUG
+// In every build: DEBUG mock mode and the App Review demo account (server-flagged,
+// AppStore.loadReviewDemo) use it. A live account never does (TerminalSessionChoice).
 import Foundation
 
 /// Scripted output of the mock shell. Paths and URLs in it feed the artifacts list.
@@ -24,7 +24,7 @@ struct MockOutput {
         for (name, isDirectory, size, date) in entries {
             let mode = isDirectory ? "drwxr-xr-x" : "-rw-r--r--"
             let shown = isDirectory ? sgr("1;34", name) : name
-            lines.append("\(mode)  \(sgr("33", "aziz")) staff \(sgr("32", size.leftPad(5))) \(sgr("2", date)) \(shown)")
+            lines.append("\(mode)  \(sgr("33", "demo")) staff \(sgr("32", size.leftPad(5))) \(sgr("2", date)) \(shown)")
         }
         return lines
     }
@@ -83,9 +83,9 @@ struct MockOutput {
             "sha2 v0.10.8", "rand_core v0.6.4", "rand v0.8.5", "x25519-dalek v2.0.1", "chacha20poly1305 v0.10.1",
             "boringtun v0.6.0", "smoltcp v0.12.0", "webrtc-util v0.9.0", "webrtc-dtls v0.10.0", "webrtc-sctp v0.10.0",
             "webrtc-data v0.10.0", "webrtc-ice v0.11.0", "webrtc v0.12.0", "uniffi_core v0.28.3", "uniffi v0.28.3",
-            "cmux-mobile-proto v0.1.0 (/Users/aziz/cmux-next/cmux-next-ios/rust/cmux-mobile-proto)",
-            "cmux-mobile-link v0.1.0 (/Users/aziz/cmux-next/cmux-next-ios/rust/cmux-mobile-link)",
-            "cmux-mobile-host v0.1.0 (/Users/aziz/cmux-next/cmux-next-ios/rust/cmux-mobile-host)",
+            "cmux-mobile-proto v0.1.0 (/Users/demo/cmux-next/cmux-next-ios/rust/cmux-mobile-proto)",
+            "cmux-mobile-link v0.1.0 (/Users/demo/cmux-next/cmux-next-ios/rust/cmux-mobile-link)",
+            "cmux-mobile-host v0.1.0 (/Users/demo/cmux-next/cmux-next-ios/rust/cmux-mobile-host)",
         ]
         var lines: [String] = [sgr("1;32", "    Updating") + " crates.io index"]
         var round = 0
@@ -173,7 +173,7 @@ struct MockHtop {
         for index in 0..<listRows {
             let name = processes[(index + tick / 3) % processes.count]
             let cpu = max(0, 38.0 / Double(index + 1) + Double((tick * 7 + index * 13) % 9) - 2)
-            let row = String(format: "%7d %@ %5.1f %4.1f %3d:%02d.%02d  ", 4000 + index * 37, "aziz    ", cpu,
+            let row = String(format: "%7d %@ %5.1f %4.1f %3d:%02d.%02d  ", 4000 + index * 37, "demo    ", cpu,
                              Double((index * 7) % 40) / 10, index, (tick + index) % 60, (index * 11) % 100)
             let selected = index == 0
             line(14 + index, (selected ? "\(esc)30;46m" : "") + (row + name).rightPad(columns) + "\(esc)0m")
@@ -304,4 +304,3 @@ struct MockVim {
         return text
     }
 }
-#endif
