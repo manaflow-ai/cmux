@@ -244,10 +244,12 @@ struct CloudTerminalPlacementTests {
             // The fixture also records the source's creation, so find this request by its command.
             try await settled { provider.creationRequests.contains { $0.commandOverride?.last == "echo runs-remotely" } }
             let request = try #require(provider.creationRequests.first { $0.commandOverride?.last == "echo runs-remotely" })
+            #expect(request.workingDirectory == "/remote/project")
             // `cmux new-surface --command` sends the command as one typed line.
             #expect(workspace.newTerminalSurfaceOutcome(inPane: pane, initialInput: "echo typed-remotely\r").isAccepted)
             try await settled { provider.creationRequests.contains { $0.commandOverride?.last == "echo typed-remotely" } }
             let typed = try #require(provider.creationRequests.first { $0.commandOverride?.last == "echo typed-remotely" })
+            #expect(typed.commandOverride == SSHTuiConnection.typedCommandArguments("echo typed-remotely"))
             #expect(!workspace.newTerminalSurfaceOutcome(inPane: pane, initialInput: "one\ntwo\r").isAccepted)
             #expect(!workspace.newTerminalSurfaceOutcome(
                 inPane: pane, initialCommand: "echo both", initialInput: "echo typed\r"

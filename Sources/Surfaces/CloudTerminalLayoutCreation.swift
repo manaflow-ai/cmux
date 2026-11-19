@@ -15,6 +15,7 @@ struct CloudTerminalLayoutCreation: Sendable {
     var initialState: CloudVMState? = nil
     var commandDeadline: Duration = .seconds(30)
     var terminalCommand: [String] = CloudTuiCommandLine.defaultTerminalCommand
+    var terminalWorkingDirectory: String?
 
     /// Reconciles rejected revisions within one operation deadline. Every attempt
     /// revalidates placement and retains the intent's idempotency key.
@@ -61,7 +62,8 @@ struct CloudTerminalLayoutCreation: Sendable {
             }
             let arguments = CloudTuiRequests.paneCreate(
                 paneID: pane.id, direction: splitDirection?.rawValue,
-                command: terminalCommand, revision: state.cursor?.revision,
+                command: terminalCommand, cwd: splitDirection == nil ? terminalWorkingDirectory : nil,
+                revision: state.cursor?.revision,
                 key: idempotencyKey, correlationKey: correlationKey
             )
             do {
