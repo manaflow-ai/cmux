@@ -397,6 +397,15 @@ impl RegistryConnection {
             .map_or(0, super::wal_durability::WalDurability::unrequested_commits)
     }
 
+    /// MEASURE, NOT FOR A MERGE: asks for a flush of each commit, waits for the
+    /// syncer, and returns its checkpoints (`WalDurability::checkpoints_after_flush`).
+    #[cfg(test)]
+    pub(crate) fn checkpoints_after_flush_for_test(&self) -> u64 {
+        self.durability
+            .as_ref()
+            .map_or(0, super::wal_durability::WalDurability::checkpoints_after_flush)
+    }
+
     /// (committed, synced) registry commits for `server-stats` `write_path`.
     ///
     /// The committed count is also a CORRECTNESS key, not only a diagnostic: the session snapshot cache
