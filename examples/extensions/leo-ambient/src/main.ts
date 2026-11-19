@@ -7,7 +7,7 @@
 // pushed by the daemon; github.changes is read only while the checks are on. The extension runs no
 // timer of its own: the widget's countdowns read the host's minute tick (ctx.now()).
 import {
-  BigNumber, bySize, Caption, Capsule, Circle, cmux, computed, ForEach, HStack, newTab, onCleanup, Ring, signal,
+  BigNumber, bySize, Caption, Capsule, Circle, cmux, computed, ForEach, HStack, newTab, onCleanup, signal,
   Spacer, Text, VStack, widget, WidgetEmpty, WidgetFrame, WidgetTitle, ZStack, type View, type WidgetContext
 } from "cmux-extension-sdk"
 import { ci, countdown, dollars, fleet, providers, tokens, type Change, type ChatRow, type CiState, type Host, type Provider, type Window } from "./ambient.ts"
@@ -41,14 +41,23 @@ const CI_TONE: Record<CiState, () => string> = {
 }
 const CI_WORD: Record<CiState, string> = { failing: "Failing", pending: "Running", passing: "All green", none: "No checks" }
 
+/** One ring: a track and an arc whose color follows how full the window is (the SDK Ring takes a fixed tint). */
+function ring(w: () => Window | null, size: number, width: number): View {
+  return ZStack([
+    Circle().stroke(cmux.theme.separator).strokeWidth(width).size(size),
+    Circle()
+      .stroke(() => tone(w()))
+      .strokeWidth(width)
+      .size(size)
+      .trim(() => ({ to: (w()?.usedPercent ?? 0) / 100, lineCap: "round" }))
+      .animation("smooth")
+  ])
+}
+
 /** A provider's two rings: the 5-hour window outside, the week inside. */
 function rings(p: () => Provider, size: number): View {
   const width = Math.max(4, Math.round(size / 9))
-  const inner = size - 2 * width - 4
-  return ZStack([
-    Ring(() => (p().session?.usedPercent ?? 0) / 100, { tint: () => tone(p().session), width }).frame({ width: size, height: size }),
-    Ring(() => (p().weekly?.usedPercent ?? 0) / 100, { tint: () => tone(p().weekly), width }).frame({ width: inner, height: inner })
-  ]).frame({ width: size, height: size })
+  return ZStack([ring(() => p().session, size, width), ring(() => p().weekly, size - 2 * width - 4, width)]).frame({ width: size, height: size })
 }
 
 const pct = (w: Window | null) => (w ? `${Math.round(w.usedPercent)}%` : "–")
