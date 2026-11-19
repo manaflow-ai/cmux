@@ -4,9 +4,9 @@ import Foundation
 /// Resources/Extensions.xcstrings.
 enum ExtensionStrings {
     static var needsChromiumTab: String { String(localized: "extensions.failed.needsChromiumTab", defaultValue: "Focus a Chromium tab first; extensions run in Chromium tabs.", table: "Extensions", bundle: .module.strings) }
-    static var needsFork: String { String(localized: "extensions.failed.needsFork", defaultValue: "This Chromium runtime cannot manage extensions; use Manage Extensions.", table: "Extensions", bundle: .module.strings) }
+    static var needsFork: String { String(localized: "extensions.failed.needsFork", defaultValue: "Extensions can't be changed from here. Use Manage Extensions.", table: "Extensions", bundle: .module.strings) }
     static var needsPane: String { String(localized: "extensions.failed.needsPane", defaultValue: "No pane is focused.", table: "Extensions", bundle: .module.strings) }
-    static var refused: String { String(localized: "extensions.failed.refused", defaultValue: "Chromium refused the change (policy, or the extension cannot be changed).", table: "Extensions", bundle: .module.strings) }
+    static var refused: String { String(localized: "extensions.failed.refused", defaultValue: "Couldn't change this extension. Try it in Manage Extensions.", table: "Extensions", bundle: .module.strings) }
     static var noOptions: String { String(localized: "extensions.failed.noOptions", defaultValue: "This extension has no options page.", table: "Extensions", bundle: .module.strings) }
     static var commandFailed: String { String(localized: "extensions.failed.command", defaultValue: "The extension shortcut could not run.", table: "Extensions", bundle: .module.strings) }
     static var chooseFolder: String { String(localized: "extensions.panel.chooseFolder", defaultValue: "Choose an unpacked extension folder (it contains manifest.json).", table: "Extensions", bundle: .module.strings) }

@@ -38,11 +38,12 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// `github` (a new Cloud chat only, githubRepos.ts) adds the person's GitHub repositories under the
 /// folders: a GitHub group, filtered by the same search, whose pick is the folder `github:owner/name`,
 /// ending in Choose more repositories… (the installation's page on GitHub) so a connected team always sees it.
-/// GitHub is optional: until it is connected (the cmux GitHub App not installed, signed out, no GitHub
-/// App on this Cloud service, or the check did not answer) one Connect to GitHub row ends the list, and
-/// one click connects in place: the host opens the install page, or sign-in when signed out, the menu
-/// stays open and lists the repositories once the status says ready. Its second line is a refusal (a
-/// click tries again), the wait for the browser, or why it can't connect yet. It never picks a folder.
+/// GitHub is optional: while the cmux GitHub App is not installed, or the person is signed out, one
+/// Connect to GitHub row ends the list (none once connected, none on a Cloud service with no GitHub
+/// App, none while the check did not answer), and one click connects in place: the host opens the
+/// install page, or sign-in when signed out, the menu stays open and lists the repositories once the
+/// status says ready. The row is its title alone; only a refusal (a click tries again) adds a second
+/// line. GitHub's own page is the one wait: no Waiting for GitHub… under the row. It never picks a folder.
 /// Before the first status read answers, nothing shows.
 export function FolderPopover({
   label,
@@ -163,7 +164,13 @@ export function FolderPopover({
     [githubReady, githubRepos, typed],
   );
   const githubRows = [
-    ...(githubStatus === "not_connected" || githubStatus === "unavailable" ? [GITHUB_ADD] : []),
+    // Connect to GitHub only where a click can connect: not connected, or signed out (the click signs in
+    // first). Never once connected, nor while the check did not answer (a connected team's check can
+    // fail), nor on a Cloud service with no GitHub App (#46018).
+    ...(githubStatus === "not_connected" ||
+    (githubStatus === "unavailable" && github?.state.status?.reason === "signed_out")
+      ? [GITHUB_ADD]
+      : []),
     ...repos.map((repo) => GITHUB_REPO + repo.fullName),
     // Connected: the way to GitHub's own page for the installation always shows, so a team whose
     // installation grants no repository yet sees GitHub here, not a menu with nothing of it.
@@ -259,16 +266,9 @@ export function FolderPopover({
     const section = value === githubRows[0] && value !== GITHUB_ADD ? t("cloudRepository.github") : undefined;
     if (value === GITHUB_ADD) {
       const reason = githubStatus === "unavailable" ? github?.state.status?.reason : undefined;
-      // The host's refusal, else the wait for the browser, else why it can't connect yet.
-      const detail =
-        github?.state.connectError ??
-        (github?.state.waiting
-          ? t("composer.githubWaiting")
-          : reason === "not_configured"
-            ? t("composer.githubNotConfiguredDetail")
-            : reason === "signed_out"
-              ? t("composer.githubSignInDetail")
-              : undefined);
+      // The title alone: GitHub's own page is the one place the person waits, so the row adds no
+      // Waiting for GitHub… nor a reason under it. Only a click the host refused says why (#46018).
+      const detail = github?.state.connectError;
       return (
         <span className="acpmux-location-action acpmux-location-row" data-github="" data-github-unavailable={reason}>
           <span className="acpmux-location-action-icon" aria-hidden="true">
