@@ -24,6 +24,8 @@ name: Cloud VM image roll
 #
 # images/cmux-vm/auto-roll.json is the switch: "off" (only a dispatch runs), "dry-run" (bake and gate, then
 # make the commit and upload its diff without pushing) or "live". The dispatch input dry_run overrides it.
+# Its large_image (false unless set) also bakes the large image and publishes it on the image's entry, only when
+# the Worker at the tip reads `large` (workers/cmux-vm/README.md, "Rolling a new image").
 #
 # Concurrency: one roll runs at a time, and one waits. A newer request replaces the waiting one (GitHub's
 # pending-run replacement), so a burst of merges bakes the newest build next. A running roll is never
@@ -114,6 +116,7 @@ jobs:
       pin: ${{ steps.plan.outputs.pin }}
       dry_run: ${{ steps.plan.outputs.dry_run }}
       plan: ${{ steps.plan.outputs.plan }}
+      large: ${{ steps.plan.outputs.large }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -159,6 +162,7 @@ jobs:
             echo "pin=$(jq -r .pin "$RUNNER_TEMP/plan.json")"
             echo "dry_run=$(jq -r .dryRun "$RUNNER_TEMP/plan.json")"
             echo "plan=$(jq -c . "$RUNNER_TEMP/plan.json")"
+            echo "large=$(jq -r .large "$RUNNER_TEMP/plan.json")"
           } >> "$GITHUB_OUTPUT"
           {
             echo "### Cloud VM image roll: plan"
@@ -181,6 +185,9 @@ jobs:
       probes: true
       agent_tools: true
       layered: true
+      # images/cmux-vm/auto-roll.json large_image (off by default): the bake also makes and smokes the large image
+      # and records it on the candidate. A large image that fails is a warning there, never a red roll.
+      large_image: ${{ needs.plan.outputs.large == 'true' }}
       roll: true
       cmux_tui_commit: ${{ needs.plan.outputs.pin }}
     # The bake's Freestyle key and UI test login are repository secrets: a called workflow gets them only when
@@ -212,6 +219,14 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+      # auto-roll.ts approve publishes the candidate's large image only when the tip's Worker reads `large`, and it
+      # asks the Worker's own list parser (workerReadsLarge), which needs the Worker's dependencies. Before any
+      # token is minted, and with no package scripts. A failed install rolls the image without its large image.
+      - name: Install the Worker's dependencies (to ask it whether it reads a large image)
+        if: needs.plan.outputs.large == 'true'
+        continue-on-error: true
+        working-directory: workers/cmux-vm
+        run: bun install --frozen-lockfile --ignore-scripts
       - name: Write the roll commit's message
         id: message
         env:

@@ -12,7 +12,12 @@
 //   bun images/cmux-vm/auto-roll.ts approve --candidate <channel-dev.json> --revision <ci-RUN-ATTEMPT>
 //       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>]
 //     Puts the baked, gated image first in production's VM_BOOT_IMAGES and last in staging's, trims the
-//     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked.
+//     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked. The entry carries
+//     the candidate's large image (`large`) only when auto-roll.json says large_image: true and the Worker beside
+//     that wrangler.jsonc reads the field (workerReadsLarge).
+//   bun images/cmux-vm/auto-roll.ts lists [--wrangler <path>] [--lock <path>]
+//     cmux-vm.yml's short check: both lists parse and fit the binding limit, the lock parses, and an entry
+//     carries `large` only beside a Worker that reads it. Exits 1 otherwise.
 //   bun images/cmux-vm/auto-roll.ts rollback --image <id> [--wrangler <path>]
 //     Removes an auto-rolled image from both lists wherever it is, so it can never be first again (when it was
 //     first, the entry before it boots again). Prints what it did; never removes a hand-approved image.
@@ -29,7 +34,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const DEFAULT_WRANGLER = path.join(ROOT, "workers/cmux-vm/wrangler.jsonc");
@@ -40,6 +45,11 @@ export const MODE_FILE = path.join(ROOT, "images/cmux-vm/auto-roll.json");
 export const AUTO_PREFIX = "cloud-native-auto-";
 /** Auto-rolled entries each list keeps (the newest); older ones leave the list, never a hand-approved one. */
 export const KEEP_AUTO = 6;
+/**
+ * The fewest auto-rolled entries the byte trim (trimToFit) leaves: the one that boots, the one a rollback of it boots
+ * again, and one more for a rollback already in flight (MAX_ROLLS_BEHIND). A list that needs fewer to fit is refused.
+ */
+export const MIN_AUTO = 3;
 /** The Worker refuses a longer list and then disables every approved image (src/upstream/live-images.ts). */
 export const MAX_ENTRIES = 32;
 /** Cloudflare refuses a Worker text binding over 5.1 kB (code 10054), so the whole deploy fails (cmux-vm runs
@@ -60,7 +70,21 @@ export type BootImage = {
   services: string[];
   /** The image's inputs key (bake.ts bakeInputsSha256): absent on entries from before it and on bakes it does not cover. */
   inputs_sha256?: string;
+  /** This revision's large image, published with the revision and never added, removed or replaced afterwards. */
+  large?: LargeImage;
 };
+/**
+ * A second snapshot of the same bake, taken after its builder was grown to this size (web/scripts/cmux-vm-image/
+ * large-image.ts). The Worker boots it for a create that names the image and asks for exactly this size, so no resize
+ * follows the create. Its fields and units are the Worker's (workers/cmux-vm/src/upstream/live-images.ts `Large`).
+ */
+export type LargeImage = { snapshotId: string; vcpus: number; memoryMib: number; diskMib: number };
+/**
+ * The sizes the Worker accepts on `large` (its `Large` schema, the sizes a create may ask for), mirrored here: the
+ * Worker drops a `large` outside them and then boots the small image and resizes, so the roll refuses to write one.
+ * Change them only together with that schema.
+ */
+export const LARGE_BOUNDS = { vcpus: [2, 32], memoryMib: [4096, 65536], diskMib: [16384, 131072] } as const;
 type Env = keyof typeof SERVICES;
 
 // ---- wrangler.jsonc: the VM_BOOT_IMAGES value of one environment ----
@@ -84,13 +108,70 @@ export function locate(text: string, env: Env): { start: number; end: number; im
   return { start, end: start + literal.length, images };
 }
 
-export function replaceList(text: string, env: Env, images: BootImage[]): string {
+/** What a write knows about the Worker that will be deployed with the list. */
+export type WriteOptions = {
+  /** workerReadsLarge()'s answer for the Worker beside the wrangler.jsonc being written. Absent means no. */
+  workerReadsLarge?: boolean;
+};
+
+export function replaceList(text: string, env: Env, images: BootImage[], options: WriteOptions = {}): string {
   validate(images, env);
   // Only a write is held to the size cap: settle still reads a deployed commit's list from before a trim.
   const bytes = Buffer.byteLength(JSON.stringify(images), "utf8");
   if (bytes > MAX_BYTES) throw new Error(`env ${env} VM_BOOT_IMAGES: ${bytes} bytes, at most ${MAX_BYTES} (Cloudflare's text binding limit)`);
-  const { start, end } = locate(text, env);
+  const { start, end, images: current } = locate(text, env);
+  const problem = largeWriteProblem(current, images, options.workerReadsLarge === true);
+  if (problem) throw new Error(`env ${env} VM_BOOT_IMAGES: ${problem}`);
   return text.slice(0, start) + JSON.stringify(JSON.stringify(images)) + text.slice(end);
+}
+
+const sameLarge = (a: LargeImage | undefined, b: LargeImage | undefined): boolean =>
+  a === undefined || b === undefined
+    ? a === b
+    : a.snapshotId === b.snapshotId && a.vcpus === b.vcpus && a.memoryMib === b.memoryMib && a.diskMib === b.diskMib;
+
+/**
+ * The two rules a write of `large` is held to; "" when `next` keeps both.
+ *
+ * A published revision's `large` never changes: the Worker journals the snapshot a create's first attempt booted, and
+ * a retry of that create depends on the entry still naming it. So an entry that stays (same id and revision) keeps its
+ * `large`, or its lack of one, exactly; a revision leaves the list only whole (rollback, trim).
+ *
+ * A newly listed revision carries `large` only when the Worker deployed with the list reads the field: a Worker from
+ * before it decodes entries with `onExcessProperty: "error"`, so one entry with `large` makes the whole list invalid
+ * and disables every approved image. A list that already has one (it was published beside a Worker that reads it) is
+ * rewritten without asking, so a rollback is never held up by this.
+ */
+function largeWriteProblem(current: BootImage[], next: BootImage[], workerReadsLarge: boolean): string {
+  const published = new Map(current.map((i) => [i.id, i]));
+  for (const i of next) {
+    const was = published.get(i.id);
+    if (was !== undefined && was.revision === i.revision) {
+      if (!sameLarge(was.large, i.large)) return `${i.id}: revision ${i.revision} is already published; its large image is never added, removed or replaced afterwards`;
+    } else if (i.large !== undefined && !workerReadsLarge) {
+      return `${i.id}: carries a large image, and a Worker that does not read \`large\` would disable every image`;
+    }
+  }
+  return "";
+}
+
+/**
+ * Whether the Worker whose source sits beside a wrangler.jsonc (`workerDir`, workers/cmux-vm) reads `large`: asked of
+ * its own list parser, with a list of one entry that carries one. True only when that parser accepts the list and
+ * hands the large image back. A Worker from before the field (the whole list is invalid), one that drops it, a
+ * checkout without the Worker's source (cmux-platform's sparse one) or without its dependencies installed are all no.
+ */
+export async function workerReadsLarge(workerDir = path.dirname(DEFAULT_WRANGLER)): Promise<boolean> {
+  const large: LargeImage = { snapshotId: "sh-probe-large", vcpus: 4, memoryMib: 16384, diskMib: 65536 };
+  const probe = [{ id: "probe", revision: "r1", displayName: "Probe", snapshotId: "sh-probe", services: ["probe"], large }];
+  try {
+    const source = pathToFileURL(path.join(workerDir, "src/upstream/live-images.ts")).href;
+    const worker = (await import(source)) as { parseVmImages?: (raw: string) => { ok?: boolean; images?: ReadonlyArray<{ large?: LargeImage }> } };
+    const parsed = worker.parseVmImages?.(JSON.stringify(probe));
+    return parsed?.ok === true && sameLarge(parsed.images?.[0]?.large, large);
+  } catch {
+    return false;
+  }
 }
 
 /** The Worker's schema (src/upstream/live-images.ts, src/api/images.ts): an invalid list disables every image. */
@@ -102,9 +183,11 @@ export function validate(images: BootImage[], env: string): void {
   if (images.length > MAX_ENTRIES) fail(`${images.length} entries, at most ${MAX_ENTRIES}`);
   if (new Set(images.map((i) => i.id)).size !== images.length) fail("duplicate ids");
   for (const i of images) {
-    const keys = Object.keys(i).sort().join(",");
-    if (keys !== "displayName,id,revision,services,snapshotId" && keys !== "displayName,id,inputs_sha256,revision,services,snapshotId") fail(`${i.id}: fields ${keys}`);
+    const keys = Object.keys(i).sort();
+    if (REQUIRED_KEYS.some((k) => !keys.includes(k)) || keys.some((k) => !REQUIRED_KEYS.includes(k) && !OPTIONAL_KEYS.includes(k))) fail(`${i.id}: fields ${keys.join(",")}`);
     if (i.inputs_sha256 !== undefined && !SHA256.test(i.inputs_sha256)) fail(`${i.id}: bad inputs_sha256`);
+    const large = keys.includes("large") ? largeProblem(i.large, i.snapshotId) : "";
+    if (large) fail(`${i.id}: bad large (${large})`);
     if (!/^[a-z][a-z0-9-]*$/u.test(i.id) || i.id.length > 63) fail(`bad id ${i.id}`);
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(i.revision) || i.revision.length > 64) fail(`${i.id}: bad revision`);
     if (i.displayName.length < 1 || i.displayName.length > 100 || [...i.displayName].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127))
@@ -116,6 +199,30 @@ export function validate(images: BootImage[], env: string): void {
 }
 
 const SHA256 = /^[0-9a-f]{64}$/u;
+const REQUIRED_KEYS = ["displayName", "id", "revision", "services", "snapshotId"];
+const OPTIONAL_KEYS = ["inputs_sha256", "large"];
+
+const snapshotIdOk = (value: unknown): value is string =>
+  typeof value === "string" && value.length >= 1 && value.length <= 256 && value !== "." && value !== ".." && !/[^\x21-\x7e]/u.test(value);
+
+/**
+ * Why the Worker would drop this `large` ("" when it would keep it): its `Large` schema refuses unknown fields and
+ * sizes outside LARGE_BOUNDS, and a large snapshot that is the entry's own is not one.
+ */
+function largeProblem(large: unknown, ownSnapshotId: string): string {
+  if (typeof large !== "object" || large === null || Array.isArray(large)) return "not an object";
+  const value = large as Record<string, unknown>;
+  const keys = Object.keys(value).sort().join(",");
+  if (keys !== "diskMib,memoryMib,snapshotId,vcpus") return `fields ${keys}`;
+  if (!snapshotIdOk(value["snapshotId"])) return "bad snapshotId";
+  if (value["snapshotId"] === ownSnapshotId) return "the entry's own snapshot";
+  for (const axis of ["vcpus", "memoryMib", "diskMib"] as const) {
+    const [min, max] = LARGE_BOUNDS[axis];
+    const n = value[axis];
+    if (typeof n !== "number" || !Number.isInteger(n) || n < min || n > max) return `${axis} must be a whole number from ${min} to ${max}`;
+  }
+  return "";
+}
 
 /** Drops the oldest auto-rolled entries past KEEP_AUTO; `newestFirst` says which end of the list is newest. */
 export function trimAuto(images: BootImage[], newestFirst: boolean): BootImage[] {
@@ -125,7 +232,55 @@ export function trimAuto(images: BootImage[], newestFirst: boolean): BootImage[]
   return newestFirst ? kept : kept.reverse();
 }
 
-export type Candidate = { snapshot_id: string; lock_sha256: string; run: number; source_sha?: string; smoke?: { detail?: string }; cmux_tui?: { commit?: string }; inputs_sha256?: string };
+/**
+ * While the list is over the binding limit, drops the oldest auto-rolled entry, never below MIN_AUTO and never a
+ * hand-approved one. A large image is 105 bytes on its entry: staging's 12 hand-approved entries leave room for 6
+ * rolls without it (4,915 bytes) and 5 with it (6 would be 5,545), so staging keeps 5 once every roll carries one,
+ * and production still keeps KEEP_AUTO (4,983). A dropped revision leaves whole, as trimAuto's do: a create that
+ * names it afterwards is refused as withdrawn, and machines already running on it are not touched. A list still over
+ * the limit at MIN_AUTO is returned as it is, for replaceList to refuse.
+ */
+export function trimToFit(images: BootImage[], newestFirst: boolean): BootImage[] {
+  let kept = images;
+  while (Buffer.byteLength(JSON.stringify(kept), "utf8") > MAX_BYTES) {
+    const autoAt = kept.flatMap((i, at) => (i.id.startsWith(AUTO_PREFIX) ? [at] : []));
+    if (autoAt.length <= MIN_AUTO) break;
+    const oldest = newestFirst ? autoAt[autoAt.length - 1] : autoAt[0];
+    kept = kept.filter((_, at) => at !== oldest);
+  }
+  return kept;
+}
+
+/** The candidate's `large` member (cloud-vm-image-bake.yml writes it once large-smoke.ts passed on that snapshot). */
+export type CandidateLarge = { snapshot?: string; snapshot_id?: string; size?: { vcpu?: number; mem_gib?: number; disk_gib?: number }; smoke?: { result?: string } };
+export type Candidate = {
+  snapshot_id: string;
+  lock_sha256: string;
+  run: number;
+  source_sha?: string;
+  smoke?: { detail?: string };
+  cmux_tui?: { commit?: string };
+  inputs_sha256?: string;
+  large?: CandidateLarge;
+};
+
+/**
+ * The entry's `large` for a candidate's large image, or why it has none. Only a smoked large image whose snapshot is
+ * a provider snapshot id of its own and whose size the Worker accepts is published; anything else leaves the entry
+ * as it is without one (the large image is never a gate on the roll).
+ */
+export function candidateLarge(candidate: Candidate): { large?: LargeImage; skipped?: string } {
+  const from: unknown = candidate.large;
+  if (from === undefined) return { skipped: "the candidate records no large image" };
+  if (typeof from !== "object" || from === null) return { skipped: "the candidate's large member is not an object" };
+  const { snapshot_id: snapshotId, size, smoke } = from as CandidateLarge;
+  if (smoke?.result !== "PASSED") return { skipped: "the large image's smoke did not pass" };
+  if (typeof snapshotId !== "string" || !/^sh-[0-9a-f]{32}$/u.test(snapshotId)) return { skipped: "the large image has no snapshot id" };
+  const gib = (n: unknown) => (typeof n === "number" ? n * 1024 : Number.NaN);
+  const large: LargeImage = { snapshotId, vcpus: typeof size?.vcpu === "number" ? size.vcpu : Number.NaN, memoryMib: gib(size?.mem_gib), diskMib: gib(size?.disk_gib) };
+  const problem = largeProblem(large, candidate.snapshot_id);
+  return problem ? { skipped: `the large image is one the Worker would drop: ${problem}` } : { large };
+}
 
 /**
  * cmux-platform's fallback image (fallback-image.json): what its CLOUD_VM_API_IMAGE pin names in every environment, the
@@ -160,15 +315,16 @@ export function withFallback(images: BootImage[], env: Env, fallback = fallbackI
 }
 
 /** The approved entry for a baked candidate: production first, staging last (its order is append-only). */
-export function approve(text: string, entry: BootImage): { text: string; previousFirst: string } {
+export function approve(text: string, entry: BootImage, options: WriteOptions = {}): { text: string; previousFirst: string } {
   const prod = locate(text, "production").images;
   const staging = locate(text, "staging").images;
   if (prod.some((i) => i.id === entry.id) || staging.some((i) => i.id === entry.id)) throw new Error(`${entry.id} is already approved`);
   const fallback = fallbackImage();
-  const nextProd = withFallback(trimAuto([{ ...entry, services: [...SERVICES.production] }, ...prod], true), "production", fallback);
-  const nextStaging = withFallback(trimAuto([...staging, { ...entry, services: [...SERVICES.staging] }], false), "staging", fallback);
-  let out = replaceList(text, "production", nextProd);
-  out = replaceList(out, "staging", nextStaging);
+  // Both lists are one file, deployed with one Worker source, so the entry is the same in both: its large image too.
+  const nextProd = trimToFit(withFallback(trimAuto([{ ...entry, services: [...SERVICES.production] }, ...prod], true), "production", fallback), true);
+  const nextStaging = trimToFit(withFallback(trimAuto([...staging, { ...entry, services: [...SERVICES.staging] }], false), "staging", fallback), false);
+  let out = replaceList(text, "production", nextProd, options);
+  out = replaceList(out, "staging", nextStaging, options);
   return { text: out, previousFirst: prod[0]?.id ?? "" };
 }
 
@@ -199,7 +355,8 @@ export function rollback(text: string, id: string): { text: string; rolledBack: 
  * approved" as success instead would either drop the re-run's new snapshot or need the same one, which a re-baked
  * candidate never has.
  */
-export function rolledImage(candidate: Candidate, revision: string, cmuxTui: string, run: string, attempt: string): BootImage {
+export function rolledImage(candidate: Candidate, revision: string, cmuxTui: string, run: string, attempt: string, options: { large?: boolean } = {}): BootImage {
+  const large = options.large === true ? candidateLarge(candidate).large : undefined;
   if (!/^sh-[0-9a-f]{32}$/u.test(candidate.snapshot_id)) throw new Error("candidate has no snapshot id");
   if (!/^[0-9a-f]{40}$/u.test(cmuxTui)) throw new Error("no cmux-tui commit");
   if (!/^[0-9]{1,20}$/u.test(run)) throw new Error("bad run id");
@@ -212,6 +369,9 @@ export function rolledImage(candidate: Candidate, revision: string, cmuxTui: str
     services: [],
     // cmux-platform compares it across rolls: equal means only cmux-tui changed, so a spare stays claimable.
     ...(typeof candidate.inputs_sha256 === "string" && SHA256.test(candidate.inputs_sha256) ? { inputs_sha256: candidate.inputs_sha256 } : {}),
+    // Published with the revision or never (largeWriteProblem): the caller passes `large` only when the roll's
+    // switch is on and the Worker deployed with the list reads the field.
+    ...(large !== undefined ? { large } : {}),
   };
 }
 
@@ -334,7 +494,29 @@ const fixCommits = (range: string, paths: string[]): FixCommit[] => {
   });
 };
 
-export type Plan = { roll: boolean; reason: string; pin: string; cmuxTui: string; dryRun: boolean; fixes: FixCommit[]; fixesTruncated: boolean };
+export type Plan = {
+  roll: boolean;
+  reason: string;
+  pin: string;
+  cmuxTui: string;
+  dryRun: boolean;
+  fixes: FixCommit[];
+  fixesTruncated: boolean;
+  /** Whether the bake also makes the large image (auto-roll.json large_image). */
+  large: boolean;
+};
+
+/**
+ * The roll's large image switch (auto-roll.json `large_image`, off when absent): on, the roll's bake also makes and
+ * smokes the large image, and approve publishes it with the revision when the Worker reads `large`. Turn it on only
+ * after the Worker that reads `large` is deployed everywhere the lists are (cmux-platform's copy too, in its mode).
+ */
+export function largeImageOn(text: string): boolean {
+  const value = (JSON.parse(text) as { large_image?: unknown }).large_image;
+  if (value === undefined) return false;
+  if (typeof value !== "boolean") throw new Error(`auto-roll.json large_image must be true or false, not ${JSON.stringify(value)}`);
+  return value;
+}
 
 export function modeOf(text: string): "off" | "dry-run" | "live" {
   const mode = (JSON.parse(text) as { mode?: unknown }).mode;
@@ -350,10 +532,12 @@ function pinnedCmuxTui(lockText: string): string {
 }
 
 async function plan(opts: { event: string; commit: string; before: string; dryRun: string; tip: string; lock: string }): Promise<Plan> {
-  const mode = modeOf(readFileSync(MODE_FILE, "utf8"));
+  const modeText = readFileSync(MODE_FILE, "utf8");
+  const mode = modeOf(modeText);
+  const large = largeImageOn(modeText);
   const dryRun = opts.dryRun === "true" ? true : opts.dryRun === "false" ? false : mode !== "live";
   const pinned = pinnedCmuxTui(readFileSync(opts.lock, "utf8"));
-  const none = (reason: string): Plan => ({ roll: false, reason, pin: "", cmuxTui: pinned, dryRun, fixes: [], fixesTruncated: false });
+  const none = (reason: string): Plan => ({ roll: false, reason, pin: "", cmuxTui: pinned, dryRun, fixes: [], fixesTruncated: false, large });
   if (mode === "off" && opts.event !== "dispatch") return none("images/cmux-vm/auto-roll.json says off");
 
   if (opts.event === "push") {
@@ -361,11 +545,11 @@ async function plan(opts: { event: string; commit: string; before: string; dryRu
     const range = /^[0-9a-f]{40}$/u.test(opts.before) && !/^0+$/u.test(opts.before) ? `${opts.before}..${opts.commit}` : `${opts.commit}~1..${opts.commit}`;
     const fixes = fixCommits(range, IMAGE_PATHS);
     if (fixes.length === 0) return none(`no commit in ${range} changes the image inputs`);
-    return { roll: true, reason: `image inputs changed in ${range}`, pin: "", cmuxTui: pinned, dryRun, fixes, fixesTruncated: fixes.length >= FIX_LIMIT };
+    return { roll: true, reason: `image inputs changed in ${range}`, pin: "", cmuxTui: pinned, dryRun, fixes, fixesTruncated: fixes.length >= FIX_LIMIT, large };
   }
   if (opts.commit === "") {
     if (opts.event !== "dispatch") return none("no commit");
-    return { roll: true, reason: "dispatched: rebake the tip's image inputs with the pinned cmux-tui", pin: "", cmuxTui: pinned, dryRun, fixes: [], fixesTruncated: false };
+    return { roll: true, reason: "dispatched: rebake the tip's image inputs with the pinned cmux-tui", pin: "", cmuxTui: pinned, dryRun, fixes: [], fixesTruncated: false, large };
   }
   if (!/^[0-9a-f]{40}$/u.test(opts.commit)) throw new Error("--commit must be 40 hex");
   const commit = opts.commit;
@@ -395,6 +579,7 @@ async function plan(opts: { event: string; commit: string; before: string; dryRu
     dryRun,
     fixes,
     fixesTruncated: fixes.length >= FIX_LIMIT,
+    large,
   };
 }
 
@@ -432,12 +617,48 @@ async function main(argv: string[]): Promise<number> {
       console.error(`approve: the lock here (${digest.slice(0, 12)}) is not the lock the image was baked from (${candidate.lock_sha256.slice(0, 12)}); the tip moved its image inputs`);
       return 4;
     }
-    const entry = rolledImage(candidate, arg(rest, "--revision"), pinnedCmuxTui(lockText), arg(rest, "--run"), arg(rest, "--attempt"));
+    // The large image is published with this revision or never: only with the switch on at this tip and beside a
+    // Worker that reads `large`. Anything else rolls the image as it is without one, and says why.
+    const wanted = candidate.large !== undefined;
+    const switchOn = largeImageOn(readFileSync(MODE_FILE, "utf8"));
+    const reads = wanted && switchOn ? await workerReadsLarge(path.dirname(wrangler)) : false;
+    const entry = rolledImage(candidate, arg(rest, "--revision"), pinnedCmuxTui(lockText), arg(rest, "--run"), arg(rest, "--attempt"), { large: switchOn && reads });
+    if (wanted && entry.large === undefined) {
+      const why = !switchOn
+        ? "images/cmux-vm/auto-roll.json does not say large_image: true"
+        : !reads
+          ? `the Worker beside ${path.relative(process.cwd(), wrangler) || wrangler} does not read \`large\` (or its source or dependencies are not there to ask)`
+          : (candidateLarge(candidate).skipped ?? "unknown");
+      console.error(`approve: ${entry.id} is published without the candidate's large image: ${why}`);
+    }
     const before = readFileSync(wrangler, "utf8");
-    const { text, previousFirst } = approve(before, entry);
+    const { text, previousFirst } = approve(before, entry, { workerReadsLarge: reads });
     writeFileSync(wrangler, text);
-    console.log(JSON.stringify({ image: { id: entry.id, revision: entry.revision, snapshotId: entry.snapshotId }, previousFirst }, null, 2));
+    console.log(JSON.stringify({ image: { id: entry.id, revision: entry.revision, snapshotId: entry.snapshotId, large: entry.large ?? null }, previousFirst }, null, 2));
     return 0;
+  }
+  if (command === "lists") {
+    JSON.parse(readFileSync(lock, "utf8"));
+    const text = readFileSync(wrangler, "utf8");
+    let reads: boolean | undefined;
+    let ok = true;
+    for (const env of ["staging", "production"] as const) {
+      const images = locate(text, env).images;
+      const bytes = Buffer.byteLength(JSON.stringify(images), "utf8");
+      console.log(`${env} VM_BOOT_IMAGES: ${bytes} bytes (at most ${MAX_BYTES})`);
+      if (bytes > MAX_BYTES) {
+        console.error(`lists: ${env} VM_BOOT_IMAGES is ${bytes} bytes, over ${MAX_BYTES}`);
+        ok = false;
+      }
+      const sized = images.filter((i) => i.large !== undefined).map((i) => i.id);
+      if (sized.length === 0) continue;
+      reads ??= await workerReadsLarge(path.dirname(wrangler));
+      if (!reads) {
+        console.error(`lists: ${env} VM_BOOT_IMAGES: ${sized.join(", ")} carry a large image, and this commit's Worker does not read \`large\`: it would disable every image`);
+        ok = false;
+      }
+    }
+    return ok ? 0 : 1;
   }
   if (command === "rollback") {
     const before = readFileSync(wrangler, "utf8");
@@ -483,7 +704,7 @@ async function main(argv: string[]): Promise<number> {
       console.error(`check: ${d.env} boots ${d.image || "no image"} (its ${BOOT_ENTRY[d.env]} entry), ${d.behind} rolls behind production's newest; at most ${max}`);
     return drift.every((d) => d.ok) ? 0 : 1;
   }
-  console.error("usage: auto-roll.ts plan|approve|rollback|settle|check ... (see the header)");
+  console.error("usage: auto-roll.ts plan|approve|lists|rollback|settle|check ... (see the header)");
   return 2;
 }
 

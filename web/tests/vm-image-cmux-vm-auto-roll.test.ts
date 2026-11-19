@@ -886,7 +886,7 @@ describe("auto-roll scripts", () => {
     withDir(async (dir) => {
       const src = path.join(dir, "src");
       const platform = path.join(dir, "platform");
-      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
+      for (const file of ["images/cmux-vm/auto-roll.ts", "images/cmux-vm/auto-roll.json", "images/cmux-vm/fallback-image.json", "images/cmux-vm/inputs.lock.json", "images/cmux-vm/image-roll-push.sh", "workers/cmux-vm/wrangler.jsonc"]) {
         mkdirSync(path.dirname(path.join(src, file)), { recursive: true });
         copyFileSync(path.join(repoRoot, file), path.join(src, file));
       }

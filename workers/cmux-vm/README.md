@@ -421,6 +421,38 @@ production's `VM_BOOT_IMAGES`):
 then upload the commit's diff without pushing) or `live`. One roll runs at a
 time and one waits; a newer request replaces the waiting one.
 
+The same file's `large_image` (`false` unless set) makes the roll publish an
+image's large snapshot (`web/scripts/cmux-vm-image/large-image.ts`, 4 vCPU /
+16 GiB / 64 GiB) as `large` on that image's entry, in both lists:
+
+- The roll's bake runs with `large_image`, and the candidate records the large
+  snapshot only when its own smoke passed. A candidate without one rolls as
+  before, with no `large`; the large image never fails a roll.
+- `approve` writes `large` only when the Worker at the tip reads the field. It
+  asks that Worker's own list parser (`auto-roll.ts` `workerReadsLarge`): a
+  Worker from before the field refuses the whole list for one unknown entry
+  field and disables every approved image, so beside such a Worker, or beside
+  no Worker source at all (cmux-platform's sparse checkout), the entry is
+  written without `large`. `auto-roll.ts lists`, the short check before every
+  deploy of a roll commit, fails a list that carries `large` beside a Worker
+  that does not read it.
+- A revision's `large` is published with the revision and never added, removed
+  or replaced afterwards: a retry of a create in flight boots the snapshot its
+  first attempt was journaled from. Every write refuses such a change. A
+  revision leaves a list only whole (rollback, trim), its `large` with it. Do
+  not hand-edit `large` onto or off a listed entry.
+- The sizes the roll accepts on `large` are the Worker's (`LARGE_BOUNDS` there
+  mirrors `Large` in `src/upstream/live-images.ts`); change both together.
+- A `large` is 105 bytes on its entry, and a list is one Worker text binding
+  of at most 5,120 bytes. Production's list fits 6 rolls that all carry one
+  (4,983 bytes). Staging's, with 12 hand-approved entries, fits 5 (5,092; 6
+  would be 5,545), so a roll that would not fit drops the oldest rolls first,
+  never below 3 and never a hand-approved entry: staging keeps 5 rolls, not
+  6, once every roll carries one. A create that names a dropped image is
+  refused as withdrawn, as for any trimmed roll; machines already running on
+  it are not touched. Removing old hand-approved staging entries in a reviewed
+  commit gives the sixth roll back.
+
 Each roll's record (fix commits with merge times, gate, promotion commit and
 time, production smoke time, rollback) is `rolls/<run id>.json` on the
 `cloud-image-rolls` branch: `git fetch origin cloud-image-rolls` reads it with
