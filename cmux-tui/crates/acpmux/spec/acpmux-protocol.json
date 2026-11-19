@@ -5970,6 +5970,10 @@
           "description": "Whether its harness refuses commands now for that reason; a completed command or a new\nharness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.",
           "type": "boolean"
         },
+        "hasDraft": {
+          "description": "Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update\nthat installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from\na peer on an older acpmux.",
+          "type": "boolean"
+        },
         "indicator": {
           "anyOf": [
             {
@@ -6677,6 +6681,10 @@
         "harnessSandboxFailing": {
           "default": false,
           "description": "Whether its harness refuses commands now for that reason; a completed command or a new\nharness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "type": "boolean"
+        },
+        "hasDraft": {
+          "description": "Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update\nthat installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from\na peer on an older acpmux.",
           "type": "boolean"
         },
         "indicator": {

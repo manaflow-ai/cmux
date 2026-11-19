@@ -257,6 +257,12 @@ public final class UpdaterService {
     @ObservationIgnored let relaunchMomentHold: UpdateRelaunchMomentHold
     /// How long input must be quiet before a nightly installs by itself (`updates.idleInstallQuietSeconds`).
     @ObservationIgnored public internal(set) var idleInstallQuiet: Duration = UpdateRelaunchBlockers.quietInputPeriod
+    /// Update When Idle's idle time (`updates.installWhenIdleMinutes`), nil while `updates.installWhenIdle` is off.
+    @ObservationIgnored public internal(set) var installWhenIdle: Duration?
+    /// Why Update When Idle holds a staged install now, nil when nothing does (set by the App: it reads the
+    /// input time, agent turns and drafts and asks cmux-window-rules `update_idle`). Without it the
+    /// setting installs nothing by itself.
+    @ObservationIgnored public var idleInstallGate: (@MainActor () -> UpdateRelaunchMoment.Interruption?)?
     /// The install in flight started by itself (the idle policy): a failure opens nothing.
     @ObservationIgnored var automaticInstallInFlight = false
     /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.

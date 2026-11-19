@@ -37,6 +37,23 @@ public extension DaemonService {
                 }
             }
         }
+        let quietSeconds = Double(quietInput.components.seconds) + Double(quietInput.components.attoseconds) / 1e18
+        let userInputActive = Self.secondsSinceInput() < quietSeconds
+        return UpdateRelaunchBlockers(busyAgentCount: busyAgents.count,
+                                      runningCommandCount: runningCommands.count,
+                                      userInputActive: userInputActive)
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The update-idle harness's input time (`debug.updater {action: "input"}`): a fleet Mac has no person.
+    @MainActor static var debugLastInput: Date?
+    #endif
+
+    /// Seconds since the last keyboard, pointer or scroll input anywhere in this login session.
+    @MainActor static func secondsSinceInput() -> Double {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let debugLastInput { return Date().timeIntervalSince(debugLastInput) }
+        #endif
         let inputTimes = [
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown),
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved),
@@ -45,10 +62,6 @@ public extension DaemonService {
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .rightMouseDown),
             CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .otherMouseDown),
         ]
-        let quietSeconds = Double(quietInput.components.seconds) + Double(quietInput.components.attoseconds) / 1e18
-        let userInputActive = inputTimes.min() ?? .infinity < quietSeconds
-        return UpdateRelaunchBlockers(busyAgentCount: busyAgents.count,
-                                      runningCommandCount: runningCommands.count,
-                                      userInputActive: userInputActive)
+        return inputTimes.min() ?? .infinity
     }
 }

@@ -228225,6 +228225,530 @@
           }
         }
       }
+    },
+    "settings.updates.installWhenIdle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update When Idle"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحديث عند الخمول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriraj kada je neaktivan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdater ved inaktivitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei Inaktivität aktualisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar en reposo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour en cas d'inactivité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna quando inattivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル時にアップデート"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធ្វើបច្ចុប្បន្នភាពនៅពេលទំនេរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴 시 업데이트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdater ved inaktivitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizuj w bezczynności"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizar quando ocioso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновлять при бездействии"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเดตเมื่อไม่มีการใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boşta Kalınca Güncelle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлювати під час бездіяльності"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cập nhật khi nhàn rỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲时更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置時更新"
+          }
+        }
+      }
+    },
+    "settings.updates.installWhenIdle.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يثبّت تحديثًا تم تنزيله بعد أن يبقى cmux خاملًا للمدة أدناه، ولا يفعل ذلك أبدًا أثناء عمل وكيل أو وجود رسالة لم تُرسل. تستمر الوكلاء في العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalira preuzeto ažuriranje kada cmux bude neaktivan tokom vremena ispod, nikad dok agent radi ili poruka nije poslana. Agenti nastavljaju raditi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installerer en hentet opdatering, når cmux har været inaktiv i tiden nedenfor, aldrig mens en agent arbejder, eller en besked ikke er sendt. Agenter kører videre."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiert ein geladenes Update, wenn cmux so lange wie unten angegeben inaktiv war, nie während ein Agent arbeitet oder eine Nachricht nicht gesendet ist. Agenten laufen weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instala una actualización descargada cuando cmux lleva inactivo el tiempo indicado abajo, nunca mientras un agente trabaja o hay un mensaje sin enviar. Los agentes siguen en marcha."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installe une mise à jour téléchargée quand cmux est inactif depuis la durée ci-dessous, jamais pendant qu'un agent travaille ou qu'un message n'est pas envoyé. Les agents continuent de tourner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa un aggiornamento scaricato dopo che cmux è rimasto inattivo per il tempo indicato sotto, mai mentre un agente lavora o un messaggio non è inviato. Gli agenti continuano a funzionare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が下の時間だけアイドル状態になると、ダウンロード済みのアップデートをインストールします。エージェントの作業中や未送信のメッセージがあるときは行いません。エージェントは動き続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដំឡើងបច្ចុប្បន្នភាពដែលបានទាញយក បន្ទាប់ពី cmux ទំនេររយៈពេលខាងក្រោម មិនដែលដំឡើងពេលភ្នាក់ងារកំពុងធ្វើការ ឬមានសារមិនទាន់ផ្ញើឡើយ។ ភ្នាក់ងារនៅតែដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 아래 시간 동안 유휴 상태이면 다운로드한 업데이트를 설치합니다. 에이전트가 작업 중이거나 보내지 않은 메시지가 있을 때는 설치하지 않습니다. 에이전트는 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installerer en nedlastet oppdatering når cmux har vært inaktiv i tiden nedenfor, aldri mens en agent jobber eller en melding ikke er sendt. Agenter fortsetter å kjøre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaluje pobraną aktualizację, gdy cmux jest bezczynny przez czas podany niżej, nigdy gdy agent pracuje lub wiadomość nie została wysłana. Agenci działają dalej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instala uma atualização baixada depois que o cmux fica ocioso pelo tempo abaixo, nunca enquanto um agente trabalha ou há uma mensagem não enviada. Os agentes continuam rodando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Устанавливает загруженное обновление, когда cmux бездействует указанное ниже время, но никогда во время работы агента или при неотправленном сообщении. Агенты продолжают работать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้งอัปเดตที่ดาวน์โหลดแล้วเมื่อ cmux ไม่มีการใช้งานตามเวลาด้านล่าง และจะไม่ติดตั้งขณะที่เอเจนต์กำลังทำงานหรือมีข้อความที่ยังไม่ได้ส่ง เอเจนต์ยังคงทำงานต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux aşağıdaki süre boyunca boşta kaldığında indirilen güncellemeyi yükler; bir ajan çalışırken veya gönderilmemiş bir mesaj varken asla yüklemez. Ajanlar çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встановлює завантажене оновлення, коли cmux бездіяльний протягом часу нижче, але ніколи під час роботи агента чи з невідправленим повідомленням. Агенти продовжують працювати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cài bản cập nhật đã tải về sau khi cmux nhàn rỗi trong khoảng thời gian bên dưới, không bao giờ khi một tác nhân đang làm việc hoặc có tin nhắn chưa gửi. Các tác nhân vẫn tiếp tục chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 空闲达到下方时长后安装已下载的更新；代理工作时或有未发送的消息时绝不安装。代理会继续运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 閒置達到下方時長後安裝已下載的更新；代理正在工作或有未傳送的訊息時絕不安裝。代理會繼續執行。"
+          }
+        }
+      }
+    },
+    "settings.updates.installWhenIdleMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle Time Before Updating"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مدة الخمول قبل التحديث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrijeme neaktivnosti prije ažuriranja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktiv tid før opdatering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktivität vor dem Aktualisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiempo inactivo antes de actualizar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactivité avant la mise à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo di inattività prima dell'aggiornamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートまでのアイドル時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រយៈពេលទំនេរមុនពេលធ្វើបច្ចុប្បន្នភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 전 유휴 시간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktiv tid før oppdatering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czas bezczynności przed aktualizacją"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo ocioso antes de atualizar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время бездействия перед обновлением"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวลาที่ไม่มีการใช้งานก่อนอัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncellemeden Önce Boşta Kalma Süresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Час бездіяльності перед оновленням"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thời gian nhàn rỗi trước khi cập nhật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新前的空闲时长"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新前的閒置時長"
+          }
+        }
+      }
+    },
+    "settings.updates.installWhenIdleMinutes.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How long cmux must be idle before Update When Idle installs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المدة التي يجب أن يبقى فيها cmux خاملًا قبل أن يثبّت «التحديث عند الخمول»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko dugo cmux mora biti neaktivan prije nego što Ažuriraj kada je neaktivan instalira."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor længe cmux skal være inaktiv, før Opdater ved inaktivitet installerer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie lange cmux inaktiv sein muss, bevor „Bei Inaktivität aktualisieren“ installiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuánto tiempo debe estar cmux inactivo antes de que Actualizar en reposo instale."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durée d'inactivité de cmux avant que « Mettre à jour en cas d'inactivité » installe."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per quanto tempo cmux deve restare inattivo prima che Aggiorna quando inattivo installi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「アイドル時にアップデート」がインストールするまでに cmux がアイドル状態である必要がある時間。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រយៈពេលដែល cmux ត្រូវទំនេរ មុនពេល «ធ្វើបច្ចុប្បន្នភាពនៅពេលទំនេរ» ដំឡើង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'유휴 시 업데이트'가 설치하기 전에 cmux가 유휴 상태여야 하는 시간입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor lenge cmux må være inaktiv før Oppdater ved inaktivitet installerer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak długo cmux musi być bezczynny, zanim Aktualizuj w bezczynności zainstaluje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por quanto tempo o cmux precisa ficar ocioso antes que Atualizar quando ocioso instale."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сколько cmux должен бездействовать, прежде чем «Обновлять при бездействии» установит обновление."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระยะเวลาที่ cmux ต้องไม่มีการใช้งานก่อนที่ อัปเดตเมื่อไม่มีการใช้งาน จะติดตั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boşta Kalınca Güncelle yüklemeden önce cmux'un ne kadar boşta kalması gerektiği."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скільки cmux має бути бездіяльним, перш ніж «Оновлювати під час бездіяльності» встановить оновлення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thời gian cmux phải nhàn rỗi trước khi Cập nhật khi nhàn rỗi cài đặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 需空闲多久，“空闲时更新”才会安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 需閒置多久，「閒置時更新」才會安裝。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
