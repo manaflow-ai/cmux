@@ -24,7 +24,8 @@ from pathlib import Path
 
 import yaml
 
-from test_ci_fork_runner_routing import evaluate_runs_on, parse_expression, runner_label_errors
+from test_ci_fork_runner_routing import (FAST_CHECKS_ADMISSION_EXPRESSION, evaluate_runs_on, parse_expression,
+                                         runner_label_errors)
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "fast-checks.yml"
 POOL = "cmux-fleet-linux-x64"
@@ -74,13 +75,12 @@ class FastChecksFailoverTests(unittest.TestCase):
             selector.replace("'blacksmith-2vcpu-ubuntu-2404'", "'ubuntu-24.04'"),
             selector.replace("contains(", "startsWith("),
             selector.replace("&& inputs.runner", "&& inputs.other_runner"),
-            # A picker's re-run route is the smallest measured size only.
-            selector.replace('"blacksmith-8vcpu-ubuntu-2404"',
-                             '"blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"'),
-            selector.replace('"blacksmith-8vcpu-ubuntu-2404"', '"blacksmith-32vcpu-ubuntu-2404"'),
         ):
             with self.subTest(selector=unsafe):
                 self.assertNotEqual(runner_label_errors(unsafe), [])
+        # A picker's re-run route is the smallest measured size only. With a Blacksmith default the structural check
+        # accepts any Blacksmith list, so the size set is pinned by the exact expression.
+        self.assertEqual(selector, FAST_CHECKS_ADMISSION_EXPRESSION)
 
     def run_fast_checks_script(self, command: str, source: str | None = None) -> tuple[subprocess.CompletedProcess[str], dict | None]:
         workflow = WORKFLOW.read_text(encoding="utf-8")
