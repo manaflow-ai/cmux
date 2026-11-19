@@ -499,6 +499,46 @@ public final class MacHomeFeed {
         self.macID = macID
     }
 
+    /// The list rig's live Mac (`CMUX_MOBILE_LIST_LIVE_HZ` on `home`, verify/listperf/): `changes`
+    /// Chief rows change as a busy Mac's do, through what the main actor runs for each event: the
+    /// event line is parsed (as ``note(_:)`` does), and the `ids` read's rows go through
+    /// ``applyRows(_:asked:)``. Most changes start or stop a Chief typing (a row changed in place);
+    /// the first change of every other tick is a new message (a new preview, the activity now, and
+    /// an unpinned row moves to the top of the unpinned rows, as the owner orders them).
+    public func stressLiveTick(_ tick: Int, changes: Int) {
+        guard let rows, !rows.isEmpty else { return }
+        let chiefs = rows.indices.filter { rows[$0].chief != nil }
+        guard !chiefs.isEmpty else { return }
+        let pinnedCount = rows.prefix { $0.isPinned }.count
+        var found: [MacHomeRows.Found] = []
+        var asked: Set<String> = []
+        for change in 0..<max(1, changes) {
+            let serial = tick &* max(1, changes) &+ change
+            let index = chiefs[(serial &* 7) % chiefs.count]
+            let row = rows[index]
+            guard asked.insert(row.id).inserted else { continue }
+            let message = change == 0 && tick % 2 == 0
+            let line = Data(#"{"event":"\#(message ? "conversation-changed" : "conversation-typing")","conversation":"\#(row.id)"}"#.utf8)
+            guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                  let event = object["event"] as? String, Self.rowEvents.contains(event),
+                  object["conversation"] as? String == row.id else { continue }
+            var wire: [String: Any] = [
+                "id": row.id, "kind": row.kind.rawValue, "name": row.name, "unread": row.unread,
+                "activity_at": Self.stressStamp.string(from: message ? Date() : row.activityAt),
+                "preview": message ? "**Update \(tick).** \(row.title) pushed the retry fix; CI is green on the branch." : row.preview,
+                "pinned": row.isPinned, "marked_unread": row.markedUnread, "muted": row.isMuted,
+            ]
+            wire["chief"] = row.chief
+            wire["pin_position"] = row.pinPosition.map { NSNumber(value: $0) }
+            wire["chief_state"] = message ? (row.chiefState ?? .idle).rawValue : (row.isWorking ? "idle" : "working")
+            guard let next = MacHomeRow.pooled(wire: wire) else { continue }
+            found.append(MacHomeRows.Found(index: message && !row.isPinned ? pinnedCount : index, row: next))
+        }
+        applyRows(.named(found, total: rows.count, order: nil), asked: asked)
+    }
+
+    private static let stressStamp = ISO8601DateFormatter()
+
     /// The `retry-home-failed` demo: the last read failed on a live link.
     public func setProblemForDemo(_ text: String) { problem = text }
 

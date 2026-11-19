@@ -111,6 +111,8 @@
 #             cases=A,B    cases by label (default ws-200-live4, chat-40-stream,
 #                          chat-40, diff-2400, tabs-30-stream); the labels are
 #                          final.sh's: ws-200 ws-200-live4 ws-500-live8 home-300
+#                          home-live (150 rows, 25 Chiefs: 60 typing or new-message
+#                          changes a second through MacHomeFeed's event path)
 #                          chat-40 chat-200 chat-40-stream tabs-30 tabs-30-stream
 #                          tabs-80 diff-2400 diff-2400-pan artifacts-40 feed-ref
 #           SUMMARY.md gets one row per window; the artifact keeps listperf/.
@@ -243,6 +245,7 @@ listperf_table=(
   "ws-200-live4    workspaces  LIST_COUNT=200 LIST_LIVE_HZ=4"
   "ws-500-live8    workspaces  LIST_COUNT=500 LIST_LIVE_HZ=8"
   "home-300        home        LIST_COUNT=300"
+  "home-live       home        LIST_COUNT=150 LIST_LIVE_HZ=20 LIST_LIVE_ROWS=3"
   "chat-40         chat        LIST_COUNT=40"
   "chat-200        chat        LIST_COUNT=200"
   "chat-40-stream  chat        LIST_COUNT=40 LIST_STREAM=1"

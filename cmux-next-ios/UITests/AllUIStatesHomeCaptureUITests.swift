@@ -12,6 +12,20 @@ final class AllUIStatesHomeCaptureUITests: UIStateCaptureCase {
         capture([
             Scene(group: g, id: "home-mock-chief", args: ["-cmux-mobile-tab", "home"]),
             Scene(group: g, id: "home-rows-and-pins", args: ["-cmux-mobile-tab", "home"], env: Self.homeRows, settle: 4),
+            // A busy Mac: 25 Chiefs typing and posting while Home shows (the listperf home-live case).
+            Scene(group: g, id: "home-live-typing", args: ["-cmux-mobile-tab", "home"],
+                  env: ["CMUX_MOBILE_LIST_SCREEN": "home", "CMUX_MOBILE_LIST_COUNT": "150", "CMUX_MOBILE_LIST_PASSES": "0",
+                        "CMUX_MOBILE_LIST_LIVE_HZ": "20"], settle: 4),
+            Scene(group: g, id: "home-live-scrolled", args: ["-cmux-mobile-tab", "home"],
+                  env: ["CMUX_MOBILE_LIST_SCREEN": "home", "CMUX_MOBILE_LIST_COUNT": "150", "CMUX_MOBILE_LIST_PASSES": "0",
+                        "CMUX_MOBILE_LIST_LIVE_HZ": "20"], settle: 4) { app in
+                C.scrollDown(app, times: 2)
+            },
+            Scene(group: g, id: "home-no-conversations", args: ["-cmux-mobile-tab", "home"],
+                  env: ["CMUX_MOBILE_LIST_SCREEN": "home", "CMUX_MOBILE_LIST_COUNT": "0", "CMUX_MOBILE_LIST_PASSES": "0"], settle: 4),
+            Scene(group: g, id: "home-offline-kept-rows", args: ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "retry-home-offline"], settle: 4),
+            Scene(group: g, id: "home-failed-kept-rows", args: ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "retry-home-failed"], settle: 4),
+            Scene(group: g, id: "home-unreachable-empty", args: ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "retry-home-unreachable-empty"], settle: 4),
             Scene(group: g, id: "home-row-swipe-actions", args: ["-cmux-mobile-tab", "home"], env: Self.homeRows, settle: 4) { app in
                 C.swipeLeft(app.descendants(matching: .any)["home.row.stress-5"].firstMatch, "home row stress-5")
             },

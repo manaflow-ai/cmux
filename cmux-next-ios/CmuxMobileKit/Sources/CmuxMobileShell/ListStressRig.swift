@@ -56,6 +56,8 @@ final class ListStressRig: NSObject {
         }
         await rig.open(screen)
         try? await Task.sleep(for: .seconds(settings.settle))
+        // Home's live Mac also runs while the screen is held (a UI test scrolls it by hand).
+        if screen == "home" { rig.startLive() }
         guard settings.passes > 0 else {
             // A still: hold the screen (optionally panned) for a screenshot.
             if let x = settings.holdX, let scroll = rig.findScrollView(horizontal: true) {
@@ -71,7 +73,7 @@ final class ListStressRig: NSObject {
             if settings.pullTrace, let scroll = rig.findScrollView(horizontal: false) { rig.tracePull(scroll) }
             return
         }
-        rig.startLive()
+        if screen != "home" { rig.startLive() }
         rig.begin()
     }
 
@@ -263,6 +265,20 @@ final class ListStressRig: NSObject {
     /// and the whole list is replaced (as `AppStore.replaceWorkspaces` does), `liveHz` times a second.
     private func startLive() {
         guard let hz = settings.liveHz, hz > 0 else { return }
+        if settings.screen == "home" {
+            // A busy Mac's Home (about 25 Chiefs typing and posting): `LIST_LIVE_ROWS` Chief rows
+            // (default 3) change per tick, through the Mac Home feed's own event and apply path.
+            let rows = settings.liveRows
+            live = Task { @MainActor in
+                var tick = 0
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1 / hz))
+                    tick += 1
+                    MacHomeFeed.shared.stressLiveTick(tick, changes: rows)
+                }
+            }
+            return
+        }
         let store = shell.store
         live = Task { @MainActor in
             var tick = 0

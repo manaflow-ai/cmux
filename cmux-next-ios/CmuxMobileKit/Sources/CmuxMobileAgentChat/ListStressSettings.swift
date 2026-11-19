@@ -11,7 +11,8 @@ import Foundation
 ///   (`LIST_COUNT` terminal tabs opened, then hidden but warm behind the workspaces list; with
 ///   `CMUX_MOBILE_LIST_TERMINAL_VISIBLE=1` the first one stays on screen instead).
 /// - `CMUX_MOBILE_LIST_COUNT=N`: rows to seed (workspaces, tabs) or replayed turns (chat, diff).
-/// - `CMUX_MOBILE_LIST_LIVE_HZ=HZ`: live changes per second while scrolling (workspace activity).
+/// - `CMUX_MOBILE_LIST_LIVE_HZ=HZ`: live changes per second while scrolling (workspace activity; on
+///   `home`, `CMUX_MOBILE_LIST_LIVE_ROWS` Chief rows typing or posting per tick, also while held).
 /// - `CMUX_MOBILE_LIST_STREAM=1`: every prompt streams one long answer with no waits (`terminals`:
 ///   every mock shell streams a row every 20 ms).
 /// - `CMUX_MOBILE_LIST_SEND=1` (chat): type and send a prompt through the composer after the chat
@@ -74,6 +75,8 @@ public struct ListStressSettings: Equatable, Sendable {
     public var refreshSeconds: Double?
     /// `CMUX_MOBILE_LIST_PULL_TRACE=1`: the per-frame pull-to-refresh trace.
     public var pullTrace: Bool
+    /// `CMUX_MOBILE_LIST_LIVE_ROWS=N` (home, with `LIST_LIVE_HZ`): Chief rows changed per live tick (default 3).
+    public var liveRows: Int
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -100,6 +103,7 @@ public struct ListStressSettings: Equatable, Sendable {
         giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
         refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
         pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
+        liveRows = max(1, environment["CMUX_MOBILE_LIST_LIVE_ROWS"].flatMap(Int.init) ?? 3)
     }
 
     /// Whether a working row logs each redraw of its elapsed time (the rig's running chat).

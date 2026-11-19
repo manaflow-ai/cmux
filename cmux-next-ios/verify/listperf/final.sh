@@ -11,6 +11,7 @@ runs=(
   "ws-200-live4    workspaces  LIST_COUNT=200 LIST_LIVE_HZ=4"
   "ws-500-live8    workspaces  LIST_COUNT=500 LIST_LIVE_HZ=8"
   "home-300        home        LIST_COUNT=300"
+  "home-live       home        LIST_COUNT=150 LIST_LIVE_HZ=20 LIST_LIVE_ROWS=3"
   "chat-40         chat        LIST_COUNT=40"
   "chat-200        chat        LIST_COUNT=200"
   "chat-40-stream  chat        LIST_COUNT=40 LIST_STREAM=1"
