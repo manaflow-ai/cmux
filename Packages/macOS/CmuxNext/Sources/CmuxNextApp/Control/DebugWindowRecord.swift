@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
 /// its children, such as the palette opened with no key window), once per display frame of its screen (a
 /// FrameClient of the window's FrameScheduler, 120 Hz on ProMotion), as JPEG frames
 /// `DIR/frame-NNNNN.jpg` plus `DIR/frames.json` (index, host time in
-/// seconds since the first frame). Returns at once; the recording stops by
+/// seconds since `t0_s`, its first tick on the display link's clock). Returns at once; the recording stops by
 /// itself. For before/after motion proof of the Home tab against
 /// MessagesLab's own recordings (its `--live-send`); no Screen Recording
 /// permission is needed for an app's own window.
@@ -224,7 +224,7 @@ final class DebugWindowRecord {
             finished = true
             closeObserver = nil
             let index = dir.appendingPathComponent("frames.json")
-            let times = self.times
+            let times = self.times, start = start0 ?? 0
             let processMs = self.processMs
             let brightness = brightness
             let launch: [String: any Sendable] = sinceLaunch ? ["window": windowFrames, "moved": moved, "movedViews": movedViews,
@@ -232,7 +232,7 @@ final class DebugWindowRecord {
                                                                 "endedBy": endedBy] : [:]
             encoder.async {
                 let series = brightness.series
-                var frames: [String: Any] = ["times": times, "luminance": series.means, "peak": series.peaks]
+                var frames: [String: Any] = ["times": times, "t0_s": start, "luminance": series.means, "peak": series.peaks]
                 if !processMs.isEmpty { frames["processMs"] = processMs }
                 if !series.cells.isEmpty { frames["cells"] = series.cells }
                 for (key, value) in launch { frames[key] = value }
