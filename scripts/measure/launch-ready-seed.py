@@ -52,7 +52,7 @@ def wait(check, seconds, step=0.1):
 
 class Seed:
     def __init__(self, path, windows, workspaces, front="home"):
-        self.path, self.count, self.total, self.front = path, windows, workspaces, front
+        self.path, self.count, self.total, self.front_mode = path, windows, workspaces, front
         self.row = {"windows_asked": windows, "workspaces_asked": workspaces, "front_asked": front}
         self.keys = {}
 
@@ -127,7 +127,7 @@ class Seed:
                 if not wait(lambda: workspace in self.members(window), 10):
                     raise RuntimeError(f"workspace {workspace} is not in window {window} 10 s after the move")
             ours[window].add(workspace)
-        if self.front == "home":  # --front tab: the last workspace's terminal tab stays in front
+        if self.front_mode == "home":  # --front tab: the last workspace's terminal tab stays in front
             self.action("home.show")
         final = self.topology()
         listed = {w.get("id"): set(w.get("workspaces") or []) for w in final.get("windows") or []}
