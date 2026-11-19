@@ -337,7 +337,11 @@ jobs:
     # with 4 workers 30.5 s, 8 with 8 17.3 s, 16 with 12 13.4 s. Reusing a context per worker or merging the reads
     # after ready saved 6% at most: the page load is the cost, so a shard gets more cores, not less setup
     # (ask-378f0fa70e).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    # A pull request's shards take the 8 vCPU pool, a dispatch's full render keeps 16 (2026-11-18): the
+    # Blacksmith org vCPU cap starved every pool, and 16 shards of 16 vCPU asked 256 vCPU of it per push.
+    # From the numbers above, 8 vCPU renders the 73 cases in 17.3 s against 13.4 s, at 138 vCPU-seconds
+    # against 214: a shard takes about a third longer and the run 35% fewer vCPU-seconds, at half the peak.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.event_name == 'pull_request' && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
     timeout-minutes: 45
     # Sixteen shards, so a shard runs in under 10 minutes as the gallery grows: at eight, with three
     # cases at once, a shard's render took 9 to 13 minutes and its job 11 to 17 (run 42946512341,

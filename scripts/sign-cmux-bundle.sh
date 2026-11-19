@@ -25,13 +25,8 @@
 #                              pack (scripts/cmux-next/cef-runtime-pack.sh) written to
 #                              CMUX_NEXT_CEF_RUNTIME_OUT, pinned to
 #                              CMUX_NEXT_CEF_RUNTIME_BASE_URL, before the app is signed
-#   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
-#                              "main-only". The split Computer Use notarization
-#                              flow uses all-except-computer-use while Apple's
-#                              service processes the Computer Use helper (with
-#                              the screen sharing executable inside), then
-#                              main-only after stapling so the submitted helper
-#                              CDHashes survive.
+#   CMUX_SIGN_MODE             "all" (default) or "main-only" (re-seal only the
+#                              main bundle, keeping every nested signature).
 #
 # Signs in the Apple-documented inside-out order:
 #   0. scripts/sign-cmux-bundle-helpers.sh stamps the cmux server's launchd
@@ -42,7 +37,8 @@
 #      scripts/sign-cmux-bundle-helpers.sh; libexec/cmux-server-helper gets none.
 #      The macOS cmux-tui SSH payloads under Resources/bin/cmux-tui-ssh/ are
 #      signed the same way (scripts/sign-cmux-tui-ssh-payloads.sh).
-#   2. The nested cmux Computer Use app with the Developer ID identity.
+#   2. The Screen Sharing helper app under Contents/Library, stamped for the
+#      app's final bundle id and name, hardened runtime, no entitlements.
 #   3. Each nested plugin under Contents/PlugIns/* with --deep.
 #   4. The embedded Chromium engine (CEF framework, its libraries, the shim
 #      and the five helper apps with their own entitlements) through
@@ -87,7 +83,7 @@ if [[ ! -f "$HELPER_ENTITLEMENTS" ]]; then
   exit 1
 fi
 case "$SIGN_MODE" in
-  all|all-except-computer-use|main-only) ;;
+  all|main-only) ;;
   *)
     echo "error: unsupported CMUX_SIGN_MODE: $SIGN_MODE" >&2
     exit 2
@@ -104,7 +100,6 @@ else
 fi
 
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
-COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
 SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
 CEF_FRAMEWORK_NAME="Chromium Embedded Framework.framework"
 SHARE_EXTENSION=CmuxShare.appex
@@ -136,68 +131,25 @@ if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
   exit 1
 fi
 
-if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; then
+if [[ "$SIGN_MODE" == "all" ]]; then
   # 0-1. The cmux server launchd plists, then the CLI and private helpers.
   "$SCRIPT_DIR/sign-cmux-bundle-helpers.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
   # cmux-tui builds for SSH hosts. Notarization requires the macOS ones to be
   # Developer ID signed; the script re-pins them in the bundled manifest.
   "$SCRIPT_DIR/sign-cmux-tui-ssh-payloads.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
 
-  # 2. Computer Use helper app. An early notarization submission owns this
-  # signature in all-except-computer-use mode; changing it would invalidate the
-  # ticket that finish is waiting to staple.
-  if [[ "$SIGN_MODE" == "all" && -d "$COMPUTER_USE_HELPER" ]]; then
-    # The screen sharing executable inside it (one permission identity for screen sharing and
-    # computer use, bundle-screen-sharing-helper.sh) first: nested code is signed before the
-    # bundle that seals it, with the helper's identifier, so a macOS that checks the process by
-    # its own signature finds the same com.cmuxterm.cua row. No entitlements.
-    if [[ -f "$COMPUTER_USE_HELPER/Contents/MacOS/cmux-screen-sharing" ]]; then
-      echo "==> signing cmux-screen-sharing inside $(basename "$COMPUTER_USE_HELPER")"
-      "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" --identifier com.cmuxterm.cua \
-        "$COMPUTER_USE_HELPER/Contents/MacOS/cmux-screen-sharing"
-    fi
-    echo "==> signing nested helper $(basename "$COMPUTER_USE_HELPER")"
-    "$SCRIPT_DIR/codesign-retry.sh" \
-      "${COMMON[@]}" \
-      --entitlements "$HELPER_ENTITLEMENTS" \
-      "$COMPUTER_USE_HELPER"
-  fi
-
-  # 2b. A separate Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
-  # plans/cmux-next/screen-sharing-helper.md), which only an app packaged before the screen
-  # sharing executable moved into the Computer Use helper carries (--stamp removes it from an
-  # app whose Computer Use helper has the executable; verify-computer-use-helper.sh fails a
-  # release app that keeps both): stamped for this app's final bundle id and name
-  # (nightly and RC rename the app after the build), then signed as its own app with the
+  # 2. The Screen Sharing helper app (Contents/Library, bundle-screen-sharing-helper.sh;
+  # plans/cmux-next/screen-sharing-helper.md): stamped for this app's final bundle id and name
+  # (nightly and RC rename the app after the build, and stable-next-identity.sh and
+  # nightly-next-legacy-identity.sh re-identify it), then signed as its own app with the
   # hardened runtime and no entitlements. Its bundle id and team are what macOS keeps its
   # Screen Recording and Accessibility grants under, so a grant survives every update.
-  # Like the Computer Use helper it goes in the early notarization submission
-  # (notarize-computer-use-helper.sh --start stamps and signs it), so
-  # all-except-computer-use keeps that signature and the ticket finish staples, unless the
-  # app was re-identified since (stable-next-identity.sh, nightly-next-legacy-identity.sh):
-  # a helper still stamped for another bundle id would share that channel's grants and show
-  # under its name in System Settings, so it is stamped and signed again. The app's own
-  # notarization then covers its new signature; its old stapled ticket is dropped.
-  restamp_screen_helper=0
-  if [[ "$SIGN_MODE" == "all-except-computer-use" ]]; then
-    app_bundle_id="" app_bundle_name=""
-    [[ -f "$APP_PATH/Contents/Info.plist" ]] && app_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
-    [[ -f "$APP_PATH/Contents/Info.plist" ]] && app_bundle_name="$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
-    for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
-      [[ -d "$screen_helper" ]] || continue
-      helper_bundle_id=""
-      [[ -f "$screen_helper/Contents/Info.plist" ]] && helper_bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$screen_helper/Contents/Info.plist" 2>/dev/null || true)"
-      if [[ "$helper_bundle_id" != "$app_bundle_id.screen-sharing" || "$(basename "$screen_helper")" != "$app_bundle_name Screen Sharing.app" ]]; then
-        echo "==> the Screen Sharing helper is stamped for $helper_bundle_id; re-stamping it for $app_bundle_id"
-        restamp_screen_helper=1
-      fi
-    done
-  fi
-  if [[ "$SIGN_MODE" == "all" || "$restamp_screen_helper" == 1 ]]; then
+  # A helper re-stamped here drops its old CodeResources; the app's notarization covers
+  # its new signature.
+  if [[ "$SIGN_MODE" == "all" ]]; then
     "$SCRIPT_DIR/cmux-next/bundle-screen-sharing-helper.sh" --stamp "$APP_PATH"
     for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
       [[ -d "$screen_helper" ]] || continue
-      [[ "$restamp_screen_helper" == 0 ]] || rm -f "$screen_helper/Contents/CodeResources"
       echo "==> signing the Screen Sharing helper $(basename "$screen_helper")"
       "$SCRIPT_DIR/codesign-retry.sh" "${COMMON[@]}" "$screen_helper"
     done
@@ -269,9 +221,6 @@ for alias in cmux-tui acpmux; do
     exit 1
   fi
 done
-if [[ -d "$COMPUTER_USE_HELPER" ]]; then
-  /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
-fi
 for screen_helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
   [[ -d "$screen_helper" ]] || continue
   /usr/bin/codesign --verify --strict --verbose=2 "$screen_helper"
@@ -372,12 +321,5 @@ for helper_dir in bin libexec; do
     fi
   done
 done
-
-if [[ -d "$COMPUTER_USE_HELPER" ]] \
-   && /usr/bin/codesign -d --entitlements :- "$COMPUTER_USE_HELPER" 2>&1 \
-        | grep -q "application-identifier"; then
-  echo "error: nested Computer Use helper unexpectedly carries application-identifier" >&2
-  exit 1
-fi
 
 echo "==> signing OK: $APP_PATH"

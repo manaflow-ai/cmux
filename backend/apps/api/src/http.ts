@@ -33,7 +33,7 @@ import { codeRefOf } from "./code-check.ts"
 import { chiefJobGate, isChiefJobCreate } from "./chief-job-gate.ts"
 import type { CodeStorageError } from "./code-storage.ts"
 import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
-import { signState, verifyState, type ConnectState } from "./integrations/state.ts"
+import { integrationCallbackUrl, signState, verifyState, type ConnectState } from "./integrations/state.ts"
 import { configureAfterLink, githubConnectUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
@@ -146,7 +146,7 @@ const submitTo = (owner: string, principalIn: Principal, frame: { op: string; pa
     catch: unreachable
   }))
 
-const callbackUrl = () => `${(env.DASHBOARD_ORIGIN ?? "").replace(/\/$/, "")}/integrations/callback`
+const callbackUrl = () => integrationCallbackUrl(env)
 
 /** integration.complete and provider ops: verified state (complete), then the ConnectionDO's external path. */
 const externalOp = (principalIn: Principal, frameIn: { op: string; params: unknown; idempotency_key: string }) =>

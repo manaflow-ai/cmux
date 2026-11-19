@@ -286,15 +286,17 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         let controller = ScriptedDialer.controller(dialer)
         defer { controller.send(.target(nil)) }
         try await eventually { controller.phase.isConnected }
+        let generation = controller.dialGeneration
         let pressure = MemoryPressure(observesSystem: false)
         let owner = NSObject()
         var relieved = 0
         pressure.register(owner) { relieved += 1 }
         pressure.relieve()
-        try await Task.sleep(for: .milliseconds(50))
         report("app_memory_warning", "small", ["dials": dialer.dials, "relieved": relieved])
         #expect(relieved == 1)
         #expect(controller.phase.isConnected)
+        // No dial was started (a dial bumps the generation as it starts), and none was made.
+        #expect(controller.dialGeneration == generation)
         #expect(dialer.dials == 1)
     }
 
@@ -420,10 +422,12 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         defer { controller.send(.target(nil)) }
         try await eventually { controller.phase == .signedOut }
         #expect(dialer.forcedRefresh == [false, true], "the second dial must mint a fresh token")
+        let generation = controller.dialGeneration
         for event: LinkMachine.Event in [.foreground, .resume, .macSignaled, .networkChanged, .retryDue(generation: controller.dialGeneration)] {
             controller.send(event)
         }
-        try await Task.sleep(for: .milliseconds(50))
+        // A dial starts in `send` (it bumps the generation there): none started.
+        #expect(controller.dialGeneration == generation)
         report("pairing_revoked_token_at_dial", "small", ["dials": dialer.dials, "status": controller.phase.statusLine(macName: "Studio") ?? ""])
         #expect(dialer.dials == 2, "a signed-out session dialed \(dialer.dials) times")
         #expect(controller.phase == .signedOut)
@@ -439,8 +443,10 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
         defer { controller.send(.target(nil)) }
         try await eventually { controller.phase == .signedOut }
         controller.send(.target(nil))
+        let generation = controller.dialGeneration
         controller.send(.target(.init(macID: "m1", name: "Studio", isOnline: true)))
-        try await Task.sleep(for: .milliseconds(50))
+        // A dial starts in `send` (it bumps the generation there): none started.
+        #expect(controller.dialGeneration == generation)
         report("pairing_revoked_token_idle_close", "small", ["dials": dialer.dials])
         #expect(dialer.dials == 2, "an idle close and reopen redialed a signed-out session")
         #expect(controller.phase == .signedOut)

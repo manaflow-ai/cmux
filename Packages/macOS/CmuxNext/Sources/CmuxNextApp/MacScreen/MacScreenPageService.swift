@@ -205,7 +205,6 @@ extension AppServices {
     func startCmuxRemote(_ settings: SettingsController) {
         let auth = cloud.auth
         guard let devices = cmuxRemote.start(bundleID: environment.launch.bundleID ?? "com.cmuxterm.app.next", loginKeychain: loginKeychain, deviceHub: deviceHub, pages: macScreenPages,
-                                             computerUse: ComputerUseHelperDaemon.shared.upstream,
                                              tokens: { try await auth.tokens().access }) else { return }
         let consent = joinConsent, previous = consent.changed
         let syncConsent = cmuxRemote.bindConsent(devices) { [weak consent] in
@@ -221,6 +220,24 @@ extension AppServices {
             _ = daemon.identity?.capabilities.count // a reconnected daemon sends the switches again
             return (cloud.isSignedIn, !registry.disabledFeatures.contains(.computerUse))
         }
+        // The person's Computer Use policy and the cursor's animation switches go to cmux Remote's
+        // worker, from the first settings load on (``CmuxRemoteService/followComputerUse(_:)`` waits for it).
+        cmuxRemote.followComputerUse { [weak self, weak settings] in
+            guard let self, let settings else { return nil }
+            _ = daemon.identity?.capabilities.count // a reconnected daemon gets the policy again
+            let snapshot = settings.snapshot
+            let speed = snapshot.animationSpeed
+            let animates = snapshot.motionCategories.enabled && !snapshot.motionCategories.disabled.contains(.cursor) && speed != .off
+            return CmuxRemoteComputerUsePolicy(policy: snapshot.computerUse.policyConfigJSON(), cursorAnimates: animates,
+                                               cursorSpeed: speed.timeScale > 0 ? 1 / speed.timeScale : 1)
+        }
+        // The worker's agent sessions: the menu bar icon's dot while one acts, and an open menu's row.
+        cmuxRemote.followComputerUseActivity(daemon.store) { [weak self] acting in
+            self?.menuBarExtra.computerUseActive = acting
+            self?.menuBarExtra.computerUseSessionsChanged()
+        }
+        // The window each agent drives, live, in that agent's own chat or terminal pane.
+        computerUsePreviews.follow(daemon.store)
     }
 
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.

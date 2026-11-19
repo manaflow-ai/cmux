@@ -22140,137 +22140,6 @@
         }
       }
     },
-    "macScreen.home.screenRecordingDetail.holder": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يتيح لـ «%@» إرسال هذه الشاشة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Omogućava da „%@“ šalje ovaj ekran."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lader „%@“ sende denne skærm."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erlaubt „%@“, diesen Bildschirm zu senden."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lets “%@” send this screen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permite que «%@» envíe esta pantalla."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permet à « %@ » d’envoyer cet écran."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Consente a “%@” di inviare questo schermo."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「%@」がこの画面を送信できるようにします。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "អនុញ្ញាតឱ្យ “%@” ផ្ញើអេក្រង់នេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "‘%@’이(가) 이 화면을 전송할 수 있게 합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lar «%@» sende denne skjermen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pozwala aplikacji „%@” wysyłać ten ekran."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permite que “%@” envie esta tela."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Позволяет приложению «%@» передавать этот экран."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "อนุญาตให้ “%@” ส่งหน้าจอนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“%@” uygulamasının bu ekranı göndermesine izin verir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Дозволяє застосунку «%@» передавати цей екран."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cho phép “%@” gửi màn hình này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "允许“%@”发送此屏幕。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "允許「%@」傳送此螢幕。"
-          }
-        }
-      }
-    },
     "macScreen.home.invalidHubAddress": {
       "extractionState": "manual",
       "localizations": {
@@ -35764,137 +35633,6 @@
         }
       }
     },
-    "macScreen.home.screenRecordingNeeded.holder": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مطلوب لإرسال هذه الشاشة. فعّل «%@» في إعدادات النظام."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Potrebno za slanje ovog ekrana. Uključite „%@“ u Postavkama sistema."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kræves for at sende denne skærm. Slå „%@“ til i Systemindstillinger."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nötig, um diesen Bildschirm zu senden. Aktiviere „%@“ in den Systemeinstellungen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Needed to send this screen. Turn on “%@” in System Settings."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Necesario para enviar esta pantalla. Activa «%@» en Ajustes del Sistema."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nécessaire pour envoyer cet écran. Activez « %@ » dans Réglages Système."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Serve per inviare questo schermo. Attiva “%@” in Impostazioni di Sistema."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この画面を送るために必要です。システム設定で「%@」をオンにしてください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ត្រូវការដើម្បីផ្ញើអេក្រង់នេះ។ បើក “%@” ក្នុងការកំណត់ប្រព័ន្ធ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 화면을 보내는 데 필요합니다. 시스템 설정에서 ‘%@’을(를) 켜세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trengs for å sende denne skjermen. Slå på «%@» i Systeminnstillinger."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Potrzebne do wysyłania tego ekranu. Włącz „%@” w Ustawieniach systemowych."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Necessário para enviar esta tela. Ative “%@” nos Ajustes do Sistema."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нужно, чтобы передавать этот экран. Включите «%@» в системных настройках."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "จำเป็นสำหรับการส่งหน้าจอนี้ เปิด “%@” ในการตั้งค่าระบบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu ekranı göndermek için gerekir. Sistem Ayarları’nda “%@” uygulamasını açın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Потрібно, щоб надсилати цей екран. Увімкніть «%@» у системних параметрах."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cần để gửi màn hình này. Bật “%@” trong Cài đặt hệ thống."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "发送此屏幕时需要。请在系统设置中打开“%@”。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "傳送此螢幕時需要。請在系統設定中開啟「%@」。"
-          }
-        }
-      }
-    },
     "macScreen.home.accessibilityNeeded": {
       "extractionState": "manual",
       "localizations": {
@@ -37336,264 +37074,264 @@
         }
       }
     },
-    "macScreen.setup.screen.body.holder": {
+    "macScreen.setup.screen.body": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحتاج macOS إلى إذن تسجيل الشاشة لكي يتمكن «%@» من مشاركة شاشتك."
+            "value": "يحتاج macOS إلى إذن تسجيل الشاشة ليتمكن تطبيق cmux هذا من مشاركة شاشتك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS-u je potrebna dozvola za snimanje ekrana da bi „%@“ dijelio vaš ekran."
+            "value": "macOS-u je potrebna dozvola za snimanje ekrana da bi ova cmux aplikacija dijelila vaš ekran."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS skal have tilladelse til skærmoptagelse, så „%@“ kan dele din skærm."
+            "value": "macOS skal have tilladelse til skærmoptagelse, så denne cmux-app kan dele din skærm."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS benötigt die Bildschirmaufnahme-Berechtigung, damit „%@“ deinen Bildschirm teilen kann."
+            "value": "macOS benötigt die Bildschirmaufnahme-Berechtigung, damit diese cmux-App deinen Bildschirm teilen kann."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS needs Screen Recording permission for “%@” to share your display."
+            "value": "macOS needs Screen Recording permission for this cmux app to share your display."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS necesita permiso de grabación de pantalla para que «%@» comparta tu pantalla."
+            "value": "macOS necesita permiso de grabación de pantalla para que esta app de cmux comparta tu pantalla."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS a besoin de l’autorisation d’enregistrement de l’écran pour que « %@ » partage votre écran."
+            "value": "macOS a besoin de l’autorisation d’enregistrement de l’écran pour que cette app cmux partage votre écran."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS richiede l’autorizzazione per la registrazione dello schermo affinché “%@” possa condividere lo schermo."
+            "value": "macOS richiede l’autorizzazione per la registrazione dello schermo affinché questa app cmux possa condividere lo schermo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」で画面を共有するには、macOSの画面収録の許可が必要です。"
+            "value": "このcmuxアプリで画面を共有するには、macOSの画面収録の許可が必要です。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS ត្រូវការការអនុញ្ញាតថតអេក្រង់ ដើម្បីឱ្យ “%@” ចែករំលែកអេក្រង់របស់អ្នក។"
+            "value": "macOS ត្រូវការការអនុញ្ញាតថតអេក្រង់ ដើម្បីឱ្យកម្មវិធី cmux នេះចែករំលែកអេក្រង់របស់អ្នក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "‘%@’이(가) 화면을 공유하려면 macOS 화면 기록 권한이 필요합니다."
+            "value": "이 cmux 앱이 화면을 공유하려면 macOS 화면 기록 권한이 필요합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS trenger tillatelse til skjermopptak for at «%@» skal kunne dele skjermen din."
+            "value": "macOS trenger tillatelse til skjermopptak for at denne cmux-appen skal kunne dele skjermen din."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS potrzebuje uprawnień do nagrywania ekranu, aby aplikacja „%@” mogła udostępniać ekran."
+            "value": "macOS potrzebuje uprawnień do nagrywania ekranu, aby ta aplikacja cmux mogła udostępniać ekran."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O macOS precisa da permissão Gravação de Tela para que “%@” compartilhe sua tela."
+            "value": "O macOS precisa da permissão Gravação de Tela para que este app cmux compartilhe sua tela."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS требуется разрешение на запись экрана, чтобы приложение «%@» могло делиться вашим экраном."
+            "value": "Для этого приложения cmux macOS требуется разрешение на запись экрана, чтобы делиться вашим экраном."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS ต้องได้รับอนุญาตการบันทึกหน้าจอเพื่อให้ “%@” แชร์หน้าจอของคุณได้"
+            "value": "macOS ต้องได้รับอนุญาตการบันทึกหน้าจอเพื่อให้แอป cmux นี้แชร์หน้าจอของคุณได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” uygulamasının ekranınızı paylaşabilmesi için macOS’te Ekran Kaydı izni gerekir."
+            "value": "Bu cmux uygulamasının ekranınızı paylaşabilmesi için macOS’te Ekran Kaydı izni gerekir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS потрібен дозвіл на запис екрана, щоб застосунок «%@» міг надавати доступ до вашого екрана."
+            "value": "macOS потрібен дозвіл на запис екрана, щоб цей застосунок cmux міг надавати доступ до вашого екрана."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS cần quyền Ghi màn hình để “%@” chia sẻ màn hình của bạn."
+            "value": "macOS cần quyền Ghi màn hình để ứng dụng cmux này chia sẻ màn hình của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@”需要 macOS 的屏幕录制权限才能共享你的显示屏。"
+            "value": "此 cmux 应用需要 macOS 的屏幕录制权限才能共享你的显示屏。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」需要 macOS 的螢幕錄製權限才能共享你的顯示器。"
+            "value": "此 cmux App 需要 macOS 的螢幕錄製權限才能共享你的顯示器。"
           }
         }
       }
     },
-    "macScreen.setup.allow.holder": {
+    "macScreen.setup.screen.settings": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اسمح لـ «%@» في مطالبة الأذونات في macOS أو إعدادات النظام، ثم عد إلى هنا وتحقق مرة أخرى."
+            "value": "اسمح لـ cmux في مطالبة الأذونات في macOS أو إعدادات النظام، ثم عد إلى هنا وتحقق مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dozvolite „%@“ u macOS upitu za dozvolu ili u Postavkama sistema, zatim se vratite ovdje i provjerite ponovo."
+            "value": "Dozvolite cmux-u u macOS upitu za dozvolu ili u Postavkama sistema, zatim se vratite ovdje i provjerite ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tillad „%@“ i macOS-tilladelsesdialogen eller Systemindstillinger, vend derefter tilbage hertil og tjek igen."
+            "value": "Tillad cmux i macOS-tilladelsesdialogen eller Systemindstillinger, vend derefter tilbage hertil og tjek igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Erlaube „%@“ im macOS-Berechtigungsdialog oder in den Systemeinstellungen, kehre dann hierher zurück und prüfe erneut."
+            "value": "Erlaube cmux im macOS-Berechtigungsdialog oder in den Systemeinstellungen, kehre dann hierher zurück und prüfe erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow “%@” in the macOS permission prompt or System Settings, then return here and check again."
+            "value": "Allow cmux in the macOS permission prompt or System Settings, then return here and check again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permite «%@» en el aviso de permisos de macOS o en Ajustes del Sistema; después vuelve aquí y comprueba de nuevo."
+            "value": "Permite cmux en el aviso de permisos de macOS o en Ajustes del Sistema; después vuelve aquí y comprueba de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Autorisez « %@ » dans la demande d’autorisation de macOS ou dans Réglages Système, puis revenez ici et vérifiez à nouveau."
+            "value": "Autorisez cmux dans la demande d’autorisation de macOS ou dans Réglages Système, puis revenez ici et vérifiez à nouveau."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Consenti a “%@” nella richiesta di autorizzazione di macOS o in Impostazioni di Sistema, poi torna qui e controlla di nuovo."
+            "value": "Consenti a cmux nella richiesta di autorizzazione di macOS o in Impostazioni di Sistema, poi torna qui e controlla di nuovo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOSの許可ダイアログまたはシステム設定で「%@」を許可し、ここに戻ってもう一度確認してください。"
+            "value": "macOSの許可ダイアログまたはシステム設定でcmuxを許可し、ここに戻ってもう一度確認してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អនុញ្ញាត “%@” ក្នុងសំណើសុំការអនុញ្ញាតរបស់ macOS ឬការកំណត់ប្រព័ន្ធ បន្ទាប់មកត្រឡប់មកទីនេះ ហើយពិនិត្យម្ដងទៀត។"
+            "value": "អនុញ្ញាត cmux ក្នុងសំណើសុំការអនុញ្ញាតរបស់ macOS ឬការកំណត់ប្រព័ន្ធ បន្ទាប់មកត្រឡប់មកទីនេះ ហើយពិនិត្យម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS 권한 메시지나 시스템 설정에서 ‘%@’을(를) 허용한 다음 여기로 돌아와 다시 확인하세요."
+            "value": "macOS 권한 메시지나 시스템 설정에서 cmux를 허용한 다음 여기로 돌아와 다시 확인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tillat «%@» i macOS-tillatelsesmeldingen eller Systeminnstillinger, og gå deretter tilbake hit og sjekk igjen."
+            "value": "Tillat cmux i macOS-tillatelsesmeldingen eller Systeminnstillinger, og gå deretter tilbake hit og sjekk igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zezwól aplikacji „%@” w monicie uprawnień macOS lub w Ustawieniach systemowych, a następnie wróć tutaj i sprawdź ponownie."
+            "value": "Zezwól na cmux w monicie uprawnień macOS lub w Ustawieniach systemowych, a następnie wróć tutaj i sprawdź ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permita “%@” no aviso de permissão do macOS ou nos Ajustes do Sistema; depois volte aqui e verifique novamente."
+            "value": "Permita o cmux no aviso de permissão do macOS ou nos Ajustes do Sistema; depois volte aqui e verifique novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Разрешите «%@» в запросе разрешений macOS или в системных настройках, затем вернитесь сюда и проверьте ещё раз."
+            "value": "Разрешите cmux в запросе разрешений macOS или в системных настройках, затем вернитесь сюда и проверьте ещё раз."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อนุญาต “%@” ในพรอมต์สิทธิ์ของ macOS หรือการตั้งค่าระบบ จากนั้นกลับมาที่นี่แล้วตรวจสอบอีกครั้ง"
+            "value": "อนุญาต cmux ในพรอมต์สิทธิ์ของ macOS หรือการตั้งค่าระบบ จากนั้นกลับมาที่นี่แล้วตรวจสอบอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS izin isteminde veya Sistem Ayarları’nda “%@” uygulamasına izin verin, ardından buraya dönüp tekrar kontrol edin."
+            "value": "macOS izin isteminde veya Sistem Ayarları’nda cmux’a izin verin, ardından buraya dönüp tekrar kontrol edin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Дозвольте «%@» у запиті macOS або в системних параметрах, потім поверніться сюди й перевірте ще раз."
+            "value": "Дозвольте cmux у запиті macOS або в системних параметрах, потім поверніться сюди й перевірте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cho phép “%@” trong lời nhắc quyền của macOS hoặc Cài đặt hệ thống, rồi quay lại đây và kiểm tra lại."
+            "value": "Cho phép cmux trong lời nhắc quyền của macOS hoặc Cài đặt hệ thống, rồi quay lại đây và kiểm tra lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 macOS 权限提示或系统设置中允许“%@”，然后返回此处再次检查。"
+            "value": "在 macOS 权限提示或系统设置中允许 cmux，然后返回此处再次检查。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 macOS 權限提示或系統設定中允許「%@」，然後返回此處再次檢查。"
+            "value": "在 macOS 權限提示或系統設定中允許 cmux，然後返回此處再次檢查。"
           }
         }
       }
@@ -42311,6 +42049,661 @@
           "stringUnit": {
             "state": "translated",
             "value": "允許後，%@ 今後可以檢視這台 Mac。可在「裝置」中更改。"
+          }
+        }
+      }
+    },
+    "macScreen.card.hostFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على %1$@ مشاركة شاشته: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nije mogao dijeliti svoj ekran: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ kunne ikke dele sin skærm: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ konnte seinen Bildschirm nicht freigeben: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ couldn’t share its screen: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ no pudo compartir su pantalla: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ n’a pas pu partager son écran : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ non è riuscito a condividere lo schermo: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は画面を共有できませんでした: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ មិនអាចចែករំលែកអេក្រង់របស់វាបានទេ៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에서 화면을 공유할 수 없습니다: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ kunne ikke dele skjermen sin: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nie może udostępnić swojego ekranu: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ não conseguiu compartilhar a tela: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ не удалось показать свой экран: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ แชร์หน้าจอไม่ได้: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ekranını paylaşamadı: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ не вдалося показати свій екран: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ không thể chia sẻ màn hình: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 无法共享其屏幕：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 無法分享其螢幕：%2$@"
+          }
+        }
+      }
+    },
+    "macScreen.card.hostFailedNoReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على %@ مشاركة شاشته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nije mogao dijeliti svoj ekran."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kunne ikke dele sin skærm."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ konnte seinen Bildschirm nicht freigeben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ couldn’t share its screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no pudo compartir su pantalla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas pu partager son écran."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è riuscito a condividere lo schermo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は画面を共有できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មិនអាចចែករំលែកអេក្រង់របស់វាបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 화면을 공유할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kunne ikke dele skjermen sin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie może udostępnić swojego ekranu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não conseguiu compartilhar a tela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не удалось показать свой экран."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ แชร์หน้าจอไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ekranını paylaşamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не вдалося показати свій екран."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ không thể chia sẻ màn hình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 无法共享其屏幕。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 無法分享其螢幕。"
+          }
+        }
+      }
+    },
+    "macScreen.card.linkFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل الاتصال بـ %1$@: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veza s %1$@ nije uspjela: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelsen til %1$@ mislykkedes: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung zu %1$@ ist fehlgeschlagen: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection to %1$@ failed: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión con %1$@ falló: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion à %1$@ a échoué : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connessione a %1$@ non è riuscita: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ への接続に失敗しました: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការតភ្ជាប់ទៅ %1$@ បានបរាជ័យ៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에 연결하지 못했습니다: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilkoblingen til %1$@ mislyktes: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączenie z %1$@ nie powiodło się: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conexão com %1$@ falhou: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось подключиться к %1$@: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเชื่อมต่อกับ %1$@ ล้มเหลว: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ bağlantısı başarısız oldu: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося підключитися до %1$@: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối tới %1$@ không thành công: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与 %1$@ 的连接失败：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "與 %1$@ 的連線失敗：%2$@"
+          }
+        }
+      }
+    },
+    "macScreen.card.noPicture": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم الاتصال بـ %@، لكن لم تصل أي صورة قبل انتهاء الجلسة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povezano s %@, ali nijedna slika nije stigla prije zatvaranja sesije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbundet til %@, men der kom intet billede, før sessionen lukkede."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit %@ verbunden, aber vor dem Ende der Sitzung kam kein Bild an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected to %@, but no picture arrived before the session closed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado a %@, pero no llegó ninguna imagen antes de que se cerrara la sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté à %@, mais aucune image n’est arrivée avant la fin de la session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connesso a %@, ma non è arrivata alcuna immagine prima della chiusura della sessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続しましたが、セッションが終了するまでに画像が届きませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានតភ្ជាប់ទៅ %@ ប៉ុន្តែគ្មានរូបភាពមកដល់មុនពេលវគ្គបិទទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 연결되었지만 세션이 닫히기 전에 화면이 도착하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koblet til %@, men ingen bilder kom før økten ble lukket."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączono z %@, ale przed zamknięciem sesji nie dotarł żaden obraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado a %@, mas nenhuma imagem chegou antes de a sessão ser encerrada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключение к %@ установлено, но до закрытия сеанса изображение не пришло."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อกับ %@ แล้ว แต่ไม่มีภาพมาถึงก่อนที่เซสชันจะปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ile bağlantı kuruldu ancak oturum kapanmadan önce hiç görüntü gelmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключено до %@, але до закриття сеансу зображення не надійшло."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã kết nối tới %@ nhưng không có hình ảnh nào trước khi phiên đóng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接到 %@，但在会话关闭前没有收到画面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連線到 %@，但在工作階段關閉前沒有收到畫面。"
+          }
+        }
+      }
+    },
+    "macScreen.helper.notStaged": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر نسخ %@ من cmux، أو فشلت نسخته في التحقق من توقيع الرمز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nije moguće kopirati iz cmux-a ili njegova kopija nije prošla provjeru potpisa koda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kunne ikke kopieres ud af cmux, eller kopien bestod ikke kontrollen af kodesignaturen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ konnte nicht aus cmux kopiert werden, oder die Kopie hat die Prüfung der Codesignatur nicht bestanden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ could not be copied out of cmux, or its copy failed its code signature check"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo copiar %@ fuera de cmux, o su copia no superó la comprobación de la firma de código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas pu être copié hors de cmux, ou sa copie a échoué à la vérification de la signature du code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile copiare %@ fuori da cmux, oppure la copia non ha superato il controllo della firma del codice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を cmux からコピーできなかったか、そのコピーがコード署名の確認に失敗しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចចម្លង %@ ចេញពី cmux បានទេ ឬច្បាប់ចម្លងរបស់វាបរាជ័យក្នុងការពិនិត្យហត្ថលេខាកូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) cmux에서 복사할 수 없거나, 복사본이 코드 서명 확인을 통과하지 못했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kunne ikke kopieres ut av cmux, eller kopien besto ikke kontrollen av kodesignaturen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można skopiować %@ z cmux albo jego kopia nie przeszła sprawdzenia podpisu kodu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível copiar %@ para fora do cmux, ou a cópia falhou na verificação da assinatura de código"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось скопировать %@ из cmux, или копия не прошла проверку подписи кода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอก %@ ออกจาก cmux ไม่ได้ หรือสำเนาไม่ผ่านการตรวจสอบลายเซ็นโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ cmux dışına kopyalanamadı veya kopyası kod imzası denetiminden geçemedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося скопіювати %@ з cmux, або копія не пройшла перевірку підпису коду"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể sao chép %@ ra khỏi cmux, hoặc bản sao không vượt qua kiểm tra chữ ký mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法从 cmux 中复制 %@，或其副本未通过代码签名检查"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法從 cmux 中複製 %@，或其副本未通過程式碼簽章檢查"
           }
         }
       }
