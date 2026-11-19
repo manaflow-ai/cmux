@@ -1,0 +1,160 @@
+/* The New Tab depth layer (DepthBackground.tsx, experiment new-tab-depth). The host takes the page's
+   place in its flex column (the same flex as .nt-screen), so the page's box is the same as without
+   it; the layer sits under the page in the host's own stacking context. */
+.nt-depth-host {
+  position: relative;
+  isolation: isolate;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.nt-depth-host > .nt-depth {
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-backdrop);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.nt-depth > span {
+  position: absolute;
+}
+
+/* ---------- grain and backdrop: a vignette that darkens the edges ---------- */
+
+.nt-depth-vignette {
+  inset: 0;
+  background: radial-gradient(
+    ellipse 120% 90% at 50% 35%,
+    transparent 45%,
+    color-mix(in srgb, black light-dark(10%, 38%), transparent)
+  );
+}
+
+.nt-depth[data-depth="grain"] .nt-depth-vignette {
+  background:
+    radial-gradient(
+      ellipse 70% 50% at 50% 0%,
+      color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) light-dark(8%, 12%), transparent),
+      transparent
+    ),
+    radial-gradient(
+      ellipse 120% 90% at 50% 35%,
+      transparent 45%,
+      color-mix(in srgb, black light-dark(10%, 38%), transparent)
+    );
+}
+
+/* A still film grain: one SVG turbulence tile, rasterized once and repeated. */
+.nt-depth-grain {
+  inset: 0;
+  opacity: light-dark(0.05, 0.08);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1.6 -.3'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 160px 160px;
+}
+
+/* ---------- fields: soft accent fields that shift once on a card's hover ---------- */
+
+.nt-depth-field {
+  border-radius: 50%;
+  transition:
+    translate var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out),
+    opacity var(--cmux-motion-large, 240ms) var(--cmux-ease-out, ease-out);
+}
+
+.nt-depth-field[data-field="a"] {
+  width: 70%;
+  height: 70%;
+  left: -15%;
+  top: -25%;
+  opacity: 0.85;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) light-dark(16%, 26%), transparent),
+    transparent
+  );
+}
+
+.nt-depth-field[data-field="b"] {
+  width: 60%;
+  height: 65%;
+  right: -12%;
+  top: 10%;
+  opacity: 0.7;
+  background: radial-gradient(
+    closest-side,
+    color-mix(
+      in oklch,
+      var(--agent-accent, var(--cmux-accent)) light-dark(12%, 20%),
+      color-mix(in oklch, var(--agent-accent, var(--cmux-accent)), magenta 45%) 0%
+    ),
+    transparent
+  );
+}
+
+.nt-depth-field[data-field="c"] {
+  width: 80%;
+  height: 60%;
+  left: 10%;
+  bottom: -30%;
+  opacity: 0.6;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in oklch, var(--agent-accent, var(--cmux-accent)) light-dark(10%, 18%), transparent),
+    transparent
+  );
+}
+
+/* A hovered or focused card shifts the fields once, then they rest. */
+.nt-depth-host:has(.nt-card:is(:hover, :focus-visible)) .nt-depth-field[data-field="a"] {
+  translate: 4% 3%;
+  opacity: 1;
+}
+.nt-depth-host:has(.nt-card:is(:hover, :focus-visible)) .nt-depth-field[data-field="b"] {
+  translate: -5% 4%;
+  opacity: 0.9;
+}
+.nt-depth-host:has(.nt-card:is(:hover, :focus-visible)) .nt-depth-field[data-field="c"] {
+  translate: 0 -6%;
+  opacity: 0.8;
+}
+
+/* Motion off or Reduce Motion: the fields hold still. */
+:root:is(
+    [data-agent-motion="off"],
+    [data-agent-motion="reduced"],
+    [data-cmux-motion="off"],
+    [data-cmux-motion="reduced"]
+  )
+  .nt-depth-host
+  .nt-depth-field {
+  transition: none;
+  translate: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-depth-host .nt-depth-field {
+    transition: none;
+    translate: none;
+  }
+}
+
+/* ---------- backdrop: bold dark cards over the window's picture ---------- */
+
+.nt-depth-host[data-depth="backdrop"] .nt-card {
+  background: light-dark(
+    var(--acpmux-composer-bg),
+    color-mix(in srgb, var(--agent-page-bg, var(--acpmux-base)) 60%, black)
+  );
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
+    0 8px 24px color-mix(in srgb, black light-dark(14%, 45%), transparent);
+}
+.nt-depth-host[data-depth="backdrop"] .nt-card:hover {
+  background: light-dark(
+    var(--acpmux-composer-hover),
+    color-mix(in srgb, var(--agent-page-bg, var(--acpmux-base)) 72%, black)
+  );
+}
