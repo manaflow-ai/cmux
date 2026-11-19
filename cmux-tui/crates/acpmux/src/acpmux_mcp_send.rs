@@ -20,7 +20,7 @@
 use super::*;
 use cmux_json::JsonSet as _;
 use futures::StreamExt as _;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Work in flight, not a limit on messages or recipients. Large batches keep taking turns in
 /// this window until every target has a result, without flooding the daemon's connection.
@@ -620,6 +620,9 @@ pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec
     let deadline = tokio::time::Instant::now() + RESOLVE_WAIT;
     let resolved: BTreeMap<&str, Option<String>> =
         futures::stream::iter(names.into_iter().map(|name| async move {
+            if tokio::time::Instant::now() >= deadline {
+                return (name, None);
+            }
             let id = tokio::time::timeout_at(deadline, crate::cli::run::resolve_id(daemon, name))
                 .await
                 .ok()
@@ -635,7 +638,7 @@ pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec
         |t: &Target| t.tag.is_none() && !matches!(resolved.get(t.key.as_str()), Some(Some(_)));
     let host_of = |key: &str| key.split_once('/').map(|(host, _)| format!("\0host:{host}"));
     // The hosts some unresolved name is on: every target there is in its chain.
-    let dark: Vec<String> =
+    let dark: BTreeSet<String> =
         targets.iter().filter(|t| unresolved(t)).filter_map(|t| host_of(&t.key)).collect();
     targets
         .iter()
