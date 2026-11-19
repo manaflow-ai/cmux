@@ -36,8 +36,12 @@ class GitHub:
         self.repo = repo
 
     def _gh(self, args: list[str], body: dict | None = None) -> str:
-        done = subprocess.run(["gh", "api", *args], input=json.dumps(body) if body is not None else None,
-                              capture_output=True, text=True, timeout=600)
+        # Past the wrapper's longest rate-limit wait (GH_BUDGET_WAIT_MAX_SECONDS, 3600); the job's own timeout bounds it too.
+        try:
+            done = subprocess.run(["gh", "api", *args], input=json.dumps(body) if body is not None else None,
+                                  capture_output=True, text=True, errors="replace", timeout=3900)
+        except subprocess.TimeoutExpired as error:
+            raise OSError(f"gh api {' '.join(args)}: timed out after 3900 s") from error
         if done.returncode != 0:
             raise OSError(f"gh api {' '.join(args)}: exit {done.returncode}: {done.stderr.strip()[-300:]}")
         return done.stdout
