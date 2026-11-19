@@ -9,8 +9,11 @@ import os
 /// ``delay`` (10 s) after the newest hide of a cmux page, every cmux page still hidden gets a memory-pressure notice
 /// (`Memory.simulatePressureNotification`, ``level``) through its own DevTools session, at most once per
 /// ``minimumGap``. A hide inside the wait moves it to 10 s after that hide, so a burst of switches costs one round.
-/// Each notice reaches that page's renderer: V8 collects and shrinks its heap, Blink drops decoded images, fonts and
-/// resources it can read again. Nothing is reloaded: every page keeps its DOM, scroll and state.
+/// The notice stays in the browser process: Chromium's `MemoryHandler::SimulatePressureNotification` raises it there
+/// alone, and `RenderProcessHostImpl::OnMemoryPressure` passes a level on to renderers only on Android and CastOS
+/// (Chromium 157). So it gives back browser- and GPU-side caches, not the renderer's V8 heap or Blink caches. Nothing
+/// is reloaded: every page keeps its DOM, scroll and state. A hidden page's window buffers go at its hide
+/// (`CEFSwitches.hiddenWindowCompositor`).
 @MainActor
 final class CEFHiddenPageTrim {
     /// Chromium's pressure level the notice names.

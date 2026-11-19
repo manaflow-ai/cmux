@@ -51,6 +51,17 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// into CEF's feature list.
     static let overlayScrollbars = "enable-features=OverlayScrollbar:mode/overlay"
 
+    /// A hidden page window's compositor gives back its display buffers. Every cmux page and browser tab has a Chromium
+    /// window of its own, and the fork hides a hidden page's window (`_widget->Hide()`). On macOS Chromium 157 then only
+    /// suspends that window's compositor (`NativeWidgetMacNSWindowHost::UpdateCompositorVisibility`): Viz keeps the
+    /// window's backbuffers, about one pane of IOSurfaces per hidden page in the GPU process. With
+    /// `NotifyCompositorOfWindowVisibilityOnMacOs` (ui/views/views_features.cc, off by default) the hide also calls
+    /// `Compositor::SetVisible(false)`, which "stops frame production in cc and tells Viz to release backbuffers".
+    /// Nothing of the page goes: its renderer keeps its DOM and state, and the page's last frame stays locked in Viz
+    /// (`BrowserCompositorMac` under a parent layer never unlocks it), so a show draws the window again from that frame,
+    /// with no raster and no wait for the renderer (Leo, 2026-11-17: "instant > memory").
+    static let hiddenWindowCompositor = "enable-features=NotifyCompositorOfWindowVisibilityOnMacOs"
+
     var arguments: [String] {
         var result: [String] = []
         if forkAPIVersion >= 1 {
@@ -85,6 +96,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
         result.append("disable-stack-profiler")
         result.append(Self.overlayScrollbars)
+        result.append(Self.hiddenWindowCompositor)
         // Chromium's UI thread is the app's main thread (external message pump): one
         // `CefDoMessageLoopWork` pass ran ready work for up to CEF's 10 ms slice, longer than a
         // 120 Hz frame, so a pass during a split or a divider drag dropped the frame. The fork
