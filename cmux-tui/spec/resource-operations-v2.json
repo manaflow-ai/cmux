@@ -28275,7 +28275,7 @@
               "name": "string",
               "min_length": 1
             },
-            "description": "An absolute path to a folder inside a repository; its immediate children are listed. A file path lists the folder it is in. Use it, or a workspace, pane, tab or terminal selector whose working directory names the folder."
+            "description": "An absolute path to a folder; its immediate children are listed, the git way inside a repository and from the disk outside one. A file path lists the folder it is in. Use it, or a workspace, pane, tab or terminal selector whose working directory names the folder."
           },
           "limit": {
             "required": false,
