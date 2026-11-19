@@ -311,17 +311,17 @@ public final class GlassParityPlayground {
         var text: CGRect
     }
 
-    /// Captures the window into `directory` through `capture` (the window and a PNG path; true once the
-    /// PNG is written) and answers each web surface's diff against its native neighbor, with its text
+    /// Captures the window into `directory` through `capture` (`debug.window_snapshot` params: the window
+    /// and a PNG path) and answers each web surface's diff against its native neighbor, with its text
     /// (`full`) and without (`material`), and writes every cell and its heat map beside the capture.
-    public func measure(into directory: URL, capture: (NSWindow, URL) async -> JSONValue) async -> JSONValue {
+    public func measure(into directory: URL, capture: ([String: JSONValue]) async -> JSONValue) async -> JSONValue {
         guard let window, let content = window.contentView else { return ["error": "the playground is not open"] }
         let appearance = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? "dark" : "light"
         let scale = window.backingScaleFactor
         let stem = "\(backdrop.rawValue)-\(mode.rawValue)-\(appearance)-\(Int(scale))x"
         let png = directory.appending(path: "window-\(stem).png", directoryHint: .notDirectory)
         await Task.detached(priority: .utility) { try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true) }.value
-        let snapshot = await capture(window, png)
+        let snapshot = await capture(["window": .string(String(window.windowNumber)), "path": .string(png.path)])
         // The capture is the window's frame at its backing scale, title bar on top, no shadow.
         let contentInWindow = content.convert(content.bounds, to: nil)
         let contentTop = (window.frame.height - contentInWindow.maxY) * scale
@@ -450,7 +450,7 @@ public final class GlassParityPlayground {
     /// `debug.glass_parity {backdrop?, mode?, scale?, measure?, dir?, close?}` (the App routes it here):
     /// opens or reconfigures the playground (``show(backdrop:mode:scale:)``) and, with `measure`, captures
     /// and diffs it into `dir` (default a folder in the temporary directory). `close` closes it.
-    public func handle(_ params: [String: JSONValue], capture: (NSWindow, URL) async -> JSONValue) async -> JSONValue {
+    public func handle(_ params: [String: JSONValue], capture: ([String: JSONValue]) async -> JSONValue) async -> JSONValue {
         if params["close"]?.boolValue == true {
             close()
             return ["open": false]
