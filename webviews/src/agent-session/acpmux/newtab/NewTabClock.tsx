@@ -24,8 +24,17 @@ export function NewTabClock({ font, weight, color, date, now: fixed, locale }: P
       setTicked(at);
       timer = setTimeout(tick, msToNextMinute(at));
     };
-    timer = setTimeout(tick, msToNextMinute(Date.now()));
-    return () => clearTimeout(timer);
+    // Shown again after a hide (Activity, a sleep): the time of now, not of the last tick.
+    const catchUp = () => {
+      clearTimeout(timer);
+      tick();
+    };
+    catchUp();
+    document.addEventListener("visibilitychange", catchUp);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", catchUp);
+    };
   }, [fixed]);
   const at = new Date(fixed ?? ticked);
   return (

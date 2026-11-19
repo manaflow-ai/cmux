@@ -1,7 +1,8 @@
 /* The New Tab clock (NewTabClock.tsx): the iOS 26 Lock Screen's stack, the date in small text over a
    large time, centred over the composer. Colours are the theme's own (text, accent, muted) or the
    glass material's tint; fonts are the system's families. The time is a display size scaled to the
-   pane and the interface scale, never pushing the composer out of view (.nt-app-slot's cap). */
+   pane and the interface scale (its font-size clamp); it sits in the room over the composer, never
+   in its place, and the scrolling .nt-screen keeps the composer in reach. */
 .nt-clock {
   display: flex;
   flex-direction: column;
