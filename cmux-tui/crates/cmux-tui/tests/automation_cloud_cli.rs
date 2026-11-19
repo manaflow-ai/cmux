@@ -27,6 +27,11 @@ static CREATES: AtomicUsize = AtomicUsize::new(0);
 /// A fake app: one Cloud Chief; the first `automation.create` succeeds, the
 /// second answers the free plan's refusal with a checkout link.
 fn answer(request: &Value) -> Value {
+    if request["method"] == "cloud.machines" {
+        return json!({"id": request["id"], "ok": true, "result": {"machines": [
+            {"id": "vm_abcdefghij0123456789", "title": "scout", "status": "running"}
+        ]}});
+    }
     if request["method"] != "cloud.automation" {
         return json!({"id": request["id"], "ok": true, "result": {"pong": true}});
     }
@@ -35,6 +40,14 @@ fn answer(request: &Value) -> Value {
         "chief.list" => json!({"ok": true, "value": {"chiefs": [
             {"id": "agent_01J0000000000000000000000A", "is_default": true, "archived_at": null, "main_conversation": "conv_main"}
         ], "tombstones": []}}),
+        "automation.create" if p["params"]["body"]["type"] == "steps" => {
+            json!({"ok": true, "value": {"id": "auto_cccccccccccccccccccc", "name": p["params"]["name"], "enabled": true,
+                   "triggers": [{"spec": p["params"]["triggers"][0]}], "next_run_at": null}})
+        }
+        "run.get" => {
+            json!({"ok": true, "value": {"run": {"id": p["params"]["run"], "state": "failed",
+            "body": {"type": "chief", "chief": "agent_x", "conversation": "c", "prompt": "x"}}}})
+        }
         "automation.create" => {
             if CREATES.fetch_add(1, Ordering::SeqCst) == 0 {
                 json!({"ok": true, "value": {"id": "auto_aaaaaaaaaaaaaaaaaaaa", "name": p["params"]["name"], "enabled": true,
@@ -160,11 +173,70 @@ fn cloud_create_list_run_and_the_plan_refusal() {
     assert!(run.status.success(), "{}", text(&run.stderr));
     assert!(text(&run.stdout).contains("run_bbbbbbbbbbbbbbbbbbbb"));
 
-    // Local-only schedules and shell commands are refused before any call.
+    // A shell command runs on the team's only Cloud machine: a steps body that
+    // checks out the branch's newest head, then waits for the command.
+    let scout = cmux(
+        &dir,
+        &socket,
+        &[
+            "automation",
+            "create",
+            "models-scout",
+            "--target",
+            "cloud",
+            "--command",
+            "bash scripts/models/run-scout.sh",
+            "--repo",
+            "manaflow-ai/cmux",
+            "--ref",
+            "feat-cmux-next",
+            "--every",
+            "6h",
+            "--timeout",
+            "20m",
+            "--catch-up",
+            "latest",
+        ],
+    );
+    assert!(scout.status.success(), "{}{}", text(&scout.stdout), text(&scout.stderr));
+    assert!(text(&scout.stdout).contains("vm_abcdefghij0123456789"), "{}", text(&scout.stdout));
+    // A prompt run has no machine log.
+    let logs = cmux(
+        &dir,
+        &socket,
+        &["automation", "logs", "run_dddddddddddddddddddd", "--target", "cloud"],
+    );
+    assert_eq!(logs.status.code(), Some(2), "{}", text(&logs.stderr));
+
+    // Local-only schedules and what a Cloud command cannot take are refused before any call.
     for args in [
-        &["automation", "create", "X", "--target", "cloud", "--prompt", "x", "--every", "30m"][..],
-        &["automation", "create", "X", "--target", "cloud", "--command", "true", "--daily", "9:00"],
-        &["automation", "logs", "X", "--target", "cloud"],
+        &["automation", "create", "X", "--target", "cloud", "--prompt", "x", "--every", "7m"][..],
+        &[
+            "automation",
+            "create",
+            "X",
+            "--target",
+            "cloud",
+            "--command",
+            "true",
+            "--daily",
+            "9:00",
+            "--repo",
+            "nope",
+        ],
+        &[
+            "automation",
+            "create",
+            "X",
+            "--target",
+            "cloud",
+            "--command",
+            "true",
+            "--daily",
+            "9:00",
+            "--timeout",
+            "300m",
+        ],
         // Conditions, watches and guardrails run on this Mac only.
         &[
             "automation",
@@ -239,6 +311,21 @@ fn cloud_create_list_run_and_the_plan_refusal() {
         .filter(|r| r["method"] == "cloud.automation")
         .map(|r| &r["params"])
         .collect();
+    let command = ops
+        .iter()
+        .find(|p| p["op"] == "automation.create" && p["params"]["body"]["type"] == "steps")
+        .unwrap();
+    let steps = command["params"]["body"]["steps"].as_array().unwrap();
+    assert_eq!(steps.len(), 1 + 5, "a start step, then waits that cover 20 minutes");
+    assert!(steps.iter().all(|s| s["machine"] == "vm_abcdefghij0123456789"));
+    assert!(steps[0]["command"].as_str().unwrap().contains("fetch --quiet origin feat-cmux-next"));
+    assert_eq!(command["params"]["catch_up"], "latest");
+    assert_eq!(command["params"]["concurrency"], json!({"max": 1, "on_limit": "skip"}));
+    let every = command["params"]["triggers"][0]["expr"].as_str().unwrap();
+    // Every 6 h from now as a cron: one minute, four hours a day.
+    let fields: Vec<&str> = every.split(' ').collect();
+    assert_eq!((fields.len(), &fields[2..]), (5, &["*", "*", "*"][..]), "{every}");
+    assert_eq!(fields[1].split(',').count(), 4, "{every}");
     let create = ops.iter().find(|p| p["op"] == "automation.create").unwrap();
     assert_eq!(
         create["params"]["body"],

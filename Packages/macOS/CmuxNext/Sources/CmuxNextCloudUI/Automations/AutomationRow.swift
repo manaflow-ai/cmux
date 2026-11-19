@@ -180,10 +180,45 @@ public nonisolated struct AutomationRow: Equatable, Identifiable, Sendable {
             let specs = (item["triggers"] as? [[String: Any]] ?? []).map { $0["spec"] as? [String: Any] ?? $0 }
             let schedule = specs.first(where: { ($0["type"] as? String) != "manual" }).map { describe($0) } ?? describe(["type": "manual"])
             let next = (item["next_run_at"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
-            return AutomationRow(id: id, name: name, target: .cloud, schedule: schedule, task: body["prompt"] as? String ?? "",
-                                 enabled: item["enabled"] as? Bool ?? true, nextRun: next, last: .none, kind: .chief,
+            // A `steps` body is a command on a Cloud machine (`--command … --target cloud`); its words are in the description.
+            let command = (body["type"] as? String) == "steps"
+            let task = command ? Self.cloudCommand(item["description"] as? String) : body["prompt"] as? String ?? ""
+            return AutomationRow(id: id, name: name, target: .cloud, schedule: schedule, task: task,
+                                 enabled: item["enabled"] as? Bool ?? true, nextRun: next, last: .none, kind: command ? .command : .chief,
                                  trigger: AnySendableJSON.object(specs.first(where: { ($0["type"] as? String) != "manual" })))
         }
+    }
+
+    /// The command of a Cloud command automation, from the description the CLI wrote.
+    static func cloudCommand(_ description: String?) -> String {
+        let prefix = "Cloud command made with cmux automation: "
+        guard let description, description.hasPrefix(prefix) else { return description ?? "" }
+        return String(description.dropFirst(prefix.count))
+    }
+
+    /// The runs of `cmux automation history --target cloud --json` (the Cloud's `run.list`), newest
+    /// first, by automation id: times in milliseconds, a failure's reason its message (`step 3: exit 3:
+    /// error: 2 tests failed`), else its code. `commands`: the Cloud command automations, whose runs
+    /// have a log on their machine.
+    public static func cloudRuns(_ data: Data, commands: Set<String> = []) -> [String: [Run]] {
+        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let items = root["runs"] as? [[String: Any]] else { return [:] }
+        let ms = { (value: Any?) in (value as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } }
+        var out: [String: [Run]] = [:]
+        for item in items {
+            guard let id = item["id"] as? String, let automation = item["automation"] as? String,
+                  let at = ms(item["started_at"]) ?? ms(item["created_at"]) else { continue }
+            let error = item["error"] as? [String: Any]
+            let result = result(item["state"] as? String, reason: error?["code"] as? String)
+            let trigger = item["trigger"] as? [String: Any]
+            let late = ms(trigger?["scheduled_at"]).map { max(0, Int(at.timeIntervalSince($0))) } ?? 0
+            let started = item["started_at"] is Double
+            out[automation, default: []].append(Run(
+                id: id, at: at, result: result, reason: (error?["message"] as? String) ?? (error?["code"] as? String),
+                lateSeconds: late > 60 ? late : 0, logPath: commands.contains(automation) && started ? "cloud" : nil,
+                trigger: (trigger?["type"] as? String).map { $0 == "cron" ? "schedule" : $0 }))
+        }
+        return out.mapValues { $0.sorted { $0.at > $1.at } }
     }
 
     private static func seconds(_ value: Any?) -> Date? {
