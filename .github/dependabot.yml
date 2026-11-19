@@ -1,0 +1,50 @@
+# Dependency updates for the lockfiles cmux NEXT ships, patch versions only, at most 2 open pull
+# requests at a time (one Rust, one bun). GitHub reads this file only from the default branch;
+# target-branch points the updates at feat-cmux-next, where the code lives.
+#
+# No automerge, on purpose: every merge goes through the normal landing flow and its CI, and a bot
+# that merged its own pull requests would route around it. A patch bump lands like any other
+# pull request, by a person's deliberate merge (a bot's pull request never lands through a job:
+# tools/teammate_optin.py, core-team.json).
+#
+# Minor and major versions are ignored here; security updates are a separate repository setting.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    target-branch: feat-cmux-next
+    directories:
+      - /cmux-tui
+      - /cmux-next-ios/rust
+      - /cmux-screen
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 1
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    groups:
+      cargo-patch:
+        applies-to: version-updates
+        update-types: [patch]
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(cargo)"
+
+  - package-ecosystem: bun
+    target-branch: feat-cmux-next
+    directories:
+      - /webviews
+      - /agent-chat
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 1
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    groups:
+      bun-patch:
+        applies-to: version-updates
+        update-types: [patch]
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(bun)"
