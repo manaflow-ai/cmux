@@ -20,13 +20,13 @@
 import { type CSSProperties, type RefObject, useLayoutEffect, useRef } from "react";
 import { MOTION_EASE_OUT, MOTION_MS, MOTION_SPRING, MOTION_SPRING_STEP } from "../../motion/scale.generated";
 import { cx } from "../cx";
-import { motionMode, springEasing } from "./motionMode";
+import { motionMode, motionMs, springEasing } from "./motionMode";
 import "./motion.css";
 
 /** How the highlight looks: a filled pill, a quiet plate (the toolbar's pressed fill), or an underline. */
 export type IndicatorLook = "pill" | "plate" | "underline";
 /** How it travels: the one spring, the ease-out at `standard`, or not at all. */
-export type IndicatorTravel = "spring" | "ease" | "none";
+export type IndicatorTravel = "spring" | "ease" | "stretch" | "fade" | "none";
 
 /** The selected item, by default: the one a tablist, a toolbar or a radio group marks. */
 export const SELECTED_ITEM = '[aria-selected="true"], [aria-pressed="true"], [aria-checked="true"], [data-selected]';
@@ -52,6 +52,44 @@ function boxIn(host: HTMLElement, item: HTMLElement): Box {
 function drawnBox(mark: HTMLElement, rest: Box): Box {
   const matrix = new DOMMatrixReadOnly(getComputedStyle(mark).transform);
   return { x: matrix.e, y: matrix.f, w: rest.w * matrix.a, h: rest.h * matrix.d };
+}
+
+/** The transform that draws the highlight (sized to `target`) over `box`. */
+const over = (box: Box, target: Box) =>
+  `translate(${box.x}px, ${box.y}px) scale(${target.w > 0 ? box.w / target.w : 1}, ${target.h > 0 ? box.h / target.h : 1})`;
+
+/**
+ * The keyframes of one travel from the drawn box to the target (the highlight is sized to the target).
+ * - spring / ease: one move, position and size together.
+ * - stretch: the leading edge reaches the new item first (the highlight spans both), then the trailing
+ *   edge follows it in; each half eases out, and neither edge goes past where it lands.
+ * - fade: it fades out where it was and in on the new item, never travelling (a fade through, half
+ *   the time each).
+ */
+export function travelFrames(travel: Exclude<IndicatorTravel, "none">, from: Box, target: Box): Keyframe[] {
+  if (travel === "stretch") {
+    const left = Math.min(from.x, target.x);
+    const top = Math.min(from.y, target.y);
+    const span = {
+      x: left,
+      y: top,
+      w: Math.max(from.x + from.w, target.x + target.w) - left,
+      h: Math.max(from.y + from.h, target.y + target.h) - top,
+    };
+    return [
+      { transform: over(from, target), easing: MOTION_EASE_OUT },
+      { transform: over(span, target), offset: 0.45, easing: MOTION_EASE_OUT },
+      { transform: over(target, target) },
+    ];
+  }
+  if (travel === "fade")
+    return [
+      { transform: over(from, target), opacity: 1 },
+      { transform: over(from, target), opacity: 0, offset: 0.5 },
+      { transform: over(target, target), opacity: 0, offset: 0.5 },
+      { transform: over(target, target), opacity: 1 },
+    ];
+  return [{ transform: over(from, target) }, { transform: `translate(${target.x}px, ${target.y}px)` }];
 }
 
 export type SlidingIndicatorOptions = {
@@ -104,19 +142,20 @@ export function useSlidingIndicator(
     element.style.height = `${target.h}px`;
     element.style.transform = `translate(${target.x}px, ${target.y}px)`;
     if (!from || same(from, target) || travel === "none" || motionMode(element.ownerDocument) !== "full") return;
-    const scaleX = target.w > 0 ? from.w / target.w : 1;
-    const scaleY = target.h > 0 ? from.h / target.h : 1;
+    const doc = element.ownerDocument;
     slide.current = element.animate(
-      [
-        { transform: `translate(${from.x}px, ${from.y}px) scale(${scaleX}, ${scaleY})` },
-        { transform: `translate(${target.x}px, ${target.y}px)` },
-      ],
+      travelFrames(travel, from, target),
       travel === "spring"
         ? {
-            duration: MOTION_MS[MOTION_SPRING_STEP],
-            easing: springEasing(MOTION_SPRING, MOTION_EASE_OUT, element.ownerDocument),
+            duration: motionMs(MOTION_SPRING_STEP, MOTION_MS[MOTION_SPRING_STEP], doc),
+            easing: springEasing(MOTION_SPRING, MOTION_EASE_OUT, doc),
           }
-        : { duration: MOTION_MS.standard, easing: MOTION_EASE_OUT },
+        : travel === "stretch"
+          ? { duration: motionMs("large", MOTION_MS.large, doc), easing: "linear" }
+          : {
+              duration: motionMs("standard", MOTION_MS.standard, doc),
+              easing: travel === "fade" ? "linear" : MOTION_EASE_OUT,
+            },
     );
     slide.current.onfinish = () => {
       slide.current = null;

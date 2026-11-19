@@ -27,6 +27,26 @@ export function motionMode(
 }
 
 /**
+ * A step of the motion scale as the page computes it now (`--cmux-motion-<step>` on the root, which
+ * ui.animationSpeed scales), else the scale's own value. Web Animations read their duration here so
+ * they keep pace with the CSS transitions beside them.
+ */
+export function motionMs(
+  step: "quick" | "micro" | "standard" | "large",
+  fallback: number,
+  doc: Document | undefined = typeof document === "undefined" ? undefined : document,
+): number {
+  const root = doc?.documentElement;
+  const value = root
+    ? (doc?.defaultView?.getComputedStyle(root).getPropertyValue(`--cmux-motion-${step}`).trim() ?? "")
+    : "";
+  const number = Number.parseFloat(value);
+  if (!value || !Number.isFinite(number)) return fallback;
+  if (value.endsWith("ms")) return number;
+  return value.endsWith("s") ? number * 1000 : fallback;
+}
+
+/**
  * The one spring as a Web Animations easing, or the ease-out where the engine has no `linear()`
  * easing (WebKit before Safari 17.2, which macOS 14.0 and 14.1 ship): there `animate()` throws on it.
  */

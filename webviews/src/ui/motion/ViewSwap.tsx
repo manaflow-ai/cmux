@@ -12,6 +12,9 @@
 //   part not yet revealed is not hit-testable until the edge passes it (at most 180 ms).
 // - `sweep`: the content is shown at once and a slanted accent band crosses it once, over
 //   --cmux-motion-standard: the stylised wipe with nothing hidden.
+// - `brush`: a brush stroke paints the new content in from the side it comes from: a soft-edged mask
+//   sweeps across it while a streaked accent stroke rides the edge, over --cmux-motion-large. The
+//   whole view takes clicks at once (a mask does not change hit-testing); only its paint is late.
 // - `none`: nothing moves.
 //
 // Stop conditions: no timer and no frame loop. Each swap plays finite Web Animations (at most 240 ms)
@@ -20,10 +23,10 @@
 import { type ReactNode, useLayoutEffect, useRef } from "react";
 import { MOTION_EASE_OUT, MOTION_MS, MOTION_SPRING, MOTION_SPRING_STEP } from "../../motion/scale.generated";
 import { cx } from "../cx";
-import { motionMode, springEasing } from "./motionMode";
+import { motionMode, motionMs, springEasing } from "./motionMode";
 import "./motion.css";
 
-export type ViewSwapLook = "fade" | "slide" | "wipe" | "sweep" | "none";
+export type ViewSwapLook = "fade" | "slide" | "wipe" | "sweep" | "brush" | "none";
 
 /** The edge the new content comes from: forward is the later item (the right), back the earlier. */
 export type SwapDirection = "forward" | "back";
@@ -42,7 +45,10 @@ export type ViewSwapProps = {
 };
 
 /** The keyframes of one look, coming from `direction`. */
-export function swapFrames(look: Exclude<ViewSwapLook, "none">, direction: SwapDirection) {
+export function swapFrames(
+  look: Exclude<ViewSwapLook, "none">,
+  direction: SwapDirection,
+): { content?: Keyframe[]; band?: Keyframe[] } {
   const sign = direction === "forward" ? 1 : -1;
   if (look === "fade") return { content: [{ opacity: 0 }, { opacity: 1 }] };
   if (look === "slide")
@@ -65,6 +71,30 @@ export function swapFrames(look: Exclude<ViewSwapLook, "none">, direction: SwapD
     const [from, to] = direction === "forward" ? forward : back;
     return { content: [{ clipPath: from }, { clipPath: to }] };
   }
+  if (look === "brush") {
+    // The mask is 250% of the view wide: opaque on the first 45%, clear past 55%. Moving it from
+    // 100% to 0% carries that soft edge from -25% to 125% of the view; the stroke (half the view
+    // wide, centred on the edge) runs from -100% to 200% of its own width on the same curve.
+    // The mask lives only in the keyframes: at rest the view has none.
+    const forward = direction === "forward";
+    const image = `linear-gradient(${forward ? 100 : 280}deg, currentColor 45%, transparent 55%)`;
+    const reveal = forward ? ["100% 0%", "0% 0%"] : ["0% 0%", "100% 0%"];
+    const stroke = forward ? ["-100%", "200%"] : ["200%", "-100%"];
+    const mask = (position: string) => ({
+      maskImage: image,
+      WebkitMaskImage: image,
+      maskSize: "250% 100%",
+      WebkitMaskSize: "250% 100%",
+      maskRepeat: "no-repeat",
+      WebkitMaskRepeat: "no-repeat",
+      maskPosition: position,
+      WebkitMaskPosition: position,
+    });
+    return {
+      content: [mask(reveal[0]!), mask(reveal[1]!)] as Keyframe[],
+      band: [{ transform: `translateX(${stroke[0]})` }, { transform: `translateX(${stroke[1]})` }],
+    };
+  }
   // sweep: only the band moves, from just outside one edge to just outside the other.
   return {
     band: [
@@ -77,6 +107,8 @@ export function swapFrames(look: Exclude<ViewSwapLook, "none">, direction: SwapD
 export function ViewSwap({ swapKey, order, look = "slide", className, children }: ViewSwapProps) {
   const root = useRef<HTMLDivElement>(null);
   const band = useRef<HTMLSpanElement>(null);
+  // The brush masks an inner layer, so the stroke riding its edge (the layer's sibling) is not masked.
+  const layer = useRef<HTMLDivElement>(null);
   const last = useRef<{ key: string | number; order?: number } | null>(null);
   const playing = useRef<Animation[]>([]);
 
@@ -97,20 +129,21 @@ export function ViewSwap({ swapKey, order, look = "slide", className, children }
       order !== undefined && was.order !== undefined && order < was.order ? "back" : "forward";
     const chosen = mode === "reduced" ? "fade" : look;
     const frames = swapFrames(chosen, direction);
-    if (frames.content) {
-      const timing =
-        chosen === "slide"
-          ? {
-              duration: MOTION_MS[MOTION_SPRING_STEP],
-              easing: springEasing(MOTION_SPRING, MOTION_EASE_OUT, element.ownerDocument),
-            }
-          : { duration: chosen === "fade" ? MOTION_MS.micro : MOTION_MS.standard, easing: MOTION_EASE_OUT };
-      playing.current.push(element.animate(frames.content, timing));
-    }
-    if (frames.band && band.current)
-      playing.current.push(
-        band.current.animate(frames.band, { duration: MOTION_MS.standard, easing: MOTION_EASE_OUT }),
-      );
+    const doc = element.ownerDocument;
+    const timing: KeyframeAnimationOptions =
+      chosen === "slide"
+        ? {
+            duration: motionMs(MOTION_SPRING_STEP, MOTION_MS[MOTION_SPRING_STEP], doc),
+            easing: springEasing(MOTION_SPRING, MOTION_EASE_OUT, doc),
+          }
+        : chosen === "fade"
+          ? { duration: motionMs("micro", MOTION_MS.micro, doc), easing: MOTION_EASE_OUT }
+          : chosen === "brush"
+            ? { duration: motionMs("large", MOTION_MS.large, doc), easing: MOTION_EASE_OUT }
+            : { duration: motionMs("standard", MOTION_MS.standard, doc), easing: MOTION_EASE_OUT };
+    const target = chosen === "brush" ? layer.current : element;
+    if (frames.content && target) playing.current.push(target.animate(frames.content, timing));
+    if (frames.band && band.current) playing.current.push(band.current.animate(frames.band, timing));
     for (const animation of playing.current)
       animation.onfinish = () => {
         playing.current = playing.current.filter((other) => other !== animation);
@@ -121,8 +154,16 @@ export function ViewSwap({ swapKey, order, look = "slide", className, children }
 
   return (
     <div ref={root} className={cx("ui-view-swap", className)} data-look={look}>
-      {children}
-      {look === "sweep" && <span ref={band} className="ui-view-swap__band" aria-hidden="true" />}
+      {look === "brush" ? (
+        <div ref={layer} className="ui-view-swap__layer">
+          {children}
+        </div>
+      ) : (
+        children
+      )}
+      {(look === "sweep" || look === "brush") && (
+        <span ref={band} className="ui-view-swap__band" data-look={look} aria-hidden="true" />
+      )}
     </div>
   );
 }

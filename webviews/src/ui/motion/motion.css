@@ -69,8 +69,37 @@
   min-height: 0;
 }
 
-.ui-view-swap[data-look="sweep"] {
+.ui-view-swap:is([data-look="sweep"], [data-look="brush"]) {
   overflow: clip;
+}
+
+/* brush: the masked layer holds the content; it takes the host's place in layout exactly. */
+.ui-view-swap__layer {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* brush: the stroke riding the mask's edge, half the view wide, streaked and ragged at both ends,
+   out of view at rest. Only its transform moves (ViewSwap.tsx swapFrames). */
+.ui-view-swap__band[data-look="brush"] {
+  inset: -6% auto -6% 0;
+  width: 50%;
+  transform: translateX(-200%);
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0 3px,
+      color-mix(in srgb, var(--ui-brush-fill, var(--agent-accent, var(--cmux-accent))) 30%, transparent) 3px 5px
+    ),
+    linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--ui-brush-fill, var(--agent-accent, var(--cmux-accent))) 72%, transparent) 40%,
+      color-mix(in srgb, var(--ui-brush-fill, var(--agent-accent, var(--cmux-accent))) 72%, transparent) 60%,
+      transparent
+    );
+  mask-image: linear-gradient(180deg, transparent, currentColor 12%, currentColor 88%, transparent);
+  border-radius: 40% 60% 55% 45% / 8% 12% 10% 6%;
 }
 
 .ui-view-swap__band {
