@@ -57,7 +57,7 @@ class IdleAttention(Bench):
 
     def run(self, ctx: Context) -> None:
         args, ref = self.harness_args(ctx)
-        res = ctx.fleet_step(self.harness, args, ARTIFACT, step_class="exclusive", labels=("measure",), timeout=7200,
+        res = ctx.fleet_step(self.harness, args, ARTIFACT, step_class="exclusive", labels=("measure",), timeout=7200, display=True,
                              ref=ref)
         log = res.log_path
         if "IDLE-ATTN " not in res.log and res.job_id:
