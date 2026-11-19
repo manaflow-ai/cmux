@@ -15,9 +15,10 @@ ulimit -n 1048576 2>/dev/null || ulimit -n 65536 2>/dev/null || true
 ulimit -u unlimited 2>/dev/null || true
 echo "runner: $(nproc) cpus, $(free -g | awk '/Mem:/{print $2}') GB, nofile $(ulimit -n), nproc $(ulimit -u)"
 (cd cmux-tui && cargo build --release -p acpmux --bin acpmux) || { echo "FANIN: acpmux build failed"; exit 1; }
-BIN=$ROOT/cmux-tui/target/release/acpmux
+BIN=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/target}/release/acpmux
 (cd cmux-tui/crates/coord-sim && cargo build --release && cargo test --release fanin) || { echo "FANIN: coord-sim build/test failed"; exit 1; }
-SIM=$ROOT/cmux-tui/crates/coord-sim/target/release/coord-sim
+SIM=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/crates/coord-sim/target}/release/coord-sim
+[ -x "$BIN" ] && [ -x "$SIM" ] || { echo "FANIN: binaries missing ($BIN, $SIM)"; exit 1; }
 # Under /tmp (sticky): acpmux refuses a state directory below a writable, non-sticky ancestor.
 RUN=$(mktemp -d /tmp/fanin-run.XXXXXX)
 chmod 700 "$RUN"
@@ -53,5 +54,9 @@ for t in d["tables"]:
         c["rss_kb"], c["rss_kb_per_session"], t["events"]["lost"], t["events"]["dup"], t["gaps"]))
 print("FANIN goal_met_at_2000:", d.get("goal_met_at_2000"))
 PY
+[ -f "$RUN/fanin-summary.json" ] && summary=1 || summary=0
 rm -rf "$RUN"
+echo "FANIN exit $code"
+# A failed fleet run returns no artifacts: once a summary exists (a ramp that broke is in it), exit 0.
+[ "$summary" = 1 ] && exit 0
 exit "$code"
