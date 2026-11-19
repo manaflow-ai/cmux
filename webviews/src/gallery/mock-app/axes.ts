@@ -71,6 +71,11 @@ export const AXES: readonly Axis[] = [
     default: "shown",
     note: "The window's sidebar (the native one, approximated from the fixture's chats).",
   },
+  {
+    key: "shape",
+    to: "app",
+    note: "A shape overlay from golden/shapes.json (`tabs-gooey`, `sidebar-280`, `session-overlay`...): the window's tabs, sidebar, Session Info, top right buttons and a Home pane drawn in that option's shape. Empty: today's window.",
+  },
   // Density and size.
   {
     key: "density",

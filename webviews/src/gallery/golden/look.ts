@@ -67,3 +67,21 @@ export function lookSetting<T>(look: GoldenLook | undefined, key: string, fallba
   const value = look?.settings[key];
   return value === undefined ? fallback : (value as T);
 }
+
+/** A shape overlay (shapes.json): one area's option, drawn over a look in the golden window. */
+export type GoldenShape = {
+  id: string;
+  area: string;
+  title: string;
+  note: string;
+  /** What a theme file says to ship it: look keys, and `density.tokens` (Density Playground tokens). */
+  theme?: Record<string, unknown> & { density?: { tokens?: Record<string, number> } };
+  /** Keys that do not exist yet: drawn, and named as proposed. */
+  proposed?: Record<string, unknown>;
+};
+
+/** What the window draws for a shape: its keys, proposed ones included, with the tokens flattened. */
+export function shapeValues(shape: GoldenShape): { keys: Record<string, unknown>; tokens: Record<string, number> } {
+  const { density, ...keys } = shape.theme ?? {};
+  return { keys: { ...keys, ...shape.proposed }, tokens: density?.tokens ?? {} };
+}

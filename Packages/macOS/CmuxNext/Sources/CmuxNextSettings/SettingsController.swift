@@ -459,6 +459,7 @@ public final class SettingsController {
         var snapshot = CmuxConfigSnapshot.parse(
             effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
         )
+        snapshot.themeDensity = themes.overlay?.density(under: Set(effective.managedKeys.keys))
         if let problem { snapshot.diagnostics.insert(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem), at: 0) }
         snapshot.diagnostics += effective.diagnostics + themes.diagnostics
         var inputs = LoadInputs(source: source, managed: managed, team: team)
@@ -572,9 +573,13 @@ extension SettingsController {
             applied = overlay.applied(to: root, managed: managed.union(exceptions))
             // Each row the file sets says where its value comes from.
             let file = "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)"
-            diagnostics = overlay.diagnostics + overlay.values.map { $0.path.joined(separator: ".") }
-                .filter { id in !managed.contains { $0 == id || id.hasPrefix($0 + ".") || $0.hasPrefix(id + ".") } }
-                .map { id in
+            let densityPath = DensitySetting.configPath.joined(separator: ".")
+            let ownDensity = overlay.density(under: managed) != nil && !overlay.values.contains { $0.path == DensitySetting.configPath }
+            var ids: [String] = overlay.values.map { $0.path.joined(separator: ".") }
+            if ownDensity { ids.append(densityPath) }
+            let shown: [String] = ids.filter { id in !managed.contains { $0 == id || id.hasPrefix($0 + ".") || $0.hasPrefix(id + ".") } }
+            diagnostics = overlay.diagnostics + shown
+                .map { (id: String) -> SettingsDiagnostic in
                     exceptions.contains(id)
                         ? SettingsDiagnostic(kind: .overThemeFile, path: id,
                                              message: "your value applies over the theme file's; Reset returns to the file's", file: file)
