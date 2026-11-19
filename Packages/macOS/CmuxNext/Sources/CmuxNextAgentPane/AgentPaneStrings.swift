@@ -355,11 +355,6 @@ extension AgentPaneModel {
         String(localized: "agentPane.github.unavailable", defaultValue: "GitHub is unavailable. Try again.", bundle: .module)
     }
 
-    /// Connect GitHub while a connection it can't resume is pending (started in Settings or in another launch).
-    static var gitHubConnectPendingMessage: String {
-        String(localized: "agentPane.github.connectPending", defaultValue: "Finish connecting GitHub in your browser.", bundle: .module)
-    }
-
     /// Connect GitHub with no cmux account signed in and no sign-in to start (`github.signed_out`).
     static var gitHubSignedOutMessage: String {
         String(localized: "agentPane.github.signedOut", defaultValue: "Sign in to cmux to connect GitHub.", bundle: .module)

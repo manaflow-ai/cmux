@@ -17,6 +17,8 @@ extension GitHubConnections {
             "connect": .string(Self.connect), "disconnect": .string(Self.disconnect), "reconfigure": .string(Self.reconfigure),
             "confirm": .string(Self.confirm), "cancel": .string(Self.cancel),
             "refresh": .string(Self.refresh), "canConnect": .bool(canConnect),
+            // While Connect asks for GitHub's page the button says so in place (hq#13940).
+            "connecting": .bool(connecting), "connectingLabel": .string(Self.connecting),
             // Msg 3790: signed out, the card says to sign in and shows the Sign In button.
             "signIn": scopeIsSignedOut ? .string(SignInButton.defaultTitle) : .null,
             "connections": .array(currentConnections.map { row in
@@ -37,6 +39,7 @@ private extension GitHubConnections {
     static var reconfigure: String { String(localized: "github.reconfigure", defaultValue: "Reconfigure", table: "GitHubConnection", bundle: .module) }
     static var confirm: String { String(localized: "github.confirm", defaultValue: "Disconnect GitHub? Agents will lose access through this connection.", table: "GitHubConnection", bundle: .module) }
     static var cancel: String { String(localized: "github.cancel", defaultValue: "Cancel", table: "GitHubConnection", bundle: .module) }
+    static var connecting: String { String(localized: "github.connecting", defaultValue: "Opening GitHub…", table: "GitHubConnection", bundle: .module) }
     static var refresh: String { String(localized: "github.refresh", defaultValue: "Refresh", table: "GitHubConnection", bundle: .module) }
     static var detail: String { String(localized: "github.detail", defaultValue: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.", table: "GitHubConnection", bundle: .module) }
     static var signIn: String { String(localized: "github.signIn", defaultValue: "Sign in to cmux to connect GitHub.", table: "GitHubConnection", bundle: .module) }

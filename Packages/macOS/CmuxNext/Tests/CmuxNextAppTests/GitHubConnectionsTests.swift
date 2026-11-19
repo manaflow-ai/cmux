@@ -76,7 +76,7 @@ import Testing
         let model = GitHubConnections(scope: { self.scope }, call: { _, op, params, key in
             if op == "integration.connect" {
                 asked.append((params, key))
-                if params["return_to"] != nil { throw GitHubConnections.GitHubFailure.refused }
+                if params["return_to"] != nil { throw GitHubConnections.GitHubFailure.invalidParams }
                 return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
             }
             return self.listing
@@ -88,6 +88,74 @@ import Testing
         #expect(asked[0].1 != nil && asked[1].1 == asked[0].1.map { $0 + ":plain" })
         #expect(opened.count == 1)
         #expect(!model.error)
+    }
+
+    /// hq#13941: only an old API's `validation.invalid` is asked again without the return link. A first answer
+    /// `forbidden` (or any other refusal) sends no `:plain` retry: it is the person's answer, shown as a failure.
+    @Test func aForbiddenConnectSendsNoPlainRetry() async {
+        var asked: [String?] = []
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, key in
+            if op == "integration.connect" { asked.append(key); throw GitHubConnections.GitHubFailure.refused }
+            return self.listing
+        }, open: { _ in })
+        model.completionLink = "cmux-dev-x://integration/complete"
+        await model.connect()
+        #expect(asked.count == 1)
+        #expect(asked.allSatisfy { $0?.hasSuffix(":plain") == false })
+        #expect(model.error)
+    }
+
+    /// Once the API refused the return link, this launch's next connect asks without it from the start (one trip).
+    @Test func anAPIThatRefusedTheReturnLinkIsAskedWithoutItNextTime() async {
+        var clock = Date(timeIntervalSince1970: 4102444799)
+        var asked: [(JSONValue, String?)] = []
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, params, key in
+            if op == "integration.connect" {
+                asked.append((params, key))
+                if params["return_to"] != nil { throw GitHubConnections.GitHubFailure.invalidParams }
+                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
+            }
+            return self.listing
+        }, open: { _ in }, now: { clock })
+        model.completionLink = "cmux-dev-x://integration/complete"
+        await model.connect()
+        clock = clock.addingTimeInterval(1) // the page's state expired: the next click asks again
+        await model.connect()
+        #expect(asked.map(\.0) == [["provider": "github", "return_to": "cmux-dev-x://integration/complete"], ["provider": "github"], ["provider": "github"]])
+        #expect(asked[2].1?.hasSuffix(":plain") == true)
+    }
+
+    /// hq#13940: the button says Opening GitHub… from the click until the page opens, then nothing more.
+    @Test func connectSaysOpeningGitHubUntilThePageOpens() async {
+        var model: GitHubConnections!
+        var duringConnect: JSONValue?
+        model = GitHubConnections(scope: { self.scope }, call: { _, op, _, _ in
+            if op == "integration.connect" {
+                duringConnect = model.pageState["connecting"]
+                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
+            }
+            return self.listing
+        }, open: { _ in })
+        #expect(model.pageState["connecting"] == false)
+        await model.connect()
+        #expect(duringConnect == true)
+        #expect(model.pageState["connecting"] == false)
+        #expect(model.pageState["connectingLabel"]?.stringValue?.isEmpty == false)
+    }
+
+    /// A Connect right after the list was read (Settings reads it on focus) asks for the page at once: no second read first.
+    @Test func aConnectRightAfterTheListIsReadAsksForThePageAtOnce() async {
+        var operations: [String] = []
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, _ in
+            operations.append(op)
+            if op == "integration.connect" {
+                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
+            }
+            return self.listing
+        }, open: { _ in })
+        await model.perform("githubRefresh")
+        await model.connect()
+        #expect(operations == ["integration.list", "integration.connect", "integration.list"])
     }
 
     @Test func aResponseForTheOldAccountCannotPopulateTheNewAccount() async {
@@ -319,19 +387,42 @@ import Testing
         #expect(GitHubConnections.signedInScope(project: "project", user: "user", team: nil, managedTeam: nil) != nil)
     }
 
-    @Test func restoredPendingConnectionDoesNotCreateADuplicate() async {
+    /// hq#13939: after a cancelled install and a relaunch, a pending connection with no page here never holds Connect:
+    /// the click asks for a fresh page and opens it (the API expires the old one), and once more opens the same page.
+    @Test func aRestoredPendingConnectionNeverHoldsConnect() async {
         var connects = 0
         var opened = 0
         let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, _ in
-            if op == "integration.connect" { connects += 1 }
-            return ["connections": [["id": "pending", "provider": "github", "created_by": "user", "status": "pending"]], "providers": [["provider": "github", "configured": true]]]
+            if op == "integration.connect" {
+                connects += 1
+                return ["connection": ["id": "fresh"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
+            }
+            let rows: [JSONValue] = [["id": "pending", "provider": "github", "created_by": "user", "status": "pending"]]
+                + (connects > 0 ? [["id": "fresh", "provider": "github", "created_by": "user", "status": "pending"]] : [])
+            return ["connections": .array(rows), "providers": [["provider": "github", "configured": true]]]
         }, open: { _ in opened += 1 })
+        await model.perform("githubRefresh")
+        #expect(model.pageState["canConnect"] == true)
         await model.connect()
-        #expect(model.pageState["canConnect"] == false)
-        #expect(model.pageState["outcome"] == "pending")
-        await model.perform("githubConnect")
-        #expect(connects == 0)
-        #expect(opened == 0)
+        #expect(connects == 1)
+        #expect(opened == 1)
+        await model.connect()
+        #expect(connects == 1, "the same page opens again")
+        #expect(opened == 2)
+    }
+
+    /// A pending connection past its 30-minute lifetime (an abandoned install) is not listed, and says nothing pending.
+    @Test func aPendingConnectionPastItsLifetimeIsNotListed() async {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let created = (now.timeIntervalSince1970 - GitHubConnections.pendingLifetime) * 1000
+        let model = GitHubConnections(scope: { self.scope }, call: { _, _, _, _ in
+            ["connections": [["id": "old", "provider": "github", "created_by": "user", "status": "pending", "created_at": .number(created)],
+                             ["id": "new", "provider": "github", "created_by": "user", "status": "pending", "created_at": .number(created + 60_000)]],
+             "providers": [["provider": "github", "configured": true]]]
+        }, open: { _ in }, now: { now })
+        await model.perform("githubRefresh")
+        #expect(model.currentConnections.map { $0["id"] } == ["new"])
+        #expect(model.pageState["canConnect"] == true)
     }
 
     @Test func sharedConnectDoesNotCreateAnotherActiveConnection() async {

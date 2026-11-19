@@ -128,20 +128,17 @@ struct CloudGitHubReposTests {
         #expect(CloudGitHubPicker.Status.unavailable(.unreachable).reposScope == nil)
     }
 
-    /// A connect beside a pending connection (Settings', another launch's) would add a second: the picker reads
-    /// `integration.list` first unless it holds a flow of its own for the team.
-    @MainActor @Test func aPendingConnectionHoldsAnotherConnect() async {
-        let pending = Self.body(#"{"ok":true,"value":{"connections":[{"provider":"gmail","status":"pending"},{"provider":"github","status":"pending"}],"providers":[]}}"#)
-        let active = Self.body(#"{"ok":true,"value":{"connections":[{"provider":"github","status":"active"},{"provider":"gmail","status":"pending"}],"providers":[]}}"#)
-        #expect(CloudGitHubConnects.pending(status: 200, body: pending) == true)
-        #expect(CloudGitHubConnects.pending(status: 200, body: active) == false)
-        #expect(CloudGitHubConnects.pending(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"auth.forbidden"}}"#)) == nil)
-        #expect(CloudGitHubConnects.pending(status: 500, body: pending) == nil)
-        let connects = CloudGitHubConnects(newKey: { "key" })
-        #expect(!connects.resumable(team: "team_a"))
-        _ = await connects.page(team: "team_a", now: Date()) { _ in .noAnswer }
-        #expect(connects.resumable(team: "team_a"))
-        #expect(!connects.resumable(team: "team_b"))
+    /// The status the folder menu read when it opened stands in for a click's own read once, and only within
+    /// ``CloudGitHubConnects/statusReuse`` (hq#13940).
+    @MainActor @Test func aRecentStatusAnswerIsUsedOnceByTheNextClick() {
+        let connects = CloudGitHubConnects()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        connects.noteStatus(team: "team_a", status: 200, body: Self.body("{}"), at: now)
+        #expect(connects.takeRecentStatus(team: "team_b", now: now) == nil)
+        #expect(connects.takeRecentStatus(team: "team_a", now: now.addingTimeInterval(5))?.status == 200)
+        #expect(connects.takeRecentStatus(team: "team_a", now: now.addingTimeInterval(5)) == nil, "used up")
+        connects.noteStatus(team: "team_a", status: 200, body: Self.body("{}"), at: now)
+        #expect(connects.takeRecentStatus(team: "team_a", now: now.addingTimeInterval(CloudGitHubConnects.statusReuse)) == nil, "too old")
     }
 
     static let page = "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b" // exp 2100-01-01
@@ -154,6 +151,15 @@ struct CloudGitHubReposTests {
         let noConnection = Self.body(#"{"ok":true,"value":{"authorize_url":"\#(Self.page)"}}"#)
         #expect(CloudGitHubConnects.answer(status: 200, body: noConnection) == .refused)
         #expect(CloudGitHubConnects.answer(status: 403, body: Self.body(#"{"ok":false,"error":{"code":"policy.denied"}}"#)) == .refused)
+        #expect(CloudGitHubConnects.answer(status: 403, body: Self.body(#"{"ok":false,"error":{"code":"forbidden"}}"#)) == .refused)
+        // Only an API that refuses the params (an API from before the completion link) is asked again without them.
+        #expect(CloudGitHubConnects.answer(status: 400, body: Self.body(#"{"ok":false,"error":{"code":"validation.invalid"}}"#)) == .paramsRefused)
+        #expect(CloudGitHubConnects.answer(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"validation.invalid"}}"#)) == .paramsRefused)
+        // An account with the App installed already links on GitHub's authorize page; one account's install, its permissions step.
+        let authorize = "https://github.com/login/oauth/authorize?client_id=Iv1.x&state=s"
+        #expect(CloudGitHubConnects.answer(status: 200, body: Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_1"},"authorize_url":"\#(authorize)"}}"#)) == .page(URL(string: authorize)!))
+        let permissions = "https://github.com/apps/cmux/installations/new/permissions?target_id=42&state=s"
+        #expect(CloudGitHubConnects.answer(status: 200, body: Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_1"},"authorize_url":"\#(permissions)"}}"#)) == .page(URL(string: permissions)!))
         for status in [408, 429, 500, 503] { #expect(CloudGitHubConnects.answer(status: status, body: Data()) == .noAnswer, "\(status)") }
         #expect(CloudGitHubApp.authorizationExpiry(URL(string: Self.page)!) == Date(timeIntervalSince1970: 4_102_444_800))
     }

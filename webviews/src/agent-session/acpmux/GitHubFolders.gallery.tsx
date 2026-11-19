@@ -15,7 +15,7 @@ type Props = ComponentProps<typeof ComposerContext>;
 /// The folder menu's GitHub handle as a fixed state: the gallery draws it, nothing is asked.
 function picker(state: Partial<GitHubPickerState>): GitHubPicker {
   return {
-    state: { query: null, truncated: false, loading: false, waiting: false, ...state },
+    state: { query: null, truncated: false, loading: false, waiting: false, connecting: false, ...state },
     onOpen: () => undefined,
     onConnect: () => {
       document.documentElement.dataset.galleryGitHub = "connect";
@@ -88,6 +88,31 @@ export default componentEntry<Props>({
     "not-connected": {
       note: "A new Cloud chat before GitHub is connected: Connect to GitHub sits with the fixed actions under the list, its title alone; one click opens the install page, the menu stays open.",
       props: { ...base, github: notConnected },
+      play: openFolder,
+    },
+    connecting: {
+      note: "Right after the click, while the host asks for GitHub's page: the row's title reads Opening GitHub… in place, so the row keeps its height; a second click asks nothing more. Once the page opens the row is its title again (hq#13940).",
+      props: { ...base, github: picker({ status: { state: "not_connected", reposScope: null }, connecting: true }) },
+      play: openFolder,
+    },
+    "connecting-alt-second-line": {
+      note: "Alternative, not shipped: the title stays and Opening GitHub… is a second line. The row grows by a line for under a second and shrinks back as the page opens.",
+      props: {
+        ...base,
+        github: picker({ status: { state: "not_connected", reposScope: null }, connectError: "Opening GitHub…" }),
+      },
+      play: openFolder,
+    },
+    "connecting-alt-title-and-line": {
+      note: "Alternative, not shipped: the title reads Opening GitHub… and a second line says where the page opens. Two changes for one short state.",
+      props: {
+        ...base,
+        github: picker({
+          status: { state: "not_connected", reposScope: null },
+          connecting: true,
+          connectError: "GitHub opens in your browser.",
+        }),
+      },
       play: openFolder,
     },
     waiting: {

@@ -576,6 +576,9 @@ export type GitHubConnectionState = {
   cancel: string;
   refresh: string;
   canConnect: boolean;
+  /** Connect is asking for GitHub's page now (absent from an older host); the button reads `connectingLabel`. */
+  connecting?: boolean;
+  connectingLabel?: string;
   connections: Array<{
     id: string;
     account: string;

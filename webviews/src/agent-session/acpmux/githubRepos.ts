@@ -48,6 +48,9 @@ export type GitHubPickerState = {
   /// Connect to GitHub opened GitHub: the status is read again each time the page is back, until it
   /// says ready. Not drawn: GitHub's own page is the one wait (#46018).
   waiting: boolean;
+  /// Connect to GitHub was clicked and the host is still asking for GitHub's page: the row says Opening GitHub…
+  /// until the page opens (then nothing: GitHub's page is the wait) or the click is refused (hq#13940).
+  connecting: boolean;
   /// `github.connect` was refused: the host's words, the Connect to GitHub row's second line.
   connectError?: string;
 };
@@ -126,7 +129,7 @@ export function matchingRepos(repos: readonly GitHubRepo[], query: string): GitH
 
 const statusKey = (status?: GitHubStatus) => `${status?.state}:${status?.reason ?? ""}`;
 
-const INITIAL: GitHubPickerState = { query: null, truncated: false, loading: false, waiting: false };
+const INITIAL: GitHubPickerState = { query: null, truncated: false, loading: false, waiting: false, connecting: false };
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
@@ -228,9 +231,12 @@ export function createGitHubPicker(
       readStatus();
     },
     connect() {
-      set({ connectError: undefined });
+      // One ask at a time: a second click while the host asks for the page would only ask again.
+      if (state.connecting) return;
+      set({ connectError: undefined, connecting: true });
       call("github.connect", {}).then(
         (reply) => {
+          set({ connecting: false });
           // Already connected (the host found it so as it re-read the status): read it here too.
           if ((reply as { opened?: unknown } | null)?.opened === false) {
             readStatus();
@@ -247,6 +253,7 @@ export function createGitHubPicker(
           const code = (error as { code?: unknown } | null)?.code;
           const reason = typeof code === "string" ? CONNECT_REFUSAL_REASON[code] : undefined;
           set({
+            connecting: false,
             connectError: errorMessage(error).trim() || translate("composer.githubConnectFailed"),
             // The refusal says why GitHub is unavailable: the row's words follow it.
             ...(reason && state.status?.state === "unavailable" ? { status: { ...state.status, reason } } : {}),

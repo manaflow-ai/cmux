@@ -29,13 +29,17 @@ export function GitHubAccountsCard() {
               {github.signIn ? (
                 <SignInButton label={github.signIn} onSignIn={() => void store.runAccounts({ action: "signIn" })} />
               ) : (
+                // While the click asks for GitHub's page the button says so in place (hq#13940); once the page is
+                // open GitHub's own page is the wait.
                 <Button
                   className="button"
                   data-github-action="connect"
+                  data-connecting={github.connecting ? "" : undefined}
+                  aria-busy={github.connecting || undefined}
                   disabled={!github.canConnect}
                   onClick={() => void store.runAccounts({ action: "githubConnect" })}
                 >
-                  {github.connect}
+                  {github.connecting && github.connectingLabel ? github.connectingLabel : github.connect}
                 </Button>
               )}
               <Button

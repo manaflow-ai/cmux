@@ -1775,6 +1775,23 @@ variants["github-connect-pending"] = variant("accounts", {
     },
   ),
 });
+// hq#13940: while Connect asks for GitHub's page its button reads Opening GitHub…, busy and disabled, in place.
+variants["github-connect-connecting"] = variant("accounts", {
+  accounts: accounts(
+    {},
+    {
+      github: {
+        ...githubConnection,
+        connections: [],
+        busy: true,
+        canConnect: false,
+        connecting: true,
+        connectingLabel: "Opening GitHub…",
+        detail: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.",
+      },
+    },
+  ),
+});
 variants["github-connect-confirm"] = variant("accounts", {
   accounts: accounts({}, { github: githubConnection }),
   play: async (ctx) => {

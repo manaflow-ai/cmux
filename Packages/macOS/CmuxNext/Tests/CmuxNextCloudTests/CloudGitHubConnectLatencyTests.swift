@@ -94,10 +94,12 @@ struct CloudGitHubConnectLatencyTests {
                                    session: URLSession(configuration: configuration))
     }
 
-    /// One click: the menu's status read when it opened, then Connect to GitHub, timed from the click.
-    static func click(_ scenario: Scenario) async -> (connect: CloudGitHubPicker.Connect, milliseconds: Int, sent: [String]) {
+    /// One click: the menu's status read when it opened, then Connect to GitHub, timed from the click. `connects` is the
+    /// launch's picker state (a fresh launch by default).
+    static func click(_ scenario: Scenario, team: String = team, connects: CloudGitHubConnects = CloudGitHubConnects())
+        async -> (connect: CloudGitHubPicker.Connect, milliseconds: Int, sent: [String]) {
         StubAPI.lock.withLock { StubAPI.scenario = scenario; StubAPI.sent = [] }
-        let client = client(), connects = CloudGitHubConnects()
+        let client = client()
         _ = await CloudGitHubPicker.status(client: client, team: team, connects: connects)
         StubAPI.lock.withLock { StubAPI.sent = [] }
         let start = ContinuousClock.now
@@ -109,6 +111,8 @@ struct CloudGitHubConnectLatencyTests {
         return (connect, milliseconds, sent)
     }
 
+    static let page = URL(string: "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b")!
+
     static let scenarios = [
         Scenario(name: "production-api-refuses-return-link", refusesReturnLink: true),
         Scenario(name: "api-takes-return-link"),
@@ -116,9 +120,29 @@ struct CloudGitHubConnectLatencyTests {
         Scenario(name: "policy-forbids-connect", forbidden: true),
     ]
 
+    /// Every click leads somewhere: GitHub's page (a pending connection left by a cancelled install included, hq#13939),
+    /// or, refused, the row's error. The menu's status stands in for the click's own read, so the click costs the
+    /// connect alone; only the old API's `validation.invalid` asks again without the return link (hq#13941).
     @Test(arguments: scenarios)
     func clickToGitHubsPage(_ scenario: Scenario) async {
         let run = await Self.click(scenario)
-        #expect(run.milliseconds >= 0)
+        let connects = run.sent.filter { $0.hasPrefix("POST /v1/ops") }
+        #expect(!run.sent.contains { $0.hasPrefix("GET /v1/integrations/github/status") || $0.hasPrefix("POST /v1/read") })
+        if scenario.forbidden {
+            #expect(run.connect == .failed)
+            #expect(connects == ["POST /v1/ops +return_to"], "a refusal other than validation.invalid sends no :plain retry")
+        } else {
+            #expect(run.connect == .open(Self.page))
+            #expect(connects == (scenario.refusesReturnLink ? ["POST /v1/ops +return_to", "POST /v1/ops"] : ["POST /v1/ops +return_to"]))
+        }
+    }
+
+    /// Once an API refused the completion link, this launch's next connect to it asks without it at once.
+    @Test func anAPIThatRefusedTheReturnLinkIsAskedWithoutItNextTime() async {
+        let connects = CloudGitHubConnects(), scenario = Scenario(name: "production-api-second-team", refusesReturnLink: true)
+        _ = await Self.click(scenario, connects: connects)
+        let second = await Self.click(scenario, team: "team_bbbbbbbbbbbbbbbbbbbb", connects: connects)
+        #expect(second.connect == .open(Self.page))
+        #expect(second.sent == ["POST /v1/ops"])
     }
 }

@@ -116,7 +116,8 @@ extension CloudOwnerAPIClient {
         var params = ["provider": "github"]
         if let returnTo { params["return_to"] = returnTo }
         let body: [String: Any] = ["op": "integration.connect", "params": params, "origin": "user", "idempotency_key": key]
-        guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else {
+        guard let json = try? JSONSerialization.data(withJSONObject: body),
+              let answer = await person("/v1/ops", post: json, timeout: CloudGitHubPicker.connectTimeout) else {
             CloudGitHubConnects.logger.notice("github connect: no answer (return link \(returnTo != nil, privacy: .public))")
             return .noAnswer
         }
@@ -131,20 +132,12 @@ extension CloudOwnerAPIClient {
         return result
     }
 
-    /// `integration.list` on `/v1/read` in ``teamID``'s team: whether a GitHub connection this person sees is pending
-    /// (Settings' Connect, or another launch's); nil when it did not answer.
-    public func gitHubConnectPending() async -> Bool? {
-        guard let json = try? JSONSerialization.data(withJSONObject: ["op": "integration.list", "params": [String: Any]()]),
-              let answer = await person("/v1/read", post: json) else { return nil }
-        return CloudGitHubConnects.pending(status: answer.status, body: answer.body)
-    }
-
     /// One GET of `path` (a POST of `post` in ``teamID``'s team when given) with only Authorization (the Worker's
-    /// invocation log masks it); nil when it did not answer.
-    func person(_ path: String, post: Data? = nil) async -> (status: Int, body: Data)? {
+    /// invocation log masks it); nil when it did not answer within `timeout`.
+    func person(_ path: String, post: Data? = nil, timeout: Duration = .seconds(15)) async -> (status: Int, body: Data)? {
         guard let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path),
               let access = try? await accessToken() else { return nil }
-        var request = URLRequest(url: url, timeoutInterval: 15)
+        var request = URLRequest(url: url, timeoutInterval: Double(timeout.components.seconds))
         request.httpMethod = post == nil ? "GET" : "POST"
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
         if let post {
@@ -153,7 +146,7 @@ extension CloudOwnerAPIClient {
             if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
         }
         let session = session, prepared = request, label = "\(request.httpMethod ?? "GET") \(url.path)"
-        guard let answer = try? await withDeadline(.seconds(15), label: label, { try await session.data(for: prepared) }),
+        guard let answer = try? await withDeadline(timeout, label: label, { try await session.data(for: prepared) }),
               let http = answer.1 as? HTTPURLResponse else { return nil }
         return (http.statusCode, answer.0)
     }
@@ -169,13 +162,23 @@ public final class CloudGitHubConnects {
         case page(URL)
         /// A definitive refusal or a reply this client will not use: the next click asks with a new key.
         case refused
+        /// The API refused the connect's params (`validation.invalid`): an API from before the completion link refuses
+        /// `return_to`. Refused as ``refused`` is; only this one asks again without the return link.
+        case paramsRefused
         /// No answer, a timeout, throttling or a server failure: the connect may have happened, so the key stays.
         case noAnswer
     }
 
     nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.github")
     private var flows: [String: (key: String, page: URL?)] = [:]
+    /// Each team's last status answer (the folder menu reads it when it opens), used once by a click right after it.
+    private var statuses: [String: (at: Date, status: Int, body: Data)] = [:]
+    /// The owner APIs (base URLs) that refused the completion link this launch: their next connects ask without it.
+    private var returnLinkRefused: Set<String> = []
     private let newKey: () -> String
+
+    /// How long a status answer stands in for the read a click would make (the menu opened just before the click).
+    static let statusReuse: TimeInterval = 30
 
     public init(newKey: @escaping () -> String = { UUID().uuidString }) { self.newKey = newKey }
 
@@ -191,31 +194,35 @@ public final class CloudGitHubConnects {
         guard flows[team]?.key == key else { if case .page(let url) = answer { return url }; return nil } // another click asked meanwhile
         switch answer {
         case .page(let url): flows[team] = (key, url); return url
-        case .refused: flows[team] = nil; return nil
+        case .refused, .paramsRefused: flows[team] = nil; return nil
         case .noAnswer: return nil
         }
     }
 
-    /// Whether this launch's picker holds a flow for `team` it can resume (its page, or a key whose answer may be lost).
-    public func resumable(team: String) -> Bool { flows[team] != nil }
+    /// `team`'s status route answered `status`/`body` at `at`.
+    func noteStatus(team: String, status: Int, body: Data, at: Date) { statuses[team] = (at, status, body) }
 
-    /// The `integration.list` reply `{value: {connections: [{provider, status}]}}`: whether a GitHub one is pending; nil for any other reply.
-    nonisolated static func pending(status: Int, body: Data) -> Bool? {
-        guard (200..<300).contains(status), let reply = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any], reply["ok"] as? Bool != false,
-              let rows = (reply["value"] as? [String: Any])?["connections"] as? [Any] else { return nil }
-        return rows.contains { row in
-            guard let row = row as? [String: Any] else { return false }
-            return row["provider"] as? String == "github" && row["status"] as? String == "pending"
-        }
+    /// `team`'s status answer from the last ``statusReuse`` seconds before `now`, used up by this ask.
+    func takeRecentStatus(team: String, now: Date) -> (status: Int, body: Data)? {
+        guard let recent = statuses.removeValue(forKey: team), now.timeIntervalSince(recent.at) < Self.statusReuse,
+              recent.at <= now else { return nil }
+        return (recent.status, recent.body)
     }
 
+    /// Whether the owner API at `api` refused the completion link this launch.
+    func refusesReturnLink(_ api: URL) -> Bool { returnLinkRefused.contains(api.absoluteString) }
+    func noteReturnLinkRefused(_ api: URL) { returnLinkRefused.insert(api.absoluteString) }
+
     /// The `/v1/ops` reply: `{ok, value: {authorize_url, connection: {id}}}` with a page ``CloudGitHubApp/installationURL(_:)`` allows.
+    /// A refusal names its code: `validation.invalid` is ``Answer/paramsRefused``, any other is ``Answer/refused``.
     nonisolated static func answer(status: Int, body: Data) -> Answer {
         guard status < 500, status != 408, status != 429 else { return .noAnswer }
         let reply = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
         guard (200..<300).contains(status), let reply, reply["error"] == nil || reply["error"] is NSNull, reply["ok"] as? Bool != false,
               let value = reply["value"] as? [String: Any], let raw = value["authorize_url"] as? String, let url = CloudGitHubApp.installationURL(raw),
-              let id = (value["connection"] as? [String: Any])?["id"] as? String, !id.isEmpty else { return .refused }
+              let id = (value["connection"] as? [String: Any])?["id"] as? String, !id.isEmpty else {
+            return (reply?["error"] as? [String: Any])?["code"] as? String == "validation.invalid" ? .paramsRefused : .refused
+        }
         return .page(url)
     }
 }
@@ -232,6 +239,10 @@ public struct CloudGitHubPicker {
 
     /// How long the picker waits for this launch's first install bind (a bound install answers at once).
     static let bindWait: Duration = .seconds(8)
+    /// How long a click waits for the status route and for `integration.connect` (a person is watching the row; a
+    /// connect that did not answer keeps its key, so the next click replays the same ask).
+    nonisolated static let statusTimeout: Duration = .seconds(8)
+    nonisolated static let connectTimeout: Duration = .seconds(10)
 
     public init(auth: CloudAuth, identity: MacInstallIdentity, connects: CloudGitHubConnects = CloudGitHubConnects()) {
         (self.auth, self.identity, self.connects) = (auth, identity, connects)
@@ -258,9 +269,12 @@ public struct CloudGitHubPicker {
     }
 
     /// ``status()`` for `team` through `client`, once the person is signed in and the team is known.
-    static func status(client: CloudOwnerAPIClient, team: String, connects: CloudGitHubConnects) async -> Status {
-        let (app, scope) = await client.gitHubAppStatus(team: team)
-        return Status(app, reposScope: scope)
+    /// The answer is kept for a click right after it (``CloudGitHubConnects/takeRecentStatus(team:now:)``).
+    static func status(client: CloudOwnerAPIClient, team: String, connects: CloudGitHubConnects, now: Date = Date()) async -> Status {
+        guard let path = CloudGitHubApp.path(team: team), let answer = await client.person(path) else { return .unavailable(.unreachable) }
+        connects.noteStatus(team: team, status: answer.status, body: answer.body, at: now)
+        return Status(CloudGitHubApp(status: answer.status, body: answer.body),
+                      reposScope: CloudGitHubApp.reposScope(status: answer.status, body: answer.body))
     }
 
     /// `github.status`'s `state`, `repos_scope` and, when unavailable, its `reason`.
@@ -335,11 +349,9 @@ public struct CloudGitHubPicker {
         case open(URL)
         /// The team is connected already: nothing to open.
         case connected
-        /// A connection this picker can't resume is pending (Settings' Connect, another launch's): finish that one.
-        case pending
         /// Signed out, no App here, a team policy that disallows GitHub, or no answer from the status route.
         case unavailable(Unavailable)
-        /// The team has no connection and `integration.connect` (or the pending check before it) gave no page.
+        /// The team has no connection and `integration.connect` gave no page.
         case failed
     }
 
@@ -354,24 +366,28 @@ public struct CloudGitHubPicker {
                                   returnTo: CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme))
     }
 
-    /// ``connect()`` for `team` through `client`, once the person is signed in and the team is known.
-    static func connect(client: CloudOwnerAPIClient, team: String, connects: CloudGitHubConnects, returnTo: String) async -> Connect {
-        guard let path = CloudGitHubApp.path(team: team), let status = await client.person(path) else { return .unavailable(.unreachable) }
+    /// ``connect()`` for `team` through `client`, once the person is signed in and the team is known. One trip before
+    /// GitHub's page opens on an API that takes the completion link: the status the menu read when it opened (within
+    /// ``CloudGitHubConnects/statusReuse``) stands in for this click's own read, and a pending connection never holds
+    /// the click (one left by a cancelled install, Settings' or another launch's has no page here to open, and the API
+    /// expires it after its 30-minute lifetime): it asks for a fresh page.
+    static func connect(client: CloudOwnerAPIClient, team: String, connects: CloudGitHubConnects, returnTo: String, now: Date = Date()) async -> Connect {
+        guard let path = CloudGitHubApp.path(team: team) else { return .unavailable(.unreachable) }
+        let status: (status: Int, body: Data)
+        if let recent = connects.takeRecentStatus(team: team, now: now) { status = recent }
+        else if let read = await client.person(path, timeout: statusTimeout) { status = read }
+        else { return .unavailable(.unreachable) }
         if let known = Self.connectFromStatus(status: status.status, body: status.body) { return known }
-        // As Settings' Connect (`!pending || resumable`): another connect beside a pending one would add a second.
-        if !connects.resumable(team: team) {
-            switch await client.gitHubConnectPending() {
-            case false?: break
-            case true?: return .pending
-            case nil: return .failed
-            }
-        }
-        // An API from before the completion link refuses its params (`validation.invalid`): ask again without it, and the
-        // console finishes the connection as before. Under its own key, derived so a retry of it is the same ask: the API
-        // keeps the first key, and the same key with other params is an `idempotency.conflict`.
-        guard let page = await connects.page(team: team, now: Date(), ask: { key in
+        // An API from before the completion link refuses its params (`validation.invalid`, and only that refusal): ask
+        // again without it, and the console finishes the connection as before; this launch's later connects to that API
+        // ask without it from the start. Under its own key, derived so a retry of it is the same ask: the API keeps the
+        // first key, and the same key with other params is an `idempotency.conflict`.
+        let api = client.baseURL
+        guard let page = await connects.page(team: team, now: now, ask: { key in
+            if connects.refusesReturnLink(api) { return await client.gitHubConnect(key: key + ":plain") }
             let answer = await client.gitHubConnect(key: key, returnTo: returnTo)
-            guard case .refused = answer else { return answer }
+            guard case .paramsRefused = answer else { return answer }
+            connects.noteReturnLinkRefused(api)
             return await client.gitHubConnect(key: key + ":plain")
         }) else { return .failed }
         return .open(page)
