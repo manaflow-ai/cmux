@@ -102,7 +102,7 @@ const SCRUB_SLOP = 3;
 /// at rest once the band has held FLING_REST_MS.
 const FLING_SPEED = 12;
 const FLING_MOVES = 3;
-const FLING_REST_MS = 120;
+const FLING_REST_MS = 120; // motion-allow: a wheel rest timeout that reads a gesture, not an animation
 /// Whether `node` holds focus a navigation key gave it, not a click's; still true once a pointer
 /// move has taken its ring away, so the rail keeps the keyboard (focusCameFromKey).
 function keyboardFocused(node: HTMLElement): boolean {
