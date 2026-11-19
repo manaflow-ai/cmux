@@ -155,6 +155,7 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     tools: true,
     routes: [{ provider: "vertex", id: "google/gemini-4-neon", list: { input: 3, output: 15 } }]
   },
+  // models-scout: new Vertex models go above this line.
   {
     id: "qwen/qwen3.7-flash",
     name: "Qwen3.7 Flash",
