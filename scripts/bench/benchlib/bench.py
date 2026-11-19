@@ -228,6 +228,8 @@ class Context:
             cmd += ["--artifact", artifact]
         if target_worker:
             cmd += ["--target-worker", target_worker]
+            if self.args.get("pin_strict") == "1":
+                cmd.append("--pin-strict")  # a comparison on one Mac: wait for it rather than move
         if timeout:
             cmd += ["--timeout", str(timeout)]
         if not os.environ.get("GITHUB_RUN_ID"):
