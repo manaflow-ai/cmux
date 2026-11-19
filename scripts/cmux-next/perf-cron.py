@@ -229,6 +229,12 @@ PARTS = [
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
+    # Coordinator load (scripts/measure/coord-sim-linux.sh, crate cmux-tui/crates/coord-sim): 3 synthetic coordinator
+    # chats shaped like the heaviest real ones (histograms only) streamed at 10x into a release acpmux at once, with
+    # readers attached: event delivery p50/p95/p99, lost and duplicated events, attach and first paint under load, a
+    # reader paging history, prompt to ack and echo, the daemon's RSS, its slope (the leak signal) and memory and
+    # CPU per chat (`coord-sim report`, schema coord-sim-run.v1). Its rows are webui.coord_sim.*.
+    {"name": "coord-sim", "where": "linux", "kind": "webui", "needs": "coord-sim"},
 ]
 PART_BY_NAME = {p["name"]: p for p in PARTS}
 # Which part measures a row (bisect re-measures only the parts of the regressed rows).
@@ -245,6 +251,7 @@ ROW_PARTS = [
     (r"^webui\.chat_100k_flat\.grown_many\.", "web-ui-flat-grown"),
     (r"^webui\.chat_100k_flat\.", "web-ui-flat"),
     (r"^webui\.chat_disk\.", "chat-disk"),
+    (r"^webui\.coord_sim\.", "coord-sim"),
     (r"^webui\.", "web-ui"),
 ]
 # Rows that are stored and shown but never judged: higher is better there (MB/s, a ratio to Ghostty), and every rule
@@ -950,6 +957,11 @@ def linux_bench_runs(root, part="diff-viewer"):
     if part == "web-ui-flat-grown":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-100k-flat-grown"],
                           os.path.join(root, "webviews"), {})}
+    if part == "coord-sim":
+        # The release builds first, in a run of their own (each run has its own 30-minute cap), then 300 s of load.
+        script = os.path.join(root, COORD_SIM)
+        return {"build": (["bash", script, "build-only"], root or ".", {}),
+                "suite": (["bash", script, "coordinators=3", "rate=10", "seconds=300"], root or ".", {})}
     if part == "chat-disk":
         script = os.path.join(root, CHAT_DISK)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
@@ -1895,6 +1907,12 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
         elif need == "chat-disk":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+        elif need == "coord-sim":
+            # The harness, and a driver that is built (the crate landed with stub subcommands first).
+            drive = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:{COORD_SIM_DRIVE}"], capture_output=True, text=True)
+            ok = coord_sim_ready(subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{COORD_SIM}"],
+                                                capture_output=True).returncode == 0,
+                                 drive.stdout if drive.returncode == 0 else None)
         elif need == "terminal-throughput":
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
@@ -1949,6 +1967,14 @@ MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
+COORD_SIM = "scripts/measure/coord-sim-linux.sh"
+COORD_SIM_DRIVE = "cmux-tui/crates/coord-sim/src/drive.rs"
+COORD_SIM_STUB = "not built yet"
+
+
+def coord_sim_ready(has_script, drive_source):
+    """Whether a commit can run the coord-sim part (pure): it has the harness and a drive subcommand past its stub."""
+    return bool(has_script) and isinstance(drive_source, str) and COORD_SIM_STUB not in drive_source
 # The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
 # shared fixture a commit needs for the part. A god row is webui.<prefix>.god.<rest>; its ordinary twin drops `.god`.
 GOD_FIXTURE = "webviews/bench/godFixture.ts"

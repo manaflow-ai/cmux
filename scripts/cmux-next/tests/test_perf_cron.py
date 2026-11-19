@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-flat", "web-ui-flat-grown", "chat-disk", "coord-sim"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -746,6 +746,33 @@ class WebUiTests(unittest.TestCase):
             {"name": "chat_disk.growth_ratio", "p50": 374.0, "p95": 374.0, "unit": "x", "target": 1.2}]},
             budgets_mod, {"rows": {}})
         self.assertEqual(rows["webui.chat_disk.growth_ratio"]["p95"], 374.0)
+
+    def test_the_coord_sim_rows_have_their_own_linux_part(self):
+        self.assertTrue(cron.is_linux_part("coord-sim"))
+        self.assertEqual(cron.part_for_row("webui.coord_sim.delivery_ms@linux"), "coord-sim")
+        self.assertEqual(cron.part_for_row("webui.coord_sim.daemon.rss_slope_mb_per_min@linux"), "coord-sim")
+        runs = cron.linux_bench_runs("/r", "coord-sim")
+        self.assertEqual(list(runs), ["build", "suite"])  # the build runs first, under its own cap
+        self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/coord-sim-linux.sh", "build-only"])
+        self.assertEqual(runs["suite"][0], ["bash", "/r/scripts/measure/coord-sim-linux.sh", "coordinators=3", "rate=10",
+                                            "seconds=300"])
+        # The report's last line, as `coord-sim report RUN_DIR --rows` prints it.
+        rows = cron.rows_of_part(cron.PART_BY_NAME["coord-sim"], {"rows": [
+            {"name": "coord_sim.delivery_ms", "p50": 4.1, "p95": 18.5, "unit": "ms", "target": 100, "version": 1},
+            {"name": "coord_sim.events.lost", "p50": 0, "p95": 0, "unit": "events", "target": 0, "floor": 0.5, "version": 1},
+            {"name": "coord_sim.daemon.rss_slope_mb_per_min", "p50": 2.5, "p95": 2.5, "unit": "MB/min", "floor": 1.0,
+             "version": 1}]}, budgets_mod, {"rows": {}})
+        self.assertEqual(rows["webui.coord_sim.delivery_ms"]["p95"], 18.5)
+        self.assertEqual(rows["webui.coord_sim.delivery_ms"]["budget"], 100)
+        self.assertEqual(rows["webui.coord_sim.events.lost"]["floor"], 0.5)
+        self.assertEqual(rows["webui.coord_sim.daemon.rss_slope_mb_per_min"]["unit"], "MB/min")
+        self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("webui.coord_sim.delivery_ms"))
+
+    def test_coord_sim_runs_only_once_its_driver_is_built(self):
+        self.assertFalse(cron.coord_sim_ready(False, "pub fn run() {}"))
+        self.assertFalse(cron.coord_sim_ready(True, None))
+        self.assertFalse(cron.coord_sim_ready(True, 'pub fn run(_a: &[String]) -> Result<(), String> { Err("not built yet".into()) }'))
+        self.assertTrue(cron.coord_sim_ready(True, "pub fn run(args: &[String]) -> Result<(), String> { drive(args) }"))
 
     def test_the_million_event_chat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-million"))
