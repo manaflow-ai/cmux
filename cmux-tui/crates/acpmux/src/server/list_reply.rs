@@ -110,13 +110,23 @@ async fn page(
 ) -> Result<Value, RpcError> {
     use crate::hub::list_guard::{cut_page, serialize_in_order};
     let raw = conn.raw_text;
-    let (rows, next) = hub.session_page_rows(params, tools)?;
-    let (text, spans, keys) = serialize_in_order(&rows);
-    drop(rows);
-    let text = within_limit(raw, LIST_PAGE_BYTES, |budget| {
-        Ok(cut_page((text.as_str(), spans.as_slice()), &keys, next.clone(), params, budget))
-    })?;
+    // Reads of this page at once share one build (`hub/list_flight.rs`).
+    let build = async {
+        let (rows, next) = hub.session_page_rows(params, tools)?;
+        let (text, spans, keys) = serialize_in_order(&rows);
+        drop(rows);
+        within_limit(raw, LIST_PAGE_BYTES, |budget| {
+            Ok(cut_page((text.as_str(), spans.as_slice()), &keys, next.clone(), params, budget))
+        })
+    };
+    let text = hub.list_guard.flights.read(flight_key("page", raw, tools, params), build).await?;
     send_list(hub, conn, with_watch_cursor(hub, text, cursor)).await
+}
+
+/// What a list reply's text depends on: its form, the connection's text form, tools and the
+/// request's params (filters, cursor, limit).
+fn flight_key(form: &str, raw: bool, tools: bool, params: &Value) -> String {
+    format!("{form}:{raw}:{tools}:{params}")
 }
 
 /// A read with no `limit` (`params`: the whole list, a filter of it, or a byte page by its `h`
@@ -132,7 +142,7 @@ async fn whole_read(
     cursor: Option<Cursor>,
 ) -> Result<Value, RpcError> {
     let raw = conn.raw_text;
-    let text = {
+    let build = async {
         // A peer's page is masked, which parses it: one of a few at once (`parse_budget.rs`).
         let _parse = crate::parse_budget::permit().await;
         within_limit(raw, LIST_PAGE_BYTES, |budget| {
@@ -142,8 +152,11 @@ async fn whole_read(
                 return hub.session_list_text(params, tools, false, budget);
             }
             Ok(text)
-        })?
+        })
     };
+    // Reads of this list at once share one build (`hub/list_flight.rs`).
+    let form = if own_only { "whole-own" } else { "whole" };
+    let text = hub.list_guard.flights.read(flight_key(form, raw, tools, params), build).await?;
     send_list(hub, conn, with_watch_cursor(hub, text, cursor)).await
 }
 
