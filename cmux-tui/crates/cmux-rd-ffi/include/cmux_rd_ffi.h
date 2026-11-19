@@ -418,6 +418,18 @@ typedef struct CmuxRdLineReader CmuxRdLineReader;
 #define CMUX_RD_LINE_ERROR 2048u
 /* Typed pre-media carrier failure permits WebRTC on the same approved session. */
 static const uint32_t CMUX_RD_LINE_FALLBACK_WEBRTC = 4096u;
+/* The line holds the windows the viewer may share one of: cmux_rd_line_reader_windows. */
+static const uint32_t CMUX_RD_LINE_WINDOWS = 8192u;
+
+/* One window the host may share (serve's `windows`): its id (the setup line's `window`), size in
+   pixels and UTF-8 title (not NUL-terminated), valid like a CmuxRdLine's text. */
+typedef struct CmuxRdWindow {
+    uint32_t id;
+    uint32_t width;
+    uint32_t height;
+    const uint8_t *title;
+    size_t title_len;
+} CmuxRdWindow;
 
 typedef struct CmuxRdLine {
     uint32_t fields;               /* CMUX_RD_LINE_* bits */
@@ -447,6 +459,11 @@ int32_t cmux_rd_line_reader_push(CmuxRdLineReader *reader, const uint8_t *bytes,
 /* Takes the next ready line into *out: 1 when it wrote one, CMUX_RD_OK (0)
    when none is ready. */
 int32_t cmux_rd_line_reader_next(CmuxRdLineReader *reader, CmuxRdLine *out);
+/* The windows of the line cmux_rd_line_reader_next last wrote (CMUX_RD_LINE_WINDOWS):
+   CMUX_RD_OK with *windows and *count set (NULL and 0 when it holds none). They stay valid
+   until the next call on the reader that is not this one. */
+int32_t cmux_rd_line_reader_windows(CmuxRdLineReader *reader, const CmuxRdWindow **windows,
+                                    size_t *count);
 
 #ifdef __cplusplus
 }

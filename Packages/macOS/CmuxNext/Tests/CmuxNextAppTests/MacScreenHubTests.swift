@@ -1279,6 +1279,25 @@ struct MacScreenRdHostRoutingTests {
     }
 }
 
+/// The window pick travels in the offer and the host's windows in its answer (cmux-hub-host's
+/// rd_doc.rs writes the same lines).
+struct MacScreenRdWindowTests {
+    @Test func anAnswersWindowsAndAnOffersWindowRoundTrip() throws {
+        let key = String(repeating: "ab", count: 32)
+        let answer = "cmux.rd/1\r\na=fingerprint:cmux-rd-key \(key)\r\na=cmux-rd-displays:1920x1080\r\n"
+            + #"a=cmux-rd-windows:[{"id":44040199,"title":"Terminal — a: b, c\r\n\"q\"","width":800,"height":600}]"#
+            + "\r\n"
+        let read = try #require(MacScreenRdDocument(text: answer))
+        #expect(read.windows == [.init(id: 44_040_199, title: "Terminal — a: b, c\r\n\"q\"", width: 800, height: 600)])
+        var offer = MacScreenRdDocument(key: key)
+        offer.window = 44_040_199
+        #expect(offer.text.contains("a=cmux-rd-window:44040199\r\n"))
+        #expect(MacScreenRdDocument(text: offer.text)?.window == 44_040_199)
+        #expect(MacScreenRdDocument(text: read.text) == read)
+        #expect(MacScreenRdDocument(text: "cmux.rd/1\r\na=fingerprint:cmux-rd-key \(key)\r\na=cmux-rd-windows:[{\"id\":\"x\"}]\r\n")?.windows == [])
+    }
+}
+
 /// Auto streams no wider than the pane shows (a Retina host's full size costs every stage).
 struct MacScreenRdWishTests {
     @Test func autoFollowsThePaneWidthAndTheFixedPresetsDoNot() {

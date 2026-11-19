@@ -26,6 +26,22 @@ pub const CMUX_RD_LINE_DISPLAYS: u32 = 1 << 9;
 pub const CMUX_RD_LINE_CURRENT: u32 = 1 << 10;
 pub const CMUX_RD_LINE_ERROR: u32 = 1 << 11;
 pub const CMUX_RD_LINE_FALLBACK_WEBRTC: u32 = 1 << 12;
+/// The line holds `windows`: read them with [`cmux_rd_line_reader_windows`] (an added call, so
+/// `CmuxRdLine`'s layout stays as it was).
+pub const CMUX_RD_LINE_WINDOWS: u32 = 1 << 13;
+
+/// One window the host may share (`CmuxRdWindow`, `serve`'s `windows`): its id (the setup
+/// line's `window`), size in pixels and title (UTF-8, not NUL-terminated, valid like a
+/// `CmuxRdLine`'s text until the next call on the reader).
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct CmuxRdWindow {
+    pub id: u32,
+    pub width: u32,
+    pub height: u32,
+    pub title: *const u8,
+    pub title_len: usize,
+}
 
 /// One typed line (`CmuxRdLine`). A text field is UTF-8 bytes, not
 /// NUL-terminated; it and `displays` point into the reader and stay valid
@@ -80,7 +96,15 @@ pub struct CmuxRdLineReader {
     ready: VecDeque<AppLine>,
     /// The line last handed out and its flat display sizes: they back the pointers.
     current: Option<(AppLine, Vec<u32>)>,
+    /// The windows of `current`, pointing into its titles.
+    windows: Vec<CmuxRdWindow>,
     poisoned: bool,
+}
+
+impl Default for CmuxRdWindow {
+    fn default() -> Self {
+        Self { id: 0, width: 0, height: 0, title: std::ptr::null(), title_len: 0 }
+    }
 }
 
 /// What `line` holds, pointing into `line` and `displays` (which must outlive the use).
@@ -127,6 +151,9 @@ fn view(line: &AppLine, displays: &[u32]) -> CmuxRdLine {
         out.fields |= CMUX_RD_LINE_DISPLAYS;
         out.displays = displays.as_ptr();
         out.display_count = displays.len() / 2;
+    }
+    if line.windows.is_some() {
+        out.fields |= CMUX_RD_LINE_WINDOWS;
     }
     if let Some(current) = line.current {
         out.fields |= CMUX_RD_LINE_CURRENT;
@@ -236,6 +263,7 @@ pub unsafe extern "C" fn cmux_rd_line_reader_next(
         return CMUX_RD_ERR_NULL;
     }
     let run = |handle: &mut CmuxRdLineReader| {
+        handle.windows.clear();
         let Some(line) = handle.ready.pop_front() else {
             handle.current = None;
             return CMUX_RD_OK;
@@ -243,10 +271,47 @@ pub unsafe extern "C" fn cmux_rd_line_reader_next(
         let displays: Vec<u32> =
             line.displays.iter().flatten().flat_map(|&(width, height)| [width, height]).collect();
         let (line, displays) = handle.current.insert((line, displays));
+        handle.windows.extend(line.windows.iter().flatten().map(|w| CmuxRdWindow {
+            id: w.id,
+            width: w.width,
+            height: w.height,
+            title: w.title.as_ptr(),
+            title_len: w.title.len(),
+        }));
         let typed = view(line, displays);
         // SAFETY: checked non-NULL; writable by contract.
         unsafe { *out = typed };
         1
+    };
+    // SAFETY: `reader` is NULL or live and not used concurrently, by this function's contract.
+    unsafe { with_reader(reader, run) }
+}
+
+/// The windows of the line [`cmux_rd_line_reader_next`] last wrote (`CMUX_RD_LINE_WINDOWS`):
+/// `*windows` and `*count` set, `CMUX_RD_OK`. No windows (the line holds none, or none was
+/// taken) is a count of 0 and a NULL `*windows`. The windows and their titles stay valid until
+/// the next call on this reader that is not this one.
+///
+/// # Safety
+/// `reader` is NULL or live and not used concurrently; `windows` and `count` are NULL or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_line_reader_windows(
+    reader: *mut CmuxRdLineReader,
+    windows: *mut *const CmuxRdWindow,
+    count: *mut usize,
+) -> i32 {
+    if windows.is_null() || count.is_null() {
+        return CMUX_RD_ERR_NULL;
+    }
+    let run = |handle: &mut CmuxRdLineReader| {
+        let list = &handle.windows;
+        let first = if list.is_empty() { std::ptr::null() } else { list.as_ptr() };
+        // SAFETY: both checked non-NULL; writable by contract.
+        unsafe {
+            *windows = first;
+            *count = list.len();
+        }
+        CMUX_RD_OK
     };
     // SAFETY: `reader` is NULL or live and not used concurrently, by this function's contract.
     unsafe { with_reader(reader, run) }

@@ -136,9 +136,10 @@ final class MacScreenToolbarView: MacScreenThemedView {
         fullScreen.isHidden = !controlsShown
         more.isHidden = !controlsShown
         if let session { quality.retitle(Self.qualityTitle(session.preferences.quality)) }
-        let displayCount = model.displays.count
-        displayButton.retitle(String(format: L.t("macScreen.toolbar.displayShort", "Display %d"), model.currentDisplay + 1))
-        displayButton.isHidden = !controlsShown || displayCount <= 1
+        displayButton.retitle(model.currentWindow == nil
+            ? String(format: L.t("macScreen.toolbar.displayShort", "Display %d"), model.currentDisplay + 1)
+            : L.t("macScreen.toolbar.windowShort", "Window"))
+        displayButton.isHidden = !controlsShown || !hasSourcePicker
         quality.isHidden = !controlsShown
         let canSend = model.canSendKeys
         sendKeys.isHidden = !controlsShown
@@ -236,7 +237,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     private func moreMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        if model.displays.count > 1 {
+        if hasSourcePicker {
             let displays = NSMenuItem(title: displayButton.accessibilityLabel() ?? "", action: nil, keyEquivalent: "")
             displays.submenu = displayMenu()
             menu.addItem(displays)
@@ -256,9 +257,25 @@ final class MacScreenToolbarView: MacScreenThemedView {
         menu.autoenablesItems = false
         for (index, size) in model.displays.enumerated() {
             let title = String(format: L.t("macScreen.toolbar.display", "Display %d (%d × %d)"), index + 1, Int(size.width), Int(size.height))
-            menu.addItem(NSMenuItem.macScreen(title, checked: model.currentDisplay == index) { [weak self] in self?.actions.selectDisplay(index) })
+            let checked = model.currentWindow == nil && model.currentDisplay == index
+            menu.addItem(NSMenuItem.macScreen(title, checked: checked) { [weak self] in self?.actions.selectDisplay(index) })
+        }
+        if !model.windows.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(.sectionHeader(title: L.t("macScreen.toolbar.windows", "Windows")))
+        }
+        for window in model.windows {
+            let name = window.title.isEmpty ? L.t("macScreen.toolbar.untitledWindow", "Untitled Window") : window.title
+            let title = String(format: L.t("macScreen.toolbar.window", "%@ (%d × %d)"), name, window.width, window.height)
+            let id = window.id
+            menu.addItem(NSMenuItem.macScreen(title, checked: model.currentWindow == id) { [weak self] in self?.actions.selectWindow(id) })
         }
         return menu
+    }
+
+    /// The Display menu shows: more than one display, or windows to share one of.
+    private var hasSourcePicker: Bool {
+        model.displays.count > 1 || !model.windows.isEmpty
     }
 
     private func qualityMenu() -> NSMenu {
@@ -330,7 +347,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     var expandedWidth: CGFloat {
         let controls = [access, displayButton, quality, sendKeys, refresh, fullScreen, connect, disconnect] as [NSView]
-        return controls.filter { $0 !== displayButton || model.displays.count > 1 }
+        return controls.filter { $0 !== displayButton || hasSourcePicker }
             .reduce((Metrics.space6 * 2) * 8) { total, control in
                 total + controlWidth(control) + Metrics.space2
             }
@@ -353,7 +370,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
 
     private func arrangedControls(for width: CGFloat) -> [NSView] {
         let compact = controlsShown && width < expandedWidth - (Metrics.space6 * 2) * 4
-        displayButton.isHidden = !controlsShown || model.displays.count <= 1 || compact
+        displayButton.isHidden = !controlsShown || !hasSourcePicker || compact
         sendKeys.isHidden = !controlsShown || compact
         refresh.isHidden = !controlsShown || compact
         more.isHidden = !controlsShown || !compact

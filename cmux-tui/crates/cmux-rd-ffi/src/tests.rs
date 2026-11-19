@@ -439,6 +439,10 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         "static const uint32_t CMUX_RD_LINE_FALLBACK_WEBRTC = {}u;",
         CMUX_RD_LINE_FALLBACK_WEBRTC
     )));
+    assert!(header.contains(&format!(
+        "static const uint32_t CMUX_RD_LINE_WINDOWS = {}u;",
+        CMUX_RD_LINE_WINDOWS
+    )));
     assert!(header.contains(&format!("#define CMUX_RD_FLAG_KEYFRAME 0x0{}u", flags::KEYFRAME)));
     assert!(header.contains(&format!("#define CMUX_RD_FLAG_RECOVERY 0x0{}u", flags::RECOVERY)));
     assert!(header.contains(&format!("#define CMUX_RD_FLAG_TILE 0x0{}u", flags::TILE)));
@@ -450,6 +454,7 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
     assert_eq!(size_of::<CmuxRdInputEvent>(), 48);
     assert_eq!(size_of::<CmuxRdUpstreamStats>(), 32);
     assert_eq!(size_of::<CmuxRdLine>(), 120);
+    assert_eq!(size_of::<CmuxRdWindow>(), 32);
     for (name, value) in [
         ("CMUX_RD_INPUT_KEY", CMUX_RD_INPUT_KEY as usize),
         ("CMUX_RD_INPUT_POINTER", CMUX_RD_INPUT_POINTER as usize),
