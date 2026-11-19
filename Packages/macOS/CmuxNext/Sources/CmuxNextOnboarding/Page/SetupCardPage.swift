@@ -291,7 +291,7 @@ public final class SetupCardPageProvider: PageProvider {
         let task = Task { [weak self] in
             for await snapshot in ObservationStream({ [weak self] in self.map { Snapshot(state: $0.state, done: $0.allDone) } }) {
                 guard !Task.isCancelled, let self, let snapshot else { return }
-                if snapshot.done { setup.end() }
+                if snapshot.done { setup.complete() }
                 onEvent(snapshot.state)
             }
         }
