@@ -259,7 +259,7 @@ pub async fn run(
         None
     } else {
         tokio::select! {
-            result = wait_running(client, vm.payload()) => Some(result),
+            result = wait_running(client, &vm) => Some(result),
             () = &mut signal => None,
         }
     };
@@ -487,7 +487,8 @@ fn settled(status: &Value) -> Option<Recovered> {
     }
 }
 
-async fn wait_running(client: &Client, vm_id: &str) -> Result<(), CliError> {
+async fn wait_running(client: &Client, vm: &ProvisioningVm) -> Result<(), CliError> {
+    let vm_id = vm.payload();
     let start = Instant::now();
     loop {
         let body = retrying(|| fetch_body(client.vms_get_vm(vm_id, None))).await?;
