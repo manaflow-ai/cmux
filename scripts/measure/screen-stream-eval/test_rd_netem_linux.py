@@ -14,7 +14,9 @@ LEDGER = {'schema': 'cmux.rd-stage-ledger/1', 'stages': []}
 class ParseTests(unittest.TestCase):
     def test_profiles(self):
         self.assertEqual(list(rdnl.PROFILES), ['clean', 'jitter-5', 'jitter-15-burst', 'jitter-30-loss2', 'stall',
-                                               'wifi-away', 'wifi-away-short', 'wifi-away-long', 'wifi-away-loss'])
+                                               'wifi-away', 'wifi-away-short', 'wifi-away-long', 'wifi-away-loss',
+                                               'rtt18'])
+        self.assertEqual(rdnl.netem_args('rtt18'), ['netem', 'delay', '9ms', 'limit', '100000'])
         self.assertEqual(set(rdnl.PROFILES), set(rdnl.PROFILE_LABELS))
         self.assertEqual(rdnl.netem_args('jitter-5'), ['netem', 'delay', '5ms', '5ms', 'limit', '100000'])
         self.assertIn('gemodel', rdnl.netem_args('jitter-15-burst'))
@@ -194,6 +196,75 @@ class TableTests(unittest.TestCase):
                                  ['--openh264-lib', f'{d}/openh264/libopenh264.so'])
             finally:
                 rdnl.OPENH264[:] = ['cisco']
+
+
+def second(end_ms, kbytes, target_kbps, duration_ms=1000):
+    """One passive `series` row: kbytes received in the second ending at end_ms, the host's target."""
+    return {'unix_ms': end_ms, 'bytes': kbytes * 1000, 'duration_ms': duration_ms,
+            'host_stats': {'kbps': target_kbps} if target_kbps is not None else None}
+
+
+class QuietMotionTests(unittest.TestCase):
+    # Still for seconds ending at 1000..5000 ms, motion's first frame at 5300 ms.
+    SERIES = [second(1000, 300, 2000), second(2000, 5, 1500), second(3000, 5, 1200), second(4000, 5, 1000),
+              second(5000, 5, 900), second(6000, 400, 800), second(7000, 1200, 6000), second(8000, 1800, 15000),
+              second(9000, 2000, 16000), second(10000, 1900, None)]
+
+    def test_motion_phase_times_the_climb_from_motion_start(self):
+        m = rdnl.motion_phase({'series': self.SERIES}, 5300)
+        self.assertEqual(m['target_at_motion_kbps'], 900)
+        self.assertEqual(m['target_min_after_kbps'], 800)
+        # Target 15000 in the second ending 8000 ms; received 16 Mbps (2000 kB) in the one ending 9000 ms.
+        self.assertEqual(m['target_s_to_level'], 2.7)
+        self.assertEqual(m['received_s_to_level'], 3.7)
+        self.assertEqual((m['seconds_before'], m['seconds_after']), (5, 5))
+        # 320 kB over the 5 still seconds.
+        self.assertEqual(m['still_received_mbps'], 0.512)
+
+    def test_motion_phase_never_reaching_the_level_and_no_report(self):
+        m = rdnl.motion_phase({'series': self.SERIES[:7]}, 5300)
+        self.assertIsNone(m['target_s_to_level'])
+        self.assertIsNone(m['received_s_to_level'])
+        empty = rdnl.motion_phase(None, 5300)
+        self.assertIsNone(empty['target_at_motion_kbps'])
+        self.assertIsNone(empty['still_received_mbps'])
+        # Rows without unix_ms (an older bench) are left out, not counted at second 0.
+        self.assertEqual(rdnl.motion_phase({"series": [{"bytes": 9, "duration_ms": 1000}]}, 1)["seconds_after"], 0)
+
+    def test_still_wire_counts_bytes_before_motion(self):
+        samples = [(100.0, 0, 0), (101.0, 500_000, 20_000), (102.0, 510_000, 21_000), (103.0, 520_000, 22_000),
+                   (104.0, 530_000, 23_000), (105.0, 540_000, 24_000), (106.0, 3_000_000, 30_000)]
+        w = rdnl.still_wire(samples, 105.5)
+        self.assertEqual((w['seconds'], w['down_bytes'], w['up_bytes']), (5.0, 540_000, 24_000))
+        self.assertEqual(w['down_mbps'], 0.864)
+        # After the first 2 s: 30 kB over 3 s.
+        self.assertEqual((w['tail_seconds'], w['tail_down_mbps']), (3.0, 0.08))
+        self.assertIsNone(rdnl.still_wire(samples[:1], 105.5)['down_mbps'])
+        self.assertIsNone(rdnl.still_wire(samples, 99.0)['down_bytes'])
+
+    def test_quiet_motion_table_only_for_still_rows(self):
+        row = {'commit': 'e' * 40, 'openh264': 'cisco', 'profile': 'rtt18', 'still_seconds': 5,
+               'host_args': ['--probe', '1'],
+               'quiet_motion': {'motion': rdnl.motion_phase({'series': self.SERIES}, 5300),
+                                'still_wire': {'down_mbps': 0.864, 'tail_down_mbps': 0.08,
+                                               'down_bytes': 540000, 'up_bytes': 24000}}}
+        table = rdnl.quiet_motion_table([row, {'commit': 'f' * 40, 'profile': 'clean'}])
+        self.assertEqual(len(table.strip().splitlines()), 3)
+        self.assertIn('| `eeeeeeeeeeee` | --probe 1 | 18 ms RTT (9 ms each way) | 5 | 0.864 (0.080) | 540000 / 24000 '
+                      '| 900 | 800 | 2.70 / 3.70 |', table)
+        self.assertEqual(rdnl.quiet_motion_table([{'commit': 'f' * 40, 'profile': 'clean'}]), '')
+        # Rows without a still phase print exactly the tables they printed before.
+        plain = [{'commit': 'f' * 40, 'profile': 'clean'}]
+        self.assertEqual(rdnl.analysis(plain),
+                         rdnl.markdown_table(plain) + '\n' + rdnl.stall_table(plain) + '\n' + rdnl.lo_table(plain))
+        self.assertIn('s from motion to 15 Mbps', rdnl.analysis([row]))
+
+    def test_still_seconds_refuses_lo_profiles(self):
+        import contextlib
+        import io
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            rdnl.main(['--bin', 'x=/nonexistent', '--out', '/nonexistent', '--still-seconds', '5',
+                       '--profile', 'stall'])
 
 
 if __name__ == '__main__':
