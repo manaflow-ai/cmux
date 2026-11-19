@@ -165,6 +165,24 @@ test.each(["minimal", "default"] as const)("%s home offers creation only as matc
   expect(creates).toEqual([]);
 });
 
+// Lucas 2026-11-20: a hovered row and the arrow keys' row lit up at once. The pointer moves the one selection.
+test("the pointer and the arrow keys move one selection in the suggestions", async () => {
+  await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} />));
+  const field = await typePrompt("ls");
+  const rows = () => [...document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")];
+  const selected = () => rows().flatMap((row, index) => (row.classList.contains("is-selected") ? [index] : []));
+  const last = rows().length - 1;
+  expect(last).toBeGreaterThanOrEqual(1);
+  expect(selected()).toEqual([0]);
+  await act(async () => {
+    rows()[last]!.dispatchEvent(new dom!.window.MouseEvent("mousemove", { bubbles: true }));
+  });
+  expect(selected(), "the hovered row is the selection").toEqual([last]);
+  expect(rows()[last]!.getAttribute("aria-selected")).toBe("true");
+  await press(field, "ArrowUp");
+  expect(selected(), "the arrow keys go on from the hovered row").toEqual([last - 1]);
+});
+
 test.each(["terminal", "browser", "chat"] as const)(
   "Enter on %s with staged attachments runs the creation command",
   async (kind) => {

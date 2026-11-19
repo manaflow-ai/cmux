@@ -2617,6 +2617,9 @@ export function NewTabScreen(props: Props) {
                 aria-selected={index === current}
                 data-type={row.type}
                 className={index === current ? "nt-row is-selected" : "nt-row"}
+                // The pointer moves the one selection the arrow keys move, as the shared lists do (ui/Listbox.tsx), so
+                // a hovered row and a keyed row never light up at once (Lucas 2026-11-20).
+                onMouseMove={() => index !== current && pick(index)}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   activate(row, event.altKey || event.metaKey);
