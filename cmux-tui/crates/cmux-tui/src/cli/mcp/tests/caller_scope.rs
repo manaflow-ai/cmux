@@ -232,12 +232,14 @@ fn a_terminal_with_no_place_and_no_column_makes_one_beside_the_chat() {
     let sent = sent_resources(&server);
     let ops = sent.iter().map(|s| s["request"]["operation"].clone()).collect::<Vec<_>>();
     // A keyed call first asks what an earlier try of it made (a retry must
-    // not open a second terminal), and the split is that key's one creation.
-    assert_eq!(
-        ops,
-        vec![json!("session.creation.resolve"), json!("pane.split"), json!("tab.rename")]
-    );
+    // not open a second terminal): under its key, and under the key of the
+    // column made after a dock refused the split. The split is the key's one
+    // creation.
+    let resolve = json!("session.creation.resolve");
+    assert_eq!(ops, vec![resolve.clone(), resolve, json!("pane.split"), json!("tab.rename")]);
     assert_eq!(sent[0]["request"]["params"]["correlation_key"], "k1");
+    assert_eq!(sent[1]["request"]["params"]["correlation_key"], "k1-beside-fit");
+    let sent = &sent[1..];
     let split = &sent[1]["request"];
     assert_eq!(split["params"]["workspace"], OWN_WS);
     assert_eq!(split["params"]["pane"], OWN_PANE);

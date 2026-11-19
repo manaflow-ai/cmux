@@ -186,6 +186,7 @@ pub use layout::{
 pub use model::{
     ColumnDock, DockEdge, DockMode, DockRole, Node, Pane, Screen, State, ViewportColumn, Workspace,
 };
+pub use mux::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use mux::BatchCloseTarget;
 pub use mux::{
     AgentActivity, AgentPresence, AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane,

@@ -288,13 +288,16 @@ Rules:
   terminal follows it with "terminal" for "browser"): a tab in the lowest
   pane there that already holds a browser; else a split below a lone pane of
   another kind; else, with two or more panes there and none that holds a
-  browser, a tab in the lowest pane. Another agent's pane never takes the
-  tab. With no pane there, a new pane is made: a plain split right of the
-  caller's pane (a docked chat gets a column that shares the window).
+  browser, a tab in the lowest pane. For a caller that is not docked,
+  another agent's pane never takes the tab. With no pane there, a new pane
+  is made: a plain split right of the caller's pane (a docked chat gets a
+  column that shares the window).
   Another agent's pane is a pane with an agent's chat tab or a terminal an
   agent runs in; when it is the pane on the right, the new pane is made too.
-  A caller is docked when the app says `caller.docked: true`, or does not
-  say; `caller.docked: false` gets the plain split.
+  `caller.docked` is true for a pane in a left or right dock; a pane in a
+  top or bottom band reports false, and when the daemon refuses its split
+  (`operation.failed` with reason code `dock-column-agent-chat`) the new
+  pane becomes a column. An app that does not say `docked` gets the column.
 - `browser open`, `tab create browser` and `open <url>` are placed by the app.
   With an app whose `system.identify` reports `caller_placement` 2 or more,
   the CLI and the MCP server name no pane: the run carries the caller alone
@@ -318,6 +321,9 @@ Rules:
   screen the new pane splits right of the zoomed pane; off screen the layout
   under the zoom is reused. `browser profile open` does not read the
   person's link placement setting, which only the app applies, on screen.
+  Off screen and from the CLI a new pane halves the caller's pane with no
+  width floor. The plain-shell neighbor walk can miss a right pane in a
+  layout with unequal rows.
 - The cmux MCP server says `origin: mcp` on the app requests that ask for or
   use a placement. Only an agent has an MCP server, so the app places its
   caller as an agent, also in a terminal whose hooks reported none: its new

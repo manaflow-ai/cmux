@@ -133,10 +133,11 @@ impl<B: Backend> Server<B> {
                 answer.and_then(|identity| beside::placement_of(&identity, kind)).map(|placed| {
                     match placed {
                         // A plain shell's browser: the panes right of it, from the daemon.
-                        Placement::RightOf { workspace, pane } => beside::right_of(
+                        Placement::RightOf { workspace, pane, docked } => beside::right_of(
                             &Map::new(),
                             workspace,
                             pane,
+                            docked,
                             &mut |operation, lookup| self.daemon_read(operation, lookup),
                         ),
                         placed => placed,
@@ -238,14 +239,17 @@ impl<B: Backend> Server<B> {
     }
 
     /// What an earlier try of the call that `key` names created in this
-    /// server's session (beside.rs `earlier_creation`); `None` for a first
-    /// try, and for a daemon that does not answer.
+    /// server's session (beside.rs `earlier_creation`, under either of its
+    /// `creation_keys`); `None` for a first try, and for a daemon that does
+    /// not answer.
     fn earlier_creation(&self, key: &str) -> Option<crate::cli::beside::Earlier> {
         use cmux_tui_core::resource::ResourceOperation;
 
-        let lookup = crate::cli::beside::creation_lookup_params(&Map::new(), key);
-        let resolution = self.daemon_read(ResourceOperation::SessionCreationResolve, lookup)?;
-        crate::cli::beside::earlier_creation(&resolution)
+        crate::cli::beside::creation_keys(key).iter().find_map(|key| {
+            let lookup = crate::cli::beside::creation_lookup_params(&Map::new(), key);
+            let resolution = self.daemon_read(ResourceOperation::SessionCreationResolve, lookup)?;
+            crate::cli::beside::earlier_creation(&resolution)
+        })
     }
 
     /// One read of this server's own session; `None` when it fails.
@@ -299,8 +303,10 @@ impl<B: Backend> Server<B> {
     }
 
     /// The tab a creation asked for, in the new pane `split` makes (a new
-    /// column right of the chat, or a pane below the column's lone pane of
-    /// another kind).
+    /// column right of the chat, a split right of the caller, or a pane
+    /// below the column's lone pane of another kind). A split right that the
+    /// daemon refuses for its dock becomes a column, under a key of its own
+    /// (beside.rs `column_after_refusal`).
     fn split_for(
         &self,
         tool: &v2_tools::V2Tool,
@@ -308,7 +314,8 @@ impl<B: Backend> Server<B> {
         workspace: &str,
         mut split: Map<String, Value>,
     ) -> Value {
-        if let Some(key) = arguments.get("idempotency_key").and_then(Value::as_str) {
+        let key = arguments.get("idempotency_key").and_then(Value::as_str);
+        if let Some(key) = key {
             split.insert("idempotency_key".into(), json!(format!("{key}-beside")));
         }
         let Some(pane_split) = v2_tools::find("pane_split") else {
@@ -318,7 +325,19 @@ impl<B: Backend> Server<B> {
                 None,
             ));
         };
-        let result = self.call_v2(pane_split, &split);
+        let mut result = self.call_v2(pane_split, &split);
+        if result["isError"] == true
+            && let Some(mut column) = crate::cli::beside::column_after_refusal(
+                &split,
+                &result["structuredContent"]["error"],
+            )
+        {
+            if let Some(key) = key {
+                let step = crate::cli::beside::COLUMN_STEP;
+                column.insert("idempotency_key".into(), json!(format!("{key}-{step}")));
+            }
+            result = self.call_v2(pane_split, &column);
+        }
         if result["isError"] == true {
             return result;
         }

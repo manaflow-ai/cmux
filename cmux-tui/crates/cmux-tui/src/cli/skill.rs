@@ -59,8 +59,9 @@ pub(super) const RECIPES: &[Recipe] = &[
                links) opens right of you, in the panes that touch the right edge of your \
                pane: a tab in the lowest pane there that already holds a browser; else a \
                split below a lone pane of another kind; else, with two or more panes \
-               there and none that holds a browser, a tab in the lowest pane. Another \
-               agent's pane never takes the tab. With no pane there, a new pane is made: \
+               there and none that holds a browser, a tab in the lowest pane. For a \
+               caller that is not docked, another agent's pane never takes the tab. \
+               With no pane there, a new pane is made: \
                a plain split right of your pane (a docked chat gets a column that shares \
                the window). On screen \
                a terminal's `browser open` also follows the person's link placement \

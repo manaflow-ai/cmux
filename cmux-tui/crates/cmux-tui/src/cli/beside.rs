@@ -44,6 +44,10 @@
 //! creation's `correlation_key`: [`correlation_key`]), each transport looks
 //! that creation up before it decides again ([`earlier_creation`]), and the
 //! daemon refuses a second creation of another shape under the same key.
+//! A split right that the daemon refuses for its agent chat dock becomes a
+//! column in the same command ([`column_after_refusal`]); the refused split
+//! keeps the key, so the column has the second of [`creation_keys`], and a
+//! retry looks both up.
 //!
 //! This module only decides; each transport sends the requests
 //! ([`cli`] for the CLI, mcp/placement.rs for the MCP server).
@@ -83,8 +87,10 @@ pub(super) enum Placement {
     /// report (`own_pane`): the panes right of `pane`, by the same-kind
     /// rule, else a new pane right of it. The transport reads those panes
     /// from the daemon ([`right_of`]). The daemon knows no more: the
-    /// person's link placement setting is the app's alone.
-    RightOf { workspace: String, pane: String },
+    /// person's link placement setting is the app's alone. `docked` is the
+    /// app's `caller.docked`: a shell can run in the pane Split Down makes
+    /// below a docked agent chat, and a dock takes no split to the right.
+    RightOf { workspace: String, pane: String, docked: Option<bool> },
 }
 
 /// Whether a creation names no place, so it goes to the caller's own.
@@ -150,15 +156,24 @@ fn same_kind_placement(identity: &Value, kind: Kind) -> Option<Placement> {
         return Some(same_kind(workspace, pane, &column));
     }
     let pane = caller.get("pane").and_then(Value::as_str)?.to_owned();
-    Some(new_pane_right(caller, workspace, pane))
+    Some(new_pane_right(docked(caller), workspace, pane))
 }
 
-/// The new pane right of `caller` (the app's `caller`), whose pane is
-/// `pane`: a plain split of that pane when the app says the caller is not
-/// docked (`docked: false`), else a strip column that shares the window (a
-/// dock cannot split; an older app does not say).
-fn new_pane_right(caller: &Value, workspace: String, pane: String) -> Placement {
-    if caller.get("docked").and_then(Value::as_bool) == Some(false) {
+/// The app's `caller.docked`: whether the caller's pane is in a left or
+/// right dock. `None` for an app that does not say.
+fn docked(caller: &Value) -> Option<bool> {
+    caller.get("docked").and_then(Value::as_bool)
+}
+
+/// The new pane right of a caller whose pane is `pane`, for every caller
+/// kind: a plain split of that pane when the app says the caller is not
+/// docked (`docked`: `Some(false)`), else a strip column that shares the
+/// window (a dock cannot split; an older app does not say). The daemon has
+/// its own dock rule, which can refuse the plain split of a caller the app
+/// calls not docked: the send step then makes the column
+/// ([`column_after_refusal`]).
+fn new_pane_right(docked: Option<bool>, workspace: String, pane: String) -> Placement {
+    if docked == Some(false) {
         Placement::SplitRight { workspace, pane }
     } else {
         Placement::NewColumn { workspace, chat_pane: pane }
@@ -249,8 +264,9 @@ fn own_pane(identity: &Value) -> Option<&str> {
 /// [`Placement::RightOf`] the caller's own pane, for an `own_pane` answer.
 fn right_of_own_pane(identity: &Value) -> Option<Placement> {
     let pane = own_pane(identity)?.to_owned();
-    let workspace = identity.pointer("/caller/workspace").and_then(Value::as_str)?.to_owned();
-    Some(Placement::RightOf { workspace, pane })
+    let caller = identity.get("caller")?;
+    let workspace = caller.get("workspace").and_then(Value::as_str)?.to_owned();
+    Some(Placement::RightOf { workspace, pane, docked: docked(caller) })
 }
 
 /// The placement `identity` gives a new tab of `kind` whose pane this CLI
@@ -385,12 +401,15 @@ const COLUMN_WALK: usize = 6;
 /// pane under the caller) is not right of the caller and is never counted.
 /// One of them is an agent's home ([`holds_agent`]): a new pane right of the
 /// caller, as the app does. Else the same-kind rule for a browser
-/// ([`same_kind`]). Nothing on the right: a new pane there. The caller is a
-/// terminal, never a dock, so the new pane is a split of its own pane.
+/// ([`same_kind`]). Nothing on the right: a new pane there. The new pane is
+/// the one every caller kind gets ([`new_pane_right`], with the caller's
+/// `docked`): the terminal can be in a dock (the pane Split Down makes below
+/// a docked agent chat), which takes no split to the right.
 pub(super) fn right_of(
     create: &Map<String, Value>,
     workspace: String,
     pane: String,
+    docked: Option<bool>,
     read: &mut dyn FnMut(ResourceOperation, Map<String, Value>) -> Option<Value>,
 ) -> Placement {
     let mut neighbor = |of: &str, direction: &str| {
@@ -398,7 +417,7 @@ pub(super) fn right_of(
             .and_then(|answer| neighbor_pane(&answer))
     };
     let Some(right) = neighbor(&pane, "right") else {
-        return Placement::SplitRight { workspace, pane };
+        return new_pane_right(docked, workspace, pane);
     };
     let mut column = vec![right.clone()];
     for direction in ["up", "down"] {
@@ -428,7 +447,7 @@ pub(super) fn right_of(
         tabs.insert("pane".into(), json!(id));
         let tabs = read(ResourceOperation::TabList, tabs).unwrap_or(Value::Null);
         if holds_agent(&tabs, &agents) {
-            return Placement::SplitRight { workspace, pane };
+            return new_pane_right(docked, workspace, pane);
         }
         let browser = rows(&tabs).iter().any(|tab| {
             tab.get("content_kind").and_then(Value::as_str) == Some(Kind::Browser.word())
@@ -637,6 +656,56 @@ pub(super) fn split_right_params(
     let mut split = split_below_params(create, workspace, pane);
     split.insert("direction".into(), json!("right"));
     split
+}
+
+/// The daemon's reason code for a new pane it refuses in an agent chat dock
+/// (`operation.failed`, `details.extra.reason_code`).
+const DOCK_REFUSAL: &str = cmux_tui_core::AGENT_CHAT_COLUMN_CODE;
+
+/// The key step of the column that [`column_after_refusal`] makes
+/// (`<key>-beside-fit`), apart from the refused split's own (`<key>-beside`).
+pub(super) const COLUMN_STEP: &str = "beside-fit";
+
+/// The correlation keys under which a try of the request that `key` names
+/// can have created its pane or tab: `key` itself, and the key of the column
+/// made after the daemon refused the split ([`column_after_refusal`]). A
+/// retry asks for both, in this order, before it places anything.
+pub(super) fn creation_keys(key: &str) -> [String; 2] {
+    [key.to_owned(), format!("{key}-{COLUMN_STEP}")]
+}
+
+/// The column to make when the daemon refused `split`, a plain split right
+/// of the caller's pane ([`split_right_params`]), because that pane is in
+/// an agent chat dock: the same split as a strip column that shares the
+/// window ([`split_params`]). The app's `docked` and the daemon's dock rule
+/// can disagree, so every caller kind gets this. `None` for any other split
+/// and any other refusal, which is reported as it is. A refused split
+/// applied nothing, so the column is the one creation of the request. The
+/// daemon keeps the refused split's correlation key bound to that split, so
+/// the column has a key of its own ([`creation_keys`]).
+pub(super) fn column_after_refusal(
+    split: &Map<String, Value>,
+    error: &Value,
+) -> Option<Map<String, Value>> {
+    let plain_right = split.get("direction").and_then(Value::as_str) == Some("right")
+        && !split.contains_key("fit");
+    if !plain_right || !refused_by_dock(error) {
+        return None;
+    }
+    let mut column = split.clone();
+    column.insert("fit".into(), json!(true));
+    if let Some(key) = split.get("correlation_key").and_then(Value::as_str) {
+        let [_, column_key] = creation_keys(key);
+        column.insert("correlation_key".into(), json!(column_key));
+    }
+    Some(column)
+}
+
+/// Whether `error` (a resource error) is the daemon's refusal of a new pane
+/// in an agent chat dock, by its reason code.
+pub(super) fn refused_by_dock(error: &Value) -> bool {
+    error.get("code").and_then(Value::as_str) == Some("operation.failed")
+        && error.pointer("/details/extra/reason_code").and_then(Value::as_str) == Some(DOCK_REFUSAL)
 }
 
 /// [`split_params`] for [`Placement::SplitBelow`]: a new pane below `pane`, in

@@ -34,11 +34,12 @@ workspace, right of the caller (the panes that touch its right edge and
 overlap it in height, in a split or the next column): a tab in the lowest
 pane there that already holds a browser; else a split below a lone pane of
 another kind; else, with two or more panes there and none that holds a
-browser, a tab in the lowest pane. Another agent's pane never takes the tab.
-With no pane there, a new pane is made: a plain split right of the caller's
-pane (a docked chat gets a column that shares the window). On screen a
-terminal's browser also follows the person's link placement setting. Only a shell outside cmux gets
-the focused pane. --url <url> is the same as the positional URL.
+browser, a tab in the lowest pane. For a caller that is not docked, another
+agent's pane never takes the tab. With no pane there, a new pane is made: a
+plain split right of the caller's pane (a docked chat gets a column that
+shares the window). On screen a terminal's browser also follows the person's
+link placement setting. Only a shell outside cmux gets the focused pane.
+--url <url> is the same as the positional URL.
 
 browser profile list shows each profile's id, name, color, icon and index,
 never its cookies, history or site data. browser profile open opens a tab in

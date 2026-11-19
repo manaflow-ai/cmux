@@ -96,10 +96,12 @@ that touch the right edge of your pane and overlap it in height, in a split or
 the next column. The same-kind rule places the tab: a tab in the lowest pane
 there that already holds a browser; else a split below a lone pane of another
 kind; else, with two or more panes there and none that holds a browser, a tab
-in the lowest pane. Another agent's pane never takes the tab. With no pane
-there, a new pane is made: a plain split right of your pane (a docked chat
-gets a column that shares the window). From an agent chat that rule always
-applies. From a cmux terminal (an agent's or a plain shell), on screen the
+in the lowest pane. For a caller that is not docked, another agent's pane
+never takes the tab. With no pane there, a new pane is made: a plain split
+right of your pane (a docked chat gets a column that shares the window). From
+an agent chat that rule applies; on screen the app also applies width floors
+(a pane too narrow to split takes the tab as a tab, or the new pane becomes a
+column). From a cmux terminal (an agent's or a plain shell), on screen the
 person's link placement setting also applies (by default the rule above).
 When no window shows the terminal's workspace, the rule applies to the pane
 directly right of the terminal, whatever that setting says; the terminal

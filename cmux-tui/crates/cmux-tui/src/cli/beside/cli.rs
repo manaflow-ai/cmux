@@ -16,9 +16,10 @@ use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
 use super::{
-    Caller, Earlier, Kind, Placement, app_placement, app_places_terminals, browser_placement,
-    correlated, correlation_key, creation_lookup_params, earlier_creation, names_no_place,
-    rename_params, right_of, split_below_params, split_params, split_right_params,
+    COLUMN_STEP, Caller, Earlier, Kind, Placement, app_placement, app_places_terminals,
+    browser_placement, column_after_refusal, correlated, correlation_key, creation_keys,
+    creation_lookup_params, earlier_creation, names_no_place, rename_params, right_of,
+    split_below_params, split_params, split_right_params,
 };
 use crate::cli::GlobalArgs;
 use crate::cli::command::{RequestPlan, WireOperation};
@@ -124,16 +125,18 @@ fn apply(
     // An earlier try of this request may have opened the tab already, in a
     // place this try would no longer choose: answer with that tab.
     let earlier = correlation.as_deref().and_then(|key| {
-        let lookup = creation_lookup_params(params, key);
-        let resolution =
-            resolve::read(reader, ResourceOperation::SessionCreationResolve, lookup).ok()?;
-        earlier_creation(&resolution)
+        creation_keys(key).iter().find_map(|key| {
+            let lookup = creation_lookup_params(params, key);
+            let resolution =
+                resolve::read(reader, ResourceOperation::SessionCreationResolve, lookup).ok()?;
+            earlier_creation(&resolution)
+        })
     });
     let placed = route.identity().and_then(|identity| app_placement(identity, &caller, kind)).map(
         |placed| match placed {
             // A plain shell's browser: the panes right of it, from the daemon.
-            Placement::RightOf { workspace, pane } => {
-                right_of(params, workspace, pane, &mut |operation, lookup| {
+            Placement::RightOf { workspace, pane, docked } => {
+                right_of(params, workspace, pane, docked, &mut |operation, lookup| {
                     resolve::read(reader, operation, lookup).ok()
                 })
             }
@@ -176,15 +179,23 @@ fn apply(
     })
 }
 
-/// Makes the pane `split` asks for (a new column, or a pane below one) and
-/// opens the tab of `plan` in it.
+/// Makes the pane `split` asks for (a new column, a split right of the
+/// caller, or a pane below one) and opens the tab of `plan` in it. A split
+/// right that the daemon refuses for its dock becomes a column, under a key
+/// of its own (beside.rs `column_after_refusal`).
 fn split_for(
     sender: &mut Sender<'_>,
     plan: &RequestPlan,
     kind: Kind,
     split: Map<String, Value>,
 ) -> Result<Value, Failure> {
-    let created = sender.send(ResourceOperation::PaneSplit, split, Some("beside"))?;
+    let created = match sender.send(ResourceOperation::PaneSplit, split.clone(), Some("beside")) {
+        Err(Failure::Resource(error)) => match column_after_refusal(&split, &error) {
+            Some(column) => sender.send(ResourceOperation::PaneSplit, column, Some(COLUMN_STEP))?,
+            None => return Err(Failure::Resource(error)),
+        },
+        answer => answer?,
+    };
     let path = created.get("value").filter(|value| value.is_object()).unwrap_or(&created).clone();
     in_new_pane(sender, plan, kind, &path, created)
 }

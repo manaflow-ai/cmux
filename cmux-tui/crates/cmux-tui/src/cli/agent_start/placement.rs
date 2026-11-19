@@ -43,13 +43,17 @@ pub(in crate::cli) enum Placement {
     /// A new column right of a chat that has none: a split right that
     /// shares the window with the chat (`--fit`), never one wider than it.
     Column,
+    /// Beside a chat the app calls not docked: a split right of its pane,
+    /// and [`Self::Column`] when the daemon refuses that split for its dock
+    /// (beside.rs `refused_by_dock`; the two dock rules can disagree).
+    RightOrColumn,
     Tab,
 }
 
 impl Placement {
     pub(in crate::cli) fn as_str(&self) -> &'static str {
         match self {
-            Self::Split(_) | Self::Column => "split",
+            Self::Split(_) | Self::Column | Self::RightOrColumn => "split",
             Self::Tab => "tab",
         }
     }
@@ -78,7 +82,7 @@ impl ChatPlace {
             // A chat that is not docked: a split of its own pane, directly
             // right of it (`RightOf` is a browser's alone and never comes here).
             beside::Placement::SplitRight { pane, .. }
-            | beside::Placement::RightOf { pane, .. } => (pane, Placement::Split("right".into())),
+            | beside::Placement::RightOf { pane, .. } => (pane, Placement::RightOrColumn),
         };
         let pane = identity.pointer("/caller/pane").and_then(Value::as_str).map(str::to_owned);
         Some(Self { pane, beside })
@@ -423,20 +427,33 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
     argv: &[String],
 ) -> Result<Created, Failure> {
     let (target, shell_tab) = match placement {
-        Placement::Split(_) | Placement::Column => {
+        Placement::Split(_) | Placement::Column | Placement::RightOrColumn => {
             let (direction, column) = match placement {
                 Placement::Split(direction) => (direction.as_str(), false),
-                _ => ("right", true),
+                Placement::Column => ("right", true),
+                _ => ("right", false),
             };
             let flag = format!("--{direction}");
-            let mut words = vec!["pane", pane, "split", flag.as_str()];
-            if column {
-                words.push("--fit");
-            }
-            if let Some(cwd) = cwd {
-                words.extend(["--cwd", cwd]);
-            }
-            let split = Created::from_result(&daemon.request(None, plan(&words)?)?)?;
+            let split_plan = |column: bool| {
+                let mut words = vec!["pane", pane, "split", flag.as_str()];
+                if column {
+                    words.push("--fit");
+                }
+                if let Some(cwd) = cwd {
+                    words.extend(["--cwd", cwd]);
+                }
+                plan(&words)
+            };
+            let answer = match daemon.request(None, split_plan(column)?) {
+                Err(refused)
+                    if *placement == Placement::RightOrColumn
+                        && beside::refused_by_dock(&refused.error) =>
+                {
+                    daemon.request(None, split_plan(true)?)
+                }
+                answer => answer,
+            };
+            let split = Created::from_result(&answer?)?;
             balance(daemon, split.screen.as_deref(), &split.pane);
             (split.pane.clone(), Some(Placeholder::of(&split)))
         }
