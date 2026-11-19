@@ -5,7 +5,21 @@
 #
 #   cmux-next-ios/scripts/review.sh --tag <task-slug> [--device-id <udid>] [--target-worker <worker>]
 #       [--workspace <PR URL>]   (default: the branch's PR, else cmux-next-ios-review/<task-slug>)
-#       [--manual-pairing | --no-auth]
+#       [--manual-pairing | --no-auth] [--backend <origin|tag-stack|dev>]
+#
+# --backend: the Cloud backend this tag's Mac and iPhone builds talk to, chosen at launch, no rebuild.
+#   (none), dev   the shared dev Workers deployment (default): a backend.json an earlier run left is
+#                 removed, and the phone's kept override cleared
+#   tag-stack     this tag's own `wrangler dev` stack on the dev VM, over the tailnet: its origin from
+#                 scripts/cmux-next/cloud-dev-stack.sh url --tag <tag> (CNX_CLOUD_DEV_STACK names
+#                 another command)
+#   <origin>      https://<host>.<tailnet>.ts.net[:port], `preview-N`, or the dev Workers API origin.
+#                 Anything else is refused before any build (review_mac.py backend-check; the apps
+#                 refuse it too, and Release builds ignore every override).
+#   The Mac gets ~/Library/Application Support/cmux-next/<bundle id>/backend.json, which every launch
+#   of that tag reads (the Tag Opener's too: one link for both); the phone gets
+#   CMUX_NEXT_CLOUD_BACKEND on its first launch and keeps it. The report's Backend line says which
+#   backend each app reports it uses (the Mac's `auth.status`, the phone's readiness receipt).
 #
 # The default is the hand-off every dev build must reach: signed in (personal account) and paired
 # with the same-tag Mac at once, and still both after the person relaunches the app or the Mac.
@@ -72,12 +86,15 @@
 # Tests: python3 ios/tests/test_cnx_review.py
 set -euo pipefail
 
-usage() { sed -n '2,70p' "$0"; }
+usage() { sed -n '2,84p' "$0"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TEAM=7WLXT3NR37
 TAG="" SLUG="" DEVICE_ID="" TARGET_WORKER="" WORKSPACE=""
+# --backend: what was asked for, the origin it names ("" = the shared dev Workers, no override) and the
+# report's words for it; the Mac app's own answer lands in REPORT_BACKEND_MAC.
+BACKEND_ARG="" BACKEND_URL="" BACKEND_REPORT="shared dev Workers (default, no override)" REPORT_BACKEND_MAC="not checked"
 # What the phone gets (default `paired`, the hand-off every dev build must reach):
 #   paired   signed in with the personal account and paired with the same-tag Mac by its code
 #   manual   --manual-pairing: signed in, no pairing code; the person pairs by hand
@@ -120,6 +137,7 @@ review_report() {
   local link="http://127.0.0.1:17320/$SLUG"
   printf '==> Review ready (tag: %s)\n' "$SLUG"
   printf 'Dev build:  %s   (%s, head %s)\n' "$link" "$REPORT_MAC" "${SHA:-unknown}"
+  printf 'Backend:    %s; Mac app: %s\n' "$BACKEND_REPORT" "$REPORT_BACKEND_MAC"
   printf 'Simulator:  %s\n' "$REPORT_SIM"
   local first=1 line
   while IFS= read -r line; do
@@ -139,6 +157,26 @@ retry_command() {
   [[ -z "$REQUESTED_DEVICE_ID" ]] || printf ' --device-id %s' "$REQUESTED_DEVICE_ID"
   case "$PHONE_MODE" in manual) printf ' --manual-pairing' ;; none) printf ' --no-auth' ;; esac
   [[ -z "$TARGET_WORKER" ]] || printf ' --target-worker %s' "$TARGET_WORKER"
+  [[ -z "$BACKEND_ARG" ]] || printf ' --backend %s' "$BACKEND_ARG"
+}
+
+# --backend to an origin (BACKEND_URL) and the report's words for it (BACKEND_REPORT), before any build.
+review_resolve_backend() {
+  local out
+  case "$BACKEND_ARG" in
+    ""|dev|default)
+      BACKEND_URL="" BACKEND_REPORT="shared dev Workers (default, no override)" ;;
+    tag-stack)
+      local stack="${CNX_CLOUD_DEV_STACK:-$REPO_ROOT/scripts/cmux-next/cloud-dev-stack.sh}"
+      [[ -x "$stack" ]] || die "--backend tag-stack needs $stack , which this checkout does not have; pass --backend <https://...ts.net:port> instead"
+      out="$("$stack" url --tag "$SLUG" 2>&1)" || die "--backend tag-stack: $stack url --tag $SLUG failed: ${out##*$'\n'}"
+      out="$(printf '%s\n' "$out" | awk 'NF { line = $0 } END { print line }')"
+      BACKEND_URL="$(mac_py backend-check "$out")" || die "--backend tag-stack: the stack's URL $out is not a tailnet origin"
+      BACKEND_REPORT="$BACKEND_URL (this tag's stack)" ;;
+    *)
+      BACKEND_URL="$(mac_py backend-check "$BACKEND_ARG")" || exit 2
+      BACKEND_REPORT="$BACKEND_URL (--backend)" ;;
+  esac
 }
 
 passed() { [[ "$PASSED_PHONES" == *" $1 "* ]]; }
@@ -178,6 +216,27 @@ fleet_submit_mac() {
   echo "==> Mac build: fleet job $MAC_JOB"
 }
 
+# The simulator step's key for this head. The controller answers a key with the step it already
+# names, finished or not, so a key whose step failed or was cancelled would hand back that failure on
+# every rerun: each such step bumps $STATE/sim-attempt (sim_step_ended) and the next run gets a new key.
+sim_key() {
+  local attempt
+  attempt="$(cat "$STATE/sim-attempt" 2>/dev/null || true)"
+  printf 'cnx-ios-handoff-%s-%s' "$SLUG" "${SHA:0:12}"
+  [[ ! "$attempt" =~ ^[1-9][0-9]*$ ]] || printf -- '-r%s' "$attempt"
+}
+
+# The step failed or was cancelled on the fleet (its own state, not only this client's exit: a
+# follow that was interrupted while the step still runs keeps its key, so a rerun re-attaches).
+sim_step_ended() {
+  local step="$1" attempt
+  [[ -n "$step" ]] || return 1
+  cmux_ci status "$step" 2>/dev/null | grep -Eq '"state": *"(failed|cancelled|timeout|timed_out)"' || return 1
+  attempt="$(cat "$STATE/sim-attempt" 2>/dev/null || true)"
+  [[ "$attempt" =~ ^[0-9]+$ ]] || attempt=0
+  printf '%s\n' "$((attempt + 1))" >"$STATE/sim-attempt"
+}
+
 # The iPhone app's simulator step, in the background; the same --key re-attaches to it. It is
 # `handoff tag=<tag>`, sent as `shots handoff=<tag>` until the fleet controller lists handoff.
 fleet_start_sim() {
@@ -185,7 +244,7 @@ fleet_start_sim() {
   # while cmux-ci run follows the step, so it is never detached; cmux-next-ios-sim.sh handoff reads it.
   local args=(run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$SHA"
     --arg shots --arg "handoff=$SLUG" --sign-in agent --artifact artifacts/ios-sim/evidence.zip
-    --key "cnx-ios-handoff-$SLUG-${SHA:0:12}")
+    --key "$(sim_key)")
   [[ -z "$TARGET_WORKER" ]] || args+=(--target-worker "$TARGET_WORKER")
   echo "==> iPhone app: fleet step cmux-next-ios-sim.sh handoff tag=$SLUG${TARGET_WORKER:+ on $TARGET_WORKER} (log: $STATE/sim-step.log)"
   cmux_ci "${args[@]}" >"$STATE/sim-step.log" 2>"$STATE/sim-step.err" &
@@ -217,7 +276,10 @@ fleet_finish_sim() {
     return 1
   fi
   if [[ $rc -ne 0 || -z "$SIM_STEP" ]]; then
-    REPORT_SIM="BLOCKED: the fleet iPhone build failed (step ${SIM_STEP:-not created}, exit $rc; $STATE/sim-step.log); retry: $(retry_command)"
+    local next=""
+    # A rerun at this head sends a new step, not this one's failure again.
+    ! sim_step_ended "$SIM_STEP" || next=" (a rerun sends a new step)"
+    REPORT_SIM="BLOCKED: the fleet iPhone build failed (step ${SIM_STEP:-not created}, exit $rc; $STATE/sim-step.log)$next; retry: $(retry_command)"
     return 1
   fi
   rm -f "$STATE/ios.zip"
@@ -287,10 +349,24 @@ mac_install() {
     fi
     echo "==> replacing this tool's install of $SLUG at ${recorded_sha:0:12} with $SHA"
     mac_quit_installed || { REPORT_MAC="BLOCKED: the tag's earlier build (${recorded_sha:0:12}) did not quit"; return 1; }
-    rm -rf "$MAC_APP"
   fi
+  # The new app is copied beside the old one and swapped in by renames. macOS App Management may refuse
+  # every change inside an installed app's bundle ("Operation not permitted") while the bundle itself
+  # can still be renamed: emptying it in place left half an app with no Info.plist, recorded as
+  # installed (2026-11-18). The old bundle goes to the tag's state folder (same volume), then is removed
+  # as far as macOS lets it; what stays there never runs.
+  local staged="$MAC_APP.installing" aside="$TAG_STATE/replaced/${recorded_sha:-none}-$$.app"
   mkdir -p "$(dirname "$MAC_APP")"
-  ditto "$built" "$MAC_APP"
+  rm -rf "$staged" 2>/dev/null || true
+  ditto "$built" "$staged" ||
+    { rm -rf "$staged" 2>/dev/null; REPORT_MAC="BLOCKED: the Mac app of job $MAC_JOB did not copy into place (ditto failed)"; return 1; }
+  if [[ -d "$MAC_APP" ]]; then
+    mkdir -p "$(dirname "$aside")"
+    mv "$MAC_APP" "$aside" ||
+      { rm -rf "$staged" 2>/dev/null; REPORT_MAC="BLOCKED: the tag's earlier app could not be moved aside"; return 1; }
+    rm -rf "$aside" 2>/dev/null || true
+  fi
+  mv "$staged" "$MAC_APP" || { REPORT_MAC="BLOCKED: the new Mac app could not be moved into place"; return 1; }
   printf '%s %s\n' "$SHA" "$MAC_JOB" >"$record"
   MAC_SOCKET="$(mac_py socket "$MAC_APP")" || MAC_SOCKET="$(cmux_attach_socket_path "$SLUG")"
 }
@@ -321,8 +397,37 @@ mac_open() {
     TMPDIR="${TMPDIR:-/tmp}" "${MAC_OPEN:-/usr/bin/open}" -g --env CMUX_NEXT_NO_ACTIVATE=1 "$MAC_APP"
 }
 
+# The tag's backend.json (review_mac.py backend-write): the app reads it at launch, so a running app
+# whose file changed is quit first and started again below.
+mac_apply_backend() {
+  local bundle changed
+  bundle="$(mac_py bundle "$MAC_APP")"
+  [[ -n "$bundle" ]] || { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app has no bundle id"; return 1; }
+  changed="$(mac_py backend-write "$HOME/Library/Application Support/cmux-next/$bundle" "$BACKEND_URL")" ||
+    { REPORT_MAC="$REPORT_MAC; BLOCKED: could not write the tag's backend.json"; return 1; }
+  if [[ "$changed" == changed ]] && pgrep -f "$MAC_APP/Contents/MacOS/" >/dev/null 2>&1; then
+    echo "==> the tag's Cloud backend changed: quitting the tagged Mac app so it starts on it"
+    mac_quit_installed || { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app did not quit to take its new backend"; return 1; }
+  fi
+}
+
+# The backend the running Mac app says it uses (`auth.status`), which must be the asked-for one.
+mac_check_backend() {
+  local json backend label
+  json="$(mac_py backend "$MAC_SOCKET" --timeout 60)" ||
+    { REPORT_BACKEND_MAC="BLOCKED: the tagged Mac app does not say which Cloud backend it uses"; return 1; }
+  backend="$(printf '%s' "$json" | /usr/bin/python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("backend") or "")')"
+  label="$(printf '%s' "$json" | /usr/bin/python3 -I -c 'import json,sys; d=json.load(sys.stdin); print(d.get("backend_label") or d.get("backend") or "")')"
+  if [[ -n "$BACKEND_URL" && "${backend%/}" != "${BACKEND_URL%/}" ]]; then
+    REPORT_BACKEND_MAC="BLOCKED: it uses $backend, not $BACKEND_URL"
+    return 1
+  fi
+  REPORT_BACKEND_MAC="$label"
+}
+
 # Launch it in the background (never frontmost) unless it runs, and wait for the personal account.
 mac_start() {
+  mac_apply_backend || return 1
   if ! mac_py wait-socket "$MAC_SOCKET" --timeout 2; then
     echo "==> launching the tagged Mac app in the background"
     mac_open ||
@@ -333,6 +438,7 @@ mac_start() {
   local account
   account="$(mac_py account "$MAC_SOCKET" --timeout 120)" ||
     { REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app is not signed in (it signs in from ~/.secrets/cmuxterm-dev.env as ~/.config/cmux/dev-account)"; return 1; }
+  mac_check_backend || { REPORT_MAC="$REPORT_MAC; BLOCKED: Cloud backend ($REPORT_BACKEND_MAC)"; return 1; }
   if [[ "$account" != "$PERSONAL_ACCOUNT" ]]; then
     REPORT_MAC="$REPORT_MAC; BLOCKED: the tagged Mac app is signed in as $account, not the personal account $PERSONAL_ACCOUNT"
     return 1
@@ -378,8 +484,11 @@ phone_launch_and_check() {
   # In a subshell's environment, never on a command line (ps would show it).
   if ! (
     unset DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL \
-      DEVICECTL_CHILD_CMUX_MOBILE_CLEAR_AUTH
+      DEVICECTL_CHILD_CMUX_MOBILE_CLEAR_AUTH DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND
     export DEVICECTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$nonce" DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$client"
+    # --backend: the first launch names the tag's backend (`default`: the build's own, clearing a kept one);
+    # every later launch carries nothing and must keep it, as the person's own launches do.
+    case "$launch" in auto_login|clear) export DEVICECTL_CHILD_CMUX_NEXT_CLOUD_BACKEND="${BACKEND_URL:-default}" ;; esac
     if [[ "$launch" == auto_login ]]; then
       export DEVICECTL_CHILD_CMUX_MOBILE_STACK_EMAIL="$PERSONAL_EMAIL" DEVICECTL_CHILD_CMUX_MOBILE_STACK_PASSWORD="$PERSONAL_PASSWORD"
       [[ -z "$pair_url" ]] || export DEVICECTL_CHILD_CMUX_MOBILE_PAIR_URL="$pair_url"
@@ -399,7 +508,7 @@ phone_launch_and_check() {
       rc=0
       verdict="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" check "$receipt" --nonce "$nonce" \
         --client-id "$client" --bundle-id "$BUNDLE_ID" --account "$PERSONAL_ACCOUNT" --session "$session" \
-        --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG")" || rc=$?
+        --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG" --cloud-backend "${BACKEND_URL:-default}")" || rc=$?
       [[ $rc -eq 1 ]] || break
     else
       rc=1 verdict="no readiness receipt yet"
@@ -530,6 +639,7 @@ main() {
       --manual-pairing) [[ "$PHONE_MODE" == none ]] || PHONE_MODE=manual; shift ;;
       # --no-auth implies no pairing, whatever order the flags come in.
       --no-auth) PHONE_MODE=none; shift ;;
+      --backend) BACKEND_ARG="${2:-}"; [[ -n "$BACKEND_ARG" ]] || die "--backend needs a value"; shift 2 ;;
       -h|--help) usage; exit 0 ;;
       *) echo "review.sh: unknown argument $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -538,6 +648,7 @@ main() {
   cmux_attach_validate_dev_tag "$TAG" || exit 2
   SLUG="$(cmux_attach__slug "$TAG")"
   BUNDLE_ID="dev.cmux.mobile.$SLUG"
+  review_resolve_backend
   if ! xcrun --find devicectl >/dev/null 2>&1 && [[ -d /Applications/Xcode.app/Contents/Developer ]]; then
     export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
   fi
