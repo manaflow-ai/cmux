@@ -35,8 +35,10 @@ concurrency:
 jobs:
   react-doctor:
     name: React Doctor (changed React projects)
-    # Blacksmith, never GitHub-hosted; fork pull requests get a fixed Blacksmith label.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # Own-branch runs take the GCP fleet label, whose one-job VMs are made per queued job by a reconciler that no
+    # longer runs on the vendor queue. This is the one required check on feat-cmux-next, and on 2026-11-19 linux_4
+    # (4 vCPU vendor runners) started none of its jobs for hours (cmux#46994). Fork pull requests keep a fixed label.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-fleet-linux-x64' }}
     timeout-minutes: 30
     env:
       REACT_DOCTOR_NO_TELEMETRY: "1"
