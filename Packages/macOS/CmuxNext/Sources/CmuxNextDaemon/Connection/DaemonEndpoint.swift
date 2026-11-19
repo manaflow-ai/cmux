@@ -198,6 +198,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case browserHostProvider = "browser-host-provider-v1"
     /// `remote-host-*`: cmux Remote, the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
     case remoteHost = "remote-host-v1"
+    /// `computer-use-*`: cmux Computer Use (the worker's endpoint for acpmux, the person's policy, saved approvals).
+    case computerUse = "computer-use-v1"
     /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
     case frontendBrowserActivate = "frontend-browser-activate-v1"
     /// `after` on `new-frontend-browser-tab`: a link's tab lands next to its opener.
@@ -382,6 +384,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentSessionStartKeyedReason = "agent-session-start-keyed-reason-v1"
     case agentSessionStartVMKind = "agent-session-start-vm-kind-v1"
     case agentSessionStartModel = "agent-session-start-model-v1"
+    case agentSessionStartPermissionMode = "agent-session-start-permission-mode-v1"
     /// `mode` on `agent-session-start`: the person's mode pick, applied on their own Cloud VM only.
     case agentSessionStartMode = "agent-session-start-mode-v1"
     case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
@@ -405,6 +408,15 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentSessionLoginMachine = "agent-session-login-machine-v1"
     /// Owner-only context inventory and cmux-added overrides for an attached session.
     case agentSessionContext = "agent-session-context-v1"
+    /// `agent-session-prompt` takes `steer`: the owner's and a Cloud team member's prompt steers
+    /// into the running turn (a link guest's is still held for the owner).
+    case agentSessionSteer = "agent-session-steer-v1"
+    /// `agent-session-queue-approve` / `-queue-decline`: the owner runs or drops a prompt held for
+    /// them (a link guest's) on a chat on that machine.
+    case agentSessionQueueDecision = "agent-session-queue-decision-v1"
+    /// A Cloud team member's chat verbs on a teammate's team machine (`agent-session-team-list`
+    /// and the attach verbs, stamped with the member the link token names).
+    case agentSessionMember = "agent-session-member-v1"
     /// `agent-session-btw`: the composer's `/btw` on a Cloud chat, as acpmux's inline
     /// `_acpmux/btw` on the tab's own session (owner only).
     case agentSessionBtw = "agent-session-btw-v1"
@@ -592,6 +604,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// files with no patch. The diff tab asks them every few seconds; a session host without the
     /// read gets no request for it (DiffPageProvider+Git.swift).
     case gitFingerprint = "git-fingerprint-v1"
+    /// `set-layout-sizes`: the values one resize gesture ends with (a key trade's two widths, a drag
+    /// release's widths and ratios) are one commit, every value or none. Without it each value goes
+    /// as its own command under the gesture's transaction (`LayoutSizeCommands`).
+    case layoutSizesBatch = "layout-sizes-batch-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -619,7 +635,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit, .workspaceFirstTab, .frontendBrowserTabWorkspace,
              .terminalInputWhileCreating, .creatingInputCancel, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
-             .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
+             .browserHostProvider, .remoteHost, .computerUse, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft, .floatingPanes,
@@ -628,8 +644,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
-             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
+             .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
@@ -642,7 +658,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare,
-             .classicImport, .diffCommentsSend, .gitFingerprint:
+             .classicImport, .diffCommentsSend, .gitFingerprint, .layoutSizesBatch:
             return .optional
         }
     }
@@ -691,21 +707,6 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     }
     private static let notAdvertised: Set<String> = Set(names([.terminalFrontendShellIntegration, .placementShift,
                                                                .sharedSizing, .agentSessionPresence]))
-
-    /// What a connection echoes in `set-client-info`.
-    ///
-    /// - Parameters:
-    ///   - advertised: The capabilities the connection advertises.
-    ///   - resolvesShellIntegration: The connection resolves Ghostty's shell integration itself.
-    ///   - echoesPlacementShift: This build orders sidebar rows from the sidebar document only
-    ///     (the App passes true from its composition root).
-    public static func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool,
-                                             echoesPlacementShift: Bool = false) -> [String] {
-        // The document path echoes `placement-shift-v1` together with `sidebar-doc-v1`.
-        let document = echoesPlacementShift && advertised.contains(Self.sidebarDoc.rawValue) ? [Self.placementShift.rawValue] : []
-        let shell = resolvesShellIntegration ? [Self.terminalFrontendShellIntegration.rawValue] : []
-        return advertised + shell + document
-    }
 
     private static func names(_ capabilities: [DaemonCapability]) -> [String] { capabilities.map(\.rawValue) }
     private static func names(in tier: Tier) -> [String] { names(allCases.filter { $0.tier == tier }) }

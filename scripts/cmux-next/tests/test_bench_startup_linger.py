@@ -13,6 +13,19 @@ bench_startup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bench_startup)
 
 
+def copy_sleep(dest):
+    """Copy `sleep` to DEST, a path inside a fake app bundle, as a binary that runs there. macOS's own sleep is an
+    Apple platform binary whose launch constraint lets it run only from the system volume: a copy run from a bundle
+    path is killed at exec (AMFI "Launch Constraint Violation"), and for a bundle's Contents/MacOS executable macOS
+    then shows `"cmux DEV <tag>" is damaged and can't be opened` on the Mac's screen (a CI mini, 2026-11-16;
+    manaflow-ai/cmuxterm-hq#12838). An ad hoc signature gives the copy its own code identity, outside the constraint."""
+    shutil.copy(shutil.which("sleep"), dest)
+    if sys.platform == "darwin":
+        subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", dest], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return dest
+
+
 class Linger(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp(prefix="linger-")
@@ -21,7 +34,7 @@ class Linger(unittest.TestCase):
         helper = os.path.join(app, "Contents/Frameworks/cmux DEV Helper (Renderer).app/Contents/MacOS")
         os.makedirs(helper)
         self.helper = os.path.join(helper, "cmux DEV Helper (Renderer)")
-        shutil.copy(shutil.which("sleep"), self.helper)
+        copy_sleep(self.helper)
         self.bin = os.path.join(app, "Contents/Resources/bin")
         os.makedirs(self.bin)
         bench_startup.APPS[self.tag] = app

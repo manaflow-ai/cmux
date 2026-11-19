@@ -409,6 +409,7 @@ fn workspace_json(
         "marked_unread": presentation.is_some_and(|presentation| presentation.marked_unread),
         "kind": home::raw_workspace_kind(&notifications.presentation, &workspace.key),
         "app": home::raw_workspace_app(&notifications.presentation, &workspace.key),
+        "recovered": home::raw_workspace_recovered(state, workspace, &notifications.presentation),
         "unread_count": workspace_unread_count(state, workspace, notifications),
         "active": index == state.active_workspace,
         "screen_groups": screen_groups.iter().map(screen_group_run_json).collect::<Vec<_>>(),
