@@ -1188,3 +1188,5 @@ fn no_product_file_outside_the_one_module_names_the_subject_table() {
         found.join("\n")
     );
 }
+
+mod size;
