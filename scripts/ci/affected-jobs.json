@@ -153,6 +153,10 @@
         "plan": "7 runs on 52 merged pull requests, 2 with a red, 0 of them the pull request's own; 521 job-minutes; every job of the gate needs it, so they skip with it",
         "lint": "7 runs on 52 merged pull requests, 2 with a red, 0 of them the pull request's own (the gate as a whole); needs plan and skips with it; its minutes are counted under plan",
         "reviewer-path": "7 runs on 52 merged pull requests, 2 with a red, 0 of them the pull request's own (the gate as a whole); needs plan and skips with it; its minutes are counted under plan"
+      },
+      ".github/workflows/cmux-next.yml": {
+        "checks": "34 runs on 52 merged pull requests, 30 with a red, 0 of them the pull request's own; 692 job-minutes",
+        "fast-tier-cargo": "20 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 371 job-minutes"
       }
     }
   }

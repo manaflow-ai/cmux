@@ -647,6 +647,41 @@ on:
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
+      # The rest of the pull_request list (#21504's product and CI inputs). A pull request into
+      # feat-cmux-next skips the checks and fast tier (cargo) jobs (scripts/ci/affected-jobs.json
+      # pull_request_skip), so the push that lands it must start on every path the pull request does.
+      - .github/actions/**
+      - .github/workflows/**
+      - Assets.xcassets/**
+      - Native/**
+      - Resources/**
+      - TunnelExtension/**
+      - cmuxTests/**
+      - cmuxUITests/**
+      - daemon/**
+      - scripts/cmux-next/**
+      - scripts/whats-new/**
+      - tests/**
+      - scripts/ci/**
+      - .claude/settings.json
+      - .gitattributes
+      - .github/github-token-budget.json
+      - .github/runners.json
+      - README.md
+      - cmux-next-ios/scripts/set-test-notes.sh
+      - scripts/cef/test-embedder-step.sh
+      - scripts/cef/tests/test-embedder-step.test.sh
+      - scripts/download-prebuilt-ghosttykit.sh
+      - scripts/install-git-hooks.sh
+      - scripts/launch-tagged-automation.sh
+      - scripts/lib/reload-shim.test.mjs
+      - scripts/lib/stop-app-instances.sh
+      - scripts/merge-pbxproj.py
+      - scripts/merge-xcstrings.py
+      - scripts/web-lint.sh
+      - scripts/web_lint_prepush.py
+      - scripts/strip-release-bundle.sh
+      - scripts/write-app-symbol-map.py
   # Why: docs/ci/cmux-next-workflow-notes.md#note-366
   workflow_dispatch:
     inputs:
@@ -1574,7 +1609,9 @@ jobs:
   checks:
     # Why: docs/ci/cmux-next-workflow-notes.md#note-26
     needs: [portable-placement]
-    if: ${{ !cancelled() && inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '' }}
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (!cancelled() && inputs.dev_daily != true && inputs.base_tier != true && inputs.same_tree_sha == '') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     # Why: docs/ci/cmux-next-workflow-notes.md#note-396
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' checks ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' checks ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
@@ -3661,7 +3698,9 @@ jobs:
   # Why: docs/ci/cmux-next-workflow-notes.md#note-205
   fast-tier-cargo:
     needs: [push-head-preflight]
-    if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (!cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     name: cmux-next fast tier (cargo)
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}

@@ -77,27 +77,9 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
 # name -> (filter, pull-request-only patterns, why). The mirror allowance: only
 # these broad patterns may appear on pull requests without push.
 PULL_REQUEST_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
-    # #21504 starts cmux-next.yml for every product and CI input on pull
-    # requests and lets the router pick the tier; base pushes keep the product
-    # list, so a push of these alone does not start the workflow.
-    "cmux-next.yml": (
-        "paths",
-        frozenset({
-            ".github/actions/**", ".github/workflows/**", "Assets.xcassets/**", "Native/**",
-            "Resources/**", "TunnelExtension/**", "cmuxTests/**", "cmuxUITests/**", "daemon/**",
-            "scripts/cmux-next/**", "scripts/whats-new/**", "tests/**",
-            # What the checks tier's tests import, run or read (tests/test_ci_workflow_paths_cover_inputs.py).
-            "scripts/ci/**", ".claude/settings.json", ".gitattributes", ".github/github-token-budget.json",
-            ".github/runners.json", "README.md", "cmux-next-ios/scripts/set-test-notes.sh",
-            "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
-            "scripts/download-prebuilt-ghosttykit.sh",
-            "scripts/install-git-hooks.sh", "scripts/launch-tagged-automation.sh", "scripts/lib/reload-shim.test.mjs",
-            "scripts/lib/stop-app-instances.sh", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
-            "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/strip-release-bundle.sh",
-            "scripts/write-app-symbol-map.py",
-        }),
-        "pull requests admit every product and CI input (#21504); the router picks the tier",
-    ),
+    # Empty since cmux-next.yml's push list took the rest of its pull_request list (#21504's product and CI
+    # inputs): a pull request skips its checks and fast tier (cargo) jobs (scripts/ci/affected-jobs.json
+    # pull_request_skip), so the push that lands it must start on every path the pull request does.
 }
 
 FILTERS = ("paths", "paths-ignore")
@@ -305,11 +287,17 @@ def check_push_only_allowance(allowed):
         assert unapproved(path, "cmux-next.yml") == {}
         write([*sorted(allowed), "!docs/**", *shared], [*shared, "!docs/**"])
         assert unapproved(path, "cmux-next.yml") == {"paths": ([], [])}
-        # An allowed pull-request-only pattern passes; others still fail.
+        # cmux-next.yml takes no pull-request-only pattern: a path its push skips fails.
         write(shared, [*shared, "tests/**"])
-        assert unapproved(path, "cmux-next.yml") == {}
-        write(shared, [*shared, "tests/**", "docs/**"])
-        assert unapproved(path, "cmux-next.yml") == {"paths": ([], ["docs/**"])}
+        assert unapproved(path, "cmux-next.yml") == {"paths": ([], ["tests/**"])}
+        # An allowed pull-request-only pattern passes; others still fail.
+        PULL_REQUEST_ONLY_PATTERNS["cmux-next.yml"] = ("paths", frozenset({"tests/**"}), "test allowance")
+        try:
+            assert unapproved(path, "cmux-next.yml") == {}
+            write(shared, [*shared, "tests/**", "docs/**"])
+            assert unapproved(path, "cmux-next.yml") == {"paths": ([], ["docs/**"])}
+        finally:
+            del PULL_REQUEST_ONLY_PATTERNS["cmux-next.yml"]
         # The allowance belongs to its workflow only.
         write([*shared, *sorted(allowed)], shared)
         assert unapproved(path, "other.yml") == {"paths": (sorted(allowed), [])}
