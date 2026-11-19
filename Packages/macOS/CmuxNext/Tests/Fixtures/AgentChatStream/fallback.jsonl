@@ -1,0 +1,9 @@
+{"surfaces":["chat"]}
+{"step":"upgrade"}
+{"call":"subscribe_chat","reply":{"sid":"rows.1"},"request":{"chat":"chat-a","sid":"rows.1"}}
+{"call":"subscribe_chat","reply":{"sid":"rows.2"},"request":{"chat":"chat-b","sid":"rows.2"}}
+{"call":"connected"}
+{"feed":[0,78]}
+"{\"kind\":\"chatError\",\"sid\":\"rows.1\",\"method\":\"sub\",\"id\":null,\"code\":\"surface_off\"}"
+"{\"kind\":\"chatError\",\"sid\":\"rows.2\",\"method\":\"sub\",\"id\":null,\"code\":\"surface_off\"}"
+"{\"bytes\":[],\"kind\":\"fallback\"}"

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/reader-mode",
+  "name": { "en": "Reader Mode", "ja": "リーダーモード" },
+  "version": "1.0.0",
+  "description": {
+    "en": "Read the article of the focused browser tab as plain, readable text in a pane: title, byline, headings, paragraphs, lists, quotes and code.",
+    "ja": "フォーカス中のブラウザタブの記事を、読みやすいテキストとしてペインに表示します。"
+  },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": { "symbol": "doc.plaintext" },
+  "categories": ["productivity", "samples"],
+  "keywords": ["reader", "article", "browser", "page", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "catalog": "catalog/reader-mode-catalog.json",
+  "implements": {
+    "cmux.pane/1": {
+      "export": "renderReader",
+      "title": { "en": "Reader", "ja": "リーダー" },
+      "symbol": "doc.plaintext"
+    }
+  },
+  "scopes": {
+    "page:read": "Read the article text and links of the browser tab you are looking at.",
+    "actions:run": "Open the Reader pane, and open a link or image you click in a browser tab.",
+    "storage:local": "Keep the last article you read on this Mac, so the pane still shows it after a reload."
+  },
+  "activation": ["onInterface:cmux.pane/1", "onOp:reader_mode.open"],
+  "files": ["dist/", "catalog/"]
+}

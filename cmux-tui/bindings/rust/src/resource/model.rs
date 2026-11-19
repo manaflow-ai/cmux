@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 mod layout_column;
 #[path = "model_tab.rs"]
 mod tab;
-pub use layout_column::{LayoutColumn, LayoutColumnDock, LayoutRow};
+pub use layout_column::{ColumnRole, LayoutColumn, LayoutColumnDock, LayoutRow};
 pub use tab::{TabContentId, TabContentKind, TabSnapshot};
 
 /// JSON retained only where the catalog explicitly declares a JSON or extension value.
@@ -489,6 +489,10 @@ pub enum ClientTransport {
     Unix,
     #[serde(rename = "websocket")]
     WebSocket,
+    /// A client of another machine that reaches the daemon through its
+    /// remote link.
+    #[serde(rename = "remote")]
+    Remote,
 }
 
 /// Terminal dimensions reported by one connected client.

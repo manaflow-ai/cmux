@@ -24,6 +24,15 @@ import {
   loadChatUiFont,
   type ChatUiFont,
 } from "./chatUiFont";
+import {
+  applyChatFontFaces,
+  CHAT_FONT_FACES_KEY,
+  chatFontFacesKey,
+  measurableStack,
+  quoteFamilyStack,
+  declaresFirstFamily,
+  resolveChatFontFaces,
+} from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 
@@ -48,6 +57,11 @@ export interface ChatDisplay {
   font: ChatFontPreset;
   /// The face of the whole chat (chatUiFont.ts): `--font-ui`, which the System preset's text follows.
   uiFont: ChatUiFont;
+  /// A font pack's interface family or stack (UI_FAMILY_KEY), which wins over `uiFont`; null for none.
+  uiFamily: string | null;
+  /// A font pack's family or stack for the agent's reply prose (PROSE_FAMILY_KEY), which wins over
+  /// `font` there and only there; null for none.
+  proseFamily: string | null;
   fontSize: number;
   /// Unitless, times `fontSize`.
   lineHeight: number;
@@ -56,6 +70,10 @@ export interface ChatDisplay {
   /// Code as a share of the text size, or null for the chat's own code sizes (13px inline and
   /// 12px blocks at 14px text, scaled with the text).
   codeScale: number | null;
+  /// False when the code family is a font pack's own face (its first family is in the faces map):
+  /// code then draws without ligatures, so `=>` and `===` read as typed, as in the default chat's
+  /// code font. A code family set to an installed font keeps its ligatures.
+  codeLigatures: boolean;
   /// Where Session Info goes when open (session-info/SessionInfo.tsx): `overlay` (the default) floats
   /// in the chat's right gutter, so opening, closing or updating it never reflows the chat (Leo,
   /// 2026-10-20), and pushes the chat aside only when the gutter has no room for it, so it never
@@ -124,6 +142,16 @@ export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
 /// Not part of ChatDisplay.
 export const PROMPT_COACH_KEY = "agentPane.display.promptCoach";
 
+/// A font pack's families (a community typography theme from the app store; Swift
+/// AgentPaneDisplaySetting sends them with the chat's keys): a CSS family or comma stack without
+/// quotes. The interface family wins over the Interface Font (`--font-ui`, chatUiFont.ts); the prose
+/// family over the Chat Font for the agent's replies (`--cv-reply-font`, conversation.css), not the
+/// person's prompts, cards or chrome. Their faces come in `CHAT_FONT_FACES_KEY` (chatFontFaces.ts).
+/// Not in CHAT_DISPLAY: the popover's Reset leaves a pack's keys to the pack.
+export const UI_FAMILY_KEY = "agentPane.display.font.uiFamily";
+export const PROSE_FAMILY_KEY = "agentPane.display.font.proseFamily";
+export { CHAT_FONT_FACES_KEY };
+
 /// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
 /// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
 /// itself; the rows it opens measure as they draw.
@@ -173,10 +201,13 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   fullWidth: false,
   font: "system",
   uiFont: DEFAULT_CHAT_UI_FONT,
+  uiFamily: null,
+  proseFamily: null,
   fontSize: CHAT_DISPLAY.fontSize.fallback,
   lineHeight: CHAT_DISPLAY.lineHeight.fallback,
   codeFamily: null,
   codeScale: null,
+  codeLigatures: true,
   sessionInfo: "overlay",
   railSide: "left",
   minimal: false,
@@ -230,6 +261,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
     : isPreset(values[MARKDOWN_FOLLOWED.font])
       ? (values[MARKDOWN_FOLLOWED.font] as ChatFontPreset)
       : "system";
+  const codeFamily = family(values[CHAT_DISPLAY.codeFamily.key]) ?? family(values[MARKDOWN_FOLLOWED.codeFamily]);
   return {
     harnessPlacement: harnessPlacement(values[HARNESS_PLACEMENT_KEY]),
     managedHarnessPlacement: harnessPlacement(values[`${HARNESS_PLACEMENT_KEY}.managed`]),
@@ -237,12 +269,15 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
     fullWidth: values[CHAT_DISPLAY.fullWidth.key] === true,
     font,
     uiFont: isChatUiFont(values[CHAT_UI_FONT_KEY]) ? values[CHAT_UI_FONT_KEY] : DEFAULT_CHAT_UI_FONT,
+    uiFamily: family(values[UI_FAMILY_KEY]),
+    proseFamily: family(values[PROSE_FAMILY_KEY]),
     fontSize: number(values[CHAT_DISPLAY.fontSize.key], CHAT_DISPLAY.fontSize) ?? DEFAULT_CHAT_DISPLAY.fontSize,
     lineHeight: number(values[CHAT_DISPLAY.lineHeight.key], CHAT_DISPLAY.lineHeight) ?? DEFAULT_CHAT_DISPLAY.lineHeight,
-    codeFamily: family(values[CHAT_DISPLAY.codeFamily.key]) ?? family(values[MARKDOWN_FOLLOWED.codeFamily]),
+    codeFamily,
     codeScale:
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
+    codeLigatures: !declaresFirstFamily(values[CHAT_FONT_FACES_KEY], codeFamily),
     sessionInfo: values[SESSION_INFO_PLACEMENT_KEY] === "push" ? "push" : "overlay",
     railSide: values[RAIL_SIDE_KEY] === "right" ? "right" : "left",
     minimal: values[MINIMAL_MODE_KEY] === true,
@@ -256,6 +291,8 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
 export interface ChatMetrics {
   /// The canvas font the estimator measures prose with.
   measureFont: string;
+  /// The canvas font of the agent's replies: `measureFont` unless a font pack's prose family is set.
+  replyMeasureFont: string;
   lineHeight: number;
   inlineCodeSize: number;
   blockCodeSize: number;
@@ -267,14 +304,14 @@ export interface ChatMetrics {
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
-/// The density's text scale (the host's `--cmux-density-text-scale`, the chrome body size over Default's): the chat's
-/// text grows and shrinks with the density (Lucas 2026-11-13: chats kept their size at every density). A page without
-/// the host's value (the gallery, a test) draws at 1. The person's own font size is kept as stored and drawn at it.
+/// The chat's text scale (the host's `--cmux-chat-text-scale`, Typography+PageDensity.swift): Default's at and below
+/// Default, so Compact draws the chat as Default does (user 2026-11-16: "make it so compact and default density have
+/// same size of both imessage and chat trajectory"), and the page's above it; Text Size grows it at every density.
+/// A page without the host's value (the gallery, a test) draws at 1. The person's own font size is kept as stored and
+/// drawn at it.
 const readDensityTextScale = (): number => {
   if (typeof document === "undefined") return 1;
-  const parsed = Number.parseFloat(
-    document.documentElement?.style?.getPropertyValue?.("--cmux-density-text-scale") ?? "",
-  );
+  const parsed = Number.parseFloat(document.documentElement?.style?.getPropertyValue?.("--cmux-chat-text-scale") ?? "");
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 };
 let densityTextScale = readDensityTextScale();
@@ -288,9 +325,15 @@ export function chatMetrics(display: ChatDisplay, density: number = densityTextS
   const scale = fontSize / DEFAULT_CHAT_DISPLAY.fontSize;
   const inline = display.codeScale === null ? 13 * scale : fontSize * display.codeScale;
   const block = display.codeScale === null ? 12 * scale : fontSize * display.codeScale;
+  // The System preset's text is the interface font, whichever it is.
+  const stack =
+    display.font === "system" ? chatUiMeasureStack(display.uiFont, display.uiFamily) : MEASURE_STACKS[display.font];
+  // A reply in a pack's prose family falls back to the chat's font (`--cv-reply-font`); its family
+  // counts once its face has loaded.
+  const prose = display.proseFamily ? measurableStack(display.proseFamily) : "";
   return {
-    // The System preset's text is the interface font, whichever it is.
-    measureFont: `${fontSize}px ${display.font === "system" ? chatUiMeasureStack(display.uiFont) : MEASURE_STACKS[display.font]}`,
+    measureFont: `${fontSize}px ${stack}`,
+    replyMeasureFont: `${fontSize}px ${prose ? `${prose}, ${stack}` : stack}`,
     lineHeight: round(fontSize * display.lineHeight),
     inlineCodeSize: round(inline),
     blockCodeSize: round(block),
@@ -310,9 +353,22 @@ export function chatDisplayVariables(
     key === "fontSize" ? fontSize === DEFAULT_CHAT_DISPLAY.fontSize : display[key] === DEFAULT_CHAT_DISPLAY[key];
   const codeFont = display.codeFamily ? `${quoteFamily(display.codeFamily)}, var(--cv-mono-default)` : null;
   return {
-    ...chatUiFontVariables(display.uiFont),
+    ...chatUiFontVariables(display.uiFont, display.uiFamily),
     "--cv-font": isDefault("font") ? null : FONT_STACKS[display.font],
+    // The agent's reply prose (conversation.css `.cv-reply`), the chat's font unless a pack sets one.
+    "--cv-reply-font": display.proseFamily ? `${quoteFamilyStack(display.proseFamily)}, var(--cv-font)` : null,
+    // At its designed spacing, as a pack's interface family is, whatever the Interface Font tracks.
+    "--cv-reply-tracking": display.proseFamily ? "0px" : null,
+    // A pack's code face draws as typed (conversation.css `.cv-code`, `.cv-codeblock__body`).
+    "--cv-code-ligatures": display.codeLigatures ? null : "none",
+    "--cv-code-features": display.codeLigatures ? null : '"calt" 0, "liga" 0',
     "--cv-font-size": isDefault("fontSize") ? null : `${fontSize}px`,
+    // New Tab applies density with zoom, so its prompt needs the unscaled preference.
+    "--cv-base-font-size": display.fontSize === DEFAULT_CHAT_DISPLAY.fontSize ? null : `${display.fontSize}px`,
+    "--cv-base-line-height":
+      display.fontSize === DEFAULT_CHAT_DISPLAY.fontSize && isDefault("lineHeight")
+        ? null
+        : `${round(display.fontSize * display.lineHeight)}px`,
     "--cv-line-height": isDefault("fontSize") && isDefault("lineHeight") ? null : `${metrics.lineHeight}px`,
     "--cv-code-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.inlineCodeSize}px`,
     "--cv-codeblock-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.blockCodeSize}px`,
@@ -345,6 +401,8 @@ let presentation: Presentation = "transcript";
 let featureTipsOn = true;
 let commandLabels = "null";
 let promptCoachOn = true;
+/// The faces value last applied (CHAT_FONT_FACES_KEY), by its cheap key (chatFontFacesKey).
+let appliedFacesKey = "";
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -376,8 +434,22 @@ export function setChatDisplay(value: unknown): void {
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
   const same = JSON.stringify(next) === JSON.stringify(current);
+  // A font pack's faces (chatFontFaces.ts): a new map replaces the declared faces, and once they
+  // have loaded the estimate measures them (the measure stacks change), under a new look that has
+  // the transcript measure every row again, as a bundled face's load does below.
+  // An unchanged map (the same key; a host push brings a new object each time) applies nothing.
+  const rawFaces = raw[CHAT_FONT_FACES_KEY];
+  const facesKey = chatFontFacesKey(rawFaces);
+  const facesChanged =
+    facesKey !== appliedFacesKey &&
+    applyChatFontFaces(resolveChatFontFaces(rawFaces), () => {
+      current = { ...current };
+      for (const listener of listeners) listener();
+    });
+  appliedFacesKey = facesKey;
   if (
     same &&
+    !facesChanged &&
     minimap === minimapOn &&
     pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
@@ -403,6 +475,8 @@ export function setChatDisplay(value: unknown): void {
   presentation = nextPresentation;
   featureTipsOn = tips;
   if (same) {
+    // The faces changed what the measure stacks name until they load.
+    if (facesChanged) current = { ...current };
     for (const listener of listeners) listener();
     return;
   }
@@ -463,14 +537,14 @@ export function resetChatDisplay(): void {
 export const chatDisplayValues = (): Readonly<Values> => raw;
 export const chatDisplay = (): ChatDisplay => current;
 export const currentChatMetrics = (): ChatMetrics => chatMetrics(current);
-/// The density's text scale the chat draws at now (`drawnFontSize`); the bubble's padding follows it too.
+/// The chat's text scale it draws at now (`drawnFontSize`, `--cmux-chat-text-scale`); the bubble's padding follows it too.
 export const chatDensityTextScale = (): number => densityTextScale;
 
-/// The host changed the density (its scale script ends with `cmux-ui-scale-change`): the chat draws its text at the
+/// The host changed the density or Text Size (its scale script ends with `cmux-ui-scale-change`): the chat draws its text at the
 /// new size, and a new look (the same values) makes the transcript measure every row again, as a new font does.
 if (typeof window !== "undefined") {
   // The host can set the scale before this module runs, and a chat on the default look never writes its variables
-  // (setChatDisplay returns while the look is unchanged): draw the density's size from the start.
+  // (setChatDisplay returns while the look is unchanged): draw the host's size from the start.
   if (densityTextScale !== 1 && typeof document !== "undefined") applyChatDisplay(document.documentElement, current);
   window.addEventListener("cmux-ui-scale-change", () => {
     const next = readDensityTextScale();

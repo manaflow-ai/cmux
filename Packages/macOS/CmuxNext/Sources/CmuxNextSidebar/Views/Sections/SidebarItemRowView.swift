@@ -160,6 +160,9 @@ class SidebarItemRowView: NSView {
     var onDragEnded: ((_ windowPoint: NSPoint) -> Void)? // the release, which decides the drop
     /// Every press, before it acts: a drag an earlier press left held ends (its release went elsewhere).
     var onPressBegan: (() -> Void)?
+    /// The menu this row's press opened (the profile control's) follows the rest of the press: the row holds the
+    /// mouse, so it hands the press's drags and its release to the menu, as an `NSMenu` tracks its button's press.
+    var pressTracker: ((NSEvent) -> Void)?
     private var pressLocation: NSPoint?
     private var didDrag = false
     /// The press's modifiers, which the release acts with (Option opens a workspace).
@@ -405,7 +408,9 @@ class SidebarItemRowView: NSView {
         // row, so a word that is mostly lowercase read higher than the glyph, whose mass sits low (Lucas 2026-11-13:
         // "Home is still a bit too high up" at Spacious). On the pixel grid; a flipped view, so down is +y.
         let scale = window?.backingScaleFactor ?? 2
-        let opticalDrop = style == .builtIn && !bare && !isRailButton
+        // A browser density places every title on Chromium's baseline (`SidebarStyle.lineBoxBaseline`), as Helium does,
+        // with no drop.
+        let opticalDrop = style == .builtIn && !bare && !isRailButton && SidebarStyle.capCenteredBaseline(title.font ?? SidebarStyle.titleFont, centerY: 0) == nil
             ? (SidebarStyle.titleFont.pointSize * 0.04 * scale).rounded() / scale : 0
         title.frame = NSRect(x: textX, y: SidebarStyle.textY(title, centerY: b.midY) + opticalDrop,
                              width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
@@ -678,6 +683,7 @@ class SidebarItemRowView: NSView {
 
     /// Past the drag threshold the region reorders in place (R77). An item that cannot move drags nothing.
     override func mouseDragged(with event: NSEvent) {
+        if let pressTracker, pressLocation != nil { return pressTracker(event) }
         guard isMovable, let pressLocation, onDragged?(pressLocation, event) == true else { return super.mouseDragged(with: event) }
         didDrag = true
         isPressed = false
@@ -687,6 +693,10 @@ class SidebarItemRowView: NSView {
     /// button: a press that became a drag (or left the item first) never runs it. Acting
     /// on the press made a tab under a launcher the user only meant to move.
     override func mouseUp(with event: NSEvent) {
+        if let tracker = pressTracker, pressLocation != nil {
+            endPress()
+            return tracker(event)
+        }
         let dragged = didDrag
         let activated = activatedOnPress
         if dragged { onDragEnded?(event.locationInWindow) }
@@ -706,6 +716,7 @@ class SidebarItemRowView: NSView {
     /// `SidebarListView.endPointerGesture`), so its release never comes here. The pressed fill clears, and a later
     /// drag or release of that press does nothing.
     func endPress() {
+        pressTracker = nil
         pressLocation = nil
         didDrag = false
         activatedOnPress = false

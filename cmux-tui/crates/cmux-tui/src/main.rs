@@ -12,6 +12,10 @@ use cmux_json::JsonSet as _;
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
+#[cfg(unix)]
+mod agent_computer_use;
+#[cfg(unix)]
+mod agent_mcp_choice;
 use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]
@@ -43,10 +47,14 @@ mod cloud_environment;
 #[cfg(unix)]
 mod coderouter_usage;
 #[cfg(unix)]
+#[cfg(unix)]
 mod codex_wrapper;
+#[cfg(not(target_os = "macos"))]
+mod computer_use_worker;
 mod config;
 mod daemon_build;
 mod headless;
+mod heap_profile;
 #[cfg(unix)]
 mod host_orphan_policy;
 mod local_actor;
@@ -1825,6 +1833,22 @@ fn warm_seeded_deps(folder: &Path) {
 /// Windows with the `windows-thin-exe` feature the thin `cmux-tui.exe` calls
 /// it through [`cmux_tui_dll_main`] in `cmux_tui.dll`.
 pub fn main() -> std::process::ExitCode {
+    // A measurement build's heap profile (`dhat-heap`); nothing otherwise.
+    heap_profile::start();
+    // glibc builds: two malloc arenas, not eight per core (malloc_arenas.rs).
+    // SAFETY: the first statements of main: no other thread runs yet.
+    unsafe {
+        cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS);
+    }
+    // The browser host and the app host are this binary under their own names
+    // (links beside bin/cmux). They run before anything else here: the app
+    // host sandboxes itself while it is the only thread, and neither takes
+    // the CLI's environment, stamps or test-owner setup.
+    #[cfg(unix)]
+    if let Some(code) = run_folded_host() {
+        // The status the standalone host binaries' `process::exit` gives: its low 8 bits.
+        return std::process::ExitCode::from(u8::try_from(code & 0xff).unwrap_or(u8::MAX));
+    }
     cmux_tui_core::startup_timings::process_mark("process.start");
     // SAFETY: the first statements of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
@@ -1840,6 +1864,8 @@ pub fn main() -> std::process::ExitCode {
     acpmux::hub::install_build(acpmux_build_id::build());
     #[cfg(unix)]
     cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
+    // The daemon's `device-setup` (the app's set-up buttons) runs `cmux device setup|start`'s code.
+    cmux_tui_core::device_setup::on_device_setup(devices::setup::daemon_run);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
@@ -1860,6 +1886,20 @@ pub fn main() -> std::process::ExitCode {
     // so the last queued records reach the client log on every platform.
     client_log::flush_for_exit();
     std::process::ExitCode::SUCCESS
+}
+
+/// Runs the host argv[0]'s file name names (`cmux-browser-host`,
+/// `cmux-app-host`) and returns its exit code, or `None` when it names none.
+#[cfg(unix)]
+fn run_folded_host() -> Option<i32> {
+    let argv0 = std::env::args_os().next()?;
+    let name = Path::new(&argv0).file_name()?.to_str()?;
+    let args = || std::env::args().skip(1).collect::<Vec<_>>();
+    match name {
+        "cmux-browser-host" => Some(cmux_browser_host::cli::run(args())),
+        "cmux-app-host" => Some(cmux_app_host::entry::run(&args())),
+        _ => None,
+    }
 }
 
 /// The `cmux_tui.dll` entry point (cx-w0uha) that the thin Windows
@@ -2403,6 +2443,22 @@ impl Drop for LocalOwnerEventLoop {
     }
 }
 
+/// Settles a try-on whose time is up and waits for one still running, on
+/// its own thread. The thread ends once no try-on is left (its stop
+/// condition), so an owner with nothing being tried on costs two file reads.
+fn start_try_on_timer() {
+    let Ok(customize) = cmux_customize::Customize::from_env() else { return };
+    let _ = std::thread::Builder::new().name("cmux-customize-try-on".into()).spawn(move || {
+        if let Err(error) = customize.run_try_on_timer() {
+            crate::client_log::stderr_log!(
+                "customize",
+                "customize try-on ({}): {error}",
+                error.code()
+            );
+        }
+    });
+}
+
 /// Starts the session server: surface environment, state root, mux, and listeners.
 fn run_server(
     args: Args,
@@ -2481,6 +2537,13 @@ fn run_server(
         interactive_stdio_is_terminal(),
     ) {
         return start_detached_owner_session(args, config, socket_path);
+    }
+    // A customization someone is trying on reverts at its time also when
+    // the app quit through it: the owner settles one that is due now and
+    // waits for one still running (cmux-customize `try_on.rs`). A Cloud
+    // daemon hosts no person's setup.
+    if !args.remote {
+        start_try_on_timer();
     }
     #[cfg(unix)]
     let (remote_relays, remote_direct_websocket, remote_workspace_http) = if args.remote {

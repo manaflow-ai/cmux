@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
+import { LINK_DOWN_SAID_MS, RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import { experimentArm } from "../../experiments/experiment";
 import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
@@ -22,9 +22,16 @@ import { pausedMachineResume } from "./pausedMachine.experiment";
 /// "offline" first. Its place is taken from the first frame, as before (empty and out of the
 /// accessibility tree until then), so its text fading in moves no row, and it sits above the
 /// transcript, never over it.
-export function PeerCopyBanner(props: Parameters<typeof PeerCopyBannerBody>[0] & { noteDelayMs?: number }) {
-  const { noteDelayMs = RESUME_NOTE_DELAY_MS, ...body } = props;
-  const shown = useAfterDelay(true, noteDelayMs);
+export function PeerCopyBanner(
+  props: Parameters<typeof PeerCopyBannerBody>[0] & { noteDelayMs?: number; asked?: boolean },
+) {
+  const { noteDelayMs = RESUME_NOTE_DELAY_MS, asked = false, ...body } = props;
+  // What the app recovers by itself waits out LINK_DOWN_SAID_MS (Leo, 2026-11-14: connectivity says
+  // nothing the person can do nothing about): a link that dropped ("offline"), and a machine the app
+  // wakes on its own (opening the chat, a send) that reads "starting". A paused machine (it has a
+  // Resume) and a start the person asked for here keep `noteDelayMs`.
+  const quiet = body.machine === undefined || (body.machine === "starting" && !asked);
+  const shown = useAfterDelay(true, quiet && noteDelayMs > 0 ? Math.max(noteDelayMs, LINK_DOWN_SAID_MS) : noteDelayMs);
   return (
     <div className="acpmux-peer-copy-slot" data-shown={shown || undefined}>
       <PeerCopyBannerBody {...body} />

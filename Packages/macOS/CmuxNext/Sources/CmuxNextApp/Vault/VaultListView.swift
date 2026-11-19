@@ -24,7 +24,7 @@ struct VaultListView: View {
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityLabel(VaultStrings.refresh)
                 .disabled(vault.isLoading)
             }

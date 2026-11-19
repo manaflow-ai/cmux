@@ -599,12 +599,6 @@ fn session_snapshot_with_journal_head(
     // (`committed_snapshot.rs`), the live surfaces are the published route tables, loaded after the rows and
     // never older than a commit of the rows that changed a route in its state hold.
     (|| -> anyhow::Result<(Value, u64)> {
-        // The answer of an earlier indeterminate registry commit owes a state update (cx-g1fa.3). The read
-        // settled it while it pinned the state; it still does, but only when one is owed: the rows of that
-        // commit are in this snapshot, so its state update must not wait for some later mutation.
-        if mux.registry_connection.owes_settlement() {
-            mux.with_resource_projection(|_, _| Ok(()))?;
-        }
         let committed = committed_snapshot::committed_snapshot(mux)?;
         let routes = mux.published_routes()?;
         #[cfg(test)]

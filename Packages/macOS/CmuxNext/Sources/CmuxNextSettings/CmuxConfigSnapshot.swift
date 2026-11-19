@@ -14,9 +14,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var customDensities: [DensityTokens] = []
     /// `appearance.customDensity` when it names one of `customDensities`: it wins over `density`.
     public var customDensity: String?
-    /// The density the file selects: the custom one, else the built-in, else Default (`cozy`).
+    /// The active theme file's own density (``ThemeFileOverlay/density``): it wins over both, as the file's
+    /// settings win over cmux-next.json's.
+    public var themeDensity: DensityTokens?
+    /// The density in use: the theme file's, else the custom one, else the built-in, else Default (`cozy`).
     public var selectedDensity: DensityTokens {
-        DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: [])
+        themeDensity ?? DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: [])
             ?? DensityPreset.cozy.tokens
     }
     /// `app.uiScale` (first-party page scale) and `appearance.interfaceScale` (chrome, only with Labs on).
@@ -77,7 +80,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeFeedInChief = HomeFeedRowsSetting.fallback
     /// `home.chiefDock.edge`: the window edge the Chief docks to (``ChiefDockSetting``); `left` when unset.
     public var chiefDockEdge = ChiefDockSetting.edgeDefault
-    /// `home.chiefDock.openBeside`: a link clicked in the Chief opens its workspace with the Chief floating over it; on when unset.
+    /// `home.chiefDock.openBeside`: a link clicked in the Chief opens its workspace with the Chief floating over it; off when unset (cmux#45889).
     public var chiefDockOpenBeside = ChiefDockSetting.openBesideDefault
     /// `home.chiefPanel.style`: how the floating Chief looks (``ChiefDockSetting``); `composeBar` when unset.
     public var chiefPanelStyle = ChiefDockSetting.styleDefault
@@ -94,6 +97,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var machineJoin = CmuxConfigSnapshot.machineJoinDefault
     /// `labs.liveCode`: a live code build applies Swift patches from ~/Library/Caches/cmux-next/live-code (read at launch); off when unset.
     public var liveCode = CmuxConfigSnapshot.liveCodeDefault
+    /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
+    public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -211,6 +216,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
+    /// `appearance.fontSmoothing`; `antialiased` when unset or invalid. Applied once per launch
+    /// (``ProcessFontSmoothing/apply(_:to:)``), so a change shows after a restart.
+    public var fontSmoothing: FontSmoothing = FontSmoothingSetting.fallback
     /// `appearance.focusIndicator`; "tabs" when unset or invalid.
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorDefault
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
@@ -371,6 +379,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
         snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
         snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)
+        snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
@@ -415,6 +424,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
         snapshot.take(ReducedBackgroundsSetting.parse(root), \.reducedBackgrounds)
+        snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)

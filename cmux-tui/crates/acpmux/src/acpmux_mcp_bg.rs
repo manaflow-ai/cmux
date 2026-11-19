@@ -13,10 +13,17 @@
 //! `structuredContent.status` `running`, `ok` or `failed`. `bg_start` asks the daemon to tell
 //! the chat when the task ends (`notify`, on unless false; `hub/bg_notify.rs`).
 //!
-//! `run_wait` is a `bg_start` the server writes: one blocking `gh run watch` or `gh pr checks
-//! --watch` under the daemon, then the failed jobs read once, and the outcome printed last, which
+//! `run_wait` is a `bg_start` the server writes: one blocking `glaeda-gh wait` (the machine's one
+//! GitHub poller, which waits on PR events where GitHub grants them), else `gh run watch` or `gh pr checks
+//! --watch`, under the daemon, then the failed jobs read once, and the outcome printed last, which
 //! the task's summary is (`resultLine`), so the chat wakes once with "... passed" or "... failed:
 //! JOB, JOB". A machine with no `gh` is refused before a task starts.
+//!
+//! Own tasks first (incident 2026-11-14: a subagent listed every task of its chat and stopped
+//! all ten running ones, none its own): `bg_list` lists the tasks its caller started (that
+//! subagent's, or the lead's own) unless `all` is true, and says how many it left out;
+//! `bg_stop` refuses a task another caller started, naming who, unless `force_other_owner` is
+//! true. The caller is the one `acpmux_mcp.rs` reads from the call (`subagent_call.rs`).
 
 use super::{error_result, ok, refusal};
 use crate::client::Client;
@@ -39,16 +46,19 @@ pub(super) fn tools() -> Vec<Value> {
                 "description": {"type": "string", "description": "A few words: what the task is for. Kept with the task; bg_list, bg_output and the end message name it by this."},
                 "notify": {"type": "boolean", "description": "Send this chat one message when the task ends (default true). It waits for a running turn to end; it never interrupts one."}},
                 "required": ["command"]}}),
-        json!({"name": "bg_list", "description": "This chat's background tasks, oldest first: id, state (running, exited, stopped, killed, lost), exit code and the tail of the output.",
-            "inputSchema": {"type": "object", "properties": {"description": description}}}),
+        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), oldest first: id, state (running, exited, stopped, killed, lost), exit code and the tail of the output. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop.",
+            "inputSchema": {"type": "object", "properties": {"description": description,
+                "all": {"type": "boolean", "description": "List every task of this chat, whoever started it, each with who started it (default false: only yours)."}}}}),
         json!({"name": "bg_output", "description": "Read a background task's output: by default its last 64 KiB; with fromByte, from there (pass the last nextByte to read only what is new). Each task keeps its newest 8 MiB of output; skippedBytes says how much before fromByte is gone.",
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "fromByte": {"type": "integer", "minimum": 0},
                 "maxBytes": {"type": "integer", "minimum": 1, "maximum": 1048576}},
                 "required": ["id"]}}),
-        json!({"name": "bg_stop", "description": "Stop a background task: SIGTERM to every process it started (its process group and those that left it), then SIGKILL to them 5 s later; returns once it ended.",
-            "inputSchema": {"type": "object", "properties": {"id": id, "description": description}, "required": ["id"]}}),
-        json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs the gh CLI.",
+        json!({"name": "bg_stop", "description": "Stop a background task you started: SIGTERM to every process it started (its process group and those that left it), then SIGKILL to them 5 s later; returns once it ended. A task another subagent or the lead started is refused, naming who started it.",
+            "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
+                "force_other_owner": {"type": "boolean", "description": "Stop it even though another subagent or the lead started it. Only when its owner asked you to or is gone; never as cleanup (default false)."}},
+                "required": ["id"]}}),
+        json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs the gh CLI; waits through glaeda-gh (one shared poller, GitHub's PR events) when it is installed.",
             "inputSchema": {"type": "object", "properties": {
                 "repo": {"type": "string", "description": "OWNER/REPO."},
                 "run": {"type": "integer", "minimum": 1, "description": "The Actions run id to wait for."},
@@ -149,12 +159,27 @@ fn outcome(name: &str, r: &Value) -> (String, &'static str) {
     let count =
         |status: &str| tasks.iter().filter(|t| crate::bg_run::outcome(t).1 == status).count();
     let (running, ok, failed) = (count("running"), count("ok"), count("failed"));
+    // Tasks the list left out: other callers' (`hub::BgScope`).
+    let others = r.get("otherOwners").and_then(Value::as_u64).unwrap_or(0);
+    let others = match others {
+        0 => String::new(),
+        1 => "; 1 more started by another subagent or the lead (not yours; all: true lists it)"
+            .to_owned(),
+        n => format!(
+            "; {n} more started by other subagents or the lead (not yours; all: true lists them)"
+        ),
+    };
     if tasks.is_empty() {
-        return ("No background tasks.".to_owned(), "ok");
+        let line = if others.is_empty() {
+            "No background tasks.".to_owned()
+        } else {
+            format!("No background tasks of yours{others}")
+        };
+        return (line, "ok");
     }
     let plural = if tasks.len() == 1 { "" } else { "s" };
     let line = format!(
-        "{} background task{plural}: {running} running, {ok} ok, {failed} failed",
+        "{} background task{plural}: {running} running, {ok} ok, {failed} failed{others}",
         tasks.len()
     );
     let status = if running > 0 {
@@ -180,7 +205,10 @@ fn task_line(t: &Value) -> String {
         "" => s("command").to_owned(),
         d => format!("{d}: {}", s("command")),
     };
-    format!("{}  [{}{end}]  {what}\n{}", s("id"), s("state"), s("tail").trim_end())
+    let by = t.get("startedBy").filter(|v| v.is_object()).map_or(String::new(), |sub| {
+        format!("  (started by {})", crate::hub::bg_owner_words(Some(sub)))
+    });
+    format!("{}  [{}{end}]  {what}{by}\n{}", s("id"), s("state"), s("tail").trim_end())
 }
 
 fn summary(name: &str, r: &Value) -> String {
@@ -221,6 +249,13 @@ mod tests {
             outcome("bg_list", &json!({"tasks": []})),
             ("No background tasks.".to_owned(), "ok")
         );
+        // Tasks of other callers are counted, never listed as the caller's.
+        let others = json!({"tasks": [task("running", 0)], "otherOwners": 9});
+        assert!(outcome("bg_list", &others).0.ends_with(
+            "1 running, 0 ok, 0 failed; 9 more started by other subagents or the lead (not yours; all: true lists them)"
+        ));
+        let none = json!({"tasks": [], "otherOwners": 1});
+        assert!(outcome("bg_list", &none).0.starts_with("No background tasks of yours; 1 more"));
     }
 
     /// A call names a repo and a run or a pull request (with an optional sha); anything else is
@@ -275,8 +310,8 @@ esac
         std::fs::write(&gh, fake).unwrap();
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let path =
-            format!("{}:{}", dir.path().display(), std::env::var("PATH").unwrap_or_default());
+        // Only the fakes and the base tools: a host's own glaeda-gh must not answer for the fake gh.
+        let path = format!("{}:/usr/bin:/bin", dir.path().display());
         let run = |args: Value| {
             let script = RunWait::of(&args).unwrap().script();
             let out = std::process::Command::new("sh")
@@ -304,6 +339,79 @@ esac
         // The pinned-elsewhere call never waited: the one wait is the earlier call's.
         assert_eq!(calls.matches("--watch").count(), 1, "{calls}");
         assert!(calls.contains("run watch 7 --repo o/r --exit-status"), "{calls}");
+    }
+
+    /// With glaeda-gh on PATH the wait is its daemon's (one poller for every session, PR events where GitHub
+    /// grants them), pinned to the head it read; a daemon that is down (exit 3) or a glaeda-gh too old for the
+    /// arguments (64) falls back to the gh watch, so the wait never gets less reliable.
+    #[test]
+    fn run_wait_waits_through_glaeda_gh_and_falls_back_to_gh() {
+        let dir = cmux_unix_socket::short_test_dir("run-wait-glaeda");
+        let calls = dir.path().join("calls");
+        let rc = dir.path().join("glaeda-rc");
+        let gh = format!(
+            r#"#!/bin/sh
+echo "gh $*" >> '{calls}'
+case "$*" in
+  "pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;
+  "pr checks"*--watch*) exit 0 ;;
+  "run watch"*) exit 0 ;;
+  "run view"*"--json conclusion"*) echo "conclusion: success  https://example.com/run/7" ;;
+  *) echo "" ;;
+esac
+"#,
+            calls = calls.display()
+        );
+        let glaeda = format!(
+            "#!/bin/sh\necho \"glaeda-gh $*\" >> '{}'\nexit $(cat '{}')\n",
+            calls.display(),
+            rc.display()
+        );
+        use std::os::unix::fs::PermissionsExt;
+        for (name, body) in [("gh", gh), ("glaeda-gh", glaeda)] {
+            let file = dir.path().join(name);
+            std::fs::write(&file, body).unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = format!("{}:/usr/bin:/bin", dir.path().display());
+        let run = |args: Value, code: &str| {
+            std::fs::write(&rc, code).unwrap();
+            let _ = std::fs::remove_file(&calls);
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(RunWait::of(&args).unwrap().script())
+                .env("PATH", &path)
+                .output()
+                .unwrap();
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            let calls = std::fs::read_to_string(&calls).unwrap_or_default();
+            (out.status.code(), text.lines().last().unwrap_or_default().to_owned(), calls)
+        };
+        let pr = json!({"repo": "o/r", "pr": 3, "sha": "0123456789abcdef"});
+        let (code, last, calls) = run(pr.clone(), "0");
+        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{calls}");
+        assert!(
+            calls
+                .contains("glaeda-gh wait pr o/r#3 --sha 0123456789abcdef0123456789abcdef01234567"),
+            "{calls}"
+        );
+        assert!(!calls.contains("--watch"), "glaeda-gh waited: no gh poll: {calls}");
+        let (code, last, calls) = run(pr.clone(), "4");
+        assert_eq!(code, Some(4), "{calls}");
+        assert!(last.contains("failed") && last.contains("conflicts with its base"), "{last}");
+        assert!(!calls.contains("--watch"), "{calls}");
+        for down in ["3", "64"] {
+            let (code, last, calls) = run(pr.clone(), down);
+            assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{calls}");
+            assert!(calls.contains("gh pr checks 3 --repo o/r --watch"), "exit {down}: {calls}");
+        }
+        let (code, last, calls) = run(json!({"repo": "o/r", "run": 7}), "0");
+        assert_eq!((code, last.as_str()), (Some(0), "Actions run 7 in o/r passed"), "{calls}");
+        assert!(calls.contains("glaeda-gh wait run o/r/7"), "{calls}");
+        assert!(!calls.contains("run watch"), "{calls}");
+        let (code, _, calls) = run(json!({"repo": "o/r", "run": 7}), "3");
+        assert_eq!(code, Some(0), "{calls}");
+        assert!(calls.contains("gh run watch 7 --repo o/r"), "{calls}");
     }
 
     /// A task that prints its outcome last is summed up by that line once it ended.
@@ -395,11 +503,12 @@ impl RunWait {
         match &self.target {
             Target::Run(run) => {
                 let name = format!("Actions run {run} in {repo}");
-                lines.push(format!("gh run watch {run} --repo {repo} --exit-status --interval 30 >/dev/null 2>&1; rc=$?"));
+                lines.push(glaeda_wait(&format!("run {repo}/{run}")));
+                lines.push(format!("case $rc in 3|64) gh run watch {run} --repo {repo} --exit-status --interval 30 >/dev/null 2>&1; rc=$? ;; esac"));
                 lines.push(format!("gh run view {run} --repo {repo} --json conclusion,url --jq '\"conclusion: \" + (.conclusion // \"none\") + \"  \" + .url'"));
                 lines.push(format!("failed=$(gh run view {run} --repo {repo} --json jobs --jq '[.jobs[] | select(.conclusion == \"failure\" or .conclusion == \"cancelled\" or .conclusion == \"timed_out\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed jobs: $failed\"".to_owned());
-                lines.push(format!("if [ $rc -eq 0 ]; then echo \"{name} passed\"; else echo \"{name} failed${{failed:+: $failed}}\"; fi"));
+                lines.push(format!("if [ $rc -eq 0 ]; then echo \"{name} passed\"; else echo \"{name} failed${{failed:+: $failed}}${{why:+ ($why)}}\"; fi"));
             }
             Target::Pr { number, sha } => {
                 let name = format!("Checks of {repo}#{number}");
@@ -409,19 +518,34 @@ impl RunWait {
                     lines.push(format!("head=$({head}) || {{ echo \"{name} failed: its head could not be read\"; exit 2; }}"));
                     lines.push(format!("case \"$head\" in {sha}*) ;; *) echo \"{name} failed: its head is $head, not {sha}\"; exit 2;; esac"));
                 }
-                lines.push(format!("gh pr checks {number} --repo {repo} --watch --fail-fast --interval 30 >/dev/null 2>&1; rc=$?"));
+                let pin = if sha.is_some() { " --sha \"$head\"" } else { "" };
+                lines.push(glaeda_wait(&format!("pr {repo}#{number}{pin}")));
+                lines.push(format!("case $rc in 3|64) gh pr checks {number} --repo {repo} --watch --fail-fast --interval 30 >/dev/null 2>&1; rc=$? ;; esac"));
                 lines.push(format!("failed=$(gh pr checks {number} --repo {repo} --json name,bucket --jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed checks: $failed\"".to_owned());
                 if let Some(sha) = sha {
                     lines.push(format!("now=$({head})"));
                     lines.push(format!("case \"$now\" in {sha}*) ;; *) echo \"{name} failed: its head moved to $now while it was waited for\"; exit 2;; esac"));
                 }
-                lines.push(format!("if [ $rc -eq 0 ]; then echo \"{name} passed\"; else echo \"{name} failed${{failed:+: $failed}}\"; fi"));
+                lines.push(format!("if [ $rc -eq 0 ]; then echo \"{name} passed\"; else echo \"{name} failed${{failed:+: $failed}}${{why:+ ($why)}}\"; fi"));
             }
         }
         lines.push("exit $rc".to_owned());
         lines.join("\n")
     }
+}
+
+/// The wait itself, through glaeda-gh when it is installed: its daemon is the one poller for every session
+/// on the machine and waits on GitHub's pull request events (`gh event listen`) where the account has
+/// access, so this task makes no GitHub calls while it waits. `rc` 3 (its daemon is down) or 64 (a
+/// glaeda-gh too old for these arguments), or no glaeda-gh, leaves the caller's `gh` watch to run instead;
+/// `why` names an outcome other than pass or fail. TARGET is `run OWNER/REPO/ID` or `pr OWNER/REPO#N`
+/// (with `--sha "$head"`), every value checked by `RunWait::of`.
+fn glaeda_wait(target: &str) -> String {
+    format!(
+        "if command -v glaeda-gh >/dev/null 2>&1; then glaeda-gh wait {target} --timeout 21600 >/dev/null 2>&1; rc=$?; else rc=3; fi\n\
+         case $rc in 2) why='timed out after 6 h' ;; 4) why='conflicts with its base' ;; 6) why='no check ever reported' ;; 7) why='inconclusive' ;; esac"
+    )
 }
 
 /// Whether an executable named `name` is on this process's PATH (true when it has none).

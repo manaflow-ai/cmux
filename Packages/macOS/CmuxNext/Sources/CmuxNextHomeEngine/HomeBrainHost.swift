@@ -11,13 +11,12 @@ import os
 /// instance per mux home, so starting it again is harmless.
 ///
 /// The host is the executable named by `CMUX_NEXT_MUX_HOST` (the TypeScript
-/// `mux`, or a local optchat-chief build), else the OptChat Chief that DEV
-/// and NIGHTLY builds bundle as Contents/Resources/bin/optchat-chief
+/// `mux`, or a local optchat-chief build), else the OptChat Chief that the app
+/// bundles as Contents/Resources/bin/optchat-chief
 /// (scripts/cmux-next/bundle-optchat-chief.sh; Native/OptChat/optchat-chief,
-/// chief-done.md check 7: every Chief turn follows OptChat). The bundled
-/// Chief starts only on DEV and NIGHTLY (`bundledChiefAllowed`, the
-/// DevTools channel rule); Release and RC never bundle or start it: Home
-/// works and the Chief does not answer. Both keep the
+/// chief-done.md check 7: every Chief turn follows OptChat). DEV, NIGHTLY,
+/// RC and stable start it when it is bundled (`bundledChiefAllowed`); stable
+/// ships it since the classic handoff (release.yml bundles it). Both keep the
 /// `host --daemon-socket --mux-home` contract and one lock per mux home.
 /// The mux home is this build's Chief home (`ChiefHome`, one Chief per
 /// build); isolated launches (agent preflights, tests) get their own. The
@@ -41,12 +40,18 @@ public nonisolated struct HomeBrainHost: Sendable {
     /// The OptChat Chief's file name in the app's Contents/Resources/bin.
     static let bundledChiefName = "optchat-chief"
 
-    /// DEV (a Debug compile) and NIGHTLY (`com.cmuxterm.app.nightly[.<tag>]`)
-    /// start the bundled Chief; Release and RC do not (NIGHTLY compiles as
-    /// Release, so the bundle id decides, as for DevTools).
+    /// Every cmux channel starts the Chief it bundles: DEV (a Debug compile), NIGHTLY
+    /// (`com.cmuxterm.app.nightly[.<tag>]`), RC and stable (`com.cmuxterm.app`, which the
+    /// classic → cmux-next handoff ships with the Chief bundled). Another app's bundle id
+    /// never starts it. Developer tools keep their own DEV and NIGHTLY rule (``DevTools``).
     public static func bundledChiefAllowed(bundleID: String?, isDebugBuild: Bool) -> Bool {
-        DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild)
+        if DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild) { return true }
+        guard let bundle = bundleID?.trimmingCharacters(in: .whitespaces) else { return false }
+        return bundle == stableBundleID || bundle.hasPrefix(stableBundleID + ".")
     }
+
+    /// The stable cmux bundle id; RC and NIGHTLY add a suffix to it.
+    static let stableBundleID = "com.cmuxterm.app"
 
     /// Whether this app can start a host at all (`resolve` finds an executable).
     public static func canStart(environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -136,9 +141,20 @@ public nonisolated struct HomeBrainHost: Sendable {
         if usesAppAcpmux { variables["OPTCHAT_ACPMUX_SUPERVISED"] = "1" }
         // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
         // turns included, its own `cmux mcp serve` (one server per turn).
-        for key in ["USER", "TMPDIR", "MUX_HARNESS"] {
+        for key in ["USER", "TMPDIR", "MUX_HARNESS", "DO_NOT_TRACK"] {
             if let value = ProcessInfo.processInfo.environment[key] { variables[key] = value }
         }
+        variables.merge(Self.analyticsEnvironment(bundle: .main)) { $1 }
+        return variables
+    }
+
+    /// What the Chief's product analytics read from the app (docs/posthog/chief-product-analytics.md):
+    /// the bundle id, whose preferences hold the person's `sendAnonymousTelemetry` choice (the host
+    /// re-reads it every few minutes) and name the channel, and the app's version.
+    static func analyticsEnvironment(bundle: Bundle) -> [String: String] {
+        var variables: [String: String] = [:]
+        variables["CMUX_CHIEF_APP_BUNDLE_ID"] = bundle.bundleIdentifier
+        variables["CMUX_CHIEF_APP_VERSION"] = bundle.infoDictionary?["CFBundleShortVersionString"] as? String
         return variables
     }
 

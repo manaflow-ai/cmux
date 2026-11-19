@@ -172,6 +172,12 @@ final class ShellModel {
                 }
             }
         }
+        // Mock mode keeps Toggle Terminal and Chat's pairings and faces in the file a signed-in
+        // account keeps, under the mock account, so a relaunch reads them as a live one does.
+        if mockMode {
+            mock.keeping = AccountKeptTerminalChats(kept: AgentTranscriptCache.standard.terminalChats,
+                                                    account: auth.user?.id ?? "mock")
+        }
         // Mock mode: a New Task's task goes to its workspace's mock chat, as the Mac's agent gets it.
         if mockMode { mock.onTaskSent = { [weak store] task, workspace in
             guard let store, let ws = store.workspace(id: workspace.id) ?? Optional(workspace),
@@ -190,6 +196,12 @@ final class ShellModel {
         }
         // `-cmux-mobile-no-agents`: the Mac starts no agents from the phone (New Task is not offered).
         if CommandLine.arguments.contains("-cmux-mobile-no-agents") { mock.offersAgents = false }
+        // `-cmux-mobile-refuse-next-create`: the next workspace the phone makes is refused in the
+        // live Mac's words for a chat folder it has no workspace in (New Workspace's error capture).
+        if CommandLine.arguments.contains("-cmux-mobile-refuse-next-create") {
+            mock.failNext = "Agent chats start in a folder that's open on the Mac. Open a workspace there first (New Workspace › Open Folder…), then start the chat."
+            mock.failNextForPerson = true
+        }
         // `-cmux-mobile-task-delivery not-sent|uncertain|refused`: the next task doesn't reach its agent.
         switch UserDefaults.standard.string(forKey: "cmux-mobile-task-delivery") {
         case "not-sent": mock.taskFailure = .notSent("Not connected to the Mac")
@@ -804,7 +816,7 @@ final class ShellModel {
     /// Message Chief's Send: to the Chief of the Mac this phone shows (Chief follows it).
     func sendToChief(_ text: String) {
         guard live != nil else {
-            ChiefSources.shared.mac.send(text: text)
+            ChiefSources.shared.mac.sendKeepingDraft(text: text)
             messagingChiefText = nil
             return
         }
@@ -821,7 +833,7 @@ final class ShellModel {
         // One send at a time: Send waits while the phone switches to the subject's Mac.
         guard !sendingToChief else { return }
         guard let live else {
-            ChiefSources.shared.mac.send(text: text)
+            ChiefSources.shared.mac.sendKeepingDraft(text: text)
             messagingChief = nil
             messagingChiefText = nil
             return
@@ -948,7 +960,8 @@ extension ShellModel {
             baseURL: ScreenSharingService.hubURL(isDebug: isDebug, environment: ProcessInfo.processInfo.environment),
             bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile",
             deviceName: UIDevice.current.name,
-            tokens: DeviceHubAccountToken { try await auth.accessToken() }
+            tokens: DeviceHubAccountToken { try await auth.accessToken() },
+            accountID: auth.user?.id
         )
         let service = ScreenSharingService(configuration: configuration)
         #if DEBUG

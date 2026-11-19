@@ -79,8 +79,8 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: var(--cv-card-fill);
-  box-shadow: 0 0 0 1px var(--cv-card-ring);
+  background: var(--ds-surface-card);
+  box-shadow: 0 0 0 1px var(--ds-surface-card-line);
   color: var(--cv-text);
 }
 /* A listed subagent: one plain 48px row with its current action under its name. */
@@ -229,7 +229,7 @@ button.cv-subagent > :last-child {
   content: "";
   flex: 1;
   height: 1px;
-  background: var(--cv-card-ring);
+  background: var(--ds-surface-card-line);
 }
 .cv-subagent-of__frame {
   box-sizing: border-box;
@@ -239,7 +239,7 @@ button.cv-subagent > :last-child {
   display: inline-flex;
   align-items: center;
   border-radius: var(--ds-radius-control);
-  box-shadow: 0 0 0 1px var(--cv-card-ring);
+  box-shadow: 0 0 0 1px var(--ds-surface-card-line);
 }
 .cv-subagent-of__pill {
   all: unset;
@@ -483,26 +483,23 @@ button.cv-subagent > :last-child {
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* A subagent's own pane: its composer's quiet row names the chat that passes the message on
-   (SubagentComposer.tsx), over the row's middle where a chat's look dots sit (composerLook.css). */
+/* A subagent's own pane: under its composer, a line names the chat that passes the message on
+   (SubagentComposer.tsx). It is a row of its own in the composer's flow, never drawn over the box:
+   placed over the box's bottom, it stood on the prompt's line and over its placeholder (#45911). */
 .cv-subagent-composer-via {
-  position: absolute;
-  /* Clear of Send (16px inset, 28px button) with a 12px gap, so a long chat name truncates before it. */
-  right: 56px;
-  bottom: 12px;
-  left: 16px;
+  flex: none;
+  margin: 0;
+  padding: 4px 16px 0;
   overflow: hidden;
   font-family: var(--cv-font);
   font-size: var(--text-detail);
-  line-height: 24px;
+  line-height: 20px;
   color: var(--cv-text-muted);
   letter-spacing: var(--text-detail--letter-spacing);
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: center;
   user-select: none;
-  /* The row's controls under it stay clickable. */
-  pointer-events: none;
 }
 
 /* ---------- The tray of running work above the composer (SubagentTray.tsx) ---------- */
@@ -528,7 +525,7 @@ button.cv-subagent > :last-child {
   padding: 0;
   overflow: hidden;
   border-radius: var(--acpmux-composer-radius, 11px);
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  background: var(--ds-surface-inset);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   color: var(--agent-text);
   font-family: var(--cv-font);
@@ -798,6 +795,24 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head > .acpmux-running-tray__time:not(:empty) {
   min-width: 7.5ch;
   font-variant-numeric: tabular-nums;
+}
+/* Open, the header's time stands in the lines' time column: its box takes the row's free room and
+   its digits end it, on the x every line's time ends on (Lucas, 2026-11-17: "we also need to align
+   the timestamps here", of a header's "23m 10s" a few pixels left of its line's). Folded, with no
+   lines under it, it stays one gap after its counts. */
+.acpmux-running-tray__head[aria-expanded="true"] > .acpmux-running-tray__time:not(:empty) {
+  text-align: right;
+}
+/* The header's Stop column is the lines' one: the lines space their tracks one tray gap apart, the
+   header row its usual 8px, so the slot gives that difference back on both sides and lies exactly
+   over the lines' Stop column (and under the panel button, `.acpmux-running-tray__open`). */
+.acpmux-running-tray__head > .acpmux-running-tray__open-slot {
+  margin-inline: calc(var(--acpmux-tray-gap) - var(--ds-space-2));
+}
+/* A header with no panel button still keeps the lines' Stop column empty before its chevron, so a
+   time pushed to the end stops where theirs do. */
+.acpmux-running-tray__head:not(:has(> .acpmux-running-tray__open-slot)) > .acpmux-running-tray__status {
+  margin-inline-start: calc(var(--acpmux-tray-stop-width) + 2 * var(--acpmux-tray-gap) - var(--ds-space-2));
 }
 .acpmux-running-tray__time:empty {
   margin-left: -8px;
@@ -1069,7 +1084,7 @@ button.cv-subagent > :last-child {
   box-sizing: content-box;
   padding: var(--ds-space-1);
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
 }
 /* A line whose context menu is open (its Stop) stays lit while the pointer is in the menu. */
 /* Resume (its own control in Stop's column) lights itself, not the line around it. */
@@ -1125,6 +1140,8 @@ button.cv-subagent > :last-child {
 }
 .acpmux-agent-card__name {
   color: var(--agent-text, var(--cmux-text));
+  /* The title is emphasized (overlay-surfaces.md, "Tooltip hierarchy and placement"). */
+  font-weight: var(--weight-emphasis);
   overflow-wrap: anywhere;
 }
 .acpmux-agent-card__state,
@@ -1223,6 +1240,20 @@ button.cv-subagent > :last-child {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+/* Its latest output (what it does now, else the last line it said: SubagentPreview.tsx), between
+   its state and its task: the text ink under the emphasized name, two lines at most. */
+.acpmux-agent-card__latest {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--agent-text, var(--cmux-text));
+}
+/* A chip's preview (SubagentPreview.tsx) keeps the task to its first two lines. */
+.acpmux-subagent-preview .acpmux-agent-card__task {
+  -webkit-line-clamp: 2;
 }
 
 /* ---------- Where a subagent ended (SubagentDoneLine.tsx) ---------- */
@@ -1723,7 +1754,7 @@ button.cv-subagent > :last-child {
   cursor: default;
 }
 .acpmux-running-tray__open:hover {
-  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  background: var(--ds-color-hover);
   color: var(--agent-text);
 }
 .acpmux-running-tray__open:focus-visible {
@@ -1923,7 +1954,7 @@ button.cv-subagent > :last-child {
   background: color-mix(in srgb, var(--glass-surface, Canvas) 30%, transparent);
 }
 .acpmux-running-tray[data-tuck-look="pill"] > .acpmux-running-tray__tuck:active::before {
-  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  background: var(--ds-color-pressed);
 }
 /* `band`: the whole box lights along the edge. */
 .acpmux-running-tray[data-tuck-look="band"] > .acpmux-running-tray__tuck::before {

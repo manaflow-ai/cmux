@@ -61,6 +61,9 @@ public struct AgentPaneDebugAutomationArguments {
             return [params["limit"]?.intValue.map { ["limit": $0] as [String: Any] } ?? [:]]
         case "send_prompt", "compose_send", "toast":
             return [params["text"]?.stringValue ?? ""]
+        case "select_text":
+            // `selector`, and the characters `from` to `to` of its text (debug.ts selectText).
+            return [params["selector"]?.stringValue ?? "", params["from"]?.intValue ?? 0, params["to"]?.intValue ?? 0]
         case "run_mode":
             return [params["mode"]?.stringValue ?? NSNull()]
         case "new_chat":

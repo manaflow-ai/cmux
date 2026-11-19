@@ -789,7 +789,7 @@ were added to `policy.rs` or `DaemonLanePolicy.swift`:
 
 | Phone action | Line it sends | Rule 2 notes |
 | --- | --- | --- |
-| New Agent Chat, New Agent Chat With… | acpmux `_acpmux/harnesses`, `_acpmux/models` (reads), `session/new` (harness, `policy: ask`, workspace folder), `session/set_model` on the phone's own new session; daemon `new-conversation-tab` (host set by hostd) | The catalog read is the one the handoff sheet already made. A model choice is a free config (`FREE_CONFIG_IDS`), never a mode. A Mac-started Claude session stays unchanged from the phone (D13). |
+| New Agent Chat, New Agent Chat With… | acpmux `_acpmux/harnesses`, `_acpmux/models` (reads), `session/new` (harness, `policy: ask`, workspace folder), `session/set_model` on the phone's own new session; daemon `new-conversation-tab` (host set by hostd) | The catalog read is the one the handoff sheet already made. A model choice is a free config (`FREE_CONFIG_IDS`), never a mode. A Claude chat the Mac started takes the owner's own paired phone's prompts, stops, answers, model and mode, as the Mac's do (acpmux D13: a live `phone` credential; in a mode that does not ask, only while the phone's Full-access setting is on, the one the Mac app issues for a phone its host admits under the Mac owner's account; removing the phone revokes it). With the phone's Full-access setting off, the owner's phone still passes the D13 refusal, so the user's own Claude permission rules run in a turn it sends; every other Web rule (an asking mode, an asking policy, no lasting grant, the sandbox) still holds it, as Leo asked on 2026-11-14 ("chat writable in both directions"). Any other client is refused with `remote.local_claude_session` and `action: new_chat`. |
 | Rename Tab… | `rename-surface {surface, name}` | The person's own tab; the name is text the daemon shows. |
 | Duplicate Tab | `new-tab {pane}` (folder chosen by hostd, `with_pane_folder`), `new-browser-tab {url, pane}` (http/https only) | Same as New Terminal and New Browser Tab. Agent chats have no duplicate. |
 | Drag to reorder tabs | `move-tab {surface, pane, index}` | Position only, within the person's workspaces. |
@@ -1005,6 +1005,28 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   asks nothing for 10 minutes whatever key it brings (`rate_limited`). hostd
   asks nothing until the app sent its approved list, so an approved phone is
   never asked again after a hostd restart.
+- **What the phone sends before its own check.** To save round trips on a
+  reconnect, the phone opens `acpmux` right behind `auth` and sends acpmux's
+  `initialize` (protocol version, client name) and the first page's watch
+  (`enabled`, a row limit) before it has checked the Mac's proof. Neither
+  carries a secret, a session id or content. A real Mac holds both until
+  `auth` passes; the phone applies no reply and no notification until its own
+  check of the Mac passed, and closes the channel when it fails, so a Mac that
+  cannot prove its pinned key learns only that a cmux phone asked for its
+  chat list (ask-48f698fc26). Until then the phone keeps at most 256
+  notifications, 8 MiB of them in all, from that channel (`AcpmuxConnection`
+  `held`). One rule bounds every message while its frames arrive, plain or
+  compressed (`MessageJoiner` `budget`): it may grow to at most what is left of
+  the 8 MiB, a compressed one judged by its header before it is inflated. The
+  one exception is decided from the message's first bytes (`{"id":N` or
+  `{"jsonrpc":"2.0","id":N` in the first 64 bytes of text, with at most 4 KiB
+  of compressed bytes inflated to read them): an answer to one of the phone's
+  own two requests still waiting may be 64 MiB as on any connection, once per
+  request, so an older Mac that ignores the row limit still delivers its whole
+  list. A Mac that sends more is cut off while it sends (the channel closes;
+  nothing is dropped quietly), so one that never passes the check holds at most
+  8 MiB of notifications and two answers of 64 MiB, what an honest Mac's
+  answers may take, in the phone's memory while it waits.
 - **Prompt content.** `pair_request` carries `registered_at_ms` (PROTOCOL.md
   "Pairing"): when the backend first saw that device id. The phone sets the
   `name` it shows, so a spoofed "Aziz's iPhone" from a device registered
@@ -1183,6 +1205,53 @@ Release build compiles none of it and ignores the variable, so it is no path
 for anyone but a developer who launches their own DEBUG build with it. The e2e
 rig sets it in the rig app's `LSEnvironment` (`e2e/mac.py`) and names its
 simulator; it never clicks Allow and never writes `paired-devices.json`.
+
+## End-of-task hand-off: pairing by the Mac's own code, and a readiness receipt (DEBUG builds)
+
+`scripts/review.sh` pairs each phone with the same-tag Mac without anyone at the Mac, and changes
+no trust rule to do it. It reads the tagged Mac's live pairing code from its Mobile Pairing page
+(`cmux.mobilePairing.status` over the tag's own control socket, the pair-e2e route) and hands it to
+the phone's DEBUG launch environment (`CMUX_MOBILE_PAIR_URL`), the same single-use, minutes-long
+code a scan of the Mac's screen would open; it is never printed or logged, and a code is used for
+one phone only. The Mac shows a code only while its person has iPhone connections on and it is
+signed in, and hostd still refuses a phone of another account. It sets no pairing seed, presses
+no Allow, writes no pairing state and turns no setting on.
+
+A DEBUG launch with `CMUX_DOGFOOD_READINESS_NONCE` writes
+`Library/Application Support/cmux-dogfood/readiness.json` in the app's own container
+(`DogfoodReadiness.swift`): the launch's nonce, the account's email and user id, how the session
+started, and the focused Mac's device id, name and whether its link is paired and connected. No
+token, password or key; the checker refuses a receipt with a secret-like field. Release builds
+compile none of it. A launch that resolves signed out writes a signed-out receipt (no account, no
+Mac), which `--no-auth` uses; that mode's session clear is the existing DEBUG-only
+`CMUX_MOBILE_CLEAR_AUTH=1` (`CmuxMobileAuthModel.live` reads it only when `DEBUG`), so no clear path
+ships. `--manual-pairing` hands the phone no code at all.
+
+## A tag's own Cloud backend (`review.sh --backend`, DEBUG builds)
+
+The hand-off can point a tag's Mac and phone builds at that tag's own backend stack on the dev VM
+(`scripts/cmux-next/cloud-dev-stack.sh`) instead of the shared dev Workers. Both apps then send the signed-in account's bearer
+token to that origin, so the origin is allowlisted in each app, not only in the script:
+
+- **Allowed:** the shared development deployment (`dev`, its API origin, `preview-N`) and a tailnet
+  origin, `https://<host>.<tailnet>.ts.net[:port]` (HTTPS only; no path, user, query or IP). Anything
+  else is refused and changes nothing (iOS `CloudBackendOverride`, Rust `cmux-cloud-environment`,
+  `review_mac.py backend-check`). The check accepts any `*.ts.net` name, not only this team's tailnet,
+  and a Tailscale Funnel name is public, so the allowlist is not a network boundary: it limits which
+  kinds of origin a DEBUG build can be pointed at by someone who can already set its launch
+  environment or write its files. Shipped builds never take a tailnet origin from any source.
+- **Phone:** read only in DEBUG builds (Debug, Demo): `ChiefCloudConfig.current` compiles the read
+  out of Release, TestFlight and App Store builds, and Production removes the kept value at launch
+  (`DeveloperOptions.storedKeys`). The first hand-off launch passes `CMUX_NEXT_CLOUD_BACKEND`; the app
+  keeps it in its own defaults for later launches, and an empty value clears it.
+- **Mac:** read only by DEV bundles (`com.cmuxterm.app.debug[.<tag>]`), from the launch or the tag's
+  `backend.json`; NIGHTLY, RC and Release ignore the file and refuse a tailnet origin. A tailnet
+  backend's client-config may name only its own host for other services, and no other backend's
+  may name a tailnet host. Each override has its own sign-in storage, so no other backend's session
+  is sent there.
+- **Visible:** Settings > Developer > Cloud backend (phone), Settings > Accounts (Mac), the DEBUG
+  readiness receipt's `cloud_backend` and the Mac's `auth.status`; the hand-off checks both apps
+  report the asked-for origin.
 
 ## Notification replies: the mailbox, sealed pushes and terminal input (`feat-cmux-next-ios-push-fallback`)
 
