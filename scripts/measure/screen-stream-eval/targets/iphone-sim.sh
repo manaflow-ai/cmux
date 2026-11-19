@@ -5,9 +5,9 @@
 # simulator on the same Mac, opened on the host's pairing link (`CMUX_MOBILE_SS_LINK`,
 # ScreenSharingLinkRoot) and timing the marker in the app's own ScreenSessionView. Each input is
 # timed to the first decoded frame and to the first present that shows the next counter
-# (ScreenPresentProbe; with an RTCMTLVideoView, Metal's presentedTime; with an
-# AVSampleBufferDisplayLayer, the scheduled scan-out, the targetTimestamp of the first display link
-# tick after enqueue; present.clock.renderer says which); g2g_ms is the presented one. The simulator runs on the Mac's
+# (ScreenPresentProbe; the simulator's Metal reports no presents, so with an RTCMTLVideoView or an
+# AVSampleBufferDisplayLayer it is the scheduled scan-out, the targetTimestamp of the first display link
+# tick after the draw or enqueue; present.clock.renderer says which); g2g_ms is the presented one. The simulator runs on the Mac's
 # clock (CACurrentMediaTime), so no offset is needed. Latency only: `caps` prints latency-only, and
 # the harness runs no window or OCR repeats for it. The interface every target implements is in
 # ../README.md.
@@ -204,7 +204,7 @@ json.dump({
     "g2g_ms": raw.get("g2g_ms") or {}, "lost": raw.get("lost"),
     "split": {"input_to_capture_ms": None, "encode_ms": encode, "transport_ms": transport,
               "decode_ms": decode if isinstance(decode, (int, float)) and decode >= 0 else None,
-              "method": "iphone-sim: g2g = the app's send to the first present showing the counter (present.clock.renderer: RTCMTLVideoView, the drawable's Metal presentedTime, else its presented handler; "
+              "method": "iphone-sim: g2g = the app's send to the first present showing the counter (present.clock.renderer: RTCMTLVideoView, the targetTimestamp of the first display link tick after the draw, as the simulator's Metal reports no presents; "
                         "AVSampleBufferDisplayLayer, the targetTimestamp of the first display link tick after enqueue, scheduled not measured); "
                         "encode = host totalEncodeTime/framesEncoded over the run, transport = rtt/2 + the app's jitter buffer, decode = the app's totalDecodeTime/framesDecoded over the run",
               "present": {"presented_ms": stat(raw.get("g2g_ms")), "decoded_ms": stat(raw.get("decoded_g2g_ms")),

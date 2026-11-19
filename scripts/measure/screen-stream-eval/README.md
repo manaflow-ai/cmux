@@ -108,15 +108,16 @@ Today's targets:
   `ScreenSessionView`, `ScreenPresentProbe` reads the marker from each decoded frame and times
   presents on whichever renderer `ScreenVideoView` has: each input (`ScreenSession.tap` of "a" or
   `click` on the click pad) is timed to the first decoded frame and to the first present that
-  shows the next counter. "Presented" is, with an `RTCMTLVideoView`, the drawable's Metal
-  `presentedTime` (measured); with an `AVSampleBufferDisplayLayer` (`DisplayImmediately`), the
+  shows the next counter. "Presented" is, with an `RTCMTLVideoView`, the `targetTimestamp` of the
+  first display link tick after the draw (the simulator's Metal reports no `presentedTime`; on a
+  device the probe uses it); with an `AVSampleBufferDisplayLayer` (`DisplayImmediately`), the
   `targetTimestamp` of the first display link tick after the frame was enqueued (the scheduled
   scan-out, not measured). So one harness gives a before/after across a renderer change.
   `g2g_ms` is the presented time; `split.present` keeps decoded, presented and decode-to-present
   (each n, p50, p95), frames decoded but never presented, and `clock` (the renderer, what
   presented means for it, and its counts). The simulator runs on the Mac's clock.
   Not in it: the phone's touch or keyboard delivery before the session sends, the display's
-  scan-out after `presentedTime`, a real phone's GPU, decoder and radio. Latency only (`caps`
+  scan-out itself, a real phone's GPU, decoder and radio. Latency only (`caps`
   prints `latency-only`). It builds the app (FFI from the worker's cache, xcodegen, `xcodebuild`)
   and needs an iOS simulator runtime; a Mac with none stops at build, naming the runtimes it has:
   `--arg=targets=webrtc,iphone-sim`. One Mac only: with `lan=` or `viewer-of=` its build, host

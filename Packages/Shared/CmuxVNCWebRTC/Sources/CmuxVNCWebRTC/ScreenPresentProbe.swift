@@ -19,7 +19,9 @@ import WebRTC
 /// "Presented" means, per renderer (`presentClock["renderer"]`):
 /// - `RTCMTLVideoView` (an `MTKView`): Metal's `presentedTime` of the first drawable whose draw
 ///   rendered a frame carrying the value (the presented handler's own time when the system
-///   reports 0). Measured by the system.
+///   reports 0). Measured by the system. The simulator's Metal has no presented handler or
+///   `presentedTime`, so there a draw that rendered a new frame counts as presented at the
+///   `targetTimestamp` of the first `CADisplayLink` tick after the draw (scheduled, like below).
 /// - `AVSampleBufferDisplayLayer` (`DisplayImmediately`): the `targetTimestamp` of the first
 ///   `CADisplayLink` tick after the frame was enqueued. The scheduled scan-out, not measured: the
 ///   layer reports no per-frame present. The probe's frame callback runs after the renderer's
@@ -45,7 +47,11 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
         var presented: String {
             switch self {
             case .metal:
+                #if targetEnvironment(simulator)
+                "targetTimestamp of the first CADisplayLink tick after the draw that rendered the frame (the simulator's Metal reports no presents; the scheduled scan-out, not measured)"
+                #else
                 "Metal presentedTime of the first drawable showing the frame (measured; the presented handler's time when the system reports 0)"
+                #endif
             case .sampleBuffer:
                 "targetTimestamp of the first CADisplayLink tick after the frame was enqueued with DisplayImmediately (the scheduled scan-out, not measured)"
             }
@@ -104,6 +110,11 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
                 clock["presents"] = presents
                 clock["presented_time"] = presentedTimes
                 clock["handler_time"] = handlerTimes
+                #if targetEnvironment(simulator)
+                clock["display_link_ticks"] = ticks
+                clock["tick_ms_min"] = tickInterval.map { $0.min * 1000 as Any } ?? NSNull()
+                clock["tick_ms_max"] = tickInterval.map { $0.max * 1000 as Any } ?? NSNull()
+                #endif
             case .sampleBuffer:
                 clock["display_link_ticks"] = ticks
                 clock["tick_ms_min"] = tickInterval.map { $0.min * 1000 as Any } ?? NSNull()
@@ -123,11 +134,18 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
     public func watch(_ view: UIView) {
         if let metal = Self.first(RTCMTLVideoView.self, in: view) {
             let hook = PresentHook(video: metal, probe: self)
-            lock.withLock {
+            let start = lock.withLock { () -> Bool in
                 renderer = .metal
                 metalHooks.removeAll { !$0.isLive }
                 if hook.isLive { metalHooks.append(hook) }
+                #if targetEnvironment(simulator)
+                defer { displayLinkStarted = true }
+                return !displayLinkStarted
+                #else
+                return false
+                #endif
             }
+            if start { DisplayTick.start(for: self) }
         } else if Self.hasSampleBufferLayer(view.layer) {
             let start = lock.withLock { () -> Bool in
                 renderer = .sampleBuffer
@@ -197,8 +215,19 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
         if let resume { resume.0.resume(returning: resume.1) }
     }
 
-    /// Sample buffer layer: a display link tick (its own thread). Every frame handed to the layer
-    /// before this callback began is presented at the tick's `targetTimestamp`.
+    /// Metal in the simulator: a draw rendered the frame stamped `timeStampNs` at `drawnAt`; the
+    /// next display link tick credits it, as it does a frame handed to a sample buffer layer.
+    fileprivate func drew(timeStampNs: Int64, drawnAt: CFTimeInterval) {
+        lock.withLock {
+            presents += 1
+            guard let value = valueByTimestamp[timeStampNs] else { return }
+            handed.append((value, drawnAt))
+            if handed.count > 128 { handed.removeFirst() }
+        }
+    }
+
+    /// A display link tick (its own thread). Every frame handed to the layer, or drawn by Metal in
+    /// the simulator, before this callback began is presented at the tick's `targetTimestamp`.
     fileprivate func ticked(timestamp: CFTimeInterval, target: CFTimeInterval, callbackAt: CFTimeInterval) {
         let resumes = lock.withLock { () -> [(CheckedContinuation<Shown?, Never>, Shown)] in
             ticks += 1
@@ -394,14 +423,21 @@ extension PresentHook: @preconcurrency MTKViewDelegate {
             original?.draw(in: view)
             return
         }
-        // The handler goes on before the renderer presents; the frame it drew is known after.
         let before = lastDrawn()
+        #if targetEnvironment(simulator)
+        _ = drawable
+        original?.draw(in: view)
+        if let after = lastDrawn(), after != before { probe.drew(timeStampNs: after, drawnAt: CACurrentMediaTime()) }
+        #else
+        // The handler goes on before the renderer presents; the frame it drew is known after.
         let drawn = DrawnFrame()
         drawable.addPresentedHandler(Self.presentedHandler(probe: probe, drawn: drawn))
         original?.draw(in: view)
         if let after = lastDrawn(), after != before { drawn.timeStampNs = after }
+        #endif
     }
 
+    #if !targetEnvironment(simulator)
     /// Made outside the main actor: Metal calls it on its own thread.
     nonisolated private static func presentedHandler(probe: ScreenPresentProbe, drawn: DrawnFrame)
         -> @Sendable (any MTLDrawable) -> Void {
@@ -411,6 +447,7 @@ extension PresentHook: @preconcurrency MTKViewDelegate {
                             callbackAt: CACurrentMediaTime())
         }
     }
+    #endif
 }
 
 // MARK: - Sample buffer layer (AVSampleBufferDisplayLayer)
