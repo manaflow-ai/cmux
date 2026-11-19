@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextDesign
-import SwiftUI
 
 /// The Density Overlay Playground (`debug.densityOverlayPlayground`, DEV and NIGHTLY; Lawrence 2026-11-13, density
 /// thread): lays a Helium or Chrome capture over cmux's own browser tab bar and omnibar, live, with opacity, a
@@ -11,6 +10,7 @@ import SwiftUI
 /// The owner keeps one; ``show()`` opens it or raises the open one.
 @MainActor public final class DensityOverlayPlaygroundWindow {
     private var window: NSWindow?
+    private var view: DensityOverlayView?
     private let model = DensityOverlayModel()
     private let controls: TuningPanelWindow
     private let activeLook: ActiveLookScope?
@@ -25,6 +25,8 @@ import SwiftUI
 
     /// Opens the playground and its Controls panel, or brings them to the front.
     public func show(scope: ThemeScope = .app) {
+        // The window shows again after a close: list the references and capture, as on the first show.
+        if let window, !window.isVisible { view?.reappear() }
         let window = window ?? makeWindow(scope: scope)
         self.window = window
         SettingsTheme.shared.follow(scope)
@@ -47,7 +49,8 @@ import SwiftUI
         panel.setFrameAutosaveName("cmux.densityOverlay")
         SettingsTheme.shared.follow(scope)
         let view = DensityOverlayView(model: model) { [weak self] in self?.controls.show(scope: scope) }
-        panel.install(kind: .debugSettings, content: NSHostingView(rootView: view), scope: scope, activeLook: activeLook)
+        self.view = view
+        panel.install(kind: .debugSettings, content: view, scope: scope, activeLook: activeLook)
         if !panel.setFrameUsingName("cmux.densityOverlay") { panel.center() }
         return panel
     }
