@@ -25,7 +25,9 @@ async fn chat() -> (Arc<Hub>, Arc<Session>) {
 }
 
 /// Session `from`'s plain send of `text` (`session/prompt` as an agent's `acpmux send` makes
-/// it), of `class`, waiting for the reply when `wake_or_fail`. `accepted` hears its acceptance.
+/// it), of `class`, waiting for the reply when `wake_or_fail`: then its caller reads the reply
+/// and stays connected until the send ends, as the server binds one (`server/requests.rs`).
+/// `accepted` hears its acceptance.
 fn send(
     hub: &Arc<Hub>,
     to: &Arc<Session>,
@@ -38,6 +40,7 @@ fn send(
     let provenance = json!({"kind": "session_message", "from": format!("acp:{from}"),
                             "fromName": from, "to": format!("acp:{}", to.id), "verified": true});
     let (tx, accepted) = tokio::sync::oneshot::channel();
+    let (connected, reader) = tokio::sync::watch::channel(false);
     let opts = PromptOptions {
         prompt_id: Some(prompt_id.to_owned()),
         provenance: Some(provenance),
@@ -45,6 +48,7 @@ fn send(
         class: Some(class),
         inbox: true,
         wake_or_fail,
+        reply_reader: wake_or_fail.then_some(reader),
         on_accepted: Some(Box::new(move |v| {
             let _ = tx.send(v);
         })),
@@ -52,7 +56,12 @@ fn send(
     };
     let blocks = vec![json!({"type": "text", "text": text})];
     let (hub, to) = (hub.clone(), to.clone());
-    (tokio::spawn(async move { hub.prompt_with(&to, blocks, "test", false, opts).await }), accepted)
+    let run = async move {
+        let answer = hub.prompt_with(&to, blocks, "test", false, opts).await;
+        drop(connected);
+        answer
+    };
+    (tokio::spawn(run), accepted)
 }
 
 /// The prompt ids of the chat's turns, in order.
