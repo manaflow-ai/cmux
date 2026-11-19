@@ -20,7 +20,7 @@ type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 export const FOLDERLESS_CLOUD_LABELS = {
   /// The chip's face while Cloud is picked and no folder is: a valid state, never "Choose folder".
   label: "composer.cloudNoFolder",
-  /// Its one line of detail: in the folder menu, and the chip's accessible description.
+  /// Its one line of detail: the chip's accessible description (never a line in the folder menu).
   detail: "composer.cloudNoFolderDetail",
 } as const;
 
