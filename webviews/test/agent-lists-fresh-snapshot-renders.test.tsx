@@ -185,7 +185,14 @@ test("agents pill: a completed agent still waiting on its own background work ke
     [...list.host.querySelectorAll(".acpmux-agents-list__row")]
       .find((row) => row.textContent?.includes(name))
       ?.querySelector(".acpmux-agents-list__time")?.textContent;
+  // The pill's Completed section (AgentsPill.tsx `completed`) draws the agents that are not running,
+  // so both completed agents have a row and a time to compare: the Active filter (`live`) does not
+  // reach them.
+  const completed = [...list.host.querySelectorAll(".acpmux-agents-list__row")].map((row) => row.textContent ?? "");
+  expect(completed.some((text) => text.includes("Interim"))).toBe(true);
+  expect(completed.some((text) => text.includes("Finished"))).toBe(true);
   const before = { interim: timeOf("Interim"), done: timeOf("Finished") };
+  expect(before.interim).toBeDefined();
   // One tick of the page's second clock: the tick is the behaviour checked, so its time is advanced.
   await act(async () => {
     jest.advanceTimersByTime(1_100);
