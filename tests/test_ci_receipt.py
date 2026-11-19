@@ -269,6 +269,70 @@ class Verify(unittest.TestCase):
 
 
 class Produce(unittest.TestCase):
+    def repo(self, scratch: str) -> tuple[Path, "Callable[..., str]"]:
+        repo = Path(scratch) / "repo"
+        repo.mkdir()
+
+        def git(*args: str) -> str:
+            return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                                  check=True, capture_output=True, text=True).stdout.strip()
+
+        git("init", "-q", "-b", ci_receipt.BRANCH)
+        (repo / "a").write_text("1")
+        git("add", "a")
+        git("commit", "-qm", "base")
+        return repo, git
+
+    def run_produce(self, repo: Path, runner) -> tuple[int, str]:
+        """produce fast-gates in REPO with its own clone as origin, the gates replaced by RUNNER (really executed)."""
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+        import os  # noqa: PLC0415
+
+        out = io.StringIO()
+        saved_cwd, saved = Path.cwd(), ci_receipt.produce_fast_gates
+        ci_receipt.produce_fast_gates = runner
+        try:
+            os.chdir(repo)
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                code = ci_receipt.produce(SimpleNamespace(job="fast-gates", remote=str(repo)))
+        finally:
+            os.chdir(saved_cwd)
+            ci_receipt.produce_fast_gates = saved
+        return code, out.getvalue()
+
+    def test_a_failed_execution_mints_no_receipt(self):
+        # A real command that runs and fails in the merge worktree, not an argv mismatch refused before it runs.
+        with tempfile.TemporaryDirectory() as scratch:
+            repo, _ = self.repo(scratch)
+            ran = []
+
+            def failing(work: Path, head: str, base: str) -> int:
+                ran.append(work)
+                return subprocess.run([sys.executable, "-c", "import sys; sys.exit(3)"], cwd=work).returncode
+
+            code, out = self.run_produce(repo, failing)
+            self.assertEqual(code, 3)
+            self.assertEqual(len(ran), 1, "the gate command was never executed")
+            self.assertNotIn("CMUX_CI_RECEIPT=", out)
+
+            def passing(work: Path, head: str, base: str) -> int:
+                return subprocess.run([sys.executable, "-c", "pass"], cwd=work).returncode
+
+            code, out = self.run_produce(repo, passing)
+            self.assertEqual(code, 0)
+            receipt = json.loads(next(line for line in out.splitlines() if line.startswith("CMUX_CI_RECEIPT="))
+                                 .split("=", 1)[1])
+            self.assertEqual(receipt["job"], "fast-gates")
+
+    def test_a_dirty_tracked_tree_mints_no_receipt(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            repo, _ = self.repo(scratch)
+            (repo / "a").write_text("edited, not committed")
+            code, out = self.run_produce(repo, lambda work, head, base: 0)
+            self.assertEqual(code, 2)
+            self.assertNotIn("CMUX_CI_RECEIPT=", out)
+
     def test_tested_head_is_the_snapshot_parent_with_the_same_tree(self):
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
