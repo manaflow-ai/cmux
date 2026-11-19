@@ -64,12 +64,11 @@ extension WindowRootView {
     /// "you only get that hoverable animation when you're in the area of
     /// the, like, the rightmost area of the go forward button").
     /// The glass patch covers the traffic lights with a small margin.
-    /// - Parameter fullBandMaxX: The open band's trailing edge (its Forward
-    ///   button's trailing edge).
-    func layoutTitlebarReveal(rowHeight: CGFloat, fullBandMaxX: CGFloat) {
+    /// The zone never draws: it ends at Forward's own edge, not the band's pixel-aligned one (up to a device pixel off).
+    /// - Parameter openForwardMaxX: The open Forward button's trailing edge: the band's aligned origin plus its slots.
+    func layoutTitlebarReveal(rowHeight: CGFloat, openForwardMaxX: CGFloat) {
         let sidebarMaxX = sidebarSide == .left && !sidebar.isHidden ? sidebar.frame.maxX : 0
-        let bandMaxX = max(fullBandMaxX, toolbarBand.frame.maxX)
-        let width = min(bounds.width, max(sidebarMaxX, bandMaxX))
+        let width = min(bounds.width, max(sidebarMaxX, openForwardMaxX))
         titlebarRevealRegion.frame = CGRect(x: 0, y: bounds.maxY - rowHeight, width: width, height: rowHeight)
         guard let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else {
             trafficLightsGlass.frame = .zero

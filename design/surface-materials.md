@@ -19,7 +19,9 @@ The other specs, and what each one owns:
 - `design/overlay-surfaces.md`: the roles and the never-opaque rule.
 - `design/menus.md`: menu rows and how menus open.
 
-This page decides only which kind a surface is.
+This page decides only which kind a surface is. The shared non-chat material,
+chat adoption and before/after galleries are specified in
+[transient-material.md](transient-material.md).
 
 ## Materials
 

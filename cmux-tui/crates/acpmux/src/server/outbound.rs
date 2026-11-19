@@ -114,15 +114,15 @@ impl Overrun {
 /// The queue's state, under its one lock.
 struct State {
     /// The bulk lane.
-    queue: VecDeque<String>,
+    queue: VecDeque<Line>,
     /// The read lane, taken first.
-    reads: VecDeque<String>,
+    reads: VecDeque<Line>,
     /// Bytes queued and not yet taken by the transport's reader: both lanes, the pump's
     /// lines, and [`State::sent`].
     held: usize,
     /// The sizes of the lines the pump sent to the transport that may still be in its channel,
     /// oldest first.
-    sent: VecDeque<usize>,
+    sent: VecDeque<(usize, Option<super::controls::Ticket>)>,
     /// The sum of [`State::sent`].
     sent_bytes: usize,
     /// Lines the pump took and has not sent yet (waiting for the durable gate, or for room).
@@ -146,7 +146,7 @@ impl State {
         };
         let in_channel = self.capacity.saturating_sub(transport.capacity());
         while self.sent.len() > in_channel {
-            let Some(size) = self.sent.pop_front() else { break };
+            let Some((size, _ticket)) = self.sent.pop_front() else { break };
             self.sent_bytes -= size;
             self.held = self.held.saturating_sub(size);
         }
@@ -154,17 +154,17 @@ impl State {
 
     /// Takes the read lane, then the bulk lane while the transport's channel holds less than
     /// `window` bytes (at least one line into an empty channel, whatever its size).
-    fn take_into(&mut self, batch: &mut Vec<String>, window: usize) -> Taken {
+    fn take_into(&mut self, batch: &mut Vec<Line>, window: usize) -> Taken {
         let mut took = self.reads.len();
         batch.extend(self.reads.drain(..));
         if !self.queue.is_empty() {
             self.settle();
             let mut ahead = self.sent_bytes;
             while let Some(line) = self.queue.front() {
-                if ahead >= window || (ahead > 0 && ahead + line.len() > window) {
+                if ahead >= window || (ahead > 0 && ahead + line.text.len() > window) {
                     break;
                 }
-                ahead += line.len();
+                ahead += line.text.len();
                 took += 1;
                 batch.extend(self.queue.pop_front());
             }
@@ -207,11 +207,11 @@ impl Shared {
     }
 
     /// Queues `line` in `lane` with the lock held; false (and nothing queued) once it overran.
-    fn push_locked(&self, state: &mut State, line: String, lane: Lane) -> bool {
+    fn push_locked(&self, state: &mut State, line: Line, lane: Lane) -> bool {
         if state.overrun.is_some() || state.ended {
             return false;
         }
-        let size = line.len();
+        let size = line.text.len();
         if state.held + size > self.bound {
             state.settle();
         }
@@ -268,11 +268,25 @@ impl Queue<'_> {
     }
 
     pub(super) fn push_in(&mut self, line: String, lane: Lane) -> bool {
-        self.shared.push_locked(&mut self.state, line, lane)
+        self.shared.push_locked(&mut self.state, Line { text: line, ticket: None }, lane)
     }
 }
 
+/// A control ticket stays held through the pump and the transport channel.
+pub(super) struct Line {
+    pub(super) text: String,
+    pub(super) ticket: Option<super::controls::Ticket>,
+}
+
 impl Outbound {
+    pub(super) fn push_control(&self, line: Line) -> bool {
+        self.shared.push_locked(&mut self.shared.lock(), line, Lane::Bulk)
+    }
+
+    pub(super) fn settle(&self) {
+        self.shared.lock().settle();
+    }
+
     /// Queues `line` in the bulk lane; false when the connection overran or its reader is gone.
     pub(super) fn push(&self, line: String) -> bool {
         self.lock().push(line)
@@ -361,11 +375,11 @@ impl Pump {
     /// Takes the read lane's lines, then the bulk lane's that fit [`BULK_WINDOW`] ([module
     /// docs](self)), into `batch`, waiting until there is one; false once there is nothing more
     /// to send (every handle is gone and both lanes are empty, or it overran).
-    pub(super) async fn take(&self, batch: &mut Vec<String>) -> bool {
+    pub(super) async fn take(&self, batch: &mut Vec<Line>) -> bool {
         self.take_within(batch, BULK_WINDOW).await
     }
 
-    pub(super) async fn take_within(&self, batch: &mut Vec<String>, window: usize) -> bool {
+    pub(super) async fn take_within(&self, batch: &mut Vec<Line>, window: usize) -> bool {
         loop {
             let taken = {
                 let mut state = self.shared.lock();
@@ -399,7 +413,7 @@ impl Pump {
 
     /// Sends `line` to the transport once it has room, keeping its last slot free; false when its
     /// reader is gone or the queue overran.
-    pub(super) async fn forward(&self, line: String) -> bool {
+    pub(super) async fn forward(&self, line: Line) -> bool {
         let keep = if self.transport.max_capacity() > 1 { 2 } else { 1 };
         let mut closed = self.shared.closed.subscribe();
         let room = tokio::select! {
@@ -409,14 +423,14 @@ impl Pump {
         };
         let Ok(mut room) = room else { return false };
         let Some(permit) = room.next() else { return false };
-        let size = line.len();
+        let size = line.text.len();
         let mut state = self.shared.lock();
         if state.overrun.is_some() {
             return false;
         }
-        permit.send(line);
+        permit.send(line.text);
         state.taken = state.taken.saturating_sub(1);
-        state.sent.push_back(size);
+        state.sent.push_back((size, line.ticket));
         state.sent_bytes += size;
         // Forget what the reader took meanwhile, so `sent` stays as short as the channel.
         state.settle();

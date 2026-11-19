@@ -6,8 +6,23 @@ import Foundation
 /// same keys and translations as the app's Mac Screen strings).
 struct RemoteText: Sendable {
     static func t(_ key: String, _ english: String) -> String {
-        Bundle.module.localizedString(forKey: key, value: english, table: nil)
+        strings?.localizedString(forKey: key, value: english, table: nil) ?? english
     }
+
+    /// This target's resource bundle. SwiftPM's generated `Bundle.module` looks beside the app
+    /// bundle (`cmux Remote.app/CmuxRemote_CmuxRemoteScreenSharing.bundle`) and traps when the bundle is not there, but
+    /// build-cmux-remote-dev.sh puts it in `Contents/Resources`, where a signed app keeps it.
+    /// Looked up in both places and next to the executable (`swift test`); missing: English.
+    static let strings: Bundle? = {
+        let file = "CmuxRemote_CmuxRemoteScreenSharing.bundle"
+        let main = Bundle.main
+        let places = [main.resourceURL, main.bundleURL, main.executableURL?.deletingLastPathComponent()]
+            + Bundle.allBundles.map { $0.bundleURL.deletingLastPathComponent() }
+        for place in places.compactMap({ $0 }) {
+            if let bundle = Bundle(url: place.appendingPathComponent(file)) { return bundle }
+        }
+        return nil
+    }()
 }
 
 /// The approval banner's four answers (the same as the app's Mac Screen prompt).
