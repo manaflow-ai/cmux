@@ -322,9 +322,10 @@ where
             Some(revision) => Ok((value, revision)),
             None => Err(ApiError::unreadable("a mutation answer omitted its revision")),
         },
-        Answer::Refused(error) => {
-            Err(Answer::<T, E>::Refused(error).into_result().err().expect("refused answer"))
-        }
+        Answer::Refused(error) => match Answer::<T, E>::Refused(error).into_result() {
+            Err(source) => Err(source),
+            Ok(_) => Err(ApiError::unreadable("refused answer carried a value")),
+        },
     }
 }
 
