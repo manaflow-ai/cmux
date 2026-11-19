@@ -35,10 +35,12 @@ command -v cargo >/dev/null || ./scripts/install-rust-ci.sh
 command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang libclang-dev pkg-config; }
 export PATH="$HOME/.cargo/bin:$PATH"
 cd "$root/cmux-tui"
-cargo build --locked --release -p cmux-tui --bin cmux-tui 2>&1 | tail -n 3
+# The gate profile: release code generation without its link-time cost (a release cmux-tui link
+# needs more memory than a lane VM or small runner has; the counts do not depend on LTO).
+cargo build --locked --profile gate -p cmux-tui --bin cmux-tui 2>&1 | tail -n 3
 [[ "$build_only" == 1 ]] && exit 0
 target="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
-bin="$target/release/cmux-tui"
+bin="$target/gate/cmux-tui"
 cd "$root"
 
 work="$(mktemp -d /tmp/tscroll.XXXXXX)"
