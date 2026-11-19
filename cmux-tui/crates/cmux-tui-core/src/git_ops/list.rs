@@ -97,7 +97,6 @@ pub(super) fn list_folder(
     Ok(json!({
         "root": folder,
         "folder": folder,
-        "repository": false,
         "entries": entries(children, limit),
         "truncated": cut || total > limit,
     }))

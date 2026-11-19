@@ -1123,7 +1123,7 @@ first path component, a `directory` when paths sit below it or it is a
 submodule, else a `file`. Directories come first, then names
 case-insensitively. It prints at most `--limit` (2000, up to 5000) entries
 and sets `truncated` when more exist. A folder in no repository lists too, from
-one read of the folder on disk (`repository: false`): its children only, names
+one read of the folder on disk: its children only, names
 that start with `.` left out, a symlink a `file`.
 A repository's filter drivers never run: every configured `filter.<driver>` is
 blanked for the read. One reply carries at most 8 MiB of patches.

@@ -195,7 +195,6 @@ fn cmux_next_git_files_list_lists_a_folder_in_no_repository() {
         "folders first, then names case-insensitively; no dot names; a link is a leaf: {top}"
     );
     assert_eq!(top["truncated"], false, "{top}");
-    assert_eq!(top["repository"], false, "{top}");
 
     let zeta =
         client.read("git.files.list", json!({"path": projects.join("Zeta").to_string_lossy()}));
