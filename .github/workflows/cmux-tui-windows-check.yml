@@ -74,6 +74,7 @@ on:
       - "skills/cmux-browser/templates/authenticated-session.sh"
       - "skills/cmux-browser/templates/capture-workflow.sh"
       - "skills/cmux-browser/templates/form-automation.sh"
+      - "skills/cmux-computer-use/SKILL.md"
       - "skills/cmux-cua/SKILL.md"
       - "skills/cmux-customization/SKILL.md"
       - "skills/cmux-customization/references/examples.md"
@@ -90,6 +91,15 @@ on:
       - "workers/cmux-vm/cli/crates/cmux-vm-client/src/**"
       - "workers/cmux-vm/cli/crates/cmux-vm/Cargo.toml"
       - "workers/cmux-vm/cli/crates/cmux-vm/src/**"
+      # Customize inputs of the routed jobs: the seven-language conformance and
+      # Windows check read these, so a change to them must start this workflow
+      # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
+      - "docs/cmux-next/customize-recipes.md"
+      - "schemas/settings/source/mcp-servers.json"
+      - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
+      - "skills/cmux-customization/templates/clock-weather/main.js"
+      - "skills/cmux-customization/templates/my-prs/cmux-app.json"
+      - "skills/cmux-customization/templates/my-prs/main.js"
   workflow_dispatch:
 
 concurrency:
