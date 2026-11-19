@@ -25,11 +25,11 @@ fn loaded_mac() -> Value {
 }
 
 fn local(h: Value) -> Candidate {
-    Candidate { name: "leos-mac".into(), local: true, health: h, health_at: None }
+    Candidate { name: "leos-mac".into(), local: true, health: h, health_at: None, via_hub: false }
 }
 
 fn peer(name: &str, h: Value) -> Candidate {
-    Candidate { name: name.into(), local: false, health: h, health_at: None }
+    Candidate { name: name.into(), local: false, health: h, health_at: None, via_hub: false }
 }
 
 fn input(local_h: Value, peers: Vec<Candidate>) -> Input {
