@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 623,
+  "count": 625,
   "sections": [
     {
       "id": "general",
@@ -245,6 +245,32 @@
           "range": {
             "min": 10,
             "max": 95,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "agents.cacheCompact.mode",
+          "title": "Compact Claude Chats",
+          "help": "A compacted chat's next message costs less.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Prompt Cache",
+          "values": [
+            "off",
+            "beforeExpiry",
+            "onReturn"
+          ]
+        },
+        {
+          "key": "agents.cacheCompact.returnMinTokens",
+          "title": "When You Return: Only Above (Tokens)",
+          "help": "Smaller chats are sent without compacting.",
+          "kind": "number",
+          "default": 200000,
+          "group": "Prompt Cache",
+          "range": {
+            "min": 20000,
+            "max": 1000000,
             "unit": "count"
           }
         },

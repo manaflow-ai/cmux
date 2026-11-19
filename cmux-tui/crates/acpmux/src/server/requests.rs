@@ -2299,6 +2299,9 @@ async fn dispatch_request_with_identity(
                 // Only a caller that waits for the reply and prints it reads it
                 // (`hub/question_replies.rs`); an outbox delivery's open request reads nothing.
                 reply_reader: reader.as_ref().map(super::prompt_cancel::ReaderGone::subscribe),
+                cache_compact: crate::hub::return_compact::Choice::parse(
+                    mux_meta(&params).and_then(|m| m.get("cacheCompact")),
+                ),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
                         conn.origin == super::Origin::Peer,

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
+import type { AcpmuxCacheMiss } from "./model";
 import { useT } from "./i18n";
 import { ContextRing } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
@@ -18,6 +19,9 @@ type Props = {
   material?: "before" | "quieter" | "standard" | "denser";
   /// The prompt cache's time left (ms; 0 or less: expired), on a pinned clock.
   cacheLeftMs?: number;
+  /// The last call's cache hit ratio and the last miss's cause (acpmux usage_update).
+  cacheHit?: number;
+  missCause?: AcpmuxCacheMiss["cause"];
 };
 
 /// The gallery's pinned clock, so the cache countdown reads the same in every capture.
@@ -39,6 +43,8 @@ function GalleryContextRing(props: Props) {
         setup={props.setup}
         breakdown={props.breakdown}
         cacheExpiresAt={props.cacheLeftMs === undefined ? undefined : GALLERY_NOW + props.cacheLeftMs}
+        cacheHit={props.cacheHit}
+        cacheMiss={props.missCause === undefined ? undefined : { cause: props.missCause, at: GALLERY_NOW - 60_000 }}
         now={galleryNow}
         // The chat's Session Info reveal (App.tsx); the gallery has no Session Info to open.
         onOpenDetails={props.details ? () => {} : undefined}
@@ -242,6 +248,42 @@ export default componentEntry<Props>({
             await hoverCard(ctx);
             const line = ctx.document.querySelector(".acpmux-context-card-cache")?.textContent ?? "";
             if (line !== expected) throw new Error(`The cache line reads "${line}", not "${expected}"`);
+          }) satisfies Play,
+        },
+      ]),
+    ),
+    ...Object.fromEntries(
+      (
+        [
+          ["cache-warm-hit", 192_000, 0.94, undefined, "Cache warm · 3:12 left", "Cache hit 94%"],
+          [
+            "cache-expired-miss-expired",
+            0,
+            0.02,
+            "expired",
+            "Cache expired",
+            "Cache hit 2% · Last miss: cache expired",
+          ],
+          [
+            "cache-miss-model",
+            250_000,
+            0.05,
+            "model",
+            "Cache warm · 4:10 left",
+            "Cache hit 5% · Last miss: model changed",
+          ],
+        ] as const
+      ).map(([id, cacheLeftMs, cacheHit, missCause, countdown, stats]) => [
+        id,
+        {
+          note: `The cache line with acpmux's hit ratio and the last miss's likely cause: "${countdown}", then "${stats}".`,
+          props: { used: 316_900, size: 399_100, details: true, cacheLeftMs, cacheHit, missCause },
+          play: (async (ctx) => {
+            await hoverCard(ctx);
+            const line = ctx.document.querySelector(".acpmux-context-card-cache")?.textContent ?? "";
+            const read = ctx.document.querySelector(".acpmux-context-card-cache-stats")?.textContent ?? "";
+            if (line !== countdown) throw new Error(`The cache line reads "${line}", not "${countdown}"`);
+            if (read !== stats) throw new Error(`The cache stats read "${read}", not "${stats}"`);
           }) satisfies Play,
         },
       ]),

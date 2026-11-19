@@ -22,6 +22,7 @@ pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
 mod prompt_coach;
+pub mod return_compact;
 pub(crate) mod stop_condition;
 pub use prompt_coach::CoachRewriter;
 mod message_events;
@@ -761,6 +762,9 @@ pub struct PromptOptions {
     /// "waiting" only while that caller is still there, and a question nobody waits for gets its
     /// reply sent back (`hub/question_replies.rs`).
     pub reply_reader: Option<tokio::sync::watch::Receiver<bool>>,
+    /// `_meta.acpmux.cacheCompact` (`return_compact.rs`): `Compact` compacts the chat before this
+    /// prompt, `Keep` sends it as it is; `None` leaves it to `agents.cacheCompact.mode`.
+    pub cache_compact: Option<return_compact::Choice>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.

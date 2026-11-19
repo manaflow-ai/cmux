@@ -3,7 +3,8 @@
 // card with its stacked bar and Details link. Both use the shared glass hover card (.ui-card.ui-glass).
 import "./contextCard.css";
 
-import { useT } from "./i18n";
+import { type StringKey, useT } from "./i18n";
+import type { AcpmuxCacheMiss } from "./model";
 import { contextBreakdown, type Breakdown } from "./session-info/contextSectionModel";
 import { compactBreakdownRows, CACHE_SOON_MS, cacheTimeLeft, useCacheTimeLeft } from "./contextCardModel";
 /// The prompt cache's line: a countdown while warm, then "Cache expired". acpmux sends the expiry
@@ -19,12 +20,35 @@ function CacheLine({ expiresAt, now }: { expiresAt: number; now?: () => number }
   );
 }
 
+/// The last miss's likely cause, as the cache stats line names it.
+const MISS_CAUSE: Record<AcpmuxCacheMiss["cause"], StringKey> = {
+  expired: "context.cacheMissExpired",
+  model: "context.cacheMissModel",
+  effort: "context.cacheMissEffort",
+  compaction: "context.cacheMissCompaction",
+  unknown: "context.cacheMissUnknown",
+};
+
+/// Under the countdown: how much of the last call the cache served ("Cache hit 94%") and why the
+/// last miss happened ("Last miss: model changed"), as acpmux reported them (cacheUsage.ts).
+function CacheStats({ hit, miss }: { hit?: number; miss?: AcpmuxCacheMiss }) {
+  const t = useT();
+  const parts = [
+    ...(hit === undefined ? [] : [t("context.cacheHit", { percent: Math.round(hit * 100) })]),
+    ...(miss === undefined ? [] : [t(MISS_CAUSE[miss.cause])]),
+  ];
+  if (parts.length === 0) return null;
+  return <div className="acpmux-context-card-cache-stats">{parts.join(" · ")}</div>;
+}
+
 export function ContextCardBody({
   used,
   size,
   onOpenDetails,
   breakdown: reported,
   cacheExpiresAt,
+  cacheHit,
+  cacheMiss,
   now,
 }: {
   used: number;
@@ -34,6 +58,9 @@ export function ContextCardBody({
   breakdown?: unknown;
   /// When the chat's prompt cache lapses (unix ms, from acpmux); no line without it.
   cacheExpiresAt?: number;
+  /// The last call's cache hit ratio (0..1) and the last miss's likely cause, from acpmux.
+  cacheHit?: number;
+  cacheMiss?: AcpmuxCacheMiss;
   /// The clock the countdown reads (the gallery pins it).
   now?: () => number;
 }) {
@@ -63,6 +90,7 @@ export function ContextCardBody({
           max={100}
         />
         {cacheExpiresAt !== undefined && <CacheLine expiresAt={cacheExpiresAt} now={now} />}
+        <CacheStats hit={cacheHit} miss={cacheMiss} />
         {compactRows.length > 0 && (
           <ul className="acpmux-context-card-parts">
             {compactRows.map((row) => (

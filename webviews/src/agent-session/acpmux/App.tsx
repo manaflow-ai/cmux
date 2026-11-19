@@ -108,7 +108,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -117,6 +116,7 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withCloudStartFolder, withDraftFolder } from "./newtab/draftFolder";
@@ -12729,6 +12729,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onCloudMachinePicked={quick ? undefined : onCloudMachinePicked}
             onPromptEdit={quick ? undefined : wakeOnTyping}
             onSuggestionTaken={() => directClient.current?.takeSuggestion()}
+            onCacheCompact={(choice) => directClient.current?.chooseCacheCompact(choice)}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={(command, args, attachments, gesture) =>
               handleCmuxCommand(command, args, false, attachments, gesture)

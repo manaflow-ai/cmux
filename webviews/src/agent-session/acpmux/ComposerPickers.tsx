@@ -18,7 +18,7 @@ import {
   resolvedModel,
 } from "./defaultChoice";
 import { loadLastChips, rememberLastChips } from "./chipMemory";
-import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
+import type { AcpmuxCacheMiss, AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
 import type { SpeedSection } from "./EffortPicker";
 import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
@@ -1653,6 +1653,8 @@ export function ContextRing({
   size,
   setup,
   cacheExpiresAt,
+  cacheHit,
+  cacheMiss,
   now,
   breakdown: reported,
   onOpenDetails,
@@ -1666,6 +1668,9 @@ export function ContextRing({
   setup?: number;
   /// When the chat's prompt cache lapses (unix ms, from acpmux); the card counts down to it.
   cacheExpiresAt?: number;
+  /// The last call's cache hit ratio (0..1) and the last miss's likely cause; the card's cache line shows them.
+  cacheHit?: number;
+  cacheMiss?: AcpmuxCacheMiss;
   /// The clock the cache countdown reads (the gallery pins it).
   now?: () => number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
@@ -1900,6 +1905,8 @@ export function ContextRing({
               size={size}
               setup={setup}
               cacheExpiresAt={cacheExpiresAt}
+              cacheHit={cacheHit}
+              cacheMiss={cacheMiss}
               now={now}
               breakdown={reported}
               onOpenDetails={

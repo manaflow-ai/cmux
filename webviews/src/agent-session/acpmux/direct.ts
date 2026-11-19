@@ -11,7 +11,9 @@ import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
 import { extraFoldersParam, summaryExtraFolders, type ExtraFolderDraft } from "./extraFolders";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
-import { CACHE_EXPIRY_REASON, isCacheCompaction } from "./conversation/cacheCompaction";
+import { type CacheCompactionReason, cacheCompactionReason, isCacheCompaction } from "./conversation/cacheCompaction";
+import { cacheUsageMeta } from "./cacheUsage";
+import type { CacheCompactChoice } from "./composer/cacheCompactChipModel";
 import { isModelRouterKind } from "./routerKinds";
 import type { SwitchPort } from "./harnessSwitch";
 import { OlderPageDelay } from "./conversation/olderPageDelay";
@@ -3281,9 +3283,11 @@ export class AcpmuxDirectClient {
   private promptSuggestion: { text: string; seq: number } | undefined;
   /// The person took the shown suggestion into the composer (`takeSuggestion`); the next send says so.
   private suggestionTaken = false;
+  /// The composer's Compact/Keep chip as the next send left it (`chooseCacheCompact`); the send says so.
+  private cacheCompactChoice: CacheCompactChoice | undefined;
   private suggestionSeq = 0;
   private suggestionFence = 0;
-  private usage: { used: number; size: number; setup?: number; cacheExpiresAt?: number } | undefined;
+  private usage: NonNullable<AcpmuxSnapshot["summary"]>["usage"];
   /// The running turn's output tokens: its model calls' generated usage added up from
   /// `turn_started`, the running line's count (conversation/WorkingFor.tsx). Unset outside a
   /// turn, and for a turn whose start this client did not see (it missed calls before it attached).
@@ -3451,9 +3455,10 @@ export class AcpmuxDirectClient {
   /// turn's (`dateTurnFromHost`).
   private turnPromptAtMs?: number;
   private autoResumedAttempt: number | undefined;
-  /// The latest prompt was acpmux's cache compaction (conversation/cacheCompaction.ts): the
-  /// compaction after it ran before the prompt cache expired, not because the person asked.
-  private cacheCompactPrompt = false;
+  /// The latest prompt was acpmux's cache compaction (conversation/cacheCompaction.ts), and the
+  /// reason its compaction gives: before the prompt cache expired, or before the person's prompt
+  /// once it had; not because the person asked.
+  private cacheCompactPrompt: CacheCompactionReason | undefined;
   /// The last seq seen when Stop was pressed: only a turn event after it answers that Stop. A
   /// rebuild (loadOlder, lag resync) replays older ones, which must not answer a later Stop.
   private stopAfterSeq?: number;
@@ -4703,7 +4708,7 @@ export class AcpmuxDirectClient {
     this.clockOffset = undefined;
     this.summary = undefined;
     this.autoResumedAttempt = undefined;
-    this.cacheCompactPrompt = false;
+    this.cacheCompactPrompt = undefined;
     this.configSeq = 0;
     this.limitsSeq = 0;
     this.limitsVersion += 1;
@@ -8604,7 +8609,7 @@ export class AcpmuxDirectClient {
     this.turnPromptAtMs = undefined;
     this.runningTurnId = undefined;
     this.autoResumedAttempt = undefined;
-    this.cacheCompactPrompt = false;
+    this.cacheCompactPrompt = undefined;
     this.turnPrompt = undefined;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
@@ -9596,12 +9601,13 @@ export class AcpmuxDirectClient {
           this.summary = { ...this.summary, contextBreakdown: undefined };
         // When the chat's prompt cache lapses (unix ms), as acpmux computed it from the last
         // model request and the harness's TTL; a report without one has no warm cache to show.
-        const cacheExpiresAt = Number(update._meta?.acpmux?.cacheExpiresAt);
+        // With it: whether acpmux compacts before the next prompt once it lapsed, the last call's
+        // hit ratio and the last miss's likely cause (cacheUsage.ts).
         this.usage = {
           used,
           size,
           ...(setup === undefined ? {} : { setup }),
-          ...(Number.isFinite(cacheExpiresAt) && cacheExpiresAt > 0 ? { cacheExpiresAt } : {}),
+          ...cacheUsageMeta(update._meta?.acpmux),
         };
       }
       return;
@@ -9867,7 +9873,7 @@ export class AcpmuxDirectClient {
         // The continuation's raw instructions stay hidden. Its provenance supplies only the
         // attempt marker; a new prompt clears it, while a steer keeps the same turn's marker.
         if (msg.steer !== true) this.autoResumedAttempt = autoResumeAttempt(msg);
-        if (msg.steer !== true) this.cacheCompactPrompt = isCacheCompaction(msg);
+        if (msg.steer !== true) this.cacheCompactPrompt = cacheCompactionReason(msg);
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
         this.planRow = undefined;
         // The checklist before it has ended for Session Info's Progress (ProgressSection `currentPlan`).
@@ -10522,18 +10528,23 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "compaction") {
       const read = compactionOf(update);
       if (!read) return;
-      // The cache timer's compaction says why it ran; a wrapper's own reason stays its own.
+      // The cache timer's compaction, or the one before the person's prompt once the cache
+      // expired, says why it ran; a wrapper's own reason stays its own.
       const compaction =
-        this.cacheCompactPrompt && read.reason === undefined ? { ...read, reason: CACHE_EXPIRY_REASON } : read;
+        this.cacheCompactPrompt && read.reason === undefined ? { ...read, reason: this.cacheCompactPrompt } : read;
       // The cancelled compaction's boundary may arrive even after the next prompt starts another
       // compaction. Running updates carry no identity either, so they cannot lift this fence.
       // Keep unscoped boundaries from claiming completion; the turn's terminal result settles
       // any running row with the existing inferred outcome.
       if (this.compactionFenceSeq !== undefined && compaction.state !== "running") return;
       // A finished compaction replaced the context: its prompt cache is gone until the next call
-      // writes one (acpmux sends that call's expiry), so the card stops counting down.
-      if (compaction.state === "completed" && this.usage?.cacheExpiresAt !== undefined) {
-        const { cacheExpiresAt: _gone, ...rest } = this.usage;
+      // writes one (acpmux sends that call's expiry), so the card stops counting down, and the
+      // composer offers no compaction before the next prompt (the context is small now).
+      if (
+        compaction.state === "completed" &&
+        (this.usage?.cacheExpiresAt !== undefined || this.usage?.compactOnReturn !== undefined)
+      ) {
+        const { cacheExpiresAt: _gone, compactOnReturn: _done, ...rest } = this.usage;
         this.usage = rest;
       }
       // A note between messages: the text and tool fold before it close.
@@ -11560,6 +11571,14 @@ export class AcpmuxDirectClient {
     this.suggestionTaken = this.promptSuggestion !== undefined;
   }
 
+  /// The composer's cache chip for the send it is about to make (composer/cacheCompactChipModel.ts):
+  /// "compact" (compact first, then send) or "keep" (send as is) while the chip shows, undefined
+  /// without one (acpmux decides from the setting). The next send takes it as
+  /// `_meta.acpmux.cacheCompact` and clears it.
+  chooseCacheCompact(choice: CacheCompactChoice | undefined): void {
+    this.cacheCompactChoice = choice;
+  }
+
   /// The composer's text changed (`chat.typing`): acpmux hears only that this pane types.
   typing(text: string, sessionId?: string): void {
     this.presence.typed(text, sessionId);
@@ -11622,6 +11641,8 @@ export class AcpmuxDirectClient {
     this.presence.stopTyping();
     const suggestionTaken = this.suggestionTaken;
     this.suggestionTaken = false;
+    const cacheCompact = this.cacheCompactChoice;
+    this.cacheCompactChoice = undefined;
     this.untakenSends += 1;
     let untaken = true;
     const settle = () => {
@@ -11640,6 +11661,7 @@ export class AcpmuxDirectClient {
         onTaken,
         suggestionTaken,
         emptyContinuation,
+        cacheCompact,
       );
     } finally {
       settle();
@@ -11666,6 +11688,8 @@ export class AcpmuxDirectClient {
     /// The person took the shown suggestion into this prompt (`takeSuggestion`).
     suggestionTaken = false,
     emptyContinuation?: () => boolean,
+    /// The composer's cache chip at this send (`chooseCacheCompact`).
+    cacheCompact?: CacheCompactChoice,
   ): Promise<string | undefined> {
     const trustCancellation = this.trustCancellation;
     /// The prompt's own id, before a hand-off turn names it: its send ticket is bound under it.
@@ -12009,6 +12033,7 @@ export class AcpmuxDirectClient {
                   promptId,
                   ...(steer ? { steer: true } : {}),
                   ...(suggestionTaken ? { promptSuggestion: "taken" } : {}),
+                  ...(cacheCompact ? { cacheCompact } : {}),
                   ...(context ? { context } : {}),
                   ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
                   ...promptSurfaceMeta(),

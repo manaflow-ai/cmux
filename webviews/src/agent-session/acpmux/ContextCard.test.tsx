@@ -9,6 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextRing } from "./ComposerPickers";
 import { cacheTimeLeft, contextSegments } from "./contextCardModel";
+import { cacheUsageMeta } from "./cacheUsage";
 import { translate } from "./i18n";
 import { settleReact } from "../../../test/support/domTeardown";
 
@@ -391,4 +392,71 @@ test("time left reads minutes and seconds, rounded up", () => {
   expect(cacheTimeLeft(191_001)).toBe("3:12");
   expect(cacheTimeLeft(3_130_000)).toBe("52:10");
   expect(cacheTimeLeft(-5)).toBe("0:00");
+});
+
+test("the cache line adds acpmux's hit ratio and the last miss's cause under the countdown", async () => {
+  const now = () => 1_000_000;
+  const ring = await mount({
+    used: 316_900,
+    size: 399_100,
+    cacheExpiresAt: 1_000_000 + 192_000,
+    cacheHit: 0.944,
+    cacheMiss: { cause: "model", at: 900_000 },
+    now,
+  });
+  await act(async () => ring.focus());
+  await wait();
+  const stats = card()!.querySelector<HTMLElement>(".acpmux-context-card-cache-stats");
+  expect(stats!.textContent).toBe(
+    `${translate("context.cacheHit", { percent: 94 })} · ${translate("context.cacheMissModel")}`,
+  );
+  // The countdown keeps its own line, unchanged.
+  expect(card()!.querySelector(".acpmux-context-card-cache")!.textContent).toBe(
+    translate("context.cacheWarm", { left: "3:12" }),
+  );
+});
+
+for (const [cause, key] of [
+  ["expired", "context.cacheMissExpired"],
+  ["effort", "context.cacheMissEffort"],
+  ["compaction", "context.cacheMissCompaction"],
+  ["unknown", "context.cacheMissUnknown"],
+] as const)
+  test(`a miss caused by ${cause} names it`, async () => {
+    const ring = await mount({ used: 1_000, size: 200_000, cacheMiss: { cause, at: 1 } });
+    await act(async () => ring.focus());
+    await wait();
+    expect(card()!.querySelector(".acpmux-context-card-cache-stats")!.textContent).toBe(translate(key));
+  });
+
+test("a hit ratio alone shows without a miss or an expiry", async () => {
+  const ring = await mount({ used: 1_000, size: 200_000, cacheHit: 1 });
+  await act(async () => ring.focus());
+  await wait();
+  expect(card()!.querySelector(".acpmux-context-card-cache-stats")!.textContent).toBe(
+    translate("context.cacheHit", { percent: 100 }),
+  );
+});
+
+test("no cache stats without a hit ratio or a miss", async () => {
+  const ring = await mount({ used: 111_000, size: 475_000, cacheExpiresAt: Date.now() + 60_000 });
+  await act(async () => ring.focus());
+  await wait();
+  expect(card()!.querySelector(".acpmux-context-card-cache-stats")).toBeNull();
+});
+
+test("acpmux's cache fields are kept only when well formed", () => {
+  expect(cacheUsageMeta(undefined)).toEqual({});
+  expect(
+    cacheUsageMeta({
+      cacheExpiresAt: 5,
+      compactOnReturn: true,
+      cacheHit: 0.5,
+      cacheMiss: { cause: "effort", at: 7 },
+    }),
+  ).toEqual({ cacheExpiresAt: 5, compactOnReturn: true, cacheHit: 0.5, cacheMiss: { cause: "effort", at: 7 } });
+  expect(
+    cacheUsageMeta({ cacheExpiresAt: 0, compactOnReturn: "yes", cacheHit: 1.5, cacheMiss: { cause: "new", at: 7 } }),
+  ).toEqual({ cacheMiss: { cause: "unknown", at: 7 } });
+  expect(cacheUsageMeta({ cacheMiss: { cause: "model" } })).toEqual({});
 });

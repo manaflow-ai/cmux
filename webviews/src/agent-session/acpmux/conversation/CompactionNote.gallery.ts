@@ -43,6 +43,18 @@ export default agentPaneEntry({
         row("compaction", 1, { compaction: { state: "running", reason: "cache_expiry" } }),
       ]),
     },
+    "cache-return": {
+      note: "When You Return: the cache had expired, so acpmux compacted before the person's message (the composer's Compact chip); the note says why, and the message runs after it.",
+      snapshot: chat([
+        user("Fix the sidebar spacing", 6),
+        assistant("Fixed: the rows now use the 8 pt grid.", 5),
+        summary(5, { status: "completed", durationMs: 23_000, toolCount: 3 }),
+        row("compaction", 2, {
+          compaction: { state: "completed", reason: "cache_return", preTokens: 312_000, postTokens: 28_000 },
+        }),
+        user("Now do the same for the settings rows", 1),
+      ]),
+    },
     running: {
       note: "A compaction while it runs, and one that failed with Claude Code's reason.",
       snapshot: chat([

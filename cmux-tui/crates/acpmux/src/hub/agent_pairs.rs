@@ -709,6 +709,14 @@ impl Hub {
         let steer = steer && !held;
         (opts.interrupt, opts.steer_now) = (opts.interrupt && !held, opts.steer_now && !held);
         self.agent_pair_check(session, &blocks, client, steer, &mut opts)?;
+        // A lapsed prompt cache may be compacted first (`return_compact.rs`); the prompt then
+        // queues behind that compaction rather than steering into it.
+        let steer = if self.return_compact_first(session, &blocks, &opts).await {
+            (opts.interrupt, opts.steer_now) = (false, false);
+            false
+        } else {
+            steer
+        };
         self.run_prompt(session, blocks, client, steer, opts).await
     }
 

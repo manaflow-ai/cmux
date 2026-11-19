@@ -298,6 +298,8 @@ pub enum Command {
         #[command(flatten)]
         inbox: SendThread,
         #[command(flatten)]
+        cache: SendCache,
+        #[command(flatten)]
         relay: SendRelay,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
@@ -1260,6 +1262,33 @@ pub struct SendThread {
     /// named (default: your messages about the PR its first line names, else all yours).
     #[arg(long, value_name = "THREAD", conflicts_with = "pr")]
     pub thread: Option<String>,
+}
+
+/// `acpmux send --compact-first | --keep-cache`: one prompt's word on compacting a Claude chat
+/// first (`_meta.acpmux.cacheCompact`, `hub/return_compact.rs`). With neither, Settings'
+/// `agents.cacheCompact.mode` decides.
+#[derive(Args, Default)]
+pub struct SendCache {
+    /// Compact the chat (/compact) before this prompt, which then runs after the compaction: a
+    /// lapsed prompt cache is not read again in full. A chat with no known cache is not compacted.
+    #[arg(long, conflicts_with = "keep_cache")]
+    pub compact_first: bool,
+    /// Send this prompt as it is, even when "When You Return" would compact the chat first.
+    #[arg(long)]
+    pub keep_cache: bool,
+}
+
+impl SendCache {
+    /// The `_meta.acpmux.cacheCompact` word, if either flag is given.
+    pub fn choice(&self) -> Option<&'static str> {
+        if self.compact_first {
+            Some("compact")
+        } else if self.keep_cache {
+            Some("keep")
+        } else {
+            None
+        }
+    }
 }
 
 /// `acpmux send --relay NAME --relayed-from MACHINE[/SESSION]`: a relay's word on where the

@@ -123,3 +123,20 @@ test("the person's own /compact stays theirs, and its compaction names no reason
   expect(notes).toHaveLength(1);
   expect(notes[0]!.compaction?.reason).toBeUndefined();
 });
+
+test("the /compact acpmux runs before the person's prompt once the cache expired draws no bubble and says why", async () => {
+  const rows = await drawn((s) => [
+    ...turn(s, 1, "Fix the sidebar"),
+    mux(s, 3, "turn_result", { status: "completed", turnId: "t-1" }),
+    ...turn(s, 4, "/compact", { kind: "return_compact" }),
+    update(s, 6, { sessionUpdate: "compaction", state: "running" }),
+    update(s, 7, { sessionUpdate: "compaction", state: "completed", preTokens: 312_000, postTokens: 28_000 }),
+    mux(s, 8, "turn_result", { status: "completed", turnId: "t-4" }),
+    ...turn(s, 9, "Now the settings rows"),
+  ]);
+  const prompts = rows.filter((row) => row.kind === "user" && row.incoming?.kind !== "hidden");
+  expect(prompts.map((row) => row.text)).toEqual(["Fix the sidebar", "Now the settings rows"]);
+  const notes = rows.filter((row) => row.kind === "compaction");
+  expect(notes).toHaveLength(1);
+  expect(notes[0]!.compaction).toMatchObject({ state: "completed", reason: "cache_return" });
+});

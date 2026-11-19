@@ -3,9 +3,9 @@
 //! 5min mark").
 //!
 //! The chat's `usage_update`s carry when its prompt cache lapses (`_meta.acpmux.cacheExpiresAt`,
-//! `claude_stdio/prompt_cache.rs`). With Settings > General > Prompt Cache's "Compact Before the
-//! Cache Expires" on (`agents.cacheCompact.enabled`, off by default: a compaction is a model call
-//! that counts toward usage), each such update arms one timer for the session, [`LEAD_MS`] before
+//! `claude_stdio/prompt_cache.rs`). With Settings > General > Prompt Cache's mode "Before the
+//! Cache Expires" (`agents.cacheCompact.mode`, or the older `agents.cacheCompact.enabled`; off by
+//! default: a compaction is a model call that counts toward usage), each such update arms one timer for the session, [`LEAD_MS`] before
 //! that expiry, while the context is at least `agents.cacheCompact.minContextPercent` of its
 //! window. When it fires, the chat runs Claude Code's `/compact` as acpmux's own prompt
 //! ([`KIND`]), which reads the still-warm cache.
@@ -42,19 +42,48 @@ pub(crate) const LEAD_MS: u64 = 30_000;
 static TIMERS: std::sync::LazyLock<StdMutex<TimerMap>> = std::sync::LazyLock::new(Default::default);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 type TimerMap = HashMap<String, (u64, tokio::task::AbortHandle)>;
+/// The legacy switch: with no [`SETTING_MODE`], `true` is [`Mode::BeforeExpiry`].
 pub const SETTING_ENABLED: &str = "agents.cacheCompact.enabled";
+pub const SETTING_MODE: &str = "agents.cacheCompact.mode";
 pub const SETTING_MIN_CONTEXT: &str = "agents.cacheCompact.minContextPercent";
 const DEFAULT_MIN_CONTEXT: f64 = 50.0;
 const MIN_CONTEXT_RANGE: (f64, f64) = (10.0, 95.0);
 
-/// The Settings keys as the daemon reads them: None when off (the default, a missing or
-/// unreadable file included), else the context share (0-1) a chat must reach.
-pub(crate) fn settings_threshold(doc: Option<&Value>) -> Option<f64> {
-    let doc = doc?;
+/// When acpmux compacts a Claude chat for its prompt cache (Settings > General > Prompt Cache).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mode {
+    /// Never (the default).
+    Off,
+    /// This module's timer, while the cache is still warm.
+    BeforeExpiry,
+    /// Before the person's next prompt once the cache lapsed (`return_compact.rs`).
+    OnReturn,
+}
+
+/// [`SETTING_MODE`] as the daemon reads it: `off` (the default, a missing or unreadable file
+/// included), `beforeExpiry` or `onReturn`; with no mode, the legacy [`SETTING_ENABLED`].
+pub(crate) fn settings_mode(doc: Option<&Value>) -> Mode {
+    let Some(doc) = doc else { return Mode::Off };
     let get = |key: &str| crate::user_settings::value(doc, key);
-    if get(SETTING_ENABLED).and_then(|v| v.as_bool()) != Some(true) {
+    match get(SETTING_MODE).as_ref().and_then(Value::as_str) {
+        Some("beforeExpiry") => Mode::BeforeExpiry,
+        Some("onReturn") => Mode::OnReturn,
+        Some(_) => Mode::Off,
+        None if get(SETTING_ENABLED).as_ref().and_then(Value::as_bool) == Some(true) => {
+            Mode::BeforeExpiry
+        }
+        None => Mode::Off,
+    }
+}
+
+/// The Settings keys as the timer reads them: None unless the mode is [`Mode::BeforeExpiry`],
+/// else the context share (0-1) a chat must reach.
+pub(crate) fn settings_threshold(doc: Option<&Value>) -> Option<f64> {
+    if settings_mode(doc) != Mode::BeforeExpiry {
         return None;
     }
+    let doc = doc?;
+    let get = |key: &str| crate::user_settings::value(doc, key);
     let percent = get(SETTING_MIN_CONTEXT)
         .and_then(|v| v.as_f64())
         .filter(|n| n.is_finite())
@@ -93,9 +122,11 @@ pub(crate) fn over(share: f64, threshold: f64) -> bool {
     share >= threshold
 }
 
-/// Whether a prompt's provenance is this timer's compaction.
+/// Whether a prompt's provenance is acpmux's cache compaction: this timer's, or the one run
+/// before a person's prompt (`return_compact.rs`).
 pub(crate) fn is_own(provenance: Option<&Value>) -> bool {
-    provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(KIND)
+    let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
+    kind == Some(KIND) || kind == Some(super::super::return_compact::KIND)
 }
 
 fn completed_compaction(update: &Value) -> bool {
@@ -118,8 +149,22 @@ impl Hub {
             |u: &&Value| u.get("sessionUpdate").and_then(Value::as_str) == Some("usage_update");
         if let Some(update) = update.filter(|u| !replayed && usage(u)) {
             self.cache_compact_on_usage(session, update);
-        } else if update.is_some_and(|u| !replayed && completed_compaction(u)) {
-            Self::cache_compact_disarm(&session.id);
+        } else if update.is_some_and(completed_compaction) {
+            if !replayed {
+                Self::cache_compact_disarm(&session.id);
+            }
+            // Replayed too (a restart rebuilds the usage from the log). The compacted context has no warm cache yet: the last usage no longer names one,
+            // so the next prompt is not compacted again (`return_compact.rs`).
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(acpmux) = m
+                .usage
+                .as_mut()
+                .and_then(|u| u.pointer_mut("/_meta/acpmux"))
+                .and_then(Value::as_object_mut)
+            {
+                acpmux.remove("cacheExpiresAt");
+                acpmux.remove("compactOnReturn");
+            }
         }
     }
 

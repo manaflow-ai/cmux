@@ -62,3 +62,18 @@ fn its_prompt_is_acpmuxs_own_not_the_persons() {
     assert!(!super::super::inbox::persons_prompt(None, Some(&ours)));
     assert!(super::super::inbox::persons_prompt(None, None));
 }
+
+#[test]
+fn the_mode_choice_reads_with_the_old_switch_as_its_fallback() {
+    let mode = |doc: Value| settings_mode(Some(&doc));
+    assert_eq!(settings_mode(None), Mode::Off);
+    assert_eq!(mode(json!({})), Mode::Off, "the default is off");
+    assert_eq!(mode(json!({"agents": {"cacheCompact": {"enabled": true}}})), Mode::BeforeExpiry);
+    assert_eq!(mode(json!({"agents": {"cacheCompact": {"mode": "onReturn"}}})), Mode::OnReturn);
+    let mode_wins = json!({"agents": {"cacheCompact": {"enabled": true, "mode": "off"}}});
+    assert_eq!(mode(mode_wins), Mode::Off, "the mode wins over the old switch");
+    let returning = json!({"agents": {"cacheCompact": {"enabled": true, "mode": "onReturn"}}});
+    assert_eq!(settings_threshold(Some(&returning)), None, "the timer is off in that mode");
+    let timer = json!({"agents.cacheCompact.mode": "beforeExpiry"});
+    assert_eq!(settings_threshold(Some(&timer)), Some(0.5));
+}

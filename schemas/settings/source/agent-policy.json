@@ -1465,10 +1465,12 @@
     },
     {
       "agent": "userOnly",
-      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "why": "Compacting a chat on its own spends the person's usage (one model call each): their call.",
       "keys": [
         "agents.cacheCompact.enabled",
-        "agents.cacheCompact.minContextPercent"
+        "agents.cacheCompact.minContextPercent",
+        "agents.cacheCompact.mode",
+        "agents.cacheCompact.returnMinTokens"
       ]
     },
     {

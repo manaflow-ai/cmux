@@ -51,6 +51,8 @@ import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
 import { type Choice } from "./composerPickerModel";
 import { SendSlotGlyph } from "./composer/SendSlotGlyph";
 import { SendMenu } from "./composer/SendMenu";
+import { CacheCompactChip, useCacheCompactChip } from "./composer/CacheCompactChip";
+import type { CacheCompactChoice } from "./composer/cacheCompactChipModel";
 import { SIDE_COMMAND, sendChoiceForKey, sendMenuChoices, type SendChoice } from "./composer/sendMenuModel";
 import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
 import { isActive, type Dictation } from "./dictation";
@@ -411,6 +413,8 @@ type Props = {
   /** The person took the agent's suggested next prompt into the field (Tab, Right-arrow): acpmux
    * counts it taken (`suggestion_gate.rs`). */
   onSuggestionTaken?(): void;
+  /// The cache chip's choice for the send about to go (CacheCompactChip.tsx); undefined without the chip.
+  onCacheCompact?(choice: CacheCompactChoice | undefined): void;
   /// Where the host keeps the chat's unsent chips, so they come back when the chat shows again.
   keptAttachments?: KeptAttachments;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
@@ -567,6 +571,7 @@ function ComposerFrame({
   onTyping,
   onPromptEdit,
   onSuggestionTaken,
+  onCacheCompact,
   keptAttachments,
   onImportFile,
   importSandboxed,
@@ -1771,10 +1776,16 @@ function ComposerFrame({
     });
     // Its copy is the prompt as sent: a send taken later clears a composer that may hold the next draft.
     const tuck = tucks ? tuckContent(composerBox.current, marked.text) : undefined;
+    // The cache chip's Compact or Keep goes with this send (CacheCompactChip.tsx; nothing without it).
+    onCacheCompact?.(cacheCompact.meta);
     // `/customize …` goes as the ask it stands for (customizeCommand.ts).
     const taken = onSend(customizeMessage(marked.text) ?? marked.text, sent, steer, kept);
+    // The client took it already (its send reads it first); a path that sent nothing leaves no
+    // choice for a later send to carry.
+    onCacheCompact?.(undefined);
     if (taken === false || taken instanceof Promise) keepSendOrigins();
     if (taken === false) return false;
+    cacheCompact.sent();
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
       if (tuck) tuckSent(composerBox.current, tuck);
@@ -2218,6 +2229,8 @@ function ComposerFrame({
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
   const running = !shell && (snapshot.isWorking || holding || handingOver);
   const hasDraft = Boolean(text.trim() || attachments.length || pending.length);
+  // Compact or Keep beside Send once the expired cache would make acpmux compact first (CacheCompactChip.tsx).
+  const cacheCompact = useCacheCompactChip({ usage, idle: !running, hasText: !shell && hasDraft });
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
@@ -2697,7 +2710,7 @@ function ComposerFrame({
     ) : null;
   // The Quick Composer's Esc hides its panel, so Esc cannot stop a turn there: with a draft typed it
   // keeps Stop beside its one Send (one stop and one send, never two sends).
-  const sendControl =
+  const sendButtons =
     onOpenInWindow && running && hasDraft && sendOrStop ? (
       <>
         {stopButton}
@@ -2705,6 +2718,15 @@ function ComposerFrame({
       </>
     ) : (
       sendOrStop
+    );
+  const sendControl =
+    cacheCompact.shown && sendButtons ? (
+      <>
+        <CacheCompactChip control={cacheCompact} />
+        {sendButtons}
+      </>
+    ) : (
+      sendButtons
     );
   // The + menu's rows, the same array until what they list changes. ComposerFrame is left
   // uncompiled by the React Compiler, so an inline array was new on each keystroke and drew the menu again.
@@ -3070,6 +3092,8 @@ function ComposerFrame({
                 size={usage?.size}
                 setup={usage?.setup}
                 cacheExpiresAt={usage?.cacheExpiresAt}
+                cacheHit={usage?.cacheHit}
+                cacheMiss={usage?.cacheMiss}
                 breakdown={snapshot.summary?.contextBreakdown}
                 onOpenDetails={onOpenContext}
                 {...(composerRing === "planUsage"

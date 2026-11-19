@@ -189,6 +189,16 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
     std::fs::write(&compact_fails, "").unwrap();
     let cut = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
     c.ok("session/prompt", prompt(&cut, "cache-probe")).await;
+    // The turn's answer can come before the hub applied its usage, which arms the timer: the
+    // clock moves only once that usage is in, as the first chat's two steps let it be.
+    let armed = |hub: &Hub| {
+        hub.events(&cut, 0, 10_000)
+            .unwrap()
+            .iter()
+            .any(|e| e.msg.to_string().contains("cacheExpiresAt"))
+    };
+    settle_until(Duration::from_secs(10), || armed(&hub)).await;
+    settle_until(Duration::from_millis(300), || false).await;
     clock.advance(Duration::from_secs(275));
     settle_until(Duration::from_secs(20), || compactions(&hub, &cut) == 1).await;
     assert_eq!(compactions(&hub, &cut), 1, "{:?}", prompts(&hub, &cut));

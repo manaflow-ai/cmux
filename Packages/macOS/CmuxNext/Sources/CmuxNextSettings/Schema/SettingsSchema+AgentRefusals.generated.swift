@@ -151,8 +151,9 @@ extension SettingsSchema {
         "agents.autoRetry.attempts": .userOnly,
         // Whether new chats get the person's saved MCP servers opens their connected services (Linear, Slack and others) to agents: the person's call.
         "agents.mcpServers.enabled": .network,
-        // Compacting on a timer spends the person's usage (one model call each): their call.
+        // Compacting a chat on its own spends the person's usage (one model call each): their call.
         "agents.cacheCompact.enabled": .userOnly, "agents.cacheCompact.minContextPercent": .userOnly,
+        "agents.cacheCompact.mode": .userOnly, "agents.cacheCompact.returnMinTokens": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not widen what it may open without asking.
         "agents.trust.autoTrust": .userOnly, "agents.trust.projectRoots": .userOnly, "agents.trust.ownOrgs": .userOnly,
         // Which hosts an ssh:// link from another app connects to without asking: only the person trusts a host, so a page or an agent cannot add one and skip the confirmation.
