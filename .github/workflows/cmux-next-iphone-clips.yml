@@ -28,7 +28,7 @@ jobs:
   plan:
     name: Plan the iPhone clips
     if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' }}
-    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: cmux-linux
     timeout-minutes: 5
     permissions:
       contents: read
@@ -139,7 +139,7 @@ jobs:
     name: Publish the iPhone clips
     needs: record
     if: ${{ !cancelled() && needs.record.outputs.clips != '' && needs.record.outputs.clips != '0' }}
-    runs-on: ${{ vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: cmux-linux
     timeout-minutes: 20
     environment: pr-media
     permissions:

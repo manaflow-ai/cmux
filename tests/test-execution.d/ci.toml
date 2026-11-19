@@ -270,6 +270,10 @@ lane = "manual"
 reason = "Cross-branch integration: the end-to-end cases need RUNNER_POOL_POLICY_ROOT pointing at the trusted main policy checkout; the spill rules run without it. Run python3 -m unittest tests.test_ci_linux_pool_spill with that variable set. No new CI gate."
 
 [[test]]
+path = "tests/test_ci_linux_runs_on.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_linux_single_size.py"
 lane = "linux-guard"
 

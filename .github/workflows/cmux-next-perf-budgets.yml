@@ -316,7 +316,7 @@ jobs:
   plan:
     name: perf cron plan
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.tip_sha == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       actions: read
       contents: read
@@ -336,7 +336,7 @@ jobs:
       frame_pacing: ${{ steps.plan.outputs.frame_pacing }}
       # The one place the Linux part's runner label is computed: the linux job runs on it, and its rows carry it as
       # their host (diff rows are compared only within one runner class).
-      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     steps:
       # The branch tip with the trees of its recent commits (the cmux-tui tree key of each candidate)
       # and no blobs beyond the scripts.
@@ -480,7 +480,7 @@ jobs:
     name: perf cron request ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.part }}${{ needs.plan.outputs.worker != '' && format(' on {0}', needs.plan.outputs.worker) || '' }}
     needs: plan
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY == '' && vars.CMUX_NEXT_PERF_CRON_CONTROLLER == '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || 'cmux-linux' }}
     permissions: {}
     timeout-minutes: 5
     steps:
@@ -501,7 +501,7 @@ jobs:
     name: perf cron starts frame pacing
     needs: plan
     if: ${{ needs.plan.outputs.frame_pacing == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       actions: write
     timeout-minutes: 5
@@ -518,7 +518,7 @@ jobs:
     name: perf cron part (Linux)
     needs: plan
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.linux_part != '' }}
-    runs-on: ${{ needs.plan.outputs.linux_runner }}
+    runs-on: cmux-linux
     permissions:
       contents: read
     # A part's benches run up to 30 minutes (cmd_run_linux_part's cap), after about 5 minutes of setup.
@@ -583,7 +583,7 @@ jobs:
     name: perf cron report
     needs: [plan, measure, linux]
     if: ${{ always() && needs.plan.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       actions: write  # read the state, and start the next tick at once (Start the next part now)
       contents: read

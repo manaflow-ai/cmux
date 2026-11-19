@@ -33,7 +33,7 @@ concurrency:
 jobs:
   matrix:
     if: github.repository_owner == 'manaflow-ai' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')
-    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: cmux-linux
     timeout-minutes: 90
     environment:
       name: cmux-next-vm-image-dev

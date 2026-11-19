@@ -36,7 +36,7 @@ jobs:
   react-doctor:
     name: React Doctor (changed React projects)
     # Blacksmith, never GitHub-hosted; fork pull requests get a fixed Blacksmith label.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-linux' }}
     timeout-minutes: 30
     env:
       REACT_DOCTOR_NO_TELEMETRY: "1"

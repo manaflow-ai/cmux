@@ -33,7 +33,7 @@ concurrency:
 jobs:
   matrix:
     if: github.repository_owner == 'manaflow-ai' && (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
-    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: cmux-linux
     timeout-minutes: 75
     environment:
       name: cmux-next-cloud-journey

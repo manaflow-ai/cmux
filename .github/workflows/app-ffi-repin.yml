@@ -30,7 +30,7 @@ jobs:
     name: open the re-pin pull request
     if: github.ref == 'refs/heads/feat-cmux-next'
     environment: ffi-release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     # actions: write only for the failure step's dispatch of app-ffi-repin.yml; the re-pin script reads runs and
     # jobs with this token (READ_TOKEN) and writes nothing with it.
