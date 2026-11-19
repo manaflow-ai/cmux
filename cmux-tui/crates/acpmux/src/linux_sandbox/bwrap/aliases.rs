@@ -261,21 +261,143 @@ pub(super) fn guarded_aliases(trees: &[(&Path, u64, bool)], mountinfo: &str) -> 
     )
 }
 
+/// A mount ID and the path where it shows the whole HOME. The plan rebuilds
+/// the HOME at each such view exactly as at the HOME itself (`home::rebuild`).
+pub(super) type HomeView = (u64, PathBuf);
+
+/// Every other mount of the HOME's device whose root holds the whole HOME,
+/// with the path where the HOME appears through it (a second mount of the
+/// home, such as a bind of /home/u at /alias/u). A mount showing only part of
+/// the HOME, or showing it at a point inside or above the HOME, is no view:
+/// the check keeps refusing it. A view hidden under a later mount, or one
+/// inside another view, refuses here with its reason, since the plan could
+/// not rebuild it. The loops end after the finite mountinfo snapshot.
+pub(super) fn home_views(
+    home: &Path,
+    home_mount: u64,
+    mountinfo: &str,
+) -> Result<Vec<HomeView>, String> {
+    let views = home_views_listed(home, home_mount, mountinfo)?;
+    let mounts = parse_mountinfo(mountinfo)?;
+    let ids: BTreeSet<_> = mounts.iter().map(|m| m.id).collect();
+    let anchor =
+        mounts.iter().find(|m| !ids.contains(&m.parent)).ok_or("mountinfo has no root mount")?.id;
+    for (id, view) in &views {
+        let mount = mounts.iter().find(|m| m.id == *id).ok_or("view mount missing")?;
+        if !visible_below(mount, anchor, &mounts)? {
+            return Err(format!(
+                "a second view of the HOME at {} is hidden by another mount",
+                view.display()
+            ));
+        }
+        if let Some((_, outer)) = views.iter().find(|(o, v)| o != id && view.starts_with(v)) {
+            return Err(format!(
+                "a second view of the HOME at {} lies inside another at {}",
+                view.display(),
+                outer.display()
+            ));
+        }
+    }
+    Ok(views)
+}
+
+fn home_views_listed(
+    home: &Path,
+    home_mount: u64,
+    mountinfo: &str,
+) -> Result<Vec<HomeView>, String> {
+    let mounts = parse_mountinfo(mountinfo)?;
+    let containing = mounts.iter().find(|m| m.id == home_mount).ok_or_else(|| {
+        format!("mount ID {home_mount} for {} missing from snapshot", home.display())
+    })?;
+    let suffix = home.strip_prefix(&containing.point).map_err(|_| "mount ID path mismatch")?;
+    let root = containing
+        .root
+        .as_ref()
+        .ok_or_else(|| format!("{} is a namespace file mount", home.display()))?;
+    let underlying = join_path(root, suffix);
+    let mut views = Vec::new();
+    for mount in &mounts {
+        let Some(other_root) = &mount.root else { continue };
+        if mount.id == home_mount || mount.device != containing.device {
+            continue;
+        }
+        let Ok(rest) = underlying.strip_prefix(other_root) else { continue };
+        let view = join_path(&mount.point, rest);
+        if view.starts_with(home) || home.starts_with(&view) {
+            continue;
+        }
+        path_arg(&view)?;
+        views.push((mount.id, view));
+    }
+    Ok(views)
+}
+
+/// The alias check for a plan that rebuilds the HOME at every view in
+/// `rebuilt`: the HOME itself with its own mount ID, then each `home_views`
+/// entry. An alias is accepted only when both ends are the same path below
+/// two of those views, each reached through the mount its view was computed
+/// for: there the rebuild hides a denied name and shows anything else
+/// read-only, except a writable root at the one view the session named.
+pub(super) fn guarded_aliases_in_views(
+    trees: &[(&Path, u64, bool)],
+    mountinfo: &str,
+    rebuilt: &[HomeView],
+) -> Vec<String> {
+    guarded_aliases_viewed(
+        trees,
+        mountinfo,
+        rebuilt,
+        |p| fs::canonicalize(p).map_err(|e| e.to_string()),
+        mount_reachable,
+    )
+}
+
 fn guarded_aliases_with(
     trees: &[(&Path, u64, bool)],
     mountinfo: &str,
     resolve: impl FnMut(&Path) -> Result<PathBuf, String>,
     reachable: impl FnMut(&Path) -> Result<bool, String>,
 ) -> Vec<String> {
-    match check_trees(trees, mountinfo, resolve, reachable) {
+    guarded_aliases_viewed(trees, mountinfo, &[], resolve, reachable)
+}
+
+fn guarded_aliases_viewed(
+    trees: &[(&Path, u64, bool)],
+    mountinfo: &str,
+    rebuilt: &[HomeView],
+    resolve: impl FnMut(&Path) -> Result<PathBuf, String>,
+    reachable: impl FnMut(&Path) -> Result<bool, String>,
+) -> Vec<String> {
+    match check_trees(trees, mountinfo, rebuilt, resolve, reachable) {
         Ok(reasons) => reasons.into_iter().collect(),
         Err(error) => vec![error],
     }
 }
 
+/// True when `source` (through mount `from`) and `alternate` (through mount
+/// `through`) are the same path below two different rebuilt views, each
+/// view matched by its own mount ID. A view root itself never matches.
+fn masked_by_rebuild(
+    source: &Path,
+    from: u64,
+    alternate: &Path,
+    through: u64,
+    rebuilt: &[HomeView],
+) -> bool {
+    rebuilt.iter().filter(|(id, _)| *id == from).any(|(_, a)| {
+        source.strip_prefix(a).ok().filter(|rest| !rest.as_os_str().is_empty()).is_some_and(
+            |rest| {
+                rebuilt.iter().any(|(id, b)| *id == through && b != a && b.join(rest) == alternate)
+            },
+        )
+    })
+}
+
 fn check_trees(
     trees: &[(&Path, u64, bool)],
     mountinfo: &str,
+    rebuilt: &[HomeView],
     mut resolve: impl FnMut(&Path) -> Result<PathBuf, String>,
     mut reachable: impl FnMut(&Path) -> Result<bool, String>,
 ) -> Result<BTreeSet<String>, String> {
@@ -368,7 +490,12 @@ fn check_trees(
                 } else {
                     continue;
                 };
-                if source != alternate {
+                // The plan rebuilds the HOME at both ends: the guarded name is
+                // absent there (a denial) or read-only (memory, a work folder
+                // at the view the session did not name).
+                if source != alternate
+                    && !masked_by_rebuild(&source, mount.id, &alternate, other.id, rebuilt)
+                {
                     reasons.insert(format!(
                         "{} is also visible at {}",
                         source.display(),
@@ -393,6 +520,109 @@ mod tests {
 
     fn overlay_info(options: &str) -> String {
         format!("{ROOT}2 1 0:42 / /mnt/leak rw - overlay overlay {options}\n")
+    }
+
+    /// A second mount of the home: /home/u is also mounted at /alias/u.
+    const SECOND_HOME: &str =
+        "1 0 8:1 / / rw - ext4 root rw\n57 1 8:1 /home/u /alias/u rw - ext4 root rw\n";
+
+    #[test]
+    fn regression_home_alias_refuses_without_a_rebuilt_view() {
+        let trees = [
+            (Path::new("/home/u/.aws"), 1, false),
+            (Path::new("/home/u/.ssh"), 1, false),
+            (Path::new("/home/u/Projects/repo"), 1, true),
+        ];
+        let reasons = guarded_aliases(&trees, SECOND_HOME);
+        for name in [".aws", ".ssh", "Projects/repo"] {
+            let want = format!("/home/u/{name} is also visible at /alias/u/{name}");
+            assert!(reasons.contains(&want), "{want}: {reasons:?}");
+        }
+    }
+
+    #[test]
+    fn home_views_finds_every_whole_home_alias_and_nothing_else() {
+        let views = |info: &str| home_views(Path::new("/home/u"), 1, info).unwrap();
+        assert_eq!(views(SECOND_HOME), [(57, PathBuf::from("/alias/u"))]);
+        assert!(views(ROOT).is_empty());
+        // A second mount of / shows the HOME at its own subpath.
+        let sysroot = format!("{ROOT}3 1 8:1 / /mnt/sysroot rw - ext4 root rw\n");
+        assert_eq!(views(&sysroot), [(3, PathBuf::from("/mnt/sysroot/home/u"))]);
+        // A separate /home partition bound again elsewhere.
+        let part = "1 0 8:1 / / rw - ext4 root rw\n2 1 8:2 / /home rw - ext4 home rw\n3 1 8:2 /u /alias/u rw - ext4 home rw\n";
+        assert_eq!(
+            home_views(Path::new("/home/u"), 2, part).unwrap(),
+            [(3, PathBuf::from("/alias/u"))]
+        );
+        // Not views: another device, a subtree of HOME, HOME at a point inside itself.
+        let other_device = format!("{ROOT}3 1 8:9 /home/u /alias/u rw - ext4 root rw\n");
+        assert!(views(&other_device).is_empty());
+        let subtree = format!("{ROOT}3 1 8:1 /home/u/.ssh /mnt/ssh rw - ext4 root rw\n");
+        assert!(views(&subtree).is_empty());
+        let nested = format!("{ROOT}3 1 8:1 /home/u /home/u/loop rw - ext4 root rw\n");
+        assert!(views(&nested).is_empty());
+    }
+
+    #[test]
+    fn home_views_refuses_a_hidden_or_nested_view() {
+        let home = Path::new("/home/u");
+        let hidden = format!("{SECOND_HOME}58 1 0:42 / /alias rw - tmpfs tmpfs rw\n");
+        let error = home_views(home, 1, &hidden).unwrap_err();
+        assert!(error.contains("hidden by another mount"), "{error}");
+        let nested = format!("{SECOND_HOME}58 57 8:1 /home/u /alias/u/inner rw - ext4 root rw\n");
+        let error = home_views(home, 1, &nested).unwrap_err();
+        assert!(error.contains("lies inside another"), "{error}");
+    }
+
+    fn rebuilt() -> Vec<HomeView> {
+        vec![(1, PathBuf::from("/home/u")), (57, PathBuf::from("/alias/u"))]
+    }
+
+    fn check_rebuilt(trees: &[(&Path, u64, bool)], info: &str) -> Vec<String> {
+        guarded_aliases_viewed(trees, info, &rebuilt(), |p| Ok(p.to_path_buf()), |_| Ok(true))
+    }
+
+    #[test]
+    fn rebuilt_home_view_accepts_only_aliases_inside_it() {
+        let trees = [
+            (Path::new("/home/u/.aws"), 1, false),
+            (Path::new("/home/u/.ssh"), 1, false),
+            (Path::new("/home/u/.claude/projects/s/memory"), 1, false),
+            (Path::new("/home/u/Projects/repo"), 1, true),
+        ];
+        let reasons = check_rebuilt(&trees, SECOND_HOME);
+        assert!(reasons.is_empty(), "{reasons:?}");
+        // A guarded path outside HOME is not covered by the rebuilt view.
+        let sysroot = format!("{SECOND_HOME}3 1 8:1 /etc /mnt/etc rw - ext4 root rw\n");
+        let reasons = check_rebuilt(&[(Path::new("/etc/shadow"), 1, false)], &sysroot);
+        assert!(reasons.contains(&"/etc/shadow is also visible at /mnt/etc/shadow".into()));
+        // A second alias the plan has no view for still refuses.
+        let twice = format!("{SECOND_HOME}58 1 8:1 /home/u/.ssh /mnt/ssh rw - ext4 root rw\n");
+        let reasons = check_rebuilt(&trees, &twice);
+        assert!(
+            reasons.contains(&"/home/u/.ssh is also visible at /mnt/ssh".into()),
+            "{reasons:?}"
+        );
+        // A view computed for another mount does not vouch for this one.
+        let reasons = guarded_aliases_viewed(
+            &trees,
+            SECOND_HOME,
+            &[(1, PathBuf::from("/home/u")), (99, PathBuf::from("/alias/u"))],
+            |p| Ok(p.to_path_buf()),
+            |_| Ok(true),
+        );
+        assert!(!reasons.is_empty());
+    }
+
+    #[test]
+    fn a_writable_root_named_at_the_second_view_is_accepted_and_its_root_is_not() {
+        let cwd = [(Path::new("/alias/u/Projects/repo"), 57, true)];
+        let reasons = check_rebuilt(&cwd, SECOND_HOME);
+        assert!(reasons.is_empty(), "{reasons:?}");
+        // The view root itself is the whole HOME: never accepted.
+        let root = [(Path::new("/alias/u"), 57, true)];
+        let reasons = check_rebuilt(&root, SECOND_HOME);
+        assert!(reasons.contains(&"/alias/u is also visible at /home/u".into()), "{reasons:?}");
     }
 
     #[test]

@@ -787,6 +787,7 @@ impl Brain {
                 .into(),
                 fast: self.turn_fast(&engine, family),
                 peer: None,
+                stop_condition: None,
             },
             blocks,
             system_prompt,

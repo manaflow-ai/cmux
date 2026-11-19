@@ -72,13 +72,15 @@ final class CloudService {
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
     @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
-    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth) { [weak self] in self?.spareReadiness.prime($0, team: self?.auth.teamID) }
+    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth) { [weak self] in self?.spareReadiness.prime($0, team: self?.carrierTeam) }
     @ObservationIgnored private(set) lazy var spareReadiness = CloudSpareReadiness(CloudStartChat.spareReadiness(self)) // the warm spare keyed and linked ahead of its claim
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
     @ObservationIgnored private var credentialProvider: CloudCredentialProvider?
     @ObservationIgnored private var credentialEvents: UInt64?
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+    /// Composer sends timed to their chat's first token (cmux#45953), found again by the chat's tab.
+    @ObservationIgnored let sendTimelines = CloudSendTimelines()
     /// The last list or connection failure, for diagnostics and refusals.
     private(set) var lastError: String?
     private(set) var hasLoadedMachines = false
@@ -234,8 +236,8 @@ final class CloudService {
         return await link.ownerLink != nil
     }
     @ObservationIgnored let installIDs: CloudInstallIDs
-
     var isSignedIn: Bool { auth.isSignedIn }
+    var carrierTeam: String? { isSignedIn ? GitHubAppLease.backendTeam(stackProjectID: auth.configuration.stackProjectID, userID: auth.user?.id, stackTeamID: auth.teamID, managed: auth.managedTeamID != nil) : nil } // the Cloud service's team id (team_…, a record's `team`), what a carrier's CMUX_CLOUD_TEAM must be; not CloudAuth.teamID
 
     /// Why Cloud cannot run in this build, or nil.
     var unavailableReason: String? {
@@ -289,7 +291,7 @@ final class CloudService {
             await auth.awaitRestored()
             var scope: String?? // The account and team: a change fences the old link, machine wire and carriers before any await.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
-                if let previous = scope ?? nil, previous != accountScope { self.desktopStreams.endAll() }; scope = accountScope
+                if let previous = scope ?? nil, previous != accountScope { self.desktopStreams.endAll(); self.spareReadiness.reset() }; scope = accountScope // a spare's link made ahead too
                 if accountScope != nil {
                     self.machineWire.stop()
                     // mayCallCloud also fences a managed team that is missing: no socket without its team scope.
@@ -361,7 +363,7 @@ final class CloudService {
             machineWire.stop()
             changes.stop()
             signedOutCreation.cancel()
-            desktopStreams.endAll()
+            desktopStreams.endAll(); spareReadiness.reset() // and a spare's link made ahead (`carrier serve`)
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
                 session.disconnect()
@@ -651,7 +653,7 @@ final class CloudService {
     /// longer signed in) leaves it out.
     func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, ownCreate: Bool = false, capCard: Bool = true, askedBy: String? = nil,
                        request: CloudMachineRequest = CloudMachineRequest(),
-                       onAppServerSent: (@MainActor @Sendable (String) async throws -> Void)? = nil,
+                       onAppServerSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil,
                        proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
