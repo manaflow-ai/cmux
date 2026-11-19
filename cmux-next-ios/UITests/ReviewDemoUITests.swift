@@ -57,11 +57,13 @@ final class ReviewDemoUITests: XCTestCase {
             attach(app, "\(look)-03-terminal-command")
 
             // The browser tab: the page opens on the phone.
+            // The keyboard covers the tab bar: put it away with the terminal's own key first.
+            let keyboardKey = app.buttons["terminal.key.keyboard"]
+            if app.keyboards.firstMatch.exists, keyboardKey.exists { keyboardKey.tap() }
+            XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "the keyboard goes away\n\(app.debugDescription)")
             let tabs = app.buttons["Tabs"].firstMatch
             XCTAssertTrue(tabs.waitForExistence(timeout: 10), "the workspace's Tabs button\n\(app.debugDescription)")
             tabs.tap()
-            // With the keyboard up, the first tap only puts it away.
-            if !app.buttons.matching(NSPredicate(format: "label ENDSWITH ', tab'")).firstMatch.waitForExistence(timeout: 3) { tabs.tap() }
             let card = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'cmux' AND label ENDSWITH ', tab'")).firstMatch
             XCTAssertTrue(card.waitForExistence(timeout: 10), "the browser tab's card\n\(app.debugDescription)")
             attach(app, "\(look)-04-tabs")
