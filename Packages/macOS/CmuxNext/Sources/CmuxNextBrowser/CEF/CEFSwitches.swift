@@ -128,10 +128,17 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         result.append(Self.processPerSitePageSchemes)
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
-        // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
-        // (MacAppCodeSignClone) stays on: it protects running helpers when an
-        // update replaces the bundle, and its --type=code-sign-clone-cleanup
-        // helper exits by itself about 1 s after the app (cx-dj33).
+        // (CEFShim/src/command_line_switches.h).
+        // Chromium's code-sign clone (MacAppCodeSignClone) is off. It hard-links
+        // the main executable into a per-launch clone that a
+        // --type=code-sign-clone-cleanup helper removes about 1 s after quit,
+        // and macOS then held the next launch of that executable before its
+        // first instruction (_dyld_start+0, no CPU, no reads): main_start 1447 ms
+        // against 26 ms with the clone off (relaunch-restore, fronts=chat, 5
+        // rounds each, cmux22). The clone guards helpers started after an update
+        // replaced the bundle under a running app (cx-dj33); that cost is paid
+        // on every relaunch after a Chromium session instead.
+        result.append("disable-features=MacAppCodeSignClone")
         if useMockKeychain {
             result.append("use-mock-keychain")
         }
