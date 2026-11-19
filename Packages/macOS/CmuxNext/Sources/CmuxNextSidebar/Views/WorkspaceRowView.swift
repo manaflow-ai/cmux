@@ -30,14 +30,30 @@ final class WorkspaceRowView: SidebarRowView {
         var shown: WorkspaceRowContent
         var title: String
     }
-    private(set) var spokenLabelInputs: SpokenLabelInputs?
-    /// Configures the label builds on its own (no assistive app asked) since launch; tests count them.
+    /// Setting new inputs (each configure) drops the built label; the next read builds it once.
+    private(set) var spokenLabelInputs: SpokenLabelInputs? { didSet { spokenLabel = nil } }
+    /// What the words read besides the inputs: the tab count and presence the row shows, and the chip's text now
+    /// (a relative time). A read with the same key reuses the built label.
+    private struct SpokenLabelKey: Equatable {
+        var count: Int?
+        var presence: [SidebarPresence]
+        var chip: String?
+    }
+    /// The label built for the current inputs and key: an assistive app that reads the rows over and over (it may
+    /// read more often than a progress tick configures) builds it once per change, never once per read.
+    private var spokenLabel: (key: SpokenLabelKey, text: String)?
+    /// How many times the label was built since launch (each a number formatter and a joined line); tests count them.
     private(set) var spokenLabelBuilds = 0
 
     override func accessibilityLabel() -> String? {
         guard let inputs = spokenLabelInputs else { return super.accessibilityLabel() }
+        let key = SpokenLabelKey(count: count, presence: driveIndicator.drivers + (presenceDots.isHidden ? [] : presenceDots.presence),
+                                 chip: inputs.shown.chip.map { SidebarPriorityRowView.chipText($0, now: Date()) })
+        if let spokenLabel, spokenLabel.key == key { return spokenLabel.text }
         spokenLabelBuilds &+= 1
-        return accessibilityText(inputs.ws, content: inputs.shown, title: inputs.title)
+        let built = accessibilityText(inputs.ws, content: inputs.shown, title: inputs.title)
+        spokenLabel = (key, built)
+        return built
     }
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
