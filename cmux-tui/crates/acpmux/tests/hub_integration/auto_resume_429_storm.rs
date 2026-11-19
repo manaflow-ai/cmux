@@ -359,3 +359,70 @@ async fn a_429_that_outlasts_the_waits_keeps_probing_and_delivers_soon_after_the
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// One model request per probe (gui-429-finish's live storm, 2026-11-19, 13:44:45: each 60 s
+/// probe sent two full-context bodies, 72648 B then 76365 B). A probe turn takes about a second to
+/// fail (Claude Code's own retries), and the other agents' notice steered into it meanwhile, a
+/// second request into the same limit. While the chat is in a 429 streak no notice steers into
+/// its turn: what comes in waits for the next probe, or goes in after the one that succeeds.
+#[tokio::test]
+async fn a_probe_under_a_429_is_one_model_request_with_no_steer_into_it() {
+    const WAITS: [u64; 1] = [400];
+    let root = std::env::temp_dir().join(format!("acpmux-429-probe-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let (limit, wire) = (root.join("rate-limited"), root.join("wire.ndjson"));
+    std::fs::write(&limit, "").unwrap();
+    let env = BTreeMap::from([
+        ("FAKE_RATE_LIMIT_FILE".to_owned(), limit.to_string_lossy().into_owned()),
+        ("FAKE_RATE_LIMIT_DELAY_MS".to_owned(), "300".to_owned()),
+        ("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned()),
+        ("FAKE_WIRE_LOG".to_owned(), wire.to_string_lossy().into_owned()),
+    ]);
+    let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), true).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(WAITS.to_vec());
+    let id = new_session(&mut c, "coord-probe").await;
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({
+                "sessionId": id, "prompt": [{"type": "text", "text": "plan the day"}],
+                "_meta": {"acpmux": {"promptId": "p-coord"}}
+            }),
+        )
+        .await;
+    assert!(r.unwrap_err().contains("429"));
+    // Other agents report every 50 ms for 3 s: some land while a probe runs.
+    for n in 0..60 {
+        let text = format!("report {n} from lane-{}", n % 7);
+        c.send(
+            method::SESSION_PROMPT,
+            from_agent(&id, &format!("m-{n}"), &format!("lane-{}", n % 7), &text),
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let starts = of_kind(&hub, &id, "turn_started").len();
+    let requests = model_requests(&wire);
+    eprintln!("429 probe: {starts} turns, {requests} model requests while held");
+    assert!(starts >= 3, "too few probes to judge: {:?}", kinds(&hub, &id));
+    assert_eq!(
+        requests,
+        starts,
+        "a probe sent more than one model request (a notice steered into it): {:?}",
+        kinds(&hub, &id)
+    );
+
+    // The limit lifts: every report goes in.
+    std::fs::remove_file(&limit).unwrap();
+    let k = until(&hub, &id, |_| {
+        let done = completed_texts(&hub, &id);
+        (0..60).all(|n| done.contains(&format!("report {n} from")))
+    })
+    .await;
+    let done = completed_texts(&hub, &id);
+    let missing: Vec<usize> =
+        (0..60).filter(|n| !done.contains(&format!("report {n} from"))).collect();
+    assert!(missing.is_empty(), "reports not delivered: {missing:?}: {k:?}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}

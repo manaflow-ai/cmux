@@ -96,6 +96,7 @@ agent reads (a response has "method": null), so a test counts what reached the a
 A rate-limit storm (tests/hub_integration/auto_resume_429_storm.rs):
 FAKE_RATE_LIMIT_FILE=<path>: while <path> exists, every prompt fails with the account's 429, naming
 no reset, as a model endpoint that refuses every request on a spent account limit.
+FAKE_RATE_LIMIT_DELAY_MS=<ms>: that refusal comes that many ms after the prompt.
 """
 import base64
 import hashlib
@@ -650,6 +651,9 @@ def handle_prompt(rid, params):
         return
     limit_file = os.environ.get("FAKE_RATE_LIMIT_FILE")
     if limit_file and os.path.exists(limit_file):
+        # FAKE_RATE_LIMIT_DELAY_MS: the refusal comes that late, as Claude Code answers a 429 only
+        # after its own retries; a steer can reach the turn meanwhile.
+        time.sleep(int(os.environ.get("FAKE_RATE_LIMIT_DELAY_MS", "0")) / 1000)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: Request rejected (429) · This request would exceed your account's rate limit"}})
         return
     # Recovery fixtures: preserve the session, fail the first turn with the supplied
