@@ -358,10 +358,14 @@ struct LayerIndex {
     layers: Vec<LayerRow>,
 }
 
+/// What `setup_layers` reads: the layers, top first, as (expected app id,
+/// folder), and the rows it refused, as (file, why).
+type SetupLayers = (Vec<(String, PathBuf)>, Vec<(PathBuf, String)>);
+
 /// The layers `layers.json` in `root` names, top first: (expected app id,
 /// folder). A row whose folder is not a plain `setup-...` name in `root`,
 /// or whose app is not `local/<folder>`, is refused with why.
-fn setup_layers(root: &Path) -> (Vec<(String, PathBuf)>, Vec<(PathBuf, String)>) {
+fn setup_layers(root: &Path) -> SetupLayers {
     let file = root.join(SETUP_LAYERS_INDEX);
     let Ok(text) = std::fs::read_to_string(&file) else { return (Vec::new(), Vec::new()) };
     let index: LayerIndex = match serde_json::from_str(&text) {
@@ -453,7 +457,7 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -
                     catalog.rejected.push((
                         dir,
                         format!("{}: a setup layer loads only from the setups folder", package.id),
-                    ))
+                    ));
                 }
                 // First source wins: the first-party directory, then bundled,
                 // then local (a local package never shadows a shipped id).
