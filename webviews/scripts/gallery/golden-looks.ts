@@ -4,7 +4,7 @@
 // sheet.png with every look side by side, light and dark. A look PR posts its golden before and after
 // from the base and its head.
 //
-//   bun run golden:looks [--looks cmux,claude] [--schemes light,dark] [--out DIR] [--window 1280x1200]
+//   bun run golden:looks [--looks cmux,claude] [--schemes light,dark] [--out DIR] [--window 1280x2000]
 //     [--setup DIR ...] [--native DIR]
 //
 // --setup adds a look from any setup folder (a look's own repo, ~/src/my-look), beside the built-in ones.
@@ -24,7 +24,7 @@ const { values } = parseArgs({
       type: "string",
       default: process.env.FAST_CHECKS_OUT ? path.join(process.env.FAST_CHECKS_OUT, "golden") : "/tmp/golden-looks",
     },
-    window: { type: "string", default: "1280x1200" },
+    window: { type: "string", default: "1280x2000" },
     setup: { type: "string", multiple: true, default: [] },
     native: { type: "string" },
     scale: { type: "string", default: "1" },

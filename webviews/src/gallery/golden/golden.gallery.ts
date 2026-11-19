@@ -82,10 +82,6 @@ const rows = chat(
       [
         tool("Read src/net/client.ts", "read", "completed", { locations: [{ path: `${ATLAS}/src/net/client.ts` }] }),
         tool("Search for fetchJSON(", "search", "completed"),
-        tool("Edit src/net/client.ts", "edit", "completed", {
-          diffs: [{ path: "src/net/client.ts", oldText: RETRY_BEFORE, newText: RETRY_AFTER }],
-        }),
-        tool("Edit src/net/retry.ts", "edit", "completed", { diffs: [{ path: "src/net/retry.ts", newText: POLICY }] }),
         tool("bun test src/net", "execute", "failed", {
           command: "bun test src/net",
           output:
@@ -94,6 +90,10 @@ const rows = chat(
           startedAt: minutesAgo(12.6),
           endedAt: minutesAgo(12.5),
         }),
+        tool("Edit src/net/client.ts", "edit", "completed", {
+          diffs: [{ path: "src/net/client.ts", oldText: RETRY_BEFORE, newText: RETRY_AFTER }],
+        }),
+        tool("Edit src/net/retry.ts", "edit", "completed", { diffs: [{ path: "src/net/retry.ts", newText: POLICY }] }),
         tool("Edit test/net/retry.test.ts", "edit", "completed", {
           diffs: [
             {
@@ -119,16 +119,6 @@ const rows = chat(
     activity(
       [
         tool("Read docs/networking.md", "read", "completed", { locations: [{ path: `${ATLAS}/docs/networking.md` }] }),
-        tool("Edit src/net/retry.ts", "edit", "completed", {
-          diffs: [
-            {
-              path: "src/net/retry.ts",
-              oldText: "      await sleep(delay);\n",
-              newText:
-                "      log.info(`retrying ${method} ${path} after ${delay} ms (attempt ${attempt + 1} of ${policy.attempts})`);\n      await sleep(delay);\n",
-            },
-          ],
-        }),
         tool("bun run lint", "execute", "in_progress", {
           command: "bun run lint",
           output: "Checking 214 files…",
@@ -228,16 +218,20 @@ const modes = {
 };
 const snapshot = { ...rows, summary: { ...rows.summary!, configOptions: [effort], modes } };
 
-/** Every fold open (the turn's "Worked for", each tool group), so each tool row shows: done, failed
+/** Every fold open (the turn's "Worked for", each tool group; not each edit's diff), so each tool row shows: done, failed
  * and running. Then the chat's top, so the first prompt leads (the capture grows the window to the end). */
-const CLOSED = 'button.cv-worked[aria-expanded="false"], button.cv-tool.is-toggle[aria-expanded="false"]';
+const CLOSED = 'button.cv-worked[aria-expanded="false"], button.cv-tool.is-run[aria-expanded="false"]';
 const openFolds: Play = async (ctx) => {
-  const closed = () => ctx.document.querySelectorAll(CLOSED).length;
   await ctx.waitFor(() => ctx.document.querySelector(".cv-user__bubble"));
   await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
-  for (let left = closed(), round = 0; left > 0 && round < 8; left = closed(), round += 1) {
-    await ctx.click({ selector: CLOSED });
-    await ctx.waitFor(() => closed() < left);
+  // Opening a turn's fold shows its closed tool groups: open each closed one by name until none is left.
+  for (let round = 0; round < 12; round += 1) {
+    const next = ctx.document.querySelector<HTMLElement>(CLOSED);
+    if (!next) break;
+    next.dataset.goldenFold = String(round);
+    const named = `[data-golden-fold="${round}"]`;
+    await ctx.click({ selector: named });
+    await ctx.waitFor(() => ctx.document.querySelector(named)?.getAttribute("aria-expanded") !== "false");
   }
   await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
 };
