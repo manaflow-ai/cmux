@@ -5,8 +5,10 @@
 //! error_details?}`). Only two transports may use them: the trusted local
 //! socket (same user) and the link's remote entry, where the stamped peer
 //! already passed the link's own authorization and the remote gate
-//! ([`FsGate`]) admitted the frame. WebSocket clients are refused. A daemon
-//! without an installed owner (every host that is not a cmux Cloud host)
+//! ([`FsGate`]) admitted the frame. WebSocket clients are refused. On a
+//! Linux machine of the person's own (`fs_ops::Scope::Owner`) only the
+//! owner's connections pass ([`transport_allows_fs_in`],
+//! [`remote_dial_admits`]). A daemon without an installed owner (a Mac)
 //! answers `fs.unavailable` to every op.
 //!
 //! Byte streams (`"stream": true`) need a connection of their own: the
@@ -38,8 +40,8 @@ const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 /// every other frame is denied as before (`remote_denied`, no detail),
 /// except the explicit agent carrier admitted separately for authenticated
 /// Native owners.
-/// Whether the op is served is decided after admission: a daemon that is not
-/// a Cloud host answers `fs.unavailable` (`seed.unavailable`).
+/// Whether the op is served is decided after admission: a daemon with no file
+/// owner installed answers `fs.unavailable` (`seed.unavailable`).
 pub struct FsGate;
 
 impl RemoteGate for FsGate {
@@ -74,6 +76,28 @@ pub(super) fn native_dial_admits(
         Some(Some(cmux_link::token::VmKind::Owner)) | None => true,
         Some(_) => !data_frame(frame),
     }
+}
+
+/// [`native_dial_admits`] for a dial of the link's remote entry. On a machine of the person's own
+/// ([`crate::fs_ops::owner_only`]) a classic dial (`None`) is a paired peer that may not be its
+/// owner and has no shell there, so it never sends a data frame either: only the owner's Native
+/// dial does.
+pub(super) fn remote_dial_admits(
+    vm_kind: Option<Option<cmux_link::token::VmKind>>,
+    frame: &str,
+) -> bool {
+    remote_dial_admits_in(crate::fs_ops::owner_only(), vm_kind, frame)
+}
+
+pub(super) fn remote_dial_admits_in(
+    owner_only: bool,
+    vm_kind: Option<Option<cmux_link::token::VmKind>>,
+    frame: &str,
+) -> bool {
+    if owner_only && vm_kind.is_none() && data_frame(frame) {
+        return false;
+    }
+    native_dial_admits(vm_kind, frame)
 }
 
 /// Handles an `fs.*` line; `None` when the message is not one.
@@ -121,10 +145,31 @@ pub(super) fn try_handle(
 
 /// True for a trusted local or a remote-entry connection. A poisoned
 /// registry lock refuses (fail closed).
-fn transport_allows_fs(mux: &Mux, client: u64) -> bool {
-    mux.control_clients.transport_of(client).is_some_and(|transport| {
-        matches!(transport, ClientTransport::Unix | ClientTransport::Remote)
+pub(super) fn transport_allows_fs(mux: &Mux, client: u64) -> bool {
+    let record = {
+        let state =
+            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.clients.get(&client).map(|record| (record.transport, record.native_vm_kind))
+    };
+    record.is_some_and(|(transport, vm_kind)| {
+        transport_allows_fs_in(crate::fs_ops::owner_only(), transport, vm_kind)
     })
+}
+
+/// The local socket and the link's remote entry may use file ops. On a machine of the person's own
+/// ([`crate::fs_ops::owner_only`]) only the owner's connections may: the local socket unstamped
+/// (same user) or stamped owner by the carrier, and a remote dial signed for the owner.
+pub(super) fn transport_allows_fs_in(
+    owner_only: bool,
+    transport: ClientTransport,
+    vm_kind: Option<Option<cmux_link::token::VmKind>>,
+) -> bool {
+    use cmux_link::token::VmKind;
+    match transport {
+        ClientTransport::Unix => !owner_only || matches!(vm_kind, None | Some(Some(VmKind::Owner))),
+        ClientTransport::Remote => !owner_only || vm_kind == Some(Some(VmKind::Owner)),
+        _ => false,
+    }
 }
 
 /// The answer to one `fs.*` request line. `owner` keys the caller's
@@ -212,7 +257,7 @@ pub(super) fn route_first_line_of(
     let (first, rest) = read_first_line(&stream, entry.first_line_deadline)?;
     let admitted = std::str::from_utf8(&first)
         .ok()
-        .filter(|line| gate.admit(peer, line) && native_dial_admits(native_vm_kind, line));
+        .filter(|line| gate.admit(peer, line) && remote_dial_admits(native_vm_kind, line));
     // A projection's dial (projection.rs): its manifest, then the Mac's answers, raw.
     if let Some(line) = admitted.filter(|line| crate::projection::frame_command(line).is_some()) {
         serve_projection(mux, peer, entry.service, line, rest, stream);
