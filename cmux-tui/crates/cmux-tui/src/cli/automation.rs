@@ -1083,8 +1083,148 @@ fn runner_path(installer: Option<&str>) -> String {
     dirs.join(":")
 }
 
-/// A launchd agent that keeps `cmux automation runner` running for this user.
+/// The systemd user unit that keeps the runner running on Linux.
+const SYSTEMD_UNIT: &str = "cmux-automations.service";
+
+/// `$XDG_CONFIG_HOME/systemd/user/cmux-automations.service` (default `~/.config`).
+fn systemd_unit_path() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    Some(base.join("systemd/user").join(SYSTEMD_UNIT))
+}
+
+/// One systemd unit-file word in double quotes: `\` and `"` escaped, `%`
+/// doubled (a specifier otherwise), so a path with spaces stays one word.
+fn systemd_quote(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"").replace('%', "%%"))
+}
+
+/// The unit: the runner with the store and `PATH` the installing shell had,
+/// restarted when it stops, started with the user's manager (at boot when
+/// linger is on).
+fn systemd_unit(exe: &str, store: &str, path: &str, log: &str) -> String {
+    let log = log.replace('%', "%%");
+    format!(
+        "[Unit]\nDescription=cmux automation runner\n\n[Service]\nType=simple\nExecStart={} automation runner\nEnvironment={}\nEnvironment={}\nRestart=always\nRestartSec=5\nStandardOutput=append:{log}\nStandardError=append:{log}\n\n[Install]\nWantedBy=default.target\n",
+        systemd_quote(exe),
+        systemd_quote(&format!("CMUX_AUTOMATIONS_DIR={store}")),
+        systemd_quote(&format!("PATH={path}")),
+    )
+}
+
+/// `systemctl --user ARGS`, with the user manager's bus at `/run/user/<uid>`
+/// when the caller has no `XDG_RUNTIME_DIR` (ssh without a session, an exec API).
+fn systemctl_user(args: &[&str]) -> bool {
+    let mut cmd = cmux_process::Command::new("systemctl");
+    cmd.arg("--user")
+        .args(args)
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null());
+    if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+        // SAFETY: getuid has no failure mode.
+        cmd.env("XDG_RUNTIME_DIR", format!("/run/user/{}", unsafe { libc::getuid() }));
+    }
+    cmd.status().is_ok_and(|s| s.success())
+}
+
+/// This user's login name (`loginctl` needs it when there is no session).
+fn user_name() -> Option<String> {
+    if let Some(u) = std::env::var("USER").ok().filter(|u| !u.is_empty()) {
+        return Some(u);
+    }
+    // SAFETY: getpwuid returns a pointer into static storage or null; it is
+    // read at once, before any other call that could reuse it.
+    unsafe {
+        let pw = libc::getpwuid(libc::getuid());
+        if pw.is_null() || (*pw).pw_name.is_null() {
+            return None;
+        }
+        std::ffi::CStr::from_ptr((*pw).pw_name).to_str().ok().map(str::to_string)
+    }
+}
+
+/// Whether linger is on for `user` (the user's manager runs from boot, with no
+/// login), turning it on when logind allows it without root (stock polkit does).
+fn ensure_linger(user: &str) -> bool {
+    let on = || {
+        cmux_process::Command::new("loginctl")
+            .args(["show-user", user, "-p", "Linger", "--value"])
+            .stderr(cmux_process::Stdio::null())
+            .output()
+            .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "yes")
+    };
+    if on() {
+        return true;
+    }
+    let _ = cmux_process::Command::new("loginctl")
+        .args(["enable-linger", user])
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .status();
+    on()
+}
+
+/// Linux: a systemd user unit (launchd is macOS only), enabled and started
+/// now, with linger so it also runs from boot with nobody logged in.
+fn install_systemd(out: &Out) -> Outcome {
+    let output = out.mode;
+    let store = open_store()?;
+    let exe = std::env::current_exe().map_err(|e| Failure::Store(e.into()))?;
+    let unit = systemd_unit_path().ok_or_else(|| Failure::Usage(messages().no_home.into()))?;
+    let log = store.root().join("runner.log");
+    let body = systemd_unit(
+        &exe.to_string_lossy(),
+        &store.root().to_string_lossy(),
+        &runner_path(std::env::var("PATH").ok().as_deref()),
+        &log.to_string_lossy(),
+    );
+    if let Some(dir) = unit.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| Failure::Store(e.into()))?;
+    }
+    std::fs::write(&unit, body).map_err(|e| Failure::Store(e.into()))?;
+    let linger = user_name().is_some_and(|u| ensure_linger(&u));
+    let ok = systemctl_user(&["daemon-reload"])
+        && systemctl_user(&["enable", SYSTEMD_UNIT])
+        && systemctl_user(&["restart", SYSTEMD_UNIT]);
+    if output == OutputMode::Json {
+        out.value(&json!({ "installed": ok, "unit": unit, "linger": linger }));
+    } else if output != OutputMode::Quiet {
+        let unit_text = unit.to_string_lossy();
+        if ok {
+            println!("{}", messages().installed_systemd.replace("{unit}", &unit_text));
+        } else {
+            println!("{}", messages().install_failed_systemd.replace("{unit}", &unit_text));
+        }
+        if !linger {
+            let user = user_name().unwrap_or_else(|| "$USER".into());
+            println!("{}", messages().linger_off.replace("{user}", &user));
+        }
+    }
+    Ok(if ok { 0 } else { 1 })
+}
+
+fn uninstall_systemd(out: &Out) -> Outcome {
+    let output = out.mode;
+    let unit = systemd_unit_path().ok_or_else(|| Failure::Usage(messages().no_home.into()))?;
+    let _ = systemctl_user(&["disable", "--now", SYSTEMD_UNIT]);
+    let _ = std::fs::remove_file(&unit);
+    let _ = systemctl_user(&["daemon-reload"]);
+    if output == OutputMode::Json {
+        out.value(&json!({ "uninstalled": true }));
+    } else if output != OutputMode::Quiet {
+        println!("{}", messages().uninstalled);
+    }
+    Ok(0)
+}
+
+/// A launchd agent that keeps `cmux automation runner` running for this user
+/// (macOS); a systemd user unit on Linux.
 fn install(out: &Out) -> Outcome {
+    if cfg!(target_os = "linux") {
+        return install_systemd(out);
+    }
     let output = out.mode;
     let store = open_store()?;
     let exe = std::env::current_exe().map_err(|e| Failure::Store(e.into()))?;
@@ -1115,6 +1255,9 @@ fn install(out: &Out) -> Outcome {
 }
 
 fn uninstall(out: &Out) -> Outcome {
+    if cfg!(target_os = "linux") {
+        return uninstall_systemd(out);
+    }
     let output = out.mode;
     let plist = plist_path().ok_or_else(|| Failure::Usage(messages().no_home.into()))?;
     // SAFETY: as above.
@@ -1619,6 +1762,26 @@ mod tests {
             runner_path(None),
             "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         );
+    }
+
+    #[test]
+    fn the_systemd_unit_keeps_paths_whole_and_specifiers_literal() {
+        let unit = systemd_unit(
+            "/opt/my cmux/cmux",
+            "/home/a/50%/store",
+            "/usr/bin:/bin",
+            "/l/runner.log",
+        );
+        assert!(unit.contains("ExecStart=\"/opt/my cmux/cmux\" automation runner\n"), "{unit}");
+        assert!(
+            unit.contains("Environment=\"CMUX_AUTOMATIONS_DIR=/home/a/50%%/store\"\n"),
+            "{unit}"
+        );
+        assert!(unit.contains("Environment=\"PATH=/usr/bin:/bin\"\n"), "{unit}");
+        assert!(unit.contains("Restart=always\n"), "{unit}");
+        assert!(unit.contains("StandardOutput=append:/l/runner.log\n"), "{unit}");
+        assert!(unit.ends_with("[Install]\nWantedBy=default.target\n"), "{unit}");
+        assert_eq!(systemd_quote("a\"b\\c"), "\"a\\\"b\\\\c\"");
     }
 
     #[test]
