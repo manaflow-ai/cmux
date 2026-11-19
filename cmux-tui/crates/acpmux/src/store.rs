@@ -40,6 +40,7 @@ pub use log_bytes::{
 };
 mod meta_parts;
 pub use meta_parts::PARTS_FILE;
+pub(crate) use meta_parts::to_writer_without_parts;
 mod shared_value;
 mod text_index;
 pub use shared_value::{SharedRows, SharedValue};

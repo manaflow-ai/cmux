@@ -1821,7 +1821,7 @@ impl Hub {
         }
         let session = self.make_session(meta);
         if let Some(meta) = saved_meta {
-            session.meta_writer.note_saved(meta);
+            session.meta_writer.note_saved(&meta);
         }
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
