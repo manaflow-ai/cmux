@@ -194,3 +194,84 @@ async fn a_429_storm_holds_the_chat_backs_off_and_loses_no_message() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The backoff is the session's, not the turn's (the 2026-11-19 NIGHTLY storm, cmux#47337). The
+/// first turn hits the limit and is held; a message from another agent queues; at the reset it
+/// takes the continuation's place (`folded`) and hits the limit again. That second hold must not
+/// start over at the first step, and no hold's deadline may move earlier: #45977's continuation
+/// moved the failure's deadline to its own first step, and every folded turn began the waits
+/// again, so a coordinator under a 429 sent more full-context requests than before the hold.
+#[tokio::test]
+async fn a_folded_turn_that_hits_the_limit_again_holds_longer_not_from_the_first_step() {
+    const WAITS: [u64; 3] = [300, 900, 2_700];
+    let root = std::env::temp_dir().join(format!("acpmux-429-fold-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let limit = root.join("rate-limited");
+    std::fs::write(&limit, "").unwrap();
+    let env =
+        BTreeMap::from([("FAKE_RATE_LIMIT_FILE".to_owned(), limit.to_string_lossy().into_owned())]);
+    let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(WAITS.to_vec());
+    let id = new_session(&mut c, "coord-fold").await;
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({
+                "sessionId": id, "prompt": [{"type": "text", "text": "plan the day"}],
+                "_meta": {"acpmux": {"promptId": "p-coord"}}
+            }),
+        )
+        .await;
+    assert!(r.unwrap_err().contains("429"));
+    c.send(method::SESSION_PROMPT, from_agent(&id, "m-0", "lane-0", "report 0")).await;
+
+    // The message's turn takes the continuation's place and fails on the limit too.
+    let k = until(&hub, &id, |k| {
+        k.iter().filter(|k| *k == "turn_result").count() >= 2
+            && k.iter().filter(|k| *k == "rate_limit_held").count() >= 2
+    })
+    .await;
+    // Let the second failure's continuation set its own wait.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let results: Vec<u64> = of_kind(&hub, &id, "turn_result").iter().map(|e| e.at).collect();
+    assert!(results.len() >= 2, "{k:?}");
+    let skipped = of_kind(&hub, &id, "auto_resume_skipped");
+    assert!(skipped.iter().any(|e| e.msg["skipped"] == "folded"), "no fold: {k:?}");
+
+    // Every deadline each failure's hold took, in order: none moves earlier than the one before.
+    let held = of_kind(&hub, &id, "rate_limit_held");
+    let hold_of = |i: usize| -> Vec<u64> {
+        let next = results.get(i + 1).copied().unwrap_or(u64::MAX);
+        held.iter()
+            .filter(|e| e.at >= results[i] && e.at < next)
+            .map(|e| e.msg["until"].as_u64().unwrap())
+            .collect()
+    };
+    let (first, second) = (hold_of(0), hold_of(1));
+    for deadlines in [&first, &second] {
+        assert!(
+            deadlines.windows(2).all(|w| w[1] >= w[0]),
+            "a hold's deadline moved earlier: {deadlines:?} (failures at {results:?})"
+        );
+    }
+    let length = |deadlines: &[u64], i: usize| deadlines.last().unwrap() - results[i];
+    let (a, b) = (length(&first, 0), length(&second, 1));
+    eprintln!(
+        "429 fold: first hold {a} ms {first:?}, second hold {b} ms {second:?}, waits {WAITS:?}"
+    );
+    // The second 429 in a row waits the second step: three times the first, less the stagger.
+    assert!(
+        b * 2 >= a * 3,
+        "the folded turn's hold started the backoff over: first {a} ms, second {b} ms \
+         (configured {WAITS:?}; deadlines {first:?} then {second:?})"
+    );
+    let cap = WAITS[WAITS.len() - 1];
+    assert!(b <= cap + cap / 5 + 100, "a hold past the longest wait: {b} ms");
+
+    // The limit lifts: the report goes in with a completed turn.
+    std::fs::remove_file(&limit).unwrap();
+    let k = until(&hub, &id, |_| completed_texts(&hub, &id).contains("report 0")).await;
+    assert!(completed_texts(&hub, &id).contains("report 0"), "the report was lost: {k:?}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
