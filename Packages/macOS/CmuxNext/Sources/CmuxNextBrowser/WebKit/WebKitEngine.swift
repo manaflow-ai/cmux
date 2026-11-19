@@ -144,7 +144,14 @@ public final class WebKitEngine: BrowserEngine {
         }
         openTabs.add(tab)
         if let url = configuration.initialURL {
-            tab.load(url)
+            if let loadsAfter {
+                loadsAfter { [weak tab] in
+                    guard let tab, tab.webView.url == nil, !tab.webView.isLoading else { return } // the person's navigation started first
+                    tab.load(url)
+                }
+            } else {
+                tab.load(url)
+            }
         }
         return tab
     }
