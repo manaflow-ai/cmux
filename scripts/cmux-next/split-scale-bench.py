@@ -55,6 +55,7 @@ Needs a bench or DEBUG build (the debug.* control methods). Kills only what it s
 (bench_memory.end_bundle of its bundle) and the seeding daemon.
 """
 import argparse
+import fnmatch
 import importlib.util
 import json
 import os
@@ -63,6 +64,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import uuid
@@ -105,6 +107,10 @@ parser.add_argument("--settle", type=float, default=0.8, help="seconds between t
 parser.add_argument("--vdisplay", type=float, default=0,
                     help="a 1920 x 1200 virtual main display at this rate (perf-stress-session's helper); "
                          "0 measures on the host's display (split-spring.sh --vdisplay makes its own)")
+parser.add_argument("--keep-frames", default="",
+                    help="comma-separated fnmatch patterns of round labels (CELL-TRANSITION-ROUND, such as "
+                         "'s1-browser-w30-bottom_open-0'): those rounds' frames, frame times and trace go to "
+                         "--out/frames.tar.gz, with an mp4 at the frames' own times when ffmpeg is on PATH")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts, _unknown = parser.parse_known_args()
@@ -404,11 +410,56 @@ def record(run, gesture, label, content="focused", static=True):
                 trace = json.load(handle)
         except (OSError, ValueError) as error:
             trace = {"error": f"trace: {error}"}
+    keep(label, folder, strip)
     shutil.rmtree(folder, ignore_errors=True)
     key = strip.get("key") if isinstance(strip.get("key"), dict) else {}
     if key.get("error"):
         strip = {"error": f"input: {key['error']}"}
     return ssm.transition(strip, trace, opts.strip_tolerance, static=static)
+
+
+KEEP = [p.strip() for p in opts.keep_frames.split(",") if p.strip()]
+
+
+def keep(label, folder, strip):
+    """A --keep-frames round: its frames, the strip's per-frame times (strip.json) and the trace, kept under
+    --out/frames/LABEL, with frames.mp4 showing each frame for as long as the screen held it."""
+    if not opts.out or not any(fnmatch.fnmatch(label, p) for p in KEEP):
+        return
+    dest = os.path.join(opts.out, "frames", label)
+    shutil.rmtree(dest, ignore_errors=True)
+    shutil.copytree(folder, dest)
+    with open(os.path.join(dest, "strip.json"), "w") as handle:
+        json.dump(strip, handle, indent=1)
+    frames = [f for f in strip.get("frames") or [] if isinstance(f, dict) and f.get("file")
+              and isinstance(f.get("ms"), (int, float)) and os.path.exists(os.path.join(dest, f["file"]))]
+    if not frames or not shutil.which("ffmpeg"):
+        return
+    # The concat demuxer's durations are the gaps between frames, so the clip plays at the screen's own pace.
+    lines = []
+    for here, after in zip(frames, frames[1:] + [None]):
+        gap = ((after["ms"] - here["ms"]) if after else 100) / 1000
+        lines += [f"file '{here['file']}'", f"duration {max(gap, 0.001):.4f}"]
+    lines.append(f"file '{frames[-1]['file']}'")
+    with open(os.path.join(dest, "frames.txt"), "w") as handle:
+        handle.write("\n".join(lines) + "\n")
+    try:
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", "frames.txt",
+                        "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-fps_mode", "vfr", "-pix_fmt", "yuv420p",
+                        "frames.mp4"], cwd=dest, capture_output=True, timeout=120, check=False)
+    except subprocess.TimeoutExpired:
+        say(f"split-scale: ffmpeg took over 120 s on {label}; its frames are kept without a clip")
+
+
+def pack_frames():
+    """--out/frames.tar.gz: every kept round and report.json, one file a step can return."""
+    frames = os.path.join(opts.out or "", "frames")
+    if not KEEP or not opts.out or not os.path.isdir(frames):
+        return
+    with tarfile.open(os.path.join(opts.out, "frames.tar.gz"), "w:gz") as tar:
+        tar.add(frames, arcname="frames")
+        if opts.json and os.path.exists(opts.json):
+            tar.add(opts.json, arcname="report.json")
 
 
 def side_toggle(run, label, want, static):
@@ -571,6 +622,7 @@ def finish(results):
     if opts.md:
         with open(opts.md, "w") as handle:
             handle.write("```\n" + text + "\n```\n")
+    pack_frames()
 
 
 def main():
