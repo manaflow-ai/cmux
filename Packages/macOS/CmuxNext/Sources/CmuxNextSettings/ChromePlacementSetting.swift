@@ -27,6 +27,8 @@ public nonisolated struct ChromePlacementSetting {
         _ = SidebarSurfaceSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applySidebarSurface`)
         _ = TitleAreaContrastSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyTitleAreaContrast`)
         _ = TitleAreaToneSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyTitleAreaTone`)
+        _ = ToolbarButtonStyleSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyToolbarButtonStyle`)
+        _ = HomeCardStyleSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyHomeCardStyle`)
     }
 
     private static func choice<Value: RawRepresentable & CaseIterable>(
@@ -54,8 +56,10 @@ extension SettingsApplier {
         if design.browserShowsLoadingBar != snapshot.browserShowLoadingBar { design.browserShowsLoadingBar = snapshot.browserShowLoadingBar }
         if design.paneBackgrounds != snapshot.paneBackgrounds { design.paneBackgrounds = snapshot.paneBackgrounds }
         applyChromeStyle(snapshot, to: design)
+        applyToolbarButtonStyle(snapshot, to: design)
         applySidebarSurface(snapshot, to: design)
         applyTitleAreaContrast(snapshot, to: design)
         applyTitleAreaTone(snapshot, to: design)
+        applyHomeCardStyle(snapshot, to: design)
     }
 }

@@ -69,7 +69,7 @@ extension AgentPaneDisplaySettingsSchema {
     /// `agentPane.display.sessionInfo.placement`: Where the chat's Session Info opens (webviews/src/agent-session/acpmux/session-info/SessionInfo.tsx). It was agentPane.display.inspector.placement (RenamedSettingKeys).
     nonisolated static let sessionInfoPlacementPath = ["agentPane", "display", "sessionInfo", "placement"]
     nonisolated static let sessionInfoPlacementDefault = "overlay"
-    nonisolated static let sessionInfoPlacementValues = ["push", "overlay"]
+    nonisolated static let sessionInfoPlacementValues = ["push", "overlay", "inline"]
     /// `agentPane.display.environment.placement`: The machine and folder chip below the tab row (webviews/.../header/EnvironmentLine.tsx).
     nonisolated static let environmentPlacementPath = ["agentPane", "display", "environment", "placement"]
     nonisolated static let environmentPlacementDefault = "left"

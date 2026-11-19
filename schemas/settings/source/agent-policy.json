@@ -287,6 +287,8 @@
         "appearance.borders",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
+        "appearance.toolbarButtonStyle",
+        "appearance.homeCardStyle",
         "appearance.titleAreaTone",
         "appearance.titleAreaContrast",
         "appearance.focusIndicator",

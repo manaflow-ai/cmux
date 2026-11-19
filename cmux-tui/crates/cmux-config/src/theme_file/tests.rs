@@ -185,6 +185,36 @@ fn a_theme_file_sets_the_terminal_font_and_the_sidebar_shape() {
     );
 }
 
+/// Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot
+/// deeper too. prob likewise the session info and the top right buttons as
+/// well". A theme sets the toolbar's buttons, Session Info and the sidebar's
+/// buttons, and carries its own density (the app reads it), which the
+/// schema checks.
+#[test]
+fn a_theme_file_sets_the_buttons_session_info_and_its_own_density() {
+    let file = overlay(
+        r#"{ "tabs.toolbarButtons": ["file.open"], "window.titlebarButtons": "always", "sidebar.showSearchButton": false, "agentPane.display.sessionInfo.placement": "overlay", "density": { "basedOn": "compact", "tokens": { "tabCornerRadius": 2 } } }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert_eq!(
+        file.keys(),
+        [
+            "agentPane.display.sessionInfo.placement",
+            "sidebar.showSearchButton",
+            "tabs.toolbarButtons",
+            "window.titlebarButtons"
+        ]
+    );
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let validator = jsonschema::validator_for(&schema).expect("a valid schema");
+    assert!(
+        validator
+            .is_valid(&json!({"density": {"basedOn": "cozy", "tokens": {"sidebarWidth": 250}}}))
+    );
+    assert!(!validator.is_valid(&json!({"density": {"basedOn": "huge"}})));
+    assert!(!validator.is_valid(&json!({"density": {"tokens": {"tabCornerRadius": "round"}}})));
+}
+
 #[test]
 fn a_relative_picture_resolves_against_the_themes_folder() {
     let folder = Path::new("/tmp/cmux-config/themes");
@@ -405,6 +435,60 @@ fn with_no_theme_file_nothing_changes() {
     );
     assert_eq!(state.effective().root, plain.root);
     assert!(state.theme_file().is_none());
+}
+
+/// `appearance.toolbarButtonStyle` (standard, plain, grouped, glass) is a look a theme file sets; any other value is
+/// refused by the schema's choices, as `cmux settings set` refuses it. Absent, the file changes nothing (standard).
+#[test]
+fn a_theme_file_sets_the_toolbar_button_style() {
+    for style in ["standard", "plain", "grouped", "glass"] {
+        let file = overlay(&format!(r#"{{ "appearance.toolbarButtonStyle": "{style}" }}"#));
+        assert!(file.diagnostics.is_empty(), "{style}: {:?}", file.diagnostics);
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, "appearance.toolbarButtonStyle"), Some(&json!(style)));
+    }
+    let shiny = overlay(r#"{ "appearance.toolbarButtonStyle": "shiny" }"#);
+    assert!(shiny.keys().is_empty());
+    let refused = shiny
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.toolbarButtonStyle")
+        .expect("shiny refused");
+    assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
+}
+
+/// The sidebar's width and buttons are looks a theme file sets: `appearance.metrics.sidebarWidth` within its range,
+/// and the sidebar's button toggles.
+#[test]
+fn a_theme_file_sets_the_sidebar_width_and_buttons() {
+    let file = overlay(
+        r#"{ "appearance.metrics.sidebarWidth": 300, "sidebar.showSearchButton": false, "sidebar.showProfileControl": false, "sidebar.showNewWorkspaceChooser": false, "sidebar.controlsOnHover": true }"#,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, "appearance.metrics.sidebarWidth"), Some(&json!(300)));
+    assert_eq!(at(&root, "sidebar.showSearchButton"), Some(&json!(false)));
+    assert_eq!(at(&root, "sidebar.controlsOnHover"), Some(&json!(true)));
+}
+
+/// `appearance.homeCardStyle` (standard, flat, raised, glass) is a look a theme file sets for Home's and the New Tab
+/// page's cards; any other value is refused by the schema's choices, as `cmux settings set` refuses it.
+#[test]
+fn a_theme_file_sets_the_home_card_style() {
+    for style in ["standard", "flat", "raised", "glass"] {
+        let file = overlay(&format!(r#"{{ "appearance.homeCardStyle": "{style}" }}"#));
+        assert!(file.diagnostics.is_empty(), "{style}: {:?}", file.diagnostics);
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, "appearance.homeCardStyle"), Some(&json!(style)));
+    }
+    let wobbly = overlay(r#"{ "appearance.homeCardStyle": "wobbly" }"#);
+    assert!(wobbly.keys().is_empty());
+    let refused = wobbly
+        .diagnostics
+        .iter()
+        .find(|d| d.path == "appearance.homeCardStyle")
+        .expect("wobbly refused");
+    assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
 }
 
 /// #44894: a key the person changed in Settings while the theme file sets it

@@ -242,6 +242,18 @@ extension ChromeStyleSetting {
     public nonisolated static let fallback: ChromeStyle = .flat
 }
 
+extension ToolbarButtonStyleSetting {
+    /// `appearance.toolbarButtonStyle`: How the buttons at a pane's top right (the pinned tab bar buttons, Exit Zoom and the pane's ⋮) and the tab bar's + and ⌄ draw. standard (the default) is today's look, unchanged. plain: bare glyphs, a fill only under the pointer. grouped: one filled pill holds the pane's buttons. glass: that pill in see-through glass with a rim. A theme file sets it like any appearance.* key; a change applies at once (ToolbarButtonStyleSetting, PaneToolbarView). Leo 2026-11-18: "you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the session info and the top right buttons as well".
+    public nonisolated static let configPath = ["appearance", "toolbarButtonStyle"]
+    public nonisolated static let fallback: ToolbarButtonStyle = .standard
+}
+
+extension HomeCardStyleSetting {
+    /// `appearance.homeCardStyle`: How the cards on Home and the New Tab page draw: the recent chats' cards, the environment and suggestions cards over the composer, and the Home lists under a new chat's composer. standard (the default) is today's look, unchanged. flat: a tonal fill, no edge, no shadow. raised: an elevated card with a hairline and a soft shadow. glass: see-through cards with a rim over the window's picture. A theme file sets it like any appearance.* key; a change applies at once (HomeCardStyleSetting, AgentPaneTheme homeCardStyle, the page's data-home-cards). Leo 2026-11-18: "you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the session info and the top right buttons as well" / "how about the customizations for claude/codex/t3code aka "studio" ... alongside customizing tabs and whatnot".
+    public nonisolated static let configPath = ["appearance", "homeCardStyle"]
+    public nonisolated static let fallback: HomeCardStyle = .standard
+}
+
 extension TitleAreaToneSetting {
     /// `appearance.titleAreaTone`: One colour (the default: no shade; the sidebar's edge line, the split panes' lines, the tab row's divider and the selected tab's pill separate) or a subtle tone (half the flush corner's frame shade, scaled by appearance.titleAreaContrast; the selected tab is a folder tab in the content's glass). Only the default flush-corner frame follows it; a picked chrome style keeps its own shade. Leo 2026-11-12: the default is mono-ish as Lawrence wants, with the divider kept across most panes; a refined subtle tone is the option.
     public nonisolated static let configPath = ["appearance", "titleAreaTone"]

@@ -1,0 +1,159 @@
+/* The golden chrome preview. Every shape reads a --gc-* variable that GoldenChrome sets from one look's
+   Density Playground tokens, so the tabs, the sidebar's rows and vertical tabs, the buttons, Session Info
+   and the Home cards change together. Colors come from the gallery theme (--cmux-*), light or dark. */
+.golden-chrome {
+  --gc-ink: var(--cmux-text, var(--agent-text, #1d1f24));
+  --gc-muted: var(--cmux-text-secondary, var(--agent-muted, #6b7180));
+  --gc-accent: var(--cmux-accent, var(--agent-accent, #3d7bff));
+  --gc-window: var(--cmux-surface-background, var(--cmux-app-window, #f4f5f7));
+  --gc-line: color-mix(in srgb, var(--gc-ink) 11%, transparent);
+  --gc-fill: color-mix(in srgb, var(--gc-ink) 6%, transparent);
+  --gc-fill-strong: color-mix(in srgb, var(--gc-ink) 10%, transparent);
+  --gc-selected: color-mix(in srgb, var(--gc-accent) 18%, transparent);
+  --gc-sidebar-bg: color-mix(in srgb, var(--gc-window) 72%, transparent);
+  --gc-pane-bg: color-mix(in srgb, var(--gc-window) 94%, transparent);
+  --gc-card-bg: color-mix(in srgb, var(--gc-ink) 5%, var(--gc-window));
+  --gc-glass: color-mix(in srgb, var(--gc-window) 46%, transparent);
+  --gc-rim: color-mix(in srgb, white 34%, transparent);
+  --gc-shadow: 0 1px 2px rgb(0 0 0 / 8%), 0 6px 18px rgb(0 0 0 / 10%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 100%;
+  padding: 18px;
+  color: var(--gc-ink);
+  font: 500 13px/1.3 var(--font-ui, system-ui);
+  box-sizing: border-box;
+}
+@media (prefers-color-scheme: dark) {
+  .golden-chrome {
+    --gc-ink: var(--cmux-text, var(--agent-text, #eef0f5));
+    --gc-muted: var(--cmux-text-secondary, var(--agent-muted, #9aa1b0));
+    --gc-window: var(--cmux-surface-background, var(--cmux-app-window, #1b1d22));
+    --gc-rim: color-mix(in srgb, white 14%, transparent);
+    --gc-shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 22px rgb(0 0 0 / 34%);
+  }
+}
+.golden-chrome *,
+.golden-chrome *::before { box-sizing: border-box; }
+.golden-chrome button { font: inherit; color: inherit; border: 0; background: transparent; padding: 0; }
+
+.gc-icon { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The window: the picture behind it shows through the sidebar and every glass surface. */
+.gc-window {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--cmux-app-background-image, url("./assets/liquid-glass-wallpaper.jpg")) center / cover;
+  box-shadow: 0 0 0 1px var(--gc-line), 0 18px 50px rgb(0 0 0 / 22%);
+}
+
+/* Sidebar: width, row height and the rows' corner. */
+.gc-sidebar {
+  width: var(--gc-sidebar-width);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 8px 10px;
+  background: var(--gc-sidebar-bg);
+  backdrop-filter: blur(26px) saturate(1.5);
+  border-right: 1px solid var(--gc-line);
+}
+.gc-titlebar { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 6px; }
+.gc-lights { display: flex; gap: 8px; }
+.gc-lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+.gc-lights i:nth-child(2) { background: #febc2e; }
+.gc-lights i:nth-child(3) { background: #28c840; }
+.gc-sidebar-button { display: grid; place-items: center; width: var(--gc-control-height); height: var(--gc-control-height); border-radius: var(--gc-item-radius); color: var(--gc-muted); }
+.gc-row { display: flex; align-items: center; gap: 8px; height: var(--gc-row-height); padding: 0 8px; border-radius: var(--gc-row-radius); white-space: nowrap; }
+.gc-row[aria-selected="true"] { background: var(--gc-selected); }
+.gc-row .gc-icon { color: var(--gc-muted); }
+.gc-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.gc-row-trail { color: var(--gc-muted); font-size: 11px; }
+.gc-section { margin: 12px 8px 4px; color: var(--gc-muted); font-size: 11px; font-weight: 650; letter-spacing: .03em; text-transform: uppercase; }
+.gc-vtabs { display: flex; flex-direction: column; gap: 2px; margin: 0 0 2px 16px; padding-left: 8px; border-left: 1.5px solid var(--gc-line); }
+.gc-vtab { height: calc(var(--gc-row-height) - 2px); border-radius: var(--gc-vtab-radius); font-size: 12.5px; }
+.gc-vtab[aria-selected="true"] { background: var(--gc-fill-strong); }
+.gc-sidebar-foot { margin-top: auto; }
+.gc-sidebar-new { display: flex; align-items: center; gap: 8px; width: 100%; height: var(--gc-control-height); padding: 0 10px; border-radius: var(--gc-item-radius); background: var(--gc-fill); color: var(--gc-muted); }
+
+/* Panes. */
+.gc-main { flex: 1; min-width: 0; display: grid; grid-template-columns: 1.25fr 1fr; gap: 6px; padding: 6px; }
+.gc-pane { min-width: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: var(--gc-pane-radius); background: var(--gc-pane-bg); box-shadow: 0 0 0 1px var(--gc-line); }
+
+/* Tab strip: tab height, gap and corner. */
+.gc-strip { display: flex; align-items: center; gap: 8px; height: calc(var(--gc-tab-height) + 12px); padding: 0 6px; border-bottom: 1px solid var(--gc-line); }
+.gc-tabs { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--gc-tab-gap); }
+.gc-tab { display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 200px; height: var(--gc-tab-height); padding: 0 10px; border-radius: var(--gc-tab-radius); color: var(--gc-muted); white-space: nowrap; }
+.gc-tab[aria-selected="true"] { color: var(--gc-ink); background: var(--gc-fill-strong); }
+.gc-tab:not([aria-selected="true"]) { background: color-mix(in srgb, var(--gc-ink) 3%, transparent); }
+.gc-tab-title { overflow: hidden; text-overflow: ellipsis; }
+.gc-tab-close { margin-left: 2px; color: var(--gc-muted); }
+.gc-plus { display: grid; place-items: center; width: var(--gc-tab-height); height: var(--gc-tab-height); border-radius: var(--gc-tab-radius); color: var(--gc-muted); }
+
+/* Top right buttons: plain, grouped or glass (a proposed style key). */
+.gc-toolbar { display: flex; align-items: center; gap: 2px; color: var(--gc-muted); }
+.gc-toolbar-button { display: grid; place-items: center; width: var(--gc-control-height); height: var(--gc-control-height); border-radius: var(--gc-item-radius); }
+.golden-chrome[data-buttons="plain"] .gc-toolbar-button[data-first] { background: var(--gc-fill); color: var(--gc-ink); }
+.golden-chrome[data-buttons="grouped"] .gc-toolbar { gap: 0; padding: 0 2px; border-radius: max(var(--gc-item-radius), 4px); background: var(--gc-fill-strong); }
+.golden-chrome[data-buttons="grouped"] .gc-toolbar-button + .gc-toolbar-button { border-left: 1px solid var(--gc-line); border-radius: 0; }
+.golden-chrome[data-buttons="glass"] .gc-toolbar { gap: 0; padding: 0 4px; border-radius: 999px; background: var(--gc-glass); backdrop-filter: blur(18px) saturate(1.6); box-shadow: inset 0 0 0 1px var(--gc-rim), var(--gc-shadow); color: var(--gc-ink); }
+.golden-chrome[data-buttons="glass"] .gc-toolbar-button { border-radius: 999px; }
+
+/* Chat with Session Info: docked (push), floating (overlay) or inline (proposed). */
+.gc-chat-body { position: relative; flex: 1; min-height: 0; display: flex; }
+.gc-transcript { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 18px; }
+.gc-msg { max-width: 46ch; color: var(--gc-ink); }
+.gc-msg-you { align-self: flex-end; padding: 8px 12px; border-radius: var(--gc-panel-radius); background: var(--gc-fill-strong); }
+.gc-line { height: 8px; width: 78%; border-radius: 4px; background: var(--gc-fill-strong); }
+.gc-line.short { width: 52%; }
+.gc-composer { margin-top: auto; padding: 12px 14px; border-radius: var(--gc-panel-radius); color: var(--gc-muted); box-shadow: inset 0 0 0 1px var(--gc-line); background: var(--gc-fill); }
+.gc-session { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+.gc-session-section { display: flex; flex-direction: column; gap: 7px; }
+.gc-session-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; font-weight: 650; }
+.gc-session-value { color: var(--gc-muted); font-weight: 500; }
+.gc-session-row { display: flex; justify-content: space-between; color: var(--gc-muted); }
+.gc-session-row > span { display: flex; align-items: center; gap: 7px; }
+.gc-session-row b { color: var(--gc-ink); font-weight: 600; }
+.gc-session-bar { display: flex; gap: 2px; height: 5px; overflow: hidden; border-radius: 3px; }
+.gc-session-bar i, .gc-session-swatch { background: var(--gc-accent); }
+.gc-session-swatch { width: 8px; height: 8px; border-radius: 2px; }
+.gc-session-bar i:nth-child(2), .gc-session-row:nth-child(4) .gc-session-swatch { background: #e0703c; }
+.gc-session-bar i:nth-child(3), .gc-session-row:nth-child(5) .gc-session-swatch { background: #2fa27a; }
+.gc-session-bar .gc-session-free { background: var(--gc-fill-strong); }
+.gc-session[data-placement="push"] { width: 200px; flex: none; padding: 10px; gap: 8px; border-left: 1px solid var(--gc-line); }
+.gc-session[data-placement="push"] .gc-session-section { padding: 10px 12px; border-radius: var(--gc-panel-radius); background: var(--gc-fill); box-shadow: inset 0 0 0 1px var(--gc-line); }
+.gc-session[data-placement="overlay"] { position: absolute; top: 12px; right: 12px; width: 200px; padding: 12px 14px; gap: 12px; border-radius: var(--gc-panel-radius); background: var(--gc-glass); backdrop-filter: blur(22px) saturate(1.6); box-shadow: inset 0 0 0 1px var(--gc-rim), var(--gc-shadow); }
+.gc-session[data-placement="overlay"] .gc-session-section + .gc-session-section { padding-top: 10px; border-top: 1px solid var(--gc-line); }
+.gc-session-inline { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; border-radius: var(--gc-item-radius); background: var(--gc-fill); color: var(--gc-muted); }
+.gc-session-chip { padding: 2px 8px; border-radius: var(--gc-tab-radius); background: var(--gc-fill-strong); }
+.gc-session-chip b { color: var(--gc-ink); font-weight: 600; }
+
+/* Home cards: appearance.homeCardStyle, standard (today's New Tab cards), flat, raised or glass. */
+.gc-home-body { flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 22px 18px; }
+.gc-home-body h3 { margin: 0; font-size: 20px; font-weight: 650; }
+.gc-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.gc-card { display: flex; flex-direction: column; gap: 6px; min-height: 92px; padding: 14px; border-radius: var(--gc-panel-radius); }
+.gc-card .gc-icon { width: 18px; height: 18px; color: var(--gc-accent); }
+.gc-card span { color: var(--gc-muted); font-size: 12px; }
+.golden-chrome[data-cards="standard"] .gc-card { background: color-mix(in srgb, var(--gc-ink) 8%, transparent); box-shadow: inset 0 0 0 0.5px var(--gc-line); }
+.golden-chrome[data-cards="flat"] .gc-card { background: var(--gc-fill-strong); }
+.golden-chrome[data-cards="raised"] .gc-card { background: var(--gc-card-bg); box-shadow: 0 0 0 1px var(--gc-line), var(--gc-shadow); }
+.golden-chrome[data-cards="glass"] .gc-home { background: color-mix(in srgb, var(--gc-window) 40%, transparent); backdrop-filter: blur(10px); }
+.golden-chrome[data-cards="glass"] .gc-card { background: var(--gc-glass); backdrop-filter: blur(20px) saturate(1.6); box-shadow: inset 0 0 0 1px var(--gc-rim), var(--gc-shadow); }
+
+/* Chrome styles the whole-window looks name (appearance.chromeStyle). */
+.golden-chrome[data-chrome="blocks"] .gc-pane { box-shadow: none; background: color-mix(in srgb, var(--gc-ink) 4%, var(--gc-window)); }
+.golden-chrome[data-chrome="blocks"] .gc-sidebar { border-right: 0; background: color-mix(in srgb, var(--gc-window) 88%, black); }
+.golden-chrome[data-chrome="floating"] .gc-main { gap: 10px; padding: 10px; }
+.golden-chrome[data-chrome="floating"] .gc-pane { box-shadow: var(--gc-shadow); }
+.golden-chrome[data-chrome="card"] .gc-main { padding: 6px 6px 6px 0; }
+
+/* The look's keys, as a theme file writes them. */
+.gc-keys { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 0 4px; color: var(--gc-muted); font-size: 12px; }
+.gc-keys b { color: var(--gc-ink); font-size: 14px; }
+.gc-keys code { flex-basis: 100%; font: 11px/1.4 var(--font-mono, ui-monospace, monospace); overflow-wrap: anywhere; }

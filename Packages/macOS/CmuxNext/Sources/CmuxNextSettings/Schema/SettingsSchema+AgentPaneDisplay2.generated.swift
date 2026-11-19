@@ -217,10 +217,11 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.agentPane.display.inspector", "Session Info"),
-                help: SettingsText.keyed("settings.agentPane.display.inspector.help", "Push narrows the chat; Overlay covers it."),
+                help: SettingsText.keyed("settings.agentPane.display.inspector.help", "Push narrows the chat; Overlay covers it; Inline puts it atop the chat."),
                 kind: .choice([
                     SettingChoice("push", SettingsText.keyed("settings.choice.agentChatInspectorPush", "Push")),
                     SettingChoice("overlay", SettingsText.keyed("settings.choice.agentChatInspectorOverlay", "Overlay")),
+                    SettingChoice("inline", SettingsText.keyed("settings.choice.agentChatInspectorInline", "Inline")),
                 ]),
                 default: .string(AgentPaneDisplaySettingsSchema.sessionInfoPlacementDefault),
                 keywords: ["agent", "chat", "acp", "display", "reading", "session", "info", "inspector", "panel", "side", "right", "overlay", "push", "details"]

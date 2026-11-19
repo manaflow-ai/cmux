@@ -1,6 +1,534 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.appearance.toolbarButtonStyle": {
+      "comment": "Settings > Appearance: the row choosing how the buttons at a pane's top right draw.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top Right Buttons"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأزرار العلوية اليمنى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dugmad gore desno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knapper øverst til højre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schaltflächen oben rechts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Botones superiores derechos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boutons en haut à droite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsanti in alto a destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上のボタン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប៊ូតុងខាងស្ដាំលើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 위 버튼"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knapper øverst til høyre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przyciski w prawym górnym rogu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Botões no canto superior direito"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки справа вверху"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มด้านขวาบน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sağ üst düğmeler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки праворуч угорі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nút góc trên bên phải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上角按钮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上角按鈕"
+          }
+        }
+      }
+    },
+    "settings.appearance.toolbarButtonStyle.help": {
+      "comment": "Help under the Top Right Buttons setting; its choices are Standard, Plain, Grouped and Glass.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How a pane's buttons draw: today's, plain glyphs, a grouped pill, or glass."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طريقة رسم أزرار اللوحة: الحالية، أو رموز بسيطة، أو كبسولة مجمّعة، أو زجاج."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kako se crtaju dugmad okna: današnja, obični simboli, grupisana kapsula ili staklo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sådan tegnes en rudes knapper: som i dag, enkle symboler, en samlet pille eller glas."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie die Schaltflächen eines Bereichs aussehen: wie bisher, schlichte Symbole, eine gemeinsame Pille oder Glas."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo se dibujan los botones del panel: los de hoy, glifos simples, una píldora agrupada o vidrio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'aspect des boutons d'un volet : actuel, glyphes simples, pilule groupée ou verre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come appaiono i pulsanti di un riquadro: quelli attuali, glifi semplici, una pillola raggruppata o vetro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのボタンの描き方：現在の表示、シンプルな記号、まとめたピル、ガラス。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបគូរប៊ូតុងផ្ទាំង៖ ដូចបច្ចុប្បន្ន និមិត្តសញ្ញាធម្មតា ក្រុមរាងគ្រាប់ថ្នាំ ឬកញ្ចក់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 버튼을 그리는 방식: 현재 모양, 단순한 기호, 묶은 알약 모양, 유리."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slik tegnes knappene i en rute: som i dag, enkle symboler, en samlet pille eller glass."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak rysowane są przyciski panelu: obecne, proste symbole, zgrupowana pigułka lub szkło."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como os botões do painel aparecem: os de hoje, glifos simples, uma pílula agrupada ou vidro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как выглядят кнопки панели: как сейчас, простые значки, общая капсула или стекло."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีวาดปุ่มของบานหน้าต่าง: แบบปัจจุบัน สัญลักษณ์เรียบ แคปซูลรวมกลุ่ม หรือกระจก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölme düğmelerinin çizimi: bugünkü, sade simgeler, gruplu bir kapsül veya cam."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як виглядають кнопки панелі: як зараз, прості значки, спільна капсула або скло."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cách vẽ các nút của ô: như hiện tại, biểu tượng đơn giản, viên thuốc gộp hoặc kính."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格按钮的样式：现有样式、简洁图标、成组胶囊或玻璃。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格按鈕的樣式：現有樣式、簡潔圖示、成組膠囊或玻璃。"
+          }
+        }
+      }
+    },
+    "settings.choice.toolbarButtonStyle.plain": {
+      "comment": "Top Right Buttons choice: bare glyphs with a fill only under the pointer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بسيط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obično"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enkel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schlicht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simple"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simple"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semplice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シンプル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធម្មតា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단순"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enkel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proste"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simples"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Простые"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เรียบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sade"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прості"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đơn giản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "简洁"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "簡潔"
+          }
+        }
+      }
+    },
+    "settings.choice.toolbarButtonStyle.grouped": {
+      "comment": "Top Right Buttons choice: one filled pill holds the pane's buttons.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grouped"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجمّع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupisano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samlet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrupados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groupés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raggruppati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជាក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "묶음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samlet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zgrupowane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrupados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จัดกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruplu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Групою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gộp nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成組"
+          }
+        }
+      }
+    },
     "settings.group.agentGuidance": {
       "comment": "Settings > Agents: group title for cmux's guidance and the person's skills",
       "extractionState": "manual",
@@ -111948,6 +112476,530 @@
         }
       }
     },
+    "settings.appearance.homeCardStyle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home Cards"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بطاقات الصفحة الرئيسية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartice početne stranice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startsidekort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startseitenkarten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarjetas de inicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartes de l’accueil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schede della Home"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームのカード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កាតទំព័រដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈 카드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hjemkort"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty strony głównej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartões do Início"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карточки главной"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การ์ดหน้าหลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana Sayfa Kartları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картки головної"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ Trang chủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主页卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主頁卡片"
+          }
+        }
+      }
+    },
+    "settings.appearance.homeCardStyle.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How the cards on Home and the New Tab page draw: today's, flat, raised, or glass."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كيف تُرسم البطاقات في الصفحة الرئيسية وصفحة علامة التبويب الجديدة: كما هي اليوم، أو مسطحة، أو مرتفعة، أو زجاجية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kako se crtaju kartice na početnoj stranici i stranici nove kartice: današnje, ravne, izdignute ili staklene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan kortene på startsiden og siden Ny fane tegnes: som i dag, flade, hævede eller glas."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie die Karten auf der Startseite und der Seite „Neuer Tab“ aussehen: wie bisher, flach, erhaben oder Glas."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo se dibujan las tarjetas en Inicio y en la página Nueva pestaña: como hoy, planas, elevadas o de cristal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’apparence des cartes de l’accueil et de la page Nouvel onglet : actuelle, plate, en relief ou en verre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come appaiono le schede nella Home e nella pagina Nuova scheda: come oggi, piatte, in rilievo o in vetro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームと新規タブページのカードの表示：現在の表示、フラット、浮き上がり、ガラス。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបដែលកាតនៅលើទំព័រដើម និងទំព័រផ្ទាំងថ្មីត្រូវបានគូរ៖ ដូចសព្វថ្ងៃ រាបស្មើ លើកឡើង ឬកញ្ចក់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "홈과 새 탭 페이지의 카드 모양: 현재 모양, 플랫, 돌출, 유리."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan kortene på Hjem og siden Ny fane tegnes: som i dag, flate, hevede eller glass."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak wyglądają karty na stronie głównej i stronie nowej karty: obecne, płaskie, uniesione lub szklane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como os cartões do Início e da página Nova aba aparecem: como hoje, planos, elevados ou de vidro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как выглядят карточки на главной и странице новой вкладки: как сейчас, плоские, приподнятые или стеклянные."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีแสดงการ์ดในหน้าหลักและหน้าแท็บใหม่: แบบปัจจุบัน แบบเรียบ แบบยกนูน หรือแบบกระจก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana Sayfa ve Yeni Sekme sayfasındaki kartların görünümü: bugünkü, düz, yükseltilmiş veya cam."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як виглядають картки на головній і сторінці нової вкладки: як зараз, пласкі, підняті чи скляні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cách vẽ các thẻ trên Trang chủ và trang Tab mới: như hiện nay, phẳng, nổi hoặc kính."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主页和新标签页上卡片的样式：当前样式、扁平、浮起或玻璃。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主頁和新分頁頁面上卡片的樣式：目前樣式、扁平、浮起或玻璃。"
+          }
+        }
+      }
+    },
+    "settings.choice.homeCardStyle.flat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسطحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ravne"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flade"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plates"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Piatte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フラット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រាបស្មើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플랫"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flate"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Płaskie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плоские"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เรียบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Düz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пласкі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phẳng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扁平"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扁平"
+          }
+        }
+      }
+    },
+    "settings.choice.homeCardStyle.raised": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raised"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرتفعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izdignute"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hævede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erhaben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elevadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En relief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In rilievo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浮き上がり"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លើកឡើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "돌출"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hevede"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uniesione"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elevados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приподнятые"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยกนูน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükseltilmiş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підняті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浮起"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浮起"
+          }
+        }
+      }
+    },
     "settings.choice.chromeStyle.default": {
       "extractionState": "manual",
       "localizations": {
@@ -174705,135 +175757,30 @@
       }
     },
     "settings.agentPane.display.inspector.help": {
-      "comment": "Settings > Appearance > Agent Chat > Inspector: help for the Push / Overlay choice",
+      "comment": "Settings > Appearance > Agent Chat > Session Info: help for the Push / Overlay / Inline choice",
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "«دفع» يضيّق المحادثة، و«تراكب» يغطيها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Guranje sužava razgovor; Preklapanje ga prekriva."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skub gør chatten smallere; Overlejring dækker den."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "„Verschieben“ macht den Chat schmaler, „Überlagern“ legt sich darüber."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Push narrows the chat; Overlay covers it."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Desplazar estrecha el chat; Superponer lo cubre."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pousser rétrécit le chat ; Superposer le recouvre."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sposta restringe la chat; Sovrapponi la copre."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "「押し出す」はチャットを狭め、「重ねる」はチャットの上に表示します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រុញ ធ្វើឱ្យការជជែកតូច; ត្រួតលើ គ្របលើវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "밀어내기는 채팅을 좁히고, 겹치기는 채팅을 덮습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skyv gjør chatten smalere; Overlegg dekker den."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przesuń zwęża czat; Nakładka go zakrywa."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Empurrar estreita o chat; Sobrepor fica sobre ele."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "«Сдвиг» сужает чат, «Поверх» закрывает его."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ดัน จะทำให้แชทแคบลง ส่วน ซ้อนทับ จะแสดงทับแชท"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "İt, sohbeti daraltır; Üstte, sohbetin üzerini kaplar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "«Зсув» звужує чат, «Поверх» закриває його."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đẩy thu hẹp cuộc trò chuyện; Phủ lên che phủ cuộc trò chuyện."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“推开”会让对话变窄；“叠放”会盖在对话上方。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "「推開」會讓對話變窄；「疊放」會蓋在對話上方。"
-          }
-        }
+        "en": {"stringUnit": {"state": "translated", "value": "Push narrows the chat; Overlay covers it; Inline puts it atop the chat."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "«دفع» يضيّق المحادثة، و«تراكب» يغطيها، و«ضمن المحادثة» يضعها أعلى المحادثة."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Guranje sužava razgovor; Preklapanje ga prekriva; U razgovoru ga stavlja na vrh razgovora."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Skub gør chatten smallere; Overlejring dækker den; Indlejret lægger den øverst i chatten."}},
+        "de": {"stringUnit": {"state": "translated", "value": "„Verschieben“ macht den Chat schmaler, „Überlagern“ legt sich darüber, „Eingebettet“ steht oben im Chat."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Desplazar estrecha el chat; Superponer lo cubre; En línea lo coloca encima del chat."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Pousser rétrécit le chat ; Superposer le recouvre ; Intégré le place en haut du chat."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Sposta restringe la chat; Sovrapponi la copre; In linea la mette in cima alla chat."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「押し出す」はチャットを狭め、「重ねる」はチャットの上に表示し、「インライン」はチャットの先頭に表示します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រុញ ធ្វើឱ្យការជជែកតូច; ត្រួតលើ គ្របលើវា; ក្នុងជួរ ដាក់វានៅខាងលើការជជែក។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "밀어내기는 채팅을 좁히고, 겹치기는 채팅을 덮고, 인라인은 채팅 맨 위에 둡니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skyv gjør chatten smalere; Overlegg dekker den; Innebygd legger den øverst i chatten."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przesuń zwęża czat; Nakładka go zakrywa; W treści umieszcza go na górze czatu."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Empurrar estreita o chat; Sobrepor fica sobre ele; Embutido fica no topo do chat."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "«Сдвиг» сужает чат, «Поверх» закрывает его, «Встроенно» показывает над чатом."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ดัน จะทำให้แชทแคบลง ซ้อนทับ จะแสดงทับแชท ส่วน แทรกในแชท จะแสดงไว้บนสุดของแชท"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "İt, sohbeti daraltır; Üstte, sohbetin üzerini kaplar; Satır içi, sohbetin en üstüne koyar."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "«Зсув» звужує чат, «Поверх» закриває його, «Вбудовано» показує над чатом."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Đẩy thu hẹp cuộc trò chuyện; Phủ lên che phủ cuộc trò chuyện; Nội tuyến đặt ở đầu cuộc trò chuyện."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "“推开”会让对话变窄；“叠放”会盖在对话上方；“内嵌”会放在对话顶部。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "「推開」會讓對話變窄；「疊放」會蓋在對話上方；「內嵌」會放在對話頂部。"}}
       }
     },
     "settings.choice.agentChatInspectorPush": {
@@ -175098,6 +176045,33 @@
             "value": "疊放"
           }
         }
+      }
+    },
+    "settings.choice.agentChatInspectorInline": {
+      "comment": "Settings > Agent Chat > Session Info placement choice: Session Info is a band atop the chat transcript, in the chat's flow",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Inline"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ضمن المحادثة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "U razgovoru"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Indlejret"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Eingebettet"}},
+        "es": {"stringUnit": {"state": "translated", "value": "En línea"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Intégré"}},
+        "it": {"stringUnit": {"state": "translated", "value": "In linea"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "インライン"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ក្នុងជួរ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "인라인"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Innebygd"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "W treści"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Embutido"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Встроенно"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แทรกในแชท"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Satır içi"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Вбудовано"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Nội tuyến"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "内嵌"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "內嵌"}}
       }
     },
     "settings.sessions.promptSuggestions": {

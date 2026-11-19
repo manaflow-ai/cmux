@@ -114,6 +114,9 @@ public final class PaneToolbarView: NSView {
         zoomButton.state = .on
         zoomButton.isHidden = true
         addSubview(zoomButton)
+        // The grouped and glass styles' pill, under every button (`appearance.toolbarButtonStyle`).
+        addSubview(groupPill, positioned: .below, relativeTo: nil)
+        _ = reveal.add(groupPill)
         // Hidden at rest by default (Lawrence 2026-10-20; Leo's muted look is a value above 0); a Debug
         // Settings change applies at once. task-owner: this view (cancelled in deinit); event-driven.
         applyRest()
@@ -121,7 +124,7 @@ public final class PaneToolbarView: NSView {
         restObservation = Task { [weak self] in
             for await _ in ObservationStream({
                 (TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value,
-                 DesignSettings.shared.sidebarSections.hidesControlsUntilHover, TabTunables.trailingButtons.value)
+                 DesignSettings.shared.sidebarSections.hidesControlsUntilHover, TabTunables.effectiveTrailingButtons, DesignSettings.shared.toolbarButtonStyle)
             }) { self?.applyRest() }
         }
     }
@@ -130,7 +133,8 @@ public final class PaneToolbarView: NSView {
     /// reservation of hidden icons, and no push or overlay that takes the rightmost tabs away).
     private func applyRest() {
         // The ⋮ shows hover as the tab bar's + and ⌄ beside it do (`TabTunables.trailingButtons`).
-        moreButton.hoverStyle = TabTunables.trailingButtons.value.hoverStyle
+        moreButton.hoverStyle = TabTunables.effectiveTrailingButtons.hoverStyle
+        applyButtonStyle()
         reveal.restAlpha = TabTunables.restingControlAlpha(crowded: strip?.isCrowded ?? false, minimal: DesignSettings.shared.sidebarSections.hidesControlsUntilHover)
     }
 
@@ -165,6 +169,7 @@ public final class PaneToolbarView: NSView {
         moreButton.state = lit ? .on : .off
         if items != self.items { setButtons(items) }
         if nativeItems != self.nativeItems { setNativeButtons(nativeItems) }
+        applyButtonStyle()
         self.zoomed = zoomed
         zoomButton.isHidden = !zoomed
         applyTint()
@@ -489,7 +494,36 @@ public final class PaneToolbarView: NSView {
             button.frame = NSRect(x: max(0, x), y: y, width: max(side, width), height: side)
             cursor = x - gap
         }
+        layoutGroupPill()
         applyTint()
+    }
+
+    // MARK: The pill (`appearance.toolbarButtonStyle`)
+
+    /// The grouped and glass styles' one pill behind the shown buttons; hidden in the other styles. It fades with the
+    /// buttons (``reveal``), so a Minimal Mode bar at rest shows no empty pill.
+    let groupPill = ToolbarGroupPill()
+
+    /// The style's hover on the pane's own buttons: inside a pill they brighten their glyph only.
+    private func applyButtonStyle() {
+        let style = DesignSettings.shared.toolbarButtonStyle
+        let paintsFill = style.hoverStyle?.paintsFill ?? true
+        for button in buttons + nativeButtons + [zoomButton] { button.hover.paintsFill = paintsFill }
+        groupPill.style = style
+        needsLayout = true
+    }
+
+    /// The pill around every button that shows, padded by a quarter step, its ends round.
+    private func layoutGroupPill() {
+        let shown = (buttons + nativeButtons + [zoomButton]).filter { !$0.isHidden }.map(\.frame) + (moreButton.isHidden ? [] : [moreButton.frame])
+        groupPill.frame = Self.groupPillFrame(around: shown, padding: Metrics.space1 / 4)
+        groupPill.isHidden = !DesignSettings.shared.toolbarButtonStyle.drawsGroup || shown.isEmpty
+    }
+
+    /// The pill's frame around `frames`, `padding` out on every side; zero with nothing to hold.
+    static func groupPillFrame(around frames: [NSRect], padding: CGFloat) -> NSRect {
+        guard let first = frames.first else { return .zero }
+        return frames.dropFirst().reduce(first) { $0.union($1) }.insetBy(dx: -padding, dy: -padding)
     }
 
     /// "…"'s slot: the trailing one, independent of hover, focus and menu holds. HoverReveal owns only
