@@ -40,7 +40,7 @@ import Testing
     static let store = LayoutItemID("item-store")
 
     private static func workspace(_ id: String, _ title: String) -> SidebarWorkspace {
-        SidebarWorkspace(id: WorkspaceID(id), title: title, directory: "~/code", branch: "main", rowKind: .agent, kind: .agent, activity: .idle)
+        SidebarWorkspace(id: WorkspaceID(id), title: title, directory: "~/code", branch: "main", rowKind: .agent, kind: .harness, activity: .idle)
     }
 
     private static func model(_ variant: Variant) -> SidebarModel {
