@@ -41,6 +41,9 @@ pub struct Interrupt {
     /// (`TurnStart::keep`), so the next turn reads its cache and its work so
     /// far instead of starting a new Claude Code with the whole view uncached.
     keeps_session: AtomicBool,
+    /// A stop that ends the session (the owner's Stop, a denial, an engine
+    /// change) came too: it wins over `keeps_session`, whatever the order.
+    ends_session: AtomicBool,
     /// The turn carries another person's text: the native engine refuses
     /// its local effects (README "Remote-origin messages").
     gate: AtomicBool,
@@ -56,6 +59,11 @@ impl Interrupt {
     }
 
     pub fn request(&self) {
+        self.ends_session.store(true, Ordering::SeqCst);
+        self.signal();
+    }
+
+    fn signal(&self) {
         self.wanted.store(true, Ordering::SeqCst);
         {
             let _held = self
@@ -87,7 +95,7 @@ impl Interrupt {
     /// `stop` or `sleep`).
     pub fn request_resumable(&self) {
         self.keeps_session.store(true, Ordering::SeqCst);
-        self.request();
+        self.signal();
     }
 
     /// `request_hard`, and the session may serve the next turn: a person's
@@ -96,13 +104,14 @@ impl Interrupt {
     /// and writes again does.
     pub fn request_hard_resumable(&self) {
         self.keeps_session.store(true, Ordering::SeqCst);
-        self.request_hard();
+        self.hard.store(true, Ordering::SeqCst);
+        self.signal();
     }
 
     /// Whether a cancel this interrupt caused leaves a session the next turn
     /// may take.
     pub fn keeps_session(&self) -> bool {
-        self.keeps_session.load(Ordering::SeqCst)
+        self.keeps_session.load(Ordering::SeqCst) && !self.ends_session.load(Ordering::SeqCst)
     }
 
     pub fn is_hard(&self) -> bool {
@@ -151,6 +160,7 @@ impl Interrupt {
         self.wanted.store(false, Ordering::SeqCst);
         self.hard.store(false, Ordering::SeqCst);
         self.keeps_session.store(false, Ordering::SeqCst);
+        self.ends_session.store(false, Ordering::SeqCst);
     }
 
     fn wake_with(&self, tx: Option<Sender<TurnSignal>>) {
@@ -159,6 +169,15 @@ impl Interrupt {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = tx;
     }
+}
+
+/// Whether a prompt's answer is the end acpmux gave a turn itself
+/// (`hub/cancel.rs` `forced_answer`: `cancelForced`, `restarted`).
+fn acpmux_forced_end(answer: &Value) -> bool {
+    let mux = answer.pointer("/_meta/acpmux");
+    ["cancelForced", "restarted"]
+        .iter()
+        .any(|k| mux.and_then(|m| m.get(*k)) == Some(&Value::Bool(true)))
 }
 
 /// Everything a turn needs, decided by the brain.
@@ -205,6 +224,9 @@ pub struct Kept {
     pub session: String,
     /// The last event seq the kept turn folded: the next turn folds after it.
     pub after: u64,
+    /// The session's context at the turn's end: its last request's prompt
+    /// and output tokens (None: not reported).
+    pub context: Option<u64>,
 }
 
 /// A kept session and the blocks that prompt it again: this turn's new
@@ -783,6 +805,10 @@ pub fn run_with_drafts(
     // The prompt's answer was an error (even one after the fold ended on
     // `turn_end`): the session is not kept.
     let mut answer_failed = false;
+    // acpmux ended the turn itself (Claude Code did not answer the cancel in
+    // time, or acpmux restarted it): the old turn may still run and its late
+    // events would fold into the next turn, so the session is never kept.
+    let mut forced_end = false;
     let mut last_event = Instant::now();
     loop {
         // A newer human message: stop the model at once, but let a running
@@ -915,6 +941,7 @@ pub fn run_with_drafts(
             TurnSignal::Done(answer) => {
                 answered = true;
                 answer_failed = answer.is_err();
+                forced_end |= answer.as_ref().is_ok_and(acpmux_forced_end);
                 totals = answer.as_ref().ok().and_then(answer_usage);
                 cost = answer.as_ref().ok().and_then(answer_cost);
                 let stopped = answer
@@ -959,6 +986,7 @@ pub fn run_with_drafts(
         match rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
             Ok(TurnSignal::Changed | TurnSignal::Noted | TurnSignal::Streamed) => {}
             Ok(TurnSignal::Done(answer)) => {
+                forced_end |= answer.as_ref().is_ok_and(acpmux_forced_end);
                 totals = answer.as_ref().ok().and_then(answer_usage);
                 cost = answer.as_ref().ok().and_then(answer_cost);
                 answer_failed = answer.is_err();
@@ -1010,17 +1038,22 @@ pub fn run_with_drafts(
     // as nearly every Chief turn ends with its own `stop` or `sleep`, almost
     // no session was kept (8 of ~1,400 turns, Nov 12-19): each turn started
     // a new Claude Code and wrote its whole input to the cache again.
-    let resumable = cancelled && interrupt.keeps_session();
+    let resumable = cancelled && interrupt.keeps_session() && !forced_end;
     let kept = (start.keep
         && orphan.is_none()
         && moved.is_none()
         && (error.is_none() || resumable)
         && !answer_failed
         && (!cancelled || resumable)
+        && !forced_end
         && fold.ended().is_some())
     .then(|| Kept {
         session: session.clone(),
         after: fold.seq(),
+        context: fold
+            .requests()
+            .last()
+            .map(|r| r.usage.input + r.usage.cache_read + r.usage.cache_write + r.usage.output),
     });
     if orphan.is_none()
         && kept.is_none()
