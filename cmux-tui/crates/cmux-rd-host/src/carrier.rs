@@ -184,32 +184,10 @@ impl Carrier for LinkCarrier {
     }
 }
 
-/// A TURN relay as the app passes it (the hub ticket's relays): `host:port` and
-/// the long-term credential. Resolved to IPv4 here; an unresolvable one is skipped.
+/// A TURN relay as the app passes it (the hub ticket's relays) and its resolution to IPv4:
+/// in cmux-rd-link now, so every viewer (the iPhone's too) shares them.
 #[cfg(feature = "link")]
-#[derive(serde::Deserialize)]
-pub struct TurnSetup {
-    pub addr: String,
-    pub username: String,
-    pub password: String,
-}
-
-#[cfg(feature = "link")]
-pub fn turn_servers(setups: &[TurnSetup]) -> Vec<cmux_rd_link::net::TurnServer> {
-    setups
-        .iter()
-        .filter_map(|t| {
-            let addr = std::net::ToSocketAddrs::to_socket_addrs(&t.addr)
-                .ok()?
-                .find(SocketAddr::is_ipv4)?;
-            Some(cmux_rd_link::net::TurnServer {
-                addr,
-                username: t.username.clone(),
-                password: t.password.clone(),
-            })
-        })
-        .collect()
-}
+pub use cmux_rd_link::net::{turn_servers, TurnSetup};
 
 #[cfg(all(test, feature = "link"))]
 mod path_tests {

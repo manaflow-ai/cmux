@@ -17,6 +17,9 @@ net = ["dep:libc", "cmux-transport/local-networks"]
 [dependencies]
 libc = { version = "0.2", optional = true }
 snow.workspace = true
+# The cmux.rd/1 documents and the ticket's ICE servers (doc.rs).
+serde.workspace = true
+serde_json.workspace = true
 cmux-transport = { path = "../cmux-transport" }
 # TURN long-term credentials (RFC 8489): HMAC-SHA1 keyed with MD5(username:realm:password).
 hmac = "0.12"

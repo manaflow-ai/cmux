@@ -15,12 +15,14 @@ use tokio::runtime::Runtime;
 mod browser;
 mod classic_leftovers;
 mod link_side;
+mod screen;
 mod terminal_chat;
 mod terminal_prediction;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use link_side::{LinkOpenSide, link_open_side};
+pub use screen::{ScreenObserver, ScreenOffer, ScreenPath, ScreenStats, ScreenStream, screen_offer};
 pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
 };

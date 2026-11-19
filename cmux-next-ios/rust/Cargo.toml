@@ -25,6 +25,8 @@ cmux-rd-proto = { path = "../../cmux-tui/crates/cmux-rd-proto", features = ["ser
 cmux-rd-core = { path = "../../cmux-tui/crates/cmux-rd-core" }
 cmux-rd-engine = { path = "../../cmux-tui/crates/cmux-rd-engine" }
 cmux-rd-ffi = { path = "../../cmux-tui/crates/cmux-rd-ffi" }
+# The iPhone's rd/1 screen viewer (screen.rs): the secure link over one UDP socket.
+cmux-rd-link = { path = "../../cmux-tui/crates/cmux-rd-link", features = ["net"] }
 # Predictive local echo, the engine the Mac app asks over cmux-app-ffi.
 cmux-terminal-prediction = { path = "../../cmux-tui/crates/cmux-terminal-prediction" }
 # Toggle Terminal and Chat: the Mac's pair route (`tabs::terminal_chat_toggle`), which the phone asks too.

@@ -139,6 +139,22 @@ impl std::fmt::Debug for TurnServer {
     }
 }
 
+/// A TURN relay as the app or the ticket passes it (`host:port` and the long-term credential).
+pub type TurnSetup = crate::doc::Turn;
+
+/// The relays resolved to IPv4; an unresolvable one is skipped.
+pub fn turn_servers(setups: &[TurnSetup]) -> Vec<TurnServer> {
+    setups
+        .iter()
+        .filter_map(|t| {
+            let addr = std::net::ToSocketAddrs::to_socket_addrs(&t.addr)
+                .ok()?
+                .find(SocketAddr::is_ipv4)?;
+            Some(TurnServer { addr, username: t.username.clone(), password: t.password.clone() })
+        })
+        .collect()
+}
+
 /// What the driver reports.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetEvent {

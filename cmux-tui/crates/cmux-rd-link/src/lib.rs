@@ -18,6 +18,8 @@
 //! range RFC 7983 assigns, so one UDP socket also carries STUN and TURN.
 
 mod control;
+/// The cmux.rd/1 offer and answer documents and the ticket's ICE servers.
+pub mod doc;
 pub mod endpoint;
 mod replay;
 
