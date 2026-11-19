@@ -1,0 +1,31 @@
+{
+  "id": "form-scroll-select",
+  "split": "dev",
+  "title": "Scroll a list and select a row",
+  "platforms": [
+    "linux",
+    "macos",
+    "windows"
+  ],
+  "instruction": "In the \"CU Eval Form\" window, select \"Item 73\" in the list. You will need to scroll.",
+  "setup": [
+    {
+      "fixture": "form",
+      "name": "form"
+    }
+  ],
+  "checks": [
+    {
+      "type": "json",
+      "state": "form",
+      "path": "selected",
+      "op": "eq",
+      "value": 73
+    }
+  ],
+  "denied_apps": [],
+  "expect_refusal": false,
+  "person_present": false,
+  "max_turns": 30,
+  "timeout_s": 300
+}
