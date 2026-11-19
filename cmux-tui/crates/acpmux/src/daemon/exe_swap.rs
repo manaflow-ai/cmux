@@ -203,8 +203,15 @@ impl Swap for ExeSwap {
 /// Where the take-over daemon writes: this home's daemon log, as a daemon a command starts does
 /// (`spawn_detached`). It wrote nowhere before, so after the first update a daemon's log stopped
 /// for good, and a disconnect after it left no line. A log that cannot be opened leaves it none.
-fn successor_output(_log: &Path) -> (cmux_process::Stdio, cmux_process::Stdio) {
-    (cmux_process::Stdio::null(), cmux_process::Stdio::null())
+fn successor_output(log: &Path) -> (cmux_process::Stdio, cmux_process::Stdio) {
+    let opened = super::open_daemon_log(log).and_then(|out| Ok((out.try_clone()?, out)));
+    match opened {
+        Ok((out, err)) => (out.into(), err.into()),
+        Err(e) => {
+            tracing::warn!("update: the take-over daemon writes no log: {e:#}");
+            (cmux_process::Stdio::null(), cmux_process::Stdio::null())
+        }
+    }
 }
 
 /// This daemon's arguments (after its executable: `daemon run ...`, or `acp daemon run ...` as
