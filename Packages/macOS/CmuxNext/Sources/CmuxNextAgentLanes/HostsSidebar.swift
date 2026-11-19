@@ -10,35 +10,44 @@ public final class HostsSidebar {
     public struct Host {
         public var rows: @MainActor () -> [MachineSectionRow]
         public var add: @MainActor () -> Void
+        /// Whether this transient section is enabled by the person's Labs setting.
+        public var enabled: @MainActor () -> Bool
         public var joined: JoinedMachineStore?
         public var refresh: @MainActor () async -> Void
         public var startAging: @MainActor (AnyObject, @escaping @MainActor () -> Bool) -> Void
         public var stopAging: @MainActor (AnyObject) -> Void
         private var openConnected: @MainActor (String) -> Void
         private var openJoined: @MainActor (JoinedMachine) -> Void
+        private var openOffline: @MainActor (MachineSectionRow) -> Void
 
         public init(rows: @escaping @MainActor () -> [MachineSectionRow],
                     add: @escaping @MainActor () -> Void,
                     openConnected: @escaping @MainActor (String) -> Void,
                     openJoined: @escaping @MainActor (JoinedMachine) -> Void,
-                    joined: JoinedMachineStore? = nil) {
+                    openOffline: @escaping @MainActor (MachineSectionRow) -> Void = { _ in },
+                    joined: JoinedMachineStore? = nil,
+                    enabled: @escaping @MainActor () -> Bool = { true }) {
             self.init(rows: rows, add: add, openConnected: openConnected, openJoined: openJoined,
-                      joined: joined, refresh: { }, startAging: { _, _ in }, stopAging: { _ in })
+                      openOffline: openOffline, joined: joined, enabled: enabled, refresh: { }, startAging: { _, _ in }, stopAging: { _ in })
         }
 
         public init(rows: @escaping @MainActor () -> [MachineSectionRow],
                     add: @escaping @MainActor () -> Void,
                     openConnected: @escaping @MainActor (String) -> Void,
                     openJoined: @escaping @MainActor (JoinedMachine) -> Void,
+                    openOffline: @escaping @MainActor (MachineSectionRow) -> Void = { _ in },
                     joined: JoinedMachineStore? = nil,
+                    enabled: @escaping @MainActor () -> Bool = { true },
                     refresh: @escaping @MainActor () async -> Void,
                     startAging: @escaping @MainActor (AnyObject, @escaping @MainActor () -> Bool) -> Void,
                     stopAging: @escaping @MainActor (AnyObject) -> Void) {
             self.rows = rows
             self.add = add
+            self.enabled = enabled
             self.joined = joined
             self.openConnected = openConnected
             self.openJoined = openJoined
+            self.openOffline = openOffline
             self.refresh = refresh
             self.startAging = startAging
             self.stopAging = stopAging
@@ -57,6 +66,8 @@ public final class HostsSidebar {
             }
             if machine.isConnected {
                 openConnected(machine.id)
+            } else {
+                openOffline(machine)
             }
         }
     }
@@ -106,23 +117,25 @@ public final class HostsSidebar {
 
     /// Rows are transient and therefore never become a second machine catalog or a durable layout item.
     public func rows() -> [SidebarTransientItem] {
-        Self.rows(machines: host?.rows() ?? [], expanded: expanded)
+        guard let host, host.enabled() else { return [] }
+        return Self.rows(machines: host.rows(), expanded: expanded)
     }
 
     /// Handles the header, Add Host and machine-row clicks. Returns false for another transient item.
     public func activate(_ id: LayoutItemID) -> Bool {
+        guard let host, host.enabled() else { return false }
         let raw = id.rawValue
         if raw == Self.headerID.rawValue {
             expanded.toggle()
             return true
         }
         if raw == Self.addID.rawValue {
-            host?.add()
+            host.add()
             return true
         }
         guard let machineID = raw.hasPrefix(Self.rowPrefix) ? String(raw.dropFirst(Self.rowPrefix.count)) : nil,
-              let machine = host?.rows().first(where: { $0.id == machineID }) else { return false }
-        host?.open(machine)
+              let machine = host.rows().first(where: { $0.id == machineID }) else { return false }
+        host.open(machine)
         return true
     }
 
@@ -137,7 +150,7 @@ public final class HostsSidebar {
         }
 
         var header = SidebarItemInfo(title: "Hosts", symbol: "server.rack", badge: machines.isEmpty ? nil : machines.count)
-        header.activity = machines.contains(where: { $0.isConnecting }) ? .working : .idle
+        header.activity = machines.contains(where: { $0.isConnecting && !$0.failed }) ? .working : .idle
         add(Self.headerID, header)
         guard expanded else { return items }
 
@@ -148,9 +161,10 @@ public final class HostsSidebar {
         for machine in machines {
             var info = SidebarItemInfo(title: machine.name, symbol: symbol(for: machine))
             info.caption = caption(for: machine)
+            info.tooltip = machine.failure
             info.indent = 1
             info.isMissing = !machine.isConnected && !machine.isConnecting && machine.serverState == nil
-            info.activity = machine.isConnecting ? .working : .idle
+            info.activity = machine.isConnecting && !machine.failed ? .working : .idle
             add(LayoutItemID(Self.rowPrefix + machine.id), info)
         }
         return items
@@ -167,6 +181,7 @@ public final class HostsSidebar {
     }
 
     private static func caption(for machine: MachineSectionRow) -> String {
+        if machine.failed { return "Failed" }
         if let state = machine.serverState {
             switch state {
             case .paused: return "Paused"

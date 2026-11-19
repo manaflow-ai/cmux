@@ -9,9 +9,10 @@ import Testing
 @MainActor
 struct HostsSidebarTests {
     private static func machine(_ id: String, _ name: String, connected: Bool = true, connecting: Bool = false,
+                                failed: Bool = false, failure: String? = nil,
                                 state: MachineServerState? = nil, kind: MachineKind = .ssh) -> MachineSectionRow {
         MachineSectionRow(id: id, name: name, isConnected: connected, isLocal: false, kind: kind,
-                          isConnecting: connecting, serverState: state)
+                          isConnecting: connecting, failed: failed, failure: failure, serverState: state)
     }
 
     @Test func foldedAndExpandedRowsUseStableTransientIds() throws {
@@ -51,6 +52,30 @@ struct HostsSidebarTests {
         #expect(hosts.activate(expanded[1].item.id) && added)
         #expect(hosts.activate(expanded[2].item.id) && opened == "m1")
         #expect(!hosts.activate(LayoutItemID("client.other")))
+    }
+
+    @Test func failedRowsStopSpinnerAndExposeTheSSHErrorTooltip() throws {
+        let row = Self.machine("failed", "Broken", connected: false, connecting: true, failed: true, failure: "No route")
+        let items = HostsSidebar.rows(machines: [row], expanded: true)
+        let item = try #require(items.first { $0.item.id.rawValue.hasSuffix("failed") })
+        #expect(item.info.caption == "Failed")
+        #expect(item.info.activity == .idle)
+        #expect(item.info.tooltip == "No route")
+    }
+
+    @Test func offlineAndConnectingRowsUseTheOfflineOpenCallback() throws {
+        let machines = [Self.machine("offline", "Offline", connected: false),
+                        Self.machine("connecting", "Connecting", connected: false, connecting: true)]
+        var opened: [String] = []
+        let hosts = HostsSidebar()
+        hosts.bind(host: .init(rows: { machines }, add: {}, openConnected: { _ in }, openJoined: { _ in },
+                               openOffline: { opened.append($0.id) }))
+        let items = hosts.rows()
+        let offline = try #require(items.first { $0.item.id.rawValue.hasSuffix("offline") })
+        let connecting = try #require(items.first { $0.item.id.rawValue.hasSuffix("connecting") })
+        #expect(hosts.activate(offline.item.id))
+        #expect(hosts.activate(connecting.item.id))
+        #expect(opened == ["offline", "connecting"])
     }
 
     @Test func meshOnlyJoinedMacsUseDialAndDisconnectedRowsStayClosed() {
@@ -96,5 +121,15 @@ struct HostsSidebarTests {
         hosts.bind(host: .init(rows: { [] }, add: {}, openConnected: { _ in }, openJoined: { _ in },
                                refresh: {}, startAging: { _, _ in }, stopAging: { _ in }))
         #expect(stops == 1)
+    }
+
+    @Test func disabledLabsSectionProjectsNoRowsOrActions() {
+        var added = false
+        let host = HostsSidebar.Host(rows: { [Self.machine("m1", "Desk")] }, add: { added = true },
+                                     openConnected: { _ in }, openJoined: { _ in }, enabled: { false })
+        let hosts = HostsSidebar(host: host)
+        #expect(hosts.rows().isEmpty)
+        #expect(!hosts.activate(LayoutItemID("client.hosts:add")))
+        #expect(!added)
     }
 }

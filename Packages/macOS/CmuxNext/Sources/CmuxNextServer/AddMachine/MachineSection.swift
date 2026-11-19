@@ -58,6 +58,11 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
     /// The link is being made, or a resume is on its way (a spinner, not "Offline"). Never true for a
     /// machine whose server says it is paused, failed or deleted: nothing is connecting to it.
     public let isConnecting: Bool
+    /// The link or daemon failed after an attempted connection. A failed row is settled, so it
+    /// must not keep the connecting spinner alive.
+    public let failed: Bool
+    /// The raw SSH failure used by the sidebar row's tooltip, when one is available.
+    public let failure: String?
     /// What the machine's server says when it is not simply running (``MachineServerState``); nil
     /// for a running machine and every non-Cloud machine.
     public let serverState: MachineServerState?
@@ -78,6 +83,7 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
     /// - Parameter serverState: a settled state (paused, failed, deleted) turns the spinner off and
     ///   writes the state; `.resuming` keeps a spinner. A connected link wins over either.
     public init(id: String, name: String, isConnected: Bool, isLocal: Bool, kind: MachineKind? = nil, isConnecting: Bool = false,
+                failed: Bool = false, failure: String? = nil,
                 serverState: MachineServerState? = nil, health: HostHealth? = nil, healthStep: HostStep? = nil,
                 joined: JoinedMachine? = nil, symbol: String? = nil) {
         self.id = id
@@ -88,6 +94,8 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
         let serverState = isConnected ? nil : serverState
         self.serverState = serverState
         self.isConnecting = !isConnected && (serverState.map { $0 == .resuming } ?? isConnecting)
+        self.failed = !isConnected && failed
+        self.failure = failure
         self.health = health
         self.healthStep = healthStep
         self.joined = joined

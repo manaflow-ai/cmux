@@ -30,9 +30,13 @@ extension MachineSectionRow {
             let name = daemon.isLocal ? RightSidebarStrings.thisMac : machines.machineName(daemon.machineID) ?? daemon.machineID
             let report = health.reports[daemon.machineID]
             let cloud = daemon.isLocal ? nil : machines.session(daemon.machineID)
+            let ssh = machines.sshSession(daemon.machineID)
+            let failed = ssh.map { $0.linkStatus.needsRecovery || $0.daemonFailure != nil } ?? false
+            let failure = ssh.flatMap { failed ? RemoteStrings.sshError($0) : nil }
             return MachineSectionRow(id: daemon.machineID, name: name, isConnected: connected, isLocal: daemon.isLocal,
                                      kind: signedIn[daemon.machineID] != nil ? .joined : kind(daemon.machineID, isLocal: daemon.isLocal, in: machines),
                                      isConnecting: connecting,
+                                     failed: failed, failure: failure,
                                      serverState: cloud.flatMap { .cloud($0.machine.status, stagePaused: $0.stage.isPaused, stageFailed: $0.stage.failure != nil) },
                                      health: report?.health, healthStep: report?.worstStep?.step,
                                      joined: daemon.isLocal ? nil : byPeer[daemon.machineID] ?? signedIn[daemon.machineID].flatMap { byID[$0] },
