@@ -38,7 +38,10 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Install workflow parser
-        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+        run: |
+          python3 -m venv "$RUNNER_TEMP/r2-upload-tests-venv"
+          "$RUNNER_TEMP/r2-upload-tests-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          echo "$RUNNER_TEMP/r2-upload-tests-venv/bin" >> "$GITHUB_PATH"
       - run: bash tests/test_ci_r2_upload_python.sh
       - run: python3 tests/test_github_release_publication.py
       # finalize-release.py runs only at real publish time; at least prove it loads.
