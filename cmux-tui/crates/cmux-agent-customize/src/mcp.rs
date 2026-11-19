@@ -23,9 +23,9 @@
 //! their names), arguments that follow a secret-looking flag read `*****`, and a URL loses its
 //! password.
 
+use cmux_process::{Command, Stdio};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -898,50 +898,58 @@ mod codex {
     }
 
     /// `codex mcp list --json` in `project` (its project layers count there), for at most 15 s.
+    /// Its output goes to a private temporary file, so no reader thread is needed.
     fn cli_servers(
         cli: &Path,
         paths: &Paths,
         project: Option<&Path>,
     ) -> Result<Vec<serde_json::Value>, String> {
-        let mut command = Command::new(cli);
-        command
-            .args(["mcp", "list", "--json"])
-            .env("CODEX_HOME", &paths.codex_home)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        if let Some(project) = project.filter(|p| p.is_dir()) {
-            command.current_dir(project);
-        }
-        let mut child = command.spawn().map_err(|e| format!("{} mcp list: {e}", cli.display()))?;
-        let mut stdout = child.stdout.take().ok_or("codex mcp list: no output")?;
-        let reader = std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            let _ = std::io::Read::read_to_end(&mut stdout, &mut bytes);
-            bytes
-        });
-        // timeout: the bound on one `codex mcp list` (0.1 s measured); a hung CLI loses only its plugin rows.
-        let status = match wait_timeout::ChildExt::wait_timeout(&mut child, Duration::from_secs(15))
-        {
-            Ok(Some(status)) => status,
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(
-                    "codex mcp list did not answer in 15 s; plugin servers are not listed".into()
-                );
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let out_path = std::env::temp_dir()
+            .join(format!("cmux-codex-mcp-list-{}-{nanos}.json", std::process::id()));
+        let out = std::fs::File::create(&out_path).map_err(|e| format!("codex mcp list: {e}"))?;
+        let result = (|| {
+            let mut command = Command::new(cli);
+            command
+                .args(["mcp", "list", "--json"])
+                .env("CODEX_HOME", &paths.codex_home)
+                .stdin(Stdio::null())
+                .stdout(out)
+                .stderr(Stdio::null());
+            if let Some(project) = project.filter(|p| p.is_dir()) {
+                command.current_dir(project);
             }
-        };
-        let bytes = reader.join().unwrap_or_default();
-        if !status.success() {
-            return Err(format!(
-                "codex mcp list exited with {status}; plugin servers are not listed"
-            ));
-        }
-        match serde_json::from_slice::<serde_json::Value>(&bytes) {
-            Ok(serde_json::Value::Array(items)) => Ok(items),
-            _ => Err("codex mcp list --json printed no list; plugin servers are not listed".into()),
-        }
+            let mut child =
+                command.spawn().map_err(|e| format!("{} mcp list: {e}", cli.display()))?;
+            // timeout: the bound on one `codex mcp list` (0.1 s measured); a hung CLI loses only its plugin rows.
+            let status = match child.wait_timeout(Duration::from_secs(15)) {
+                Ok(Some(status)) => status,
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(
+                        "codex mcp list did not answer in 15 s; plugin servers are not listed"
+                            .to_owned(),
+                    );
+                }
+            };
+            if !status.success() {
+                return Err(format!(
+                    "codex mcp list exited with {status}; plugin servers are not listed"
+                ));
+            }
+            let bytes = std::fs::read(&out_path).unwrap_or_default();
+            match serde_json::from_slice::<serde_json::Value>(&bytes) {
+                Ok(serde_json::Value::Array(items)) => Ok(items),
+                _ => Err("codex mcp list --json printed no list; plugin servers are not listed"
+                    .to_owned()),
+            }
+        })();
+        let _ = std::fs::remove_file(&out_path);
+        result
     }
 
     fn parse_or_new(text: Option<&str>, path: &Path) -> Result<DocumentMut, String> {
