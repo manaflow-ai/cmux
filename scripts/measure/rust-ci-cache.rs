@@ -1,6 +1,6 @@
 //! Run on Linux CI, never a developer's active target directory.
 //! rustc --edition 2024 scripts/measure/rust-ci-cache.rs -o /tmp/rust-ci-cache
-//! /tmp/rust-ci-cache OUTPUT_DIRECTORY [WORKSPACE PACKAGE LIB_SOURCE]
+//! /tmp/rust-ci-cache OUTPUT_DIRECTORY [WORKSPACE PACKAGE LIB_SOURCE [EXTRA_PATH...]]
 //!
 //! Small real-workspace experiment, not a full application build estimate. Each
 //! mode gets fresh targets; network priming is separate from offline timings.
@@ -95,8 +95,10 @@ fn measure(
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
-    if args.len() != 1 && args.len() != 4 {
-        return Err("expected OUTPUT_DIRECTORY [WORKSPACE PACKAGE LIB_SOURCE]".into());
+    if args.len() != 1 && args.len() < 4 {
+        return Err(
+            "expected OUTPUT_DIRECTORY [WORKSPACE PACKAGE LIB_SOURCE [EXTRA_PATH...]]".into(),
+        );
     }
     let out = PathBuf::from(&args[0]);
     let workspace = args.get(1).map_or("cmux-screen", String::as_str);
@@ -104,7 +106,11 @@ fn main() -> Result<()> {
     let lib_source = args
         .get(3)
         .map_or("crates/cmux-screen-proto/src/lib.rs", String::as_str);
-    for path in [workspace, lib_source] {
+    let extra_paths = args.get(4..).unwrap_or_default();
+    for path in [workspace, lib_source]
+        .into_iter()
+        .chain(extra_paths.iter().map(String::as_str))
+    {
         if Path::new(path)
             .components()
             .any(|part| !matches!(part, std::path::Component::Normal(_)))
@@ -123,6 +129,7 @@ fn main() -> Result<()> {
     checked(
         Command::new("git")
             .args(["archive", "--format=tar", "HEAD", "--", workspace])
+            .args(extra_paths)
             .stdout(Stdio::from(File::create(&archive)?)),
     )?;
     checked(
@@ -142,7 +149,7 @@ fn main() -> Result<()> {
     fs::write(
         out.join("environment.txt"),
         format!(
-            "head={}{}{}jobs=4\nworkspace={workspace}\npackage={package}\nrunner={}\ncpu={}\n",
+            "head={}{}{}jobs=4\nworkspace={workspace}\npackage={package}\nextra_paths={extra_paths:?}\nrunner={}\ncpu={}\n",
             String::from_utf8_lossy(&head.stdout),
             String::from_utf8_lossy(&rustc.stdout),
             String::from_utf8_lossy(&cargo_version.stdout),
@@ -154,11 +161,19 @@ fn main() -> Result<()> {
     )?;
     // Prime only selected package dependencies. cargo fetch would also fetch
     // the host workspace member's native WebRTC dependencies, which we don't use.
-    let prime = checked(
-        cargo(&root, &scratch.0.join("prime"), "0", "2")
-            .args(["test", "--locked", "-p", package, "--lib", "--no-run"]),
-    )?;
-    fs::write(out.join("prime.stderr"), prime.stderr)?;
+    let prime = cargo(&root, &scratch.0.join("prime"), "0", "2")
+        .args(["test", "--locked", "-p", package, "--lib", "--no-run"])
+        .output()?;
+    fs::write(out.join("prime.stderr"), &prime.stderr)?;
+    fs::write(out.join("prime.stdout"), &prime.stdout)?;
+    if !prime.status.success() {
+        return Err(format!(
+            "priming failed: {}\n{}",
+            prime.status,
+            String::from_utf8_lossy(&prime.stderr)
+        )
+        .into());
+    }
     let mut rows = File::create(out.join("results.tsv"))?;
     writeln!(rows, "round\tmode\tcase\tseconds\tcompiled\texit")?;
     let modes = [
