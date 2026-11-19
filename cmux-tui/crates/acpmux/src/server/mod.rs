@@ -2143,6 +2143,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     }
     chats::push_activity(hub, conn, &ev);
     processes::push_update(conn, &ev);
+    bg_tasks::push_update(conn, &ev);
     let rec = &ev.record;
     // Attached peer updates retain the raw wire id, but also identify its owner and the id its
     // row has here (`qualifiedSessionId`), so clients key live transcripts and prompts by the
@@ -2361,10 +2362,10 @@ mod cancel_classes_tests;
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
 mod client_request;
-pub(crate) mod controls;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
+pub(crate) mod controls;
 mod in_flight;
 pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;

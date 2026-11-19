@@ -303,6 +303,7 @@ import {
   type ProcessSource,
   useProcessRegistry,
 } from "./session-info/processes";
+import { useBgTasksRunning, type BgTaskSource } from "./session-info/bgTasks";
 import {
   setSessionInfoOpen as setSessionInfoPanelOpen,
   setSessionInfoSection,
@@ -3764,6 +3765,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new client is a new source
     [clientEpoch],
   );
+  // The chat's daemon-owned tasks (`acpmux bg start`, session-info/bgTasks.ts), which the registry
+  // lists beside its shells.
+  const bgSource = useMemo<BgTaskSource>(
+    () => ({
+      listBgTasks: (sessionId) => directClient.current?.listBgTasks(sessionId) ?? Promise.reject(new Error()),
+      watchBgTasks: (listener) => directClient.current?.watchBgTasks(listener) ?? (() => undefined),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new client is a new source
+    [clientEpoch],
+  );
   const stopProcess = useCallback(
     (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
     [],
@@ -3824,6 +3835,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const shownEntry = shownSessionId ? findSession(snapshot.sessions ?? [], shownSessionId) : undefined;
   const sessionInfoSplit = ownSubagentPane || !!(shownEntry?.startedBy || shownEntry?.spawnedBy);
   const sessionInfoOpened = useSessionInfoOpen(sessionInfoPaneKey(shownSessionId, sessionInfoSplit));
+  // A daemon task that runs keeps it on too, so a watcher shows between turns, in a chat opened
+  // after the turn that started it ended (#45951).
+  const bgRunning = useBgTasksRunning(quick ? undefined : bgSource, shownSessionId);
   const processRegistry = useProcessRegistry(
     processSource,
     shownSessionId,
@@ -3831,7 +3845,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       summaryCard.shown ||
       backgroundOpen ||
       snapshot.isWorking ||
-      transcriptRunning.length > 0,
+      transcriptRunning.length > 0 ||
+      bgRunning,
   );
   const runningCommandList = useMemo(
     () =>

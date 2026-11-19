@@ -343,6 +343,7 @@ export interface AcpmuxClientNotifications {
 export interface AcpmuxNotifications {
   "session/update": unknown;
   "catalog.changed": unknown;
+  "_acpmux/bg_update": unknown;
   "_acpmux/process_update": unknown;
   "_acpmux/rows_patch": unknown;
   "_acpmux/rows_lagged": unknown;
@@ -488,6 +489,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/bg/list", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bg/output", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bg/stop", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/bg_update", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/run_elsewhere/plan", kind: "request", acp: false, typed: false },
   { name: "_acpmux/run_elsewhere/start", kind: "request", acp: false, typed: false },
   { name: "_acpmux/goal/set", kind: "request", acp: false, typed: false },
