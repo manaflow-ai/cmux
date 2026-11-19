@@ -17,12 +17,16 @@ function rule(selector: string): string {
 
 test("the mascot's float ends and holds no layer", () => {
   const mascot = rule(".acpmux-chief-dock-mascot img");
-  const animation = /(?:^|;)animation:([^;]+)/.exec(mascot)?.[1] ?? "";
-  expect(animation).toContain("acpmux-chief-mascot-float");
-  expect(animation).not.toContain("infinite");
-  expect(animation).toMatch(/\s3\s/);
+  const declarations = mascot.split(";");
+  const shorthand = declarations.findIndex((line) => line.startsWith("animation:"));
+  expect(declarations[shorthand]).toContain("acpmux-chief-mascot-float");
+  // The longhands come after the shorthand, so they win over its count and fill.
+  const last = (property: string) => declarations.findLastIndex((line) => line.startsWith(`${property}:`));
+  expect(last("animation-iteration-count")).toBeGreaterThan(shorthand);
+  expect(declarations[last("animation-iteration-count")]).toBe("animation-iteration-count:3");
   // It ends on its first frame's pose (0% and 100% are the same), held so it never jumps back.
-  expect(animation).toContain("forwards");
+  expect(last("animation-fill-mode")).toBeGreaterThan(shorthand);
+  expect(declarations[last("animation-fill-mode")]).toBe("animation-fill-mode:forwards");
   expect(mascot).not.toContain("will-change");
 });
 
