@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesignTokens
+import CmuxNextWakeups
 
 /// A body whose layout can stay as it was while the card folds to a smaller size: the workspace
 /// card's Hide details keeps its detail rows drawn (fading out) under the folding edge, instead of
@@ -238,6 +239,17 @@ extension HoverCardPanel {
         if let animated = pendingRefit {
             pendingRefit = nil
             refit(animated: animated)
+        }
+        bodyRests()
+    }
+
+    /// The card rests at its size: once this frame committed, a body that reports its own size measures what its next
+    /// change asks for (not while a morph runs: the morph's frames keep the main thread for themselves).
+    func bodyRests() {
+        guard body is HoverCardSizeReporting else { return }
+        AfterFrameCommit().run { [weak self] in
+            guard let self, self.activeMorph == nil, self.isShowingCard, let body = self.body as? HoverCardSizeReporting else { return }
+            body.prepareSizes()
         }
     }
 }
