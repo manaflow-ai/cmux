@@ -41,7 +41,9 @@ struct PageInfoDeleteSiteDataFailureTests {
         #expect(failure == .cookiesUnreadable(reason: "cookie visit timed out"))
         // Storage is still cleared: the person keeps what could be done.
         #expect(calls.cleared == ["https://example.com", "http://example.com"])
-        #expect(PageInfoStrings.deleteSiteDataFailed(failure?.reason ?? "").contains("cookie visit timed out"))
+        // Bound first: #expect's call expansion turns `failure?.reason` into `$0?.contains`, a compile error.
+        let message = PageInfoStrings.deleteSiteDataFailed(failure?.reason ?? "")
+        #expect(message.contains("cookie visit timed out"))
     }
 
     @Test func cookiesThatStayAreCountedWithTheReason() async {
