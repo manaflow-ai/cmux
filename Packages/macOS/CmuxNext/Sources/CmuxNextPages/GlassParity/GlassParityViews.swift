@@ -33,13 +33,13 @@ final class GlassParityHostLayer: NSView {
     struct Surface: Equatable {
         var id: String
         var level: GlassLevel
-        var role: SurfaceRole
+        var role: SurfaceRole?
         var rect: CGRect
         var radius: CGFloat
         var opacity: CGFloat
     }
 
-    private var views: [String: (role: SurfaceRole, level: GlassLevel, view: OverlaySurfaceView)] = [:]
+    private var views: [String: (role: SurfaceRole?, level: GlassLevel, view: OverlaySurfaceView)] = [:]
     var count: Int { views.count }
 
     override init(frame: NSRect) {
@@ -64,8 +64,7 @@ final class GlassParityHostLayer: NSView {
             }
             if views[surface.id] == nil {
                 // As the agent pane draws its host glass (AgentPaneView+HostGlass.swift).
-                let view = Glass.makeSurface(surface.role, interactive: false)
-                view.tintLevel = Glass.hostTintLevel(surface.level)
+                let view = Glass.makeHostSurface(level: surface.level, role: surface.role)
                 view.translatesAutoresizingMaskIntoConstraints = true
                 addSubview(view)
                 views[surface.id] = (surface.role, surface.level, view)
