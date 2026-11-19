@@ -195,7 +195,8 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  /* The transcript look's userMessage.align (conversation/transcriptLook.ts); right by default. */
+  align-items: var(--cv-user-align, flex-end);
 }
 /* Waiting controls use the same footer slot as a delivered prompt. The bubble and its footer stay
    right-aligned together, so accepting Send now changes only the footer contents, never the bubble's
@@ -217,8 +218,8 @@
 .cv-user__bubble-wrap.is-empty {
   /* Attachment-only delivery has no bubble width to anchor against. Match the attachment band so
      the clock sits beside its thumbnails instead of at the transcript edge. */
-  align-self: flex-end;
-  width: 70%;
+  align-self: var(--cv-user-align, flex-end);
+  width: var(--cv-user-bubble-share, 70%);
   min-height: var(--cv-line-height);
 }
 /* A prompt's bubble, as ChatGPT and Claude draw it (leo-workspace design/transcript-spacing.md
@@ -233,13 +234,15 @@
   /* The grid base already grows by the Interface Size scale (max(body, 14) / 14), so the bubble adds only what
      the chat's text scale has beyond it (--cmux-chat-text-scale: Default's at Compact, user 2026-11-16, so the
      bubble is Default's there too). */
+  /* A transcript look sets the padding and corner in grid units and the share (--cv-user-bubble-*,
+     conversation/transcriptLook.ts); unset, they are today's 2.5, 4, 3 and 70%. */
   --cv-bubble-scale: calc(var(--cmux-chat-text-scale, 1) / var(--cmux-interface-scale, 1));
-  --cv-bubble-pad-block: calc(2.5 * var(--grid-base) * var(--cv-bubble-scale));
-  --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
+  --cv-bubble-pad-block: calc(var(--cv-user-bubble-pad-block, 2.5) * var(--grid-base) * var(--cv-bubble-scale));
+  --cv-bubble-pad-inline: calc(var(--cv-user-bubble-pad-inline, 4) * var(--grid-base) * var(--cv-bubble-scale));
   box-sizing: border-box;
-  max-width: 70%;
+  max-width: var(--cv-user-bubble-share, 70%);
   padding: var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);
-  border-radius: calc(3 * var(--grid-base) * var(--cv-bubble-scale));
+  border-radius: calc(var(--cv-user-bubble-radius, 3) * var(--grid-base) * var(--cv-bubble-scale));
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
@@ -259,9 +262,10 @@
 .cv-user__bubble {
   /* The selected borderless arm keeps a stronger glass fill for wallpaper contrast while its
      outline is removed. The fill remains liquid glass; it is not a solid message plate. */
-  --glass-tint: color-mix(in srgb, var(--cv-fg) 10%, transparent);
+  /* A transcript look's userMessage.fill sets the strength (--cv-user-bubble-fill). */
+  --glass-tint: color-mix(in srgb, var(--cv-fg) var(--cv-user-bubble-fill, 10%), transparent);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
-  --glass-opaque: color-mix(in srgb, var(--cv-fg) 10%, var(--glass-surface));
+  --glass-opaque: color-mix(in srgb, var(--cv-fg) var(--cv-user-bubble-fill, 10%), var(--glass-surface));
   /* No rim in any glass mode: the edge is Plain's whole rim, and --glass-rim 0 clears Lens's and
      Spectrum's specular line, lower shade and colour fringes (ui/glass/glass.css --glass-rim-shadow). */
   --glass-edge: transparent;
@@ -269,9 +273,31 @@
   --glass-backdrop: none;
 }
 .acpmux-shell .cv-user__bubble {
-  --glass-tint: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --glass-tint: color-mix(in srgb, var(--agent-text) var(--cv-user-bubble-fill, 14%), transparent);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
-  --glass-opaque: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface));
+  --glass-opaque: color-mix(in srgb, var(--agent-text) var(--cv-user-bubble-fill, 14%), var(--glass-surface));
+}
+/* The transcript look's plain prompt (userMessage.style plain, conversation/transcriptLook.ts): no
+   glass, no corner, a 2px rule in the card ring at its leading edge, drawn inset so it takes no room;
+   its padding, share and left alignment come in --cv-user-* like any look's. */
+:root[data-transcript-user="plain"] .cv-user__bubble {
+  --glass-tint: transparent;
+  /* glass-opaque-allow: plain has no fill under Reduce Transparency either */
+  --glass-opaque: transparent;
+  --glass-edge: transparent;
+  --glass-rim: 0;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+:root[data-transcript-user="plain"] .cv-user__bubble::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 2px;
+  background: var(--cv-card-ring);
+  pointer-events: none;
 }
 /* The prompt open for editing (UserBubble.tsx PromptEditor) wears the bubble's glass: the same
    tint, no edge and no rim. */
@@ -1618,7 +1644,8 @@
   /* Never wider than its column, so a long line scrolls inside the card rather than past its edge. */
   min-width: 0;
   max-width: 100%;
-  border-radius: 16px;
+  /* A transcript look's codeCard.radius (conversation/transcriptLook.ts). */
+  border-radius: var(--cv-code-radius, 16px);
   overflow: hidden;
   background: var(--cv-codeblock-bg);
   box-shadow: inset 0 0 0 1px var(--cv-codeblock-ring);
@@ -2270,7 +2297,7 @@ pre.cv-math-source {
   padding-block: var(--grid-half-step);
   padding-inline: var(--ds-space-2) var(--ds-space-1);
   border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--cv-card-radius, var(--ds-radius-popup));
   background: var(--cv-card-fill);
   box-shadow: none;
   color: var(--cv-tool-strong);
@@ -2443,6 +2470,10 @@ pre.cv-math-source {
    their fill and lose the ring. */
 :root[data-borders="none"] {
   --cv-codeblock-ring: transparent;
+  --cv-card-ring: transparent;
+}
+/* A transcript look's toolCard.border none (conversation/transcriptLook.ts): the same, cards only. */
+:root[data-transcript-card-border="none"] {
   --cv-card-ring: transparent;
 }
 
@@ -3551,7 +3582,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 .cv-shell {
   margin: var(--ds-space-1) 0 var(--ds-space-2);
   padding: var(--grid-cards-padding);
-  border-radius: var(--grid-cards-radius);
+  border-radius: var(--cv-card-radius, var(--grid-cards-radius));
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   color: var(--cv-text-muted);
@@ -3822,7 +3853,7 @@ button.cv-video-frames__name:focus-visible {
   padding: 0;
   overflow: hidden;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--cv-card-radius, 6px);
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   font: inherit;
@@ -3871,7 +3902,7 @@ button.cv-video-frames__frame:focus-visible {
   max-height: 240px;
   overflow: auto;
   padding: 8px 12px;
-  border-radius: 12px;
+  border-radius: var(--cv-card-radius, 12px);
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   color: var(--cv-text-muted);
@@ -4817,7 +4848,7 @@ a.cv-sha:focus-visible {
   max-height: 240px;
   overflow: auto;
   padding: var(--ds-space-2);
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--cv-card-radius, var(--ds-radius-popup));
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   color: var(--cv-text-muted);
@@ -4887,7 +4918,7 @@ a.cv-sha:focus-visible {
 }
 .cv-tool-detail__fields {
   display: grid;
-  border-radius: var(--ds-radius-popup);
+  border-radius: var(--cv-card-radius, var(--ds-radius-popup));
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   overflow: hidden;
@@ -4958,7 +4989,7 @@ a.cv-sha:focus-visible {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  border-radius: 12px;
+  border-radius: var(--cv-card-radius, 12px);
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
 }
@@ -6260,7 +6291,7 @@ a.cv-sha:focus-visible {
    terminal" always there, and the end of the output. Small radius, no pills. */
 .acpmux-shell-block {
   margin: 4px 0 8px;
-  border-radius: 6px;
+  border-radius: var(--cv-card-radius, 6px);
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   color: var(--cv-text-muted);
@@ -6872,7 +6903,7 @@ a.cv-sha:focus-visible {
   position: relative;
   margin: var(--ds-space-2) 0;
   padding: var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--grid-cards-radius);
+  border-radius: var(--cv-card-radius, var(--grid-cards-radius));
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   font-size: var(--text-body);
@@ -7908,7 +7939,7 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   gap: var(--ds-space-2);
   margin: var(--ds-space-1) 0 var(--ds-space-2) var(--cv-tool-text-inset, 0);
   padding: var(--ds-space-2) var(--ds-space-3);
-  border-radius: var(--ds-radius-control);
+  border-radius: var(--cv-card-radius, var(--ds-radius-control));
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   background: var(--cv-card-fill);
   font-size: var(--text-detail);
@@ -8093,11 +8124,11 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
    anchored right and as wide as its words when they are wider than the bubble's text. */
 .cv-user__body:has(> .cv-user__bubble):has(> .cv-user__actions--pending) {
   --cv-bubble-scale: calc(var(--cmux-chat-text-scale, 1) / var(--cmux-interface-scale, 1));
-  --cv-bubble-pad-inline: calc(4 * var(--grid-base) * var(--cv-bubble-scale));
+  --cv-bubble-pad-inline: calc(var(--cv-user-bubble-pad-inline, 4) * var(--grid-base) * var(--cv-bubble-scale));
   display: block;
   position: relative;
-  align-self: flex-end;
-  max-width: 70%;
+  align-self: var(--cv-user-align, flex-end);
+  max-width: var(--cv-user-bubble-share, 70%);
 }
 .cv-user__body:has(> .cv-user__actions--pending) > .cv-user__bubble {
   max-width: none;
@@ -8118,4 +8149,71 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 }
 .cv-tool__file:hover {
   text-decoration-color: currentColor;
+}
+
+/* ---------- Transcript looks (conversation/transcriptLook.ts) ----------
+   The look's choices the stylesheet draws by selector, on the root as data-transcript-*; the cmux
+   look sets none, so none of this applies there (Leo, 2026-11-18: "claude style, chatgpt/codex
+   style, and "studio" style things ... similar to like a ui library"). None changes a row's
+   height: the estimator (model.ts) measures nothing new for them. */
+
+/* timestamps always: a prompt's and a reply's time show at rest; their buttons still come with the
+   pointer, as a waiting prompt's do (.cv-user__actions--pending above). */
+:root[data-transcript-timestamps="always"] :is(.cv-user__actions, .cv-reply-actions),
+:root[data-transcript-timestamps="always"] :is(.cv-user__time, .cv-turn-time) {
+  opacity: 1;
+}
+:root[data-transcript-timestamps="always"]
+  .cv-user:not(:hover, :focus-within, :has([data-popup-open]))
+  .cv-user__actions:not(.cv-user__actions--versions)
+  .cv-message-footer-row
+  > :not(.cv-user__time) {
+  opacity: 0;
+}
+:root[data-transcript-timestamps="always"]
+  .acpmux-assistant:not(:hover, :focus-visible, :has([data-popup-open]))
+  .cv-reply-actions:not(:focus-within)
+  .cv-message-footer-row
+  > :not(.cv-turn-time) {
+  opacity: 0;
+}
+/* timestamps off: no time, its space kept so the buttons never move. A waiting prompt's state is
+   not a time and stays. */
+:root[data-transcript-timestamps="off"] :is(.cv-user__time:not(.cv-user__pending-state), .cv-turn-time) {
+  visibility: hidden;
+}
+
+/* toolCards card: a tool run drawn on a card, the transcript's card fill, ring and radius. The card
+   is the row's ::before, laid past its box (out into the gaps and the gutter), so no row grows;
+   the row keeps layout containment alone so its paint is not cut, as a reply's row does. */
+:root[data-transcript-tool-cards="card"] .acpmux-row.acpmux-activity {
+  contain: layout;
+  isolation: isolate;
+}
+:root[data-transcript-tool-cards="card"] .acpmux-row.acpmux-activity::before {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--grid-base)) calc(-2.5 * var(--grid-base));
+  z-index: var(--layer-backdrop);
+  border-radius: var(--cv-card-radius, var(--grid-cards-radius));
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  pointer-events: none;
+}
+/* toolCards minimal: a run's rows with no leading glyph, in the rows' own grey (the Claude and Codex captures
+   measure their tool text at 0.53 and 0.60 of the body's contrast; the rows draw 0.58). Their lines never
+   wrap (.cv-tool__text), so nothing changes height. */
+:root[data-transcript-tool-cards="minimal"] .acpmux-row.acpmux-activity .cv-tool__icon {
+  display: none;
+}
+/* The same for an edited-files card's leading tile: its head keeps its min-height (styles.css
+   .acpmux-edited-head, 16 grid units, more than the tile and its padding), so the card's height
+   holds. */
+:root[data-transcript-tool-cards="minimal"] .acpmux-edited-icon {
+  display: none;
+}
+/* toolCard.border none reaches the edited-files card too: its ring is its ::after (styles.css),
+   drawn in --agent-border rather than --cv-card-ring. */
+:root[data-transcript-card-border="none"] .acpmux-edited::after {
+  box-shadow: none;
 }
