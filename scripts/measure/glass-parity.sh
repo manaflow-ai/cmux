@@ -55,7 +55,7 @@ python3 - "$shots" <<'PY'
 import json, os, re, sys
 root = sys.argv[1]
 data = json.load(open(os.path.join(root, "results.json")))
-reference = re.compile(r"^(wallpaper|plain|terminal-o60|wallpaper-.*-hover)-host-active(-hover)?-(light|dark)-2x$")
+reference = re.compile(r"^(wallpaper|plain|terminal-o60|wallpaper-.*-hover)-host-active(-hover)?-(light|dark)-(1x|2x)$")
 stems = sorted({r["stem"] for r in data["rows"]}, key=len, reverse=True)
 failing = {(r["stem"], r["kind"]) for r in data["rows"] if r["gated"] and not r["pass"]}
 removed = 0

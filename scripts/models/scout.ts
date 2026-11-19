@@ -43,6 +43,7 @@ import {
   newVertexModels,
   routerEntry,
   smokeBody,
+  withoutServerAdditions,
   type ScoutState,
   type SmokeResult,
 } from "./scout-lib";
@@ -115,10 +116,19 @@ async function listVertexGoogleModels(token: string): Promise<Array<string>> {
   return ids;
 }
 
-async function smoke(url: string, token: string, model: string, extra: Record<string, unknown> = {}, wantTool = true): Promise<SmokeResult> {
+/** One smoke turn, tried again once after 20 s when it fails: a single busy moment at the provider is not an outage. */
+async function smoke(url: string, token: string, model: string, extra: Record<string, unknown> = {}, wantTool = true): Promise<SmokeResult & { firstError?: string }> {
+  const first = await smokeOnce(url, token, model, extra, wantTool);
+  if (first.ok) return first;
+  await new Promise((resolve) => setTimeout(resolve, 20_000));
+  const second = await smokeOnce(url, token, model, extra, wantTool);
+  return { ...second, firstError: first.error };
+}
+
+async function smokeOnce(url: string, token: string, model: string, extra: Record<string, unknown> = {}, wantTool = true): Promise<SmokeResult> {
   const started = Date.now();
   try {
-    const res = await fetch(url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ ...smokeBody(model), ...extra }), signal: AbortSignal.timeout(90_000) });
+    const res = await fetch(url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ ...smokeBody(model), ...extra }), signal: AbortSignal.timeout(120_000) });
     const text = await res.text();
     let body: unknown = null;
     try {
@@ -226,7 +236,7 @@ async function main(): Promise<number> {
       const d = diffCatalogs(current, doc);
       if (env === "production") diff = d;
       const killed = killedHarnesses(current);
-      if (current && catalogContent(current, killed) === catalogContent(doc, killed)) {
+      if (current && catalogContent(withoutServerAdditions(current, doc), killed) === catalogContent(doc, killed)) {
         published[env] = { changed: false, version: current.version ?? null };
         continue;
       }

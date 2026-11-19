@@ -464,9 +464,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     @MainActor
     static func chromeDivider(_ tokens: ThemeTokens, backgrounds: SurfaceBackgrounds) -> String {
         guard Borders.drawsLines else { return "transparent" }
-        if let override = backgrounds.fill(for: .splitDivider, tokens: tokens) { return css(override) }
         let separator = tokens.separator
-        return css(separator.withAlpha(min(1, separator.alpha * ChromeTunables.dividerStrength.value)))
+        let base = separator.withAlpha(min(1, separator.alpha * ChromeTunables.dividerStrength.value))
+        return css(backgrounds.dividerLine(base: base) ?? base)
     }
 
     /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`, the divider

@@ -1,58 +1,57 @@
 import CmuxNextDesign
-import CmuxNextSidebar
 import Foundation
 
 /// One window's sidebar as it last looked, saved so the next launch draws
 /// it in the first frame (snapshot-first launch): sections, groups, each row's title, icon and what sets
 /// its height and Done fold (`SidebarWorkspaceSnapshot`), plus the space (profile) bar. Other live detail
 /// (activity, unread counts, agent state) arrives with the daemon. Rows read back as `SidebarRowState.stale`.
-nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
-    var sections: [Section]
-    var profiles: [Profile]
-    var activeProfileID: String?
+package nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
+    package var sections: [Section]
+    package var profiles: [Profile]
+    package var activeProfileID: String?
 
-    struct Section: Codable, Hashable, Sendable {
+    package struct Section: Codable, Hashable, Sendable {
         /// Nil for the pinned section.
-        var machineID: String?
-        var machineName: String?
+        package var machineID: String?
+        package var machineName: String?
         /// `local`, `cloud` or `ssh`.
-        var machineKind: String?
-        var isCollapsed: Bool
-        var nodes: [Node]
+        package var machineKind: String?
+        package var isCollapsed: Bool
+        package var nodes: [Node]
     }
 
     /// A loose workspace, or a group with its workspaces.
-    struct Node: Codable, Hashable, Sendable {
-        var workspace: Workspace?
-        var group: Group?
+    package struct Node: Codable, Hashable, Sendable {
+        package var workspace: Workspace?
+        package var group: Group?
     }
 
-    typealias Workspace = SidebarWorkspaceSnapshot
+    package typealias Workspace = SidebarWorkspaceSnapshot
 
-    struct Group: Codable, Hashable, Sendable {
-        var id: String
-        var name: String
-        var color: String
-        var isCollapsed: Bool
-        var isPinned: Bool
-        var workspaces: [Workspace]
+    package struct Group: Codable, Hashable, Sendable {
+        package var id: String
+        package var name: String
+        package var color: String
+        package var isCollapsed: Bool
+        package var isPinned: Bool
+        package var workspaces: [Workspace]
     }
 
-    struct Profile: Codable, Hashable, Sendable {
-        var id: String
-        var name: String
-        var color: String?
-        var icon: String?
+    package struct Profile: Codable, Hashable, Sendable {
+        package var id: String
+        package var name: String
+        package var color: String?
+        package var icon: String?
     }
 
-    init(sections: [Section], profiles: [Profile], activeProfileID: String?) {
+    package init(sections: [Section], profiles: [Profile], activeProfileID: String?) {
         self.sections = sections
         self.profiles = profiles
         self.activeProfileID = activeProfileID
     }
 
     /// Captures what the sidebar shows now. Placeholder rows are not saved.
-    init(sections: [SidebarSection], profiles: [SidebarProfile], activeProfileID: ProfileKey?) {
+    package init(sections: [SidebarSection], profiles: [SidebarProfile], activeProfileID: ProfileKey?) {
         self.sections = sections.filter { !$0.isDocSection }.map { section in // document sections come back with the document
             Section(machineID: section.machine?.id.rawValue, machineName: section.machine?.name,
                     machineKind: section.machine.map { Self.kindName($0.kind) }, isCollapsed: section.isCollapsed,
@@ -64,7 +63,7 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
 
     /// The saved sections as sidebar sections: every row `.stale`, every
     /// machine header connecting.
-    var sidebarSections: [SidebarSection] {
+    package var sidebarSections: [SidebarSection] {
         sections.map { section in
             let nodes = section.nodes.compactMap(Self.sidebarNode)
             guard let id = section.machineID else { return SidebarSection(kind: .pinned, isCollapsed: section.isCollapsed, nodes: nodes) }
@@ -74,15 +73,59 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         }
     }
 
-    var sidebarProfiles: [SidebarProfile] {
+    package var sidebarProfiles: [SidebarProfile] {
         profiles.map { SidebarProfile(id: ProfileKey($0.id), name: $0.name, color: $0.color.flatMap(GroupColor.init(rawValue:)), icon: $0.icon) }
     }
 
-    var sidebarActiveProfileID: ProfileKey? { activeProfileID.map(ProfileKey.init) }
+    package var sidebarActiveProfileID: ProfileKey? { activeProfileID.map(ProfileKey.init) }
 
     /// Every saved workspace id, in order.
-    var workspaceIDs: [String] {
+    package var workspaceIDs: [String] {
         sections.flatMap(\.nodes).flatMap { node in node.workspace.map { [$0] } ?? node.group?.workspaces ?? [] }.map(\.id)
+    }
+
+    /// How many workspace rows are saved.
+    package var rowCount: Int {
+        sections.reduce(0) { total, section in
+            section.nodes.reduce(total) { $0 + ($1.workspace != nil ? 1 : $1.group?.workspaces.count ?? 0) }
+        }
+    }
+
+    /// Every row reduced to what places it (`SidebarWorkspaceSnapshot.compacted`).
+    package func compactingRows() -> SidebarSnapshot {
+        var copy = self
+        for s in copy.sections.indices {
+            copy.sections[s].nodes = copy.sections[s].nodes.map { node in
+                Node(workspace: node.workspace?.compacted, group: node.group.map { group in
+                    var group = group
+                    group.workspaces = group.workspaces.map(\.compacted)
+                    return group
+                })
+            }
+        }
+        return copy
+    }
+
+    /// The first `limit` rows in sidebar order (top first, what the first frame shows); a group past
+    /// the limit goes with its rows.
+    package func keepingFirstRows(_ limit: Int) -> SidebarSnapshot {
+        var copy = self
+        var left = max(0, limit)
+        for s in copy.sections.indices {
+            var kept: [Node] = []
+            for node in copy.sections[s].nodes where left > 0 {
+                if node.workspace != nil {
+                    left -= 1
+                    kept.append(node)
+                } else if var group = node.group {
+                    group.workspaces = Array(group.workspaces.prefix(left))
+                    left -= group.workspaces.count
+                    kept.append(Node(workspace: nil, group: group))
+                }
+            }
+            copy.sections[s].nodes = kept
+        }
+        return copy
     }
 
     private static func node(_ node: SidebarNode) -> Node? {

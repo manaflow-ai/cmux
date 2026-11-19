@@ -13,6 +13,7 @@ import {
   killedHarnesses,
   newVertexModels,
   routerEntry,
+  withoutServerAdditions,
 } from "./scout-lib";
 
 const harness = (id: string, models: Array<Record<string, unknown>>, defaultModel?: string) => ({ id, name: id, brand: id, families: [id], modelSource: "catalog" as const, ...(defaultModel ? { defaultModel } : {}), models: models as any });
@@ -83,4 +84,12 @@ test("the smoke turn passes only on a ping tool call (or any reply for a model w
   expect(judgeSmoke("m", 200, text, 10, true)).toMatchObject({ ok: false, error: "no ping tool call" });
   expect(judgeSmoke("m", 200, text, 10, false)).toMatchObject({ ok: true });
   expect(judgeSmoke("m", 404, { error: { message: "not found" } }, 10, true)).toMatchObject({ ok: false, error: "HTTP 404: not found" });
+});
+
+test("router model entries the server adds to models are not a change", () => {
+  const next = { harnesses: [harness("claude", [{ id: "a", name: "A" }])], models: { "google/gemini-4-neon": { name: "Gemini 4 Neon" } }, providers: {} };
+  const served = { schemaVersion: 1 as const, generatedAt: "x", source: "live" as const, version: 2, harnesses: [...next.harnesses, harness("cmux", [{ id: "deepseek/x" }, { id: "google/gemini-4-neon" }])], models: { "google/gemini-4-neon": { name: "Gemini 4 Neon" }, "deepseek/x": { name: "X" } }, providers: {} };
+  expect(catalogContent(withoutServerAdditions(served as any, next))).toBe(catalogContent(next));
+  // A feed model the server did not add still counts.
+  expect(catalogContent(withoutServerAdditions({ ...served, models: { ...served.models, "openai/y": { name: "Y" } } } as any, next))).not.toBe(catalogContent(next));
 });
