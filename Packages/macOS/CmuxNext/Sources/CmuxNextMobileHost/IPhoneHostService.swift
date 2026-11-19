@@ -171,6 +171,8 @@ public final class IPhoneHostService {
     /// The pre-approval behind this Mac's pairing code (``pairInvite()``): a phone presenting the
     /// live one pairs without the prompt, once.
     @ObservationIgnored var pairTokens = MobileHostPairTokens()
+    /// Pair requests that came before the paired list was in, answered once it is (``MobileHostHeldPairRequests``).
+    @ObservationIgnored var heldPairRequests = MobileHostHeldPairRequests()
     /// This Mac's identity public key, as hostd proves it to phones (nil until hostd started).
     @ObservationIgnored private(set) var macPublicKey: Data?
     /// The open "Allow … to connect?" dialog: its dialog id and the request it shows.
@@ -241,6 +243,7 @@ public final class IPhoneHostService {
                 guard let self else { return }
                 paired = self.pairedStore.current
                 pushPaired()
+                answerHeldPairRequests()
             }
         }
         wakeObserver = MainActorObservation(NSWorkspace.didWakeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
