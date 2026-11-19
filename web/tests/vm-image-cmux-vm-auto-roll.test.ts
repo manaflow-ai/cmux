@@ -201,13 +201,22 @@ describe("auto-roll approve", () => {
 
   test("a large image that would put staging over the text binding limit is left out, and the roll goes on", () => {
     const staging = locate(wrangler, "staging").images;
-    const plain = locate(approve(wrangler, entry("40")).text, "staging").images;
-    // Pad one hand-approved name so the plain roll fits with fewer bytes to spare than the large image needs.
-    const spare = MAX_BYTES - Buffer.byteLength(JSON.stringify(plain));
-    const pad = spare - 10;
-    expect(pad).toBeGreaterThan(0);
-    expect(staging[0]!.displayName.length + pad).toBeLessThanOrEqual(100);
-    const tight = replaceList(wrangler, "staging", [{ ...staging[0]!, displayName: staging[0]!.displayName + "x".repeat(pad) }, ...staging.slice(1)]);
+    // Hand-approved entries are added and their names padded (100 characters at most each) until the plain roll fits
+    // with 10 bytes to spare, fewer than the large image needs.
+    const rolled = { ...entry("40"), services: ["cloud-platform-dev", "cloud-platform-staging"] };
+    const spare = (images: BootImage[]) => MAX_BYTES - Buffer.byteLength(JSON.stringify([...images, rolled]));
+    let filled = staging;
+    for (let n = 0; spare([{ ...staging[0]!, id: `hand-pad-${n}`, displayName: "x" }, ...filled]) >= 10; n++)
+      filled = [{ ...staging[0]!, id: `hand-pad-${n}`, displayName: "x" }, ...filled];
+    let pad = spare(filled) - 10;
+    expect(pad).toBeGreaterThanOrEqual(0);
+    const padded = filled.map((i) => {
+      const add = Math.min(pad, 100 - i.displayName.length);
+      pad -= add;
+      return { ...i, displayName: i.displayName + "x".repeat(add) };
+    });
+    expect(pad).toBe(0);
+    const tight = replaceList(wrangler, "staging", padded);
     const { text, large } = approve(tight, withLarge("40"));
     expect(large).toBe(false);
     expect(locate(text, "staging").images.at(-1)).toEqual({ ...entry("40"), services: ["cloud-platform-dev", "cloud-platform-staging"] });
