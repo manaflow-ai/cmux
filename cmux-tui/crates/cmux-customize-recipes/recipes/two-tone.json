@@ -1,0 +1,15 @@
+{
+  "cmuxProfile": 1,
+  "name": "two-tone",
+  "description": "A two-tone rice: ink and amber only, a curved ink pane on a deeper ink sidebar, a terminal in amber and cream tints, square amber-edged chat blocks, Geist and Monaco.",
+  "settings": {
+    "appearance.themeFile": "two-tone",
+    "sidebar.density": "compact",
+    "sidebar.cards.tips": false,
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.ui": "geist",
+    "agentPane.display.font.size": 13,
+    "agentPane.display.width": 720
+  }
+}

@@ -1,0 +1,74 @@
+// Great Wave: Hokusai's wave behind the window and the Kanagawa palette everywhere in front of it.
+// Sumi ink panes, rice-paper text, wave blue and carp ochre, a fuji-white sidebar edge. The terminal
+// is the Kanagawa Wave palette, color for color.
+{
+  "name": "Great Wave",
+  "description": "Hokusai's wave behind sumi-ink glass, rice-paper text, wave blue and carp ochre.",
+
+  "appearance.theme": "Kanagawa Wave",
+  "ghostty": [
+    "background = #1f1f28",
+    "foreground = #dcd7ba",
+    "cursor-color = #e6c384",
+    "cursor-text = #1f1f28",
+    "selection-background = #2d4f67",
+    "selection-foreground = #dcd7ba",
+    "palette = 0=#16161d",
+    "palette = 1=#c34043",
+    "palette = 2=#76946a",
+    "palette = 3=#c0a36e",
+    "palette = 4=#7e9cd8",
+    "palette = 5=#957fb8",
+    "palette = 6=#6a9589",
+    "palette = 7=#c8c093",
+    "palette = 8=#727169",
+    "palette = 9=#e82424",
+    "palette = 10=#98bb6c",
+    "palette = 11=#e6c384",
+    "palette = 12=#7fb4ca",
+    "palette = 13=#938aa9",
+    "palette = 14=#7aa89f",
+    "palette = 15=#dcd7ba"
+  ],
+  "colors": { "accent": "#e6c384" },
+  "appearance.appTheme": "followTerminal",
+  "appearance.accent": "theme",
+  "appearance.highlightColor": "#7e9cd8",
+
+  // The wave, clear around the panes.
+  "appearance.background": "hokusai-great-wave",
+  "appearance.backgroundOpacity": 0.95,
+  "appearance.backgroundBlur": "glass-clear",
+  "appearance.wallpaperTint": false,
+  "appearance.glassTransparency": 0.6,
+
+  // One rounded card on the wave, sections as trays.
+  "appearance.chromeStyle": "card",
+  "appearance.borders": "default",
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#16161d",
+  "appearance.surfaces.sidebar.opacity": 0.74,
+  "sidebar.border": true,
+  "sidebar.borderWidth": 1,
+  "sidebar.sectionLook": "tray",
+  "appearance.surfaces.terminal.color": "#1f1f28",
+  "appearance.surfaces.terminal.opacity": 0.9,
+  "appearance.surfaces.agentPane.color": "#1f1f28",
+  "appearance.surfaces.agentPane.opacity": 0.92,
+  "appearance.surfaces.newTabPage.color": "#1f1f28",
+  "appearance.surfaces.newTabPage.opacity": 0.85,
+
+  "appearance.statusIndicator.style": "braille",
+  "appearance.statusIndicator.color": "#7fb4ca",
+
+  // Motion: unhurried, an ease in and out like a swell.
+  "ui.animationSpeed": "normal",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "easeInOut",
+  "appearance.colorTransition.duration": 900,
+
+  "appearance.density": "comfortable",
+  "terminal.fontFamily": "Menlo",
+  "terminal.fontSize": 14,
+  "appearance.metrics.chromeFontSize": 13
+}

@@ -1,0 +1,34 @@
+/* Two-Tone chat: ink and amber only. Your prompt is an amber-edged ink block with square corners,
+   headings and links are amber, inline code is amber on deep ink, the quote bar is amber, and the
+   composer is a square ink box with an amber hairline and an amber send button.
+   Colors and radii only: sizes stay with the settings, so rows keep their measured heights. */
+:root {
+  --cv-bubble: #1d1a12;
+  --cv-code-bg: #241c08;
+  --cv-codeblock-bg: #141418;
+  --cv-codeblock-ring: rgb(255 176 0 / 22%);
+  --cv-rule: rgb(255 176 0 / 16%);
+  --cv-strong-rule: #ffb000;
+  --cv-link: #ffb000;
+}
+.cv-user__bubble {
+  border-radius: 4px;
+  box-shadow: inset 2px 0 0 #ffb000;
+}
+.cv-md :is(h1, h2, h3) {
+  color: #ffb000;
+}
+.cv-md code {
+  color: #ffd166;
+}
+.acpmux-shell {
+  --acpmux-composer-bg: #141418;
+  --acpmux-composer-edge: rgb(255 176 0 / 45%);
+}
+.acpmux-composer-box {
+  --acpmux-composer-radius: 6px;
+}
+.acpmux-send.acpmux-send-ready {
+  background: #ffb000;
+  color: #0e0f12;
+}

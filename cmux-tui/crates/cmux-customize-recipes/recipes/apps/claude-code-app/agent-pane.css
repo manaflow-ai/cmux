@@ -1,0 +1,18 @@
+/* The Claude Code desktop app's chat: your prompt in a dark pill on the right, tool rows with the
+   file in a mono chip, clay links, a dark rounded composer.
+   Colors and radii only: sizes stay with the settings, so rows keep their measured heights. */
+:root {
+  --cv-bubble: #2d2c29;
+  --cv-code-bg: #302f2c;
+  --cv-link: #e08a6c;
+}
+.cv-user__bubble {
+  border-radius: 14px;
+}
+.acpmux-shell {
+  --acpmux-composer-bg: #2a2926;
+  --acpmux-composer-edge: rgb(255 255 255 / 10%);
+}
+.acpmux-composer-box {
+  --acpmux-composer-radius: 14px;
+}

@@ -1,0 +1,22 @@
+{
+  "cmuxProfile": 1,
+  "name": "claude-code-app",
+  "description": "Looks and works like the Claude Code desktop app: a warm dark page, chats by project in the sidebar, the clay accent, tool rows with their file and line counts.",
+  "settings": {
+    "appearance.themeFile": "claude-code-app",
+    "sidebar.groupBy": "folder",
+    "sidebar.showTimestamps": true,
+    "sidebar.density": "comfortable",
+    "sidebar.showSpaces": false,
+    "sidebar.cards.tips": false,
+    "tabs.hideLoneChatTab": true,
+    "agentPane.display.presentation": "transcript",
+    "agentPane.display.transcriptView": "normal",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.width": 800,
+    "agentPane.display.minimap": "off",
+    "agentPane.editedFiles.show": "always",
+    "agentPane.showContextUsage": true
+  }
+}

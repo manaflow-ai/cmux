@@ -1,0 +1,22 @@
+{
+  "cmuxProfile": 1,
+  "name": "true-black",
+  "description": "True black, a dense sidebar of chats by project with their branch under the name, a narrow chat column, an indigo accent.",
+  "settings": {
+    "appearance.themeFile": "true-black",
+    "sidebar.groupBy": "folder",
+    "sidebar.showTimestamps": true,
+    "sidebar.density": "compact",
+    "sidebar.showSpaces": false,
+    "sidebar.cards.tips": false,
+    "sidebar.workspaceRow.secondLineOrder": ["branch", "agentStatus"],
+    "tabs.hideLoneChatTab": true,
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.ui": "inter",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.width": 736,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "left"
+  }
+}

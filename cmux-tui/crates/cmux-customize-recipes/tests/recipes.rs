@@ -43,8 +43,8 @@ fn a_recipe_that_names_a_key_the_schema_lacks_is_refused() {
 }
 
 #[test]
-fn there_are_ten_recipes_with_unique_names_in_every_group() {
-    assert_eq!(RECIPES.len(), 10);
+fn there_are_sixteen_recipes_with_unique_names_in_every_group() {
+    assert_eq!(RECIPES.len(), 16);
     let mut names: Vec<_> = RECIPES.iter().map(|recipe| recipe.name).collect();
     names.sort();
     names.dedup();
@@ -57,11 +57,132 @@ fn there_are_ten_recipes_with_unique_names_in_every_group() {
     }
 }
 
+/// CMUX-642, Leo: "make customization for codex, [another agent app], claude code app
+/// (everything)", "sidebar, gui, everything". Each look-alike is one profile
+/// that turns on the theme file it carries, restyles the chat with its own
+/// stylesheet and sets the sidebar and chat settings.
+#[test]
+fn each_app_look_alike_carries_its_theme_its_chat_stylesheet_and_its_settings() {
+    for name in ["codex-app", "true-black", "claude-code-app"] {
+        let recipe = find(name).unwrap_or_else(|| panic!("no {name} recipe"));
+        assert_eq!(recipe.group, Group::Apps, "{name}");
+        let profile = recipe.profile().unwrap();
+        assert_eq!(
+            profile.settings.get("appearance.themeFile"),
+            Some(&serde_json::json!(name)),
+            "{name} turns on a theme file of its own name"
+        );
+        let theme = profile
+            .files
+            .get(&format!("themes/{name}.json"))
+            .unwrap_or_else(|| panic!("{name} carries no theme file"));
+        assert!(cmux_config::jsonc::parse(theme).is_ok(), "{name}: its theme file is not JSONC");
+        let chat = profile
+            .files
+            .get("agent-pane/theme.css")
+            .unwrap_or_else(|| panic!("{name} carries no chat stylesheet"));
+        assert!(
+            chat.contains(".cv-user__bubble"),
+            "{name}: the stylesheet leaves the prompt alone"
+        );
+        for key in ["sidebar.groupBy", "agentPane.display.width", "tabs.hideLoneChatTab"] {
+            assert!(profile.settings.contains_key(key), "{name} does not set {key}");
+        }
+        assert_eq!(recipe.parts(), ["settings", "themes", "styles"], "{name}");
+    }
+}
+
+/// Leo, 2026-11-19: "a whole like cohesively themed one ... truly opinionated stuff, like for
+/// instance the two-tone". A rice reaches every surface a theme can: its theme file reads with no
+/// refused key and no corrected color, sets all sixteen terminal colors and the terminal font,
+/// a wallpaper, the chrome, borders, glass, the sidebar and motion; its stylesheet restyles the
+/// prompt, the replies and the composer; its profile picks the chat's font.
+#[test]
+fn each_rice_themes_every_surface_and_reads_clean() {
+    let rices: Vec<_> = RECIPES.iter().filter(|recipe| recipe.group == Group::Rices).collect();
+    let names: Vec<_> = rices.iter().map(|recipe| recipe.name).collect();
+    assert_eq!(names, ["sakura", "two-tone", "great-wave"], "the cherry blossom and the two-tone");
+    for recipe in rices {
+        let name = recipe.name;
+        let profile = recipe.profile().unwrap();
+        assert_eq!(profile.settings.get("appearance.themeFile"), Some(&serde_json::json!(name)));
+        assert!(profile.settings.contains_key("agentPane.display.font.ui"), "{name}: no chat font");
+        assert_eq!(recipe.parts(), ["settings", "themes", "styles"], "{name}");
+
+        let text = &profile.files[&format!("themes/{name}.json")];
+        let theme = cmux_config::theme_file::ThemeFile::read(
+            name,
+            Some(Ok(text)),
+            &serde_json::json!({}),
+            None,
+            cmux_config::Schema::embedded(),
+            &cmux_config::Domains::default(),
+        );
+        assert!(theme.is_loaded && !theme.is_unparsable, "{name}: the theme file does not read");
+        assert!(theme.diagnostics.is_empty(), "{name}: {:#?}", theme.diagnostics);
+        assert!(theme.corrected.is_empty(), "{name}: contrast raised {:?}", theme.corrected);
+        let keys = theme.keys();
+        for key in [
+            "appearance.theme",
+            "appearance.appTheme",
+            "appearance.accent",
+            "appearance.background",
+            "appearance.backgroundOpacity",
+            "appearance.backgroundBlur",
+            "appearance.glassTransparency",
+            "appearance.chromeStyle",
+            "appearance.borders",
+            "appearance.sidebarSurface",
+            "appearance.surfaces.sidebar.color",
+            "appearance.surfaces.terminal.color",
+            "appearance.surfaces.agentPane.color",
+            "appearance.statusIndicator.style",
+            "ui.animationSpeed",
+            "appearance.colorTransition.curve",
+            "sidebar.sectionLook",
+            "terminal.fontFamily",
+            "terminal.fontSize",
+        ] {
+            assert!(keys.iter().any(|set| set == key), "{name}: the theme file does not set {key}");
+        }
+        let background = theme
+            .values
+            .iter()
+            .find(|(path, _)| path.join(".") == "appearance.background")
+            .map(|(_, value)| value.clone());
+        assert_ne!(background, Some(serde_json::json!("none")), "{name}: no wallpaper");
+
+        let root = cmux_config::jsonc::parse(text).unwrap();
+        let ghostty: Vec<&str> =
+            root["ghostty"].as_array().unwrap().iter().filter_map(|line| line.as_str()).collect();
+        for index in 0..16 {
+            let entry = format!("palette = {index}=#");
+            assert!(
+                ghostty.iter().any(|line| line.starts_with(&entry)),
+                "{name}: no color {index}"
+            );
+        }
+        for token in ["background", "foreground", "cursor-color", "selection-background"] {
+            assert!(
+                ghostty.iter().any(|line| line.starts_with(&format!("{token} = #"))),
+                "{name}: no {token}"
+            );
+        }
+
+        let chat = &profile.files["agent-pane/theme.css"];
+        for selector in [".cv-user__bubble", ".cv-md", ".acpmux-composer-box", ".acpmux-send"] {
+            assert!(chat.contains(selector), "{name}: the stylesheet leaves {selector} alone");
+        }
+    }
+}
+
 #[test]
 fn every_shortcut_a_recipe_binds_is_an_action_cmux_has() {
     for recipe in RECIPES {
         let profile = recipe.profile().unwrap();
-        let Some(text) = profile.files.get("keybindings.json") else { continue };
+        let Some(text) = profile.files.get("keybindings.json") else {
+            continue;
+        };
         let parsed = cmux_config::keybindings::parse(text);
         assert!(parsed.diagnostics.is_empty(), "{}: {:?}", recipe.name, parsed.diagnostics);
         assert!(!parsed.entries.is_empty(), "{}: binds nothing", recipe.name);

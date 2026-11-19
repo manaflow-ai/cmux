@@ -19,6 +19,9 @@
 // For captures rather than scores: --theme renders under a Ghostty theme from
 // Resources/ghostty/themes (e.g. "Catppuccin Mocha"), --anchor scrolls to other text,
 // and --open opens the turn's "Worked for" fold. The mismatch then means little.
+// --theme-file renders under any Ghostty theme file (a rice's terminal colors), and --css
+// installs a chat stylesheet the way the app hands over agent-pane/theme.css
+// (bridge.applyCustomization({ themeCSS })), so a customize recipe's look renders here.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -89,7 +92,10 @@ if (!referenceOption) {
 const referenceRoot = path.resolve(referenceOption);
 const outRoot = path.resolve(option("out") ?? path.join(os.tmpdir(), "cmux-agent-pane-compare"));
 const themeName = option("theme");
-const themeFile = themeName && path.resolve(webviews, "../Resources/ghostty/themes", themeName);
+const themeFile =
+  (option("theme-file") && path.resolve(option("theme-file"))) ||
+  (themeName && path.resolve(webviews, "../Resources/ghostty/themes", themeName));
+const themeCSS = option("css") && fs.readFileSync(path.resolve(option("css")), "utf8");
 if (themeFile && !fs.existsSync(themeFile)) throw new Error(`no Ghostty theme ${themeFile}`);
 const terminalTheme = themeFile ? ghosttyThemeFile(themeFile) : ghosttyDefault;
 const anchorText = option("anchor");
@@ -134,6 +140,7 @@ async function run(browser, name, scenario) {
     // Swift applies the theme once the page has loaded.
     await page.waitForFunction(() => window.cmuxAcpmuxBridge && window.cmuxAcpmuxActions?.["chat.send"]);
     await page.evaluate((theme) => window.cmuxAcpmuxBridge.applyTheme(theme), agentPaneTheme(terminalTheme));
+    if (themeCSS) await page.evaluate((css) => window.cmuxAcpmuxBridge.applyCustomization({ themeCSS: css }), themeCSS);
     // The mock daemon answers the prompt once the recorded turn has finished; without a
     // fixture the seeded workspace already holds a finished turn.
     if (fixture)

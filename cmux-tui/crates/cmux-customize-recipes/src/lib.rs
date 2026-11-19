@@ -31,11 +31,20 @@ pub enum Group {
     Type,
     Widgets,
     Keys,
+    Apps,
+    Rices,
 }
 
 impl Group {
-    pub const ALL: &'static [Group] =
-        &[Group::Look, Group::Layout, Group::Type, Group::Widgets, Group::Keys];
+    pub const ALL: &'static [Group] = &[
+        Group::Look,
+        Group::Layout,
+        Group::Type,
+        Group::Widgets,
+        Group::Keys,
+        Group::Apps,
+        Group::Rices,
+    ];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -44,6 +53,8 @@ impl Group {
             Group::Type => "Type",
             Group::Widgets => "Widgets",
             Group::Keys => "Keys",
+            Group::Apps => "App looks",
+            Group::Rices => "Rices",
         }
     }
 }
@@ -85,6 +96,42 @@ const CLOCK_WEATHER: &[(&str, &str)] = &[
         "customize/main.js",
         include_str!("../../../../skills/cmux-customization/templates/clock-weather/main.js"),
     ),
+];
+
+/// A look-alike carries its theme file and its chat stylesheet, kept as real
+/// files beside the recipe so they read and diff like any theme or stylesheet.
+const CODEX_APP: &[(&str, &str)] = &[
+    ("themes/codex-app.json", include_str!("../recipes/apps/codex-app/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/codex-app/agent-pane.css")),
+];
+
+const TRUE_BLACK: &[(&str, &str)] = &[
+    ("themes/true-black.json", include_str!("../recipes/apps/true-black/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/true-black/agent-pane.css")),
+];
+
+const CLAUDE_CODE_APP: &[(&str, &str)] = &[
+    ("themes/claude-code-app.json", include_str!("../recipes/apps/claude-code-app/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/claude-code-app/agent-pane.css")),
+];
+
+/// A rice is a whole themed look (Leo, 2026-11-19: "a whole like cohesively themed one ... truly
+/// opinionated stuff"): its theme file sets every terminal color, the sidebar, glass, borders,
+/// motion, the wallpaper and the terminal font, and its chat stylesheet restyles the chat and the
+/// composer. The profile adds the chat's interface font.
+const SAKURA: &[(&str, &str)] = &[
+    ("themes/sakura.json", include_str!("../recipes/rices/sakura/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/rices/sakura/agent-pane.css")),
+];
+
+const TWO_TONE: &[(&str, &str)] = &[
+    ("themes/two-tone.json", include_str!("../recipes/rices/two-tone/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/rices/two-tone/agent-pane.css")),
+];
+
+const GREAT_WAVE: &[(&str, &str)] = &[
+    ("themes/great-wave.json", include_str!("../recipes/rices/great-wave/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/rices/great-wave/agent-pane.css")),
 ];
 
 /// Every recipe, in the order a guide lists them.
@@ -169,6 +216,54 @@ pub const RECIPES: &[Recipe] = &[
         profile: include_str!("../recipes/glass.json"),
         includes: &[],
     },
+    Recipe {
+        name: "codex-app",
+        title: "Like the Codex app",
+        group: Group::Apps,
+        ask: "make cmux look and work like the Codex app",
+        profile: include_str!("../recipes/codex-app.json"),
+        includes: CODEX_APP,
+    },
+    Recipe {
+        name: "true-black",
+        title: "True black, chats by project",
+        group: Group::Apps,
+        ask: "make cmux true black with a dense sidebar of chats by project",
+        profile: include_str!("../recipes/true-black.json"),
+        includes: TRUE_BLACK,
+    },
+    Recipe {
+        name: "claude-code-app",
+        title: "Like the Claude Code desktop app",
+        group: Group::Apps,
+        ask: "make cmux look and work like the Claude Code desktop app",
+        profile: include_str!("../recipes/claude-code-app.json"),
+        includes: CLAUDE_CODE_APP,
+    },
+    Recipe {
+        name: "sakura",
+        title: "Sakura: cherry blossom",
+        group: Group::Rices,
+        ask: "rice cmux with a cherry blossom theme, pink and plum everywhere",
+        profile: include_str!("../recipes/sakura.json"),
+        includes: SAKURA,
+    },
+    Recipe {
+        name: "two-tone",
+        title: "Two-Tone: ink and amber",
+        group: Group::Rices,
+        ask: "rice cmux in two tones, ink and amber only",
+        profile: include_str!("../recipes/two-tone.json"),
+        includes: TWO_TONE,
+    },
+    Recipe {
+        name: "great-wave",
+        title: "Great Wave: Hokusai and Kanagawa",
+        group: Group::Rices,
+        ask: "rice cmux with the Great Wave and the Kanagawa colors",
+        profile: include_str!("../recipes/great-wave.json"),
+        includes: GREAT_WAVE,
+    },
 ];
 
 /// The recipe called `name`.
@@ -200,7 +295,9 @@ impl Recipe {
 
     /// The parts it changes, by name (`settings`, `views`, `keybindings`).
     pub fn parts(&self) -> Vec<&'static str> {
-        let Ok(profile) = self.profile() else { return Vec::new() };
+        let Ok(profile) = self.profile() else {
+            return Vec::new();
+        };
         let mut parts: Vec<Part> = profile.files.keys().map(|path| Part::of(path)).collect();
         if !profile.settings.is_empty() {
             parts.push(Part::Settings);
