@@ -9,7 +9,7 @@ import type { SetupState } from "./setupModel";
 
 const strings = cardStrings();
 
-type Fixture = "fresh" | "classic" | "mostlyDone" | "installing" | "unverified" | "tools" | "toolsAdded";
+type Fixture = "fresh" | "classic" | "mostlyDone" | "installing" | "unverified" | "tools" | "toolsAdded" | "devBackend";
 
 const FIXTURES: Record<Fixture, SetupState> = {
   fresh: {
@@ -39,6 +39,12 @@ const FIXTURES: Record<Fixture, SetupState> = {
     account: { signedIn: true, email: "you@example.com" },
     cli: "missing",
     classic: { workspaces: 27, saved: "1 minute ago", answered: "imported" },
+  },
+  devBackend: {
+    agents: [{ id: "claude", name: "Claude Code", state: "signedIn" }],
+    account: { signedIn: false, signInBackend: "Signs in to Development backend · dev-abc.cmux.dev" },
+    cli: "installed",
+    classic: null,
   },
   installing: {
     agents: [
@@ -141,6 +147,11 @@ export default componentEntry<Props>({
       props: { look: "rows", fixture: "tools" },
     },
     "rows-tools-added": { props: { look: "rows", fixture: "toolsAdded" } },
+    "next-dev-backend": {
+      note: "A dev build, signed out: the account row says which backend Sign In signs in to.",
+      props: { look: "next", fixture: "devBackend" },
+    },
+    "rows-dev-backend": { props: { look: "rows", fixture: "devBackend" } },
     "rows-unverified": {
       note: "Claude Code's login opened, but its Keychain sign-in cannot be read: the person confirms it or signs in again.",
       props: { look: "rows", fixture: "unverified" },

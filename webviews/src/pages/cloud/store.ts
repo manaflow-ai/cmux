@@ -100,6 +100,8 @@ export interface RetentionEdit {
 export interface CloudState {
   connection: Connection;
   auth?: AuthStatus;
+  /** What Sign In signs in to ("Signs in to cmux.com"), from the app's account stream while signed out. */
+  signInBackend?: string;
   loading: boolean;
   machines: CloudMachine[];
   revision: number;
@@ -799,6 +801,8 @@ export class CloudStore {
         if (lifetime !== this.lifetime) return;
         const previous = this.lastAccount;
         this.lastAccount = event;
+        const signInBackend = event?.signInBackend ?? undefined;
+        if (signInBackend !== this.state.signInBackend) this.set({ signInBackend });
         // Another signed-in account (a user switch): its auth status may read the same, so it reloads.
         const switched = !!previous?.signedIn && !!event?.signedIn && (previous.user ?? null) !== (event.user ?? null);
         void this.accountChanged(switched);

@@ -23,6 +23,15 @@ describe("setupSteps", () => {
     expect(setupProgress(steps)).toEqual({ done: 0, total: 3 });
   });
 
+  test("signed out, the account row carries the app's backend line under Sign In; signed in, none", () => {
+    const line = "Signs in to Development backend · dev-abc.cmux.dev";
+    const out = setupSteps({ ...fresh, account: { signedIn: false, signInBackend: line } }, strings);
+    expect(out.find((step) => step.id === "account")?.note).toBe(line);
+    expect(setupSteps(fresh, strings).find((step) => step.id === "account")?.note).toBeUndefined();
+    const signedIn = setupSteps({ ...fresh, account: { signedIn: true, signInBackend: line } }, strings);
+    expect(signedIn.find((step) => step.id === "account")?.note).toBeUndefined();
+  });
+
   test("classic's session leads, with Import and Not Now, until answered", () => {
     const state: SetupState = { ...fresh, classic: { workspaces: 27, saved: "1 minute ago" } };
     const steps = setupSteps(state, strings);
@@ -64,11 +73,7 @@ describe("setupSteps", () => {
     const added = setupSteps({ ...ask, tools: { ...ask.tools!, choice: "on" } }, strings)[1]!;
     expect([added.done, added.detail, added.action]).toEqual([true, "On for agents you start in cmux", undefined]);
     const declined = setupSteps({ ...ask, tools: { ...ask.tools!, choice: "off" } }, strings)[1]!;
-    expect([declined.done, declined.detail, declined.secondary]).toEqual([
-      true,
-      "Off: Settings > Agents",
-      undefined,
-    ]);
+    expect([declined.done, declined.detail, declined.secondary]).toEqual([true, "Off: Settings > Agents", undefined]);
     // Nothing to ask: no row.
     expect(setupSteps({ ...fresh, tools: null }, strings).map((step) => step.id)).not.toContain("tools");
   });

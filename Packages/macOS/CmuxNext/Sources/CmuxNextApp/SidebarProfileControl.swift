@@ -60,7 +60,7 @@ import Observation
         let avatar = avatar(workspace: workspace)
         // Show Chief / Hide Chief reads the `home.chiefPetEnabled` that applies now (the menu is built at each open).
         let menu = ProfileMenuBuilder(registry: services.registry).make(profile: ProfileMenuProfile(name: avatar.name), avatar: avatar.image(diameter: Double(Metrics.smallIconSize)), chiefPetShown: services.settings?.snapshot.homeChiefPetEnabled)
-        SidebarAccount.addRows(to: menu, account: account, registry: services.registry)
+        SidebarAccount.addRows(to: menu, account: account, registry: services.registry, backend: services.cloud.configuration.backendLabel)
         return menu
     }
 }

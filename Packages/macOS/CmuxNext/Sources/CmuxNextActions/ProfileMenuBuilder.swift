@@ -68,13 +68,17 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     /// for the person's own team, people for a shared one) and second line, the active one checked,
     /// so the team in effect reads as a choice, not as a highlighted row (Leo, 2026-11-09, of the
     /// lone team row: "i guess is team? it's kinda hard to realize tho").
-    public func addAccountRows(to menu: NSMenu, who: [String]?, avatar: NSImage? = nil) {
+    ///
+    /// `signInBackend` is what Sign In signs in to ("Signs in to cmux.com"): Sign In's second line where
+    /// the system draws one (macOS 14.4), else a line of its own under it.
+    public func addAccountRows(to menu: NSMenu, who: [String]?, avatar: NSImage? = nil, signInBackend: String? = nil) {
         defer { Self.keepOneTextColumn(menu) }
         let auth: ActionID = who == nil ? "palette.auth.signIn" : "palette.auth.signOut"
         if let item = registry.makeMenuItem(for: auth) {
             item.image = registry.descriptor(for: auth).flatMap { registry.rowIcon($0.symbol) }
             menu.addItem(.separator())
             menu.addItem(item)
+            if who == nil, let signInBackend { Self.addBackendLine(signInBackend, to: item, in: menu) }
         }
         guard let who, let name = who.first else { return }
         var rows = personRows(name: name, email: who.count > 1 ? who[1] : nil, avatar: avatar)
@@ -85,6 +89,18 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         }
         rows.append(.separator())
         for row in rows.reversed() { menu.insertItem(row, at: 0) }
+    }
+
+    /// Sign In's backend line: its subtitle on macOS 14.4, else a disabled row under it.
+    private static func addBackendLine(_ line: String, to item: NSMenuItem, in menu: NSMenu) {
+        if #available(macOS 14.4, *) {
+            item.subtitle = line
+            return
+        }
+        let row = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+        row.isEnabled = false
+        row.identifier = NSUserInterfaceItemIdentifier("profileMenu.signInBackend")
+        menu.addItem(row)
     }
 
     /// Who is signed in: one row, the email as its second line where the system draws one (macOS

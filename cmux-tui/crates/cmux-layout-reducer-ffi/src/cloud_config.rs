@@ -56,6 +56,15 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!({ "url": config::sign_in_url(&request.auth_web_origin, &request.callback_scheme, request.state.as_deref()) })
         }
+        // What the sign-in screens say they sign in to: the configuration's backend, named.
+        b"cloud_config_backend_label" => {
+            #[derive(Deserialize)]
+            struct Request {
+                backend: config::Backend,
+            }
+            let request: Request = read(request)?;
+            json!(config::backend_label(&request.backend))
+        }
         // The install token's owner: use the held token, renew it beside, wait on the mint, or name the stall.
         b"cloud_auth_install_token_lease" => {
             let facts: cmux_cloud_config::signin::LeaseFacts = read(request)?;

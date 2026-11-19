@@ -8,6 +8,20 @@ import Testing
 /// Sign In button every such place shows takes its size from the density tokens, so it sits with the
 /// controls around it at every density, and a click runs the sign-in that place passes.
 @Suite @MainActor struct SignInButtonTests {
+    /// Leo: "why is the stuff so weird to log in to dev builds?" The line under a cmux Sign In names the
+    /// backend Rust labelled: cmux.com as it is, a dev or local backend by its localized name and where it is.
+    @Test func backendLineNamesTheBackend() {
+        #expect(SignInButton.backendLine(kind: "production", title: "cmux.com", detail: nil) == "Signs in to cmux.com")
+        #expect(SignInButton.backendLine(kind: "development", title: "Development backend", detail: "dev-abc.cmux.dev")
+            == "Signs in to Development backend · dev-abc.cmux.dev")
+        #expect(SignInButton.backendLine(kind: "local", title: "Local backend", detail: "localhost:3777")
+            == "Signs in to Local backend · localhost:3777")
+        let button = SignInButton {}
+        #expect(button.withBackendLine(nil) === button)
+        let stacked = button.withBackendLine("Signs in to cmux.com")
+        #expect(stacked.subviews.contains { $0.identifier == SignInButton.backendLineIdentifier })
+    }
+
     @Test func compactIsAControlsSize() {
         #expect(SignInButtonMetrics(density: DensityPreset.compact.tokens, cornerRadius: 6)
             == SignInButtonMetrics(height: 24, paddingX: 10, cornerRadius: 6, textSize: 12))

@@ -146,6 +146,6 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
                                 showsGlobalKey: host.menuBarShowsGlobalKey,
                                 computerUse: host.menuBarComputerUseAvailable ? .init(sessions: host.menuBarComputerUseSessions) : nil,
                                 unread: .init(host.menuBarUnread), running: .init(host.menuBarRunning),
-                                keepingAwake: keepingAwake)
+                                keepingAwake: keepingAwake, signInBackend: host.menuBarSignInBackend)
     }
 }

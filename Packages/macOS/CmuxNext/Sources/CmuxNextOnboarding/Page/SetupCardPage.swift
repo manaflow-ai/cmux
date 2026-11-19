@@ -39,13 +39,15 @@ public struct SetupCardEnvironment {
     public var importHistory: @MainActor () -> Bool
     /// The cmux Tools question (`agents.cmuxMcp` and `cmux setup mcp`'s report); nil: the card has no such row.
     public var agentTools: (any AgentToolsSource)?
+    /// What the account row's Sign In signs in to ("Signs in to cmux.com"), the line under it; nil shows none.
+    public var signInBackend: String?
 
     public init(account: @escaping @MainActor () -> (signedIn: Bool, email: String?), signInAccount: @escaping @MainActor () -> Void,
                 cliState: @escaping @MainActor () async -> String, installCLI: @escaping @MainActor (_ replacing: Bool) async -> Void,
                 openAgents: @escaping @MainActor () -> Void,
                 screenReader: @escaping @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled },
                 historySources: @escaping @MainActor () async -> Bool, importHistory: @escaping @MainActor () -> Bool,
-                agentTools: (any AgentToolsSource)? = nil) {
+                agentTools: (any AgentToolsSource)? = nil, signInBackend: String? = nil) {
         self.account = account
         self.signInAccount = signInAccount
         self.cliState = cliState
@@ -55,6 +57,7 @@ public struct SetupCardEnvironment {
         self.historySources = historySources
         self.importHistory = importHistory
         self.agentTools = agentTools
+        self.signInBackend = signInBackend
     }
 }
 
@@ -182,6 +185,8 @@ public final class SetupCardPageProvider: PageProvider {
         let account = environment.account()
         var wire: [String: JSONValue] = ["signedIn": .bool(account.signedIn)]
         if account.signedIn, let email = account.email { wire["email"] = .string(email) }
+        // Signed out: what the row's Sign In signs in to ("Signs in to cmux.com"), the line under it.
+        if !account.signedIn, let backend = environment.signInBackend { wire["signInBackend"] = .string(backend) }
         return ["agents": .array(rows), "tools": toolsRow, "history": history == true ? ["done": .bool(setup.historyDone)] : .null,
                 "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null]
     }

@@ -7,6 +7,7 @@
 // setupModel.ts; the host runs each action.
 import { Spinner } from "../../../../agent-session/acpmux/conversation/icons";
 import { Button } from "../../../../ui/Button";
+import { SignInBackend } from "../../../../ui/SignInButton";
 import { StatusGlyph } from "../../../../ui/StatusGlyph";
 import type { Strings } from "../strings";
 import { nextStep, setupProgress, setupSteps, type SetupAction, type SetupState, type SetupStep } from "./setupModel";
@@ -54,6 +55,7 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
             <span className="hm-setup__next-text">
               <span className="hm-setup__row-title">{next.title}</span>
               <span className="hm-setup__row-detail">{next.detail}</span>
+              {next.note && <SignInBackend line={next.note} />}
             </span>
             <Trailing step={next} onAction={onAction} wide />
           </div>
@@ -78,6 +80,7 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
             <span className="hm-setup__row-text">
               <span className="hm-setup__row-title">{step.title}</span>
               <span className="hm-setup__row-detail">{step.detail}</span>
+              {step.note && <SignInBackend line={step.note} />}
             </span>
             <Trailing step={step} onAction={onAction} marksDone={look !== "checklist"} />
           </li>
