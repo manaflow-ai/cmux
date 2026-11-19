@@ -37,12 +37,16 @@ usage: nightly_next_delta_check.py prune FEED --base URL
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Callable
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import deadline_http  # noqa: E402  - every call ends by its deadline, not only each socket wait
 
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 S = f"{{{SPARKLE_NS}}}"
@@ -134,19 +138,18 @@ def newest_item(xml: bytes) -> ET.Element | None:
 def http_length(url: str) -> int | None:
     request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            if response.status != 200:
-                return None
-            length = response.headers.get("Content-Length")
-            return int(length) if length and length.isdigit() else None
+        status, _, headers = deadline_http.request(request, 30)
+        if status != 200:
+            return None
+        length = headers.get("Content-Length")
+        return int(length) if length and length.isdigit() else None
     except Exception:  # an unserved delta is the finding, whatever the error
         return None
 
 
 def fetch(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Cache-Control": "no-cache"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return response.read()
+    return deadline_http.request(request, 30, raise_errors=True)[1]
 
 
 def check(xml: bytes, build: int, min_deltas: int, served: Callable[[str], int | None]) -> tuple[int, list[str]]:

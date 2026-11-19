@@ -194,6 +194,22 @@ UNWIRED: set[str] = {
     # cmux-tui-build-package.yml as data: the shipped fat-LTO legs' warm sticky disks and their
     # restore/record calls. Run it by hand after changing those steps. Exit: as above.
     "tests/test_ci_cmux_tui_fat_warm_target.py",
+    # No new CI tests (CLAUDE.md). It reads the cmux-tui tree workflows as text: their Linux build legs install
+    # Debian packages only when missing (no sudo on the owned GCP lanes, run 44363923089). Run it by hand after
+    # changing an apt step there (about 0.1 s). Exit: as above.
+    "tests/test_ci_apt_ensure.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It checks fast-checks.yml's
+    # setup=kernel-free Mac job: owned label, trust boundary and receipt. Run it by hand after changing that job.
+    "tests/test_ci_fast_checks_kernel_free.py",
+    # No new CI tests (CLAUDE.md). It checks that every checkout of a job that can take the owned GCP build lane
+    # repairs a reused workspace; run it by hand after adding a job that can run there. Exit: as above.
+    "tests/test_ci_owned_route_checkout_repair.py",
+    # No new CI tests (CLAUDE.md). It checks the feat-cmux-next required checks and the jobs they need keep their
+    # measured runner size, never the overflow upsize; run it by hand after changing one of those jobs' runs-on.
+    "tests/test_ci_required_checks_keep_their_size.py",
+    # No new CI tests (CLAUDE.md). It checks every network fetch nightly.yml's nightly-next-one job runs (curl,
+    # git, urlopen) has its own bound; run it by hand after changing a step of that job or a script it runs.
+    "tests/test_nightly_next_network_bounds.py",
 }
 
 

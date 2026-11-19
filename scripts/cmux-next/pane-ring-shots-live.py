@@ -24,7 +24,10 @@ parser.add_argument("--set", default="content", choices=["content", "styles"],
                     help="content: the three content-area scenes; styles: every appearance.chromeStyle, split, light and dark")
 opts = parser.parse_args()
 
-OUT = os.path.realpath(os.environ.get("NX_ARTIFACTS") or f"/tmp/pane-ring-shots-{opts.tag}")
+# The fallback is in the user's own folder, not a guessable name in shared /tmp; a rerun with the same tag
+# still reuses the app it downloaded there.
+OUT = os.path.realpath(os.environ.get("NX_ARTIFACTS")
+                       or os.path.expanduser(os.path.join("~/.cache/cmux/pane-ring-shots", opts.tag)))
 os.makedirs(OUT, exist_ok=True)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
