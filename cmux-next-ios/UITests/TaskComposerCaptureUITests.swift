@@ -5,7 +5,7 @@ import XCTest
 /// behavior checks (`testStart…`) fail the run when the composer does not do its job.
 final class TaskComposerCaptureUITests: UIStateCaptureCase {
     typealias C = UIStateCaptureCase
-    private static let list = ["-cmux-mobile-tab", "workspaces"]
+    private static let list = ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-fresh-task-setup"]
     private static let group = "8 New Task"
 
     @MainActor

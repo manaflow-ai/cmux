@@ -625,6 +625,12 @@ public final class WorkspaceCreator {
         self.defaults = defaults
         recents = RecentDirectories(defaults: defaults)
         preferredMacID = defaults.string(forKey: Self.preferredMacKey)
+        #if DEBUG
+        // UI tests start each scene from a clean setup (the kept one is the last scene's).
+        if CommandLine.arguments.contains("-cmux-mobile-fresh-task-setup") {
+            for key in [Self.taskSetupKey, Self.taskLaunchKey, Self.agentSettingsKey] { defaults.removeObject(forKey: key) }
+        }
+        #endif
         // New Task starts as it was last left: its agents, Mac, folder and Chat or Terminal (a
         // terminal until a chat is chosen); each agent's settings are kept per agent.
         restoreTaskSetup()
