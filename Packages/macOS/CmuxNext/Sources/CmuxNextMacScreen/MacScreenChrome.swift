@@ -140,14 +140,17 @@ extension MacScreenPaneModel {
     /// found no relay, else what to check on the other Mac.
     var failedDetail: String {
         Self.failedDetail(relayErrors: session?.relayErrors ?? [], relayOnly: relayOnly, hubTab: hub != nil, name: name,
-                          hubOnline: (hub?.hubConnected ?? true) && !(hub?.failedWhileOffline ?? false))
+                          hubOnline: (hub?.hubConnected ?? true) && !(hub?.failedWhileOffline ?? false),
+                          timedOut: session?.timedOutStage)
     }
 
     static func failedDetail(relayErrors errors: [ICECandidateError], relayOnly: Bool, hubTab: Bool, name: String,
-                             hubOnline: Bool = true) -> String {
+                             hubOnline: Bool = true, timedOut: MacScreenConnectStage? = nil) -> String {
         if hubTab, !hubOnline {
             return L.t("macScreen.card.ownLinkLost", "This Mac lost its connection to the device hub. Check your network; cmux reconnects on its own.")
         }
+        // A connect that ran out of time says the stage it stopped at (no answer, no link, no picture).
+        if let detail = timedOut?.timeoutDetail(name: name) { return detail }
         if errors.contains(where: \.refusedCredentials) {
             return L.t("macScreen.card.relayRefused", "The relay refused the credentials. Check its secret in Settings › Devices.")
         }
@@ -162,6 +165,13 @@ extension MacScreenPaneModel {
     var showsStreamControls: Bool {
         gate == .open && hub?.phase.streamingScope != nil
     }
+
+    /// The toolbar shows the session's controls (access, Full Screen, quality, Send Keys,
+    /// refresh); the palette's viewer rows follow it (``MacScreenViewerControl``).
+    var showsSessionControls: Bool { session != nil && showsStreamControls }
+
+    /// Send Keys can send: a live picture in a session that is not View Only.
+    var canSendKeys: Bool { isLive && !viewOnly }
 
     /// A connected session's card: none while the picture flows, Reconnecting
     /// as soon as the connection stalls (never a frozen picture), Waiting

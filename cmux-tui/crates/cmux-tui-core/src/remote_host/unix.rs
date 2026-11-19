@@ -20,6 +20,8 @@ mod capture_platform;
 #[cfg(test)]
 #[path = "capture_tests.rs"]
 mod capture_tests;
+#[path = "computer_use_lifecycle.rs"]
+mod computer_use_lifecycle;
 
 #[cfg(target_os = "macos")]
 #[path = "macos.rs"]
@@ -36,6 +38,10 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 /// A host that ran at least this long before it stopped restarts at the
 /// first backoff delay again.
 const HEALTHY_RUN: Duration = Duration::from_secs(30);
+/// Status reason after the person quit cmux Remote.
+const QUIT_REASON: &str = "cmux Remote was quit; it starts again with `cmux remote-host restart` or when a feature is turned on";
+/// What the stop intent says stopped it (cmux-supervise-core `intent`, F17).
+const QUIT_INTENT: &str = "person quit cmux Remote";
 
 /// What the person turned on (`config.json`, kept for the next daemon start).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -77,6 +83,14 @@ struct HostRecord {
     socket: PathBuf,
 }
 
+impl HostRecord {
+    /// This host's epoch for the stop intent: its process start time, so a later start is
+    /// always newer than the one the person quit.
+    fn epoch(&self) -> u64 {
+        self.start_sec.saturating_mul(1_000_000).saturating_add(self.start_usec)
+    }
+}
+
 /// Where one daemon's host lives.
 #[derive(Clone, Debug)]
 pub(crate) struct Paths {
@@ -102,6 +116,11 @@ impl Paths {
     }
     fn log(&self) -> PathBuf {
         self.runtime.join("host.log")
+    }
+    /// The person's Quit (F17): durable, so neither a restart after the host exits nor the
+    /// next daemon start brings the host back. Only an explicit start clears it.
+    fn stop_intent(&self) -> cmux_supervise_core::intent::Intent {
+        cmux_supervise_core::intent::Intent::new(self.state.join("stop-intent.json"))
     }
 }
 
@@ -150,7 +169,20 @@ struct Inner {
     unavailable: Mutex<Option<String>>,
     /// A newer embedded build waits for the running host to become idle.
     upgrade_pending: Mutex<bool>,
+    /// The Computer Use worker's activity the host reported last
+    /// (`workers["computer-use"].activity`), and where a change goes (the
+    /// mux's `computer-use-activity` event, set by `configure_remote_host`).
+    activity: Mutex<Value>,
+    on_activity: Mutex<Option<ActivitySink>>,
+    /// Set while the daemon's `preview/watch` connection to the worker is
+    /// open (computer_use_lifecycle.rs).
+    preview_watching: std::sync::atomic::AtomicBool,
+    /// The verified app's own grants (memory only; the app reports them again on connect).
+    app_permissions: Mutex<Option<super::AppPermissions>>,
 }
+
+/// Where the Computer Use worker's activity goes (any thread; must not block).
+type ActivitySink = Arc<dyn Fn(Value) + Send + Sync>;
 
 #[derive(Default)]
 enum State {
@@ -172,6 +204,8 @@ struct Connection {
     status: Mutex<Value>,
     /// Set when the host's connection ended (it exited or drained).
     closed: (Mutex<bool>, std::sync::Condvar),
+    /// The person quit cmux Remote (its `quit` event): no restart on its own.
+    quit: std::sync::atomic::AtomicBool,
 }
 
 impl RemoteHostSupervisor {
@@ -194,12 +228,18 @@ impl RemoteHostSupervisor {
         }
     }
 
+    /// Where the Computer Use worker's activity goes from now on.
+    fn on_activity(&self, sink: ActivitySink) {
+        *lock(&self.inner.on_activity) = Some(sink);
+    }
+
     /// The person's choices changed (the app's settings): saved, sent to the
     /// host, and the host started or stopped to match.
     pub(crate) fn set_config(&self, update: &Value) -> Result<Value, String> {
         let _starting = lock(&self.inner.starting);
         capture::require_open(&self.inner)?;
-        let mut config = lock(&self.inner.config).clone();
+        let previous = lock(&self.inner.config).clone();
+        let mut config = previous.clone();
         if let Some(value) = update.get("computer_use").and_then(Value::as_bool) {
             config.computer_use = value;
         }
@@ -217,6 +257,16 @@ impl RemoteHostSupervisor {
             Inner::stop(&self.inner);
             return Ok(self.status());
         }
+        // The person turning a feature on is an explicit start; the app sending the same
+        // switches again (its launch) is not, so it never brings back a host the person quit.
+        let turned_on = (config.computer_use && !previous.computer_use)
+            || (config.screen_sharing && !previous.screen_sharing);
+        if turned_on {
+            Inner::explicit_start(&self.inner)?;
+        } else if Inner::quit_standing(&self.inner, 0) {
+            *lock(&self.inner.unavailable) = Some(QUIT_REASON.into());
+            return Ok(self.status());
+        }
         let connection = Inner::ensure_locked(&self.inner, None)?;
         connection.call(
             "config",
@@ -229,16 +279,32 @@ impl RemoteHostSupervisor {
         Ok(self.status())
     }
 
+    /// The verified app's own Screen Recording and Accessibility, for `status()`'s
+    /// `app.permissions`. Never saved, never starts or stops the host, never touches the switches.
+    pub(crate) fn set_app_permissions(&self, permissions: super::AppPermissions) -> Value {
+        *lock(&self.inner.app_permissions) = Some(permissions);
+        self.status()
+    }
+
     /// One request to the host, starting it first when it is wanted and none runs.
     pub(crate) fn call(&self, method: &str, params: Value) -> Result<Value, String> {
-        let _starting = lock(&self.inner.starting);
-        capture::require_open(&self.inner)?;
-        // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
-        // no host starts for a request, so an off switch never runs cmux Remote.
-        if !lock(&self.inner.config).wanted() {
-            return Err("cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
-        }
-        let connection = Inner::ensure_locked(&self.inner, None)?;
+        // Held only for admission and start: the request itself never serializes other calls.
+        // A capture that begins later is fenced by the host's own child admission.
+        let connection = {
+            let _starting = lock(&self.inner.starting);
+            capture::require_open(&self.inner)?;
+            // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
+            // no host starts for a request, so an off switch never runs cmux Remote.
+            if !lock(&self.inner.config).wanted() {
+                return Err("cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
+            }
+            // `cmux remote-host restart` is the person's explicit start. Any other request
+            // (an agent's, the app's hourly anchor) never starts a host the person quit.
+            if method == "restart" {
+                Inner::explicit_start(&self.inner)?;
+            }
+            Inner::ensure_locked(&self.inner, None)?
+        };
         connection.call(method, params)
     }
 
@@ -252,8 +318,15 @@ impl RemoteHostSupervisor {
                 "headless": config.headless,
             },
             "upgrade": if *lock(&self.inner.upgrade_pending) { "pending" } else { "none" },
+            // false in a cmux build without cmux Remote (Release and NIGHTLY embed none): the
+            // cmux app shares the screen itself there, and `cmux remote-host` says so.
+            "bundled": bundled(),
         });
         let Some(fields) = status.as_object_mut() else { return status };
+        // The app's own grants: the ones that matter where no cmux Remote is bundled.
+        if let Some(permissions) = *lock(&self.inner.app_permissions) {
+            fields.insert("app".into(), json!({"permissions": permissions.status()}));
+        }
         match &*lock(&self.inner.state) {
             State::Running(connection) => {
                 fields.insert("state".into(), json!("running"));
@@ -301,6 +374,12 @@ impl Inner {
         if let State::Running(connection) = &*lock(&this.state) {
             return Ok(Arc::clone(connection));
         }
+        // A standing stop intent (F17) covers every start but an explicit one, which clears
+        // it first: the restart after the host exits, the next daemon start, any request.
+        if Self::quit_standing(this, 0) {
+            *lock(&this.unavailable) = Some(QUIT_REASON.into());
+            return Err(QUIT_REASON.into());
+        }
         let paths = lock(&this.paths).clone().ok_or("this daemon has no cmux Remote")?;
         let result = Self::adopt_or_start(this, &paths, config);
         match result {
@@ -310,6 +389,62 @@ impl Inner {
                 Err(reason)
             }
         }
+    }
+
+    /// Whether a stop the person meant stands for the host of `epoch` (0: any host). An intent
+    /// file that cannot be read counts as one (cmux-supervise-core fails closed).
+    fn quit_standing(this: &Arc<Self>, epoch: u64) -> bool {
+        lock(&this.paths).as_ref().is_some_and(|paths| paths.stop_intent().meant(epoch).is_some())
+    }
+
+    /// The person quit the host of `connection`: written down before it stops (its `quit`
+    /// event comes before it ends its workers and exits), so whatever would start it again
+    /// reads "meant", not "crashed".
+    fn record_quit(this: &Arc<Self>, connection: &Connection) {
+        let Some(paths) = lock(&this.paths).clone() else { return };
+        let written = paths.stop_intent().record_with(
+            QUIT_INTENT,
+            connection.record.epoch(),
+            &|path, bytes| write_private_checked(path, bytes),
+        );
+        if let Err(error) = written {
+            // The connection's own flag still keeps this daemon from restarting it.
+            eprintln!("cmux-tui: cmux Remote: cannot record the quit: {error}");
+        }
+    }
+
+    /// An explicit start (the person's `restart`, a feature turned on): the quit no longer stands.
+    fn explicit_start(this: &Arc<Self>) -> Result<(), String> {
+        let Some(paths) = lock(&this.paths).clone() else { return Ok(()) };
+        paths
+            .stop_intent()
+            .clear()
+            .map_err(|error| format!("cannot clear cmux Remote's stop intent: {error}"))?;
+        {
+            let mut unavailable = lock(&this.unavailable);
+            if unavailable.as_deref() == Some(QUIT_REASON) {
+                *unavailable = None;
+            }
+        }
+        // The host the person quit may still be ending its workers. It no longer counts as quit
+        // (so its exit restarts it if this start gives up), and this start waits for it to exit
+        // instead of answering from the host that is leaving.
+        let leaving = match &*lock(&this.state) {
+            State::Running(connection)
+                if connection.quit.load(std::sync::atomic::Ordering::Relaxed) =>
+            {
+                Some(Arc::clone(connection))
+            }
+            _ => None,
+        };
+        if let Some(connection) = leaving {
+            connection.quit.store(false, std::sync::atomic::Ordering::Relaxed);
+            if !connection.wait_closed(READY_TIMEOUT) {
+                return Err("cmux Remote is still quitting; it starts again once it exits".into());
+            }
+            Self::retire(this, &connection);
+        }
+        Ok(())
     }
 
     /// Install a connected host and publish the identity from its latest
@@ -355,7 +490,7 @@ impl Inner {
                 && let Some(record) = read_record(&paths.record())
                 && capture_platform::record_exited(&record)
             {
-                capture_platform::group_absent(record.pid)?;
+                capture_platform::exited_group_absent(&record)?;
             }
             if let Some(record) = read_record(&paths.record()) {
                 match Self::adopt(this, &record) {
@@ -386,7 +521,7 @@ impl Inner {
                     Err(_)
                         if !matches!(*lock(&this.capture), capture_lease::Admission::Open)
                             && (!capture_platform::record_exited(&record)
-                                || capture_platform::group_absent(record.pid).is_err()) =>
+                                || capture_platform::exited_group_absent(&record).is_err()) =>
                     {
                         return Err("remote_host_identity_unverified".into());
                     }
@@ -407,6 +542,9 @@ impl Inner {
                     ),
                 }
             }
+            // No host runs from the staged copy now: a new build moves into
+            // the one stable path here.
+            platform::promote(&staged)?;
             let config = override_config.cloned().unwrap_or_else(|| lock(&this.config).clone());
             let secret = mint_secret()?;
             let pid = platform::spawn_host(
@@ -486,6 +624,7 @@ impl Inner {
             next_id: std::sync::atomic::AtomicU64::new(1),
             status: Mutex::new(answer),
             closed: (Mutex::new(false), std::sync::Condvar::new()),
+            quit: std::sync::atomic::AtomicBool::new(false),
         });
         let reading = Arc::clone(&connection);
         std::thread::Builder::new()
@@ -518,9 +657,19 @@ impl Inner {
                 }
                 continue;
             }
+            if message.get("event").and_then(Value::as_str) == Some("quit") {
+                connection.quit.store(true, std::sync::atomic::Ordering::Relaxed);
+                if let Some(inner) = this.upgrade() {
+                    Self::record_quit(&inner, connection);
+                }
+                continue;
+            }
             if message.get("event").and_then(Value::as_str) == Some("status") {
                 let status = message.get("status").cloned().unwrap_or(Value::Null);
                 let idle = !status.get("busy").and_then(Value::as_bool).unwrap_or(false);
+                if let Some(inner) = this.upgrade() {
+                    Self::note_activity(&inner, &status);
+                }
                 *lock(&connection.status) = status.clone();
                 Self::update_screen_device_id(this, connection, &status);
                 if idle
@@ -538,6 +687,25 @@ impl Inner {
         connection.closed.1.notify_all();
         let Some(inner) = this.upgrade() else { return };
         Self::host_gone(&inner, connection);
+    }
+
+    /// Sends the worker's activity on when it changed since the last status
+    /// (a status event comes for any change of the host, most of them not
+    /// Computer Use's).
+    fn note_activity(this: &Arc<Self>, status: &Value) {
+        let activity =
+            status.pointer("/workers/computer-use/activity").cloned().unwrap_or_else(|| json!([]));
+        {
+            let mut last = lock(&this.activity);
+            if *last == activity || (last.is_null() && activity == json!([])) {
+                return;
+            }
+            *last = activity.clone();
+        }
+        let sink = lock(&this.on_activity).clone();
+        if let Some(sink) = sink {
+            sink(json!({"event": "computer-use-activity", "sessions": activity}));
+        }
     }
 
     /// Read only the authenticated host status. The supervisor socket is
@@ -583,16 +751,16 @@ impl Inner {
         }
     }
 
-    /// The host's connection ended (it exited, crashed or drained): forget it,
-    /// and start a new one after the backoff delay while one is wanted.
-    fn host_gone(this: &Arc<Self>, connection: &Arc<Connection>) {
+    /// Forgets the ended `connection` if it is still the installed one (its reader's `host_gone`,
+    /// or an explicit start that waited for it to exit); whether this call did.
+    fn retire(this: &Arc<Self>, connection: &Arc<Connection>) -> bool {
         // Fence the identity clear with the exact connection pointer. The
         // state and UUID transition are linearized together, so a replacement
         // host cannot be cleared by an old reader finishing late.
         {
             let mut state = lock(&this.state);
             if !matches!(&*state, State::Running(running) if Arc::ptr_eq(running, connection)) {
-                return;
+                return false;
             }
             *state = State::Idle;
             let mut current = lock(&this.screen_device_id);
@@ -606,12 +774,34 @@ impl Inner {
                 }
             }
         }
-        let upgraded = std::mem::take(&mut *lock(&this.upgrade_pending));
+        // No host, no agent acting through it.
+        Self::note_activity(this, &json!({}));
         if let Some(paths) = lock(&this.paths).clone()
             && read_record(&paths.record()).is_some_and(|record| record == connection.record)
             && capture::may_remove_record(this, &connection.record)
         {
             let _ = std::fs::remove_file(paths.record());
+        }
+        true
+    }
+
+    /// The host's connection ended (it exited, crashed or drained): forget it,
+    /// and start a new one after the backoff delay while one is wanted. A host
+    /// the person quit stays stopped until the next request or daemon start.
+    fn host_gone(this: &Arc<Self>, connection: &Arc<Connection>) {
+        if !Self::retire(this, connection) {
+            return;
+        }
+        let upgraded = std::mem::take(&mut *lock(&this.upgrade_pending));
+        if connection.quit.load(std::sync::atomic::Ordering::Relaxed)
+            || Self::quit_standing(this, connection.record.epoch())
+        {
+            eprintln!(
+                "cmux-tui: cmux Remote pid {} was quit; not starting it again",
+                connection.pid
+            );
+            *lock(&this.unavailable) = Some(QUIT_REASON.into());
+            return;
         }
         if !lock(&this.config).wanted() || capture::require_open(this).is_err() {
             return;
@@ -784,22 +974,36 @@ fn write_record(path: &Path, record: &HostRecord) {
 
 /// Writes `bytes` to `path` atomically, mode 0600, in a 0700 directory.
 fn write_private(path: &Path, bytes: &[u8]) {
+    let _ = write_private_checked(path, bytes);
+}
+
+/// [`write_private`], saying whether the file is in place.
+fn write_private_checked(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let Some(dir) = path.parent() else { return };
-    if std::fs::create_dir_all(dir).is_err() {
-        return;
-    }
+    let dir = path.parent().ok_or_else(|| std::io::Error::other("no folder"))?;
+    std::fs::create_dir_all(dir)?;
     let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
     let temporary = path.with_extension("tmp");
     let _ = std::fs::remove_file(&temporary);
-    let written = std::fs::OpenOptions::new()
+    std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(&temporary)
-        .and_then(|mut file| file.write_all(bytes));
-    if written.is_ok() {
-        let _ = std::fs::rename(&temporary, path);
+        .and_then(|mut file| file.write_all(bytes))?;
+    std::fs::rename(&temporary, path)
+}
+
+/// Whether this cmux build embeds cmux Remote (`CMUX_REMOTE_APP`, or the app
+/// bundle that holds this daemon). Never starts or stages it.
+fn bundled() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        platform::embedded().is_ok()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
     }
 }
 
@@ -813,11 +1017,28 @@ impl crate::mux::Mux {
     /// Lets this daemon run cmux Remote (macOS): the host for the daemon on
     /// `daemon_socket`, with durable state beside the daemon's own.
     pub fn configure_remote_host(self: &Arc<Self>, daemon_socket: &Path) {
+        // Linux runs Computer Use in the daemon's own worker, not cmux Remote.
+        #[cfg(target_os = "linux")]
+        self.configure_computer_use(daemon_socket);
         let Some(state_root) = crate::platform::workspace_state_dir()
             .and_then(|sessions| sessions.parent().map(Path::to_path_buf))
         else {
             return;
         };
+        let mux = Arc::downgrade(self);
+        self.control_clients.remote_host.on_activity(Arc::new(move |payload| {
+            if let Some(mux) = mux.upgrade() {
+                // An agent acts: its live preview reaches the app from the worker.
+                let acting = payload
+                    .get("sessions")
+                    .and_then(Value::as_array)
+                    .is_some_and(|s| !s.is_empty());
+                mux.emit(crate::MuxEvent::ComputerUseActivity(Arc::new(payload)));
+                if acting {
+                    mux.ensure_computer_use_preview();
+                }
+            }
+        }));
         self.control_clients
             .remote_host
             .configure(paths_for(daemon_socket, &state_root), Arc::downgrade(self));
@@ -827,7 +1048,7 @@ impl crate::mux::Mux {
 #[cfg(test)]
 mod tests {
     use super::{
-        Connection, HostRecord, Inner, State, screen_device_id_from_status,
+        Connection, HostRecord, Inner, QUIT_REASON, State, screen_device_id_from_status,
         validated_screen_device_id,
     };
     use serde_json::{Value, json};
@@ -854,7 +1075,52 @@ mod tests {
             next_id: std::sync::atomic::AtomicU64::new(1),
             status: Mutex::new(status),
             closed: (Mutex::new(false), Condvar::new()),
+            quit: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+
+    #[test]
+    fn app_permissions_show_in_status_and_never_reach_config_or_the_switches() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_nanos());
+        let root =
+            std::env::temp_dir().join(format!("cmux-rh-app-perms-{}-{nanos}", std::process::id()));
+        let paths = super::Paths {
+            runtime: root.join("run"),
+            state: root.join("state"),
+            scope: "stest".into(),
+            daemon_socket: root.join("d.sock"),
+        };
+        let supervisor = super::RemoteHostSupervisor::default();
+        *super::lock(&supervisor.inner.paths) = Some(paths.clone());
+        assert!(supervisor.status().get("app").is_none(), "nothing reported yet");
+
+        let status = supervisor.set_app_permissions(crate::remote_host::AppPermissions {
+            screen_recording: Some(true),
+            accessibility: Some(false),
+        });
+        assert_eq!(
+            status["app"],
+            json!({"permissions": {"screen_recording": true, "accessibility": false}})
+        );
+        // No switch moved, no host started, nothing saved.
+        assert_eq!(status["state"], "off");
+        assert_eq!(
+            status["config"],
+            json!({"computer_use": false, "screen_sharing": false, "headless": true})
+        );
+        assert!(!paths.config().exists(), "app permissions are memory only");
+
+        // A switch change saves the switches only and keeps the app's grants in status.
+        let status = supervisor.set_config(&json!({"headless": false})).unwrap();
+        assert_eq!(status["app"]["permissions"]["screen_recording"], true);
+        let saved: Value = serde_json::from_slice(&std::fs::read(paths.config()).unwrap()).unwrap();
+        assert_eq!(
+            saved,
+            json!({"computer_use": false, "screen_sharing": false, "headless": false})
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -990,5 +1256,153 @@ mod tests {
             &*super::lock(&inner.state),
             State::Running(current) if Arc::ptr_eq(current, &second)
         ));
+    }
+
+    /// The daemon's reader for a host that writes `lines` and then exits.
+    fn read_until_exit(inner: &Arc<Inner>, running: &Arc<Connection>, lines: &str) {
+        use std::io::Write;
+        let (reader, mut host) = std::os::unix::net::UnixStream::pair().unwrap();
+        host.write_all(lines.as_bytes()).unwrap();
+        drop(host);
+        Inner::read(&Arc::downgrade(inner), running, std::io::BufReader::new(reader));
+    }
+
+    #[test]
+    fn a_host_the_person_quit_is_not_started_again() {
+        let inner = Arc::new(Inner::default());
+        super::lock(&inner.config).computer_use = true;
+        let running = Inner::install_running(&inner, connection(json!({}))).unwrap();
+
+        read_until_exit(&inner, &running, "{\"type\":\"event\",\"event\":\"quit\"}\n");
+
+        assert!(matches!(&*super::lock(&inner.state), State::Idle));
+        assert_eq!(super::lock(&inner.unavailable).as_deref(), Some(QUIT_REASON));
+        assert!(super::lock(&inner.backoff).is_none(), "a quit host must not schedule a restart");
+    }
+
+    #[test]
+    fn a_host_that_exits_without_quit_is_started_again() {
+        let inner = Arc::new(Inner::default());
+        super::lock(&inner.config).computer_use = true;
+        let running = Inner::install_running(&inner, connection(json!({}))).unwrap();
+
+        read_until_exit(
+            &inner,
+            &running,
+            "{\"type\":\"event\",\"event\":\"status\",\"status\":{}}\n",
+        );
+
+        assert!(matches!(&*super::lock(&inner.state), State::Idle));
+        assert_eq!(super::lock(&inner.unavailable).as_deref(), None);
+        assert!(super::lock(&inner.backoff).is_some(), "a crashed host restarts after the backoff");
+    }
+
+    /// F17 fault: the person quits cmux Remote, the host exits, and nothing starts it again
+    /// within a bound (not the restart after its exit, not the next daemon start); then the
+    /// person's explicit start (`cmux remote-host restart`) runs a start again. Off macOS a
+    /// start ends in `adopt_or_start`'s "runs on macOS only", which is how a start shows here.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn fault_a_quit_host_never_respawns_until_an_explicit_start() {
+        use std::io::Write;
+        use std::time::Duration;
+        let dir = std::env::temp_dir().join(format!("cmux-remote-quit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let paths = super::Paths {
+            runtime: dir.join("run"),
+            state: dir.join("state"),
+            scope: "s0".into(),
+            daemon_socket: dir.join("d.sock"),
+        };
+        let intent_file = paths.state.join("stop-intent.json");
+        let started = |inner: &Arc<Inner>| {
+            super::lock(&inner.unavailable).as_deref().is_some_and(|r| r.contains("macOS only"))
+        };
+        let inner = Arc::new(Inner::default());
+        *super::lock(&inner.paths) = Some(paths.clone());
+        super::lock(&inner.config).computer_use = true;
+        let running = Inner::install_running(&inner, connection(json!({}))).unwrap();
+
+        // The host announces the quit, then its process exits: EOF on its supervisor link.
+        let (reader, mut host) = std::os::unix::net::UnixStream::pair().unwrap();
+        host.write_all(b"{\"type\":\"event\",\"event\":\"quit\"}\n").unwrap();
+        drop(host);
+        Inner::read(&Arc::downgrade(&inner), &running, std::io::BufReader::new(reader));
+        assert!(matches!(&*super::lock(&inner.state), State::Idle));
+
+        // The bound: ten times the first restart delay (200 ms). A respawn is a start attempt.
+        std::thread::sleep(Duration::from_secs(2));
+        assert!(!started(&inner), "a host the person quit was started again within 2 s");
+        assert!(intent_file.exists(), "the quit is written down as a stop intent");
+
+        // The next daemon start reads the same intent and starts nothing.
+        let next_daemon = Arc::new(Inner::default());
+        *super::lock(&next_daemon.paths) = Some(paths);
+        super::lock(&next_daemon.config).computer_use = true;
+        let _ = Inner::ensure(&next_daemon);
+        assert!(!started(&next_daemon), "the next daemon start brought the quit host back");
+
+        // The person's explicit start clears the intent and starts again.
+        let supervisor = super::RemoteHostSupervisor { inner: Arc::clone(&inner) };
+        let _ = supervisor.call("restart", json!({"worker": "computer-use", "force": false}));
+        assert!(started(&inner), "an explicit start must run a start again");
+        assert!(!intent_file.exists(), "an explicit start clears the stop intent");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// F17 fault: the person runs `cmux remote-host restart` while the host they quit is still
+    /// ending its workers. The restart waits for that host to exit and then starts a new one,
+    /// instead of answering from the host that is leaving and leaving cmux Remote stopped.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn fault_a_restart_while_the_quit_host_drains_starts_it_again() {
+        use std::io::Write;
+        use std::time::{Duration, Instant};
+        let dir = std::env::temp_dir().join(format!("cmux-remote-drain-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let paths = super::Paths {
+            runtime: dir.join("run"),
+            state: dir.join("state"),
+            scope: "s0".into(),
+            daemon_socket: dir.join("d.sock"),
+        };
+        let started = |inner: &Arc<Inner>| {
+            super::lock(&inner.unavailable).as_deref().is_some_and(|r| r.contains("macOS only"))
+        };
+        let inner = Arc::new(Inner::default());
+        *super::lock(&inner.paths) = Some(paths.clone());
+        super::lock(&inner.config).computer_use = true;
+        let running = Inner::install_running(&inner, connection(json!({}))).unwrap();
+
+        // The host announces the quit and keeps its link open while it ends its workers.
+        let (reader, mut host) = std::os::unix::net::UnixStream::pair().unwrap();
+        host.write_all(b"{\"type\":\"event\",\"event\":\"quit\"}\n").unwrap();
+        let weak = Arc::downgrade(&inner);
+        let link = Arc::clone(&running);
+        let reading = std::thread::spawn(move || {
+            Inner::read(&weak, &link, std::io::BufReader::new(reader));
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !running.quit.load(std::sync::atomic::Ordering::Relaxed) {
+            assert!(Instant::now() < deadline, "the quit event was never read");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // It exits 300 ms into the restart.
+        let exiting = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(host);
+        });
+
+        let supervisor = super::RemoteHostSupervisor { inner: Arc::clone(&inner) };
+        let _ = supervisor.call("restart", json!({"worker": "computer-use", "force": false}));
+        exiting.join().unwrap();
+        reading.join().unwrap();
+
+        assert!(started(&inner), "a restart during the quit's drain never started a new host");
+        assert!(
+            !paths.state.join("stop-intent.json").exists(),
+            "the restart clears the stop intent"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

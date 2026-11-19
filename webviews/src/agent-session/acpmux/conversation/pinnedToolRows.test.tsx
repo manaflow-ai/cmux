@@ -76,10 +76,11 @@ const command = (id: string, text: string): AcpmuxActivity => ({
   text,
   tool: { id, title: "Shell", kind: "execute", status: "completed", command: text, output: `${text}: ok\n` },
 });
-const read = (id: string, path: string): AcpmuxActivity => ({
+// Searches, not reads: since the 2026-11-14 change reads stay flat, static rows that never group or open.
+const search = (id: string, pattern: string): AcpmuxActivity => ({
   kind: "tool",
-  text: `Read ${path}`,
-  tool: { id, title: `Read ${path}`, kind: "read", status: "completed", output: `contents of ${path}` },
+  text: `Grep ${pattern}`,
+  tool: { id, title: `Grep ${pattern}`, kind: "search", status: "completed", output: `src/a.ts:1:${pattern}` },
 });
 const aside = (text: string): AcpmuxActivity => ({ kind: "note", text });
 
@@ -120,18 +121,18 @@ async function click(button: HTMLButtonElement | undefined) {
 
 test("a lone call the reader opened stays open when a second call groups it, and when the run folds", async () => {
   const session = "pin-lone";
-  const container = await mount(<ToolRows row={live("r1", [read("c1", "notes.md")])} sessionId={session} />);
+  const container = await mount(<ToolRows row={live("r1", [search("c1", "retry")])} sessionId={session} />);
   expect(isOpen(call(container, "c1"))).toBe(false);
   await click(call(container, "c1"));
   expect(isOpen(call(container, "c1"))).toBe(true);
-  // A second read arrives: the two calls group under "Read 2 files".
-  const two = [read("c1", "notes.md"), read("c2", "plan.md")];
+  // A second search arrives: the two calls group under "Ran 2 searches".
+  const two = [search("c1", "retry"), search("c2", "backoff")];
   await update(<ToolRows row={live("r1", two)} sessionId={session} />);
-  expect(line(container, /^Read 2 files$/)).toBeDefined();
+  expect(line(container, /^Ran 2 searches$/)).toBeDefined();
   expect(isOpen(call(container, "c1"))).toBe(true);
   // Text follows: the finished run folds, but not over the call the reader opened.
   await update(<ToolRows row={settled("r1", two)} sessionId={session} />);
-  expect(isOpen(line(container, /^Read 2 files$/))).toBe(true);
+  expect(isOpen(line(container, /^Ran 2 searches$/))).toBe(true);
   expect(isOpen(call(container, "c1"))).toBe(true);
 });
 
@@ -150,13 +151,13 @@ test("a call opened inside a folded group stays open as more calls join the grou
 
 test("a call opened in a group stays open when a call of another kind joins and the group becomes a run", async () => {
   const session = "pin-join";
-  const reads = [read("c1", "notes.md"), read("c2", "plan.md")];
-  const container = await mount(<ToolRows row={settled("r1", reads)} sessionId={session} />);
-  await click(line(container, /^Read 2 files$/));
+  const searches = [search("c1", "retry"), search("c2", "backoff")];
+  const container = await mount(<ToolRows row={settled("r1", searches)} sessionId={session} />);
+  await click(line(container, /^Ran 2 searches$/));
   await click(call(container, "c1"));
   expect(isOpen(call(container, "c1"))).toBe(true);
-  // A command joins: the group's line becomes the run's ("Read 2 files and ran a command").
-  await update(<ToolRows row={settled("r1", [...reads, command("c3", "git status")])} sessionId={session} />);
+  // A command joins: the group's line becomes the run's ("... and ran a command").
+  await update(<ToolRows row={settled("r1", [...searches, command("c3", "git status")])} sessionId={session} />);
   const run = line(container, /ran a command/i);
   expect(isOpen(run)).toBe(true);
   expect(isOpen(call(container, "c1"))).toBe(true);

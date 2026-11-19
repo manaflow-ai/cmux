@@ -86,7 +86,9 @@ await requireBrowserLane("perf-budgets.browser.test.ts", async () => {
     expect(commit!.measured).toBeGreaterThan(16);
   });
 
+  // motion-allow: a long task's length, not a transition
   test("long-frame: 120 ms of script fires", async () => {
+    // motion-allow: a long frame's script length, not motion
     const { violations } = await run("long-frame");
     expect(kinds(violations)).toContain("long-frame");
   });

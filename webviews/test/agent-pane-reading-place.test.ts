@@ -14,6 +14,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { JUMP_LATEST_SHOWN } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -138,21 +139,24 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
     await installPaintedFrames(tab);
     // Every painted frame: the first question drawn while the transcript shows, and whether Jump to latest
     // showed while it did not.
-    await tab.addInitScript(() => {
-      const frames: { shown: string | null; jump: boolean }[] = [];
-      (window as any).openFrames = frames;
-      window.cmuxAfterPaint(() => {
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-        const bubble = scroller?.querySelector(".cv-user__bubble");
-        if (scroller && bubble) {
-          const hidden = scroller.hasAttribute("data-seeking");
-          frames.push({
-            shown: hidden ? null : bubble.textContent,
-            jump: hidden && document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]") !== null,
-          });
-        }
-      });
-    });
+    await tab.addInitScript(
+      ({ JUMP_LATEST_SHOWN }) => {
+        const frames: { shown: string | null; jump: boolean }[] = [];
+        (window as any).openFrames = frames;
+        window.cmuxAfterPaint(() => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+          const bubble = scroller?.querySelector(".cv-user__bubble");
+          if (scroller && bubble) {
+            const hidden = scroller.hasAttribute("data-seeking");
+            frames.push({
+              shown: hidden ? null : bubble.textContent,
+              jump: hidden && document.querySelector(JUMP_LATEST_SHOWN) !== null,
+            });
+          }
+        });
+      },
+      { JUMP_LATEST_SHOWN },
+    );
     await tab.addInitScript((kept) => {
       const saved: unknown[] = [];
       (window as any).savedAnchors = saved;

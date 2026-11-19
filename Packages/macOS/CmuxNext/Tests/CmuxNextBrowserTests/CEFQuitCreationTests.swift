@@ -199,6 +199,24 @@ import Testing
         #expect(SpyShim.calls == ["flush"], "a quit that skips CefShutdown hid the windows")
     }
 
+    /// The App's step before CefShutdown is async (it awaits the closing pages' drafts, cmuxterm-hq#11994):
+    /// CefShutdown runs only once it returned.
+    @Test func cefShutdownWaitsForTheAppsAsyncStepBeforeIt() async throws {
+        SpyShim.reset()
+        let (runtime, root) = try Self.spyRuntime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        SpyShim.answerFlush = Self.answerAfterCommit(runtime)
+
+        await runtime.shutdown(timeout: .seconds(2), beforeEngineStop: {
+            SpyShim.calls.append("hide")
+            await Task.yield()
+            SpyShim.calls.append("drained")
+        })
+
+        #expect(SpyShim.calls == ["flush", "hide", "drained", "shutdown"])
+        #expect(runtime.state == .shutDown)
+    }
+
     /// The spy's flush answer: the commit runs on another thread for `commitCost`, then Chromium's REPLY
     /// reaches the runtime on the main thread.
     private static func answerAfterCommit(_ runtime: CEFRuntime) -> @Sendable (Int32) -> Void {

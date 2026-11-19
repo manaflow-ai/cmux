@@ -39,6 +39,8 @@ pub(crate) struct AppControlMessages {
     pub app_busy_waiting: &'static str,
     /// `cmux remote-host share on|access` past its wait: the dialog in cmux stays open and still counts.
     pub remote_confirm_still_open: &'static str,
+    /// `cmux remote-host status` in a cmux build without cmux Remote: not "sharing off", only no cmux Remote.
+    pub remote_not_bundled: &'static str,
     pub closed: &'static str,
     pub invalid_response: &'static str,
     pub root_scopes: &'static str,
@@ -63,6 +65,8 @@ pub(crate) struct AppControlMessages {
     pub cloud_machines_malformed: &'static str,
     /// Help for storing Cloud secrets on this Mac (cli/cloud_secret.rs).
     pub cloud_secret_help: &'static str,
+    /// Help for a team's shared agent keys (cli/cloud_team_keys.rs).
+    pub cloud_team_keys_help: &'static str,
     /// `cmux version` (cli/app/version.rs): the text report's labels.
     pub version: VersionLabels,
     /// `cmux nightly list|install` (cli/app/nightly.rs).
@@ -73,6 +77,22 @@ pub(crate) struct AppControlMessages {
     pub live: LiveMessages,
     /// `cmux app chat perf` (cli/app/chat_perf.rs).
     pub chat_perf: ChatPerfMessages,
+    /// `cmux app launch-times` (cli/app/launch_times.rs).
+    pub launch_times: LaunchTimesMessages,
+}
+
+/// `cmux app launch-times`: the app's recorded launches. The JSON keys and the table's column
+/// names stay English (they are the record's keys); `{name}` placeholders are filled by
+/// cli/app/launch_times.rs.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct LaunchTimesMessages {
+    pub usage: &'static str,
+    /// No cmux app around this CLI and no `CMUX_BUNDLE_ID`.
+    pub no_app: &'static str,
+    /// The file is not there yet: `{path}`.
+    pub empty: &'static str,
+    /// The file could not be read: `{path}`, `{error}`.
+    pub unreadable: &'static str,
 }
 
 /// `cmux app chat perf`: a chat page's frames and record-to-paint times over a window. The JSON
@@ -93,6 +113,11 @@ pub(crate) struct ChatPerfMessages {
     pub record: &'static str,
     pub no_records: &'static str,
     pub unpainted: &'static str,
+    pub owners: &'static str,
+    pub owner: &'static str,
+    pub owner_animation: &'static str,
+    pub owners_none: &'static str,
+    pub owners_unsupported: &'static str,
 }
 
 /// `cmux live start|stop|status`: run a checkout's web UI dev server and point the running app at it.
@@ -140,6 +165,27 @@ pub(crate) struct TryMessages {
     pub nothing_to_undo: &'static str,
     pub no_receipt: &'static str,
     pub status_line: &'static str,
+    // `cmux app try .` (cli/app/try_cmd/copy.rs): the working tree in a clone of the NIGHTLY.
+    pub copy_no_checkout: &'static str,
+    pub copy_no_app: &'static str,
+    pub copy_cannot_run: &'static str,
+    pub copy_running: &'static str,
+    pub copy_layer_web_live: &'static str,
+    pub copy_layer_web: &'static str,
+    pub copy_layer_rust: &'static str,
+    pub copy_no_layers: &'static str,
+    pub copy_failed: &'static str,
+    pub copy_needs_build: &'static str,
+    pub copy_swift: &'static str,
+    pub copy_dev_build: &'static str,
+    pub copy_extracted: &'static str,
+    pub copy_nothing_to_extract: &'static str,
+    pub copy_stopped: &'static str,
+    pub copy_stop_failed: &'static str,
+    pub copy_elsewhere: &'static str,
+    pub copy_push_uncommitted: &'static str,
+    pub copy_push_no_upstream: &'static str,
+    pub copy_push_ahead: &'static str,
 }
 
 /// `cmux nightly list|install`: go back (or forward) to another recent nightly build.
@@ -182,7 +228,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     action_batch_not_object: "not an object",
     agent_open_usage: "usage: cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]",
     agent_open_tab_usage: "usage: cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]",
-    settings_usage: "usage: cmux settings get [PATH] | set PATH VALUE [--yes] | reset PATH [--yes] | unset PATH [--yes] | list [--section SECTION] [--keys] | schema | validate [FILE]\n(`cmux config` is the same command)\nlist reads the session daemon (--socket or --session), without the app. --keys, schema and validate work offline. Keyed get and set/reset/unset use the session daemon. get without PATH and writes with --yes use the app socket.",
+    settings_usage: "usage: cmux settings get [PATH] | set PATH VALUE [--yes] | reset PATH [--yes] | unset PATH [--yes] | edit EDITS_JSON | list [--section SECTION] [--keys] | schema | validate [FILE]\n(`cmux config` is the same command)\nlist reads the session daemon (--socket or --session), without the app. --keys, schema and validate work offline. Keyed get and set/reset/unset use the session daemon. get without PATH and writes with --yes use the app socket.",
     settings_confirm_hint: "add --yes to ask for approval in cmux",
     settings_declined: "declined in cmux",
     settings_waiting: "Waiting for approval in cmux (Ctrl-C cancels this command; answer the sheet in cmux)",
@@ -207,6 +253,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     agents_waiting_progress: "waiting for {what} ({elapsed} s of {total} s)",
     app_busy_waiting: "the cmux app is busy; still waiting for {what} ({elapsed} s)",
     remote_confirm_still_open: "no answer yet in cmux: the dialog stays open there, and Allow still makes the change. `cmux remote-host status` shows whether it did.",
+    remote_not_bundled: "cmux Remote is not part of this cmux build (DEV builds embed it; Release and NIGHTLY do not), so the state and config above do not mean Screen Sharing is off. Screen Sharing uses the cmux app here: Share This Mac and Stop Sharing in cmux, or `cmux remote-host share on|off` and `cmux remote-host stop`, which go to the app.",
     closed: "the cmux app closed the connection without an answer",
     invalid_response: "the cmux app sent an answer this cmux cannot read",
     acp_open_usage: "usage: cmux acp open SESSION [--pane PANE]",
@@ -223,6 +270,13 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     cloud_machines_unlisted: "note: Cloud machines are not listed: {reason}",
     cloud_machines_malformed: "the cmux app's cloud.machines reply has no machines list",
     cloud_secret_help: "Store secrets in this Mac's Keychain. set reads a value from a hidden prompt\nor stdin, never a command argument. ls lists names and scopes, never values.\nUse --repo OWNER/NAME with set or rm for a repository-scoped secret.",
+    cloud_team_keys_help: "A team's shared key for an agent (claude or codex). Owners and admins set,\nreplace or remove it; it overrides each member's own key on the team's Cloud\nmachines. set reads the key from a hidden prompt, stdin or --secret-file, never a\ncommand argument. status shows whether a key is set, never the key.",
+    launch_times: LaunchTimesMessages {
+        usage: "usage: cmux app launch-times [--limit <n>] [--file <path>] [--phases]\nThe app's last launches (at most 50), oldest first: build, commit, pre-main ms (process start to main),\nmain ms (main to the first window frame), first window frame ms, Home's first page ms, whether Home\nshowed by its page or its deadline, ms to the window taking keys (Home's message field), ms to the first\nshell output, whether the launch had no saved snapshot to show, whether the updater pre-warmed the build,\nand whether it was the build's first launch. --phases adds a line under each launch with its phases (ms since\nprocess start, in order, each with its step from the one before). Read from\n~/Library/Application Support/<bundle id>/launch-times.jsonl; the app need not run.",
+        no_app: "no cmux app around this CLI: run the CLI bundled in the app, or set CMUX_BUNDLE_ID",
+        empty: "no launches recorded yet in {path}",
+        unreadable: "cannot read {path}: {error}",
+    },
     version: VersionLabels {
         cli: "CLI",
         app: "App",
@@ -249,7 +303,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         pulled_tag: "pulled",
     },
     app_try: TryMessages {
-        usage: "usage: cmux app try <PR|branch|sha> [--dry-run] [--app PATH] | undo [--dry-run] | status\n  try     runs that commit's cmux in this app the cheapest way there is: live when CI published a live\n          build this app can take (bin/cmux and its companions swapped in, the daemon handed over in\n          seconds, every terminal kept), else the commit's nightly build the way `cmux nightly install`\n          installs it. It never builds here. A PR or branch resolves to its head through GitHub's public API.\n  undo    puts back what the last try replaced\n  status  the last try's receipt: what it did, by which path, and how long each phase took\n  --dry-run  prints the plan and changes nothing",
+        usage: "usage: cmux app try . [--from APP] [--dry-run]    your working tree in a copy of your NIGHTLY (no dev build)\n       cmux app try . --extract                   keep the code that went in (a branch and a patch)\n       cmux app try . --stop                      quit the copy and delete it\n       cmux app try <PR|branch|sha> [--dry-run] [--app PATH] | undo [--dry-run] | status\n  .       copy your nightly and swap your code in: a fresh clone of APP (default /Applications/cmux NIGHTLY.app)\n          runs beside your cmux, which is not touched, with this checkout's web UI (a dev server: saves show\n          live) and daemon Rust put in. `.` is the checkout around this folder; dir:PATH, ./PATH or /PATH name\n          another. It prints the copy's socket (`cmux --app-socket SOCKET ...` drives it). Swift needs a build,\n          and it says which; dev builds stay available. --dry-run prints the plan only\n  try     runs that commit's cmux in this app the cheapest way there is: live when CI published a live\n          build this app can take (bin/cmux and its companions swapped in, the daemon handed over in\n          seconds, every terminal kept), else the commit's nightly build the way `cmux nightly install`\n          installs it. It never builds here. A PR or branch resolves to its head through GitHub's public API.\n  undo    puts back what the last try replaced\n  status  the last try's receipt: what it did, by which path, and how long each phase took\n  --dry-run  prints the plan and changes nothing",
         no_state: "no home folder to keep the try's files in (HOME is not set)",
         no_app: "no cmux app found: run this with the cmux bundled in the app, or pass --app PATH",
         not_found: "{target} is not a PR, branch or commit of manaflow-ai/cmux",
@@ -275,6 +329,26 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         nothing_to_undo: "nothing to undo: no `cmux app try` ran here, or the last one is already undone",
         no_receipt: "no `cmux app try` has run here",
         status_line: "{action} {commit} ({path}) in {app}: {phases}",
+        copy_no_checkout: "no cmux checkout there: run `cmux app try .` inside a clone of manaflow-ai/cmux, or name one (dir:PATH); it needs scripts/cmux-next/hot-verify.py",
+        copy_no_app: "no app at {app} to copy: install cmux NIGHTLY, or pass --from APP",
+        copy_cannot_run: "could not run the checkout's hot-verify.py: {error}",
+        copy_running: "Your code runs in a copy of {from}, beside your cmux (not touched).\n  in:      {layers} ({seconds} s)\n  copy:    {copy}\n  drive:   cmux --app-socket {socket} <command>\n  keep:    cmux app try {tree} --extract   (a branch and a patch of what went in)\n  stop:    cmux app try {tree} --stop      (quits the copy and deletes it)\n  again:   cmux app try {tree}             (a fresh copy with your newest code)",
+        copy_layer_web_live: "web UI (a dev server: saves under webviews/ show live)",
+        copy_layer_web: "web UI",
+        copy_layer_rust: "daemon Rust",
+        copy_no_layers: "nothing in the app changes: the copy runs the nightly as it is",
+        copy_failed: "the copy did not start with your code: {error}",
+        copy_needs_build: "{tree} needs a build: a copy of the NIGHTLY cannot take this change live, and no copy was made.",
+        copy_swift: "Swift goes in live only into a live code build (Swift inside function bodies: `cmux live start --swift` in a tagged DEV build, docs/cmux-next/live-code.md); a NIGHTLY is not one.",
+        copy_dev_build: "A dev build is still there for this: commit and push, then `cmux-ci build cmux --ref {head} --tag {side} --workspace {side} --backend-mode local` builds it on the fleet (never on this Mac).",
+        copy_extracted: "Kept what went in: branch {branch} ({count} files) and the patch {patch}. Your working tree is as it was; `cmux app try {tree} --stop` deletes the copy.",
+        copy_nothing_to_extract: "nothing to extract: no copy of this checkout is running (`cmux app try {tree}` makes one)",
+        copy_stopped: "The copy {side} is stopped and deleted.",
+        copy_stop_failed: "the copy did not stop cleanly: its log above says why",
+        copy_elsewhere: "No cmux app to copy on this host: `cmux app try .` copies the NIGHTLY on a Mac. From here, push the branch, open its PR, and `cmux-ci hot-verify N --look` puts it into a copy of the NIGHTLY on a fleet Mac. The plan of your tree:",
+        copy_push_uncommitted: "Your tree has uncommitted changes: commit and push them first, the fleet sees only pushed commits.",
+        copy_push_no_upstream: "Your branch has no upstream: push it first, the fleet sees only pushed commits.",
+        copy_push_ahead: "Your branch has commits that are not pushed: push them first, the fleet sees only pushed commits.",
     },
     live: LiveMessages {
         usage: "usage: cmux live start [--worktree PATH] [--port N] | stop [--worktree PATH] | status [--worktree PATH]\n       cmux live start --rust [--worktree PATH] [--build-host HOST] [--session NAME] | stop --rust | status --rust\n       cmux live start --chromium --build-host HOST --src SRC [--out OUT] [--target T] [--app APP] [--gpu] | stop --chromium | status --chromium\n       cmux live start --swift [--fresh] [--worktree PATH] [--tag TAG] | stop --swift [--discard] [--worktree PATH] [--tag TAG]\n  cmux Live: edit cmux while it runs. With no flag it is the web UI (the React pages and chat under\n  webviews/); --rust is the daemon, --chromium the browser engine, --swift the app's Swift.\n  start   runs the checkout's web UI dev server and points the running cmux at it: a saved edit under\n          webviews/ shows in every open page and chat at once, with no build and no relaunch\n  stop    stops it; cmux goes back to the web UI it shipped with\n  status  what cmux loads its web UI from and why, the last Rust swap, and whether Swift live mode is on\n  --rust  the daemon instead: each saved .rs under cmux-tui/ is built (on HOST over ssh, or here) and\n          swapped into the running daemon, keeping every terminal and agent session\n  --chromium  the browser engine: each saved file under .cmux-dev/chromium/ lands at the same path in\n          SRC on HOST, builds incrementally, and only the app's renderer processes restart on the\n          build, so open Chromium pages reload while the app and every session stay up\n  --swift live mode for the app's Swift, in a tagged DEV build: start restarts it into the live code build\n          of its commit (built once, cached) with every session kept, turns Labs > Live Code on, patches your\n          edits in and every save after. When the tag's last live code build can take everything since as\n          patches, start reuses it with no build (--fresh: build HEAD); stop restarts into the optimized build of your edited checkout\n          (--discard: the build from before). The live code build is slower and bigger. Guide: docs/cmux-next/live-code.md\n  PATH is a cmux checkout (default: the one around this folder). Turn it off for good in\n  Settings > General > cmux Live, or `cmux settings set updates.liveWebReload false`. Guide: docs/cmux-next/hot-reload.md",
@@ -303,6 +377,11 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         record: "  {kind}: {count}, p50 {p50} ms, p95 {p95} ms, max {max} ms (applying it: max {apply} ms)",
         no_records: "  no records arrived for this chat",
         unpainted: "  {count} arrived with no painted frame before the window ended",
+        owners: "Frame owners: page code asked for another frame in {page} of {count} frames (the frame count above is this measurement's own loop)",
+        owner: "  {kind} {per_s}/s ({count}): {file} {at}",
+        owner_animation: "  animation {name} on {target}: {count} running, {iterations} iterations",
+        owners_none: "  no page code asked for frames, short timers or animations",
+        owners_unsupported: "Frame owners: this chat page does not report them (a build from before they were added)",
     },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",
@@ -320,7 +399,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     action_batch_not_object: "オブジェクトではありません",
     agent_open_usage: "使い方: cmux agent open <セッション ID> [--name 名前] [--key UUID] [--cwd フォルダ] [--host ホスト] [--group グループ] [--placement top] [--focus]",
     agent_open_tab_usage: "使い方: cmux agent open-tab <セッション ID> [--target ペインまたはタブ] [--host ホスト] [--focus]",
-    settings_usage: "使い方: cmux settings get [パス] | set パス 値 [--yes] | reset パス [--yes] | unset パス [--yes] | list [--section セクション] [--keys] | schema | validate [ファイル]\n(`cmux config` も同じコマンドです)\nlist はアプリを起動せずにセッションデーモンから読み取ります (--socket または --session)。--keys、schema、validate はオフラインで使えます。パスを指定した get と set/reset/unset はセッションデーモンを使います。パスを指定しない get と --yes 付きの書き込みはアプリのソケットを使います。",
+    settings_usage: "使い方: cmux settings get [パス] | set パス 値 [--yes] | reset パス [--yes] | unset パス [--yes] | edit EDITS_JSON | list [--section セクション] [--keys] | schema | validate [ファイル]\n(`cmux config` も同じコマンドです)\nlist はアプリを起動せずにセッションデーモンから読み取ります (--socket または --session)。--keys、schema、validate はオフラインで使えます。パスを指定した get と set/reset/unset はセッションデーモンを使います。パスを指定しない get と --yes 付きの書き込みはアプリのソケットを使います。",
     settings_confirm_hint: "--yes を付けると cmux で承認を求めます",
     settings_declined: "cmux で拒否されました",
     settings_waiting: "cmux での承認を待っています (Ctrl-C でこのコマンドを取り消します。cmux のシートで応答してください)",
@@ -345,6 +424,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     agents_waiting_progress: "{what} を待っています ({total} 秒中 {elapsed} 秒経過)",
     app_busy_waiting: "cmux アプリが混み合っています。{what} を引き続き待っています ({elapsed} 秒経過)",
     remote_confirm_still_open: "cmux でまだ応答がありません。ダイアログは開いたままで、そこで許可すると変更されます。反映されたかは `cmux remote-host status` で確認できます。",
+    remote_not_bundled: "この cmux ビルドには cmux Remote が含まれていません (DEV ビルドのみ同梱、Release と NIGHTLY には含まれません)。上の state と config は画面共有がオフという意味ではありません。ここでは画面共有は cmux アプリが行います: cmux の「この Mac を共有」と「共有を停止」、または cmux アプリに送られる `cmux remote-host share on|off` と `cmux remote-host stop` を使ってください。",
     closed: "cmux アプリが応答せずに接続を閉じました",
     invalid_response: "cmux アプリの応答を読み取れません",
     acp_open_usage: "使い方: cmux acp open セッション [--pane ペイン]",
@@ -361,6 +441,13 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     cloud_machines_unlisted: "注意: Cloud マシンは一覧にありません: {reason}",
     cloud_machines_malformed: "cmux アプリの cloud.machines の応答にマシンの一覧がありません",
     cloud_secret_help: "シークレットをこの Mac のキーチェーンに保存します。set は非表示の入力プロンプト\nまたは標準入力から値を読み取ります。値をコマンドの引数には指定しません。\nls は名前とスコープを一覧表示し、値は表示しません。\nリポジトリ専用のシークレットには set または rm に --repo OWNER/NAME を指定します。",
+    cloud_team_keys_help: "エージェント（claude または codex）用のチーム共有キーです。オーナーと管理者が\n設定、置き換え、削除できます。チームの Cloud マシンでは各メンバー自身のキーより優先されます。\nset はキーを非表示の入力プロンプト、標準入力または --secret-file から読み取ります。コマンドの引数には指定しません。\nstatus はキーが設定されているかどうかを表示し、キーそのものは表示しません。",
+    launch_times: LaunchTimesMessages {
+        usage: "使い方: cmux app launch-times [--limit <n>] [--file <パス>] [--phases]\nアプリの直近の起動 (最大 50 件) を古い順に表示します: ビルド、コミット、main までの ms (プロセス開始から main)、\nmain から最初のウィンドウフレームまでの ms、最初のウィンドウフレームの ms、Home の最初のページの ms、\nHome がページと期限のどちらで表示されたか、\nウィンドウがキー入力を受け付けるまで (Home のメッセージ欄) の ms、最初のシェル出力までの ms、保存されたスナップショットがなかったか、\nアップデーターがそのビルドを事前起動したか、そのビルドの初回起動か。\n--phases を付けると、各起動の下にその起動フェーズ (プロセス開始からの ms、発生順、直前からの差分付き) を 1 行で表示します。\n~/Library/Application Support/<バンドル ID>/launch-times.jsonl から読み取ります。アプリが動作している必要はありません。",
+        no_app: "この CLI の周りに cmux アプリがありません。アプリ同梱の CLI を実行するか、CMUX_BUNDLE_ID を設定してください",
+        empty: "{path} にはまだ起動の記録がありません",
+        unreadable: "{path} を読み取れません: {error}",
+    },
     version: VersionLabels {
         cli: "CLI",
         app: "アプリ",
@@ -387,7 +474,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         pulled_tag: "取り下げ",
     },
     app_try: TryMessages {
-        usage: "使い方: cmux app try <PR|ブランチ|sha> [--dry-run] [--app パス] | undo [--dry-run] | status\n  try     そのコミットの cmux を、このアプリで最も手軽な方法で動かします。このアプリが受け取れるライブビルドを CI が\n          公開していればライブで (bin/cmux とその付属ファイルを入れ替え、数秒でデーモンを引き継ぎ、ターミナルはすべて残ります)、\n          なければそのコミットのナイトリービルドを `cmux nightly install` と同じ方法でインストールします。ここではビルドしません。\n          PR やブランチは GitHub の公開 API でその先頭のコミットに解決します。\n  undo    直前の try で置き換えたものを元に戻します\n  status  直前の try の記録: 何を、どの方法で行い、各段階に何秒かかったか\n  --dry-run  計画を表示するだけで、何も変更しません",
+        usage: "使い方: cmux app try . [--from APP] [--dry-run]    作業ツリーをナイトリーのコピーで動かします (DEV ビルド不要)\n       cmux app try . --extract                   入れたコードを残します (ブランチとパッチ)\n       cmux app try . --stop                      コピーを終了して削除します\n       cmux app try <PR|ブランチ|sha> [--dry-run] [--app パス] | undo [--dry-run] | status\n  .       ナイトリーをコピーしてコードを入れます: APP (既定 /Applications/cmux NIGHTLY.app) の新しいクローンを、\n          今の cmux には触れずに横で起動し、このチェックアウトの Web UI (開発サーバー: 保存するとすぐ反映) と\n          デーモンの Rust を入れます。`.` はこのフォルダを含むチェックアウトです。dir:パス、./パス、/パス で別のものを\n          指定できます。コピーのソケットを表示します (`cmux --app-socket ソケット ...` で操作)。Swift はビルドが必要で、\n          その理由を表示します。DEV ビルドは引き続き使えます。--dry-run は計画だけを表示します\n  try     そのコミットの cmux を、このアプリで最も手軽な方法で動かします。このアプリが受け取れるライブビルドを CI が\n          公開していればライブで (bin/cmux とその付属ファイルを入れ替え、数秒でデーモンを引き継ぎ、ターミナルはすべて残ります)、\n          なければそのコミットのナイトリービルドを `cmux nightly install` と同じ方法でインストールします。ここではビルドしません。\n          PR やブランチは GitHub の公開 API でその先頭のコミットに解決します。\n  undo    直前の try で置き換えたものを元に戻します\n  status  直前の try の記録: 何を、どの方法で行い、各段階に何秒かかったか\n  --dry-run  計画を表示するだけで、何も変更しません",
         no_state: "try のファイルを保存するホームフォルダがありません (HOME が未設定です)",
         no_app: "cmux アプリが見つかりません。アプリ同梱の cmux で実行するか、--app パス を指定してください",
         not_found: "{target} は manaflow-ai/cmux の PR、ブランチ、コミットではありません",
@@ -413,6 +500,26 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         nothing_to_undo: "元に戻すものがありません。ここで `cmux app try` を実行していないか、直前のものはすでに戻しています",
         no_receipt: "ここではまだ `cmux app try` を実行していません",
         status_line: "{action} {commit} ({path}) {app}: {phases}",
+        copy_no_checkout: "そこに cmux のチェックアウトがありません。manaflow-ai/cmux のクローン内で `cmux app try .` を実行するか、dir:パス で指定してください (scripts/cmux-next/hot-verify.py が必要です)",
+        copy_no_app: "{app} にコピーするアプリがありません。cmux NIGHTLY をインストールするか、--from APP を指定してください",
+        copy_cannot_run: "チェックアウトの hot-verify.py を実行できませんでした: {error}",
+        copy_running: "あなたのコードが {from} のコピーで、今の cmux の横で動いています (今の cmux には触れていません)。\n  入れたもの: {layers} ({seconds} 秒)\n  コピー:     {copy}\n  操作:       cmux --app-socket {socket} <コマンド>\n  残す:       cmux app try {tree} --extract   (入れたもののブランチとパッチ)\n  終了:       cmux app try {tree} --stop      (コピーを終了して削除)\n  もう一度:   cmux app try {tree}             (最新のコードで新しいコピー)",
+        copy_layer_web_live: "Web UI (開発サーバー: webviews/ の保存がすぐ反映されます)",
+        copy_layer_web: "Web UI",
+        copy_layer_rust: "デーモンの Rust",
+        copy_no_layers: "アプリは何も変わりません。コピーはナイトリーのまま動いています",
+        copy_failed: "コピーはあなたのコードで起動しませんでした: {error}",
+        copy_needs_build: "{tree} はビルドが必要です。ナイトリーのコピーはこの変更をライブで受け取れないため、コピーは作っていません。",
+        copy_swift: "Swift をライブで入れられるのはライブコードビルドだけです (関数本体内の Swift: タグ付き DEV ビルドで `cmux live start --swift`、docs/cmux-next/live-code.md)。ナイトリーはライブコードビルドではありません。",
+        copy_dev_build: "これには DEV ビルドが引き続き使えます: コミットしてプッシュし、`cmux-ci build cmux --ref {head} --tag {side} --workspace {side} --backend-mode local` でフリート上でビルドします (この Mac ではビルドしません)。",
+        copy_extracted: "入れたものを残しました: ブランチ {branch} ({count} 個のファイル) とパッチ {patch}。作業ツリーはそのままです。`cmux app try {tree} --stop` でコピーを削除します。",
+        copy_nothing_to_extract: "取り出すものがありません。このチェックアウトのコピーは動いていません (`cmux app try {tree}` で作ります)",
+        copy_stopped: "コピー {side} を終了して削除しました。",
+        copy_stop_failed: "コピーは正しく終了しませんでした。理由は上のログにあります",
+        copy_elsewhere: "このホストにはコピーする cmux アプリがありません。`cmux app try .` は Mac でナイトリーをコピーします。ここからは、ブランチをプッシュして PR を開き、`cmux-ci hot-verify N --look` でフリートの Mac 上のナイトリーのコピーに入れます。作業ツリーの計画:",
+        copy_push_uncommitted: "作業ツリーにコミットしていない変更があります。先にコミットしてプッシュしてください。フリートはプッシュ済みのコミットしか見えません。",
+        copy_push_no_upstream: "ブランチに上流がありません。先にプッシュしてください。フリートはプッシュ済みのコミットしか見えません。",
+        copy_push_ahead: "ブランチにプッシュしていないコミットがあります。先にプッシュしてください。フリートはプッシュ済みのコミットしか見えません。",
     },
     live: LiveMessages {
         usage: "使い方: cmux live start [--worktree パス] [--port N] | stop [--worktree パス] | status [--worktree パス]\n       cmux live start --rust [--worktree パス] [--build-host ホスト] [--session 名前] | stop --rust | status --rust\n       cmux live start --chromium --build-host ホスト --src SRC [--out OUT] [--target T] [--app APP] [--gpu] | stop --chromium | status --chromium\n       cmux live start --swift [--fresh] [--worktree パス] [--tag タグ] | stop --swift [--discard] [--worktree パス] [--tag タグ]\n  cmux Live: 動作中の cmux をそのまま編集します。フラグなしは Web UI (webviews/ の React のページとチャット)、\n  --rust はデーモン、--chromium はブラウザエンジン、--swift はアプリの Swift が対象です。\n  start   チェックアウトの Web UI 開発サーバーを起動し、動作中の cmux をそこに向けます。webviews/ の\n          変更を保存すると、ビルドも再起動もなしに、開いているすべてのページとチャットにすぐ反映されます\n  stop    停止します。cmux は同梱の Web UI に戻ります\n  status  cmux が Web UI をどこから読み込んでいるかとその理由、最後の Rust 入れ替え、Swift のライブモードがオンかを表示\n  --rust  デーモンを対象にします。cmux-tui/ の .rs を保存するたびに (ssh でホスト上、またはここで) ビルドし、\n          動作中のデーモンと入れ替えます。ターミナルとエージェントのセッションはすべて残ります\n  --chromium  ブラウザエンジンを対象にします。.cmux-dev/chromium/ のファイルを保存するたびに、ホスト上の SRC の\n          同じパスに送って差分ビルドし、アプリのレンダラープロセスだけを新しいビルドで起動し直します。\n          開いている Chromium ページは再読み込みされ、アプリとセッションはそのまま残ります\n  --swift タグ付き DEV ビルドの Swift のライブモード: start はそのコミットのライブコードビルド (一度だけビルドしてキャッシュ) に\n          すべてのセッションを保ったまま再起動し、Labs > Live Code をオンにして、編集と以降の保存を反映します。タグの前回の\n          ライブコードビルドにそれ以降の変更をすべてパッチで当てられるときは、ビルドせずにそれを再利用します (--fresh: HEAD を\n          ビルド)。stop は編集した\n          チェックアウトの最適化ビルドに再起動します (--discard: 開始前のビルド)。\n          ライブコードビルドは遅く、大きくなります。ガイド: docs/cmux-next/live-code.md\n  パスは cmux のチェックアウトです (既定: このフォルダを含むもの)。完全にオフにするには\n  設定 > 一般 > cmux Live、または `cmux settings set updates.liveWebReload false`。ガイド: docs/cmux-next/hot-reload.md",
@@ -441,6 +548,11 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         record: "  {kind}: {count}、p50 {p50} ms、p95 {p95} ms、最大 {max} ms (適用: 最大 {apply} ms)",
         no_records: "  このチャットにレコードは届きませんでした",
         unpainted: "  {count} 件は期間の終わりまでに描画済みフレームがありませんでした",
+        owners: "フレームの要求元: {count} フレームのうち {page} フレームでページのコードが次のフレームを要求しました (上のフレーム数はこの計測自身のループです)",
+        owner: "  {kind} {per_s}/秒 ({count} 回): {file} {at}",
+        owner_animation: "  アニメーション {name} ({target}): 実行中 {count}、反復 {iterations}",
+        owners_none: "  フレーム、短いタイマー、アニメーションを要求したページのコードはありません",
+        owners_unsupported: "フレームの要求元: このチャットのページは報告しません (追加される前のビルドです)",
     },
     search_text_usage: "使い方: cmux {scope} search <テキスト> [オプション]。オプションは `cmux {scope} --help` で表示",
     history_clear_range_usage: "使い方: cmux history clear-range --range hour|today|week|month|all [--kind <種類,...>] [--profile <プロファイル>]",

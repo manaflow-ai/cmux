@@ -130,6 +130,10 @@ impl Peer {
         }
     }
 
+    pub(super) fn controls_enabled(&self) -> bool {
+        self.mirror.links.get().and_then(|links| links.v2()).is_some()
+    }
+
     fn mirror_index(&self) -> Option<Arc<Index>> {
         self.mirror.links.get().and_then(|links| links.v2()).map(|v2| v2.hub())
     }

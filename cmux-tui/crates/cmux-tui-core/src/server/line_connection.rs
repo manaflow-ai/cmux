@@ -159,6 +159,23 @@ pub(super) fn serve_line_connection(
             }
             continue;
         }
+        // A projection's dial carried here by the Cloud carrier: the rest of the stream is its
+        // manifest and the Mac's answers, raw (fs_wire.rs `serve_local_projection`).
+        #[cfg(unix)]
+        if matches!(transport, ClientTransport::Unix)
+            && crate::projection::frame_command(&line).is_some()
+        {
+            let leftover = reader.buffer().to_vec();
+            let socket = reader.into_inner();
+            fs_wire::serve_local_projection(&mux, client, line.trim_end(), leftover, socket.stream);
+            let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
+            mux.control_clients.git_lane.abandon(client);
+            disconnect_client(&mux, client, false);
+            let _ = writer_thread.join();
+            control.close();
+            drop(connection_permit);
+            return;
+        }
         writer.input_lane.raise_this_thread_if_marked();
         input_qos::note_thread_qos("mux-conn");
         let keep_open = match admission.refusal(&line) {

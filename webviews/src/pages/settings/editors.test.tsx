@@ -123,6 +123,14 @@ describe("editors", () => {
             failures.push(`${row.key}: no machine color well`);
           continue;
         }
+        // The Computer Use card draws its mode as a radio per mode and its denied apps as a list
+        // with an add field (ComputerUseCard), not the generic choice and token editors.
+        if (row.key === "computerUse.mode" || row.key === "computerUse.deniedApps") {
+          const control = row.key === "computerUse.mode" ? '[data-mode] input[type="radio"]' : "[data-denied-input]";
+          if (!page.container.querySelector(`[data-card="computer-use"] [data-row-key="${row.key}"] ${control}`))
+            failures.push(`${row.key}: not drawn by the Computer Use card`);
+          continue;
+        }
         // The density card draws appearance.density and the custom density keys (SectionView).
         if (DENSITY_ROWS.has(row.key)) {
           if (!page.container.querySelector('[data-card="density"]')) failures.push(`${row.key}: no density card`);
@@ -188,7 +196,9 @@ describe("editors", () => {
           // Personalization's theme studio reads its colors when the page opens.
           op !== "cmux.settings.theme.colors" &&
           // The try-on bar reads whether something is tried on when the page opens.
-          op !== "cmux.settings.customize.run",
+          op !== "cmux.settings.customize.run" &&
+          // So does its Customization Library card, its list.
+          op !== "cmux.settings.customize.library",
       );
     expect(order).toEqual([
       "cmux.settings.preview",

@@ -263,6 +263,10 @@ SCANNERS = (
     ("Scrollbars thin, one style", ["/bin/bash", "{s}/check-scrollbars.sh", "{root}"], (PKG + "/", "webviews/")),
     # Lawrence 2026-11-12: "roundness of all buttons should match roundness of tabs/workspaces".
     ("Buttons round as tabs", ["python3", "-I", "{s}/check-button-radius.py", "{root}"], (PKG + "/", "webviews/src/")),
+    # Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons inside".
+    ("Containers concentric with their buttons", ["python3", "-I", "{s}/check-concentric-containers.py", "{root}"],
+     (PKG + "/", "webviews/src/", "scripts/cmux-next/check-concentric-containers.py",
+      "scripts/cmux-next/concentric-containers-baseline.txt")),
     # Lawrence 2026-11-15: "for all buttons ... we only want to have different bg color on mousedown".
     ("Buttons change only their fill when pressed", ["python3", "-I", "{s}/check-pressed-state.py", "{root}"], (PKG + "/", "webviews/src/")),
     ("No literal state roots (per-build isolation S7, cx-is1kf.8)", ["/bin/bash", "{s}/check-state-roots.sh", "{root}"], SCOPES),
@@ -272,6 +276,9 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
     ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
      ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
+    # Lawrence 2026-11-16: "think of root cause fixes ... that make focus stealers easier to audit in central place".
+    ("Keyboard moves go through the focus route (plans/cmux-next/focus-loss-AUDIT.md)",
+     ["python3", "-I", "{s}/check-focus-routes.py", "{root}"], (PKG + "/", "webviews/src/", "scripts/cmux-next/focus-routes-baseline.tsv")),
     ("No raw file locks (cmux_file_lock::FileLock, lane c-agenthost lock audit)",
      ["python3", "-I", "{s}/check-no-raw-flock.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-flock-baseline.tsv")),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
@@ -329,6 +336,17 @@ PORT_DRIFT_SCRIPT = SCRIPTS + "/ffi_caller_ratchet.py"
 PORT_DRIFT_HEADER = re.compile(r"^cmux-tui/crates/[^/]+/include/[^/]+\.h$")
 PORT_DRIFT_NAME = re.compile(r"\b(?:cmux|acpmux)_\w+")
 PORT_DRIFT_TIP = "refs/remotes/origin/feat-cmux-next"  # drift already here is not a push's (port_drift)
+# The production journey's schedule registers from main, so main's copy of this workflow is what runs; only the
+# scripts come from feat-cmux-next. cmux#43781's --preclaim-login sat on feat-cmux-next's copy and never reached
+# production until cmux#43866 synced main's. Local only (CLAUDE.md: no new CI gates; Lawrence, 2026-10-23).
+MAIN_TWIN_CHECK = "Production journey workflow matches main's (the schedule runs main's copy)"
+MAIN_TWIN_FILE = ".github/workflows/cloud-journey-prod.yml"
+MAIN_TWIN_REF = "refs/remotes/origin/main"
+MAIN_TWIN_TRAILER = re.compile(r"^Main-Twin:[ \t]*\S", re.MULTILINE)
+# feat-cmux-next's `environment: {name, deployment: false}` and main's `environment: NAME` are one setting to compare.
+MAIN_TWIN_ENV_BLOCK = re.compile(r"^(\s*)environment:\n\s+name: (\S+)\n\s+deployment: false$")
+MAIN_TWIN_HINT = ("Open the same change against main (`gh pr create --base main`; workflows land there under the CI "
+                  "exception), then add a `Main-Twin: <that PR's URL>` trailer to this commit and push again.")
 FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
                   "`fallback` that takes the job and `after_minutes`), then push. Check with "
                   "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
@@ -430,6 +448,7 @@ CRASH_OK = re.compile(r"^Crash-allow-OK:[ \t]*(\S.*)$", re.MULTILINE)
 # and the baselines no scanner here reads (godfile, layers, main-actor-work, check-menu-actions, rust-panic,
 # system-blue, type-scale, app-size): their CI checks read the pushed tree's own copy.
 RATCHET_BASELINES = {
+    "focus-routes-baseline.tsv": ((0,), 1),
     "process-scan-baseline.tsv": ((0,), 1),
     "state-roots-baseline.tsv": ((0,), 1),
     "raw-spawn-baseline.tsv": ((0,), 1),
@@ -438,11 +457,20 @@ RATCHET_BASELINES = {
     "app-id-special-cases-baseline.tsv": ((0,), 1),
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
 }
+# Shrink-only baselines kept as a list of lines (path and the line's text): a push that fixes a listed site removes
+# its line, and the installed copy over both trees then reads the fix as "fixed, remove from the baseline", a new
+# finding (2026-11-17: the act-as-me consent card moved onto the shared dialog card and could not push). Each tree
+# keeps only the installed lines its own commit still lists: a removed line is taken, an added one never is.
+LINE_BASELINES = ("concentric-containers-baseline.txt",)
 CRASH_ALLOW_CHECK = "Crash allowlist review (Crash-allow-OK trailer)"
 # check-crash-safety.sh reads the CmuxNext app entry, a file only feat-cmux-next's tree has: a main-based push skips
 # that scanner and runs main's crash rule, the crash ratchet (crash_ratchet_findings).
 CRASH_SAFETY_CHECK = "Crash safety"
 APP_ENTRY = PKG + "/Sources/CmuxNextApp/CmuxNextApp.swift"
+# PKG_SCANNERS: every scanner handed {pkg} reads PKG's Package.swift or Sources, which main's tree does not have, so a
+# push whose head has no PKG manifest skips them all (2026-11-17: a main-based push touching Packages/Shared/ ran
+# "Main-thread concurrency", whose check-concurrency.sh died with FileNotFoundError in package_targets, and the hook
+# refused the push without a verdict).
 MAIN_REF = "origin/main"
 CRASH_RATCHET_CHECK = "Crash ratchet (crash_ratchet.py: no crate gains a Rust unwrap, expect, panic or exit)"
 CRASH_RATCHET = "crash_ratchet.py"
@@ -1019,23 +1047,25 @@ def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path) 
 
 
 def run(cmd: list[str], cwd: Path, timeout: int = 120) -> tuple[int, str]:
-    """CMD's exit code and output, or 124 and "timed out" past TIMEOUT seconds.
+    """CMD's exit code and output, or 124 and "timed out" past TIMEOUT seconds, scaled for this host's load
+    (loaded_timeout).
 
     A timed-out command is stopped with stop(), not subprocess.run's SIGKILL, so a `git` under it clears
     the lock it holds (see stop())."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")} | CI_ENV
     cwd = absolute(cwd)
+    limit = loaded_timeout(timeout)
     with subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
                           stdin=subprocess.DEVNULL) as process:
         try:
-            out, err = process.communicate(timeout=timeout)
+            out, err = process.communicate(timeout=limit)
         except subprocess.TimeoutExpired:
             stop([process.pid, *_descendants(process.pid)])
             try:
                 process.communicate(timeout=GRACE_SECONDS + 5)
             except subprocess.TimeoutExpired:  # not even SIGKILL got it reaped (an unkillable disk wait)
                 process.kill()
-            return 124, f"timed out after {timeout}s"
+            return 124, f"timed out after {limit:.0f}s"
     return process.returncode, out + err
 
 
@@ -1283,7 +1313,7 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
         args = [str(binary), "--edition", edition, "--config-path", str(config), "--emit", "stdout"]
         source = (tree / path).read_bytes()
         try:
-            done = subprocess.run(args, cwd=scope, input=source, env=env, capture_output=True, timeout=60)
+            done = subprocess.run(args, cwd=scope, input=source, env=env, capture_output=True, timeout=loaded_timeout(60))
         except subprocess.TimeoutExpired:
             # It started and did not finish: no verdict on the file, not a pass (no rustfmt at all, below, warns).
             return f"rustfmt gave no verdict: timed out after 60s on {path}"
@@ -1423,6 +1453,18 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str
             taken.append(f"{name}: {' '.join(key)} {installed} -> {now}")
         if changed:
             path.write_text("".join(lines), encoding="utf-8")
+    for name in LINE_BASELINES:
+        path = scripts_dir / name
+        own = git_batch.run(repo, ["show", f"{rev}:{SCRIPTS}/{name}"])
+        if not path.is_file() or own.returncode != 0:
+            continue
+        listed = set(own.stdout.decode(errors="replace").splitlines())
+        installed = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        # A comment or blank line stays; a site line stays only while the pushed copy still lists it.
+        kept = [line for line in installed if not line.strip() or line.startswith("#") or line.rstrip("\n") in listed]
+        if len(kept) != len(installed):
+            taken += [f"{name}: {line.rstrip()} (line removed)" for line in installed if line not in kept]
+            path.write_text("".join(kept), encoding="utf-8")
     return taken
 
 
@@ -1843,6 +1885,63 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
         return [line for line in head_lines if base_stopped or line not in set(base_lines)]
 
 
+def _journey_jobs(text: str) -> str:
+    """The `jobs:` section of a journey workflow as GitHub runs it, for comparing feat-cmux-next's copy with main's:
+    comment lines and blank lines dropped, and an `environment:` block with `deployment: false` read as main's string
+    form (main's actionlint knows only `environment: NAME`; cmux#43866). `runs-on:` lines are dropped too: main's guards
+    pin a job holding production secrets to a literal label (tests/test_ci_runner_set.py PINNED), while
+    feat-cmux-next's runs it from the runner pool, so the runner is each branch's own."""
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.rstrip() == "jobs:"), None)
+    if start is None:
+        return ""
+    kept = [line.rstrip() for line in lines[start:]
+            if line.strip() and not line.lstrip().startswith(("#", "runs-on:"))]
+    out: list[str] = []
+    i = 0
+    while i < len(kept):
+        block = MAIN_TWIN_ENV_BLOCK.match("\n".join(kept[i:i + 3]))
+        if block:
+            out.append(f"{block.group(1)}environment: {block.group(2)}")
+            i += 3
+            continue
+        out.append(kept[i])
+        i += 1
+    return "\n".join(out)
+
+
+def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_REF) -> list[str]:
+    """What head adds to MAIN_TWIN_CHECK: a change to the production journey workflow's jobs that main's copy lacks.
+
+    The schedule registers from main, so main's definition is what runs in production; only the scripts come from
+    feat-cmux-next. cmux#43781 changed feat-cmux-next's copy (--preclaim-login) and production never ran it until
+    cmux#43866 brought main's copy along. A push that changes MAIN_TWIN_FILE's jobs so they differ from main's is
+    refused, unless a pushed commit that changes the file names the main twin PR in a `Main-Twin:` trailer. A push
+    that leaves the jobs as base had them (comments only) or makes them match main passes, and so does a push when
+    main's copy cannot be read (local only: the twin rule is not a CI gate)."""
+    names = git(repo, "diff", "--name-only", "--no-renames", base, head, "--", MAIN_TWIN_FILE,
+                check=False).decode(errors="replace").split()
+    if MAIN_TWIN_FILE not in names:
+        return []
+
+    def read(rev: str) -> str | None:
+        done = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{MAIN_TWIN_FILE}"], capture_output=True)
+        return done.stdout.decode(errors="replace") if done.returncode == 0 else None
+
+    ours, before, main = read(head), read(base), read(main_ref)
+    if ours is None or main is None:
+        return []
+    jobs = _journey_jobs(ours)
+    if jobs == _journey_jobs(main) or (before is not None and jobs == _journey_jobs(before)):
+        return []
+    messages = git(repo, "log", "--format=%B%x1e", f"{base}..{head}", "--", MAIN_TWIN_FILE,
+                   check=False).decode(errors="replace")
+    if MAIN_TWIN_TRAILER.search(messages):
+        return []
+    return [f"{MAIN_TWIN_FILE}: its jobs now differ from {main_ref}'s, and the schedule runs main's copy, so this change "
+            f"never reaches production. {MAIN_TWIN_HINT}"]
+
+
 def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """What head adds to the port-drift ratchet (PORT_DRIFT_CHECK) over base: an exported cmux-tui C function with
     no Swift caller that the baseline does not list, or a baseline line whose function gained a caller.
@@ -2176,7 +2275,7 @@ def yaml_problem(text: str) -> tuple[bool, str | None]:
     if ruby is None:
         return False, None
     try:
-        result = subprocess.run([ruby, "-e", RUBY_YAML_PARSE], input=text, text=True, capture_output=True, timeout=30)
+        result = subprocess.run([ruby, "-e", RUBY_YAML_PARSE], input=text, text=True, capture_output=True, timeout=loaded_timeout(30))
     except (OSError, subprocess.SubprocessError):
         return False, None
     if result.returncode == 0:
@@ -2192,7 +2291,7 @@ def actionlint_syntax(actionlint: str, path: str, text: str) -> set[str] | None:
     Its external linters are off (-shellcheck= -pyflakes=): syntax is what keeps GitHub from loading a workflow."""
     try:
         result = subprocess.run([actionlint, "-no-color", "-oneline", "-shellcheck=", "-pyflakes=",
-                                 "-stdin-filename", path, "-"], input=text, text=True, capture_output=True, timeout=60)
+                                 "-stdin-filename", path, "-"], input=text, text=True, capture_output=True, timeout=loaded_timeout(60))
     except (OSError, subprocess.SubprocessError):
         return None
     if result.returncode not in (0, 1):
@@ -2248,7 +2347,7 @@ PYYAML_PIN = "PyYAML==6.0.3"
 def has_pyyaml(python: str) -> bool:
     """Whether PYTHON, run the way the hook runs every layer (`-I`: no user site), can import yaml."""
     try:
-        return subprocess.run([python, "-I", "-c", "import yaml"], capture_output=True, timeout=60).returncode == 0
+        return subprocess.run([python, "-I", "-c", "import yaml"], capture_output=True, timeout=loaded_timeout(60)).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
@@ -2261,7 +2360,7 @@ def interpreter_sys_path(python: str) -> list[str]:
     """PYTHON's sys.path as the hook runs it (-I, so no user site and no PYTHONPATH); [] when it does not answer."""
     try:
         done = subprocess.run([python, "-I", "-c", "import json, sys; print(json.dumps(sys.path))"],
-                              capture_output=True, text=True, timeout=30)
+                              capture_output=True, text=True, timeout=loaded_timeout(30))
         listed = json.loads(done.stdout) if done.returncode == 0 else []
     except (OSError, ValueError, subprocess.SubprocessError):
         return []
@@ -2291,7 +2390,7 @@ def pep668_route(python: str, stdlib: str | None = None, purelib: str | None = N
         paths["stdlib"] if stdlib is None else stdlib, paths["purelib"] if purelib is None else purelib]
     for asked, extra in ((python, given), (sys.executable, given or [paths["stdlib"], paths["purelib"]])):
         try:
-            done = subprocess.run([asked, "-I", "-c", PEP668_ROUTE, *extra], capture_output=True, text=True, timeout=30)
+            done = subprocess.run([asked, "-I", "-c", PEP668_ROUTE, *extra], capture_output=True, text=True, timeout=loaded_timeout(30))
         except (OSError, subprocess.SubprocessError):
             continue
         if done.returncode == 0 and done.stdout.strip() in PEP668_ROUTES:
@@ -2388,10 +2487,13 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
     if resolver is None and b"load_workflow_jobs" in script:
         return [NoVerdict(f"prepush-gate: {STALE_INSTALL} (it has no {Path(FALLBACKS_RESOLVER).name}, which "
                           f"{Path(FALLBACKS_SCRIPT).name} reads runs-on through).")]
-    # The checker runs under this interpreter: the hook's own Python (its python3-path), as every other layer does.
+    # The checker runs under this interpreter: the one the hook picked (scripts/git-hooks/hook_python.sh), which
+    # imports yaml whenever any candidate on this host does. When none does, the refusal names each it tried.
     if not has_pyyaml(sys.executable):
         fix = pyyaml_install_command(sys.executable)
-        return [f"PyYAML missing: {fix}" if "externally managed" in fix else f"PyYAML missing: run {fix}"]
+        tried = os.environ.get("CMUX_HOOK_PYTHON_TRIED", "").strip()
+        also = f" (no Python the hook tried imports yaml: {tried})" if tried else ""
+        return [(f"PyYAML missing: {fix}" if "externally managed" in fix else f"PyYAML missing: run {fix}") + also]
     with tempfile.TemporaryDirectory(prefix="cmux-fallbacks-") as tmp:
         work = absolute(Path(tmp))
         (work / "check.py").write_bytes(script)
@@ -2760,6 +2862,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         drift = port_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((PORT_DRIFT_CHECK, drift))
+    # Local only, like the workflow parse (CLAUDE.md: no new CI gates): hq's NOW names a standing difference.
+    if (highlights_layer if only is None else "main-twin" in only) and restrict is None:
+        drift = main_twin_drift(repo, base, head)
+        if drift:
+            reserved.append((MAIN_TWIN_CHECK, drift))
     if only is None or "sidebar" in only:
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
@@ -2825,16 +2932,19 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         lock = config_root / SCRIPTS / "lint-tools.lock"
         jobs: dict[str, tuple] = {}
         trees_for: dict[str, tuple[Path, Path]] = {}
+        has_package = (head_tree / MANIFEST).is_file()
         for name, cmd, prefixes in SCANNERS:
             script = next(Path(c) for c in fill(cmd, head_tree) if c.startswith(str(head_tree / SCRIPTS)))
             if not script.is_file():
                 continue  # a commit older than this check
             if name == CRASH_SAFETY_CHECK and not (head_tree / APP_ENTRY).is_file():
                 continue  # a main-based push: its crash rule is the crash ratchet below
+            if not has_package and any("{pkg}" in c for c in cmd):
+                continue  # a main-based push: no CmuxNext package for a {pkg} scanner to judge (PKG_SCANNERS)
             runs = any(p.startswith(prefixes) for p in changed) or (name == SURFACE_MATERIALS_CHECK and materials_data)
             if runs and (only is None or "scanners" in only):
                 jobs[name] = ("cmd", cmd)
-        if (dropped or deleted) and DEPS_CHECK not in jobs:
+        if (dropped or deleted) and DEPS_CHECK not in jobs and has_package:
             jobs[DEPS_CHECK] = ("cmd", next(cmd for name, cmd, _ in SCANNERS if name == DEPS_CHECK))
         if DEPS_CHECK in jobs and (MANIFEST in changed or dropped):
             # Each side's own Swift files, so a finding both sides have still cancels out. Its own list: `sources` is
@@ -3383,7 +3493,7 @@ def advisory_swiftformat(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding
     lock = repo / SCRIPTS / "lint-tools.lock"
     try:
         binary = ensure_tool(lock, "swiftformat")
-        probe = subprocess.run([str(absolute(binary)), "--version"], capture_output=True, text=True, timeout=30,
+        probe = subprocess.run([str(absolute(binary)), "--version"], capture_output=True, text=True, timeout=loaded_timeout(30),
                                stdin=subprocess.DEVNULL)
     except (Exception, SystemExit) as error:  # noqa: BLE001 - no binary for this runner: say so, never fail
         return [], [], f"no SwiftFormat binary on this runner ({type(error).__name__}: {error})"
@@ -3543,7 +3653,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
-                                       "settings-export-keys")
+                                       "settings-export-keys,main-twin")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
@@ -3824,6 +3934,17 @@ def loaded_limit(base: float, load: float, cpus: int) -> float:
     if cpus <= 0 or load <= cpus:
         return base
     return max(base, min(base * load / cpus, GATE_LIMIT_MAX_SECONDS))
+
+
+def loaded_timeout(seconds: float) -> float:
+    """One check's SECONDS for this host's load (loaded_limit), so a check refuses a hang, not a busy host: on
+    2026-11-17 a 2-core lane VM at load 26 took 133 s of wall time for the single-host fallback checker's 30 s of
+    CPU, past run()'s fixed 120 s, and refused three pushes in a row with nothing wrong in them."""
+    try:
+        load = os.getloadavg()[0]
+    except OSError:
+        return seconds
+    return loaded_limit(seconds, load, os.cpu_count() or 1)
 
 
 def gate_limit() -> float:

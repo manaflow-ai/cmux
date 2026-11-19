@@ -10,6 +10,22 @@ For a tagged Debug app with separate chat and pages servers, use
 
 ## The loop
 
+**The quickest way to run your change: copy your nightly and swap your code in.** In your cmux checkout:
+
+```sh
+cmux app try .              # a fresh copy of cmux NIGHTLY runs beside yours, with your code in
+cmux app try . --extract    # keep the code that went in (branch cmux-try/<copy> and a patch)
+cmux app try . --stop       # quit the copy and delete it
+```
+
+The copy is an APFS clone of `/Applications/cmux NIGHTLY.app` (`--from APP` for another build) with its own
+bundle id, data, socket and daemon, so the cmux you are using is never touched. Your web UI goes in through a dev
+server (each save shows live) and your daemon Rust as the published build of your tree, else a local cargo
+build. It prints the copy's socket; `cmux --app-socket SOCKET ...` drives it. Run it again for a fresh copy with
+your newest code. Dev builds stay available: when the change needs one (Swift, Rust the app links), the command
+says why and prints the fleet build command. It is `scripts/cmux-next/hot-verify.py run`, the same engine as
+`look` below without the screenshots.
+
 Write the code, put it into the cmux you are running, use it, then test it. Leo, 2026-11-15: "imagine if you
 could just write the code and then the code goes into your app and then you can just use it." Screenshot it, take
 a video, click through it; compile checks, CI and suites come after the look. Of the newest 300 merged NEXT PRs, 70% of those that change the Mac app could go in live; almost none were looked at in a running app before merging:
@@ -17,12 +33,19 @@ a video, click through it; compile checks, CI and suites come after the look. Of
 | Layer | Put it in | Take it out |
 |---|---|---|
 | Web, a PR | `cmux customize use pr:N` | `cmux customize library off pr-N` |
-| Web, your checkout | `cmux live start` ([below](#start-in-30-seconds)) | `cmux live stop` |
+| Web, a pushed branch or commit | `cmux customize use branch:NAME` or `sha:SHA` | `cmux customize library off NAME` |
+| Web, your working copy | `cmux customize use dir:PATH --watch` (again about 19 s after each save, on a fleet Mac), or `cmux live start` ([below](#start-in-30-seconds)) | `library off NAME`, `cmux live stop` |
+| Web, a fork's branch | `cmux customize use OWNER/REPO@REF`, from the fork's own workflow, never our CI | `library off NAME` |
 | Terminal daemon and acpmux Rust | `scripts/cmux-next/hot-apply.py apply SHA` ([below](#a-merged-commit-in-the-running-app-before-the-nightly)), about 2.7 s | `hot-apply.py rollback` |
 | A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>` | `cmux app try undo` |
 | Swift, Rust the app links, resources | a build: `hot-apply.py plan SHA` says which | |
 
-`cmux customize use branch:`, `sha:` and `dir:` are coming. Rust hot-apply into a Developer ID NIGHTLY takes the
+To look and keep the proof in one step, `scripts/cmux-next/hot-verify.py look --source dir:.|pr:N --app APP --out DIR`
+puts the change into a side copy and writes before and after screenshots, a video and a receipt for the PR
+(`hot-verify.py plan --source dir:. --app APP` first says whether it needs a build).
+
+`cmux customize library status` says which layers are on, `library refresh` pulls each one's newest build (a fork's only when you run `use` again), and
+`library off --all` turns every code layer off. Rust hot-apply into a Developer ID NIGHTLY takes the
 tree's Team-signed copy, which CI publishes a few minutes after the tree; until then it is held back. Agents follow the same loop through the
 [cmux-hot-loop skill](../../skills/cmux-hot-loop/SKILL.md). Which layers swap, why, and how often each applies:
 cmuxterm-hq [docs/design/cmux-next-hot-swap-layers.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/design/cmux-next-hot-swap-layers.md)

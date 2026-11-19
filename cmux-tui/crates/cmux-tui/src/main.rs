@@ -12,6 +12,10 @@ use cmux_json::JsonSet as _;
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
+#[cfg(unix)]
+mod agent_computer_use;
+#[cfg(unix)]
+mod agent_mcp_choice;
 use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]
@@ -43,10 +47,14 @@ mod cloud_environment;
 #[cfg(unix)]
 mod coderouter_usage;
 #[cfg(unix)]
+#[cfg(unix)]
 mod codex_wrapper;
+#[cfg(not(target_os = "macos"))]
+mod computer_use_worker;
 mod config;
 mod daemon_build;
 mod headless;
+mod heap_profile;
 #[cfg(unix)]
 mod host_orphan_policy;
 mod local_actor;
@@ -1825,6 +1833,13 @@ fn warm_seeded_deps(folder: &Path) {
 /// Windows with the `windows-thin-exe` feature the thin `cmux-tui.exe` calls
 /// it through [`cmux_tui_dll_main`] in `cmux_tui.dll`.
 pub fn main() -> std::process::ExitCode {
+    // A measurement build's heap profile (`dhat-heap`); nothing otherwise.
+    heap_profile::start();
+    // glibc builds: two malloc arenas, not eight per core (malloc_arenas.rs).
+    // SAFETY: the first statements of main: no other thread runs yet.
+    unsafe {
+        cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS);
+    }
     // The browser host and the app host are this binary under their own names
     // (links beside bin/cmux). They run before anything else here: the app
     // host sandboxes itself while it is the only thread, and neither takes
@@ -1849,6 +1864,8 @@ pub fn main() -> std::process::ExitCode {
     acpmux::hub::install_build(acpmux_build_id::build());
     #[cfg(unix)]
     cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
+    // The daemon's `device-setup` (the app's set-up buttons) runs `cmux device setup|start`'s code.
+    cmux_tui_core::device_setup::on_device_setup(devices::setup::daemon_run);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()

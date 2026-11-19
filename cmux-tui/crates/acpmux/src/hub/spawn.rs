@@ -140,15 +140,30 @@ impl Hub {
         profile: &HarnessProfile,
         session_id: Option<&str>,
         child: &crate::agent::ChildAgent,
+        answer: &crate::agent_tools::CodexAnswer,
     ) -> Value {
         let all =
             crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
         // A fork through this child asks for the same list (`fork.rs`).
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
+        // Codex's answer for the person's own `cmux` entry, asked once for this start (its tool
+        // rows', `record_spawn_inputs`, or its pool spec's) off the runtime.
+        let codex = crate::agent_tools::is_codex(meta, Some(profile)).then_some(
+            crate::agent_tools::CodexLaunch {
+                cwd: &meta.cwd,
+                argv: &profile.argv,
+                answer: Some(answer),
+            },
+        );
         let servers =
-            crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
+            crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all, codex);
         *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers.clone());
+        // The person's own stdio `cmux` entry learns which chat starts it, where cmux gives none.
+        let entry_env = codex.and_then(|launch| {
+            crate::agent_tools::person_entry_env(&servers, launch, &profile.env, id)
+        });
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
+        crate::agent_tools::send_person_entry_env(&mut params, entry_env);
         if let Some(dirs) = super::additional_dirs::acp_value(meta) {
             params.set(super::additional_dirs::FIELD, dirs);
         }
@@ -181,8 +196,11 @@ impl Hub {
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
         let meta = session.meta();
         let opencode = super::policy_mode::is_opencode(&meta, profile);
-        let (profile, preset_digest, account_home) =
-            self.spawn_profile_read(&meta, forking, profile, defaults_env).await?;
+        // The owner's Cloud credential, held for this session only (`agent_credentials.rs`).
+        let credential = session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let (profile, preset_digest, account_home) = self
+            .spawn_profile_read(&meta, forking, profile, defaults_env, credential.as_ref())
+            .await?;
         Ok(Spawn { profile, preset_digest, account_home, opencode, launch_digest })
     }
 
@@ -194,7 +212,21 @@ impl Hub {
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<HarnessProfile, RpcError> {
-        self.spawn_profile_read(meta, false, profile, defaults_env).await.map(|(p, ..)| p)
+        self.spawn_profile_with(meta, profile, defaults_env, None).await
+    }
+
+    /// `spawn_profile_for` on the owner's Cloud credential a chat launches with (the session
+    /// pool's key and start for a hinted Cloud chat, `PrewarmShape`, cmux#45953).
+    pub(super) async fn spawn_profile_with(
+        &self,
+        meta: &SessionMeta,
+        profile: &HarnessProfile,
+        defaults_env: &std::collections::BTreeMap<String, String>,
+        credential: Option<&crate::agent_credentials::AgentCredential>,
+    ) -> Result<HarnessProfile, RpcError> {
+        self.spawn_profile_read(meta, false, profile, defaults_env, credential)
+            .await
+            .map(|(p, ..)| p)
     }
 
     /// `spawn_profile_for`, and the approval digest of the preset contents
@@ -205,6 +237,7 @@ impl Hub {
         forking: bool,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
+        credential: Option<&crate::agent_credentials::AgentCredential>,
     ) -> Result<(HarnessProfile, Option<String>, Option<std::path::PathBuf>), RpcError> {
         let mut p = profile.clone();
         let mut digest = None;
@@ -275,6 +308,17 @@ impl Hub {
         for (k, v) in &meta.session_env {
             p.env.insert(k.clone(), v.clone());
         }
+        // A remote-origin chat with no answer of its own (a phone or Web client started it; one
+        // another Mac's daemon started carries that Mac's, `cmux_tools_answer.rs`) gets none of
+        // cmux's servers (`agent_tools::left_out`), and its person's own `cmux` entry gets `off`.
+        crate::agent_tools::remote_origin_answer(&mut p.env, meta.remote_origin);
+        // A Claude Code cut off from cmux's tools passes the answer `off` to its own stdio servers
+        // (a person's `cmux` entry), as a Codex one does (`agent_tools::person_entry_env`).
+        if crate::agent_tools::is_claude_code(&meta.harness, &p)
+            && crate::agent_tools::cut_off(&p.env)
+        {
+            p.env.insert(crate::agent_tools::TOOLS_ANSWER_ENV.to_owned(), "off".to_owned());
+        }
         // cmux-harness writes its durable journal into acpmux's session store.
         // Bind this after profile and session env so a profile cannot redirect
         // the journal into an arbitrary path; MemoryStore intentionally has no
@@ -305,9 +349,26 @@ impl Hub {
         // The bound route last: it owns the provider variables (routes.rs).
         let account_home = self.apply_route(meta, forking, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);
+        // Only `apply` marks an agent as launched on the owner's credential: a marker a profile,
+        // preset or request env set would have its own login read back after a restart as one.
+        p.env.remove(crate::agent_credentials::MARKER);
+        // The owner's Cloud credential: straight to the provider, no coderouter route
+        // (`agent_credentials.rs`). Its names only are logged, never a value.
+        let direct = credential.is_some_and(|c| {
+            let family = crate::config::derive_family(&meta.harness, &p);
+            let applied = crate::agent_credentials::apply(c, &family, &mut p.argv, &mut p.env);
+            let names: Vec<&str> = c.names().collect();
+            if applied {
+                tracing::info!(session = %meta.id, ?names, "agent launches on the owner's credential");
+            } else {
+                tracing::warn!(session = %meta.id, %family, ?names, "a credential of another family: the agent keeps this machine's route");
+            }
+            applied
+        });
         // Codex on a cmux Cloud machine: the image's own-or-team rule, as its launcher applies it
-        // (codex_cloud_auth.rs). A bound route owns the provider instead.
-        if crate::codex_app_server::is_profile_launch(&p.argv)
+        // (codex_cloud_auth.rs). A bound route or the owner's credential owns the provider instead.
+        if !direct
+            && crate::codex_app_server::is_profile_launch(&p.argv)
             && !p.env.contains_key(crate::routes::NAME_KEY)
         {
             let env = p.env.clone();
@@ -351,11 +412,16 @@ impl Hub {
         // The family as the launch derives it (`agent/command.rs`): a discovered Claude profile has
         // none set. The sign-in check reads the env the child gets: the profile's `${env:…}` and
         // keychain references resolved as the launch resolves them (`resolved_profile_env`; one
-        // that does not resolve keeps own), over the vault's and `machine.env`'s values
-        // (`login_env::effective_for`), and its project settings.
+        // that does not resolve keeps own), over the vault's and `machine.env`'s values, and its
+        // project settings (`claude_cloud_auth::launch_env`). A remote-origin launch (the app's
+        // Cloud chat, over its peer link) gets none of those, only the host base and its profile
+        // (`agent/command.rs`), so only those count as its sign-in (#43821).
         // Only an owner Cloud machine's Claude, so no other launch resolves its references twice.
         // A launcher that picks Claude's provider itself (`claude-sr`, `claude-cr`) owns it too.
-        let claude_on_cloud = crate::config::derive_family(&meta.harness, &p) == "claude"
+        // The owner's credential owns the provider, as for Codex above: a kept team choice on the
+        // machine must not clear the token the launch just set.
+        let claude_on_cloud = !direct
+            && crate::config::derive_family(&meta.harness, &p) == "claude"
             && !p.env.contains_key(crate::routes::NAME_KEY)
             && crate::claude_cloud_auth::launches_claude_itself(&p.argv)
             && crate::codex_cloud_auth::owner_cloud_image_at(&self.vm_marker_root());
@@ -368,7 +434,7 @@ impl Hub {
             None => None,
         };
         if let Some(resolved) = resolved {
-            let env = crate::login_env::effective_for(Some("claude"), &resolved);
+            let env = crate::claude_cloud_auth::launch_env_now(resolved, meta.remote_origin);
             let read = env.clone();
             let var = move |k: &str| read.get(k).cloned().filter(|v| !v.is_empty());
             let home = var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
@@ -595,22 +661,7 @@ impl std::ops::Deref for Spawn {
     }
 }
 
-/// `${cwd}`, `${home}`, `${model}` and a leading `~/` in a profile env value or argv word.
-pub fn expand_env_value(
-    value: &str,
-    cwd: &std::path::Path,
-    home: &std::path::Path,
-    model: &str,
-) -> String {
-    let mut out = value
-        .replace("${cwd}", &cwd.to_string_lossy())
-        .replace("${home}", &home.to_string_lossy())
-        .replace("${model}", model);
-    if let Some(rest) = out.strip_prefix("~/") {
-        out = format!("{}/{rest}", home.to_string_lossy());
-    }
-    out
-}
+pub use crate::config::expand_env_value;
 
 #[cfg(test)]
 #[path = "spawn_claude_cloud_tests.rs"]

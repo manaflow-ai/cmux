@@ -4,7 +4,9 @@
     hot-verify.py plan --source dir:PATH|pr:N|sha:SHA [--repo CMUX_CLONE] [--app APP | --base COMMIT] [--json]
     hot-verify.py look --source dir:PATH|pr:N|sha:SHA --app APP --out DIR [--repo CMUX_CLONE] [--side NAME]
                        [--kit DIR] [--state STEPS.json] [--no-video] [--watch]
-    hot-verify.py stop --side NAME
+    hot-verify.py run --source dir:PATH|pr:N|sha:SHA --app APP --side NAME [--repo CMUX_CLONE] [--label TEXT]
+    hot-verify.py extract --side NAME [--out FILE.patch]
+    hot-verify.py stop --side NAME [--remove]
 
 Leo, 2026-11-15: "Just screenshot it, take a video, touch it, interact with it, click around with it, and then
 push it through the various testing instead of the other way around." And: "I mean, the point is sometimes like
@@ -36,16 +38,22 @@ default hot-verify, under $CMUX_SIDE_ROOT), and writes into --out:
   steps/NAME.png                      the click-through after the change: --state (cmuxterm-hq
                                       build-fleet/pr_capture/nightly_steps.py's steps file), else a default
                                       walk (Home, a New Tab, Settings)
-  video.mp4                           the copy's window from the change going in to the last step
-                                      (media/record-window.swift), unless --no-video
+  video.mp4                           the copy's window from the change going in to the last step, unless
+                                      --no-video: with --kit, CuaDriver's recording of the display (its
+                                      Screen Recording grant) cut to the window (ffmpeg, else AVFoundation);
+                                      else media/record-window.swift
   steps.json, receipt.json
 
 The web layer comes from the bundles CI published for the head (a pull request's own layer,
-files.cmux.com/cmux-next-web/pr/N, else the head's web source key) installed as the copy's web overlay, else
+files.cmux.com/cmux-next-web/pr/N for a pr:N source or `look --pr N`, whose latest.json must name the head, else
+the head's web source key) installed as the copy's web overlay, else
 from the head's webviews served live by a dev server (web-overlay.sh server --local), so later edits of a
 dir: source hot-reload. The rust layer is hot-apply.py apply --branch --parts rust on the copy: the cmux CI
 published for the head's cmux-tui tree, else (a dir: source with cmux-tui and cargo here) a local cargo
-build. Light and dark are the copy's own terminal theme (settings.set appearance.theme), never the Mac's
+build. When the head's daemon would differ from the app's Rust in commits that are not the change's (it branched
+before the app's commit, or the app lags its fork with FFI changes between), the plan applies the change's own
+commits onto the app's commit (git merge-tree, daemon_from) and the look swaps in that commit's daemon: its
+published build, else --rust-binary; a change that does not apply cleanly still needs a build. Light and dark are the copy's own terminal theme (settings.set appearance.theme), never the Mac's
 appearance. With --kit (cmuxterm-hq build-fleet/pr_capture) its window shot and its steps runner are used;
 without it the engine shoots with screencapture and runs the steps a release socket serves (action, rpc,
 cmux, wait, shot, waitFor), naming the others as needing the kit.
@@ -59,6 +67,13 @@ commit's time until that shot)}. The marker is the line cmuxterm-hq's hot-verify
 Exit 0 looked (or nothing in the app changes), 1 the look failed, 2 usage, 3 the change needs a build (no look).
 The copy is stopped at the end; --watch leaves it and its dev server running (edits to a dir: source then show
 live) until `hot-verify.py stop --side NAME`, which stops the copy and everything the look started.
+
+`run` is `cmux app try .`: the same plan and the same side copy, made fresh from APP (the golden copy) on every
+run, with the change's web and Rust put in and left running, and no screenshots, video or steps. Its last stdout
+line is JSON {side, from, copy, socket, pid, plan, applied, errors, edit_to_live_s, phases}; exit 0 running,
+1 failed (the copy stopped), 3 needs a build (no copy made). `extract --side NAME` keeps the code a run swapped in:
+the branch cmux-try/NAME at the commit it ran and a patch of the change (JSON {branch, patch, files, ...}).
+`stop --remove` also deletes the copy.
 """
 from __future__ import annotations
 
@@ -265,8 +280,12 @@ def resolve_source(repo: Path, spec: str) -> dict:
 
 def needs_rules_root(repo: Path) -> bool:
     """The rules read scripts/ci from this engine's checkout and Cargo manifests from the clone's working tree:
-    an exported engine (no scripts/ci) or a clone with no working tree has neither."""
-    return not ((ROOT / ROUTE).is_file() and (repo / "cmux-tui/Cargo.toml").is_file())
+    an exported engine (no scripts/ci) or a clone with no working tree has neither. A sparse checkout with the Cargo
+    manifests but no Xcode project counts as neither too: the bundled helpers' inputs come from the project's build
+    phases, and without it every cmux-tui path reads as a helper's (cmux_next_route.py _scheme_phase_rust_inputs), so
+    every daemon change planned as a build (2026-11-18: 28-36% of sampled PR heads, 2-5% with the project)."""
+    return not ((ROOT / ROUTE).is_file() and (repo / "cmux-tui/Cargo.toml").is_file()
+                and (repo / "cmux.xcodeproj/project.pbxproj").is_file())
 
 
 def rules_root(repo: Path) -> Path:
@@ -345,6 +364,12 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
         base = h.app_commit(the_app, repo)
     else:
         base = git(repo, "merge-base", head, base_tip(repo))
+        parent = git(repo, "rev-parse", "--verify", "-q", f"{head}^1", check=False) if base == head else ""
+        if parent and on_first_parent_line(repo, head, parent):
+            # A merged PR's commit, planned with no app (the workflow's merged half): its merge base is itself, so
+            # head..head was empty and every landed PR planned as "nothing in the app changes" (cmux#44971's
+            # Rust, 2026-11-17). Its change is its own first-parent diff.
+            base = parent
     fork = git(repo, "merge-base", base, head, check=False)
     if not SHA.fullmatch(fork):
         raise Usage(f"{head[:12]} shares no history with {base[:12]}")
@@ -353,6 +378,12 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
     # not its own. The change is what it adds to feat-cmux-next (own fork..head); the commits between the app and
     # that fork are noted, and the web ABI check still compares the head with the app.
     own = git(repo, "merge-base", head, base_tip(repo), check=False)
+    if own == head and head != base and on_first_parent_line(repo, head, base):
+        # HEAD is itself on feat-cmux-next (a PR's merge commit, looked at after it landed): its change is its own
+        # first-parent diff, and everything between the app and that parent is lag, as for a PR branched later.
+        # Without this, own == head made `behind` false and every commit merged since the nightly counted as the
+        # change. A root commit keeps own == head.
+        own = git(repo, "rev-parse", "--verify", "-q", f"{head}^1", check=False) or head
     # fork == base: the app's commit is an ancestor of the head; own != base: the change forked later.
     behind = (fork == base and SHA.fullmatch(own or "") is not None and own not in (base, head)
               and subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", base, own],
@@ -384,16 +415,45 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
         else:
             out["layers"].append("web")
     if "rust" in planned.get("parts", []):
+        baseline = None
+        skew: tuple[str, list[str]] | None = None
         if not behind and fork != base and h.tree_key(rules, fork) != h.tree_key(rules, base):
-            out["build"]["Rust the app has and the change lacks"] = [
+            skew = ("Rust the app has and the change lacks", [
                 f"the app's commit {base[:12]} has cmux-tui changes the change (branched at {fork[:12]}) lacks: "
-                "rebase it onto the app's commit, or build it"]
-        elif behind and (pinned := lag_pins_daemon(h, repo, base, fork)):
-            # The head's daemon carries the lagging commits' FFI changes, which the app does not link.
-            out["build"]["Rust the app links (FFI), in the commits the app lacks"] = pinned
+                "rebase it onto the app's commit, or build it"])
+        elif behind and (pinned := lag_pins_daemon(h, repo, base, fork)) and not (
+                not h.swift_read_rust(repo, [p for p in pinned if p != FFI_PIN_FILE])
+                and (baseline := lag_ffi_baseline(h, rules, the_app, head, base, out))):
+            # The head's daemon carries the lagging commits' FFI changes, which the app does not link. The fork's
+            # release brings the library up; Rust the Swift build reads itself still needs a new app.
+            skew = ("Rust the app links (FFI), in the commits the app lacks", pinned)
+        elif not behind and pins_differ(h, repo, base, head) and not (
+                baseline := lag_ffi_baseline(h, rules, the_app, head, base, out)):
+            # A change branched before the app's commit on another app FFI release: hot-apply holds its daemon back
+            # (cmux#44876's look, 2026-11-18: the NIGHTLY was a repin ahead, and that release does not go back).
+            skew = ("Rust the app links (FFI): the app's release is not the change's", [FFI_PIN_FILE])
+        onto, why = onto_app(repo, base, fork, head) if skew else (None, "")
+        if onto:
+            # cmuxterm-hq#13435: every one of a week's 132 needs-build looks was this skew, none the PR's own
+            # paths. The daemon of the change's own commits on the app's commit has the app's Rust and FFI and
+            # only the change's diff over them: what a person trying the PR on that nightly would run. It needs no
+            # FFI release of its own: it links the one the app's commit pins.
+            out["layers"].append("rust")
+            out["daemon_from"] = onto
+            out["tree_key"] = h.tree_key(rules, onto)
+            out["notes"].append(f"the daemon is the change's own commits ({fork[:12]}..{head[:12]}) applied onto "
+                                f"the app's commit {base[:12]} ({onto[:12]}), not the head's tree: {skew[0]}")
+            if not h.published(out["tree_key"]):
+                out["notes"].append("no CI build of that daemon is published: a look needs it built "
+                                    "(look --rust-binary)")
+        elif skew:
+            out["build"][skew[0]] = skew[1]
+            out["notes"].append(why)
         else:
             out["layers"].append("rust")
             out["tree_key"] = planned.get("tree_key")
+            if baseline:
+                out["ffi_baseline"] = baseline
             if not planned.get("published"):
                 out["notes"].append("the head's cmux-tui tree is not published yet (CI publishes it after the "
                                     "push); a look waits for it or builds it locally")
@@ -407,13 +467,96 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
     return out
 
 
+FFI_PIN_FILE = "Packages/macOS/CmuxNext/app-ffi-pin.json"
+
+
+def on_first_parent_line(repo: Path, head: str, base: str) -> bool:
+    """HEAD is one of feat-cmux-next's own first-parent commits after BASE (a landed PR's merge commit), not a commit
+    of a branch a merge brought in as its second parent: for that one head^1..head is only its last commit, and the
+    branch's earlier commits (its Swift too) would pass as lag."""
+    line = git(repo, "rev-list", "--first-parent", f"^{base}", base_tip(repo), check=False)
+    return head in line.split()
+
+
+def onto_app(repo: Path, base: str, fork: str, head: str) -> tuple[str | None, str]:
+    """The change's own commits (FORK..HEAD) applied onto the app's commit BASE, as a commit of the merged tree
+    whose parent is BASE, and an empty reason; or None and why not (a conflict, a git too old for merge-tree).
+    The commit's names and dates are fixed and its date is HEAD's, so one change on one app is always the same
+    commit (and tree key). It is written to REPO's objects and never to a ref."""
+    try:
+        done = subprocess.run(["git", "-C", str(repo), "merge-tree", "--write-tree", "--no-messages",
+                               f"--merge-base={fork}", base, head], capture_output=True, text=True,
+                              timeout=GIT_SECONDS)
+    except subprocess.TimeoutExpired:
+        return None, f"git merge-tree ran past {GIT_SECONDS}s applying the change onto the app's commit"
+    tree = (done.stdout.split() or [""])[0]
+    if done.returncode == 1:
+        return None, (f"the change's own commits ({fork[:12]}..{head[:12]}) do not apply cleanly onto the app's "
+                      f"commit {base[:12]}: no daemon of the change on the app's Rust")
+    if done.returncode != 0 or not SHA.fullmatch(tree):
+        return None, f"git merge-tree could not apply the change onto the app's commit: {done.stderr.strip()[-200:]}"
+    stamp = git(repo, "show", "-s", "--format=%ct", head)
+    who = {"GIT_AUTHOR_NAME": "hot-verify", "GIT_AUTHOR_EMAIL": "hot-verify@cmux.invalid",
+           "GIT_COMMITTER_NAME": "hot-verify", "GIT_COMMITTER_EMAIL": "hot-verify@cmux.invalid",
+           "GIT_AUTHOR_DATE": f"@{stamp} +0000", "GIT_COMMITTER_DATE": f"@{stamp} +0000"}
+    message = f"hot-verify: {fork} .. {head} onto {base}"
+    return git(repo, "commit-tree", "--no-gpg-sign", tree, "-p", base, "-m", message, env=who), ""
+
+
 def lag_pins_daemon(h, repo: Path, base: str, fork: str) -> list[str]:
     """The Rust the app links through FFI that changed between the app's commit and the change's fork
     (hot-apply's pins_daemon over that range): a daemon built at the head speaks those changes and the app does
-    not."""
+    not.
+
+    None when both commits pin the same app FFI release (app-ffi-pin.json, the same blob): an app links the
+    release its commit pins, not the FFI sources at its commit, so an app built at the fork would link the very
+    library this app has, beside a daemon built from the fork's sources. A look then shows what a NIGHTLY at the
+    fork plus the change would; 3 of the first 38 automatic looks (2026-11-16) were refused on FFI sources that
+    the pin had not taken yet. With no pin file at either end, the sources decide, as before.
+
+    Two different pins name the pin file too, as pins_daemon does: hot-apply holds the head's daemon back from an
+    app on another release (#44525), so a look that planned it anyway ended `hot-apply.py apply --parts rust exited
+    3` (7 of 8 failed Rust looks, 2026-11-17). lag_ffi_baseline then puts the fork's release into the copy."""
+    pins = [pin_source(h, repo, c) for c in (base, fork)]
+    if all(pins) and pins[0] == pins[1]:
+        return []
     files = h.live_apply.classify_range(str(repo), base, fork)["files"]
-    rust = files.get("daemon", []) + [p for p in files.get("rebuild", []) if h.NATIVE_IN_TUI.match(p)]
-    return h.linked_rust(repo, sorted(set(rust)))
+    # As pins_daemon: since #43797 classify puts cmux-tui's own C, Objective-C and Zig in "daemon" too.
+    moved = [FFI_PIN_FILE] if any(pins) and pins[0] != pins[1] else []
+    return moved + h.linked_rust(repo, sorted(set(files.get("daemon", []))))
+
+
+def pin_source(h, repo: Path, sha: str) -> str | None:
+    """The source commit of the app FFI release SHA pins (hot-apply's pinned_ffi_source); None with no pin or an
+    unreadable one. The release, not the file: a repin that only rewrites checksums names the same library."""
+    try:
+        return h.pinned_ffi_source(repo, sha)
+    except (RuntimeError, ValueError, KeyError):
+        return None
+
+
+def pins_differ(h, repo: Path, base: str, head: str) -> bool:
+    """The app's commit BASE and HEAD pin different app FFI releases (their source commits, as hot-apply reads)."""
+    pins = [pin_source(h, repo, c) for c in (base, head)]
+    return all(pins) and pins[0] != pins[1]
+
+
+def lag_ffi_baseline(h, rules: Path, the_app: Path | None, head: str, base: str, out: dict) -> dict | None:
+    """The app FFI release the copy takes before its first launch so the head's daemon fits it, when the app lags a
+    repin on feat-cmux-next that the change forked after: hot-apply's ffi part (the release the head pins, which is
+    feat-cmux-next's, published by app-ffi-release.yml), checked as hot-apply checks it (additive to the app's).
+    None, with a note, when the app cannot take it: the change then needs a newer NIGHTLY or a build."""
+    if not h.pin_on_base(rules, head):
+        return None
+    try:
+        moved = h.ffi_part.pin_plan(rules, the_app, head, base)
+    except (h.ffi_part.Left, RuntimeError) as why:
+        out["notes"].append(f"ffi: the app cannot take the change's app FFI release: {why}")
+        return None
+    if moved:
+        out["notes"].append(f"the app's FFI release ({moved['app_pin_source'][:12]}) is older than the one the "
+                            f"change forked on ({moved['source'][:12]}): the copy takes that release before it opens")
+    return moved
 
 
 def plan_text(planned: dict) -> str:
@@ -423,6 +566,8 @@ def plan_text(planned: dict) -> str:
         lines.append(f"build: {why}: {', '.join(paths[:5])}{' ...' if len(paths) > 5 else ''}")
     lines += [f"note: {note}" for note in planned["notes"]]
     lines += [f"head: {planned['head']}", f"base: {planned['base']}"]
+    if planned.get("daemon_from"):
+        lines.append(f"daemon_from: {planned['daemon_from']}")
     return "\n".join(lines) + "\n"
 
 
@@ -510,7 +655,9 @@ class Side:
                 subprocess.run([str(HERE / "web-overlay.sh"), "server", "off"], env=env, capture_output=True,
                                timeout=60)
         recorder = state.get("recorder_pid")
-        if isinstance(recorder, int) and process_runs(recorder, "record-window"):
+        # Only the recorder this look started, by its pid and name: record-window, or the kit's own
+        # `cua-driver mcp` session (never CuaDriver's daemon, whose pid is never recorded).
+        if isinstance(recorder, int) and process_runs(recorder, state.get("recorder_name") or "record-window"):
             with contextlib.suppress(OSError):
                 os.kill(recorder, 15)
         try:
@@ -521,7 +668,7 @@ class Side:
         if tree and repo:
             git(Path(repo), "worktree", "remove", "--force", tree, check=False)
         with contextlib.suppress(LookError):
-            self.remember(dev_server=False, recorder_pid=None, worktree=None)
+            self.remember(dev_server=False, recorder_pid=None, recorder_name=None, worktree=None)
         return errors
 
 
@@ -630,31 +777,53 @@ class Shooter:
         return "screencapture"
 
 
-class Video:
-    """The copy's window recorded by media/record-window.swift (ScreenCaptureKit, the window alone), then
-    remuxed to video.mp4."""
+# The clip name the look's own recording takes in the kit's Recorder: an underscore, which a steps file's clip name
+# (SHOT_NAME) never has, so it never meets a clip the steps record.
+LOOK_CLIP = "hot_verify_look"
+# The most a look's video.mp4 may be: a fleet look's out.tar keeps a file of at most 32 MiB (cmuxterm-hq pr-capture
+# RESULT_MAX_BYTES), so a bigger video is shrunk (fit_video) rather than dropped on the way back.
+LOOK_VIDEO_MAX_BYTES = 30 << 20
+# The most the kit's Recorder may hand over before the cut and the fit: the display for a look's whole length.
+RAW_VIDEO_MAX_BYTES = 2 << 30
 
-    def __init__(self, out: Path):
+
+class Video:
+    """The copy on video from the change going in to the last step, as video.mp4.
+
+    With the kit (a fleet display worker) CuaDriver records it: the kit's Recorder (nightly_steps.Recorder, one
+    `cua-driver mcp` session's start_recording) records the main display under CuaDriver's own Screen Recording
+    grant, cut to the copy's window (ffmpeg, else media/crop-video.swift). media/record-window.swift cannot record
+    there: it is a new ad-hoc binary per source digest, started under the root worker daemon (launchctl asuser), and TCC
+    asks for the grant of a process that has none and cannot be given one (a PPPC payload never allows
+    ScreenCapture). Every look on a fleet worker on 2026-11-15/16 said "no Screen Recording grant" while CuaDriver
+    held the grant on the same minis. Without a kit (a person's Mac, whose terminal holds the grant),
+    media/record-window.swift records the window alone (ScreenCaptureKit), remuxed to video.mp4."""
+
+    def __init__(self, out: Path, kit=None):
         self.out = out
         self.mov = out / ".video.mov"
         self.process = None
+        self.kit = kit if kit is not None and hasattr(kit, "Recorder") else None
+        self.recorder = self.kit.Recorder() if self.kit is not None else None
+        self.pid = None
+        self.facts = {"by": "cua-driver" if self.recorder is not None else "record-window"}
+
+    @property
+    def name(self) -> str:
+        """The recorder's process name (side state's recorder_name: a stop kills that pid only by this name)."""
+        return self.facts["by"]
 
     def binary(self) -> Path:
-        source = HERE / "media/record-window.swift"
-        digest = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
-        binary = cache_dir() / f"record-window-{digest}"
-        if not binary.is_file():
-            binary.parent.mkdir(parents=True, exist_ok=True)
-            part = binary.with_name(f".{binary.name}.{os.getpid()}")
-            done = subprocess.run(["xcrun", "swiftc", "-O", "-parse-as-library", str(source), "-o", str(part)],
-                                  capture_output=True, text=True, timeout=300)
-            if done.returncode != 0:
-                part.unlink(missing_ok=True)
-                raise LookError(f"record-window did not compile: {done.stderr.strip()[-300:]}")
-            os.replace(part, binary)
-        return binary
+        return swift_tool(HERE / "media/record-window.swift", "-parse-as-library")
 
     def start(self, pid: int) -> int:
+        self.pid = pid
+        if self.recorder is not None:
+            try:
+                self.recorder.start(self.out, LOOK_CLIP)
+            except (OSError, ValueError, RuntimeError) as error:
+                raise LookError(f"CuaDriver's recording did not start: {str(error)[:300]}") from error
+            return self.recorder.process.pid
         self.mov.unlink(missing_ok=True)
         self.process = subprocess.Popen([str(self.binary()), str(pid), str(self.mov)], stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -665,6 +834,16 @@ class Video:
                 return self.process.pid
         said = self.stop_process()
         raise LookError(f"the window recording did not start: {said}")
+
+    @property
+    def running(self) -> bool:
+        return self.process is not None or (self.recorder is not None and self.recorder.running)
+
+    def abandon(self) -> None:
+        """End a recording a failed look left running, keeping nothing."""
+        if self.recorder is not None and self.recorder.running:
+            self.recorder.close()
+        self.stop_process()
 
     def stop_process(self) -> str:
         process, self.process = self.process, None
@@ -678,6 +857,8 @@ class Video:
         return (err or "").strip()[-300:]
 
     def stop(self) -> Path:
+        if self.recorder is not None:
+            return self.stop_cua()
         said = self.stop_process()
         if not self.mov.is_file() or self.mov.stat().st_size == 0:
             raise LookError(f"the window recording wrote nothing: {said}")
@@ -694,8 +875,205 @@ class Video:
             done = subprocess.run(argv, capture_output=True, text=True, timeout=300)
             if done.returncode == 0 and mp4.is_file() and mp4.stat().st_size > 0:
                 self.mov.unlink(missing_ok=True)
+                self.facts["window"] = True
                 return mp4
         raise LookError("no ffmpeg or avconvert here turned the recording into video.mp4")
+
+    def stop_cua(self) -> Path:
+        frame = window_frame(self.pid) if self.pid is not None else None
+        # The kit's clip cap (MAX_CLIP_BYTES) is sized for a steps clip, and its stop deletes a clip over it. A look
+        # records the whole display from the change going in, often for minutes: its cap is lifted for this stop,
+        # and the window cut, then LOOK_VIDEO_MAX_BYTES, bound what comes back.
+        kit = self.kit
+        capped = getattr(kit, "MAX_CLIP_BYTES", None)
+        try:
+            if capped is not None:
+                kit.MAX_CLIP_BYTES = RAW_VIDEO_MAX_BYTES
+            made = self.recorder.stop(self.out)
+        except (OSError, RuntimeError) as error:
+            raise LookError(f"CuaDriver's recording: {str(error)[:300]}") from error
+        finally:
+            if capped is not None:
+                kit.MAX_CLIP_BYTES = capped
+        clip = self.out / made["clip"]
+        mp4 = self.out / "video.mp4"
+        try:
+            os.replace(clip, mp4)
+            with contextlib.suppress(OSError):
+                clip.parent.rmdir()  # clips/ only when the steps recorded none of their own
+            why = cut_to_window(mp4, frame, main_display_points())
+            self.facts["window"] = why is None
+            if why is not None:
+                self.facts["display"] = why
+            fit_video(mp4)
+        except OSError as error:
+            raise LookError(f"the recording did not become video.mp4: {error}") from error
+        return mp4
+
+
+def window_frame(pid: int) -> dict | None:
+    """PID's largest on-screen layer-0 window's bounds in points ({X, Y, Width, Height}), or None."""
+    script = ('ObjC.import("CoreGraphics");'
+              'var list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo('
+              '$.kCGWindowListOptionOnScreenOnly | $.kCGWindowListExcludeDesktopElements, 0))) || [];'
+              f'var mine = list.filter(function (w) {{ return w.kCGWindowOwnerPID === {int(pid)}'
+              ' && w.kCGWindowLayer === 0 && w.kCGWindowBounds.Width >= 100 && w.kCGWindowBounds.Height >= 60; });'
+              'mine.sort(function (a, b) { return b.kCGWindowBounds.Width * b.kCGWindowBounds.Height'
+              ' - a.kCGWindowBounds.Width * a.kCGWindowBounds.Height; });'
+              'mine.length ? JSON.stringify(mine[0].kCGWindowBounds) : ""')
+    try:
+        done = subprocess.run(["osascript", "-l", "JavaScript", "-e", script], capture_output=True, text=True,
+                              timeout=15)
+        frame = json.loads(done.stdout.strip() or "null")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    keys = ("X", "Y", "Width", "Height")
+    if not isinstance(frame, dict) or not all(isinstance(frame.get(k), (int, float)) for k in keys):
+        return None
+    return {k: float(frame[k]) for k in keys}
+
+
+def main_display_points() -> tuple[float, float] | None:
+    """The main display's size in points (CGDisplayBounds, no grant), or None off macOS."""
+    import ctypes
+    import ctypes.util
+
+    class Rect(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double), ("w", ctypes.c_double), ("h", ctypes.c_double)]
+
+    found = ctypes.util.find_library("CoreGraphics")
+    if not found:
+        return None
+    try:
+        cg = ctypes.CDLL(found)
+        cg.CGMainDisplayID.restype = ctypes.c_uint32
+        cg.CGDisplayBounds.argtypes = [ctypes.c_uint32]
+        cg.CGDisplayBounds.restype = Rect
+        rect = cg.CGDisplayBounds(cg.CGMainDisplayID())
+    except (OSError, AttributeError):
+        return None
+    return (rect.w, rect.h) if rect.w > 0 and rect.h > 0 else None
+
+
+def swift_tool(source: Path, *flags: str) -> Path:
+    """SOURCE (a Swift file beside the engine) compiled once per source digest into the cache (a LookError when it
+    does not compile). Callers name SOURCE as a literal join to HERE, quoted path and all: a fleet worker gets only the
+    files the engine's text joins to its folder (cmuxterm-hq ci-client.py hot_verify_refs), and a path built from a
+    name is not one (2026-11-16: crop-video.swift was left out, and the look's video stayed the whole display)."""
+    name = source.stem
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
+    binary = cache_dir() / f"{name}-{digest}"
+    if not binary.is_file():
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        part = binary.with_name(f".{binary.name}.{os.getpid()}")
+        done = subprocess.run(["xcrun", "swiftc", "-O", *flags, str(source), "-o", str(part)],
+                              capture_output=True, text=True, timeout=300)
+        if done.returncode != 0:
+            part.unlink(missing_ok=True)
+            raise LookError(f"{name} did not compile: {done.stderr.strip()[-300:]}")
+        os.replace(part, binary)
+    return binary
+
+
+def window_box(frame: dict | None, display: tuple[float, float] | None) -> tuple[float, float, float, float] | None:
+    """FRAME (points) on a main-display video of DISPLAY points as fractions of the video (x, y, width, height from
+    the top left), so no probe of its pixels is needed; None when the window is not wholly on the main display."""
+    if frame is None or display is None:
+        return None
+    dw, dh = display
+    x, y, w, h = frame["X"], frame["Y"], frame["Width"], frame["Height"]
+    if x < 0 or y < 0 or w <= 0 or h <= 0 or x + w > dw + 0.5 or y + h > dh + 0.5:
+        return None
+    fx, fy = round(x / dw, 6), round(y / dh, 6)
+    # A window flush with the right or bottom edge stays inside the video after rounding.
+    return fx, fy, round(min(w / dw, 1.0 - fx), 6), round(min(h / dh, 1.0 - fy), 6)
+
+
+def window_crop(frame: dict | None, display: tuple[float, float] | None) -> str | None:
+    """ffmpeg's crop filter for window_box, in the video's own pixels (iw, ih), even sizes for H.264."""
+    box = window_box(frame, display)
+    if box is None:
+        return None
+    fx, fy, fw, fh = box
+    return (f"crop=trunc(iw*{fw}/2)*2:trunc(ih*{fh}/2)*2:trunc(iw*{fx}/2)*2:trunc(ih*{fy}/2)*2")
+
+
+def crop_video(mp4: Path, box: tuple[float, float, float, float], scale: float, dest: Path) -> str | None:
+    """MP4's BOX (window_box's fractions) at SCALE into DEST through media/crop-video.swift (AVFoundation, on every
+    Mac: no display worker has ffmpeg). None when DEST was written; else why not."""
+    try:
+        tool = swift_tool(HERE / "media/crop-video.swift")
+        done = subprocess.run([str(tool), str(mp4), str(dest), *(f"{v:.6f}" for v in box), f"{scale:g}"],
+                              capture_output=True, text=True, timeout=660)
+    except LookError as error:
+        return str(error)
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"crop-video: {error}"
+    if done.returncode == 0 and dest.is_file() and dest.stat().st_size > 0:
+        return None
+    dest.unlink(missing_ok=True)
+    return (done.stderr or done.stdout).strip()[-300:] or f"crop-video exited {done.returncode}"
+
+
+def cut_to_window(mp4: Path, frame: dict | None, display: tuple[float, float] | None) -> str | None:
+    """MP4 (the main display) cut to the copy's window in place: ffmpeg when it is here, else AVFoundation
+    (crop_video). The rest of the display shows what else runs there (another step's system dialogs), which the
+    privacy check withholds the video for. None when cut; else why it stays the display."""
+    box = window_box(frame, display)
+    if box is None:
+        return "the copy's window was not wholly on the main display"
+    cut = mp4.with_name(".video-window.mp4")
+    ffmpeg = shutil.which("ffmpeg")
+    for codec in (["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"], ["-c:v", "h264_videotoolbox", "-b:v", "6M"]) \
+            if ffmpeg else ():
+        try:
+            done = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(mp4), "-vf", window_crop(frame, display),
+                                   *codec, "-an", "-movflags", "+faststart", str(cut)], capture_output=True, text=True,
+                                  timeout=300)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if done.returncode == 0 and cut.is_file() and cut.stat().st_size > 0:
+            os.replace(cut, mp4)
+            return None
+    why = crop_video(mp4, box, 1.0, cut)
+    if why is None:
+        os.replace(cut, mp4)
+        return None
+    cut.unlink(missing_ok=True)
+    return f"{'ffmpeg and ' if ffmpeg else ''}AVFoundation could not cut the window out: {why}"
+
+
+def fit_video(mp4: Path, most: int = LOOK_VIDEO_MAX_BYTES) -> None:
+    """MP4 shrunk in place until it is at most MOST bytes (half the size, then a quarter, each at a lower quality);
+    a video that still does not fit (ffmpeg, else media/crop-video.swift) is removed with a LookError naming its
+    size."""
+    size = mp4.stat().st_size
+    if size <= most:
+        return
+    ffmpeg = shutil.which("ffmpeg")
+    small = mp4.with_name(".video-small.mp4")
+    for scale, crf in ((2, 28), (4, 32)):
+        if ffmpeg:
+            try:
+                done = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(mp4), "-vf",
+                                       f"scale=trunc(iw/{scale * 2})*2:trunc(ih/{scale * 2})*2", "-c:v", "libx264",
+                                       "-preset", "veryfast", "-crf", str(crf), "-an", "-movflags", "+faststart",
+                                       str(small)], capture_output=True, text=True, timeout=600)
+                made = done.returncode == 0
+            except (OSError, subprocess.SubprocessError):
+                made = False
+        else:
+            why = crop_video(mp4, (0.0, 0.0, 1.0, 1.0), 1 / scale, small)
+            if why is not None and "did not compile" in why:
+                break  # the next pass would only wait on the same compile again
+            made = why is None
+        if made and small.is_file() and 0 < small.stat().st_size <= most:
+            os.replace(small, mp4)
+            return
+    small.unlink(missing_ok=True)
+    mp4.unlink(missing_ok=True)
+    raise LookError(f"the video was {size >> 20} MiB, over the {most >> 20} MiB a look brings back, and did not "
+                    f"shrink to fit ({'ffmpeg' if ffmpeg else 'AVFoundation'})")
 
 
 # ---------------------------------------------------------------- the steps
@@ -949,11 +1327,51 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
     return {"how": "dev server", "port": port}
 
 
-def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path) -> dict:
-    """The head's daemon into the copy (hot-apply.py apply --branch --parts rust): the published build of its
-    cmux-tui tree, else a local cargo build of a dir: source."""
+def apply_ffi_baseline(rules: Path, planned: dict, side: Side) -> dict:
+    """The app FFI release the change forked on, into the copy before it first opens (hot-apply.py apply --branch
+    --parts ffi on a copy that is not running: the library is swapped and the copy is not opened). The before shots
+    then show the app on that release, and the head's daemon fits it."""
+    argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", planned["head"], "--branch",
+            "--parts", "ffi", "--app", str(side.app()), "--repo", str(rules)]
+    env = {**os.environ, "CMUX_HOT_APPLY_STATE_DIR": str(side.dir() / "hot-apply")}
+    done = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=APPLY_SECONDS)
+    if done.returncode != 0:
+        raise LookError(f"hot-apply.py apply --parts ffi exited {done.returncode}: "
+                        f"{(done.stderr or done.stdout).strip()[-400:]}")
+    receipt = {}
+    with contextlib.suppress(ValueError, IndexError):
+        receipt = json.loads(done.stdout.strip().splitlines()[-1])
+    return {"release": planned["ffi_baseline"].get("release"), "phases": receipt.get("phases"),
+            "applied": receipt.get("applied")}
+
+
+def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
+               given: Path | None = None) -> dict:
+    """The change's daemon into the copy (hot-apply.py apply --branch --parts rust): the published build of the
+    head's cmux-tui tree, else a local cargo build of a dir: source. A plan with daemon_from (the change applied
+    onto the app's commit) takes that commit's published build, else GIVEN (look --rust-binary), never the
+    head's: the head's daemon is the skew the plan stepped around."""
+    onto = planned.get("daemon_from")
+    if onto:
+        argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", onto, "--branch",
+                "--parts", "rust", "--app", str(side.app()), "--repo", str(rules)]
+        if given is None and not hot().published(planned["tree_key"]):
+            raise LookError(f"the daemon of the change applied onto the app's commit ({onto[:12]}) is not "
+                            "published: build that commit's cmux-tui and pass it as --rust-binary")
+        if given is not None:
+            argv += ["--binary", str(given)]
+        how = ("given binary of the change applied onto the app's commit" if given is not None
+               else "published tree build of the change applied onto the app's commit")
+        return run_hot_apply_rust(argv, side, how)
     argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", planned["head"], "--branch",
             "--parts", "rust", "--app", str(side.app()), "--repo", str(rules)]
+    if given is not None:
+        # The look's own plan has no daemon_from, so a binary built for one (the worker's plan) is not this change's
+        # daemon: swapping it in would label another daemon as the head's.
+        raise LookError("--rust-binary is the daemon of a plan's daemon_from, and this plan has none: its daemon "
+                        "is the head's")
+    if planned.get("ffi_baseline"):
+        argv.append("--ffi-in")  # apply_ffi_baseline put the release in before the copy opened
     binary = None
     if src_tree is not None and (src_tree / "cmux-tui/Cargo.toml").is_file() and shutil.which("cargo"):
         published = hot().published(planned["tree_key"]) if planned.get("tree_key") else False
@@ -965,6 +1383,11 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
             binary = src_tree / "cmux-tui/target/release/cmux-tui"
     if binary is not None:
         argv += ["--binary", str(binary)]
+    how = "local cargo build" if binary is not None else "published tree build"
+    return run_hot_apply_rust(argv, side, how)
+
+
+def run_hot_apply_rust(argv: list[str], side: Side, how: str) -> dict:
     env = {**os.environ, "CMUX_HOT_APPLY_STATE_DIR": str(side.dir() / "hot-apply")}
     done = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=APPLY_SECONDS)
     if done.returncode != 0:
@@ -973,7 +1396,7 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
     receipt = {}
     with contextlib.suppress(ValueError, IndexError):
         receipt = json.loads(done.stdout.strip().splitlines()[-1])
-    return {"how": "local cargo build" if binary else "published tree build", "phases": receipt.get("phases")}
+    return {"how": how, "phases": receipt.get("phases")}
 
 
 # ---------------------------------------------------------------- look
@@ -1017,6 +1440,11 @@ def command_look(args) -> int:
     try:
         with phases("plan"):
             planned = plan(repo, args.source, str(the_app), None)
+        if getattr(args, "pr", None) and not planned.get("pr"):
+            # A sha: source (the fleet step's) of pull request N: its web layer is the bundles CI published for it
+            # (pr/N/latest.json, used only while it names this head), not a dev server (61 of 82 web looks
+            # started one on 2026-11-17: the head's own source key is not the one the PR's layer publishes).
+            planned["pr"] = args.pr
         receipt["plan"] = planned
         if planned["needs_build"]:
             receipt["errors"].append("the change needs a build: " + "; ".join(planned["build"]))
@@ -1047,6 +1475,25 @@ def finish(out: Path, receipt: dict, phases, began: float, code: int) -> int:
     return code
 
 
+def side_make_args(the_app: Path) -> list[str]:
+    """side-instance.sh make's arguments for the look's copy. --neutral-shell: its terminals show `$ `, never the
+    worker's `cmux@cmux23 ~ %`, which the privacy check withheld every new-tab shot and video for (2026-11-16)."""
+    return ["make", "--from", str(the_app), "--label", SIDE_LABEL, "--neutral-shell"]
+
+
+def stop_video(video: Video, receipt: dict, side, phases) -> None:
+    """VIDEO ended into video.mp4 (its errors in the receipt's), and the receipt's video facts: which recorder, and
+    whether it is the copy's window alone or the whole display (and why)."""
+    with phases("video"):
+        try:
+            video.stop()
+        except LookError as error:
+            receipt["errors"].append(f"video: {error}")
+        receipt["video"] = video.facts
+        side.remember(recorder_pid=None, recorder_name=None)
+    return None
+
+
 def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int:
     kit = load_kit(args.kit)
     steps = load_steps(args.state, kit)
@@ -1062,8 +1509,10 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
             if side.exists():
                 side.stop()
                 side.run("remove", timeout=300)
-            side.run("make", "--from", str(the_app), "--label", SIDE_LABEL, timeout=600)
+            side.run(*side_make_args(the_app), timeout=600)
             set_browser_engine(Path(side.env()["CMUX_NEXT_CONFIG_FILE"]), engine)
+            if planned.get("ffi_baseline"):
+                receipt["ffi_baseline"] = apply_ffi_baseline(rules, planned, side)
             launched = side.run("launch", timeout=LAUNCH_SECONDS)
             found = re.search(r"pid (\d+)", launched)
             if not found:
@@ -1079,9 +1528,9 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
                 shoot(pid, out / "before" / f"{mode}.png")
         if not args.no_video:
             with phases("video"):
-                video = Video(out)
+                video = Video(out, kit)
                 try:
-                    side.remember(recorder_pid=video.start(pid))
+                    side.remember(recorder_pid=video.start(pid), recorder_name=video.name)
                 except LookError as error:
                     receipt["errors"].append(f"video: {error}")
                     video = None
@@ -1089,7 +1538,8 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
         applied = {}
         with phases("apply"):
             if "rust" in planned["layers"]:
-                applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch)
+                given = Path(args.rust_binary).resolve() if getattr(args, "rust_binary", None) else None
+                applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given)
             if "web" in planned["layers"]:
                 applied["web"] = apply_web(rules, planned, src_tree, side, scratch)
         receipt["applied"] = applied
@@ -1102,21 +1552,20 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
                     pushed = commit_time(repo, planned["head"])
                     if pushed is not None:
                         receipt["push_to_first_shot_s"] = round(time.time() - pushed, 3)
+        if video is not None and video.recorder is not None and any("recording" in s for s in steps):
+            # The steps record clips of their own through CuaDriver, which runs one recording at a time: the look's
+            # video ends here, with the change in and the after shots, and the clips show the steps.
+            video = stop_video(video, receipt, side, phases)
         with phases("steps"):
             receipt["steps"] = (run_kit_steps(kit, steps, pid, sock, side.app(), out) if kit is not None
                                 else run_steps(steps, pid, sock, side.app(), out, shoot))
         if video is not None:
-            with phases("video"):
-                try:
-                    video.stop()
-                except LookError as error:
-                    receipt["errors"].append(f"video: {error}")
-                side.remember(recorder_pid=None)
+            video = stop_video(video, receipt, side, phases)
     except (LookError, OSError, ValueError, subprocess.SubprocessError) as error:
         receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
     finally:
-        if video is not None and video.process is not None:
-            video.stop_process()
+        if video is not None and video.running:
+            video.abandon()
         if not args.watch:
             with phases("stop"):
                 receipt["errors"] += side.stop()
@@ -1135,10 +1584,114 @@ def resolve_tree(planned: dict, source: str) -> Path | None:
 
 
 def command_stop(args) -> int:
-    errors = Side(args.side).stop()
+    side = Side(args.side)
+    errors = side.stop()
+    if getattr(args, "remove", False) and side.exists():
+        try:
+            side.run("remove", timeout=300)
+        except (LookError, subprocess.SubprocessError) as error:
+            errors.append(str(error))
     for error in errors:
         log(error)
     return EXIT_FAILED if errors else EXIT_LOOKED
+
+
+# ---------------------------------------------------------------- run and extract: `cmux app try .`
+
+
+def emit(result: dict, phases, began: float, code: int) -> int:
+    """RESULT as the last stdout line (`cmux app try` reads it), and the exit code."""
+    result["phases"] = {**phases.rounded(), "total": round(time.monotonic() - began, 3)}
+    print(json.dumps(result), flush=True)
+    return code
+
+
+def command_run(args) -> int:
+    """`cmux app try .`: a fresh clone of APP (the golden copy; by default the installed NIGHTLY) beside everything
+    else, the source's web and Rust swapped in, left running. No screenshots, video or steps: the copy and its dev
+    server keep running (saves under webviews/ show live) until `stop --side NAME`. A change that needs a build
+    exits 3 with its plan and makes no copy."""
+    began = time.monotonic()
+    phases = hot().Phases()
+    repo = Path(args.repo).resolve()
+    side = Side(args.side)
+    the_app = real_app(args.app)
+    if the_app is None:
+        raise Usage("run needs --app APP: the app the copy is cloned from")
+    result = {"schema": 1, "side": side.name, "from": str(the_app), "app": app_info(the_app), "plan": None,
+              "copy": None, "socket": None, "pid": None, "applied": {}, "errors": [], "edit_to_live_s": None}
+    try:
+        with phases("plan"):
+            planned = plan(repo, args.source, str(the_app), None)
+        result["plan"] = planned
+        if planned["needs_build"]:
+            return emit(result, phases, began, EXIT_NEEDS_BUILD)
+        unsupported = [layer for layer in planned["layers"] if layer not in ("web", "rust")]
+        if unsupported:
+            raise LookError(f"this engine applies no {', '.join(unsupported)} layer yet")
+        if sys.platform != "darwin":
+            raise LookError("a run launches the app: it needs macOS")
+        rules = rules_for(repo)
+        src_tree = resolve_tree(planned, args.source)
+        with phases("side"):
+            # A fresh clone per try: the last one, its dev server too, goes first.
+            if side.exists():
+                side.stop()
+                side.run("remove", timeout=300)
+            side.run("make", "--from", str(the_app), "--label", args.label or f"cmux {side.name}", timeout=600)
+            side.remember(try_source=args.source, try_repo=str(repo), try_head=planned["head"],
+                          try_fork=planned["fork"], try_from=str(the_app))
+            launched = side.run("launch", timeout=LAUNCH_SECONDS)
+            found = re.search(r"pid (\d+)", launched)
+            if not found:
+                raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
+            pid = int(found.group(1))
+            named = side.socket()
+            sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
+        result.update(copy=str(side.app()), socket=sock, pid=pid)
+        scratch = Path(tempfile.mkdtemp(prefix="hot-verify-run-"))
+        try:
+            handed = time.monotonic()
+            with phases("apply"):
+                if "rust" in planned["layers"]:
+                    result["applied"]["rust"] = apply_rust(rules, planned, src_tree, side, scratch)
+                if "web" in planned["layers"]:
+                    result["applied"]["web"] = apply_web(rules, planned, src_tree, side, scratch)
+            result["edit_to_live_s"] = round(time.monotonic() - handed, 3)
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+        return emit(result, phases, began, EXIT_LOOKED)
+    except (LookError, OSError, ValueError, subprocess.SubprocessError) as error:
+        result["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
+        with phases("stop"):
+            result["errors"] += side.stop()
+        return emit(result, phases, began, EXIT_FAILED)
+
+
+def command_extract(args) -> int:
+    """The code a run swapped in, kept: the branch cmux-try/NAME at the commit it ran (the working tree as it was
+    then) and a patch of the change (from its fork with the app's commit to that commit) under the cache, so both
+    outlive the copy. The checkout's working tree is not touched."""
+    began = time.monotonic()
+    phases = hot().Phases()
+    side = Side(args.side)
+    if not side.exists():
+        raise Usage(f"no copy {side.name}: nothing was swapped in to extract")
+    state = side.state()
+    head, fork, repo = state.get("try_head"), state.get("try_fork"), state.get("try_repo")
+    if not (SHA.fullmatch(str(head)) and SHA.fullmatch(str(fork)) and repo):
+        raise Usage(f"copy {side.name} has no run recorded (hot-verify.py run records one)")
+    repo = Path(repo)
+    branch = f"cmux-try/{side.name}"
+    git(repo, "update-ref", f"refs/heads/{branch}", head)
+    out = Path(args.out) if args.out else cache_dir() / "extract" / f"{side.name}-{head[:12]}.patch"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    diff = git(repo, "diff", "--binary", fork, head)
+    out.write_text(diff + ("\n" if diff else ""))
+    files = [line for line in git(repo, "diff", "--name-only", fork, head).splitlines() if line]
+    result = {"schema": 1, "side": side.name, "branch": branch, "head": head, "fork": fork, "patch": str(out),
+              "files": files, "repo": str(repo)}
+    return emit(result, phases, began, EXIT_LOOKED)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1161,10 +1714,25 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--kit")
     p.add_argument("--state")
     p.add_argument("--no-video", action="store_true")
+    p.add_argument("--rust-binary", help="the cmux-tui built from the plan's daemon_from (the change applied onto "
+                   "the app's commit), when no CI build of it is published")
     p.add_argument("--watch", action="store_true")
+    p.add_argument("--pr", type=int, help="the pull request a sha: source is the head of: its published web layer")
     p.set_defaults(func=command_look)
+    p = sub.add_parser("run")
+    p.add_argument("--source", required=True)
+    p.add_argument("--app", required=True)
+    p.add_argument("--repo", default=str(ROOT))
+    p.add_argument("--side", required=True)
+    p.add_argument("--label")
+    p.set_defaults(func=command_run)
+    p = sub.add_parser("extract")
+    p.add_argument("--side", required=True)
+    p.add_argument("--out")
+    p.set_defaults(func=command_extract)
     p = sub.add_parser("stop")
     p.add_argument("--side", default=DEFAULT_SIDE)
+    p.add_argument("--remove", action="store_true")
     p.set_defaults(func=command_stop)
     args = parser.parse_args(argv)
     try:

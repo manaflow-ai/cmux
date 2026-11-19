@@ -40,16 +40,20 @@ import { findHeading } from "./links";
 import { githubReferences } from "../../githubReferences";
 import { LinkOverlays } from "./overlays";
 import {
+  DEFINITION_LINE,
   RAW_NODE,
   parseSourceMap,
   rawNode,
+  reparseTail,
   serializeWithSourceMap,
   sourceMapNodes,
   type MdastRoot,
   type RawKind,
   type RemarkLike,
+  type SourceBlock,
   type SourceMap,
 } from "./sourceMap";
+import { SLICE_META, changedBlocks, decorateAll, redecorate } from "./redecorate";
 import { quoteLines } from "./selectionQuote";
 import {
   commentDecorations,
@@ -142,6 +146,39 @@ export interface MarkdownEditorOptions {
 export const DIAGRAM_LANGUAGES = new Set(["mermaid", "vega-lite", "vegalite", "vega"]);
 
 const LOAD_META = "cmuxMarkdownLoad";
+
+/**
+ * A text longer than this opens in slices (`MarkdownEditor.loadInSlices`): this much first, which
+ * fills a screen and more, then SLICE_CHARS a task. bench/markdown-viewer-stress.bench.ts: a 1 MB
+ * file in one task took 9.6 s to show anything and 50 MB never did.
+ */
+const FIRST_SLICE_CHARS = 16 * 1024;
+/** The most blocks the first slice shows: more than a screen holds. */
+const FIRST_SLICE_BLOCKS = 48;
+const SLICE_CHARS = 64 * 1024;
+/** The fewest parsed blocks a slice load puts into the document at once (`loadInSlices`). */
+const MIN_SLICE_BLOCKS = 256;
+/** The most it puts in at once: a few hundred ms of DOM. */
+const MAX_SLICE_BLOCKS = 4_096;
+
+/** Where a slice of `text` that should end near `at` ends: after the line break at or past it. */
+function sliceEnd(text: string, at: number): number {
+  if (at >= text.length) return text.length;
+  const lineEnd = text.indexOf("\n", at);
+  // One line far longer than a slice (a 5 MB line) is cut inside it; reparseTail parses it again.
+  return lineEnd < 0 || lineEnd - at > SLICE_CHARS ? at : lineEnd + 1;
+}
+
+/** How many characters `a` and `b` share from the start. */
+function commonPrefixLength(a: string, b: string): number {
+  const length = Math.min(a.length, b.length);
+  // Compares in chunks: one slice equality runs natively, a character loop does not.
+  const CHUNK = 4096;
+  let at = 0;
+  while (at + CHUNK <= length && a.slice(at, at + CHUNK) === b.slice(at, at + CHUNK)) at += CHUNK;
+  while (at < length && a.charCodeAt(at) === b.charCodeAt(at)) at++;
+  return at;
+}
 
 /** The raw block: text the editor keeps verbatim (front matter, definitions, HTML blocks). */
 const rawSchema = $nodeSchema(RAW_NODE, () => ({
@@ -360,6 +397,7 @@ export class MarkdownEditor {
       .use(githubReferencePlugin(() => host.githubRepository))
       .use(obsidianSyntaxPlugin(host))
       .use(userEditPlugin(() => this.options.onUserEdit?.()))
+      .use(loadingGuardPlugin(() => this.slicing !== null))
       .use(codeHighlightPlugin(host))
       .use(commentMarkersPlugin());
     if (host.links)
@@ -524,16 +562,186 @@ export class MarkdownEditor {
     return false;
   }
 
-  /** Replaces the document with `text`, which becomes the save baseline. Not undoable. */
+  /**
+   * Replaces the document with `text`, which becomes the save baseline. Not undoable. A text that
+   * shares a start with the baseline (a file appended to on disk) parses again only from the first
+   * block the change reaches. A long text shows its first screen at once and the rest in slices,
+   * one per task (`loadInSlices`); edits are refused until the last slice.
+   */
   load(text: string): void {
-    const { view, schema, remark } = this.required();
+    const { schema, remark } = this.required();
+    this.cancelSlices();
     this.eol = /\r\n/.test(text.slice(0, text.indexOf("\n") + 1)) ? "\r\n" : "\n";
-    const map = parseSourceMap(
+    const build = (root: MdastRoot) => buildNodes(schema, root);
+    const raw = (kind: RawKind, value: string) => rawNode(schema, kind, value);
+    const previous = this.baseline;
+    if (previous.blocks.length && !DEFINITION_LINE.test(text) && !DEFINITION_LINE.test(previous.text)) {
+      // Only where the texts part matters; the blocks before it are the editor's own nodes.
+      const same = commonPrefixLength(previous.text, text);
+      if (same === text.length && same === previous.text.length) return this.show(previous);
+      if (text.length - same <= SLICE_CHARS) {
+        const { kept, tail } = reparseTail(previous.blocks, text, same, remark, build, raw);
+        return this.show({ text, blocks: [...previous.blocks.slice(0, kept), ...tail] });
+      }
+      // More than a slice changed: the rest comes in slices after the blocks that stay, when the
+      // document still holds the baseline's nodes (no edits since the last load or save).
+      if (this.holdsBaseline()) return this.loadInSlices(text, { blocks: previous.blocks, same });
+    }
+    if (text.length > FIRST_SLICE_CHARS) return this.loadInSlices(text);
+    this.show(parseSourceMap(text, remark, build, raw));
+  }
+
+  /** The document's top-level nodes are the baseline's, in order. */
+  private holdsBaseline(): boolean {
+    const doc = this.required().view.state.doc;
+    let index = 0;
+    for (const block of this.baseline.blocks)
+      for (const node of block.nodes) if (index >= doc.childCount || doc.child(index++) !== node) return false;
+    return index === doc.childCount;
+  }
+
+  /** A slice load in progress: its text, and how to stop it (another load, destroy). */
+  private slicing: { text: string; cancel: () => void; settle: () => void } | null = null;
+
+  /** Loads the slices still to come now: for what reads the whole document (Run all). */
+  settle(): void {
+    this.slicing?.settle();
+  }
+
+  private cancelSlices(): void {
+    const slicing = this.slicing;
+    if (!slicing) return;
+    this.slicing = null;
+    slicing.cancel();
+  }
+
+  /**
+   * Loads a long `text` a slice per task: the first FIRST_SLICE_CHARS at once (the first screen),
+   * then about SLICE_CHARS more each task, each slice parsed again from the last block of the one
+   * before it (`reparseTail`) and put at the document's end. The user's edits are refused until the
+   * last slice, and a save in between keeps the file as it is (`snapshot` answers `text`). A text
+   * with definitions is parsed whole once more at the end, since a definition resolves links in
+   * the slices before it.
+   */
+  private loadInSlices(text: string, prior?: { blocks: readonly SourceBlock[]; same: number }): void {
+    const { view, schema, remark } = this.required();
+    const build = (root: MdastRoot) => buildNodes(schema, root);
+    const raw = (kind: RawKind, value: string) => rawNode(schema, kind, value);
+    let cut: number;
+    let placeholder = false;
+    const blocks: SourceBlock[] = [];
+    // How many of `blocks` the document shows.
+    let showing: number;
+    if (prior) {
+      // The document already shows the blocks before the change (`holdsBaseline`).
+      cut = prior.same;
+      blocks.push(...prior.blocks);
+      showing = blocks.length;
+    } else {
+      cut = sliceEnd(text, FIRST_SLICE_CHARS);
+      const first = parseSourceMap(text.slice(0, cut), remark, build, raw);
+      blocks.push(...first.blocks);
+      // A screen's worth of blocks: 16 KB of small tables is hundreds of table views.
+      showing = Math.min(blocks.length, FIRST_SLICE_BLOCKS);
+      // The first slice replaces the whole document; ProseMirror needs one block, so an empty
+      // slice shows an empty paragraph that the next slice replaces.
+      const nodes = blocks.slice(0, showing).flatMap((block) => block.nodes);
+      placeholder = nodes.length === 0;
+      const replaceAll = view.state.tr.replaceWith(
+        0,
+        view.state.doc.content.size,
+        placeholder ? [schema.nodes.paragraph.create()] : nodes,
+      );
+      view.dispatch(replaceAll.setMeta(LOAD_META, true).setMeta("addToHistory", false));
+    }
+    // The blocks the document shows, in order, and the first of them parsed again since.
+    let shown = blocks.slice(0, showing);
+    let dirty = shown.length;
+    // Puts the blocks from `dirty` on into the document in place of the shown ones from there.
+    const dispatch = (last: boolean) => {
+      const view = this.view!;
+      const doc = view.state.doc;
+      let dropped = 0;
+      for (let index = dirty; index < shown.length; index++) dropped += shown[index]!.nodes.length;
+      if (placeholder) dropped = doc.childCount;
+      let from = doc.content.size;
+      for (let index = 0; index < dropped; index++) from -= doc.child(doc.childCount - 1 - index).nodeSize;
+      const added = blocks.slice(dirty).flatMap((block) => block.nodes);
+      placeholder = from === 0 && added.length === 0;
+      const tr = view.state.tr.replaceWith(
+        from,
+        doc.content.size,
+        placeholder ? [schema.nodes.paragraph.create()] : added,
+      );
+      tr.setMeta(LOAD_META, true).setMeta("addToHistory", false);
+      // The decorations are drawn once, for the whole document, by the last slice (redecorate.ts).
+      tr.setMeta(SLICE_META, last ? "last" : "part");
+      view.dispatch(tr);
+      shown = [...blocks];
+      dirty = shown.length;
+    };
+    // A reload shows its first slice at once; an open showed its first before this.
+    let eager = !!prior;
+    let step = SLICE_CHARS;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const next = () => {
+      timer = null;
+      if (this.slicing !== slicing || !this.view) return;
+      const same = cut;
+      cut = sliceEnd(text, Math.min(text.length, cut + step));
+      const { kept, tail } = reparseTail(blocks, text.slice(0, cut), same, remark, build, raw);
+      // A block parsed again is redrawn: one long block (a fence of 100,000 lines, a 5 MB line)
+      // makes the next slice at least twice its size, so it is parsed O(log n) times.
+      const lastBlock = tail[tail.length - 1];
+      step = Math.max(SLICE_CHARS, lastBlock ? 2 * (lastBlock.end - lastBlock.start) : 0);
+      blocks.length = kept;
+      blocks.push(...tail);
+      dirty = Math.min(dirty, kept);
+      const done = cut >= text.length;
+      // ProseMirror's view walks every top-level node on each change, so parsed slices go in when
+      // they are as many blocks as the document shows, up to MAX_SLICE_BLOCKS (the DOM one change
+      // builds): few changes on a short document, bounded tasks on a long one.
+      const batch = Math.min(MAX_SLICE_BLOCKS, Math.max(MIN_SLICE_BLOCKS, shown.length));
+      if (done || eager || blocks.length - dirty >= batch) {
+        dispatch(done);
+        eager = false;
+      }
+      if (!done) {
+        timer = setTimeout(next, 0);
+        return;
+      }
+      this.slicing = null;
+      const parse = (whole: string) => parseSourceMap(whole, remark, build, raw);
+      // A definition resolves links in the slices before it: such a text is parsed whole once more.
+      this.show(DEFINITION_LINE.test(text) ? parse(text) : { text, blocks });
+    };
+    const cancel = () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+    };
+    const slicing = {
       text,
-      remark,
-      (root) => buildNodes(schema, root),
-      (kind: RawKind, value: string) => rawNode(schema, kind, value),
-    );
+      cancel,
+      // The rest now, in this task.
+      settle: () => {
+        while (this.slicing === slicing && this.view) {
+          cancel();
+          next();
+        }
+      },
+    };
+    this.slicing = slicing;
+    // What the editor holds until the last slice: no blocks, so nothing is written from them.
+    this.baseline = { text, blocks: [] };
+    // A reload's first slice now, so the change shows in this task; an open's next slice in the next task.
+    if (prior) next();
+    else timer = setTimeout(next, 0);
+  }
+
+  /** Puts `map` into the document (only the blocks that differ) and makes it the baseline. */
+  private show(map: SourceMap): void {
+    const { view, schema } = this.required();
+    const text = map.text;
     const nodes = sourceMapNodes(map);
     // Only the blocks that differ are replaced (a reload from disk): the selection maps through the
     // change and stays on its words, and the blocks that did not change keep their DOM.
@@ -573,7 +781,8 @@ export class MarkdownEditor {
       let runnable = false;
       view.state.doc.descendants((node) => {
         if (runnable) return false;
-        if (node.type.name !== "code_block") return true;
+        // A paragraph or heading holds no code block: its text is not walked.
+        if (node.type.name !== "code_block") return !node.isTextblock;
         runnable =
           isRunnableLanguage(String(node.attrs.language ?? "")) &&
           !!runnableCommand(String(node.attrs.language), node.textContent);
@@ -585,6 +794,8 @@ export class MarkdownEditor {
 
   /** The markdown for the current document, and its source map (the next baseline after a save). */
   snapshot(): SourceMap {
+    // Before the last slice the file is unchanged (the page is read only): it is the text itself.
+    if (this.slicing) return { text: this.slicing.text, blocks: [] };
     const { schema } = this.required();
     const serialize = this.serializeDoc!;
     return serializeWithSourceMap(this.baseline, this.topNodes(), (nodes) => {
@@ -595,6 +806,7 @@ export class MarkdownEditor {
 
   /** Makes `map` (a snapshot that was saved) the baseline. */
   commit(map: SourceMap): void {
+    if (this.slicing) return;
     this.baseline = map;
   }
 
@@ -604,6 +816,7 @@ export class MarkdownEditor {
    * which is the file after the next save.
    */
   selectionQuote(): { text: string; startLine?: number; endLine?: number } | null {
+    this.settle();
     const view = this.view;
     if (!view || !this.serializeDoc) return null;
     const { from, to, empty } = view.state.selection;
@@ -643,6 +856,7 @@ export class MarkdownEditor {
    * steps. Walks the document once, on a click.
    */
   runbookSteps(): RunbookStep[] {
+    this.settle();
     const view = this.view;
     if (!view || !this.serializeDoc) return [];
     const map = this.snapshot();
@@ -731,6 +945,7 @@ export class MarkdownEditor {
   }
 
   async destroy(): Promise<void> {
+    this.cancelSlices();
     await this.editor?.destroy();
     this.editor = null;
     this.view = null;
@@ -785,18 +1000,23 @@ function githubReferencePlugin(repository: () => string | undefined) {
       new Plugin<DecorationSet>({
         key: githubReferenceKey,
         state: {
-          init: (_config, state) => githubReferenceDecorations(state.doc, repository()),
-          apply: (tr, previous, _old, state) =>
-            tr.docChanged ? githubReferenceDecorations(state.doc, repository()) : previous.map(tr.mapping, state.doc),
+          init: (_config, state) =>
+            decorateAll(state.doc, (from, to) => githubReferenceDecorations(state.doc, from, to, repository())),
+          apply: (tr, previous) =>
+            tr.docChanged
+              ? redecorate(previous, tr, changedBlocks(tr), (from, to) =>
+                  githubReferenceDecorations(tr.doc, from, to, repository()),
+                )
+              : previous,
         },
         props: { decorations: (state) => githubReferenceKey.getState(state) },
       }),
   );
 }
 
-function githubReferenceDecorations(doc: ProseNode, repository?: string): DecorationSet {
+function githubReferenceDecorations(doc: ProseNode, from: number, to: number, repository?: string): Decoration[] {
   const decorations: Decoration[] = [];
-  doc.descendants((node, pos, parent) => {
+  doc.nodesBetween(from, to, (node, pos, parent) => {
     if (parent?.type.spec.code) return false;
     if (!node.isText) return true;
     if (node.marks.some((mark) => mark.type.name === "link" || mark.type.spec.code)) return false;
@@ -812,7 +1032,7 @@ function githubReferenceDecorations(doc: ProseNode, repository?: string): Decora
     }
     return false;
   });
-  return DecorationSet.create(doc, decorations);
+  return decorations;
 }
 
 /** Draws the same custom task checkbox as the agent reply renderer. It is a widget rather than a
@@ -827,15 +1047,21 @@ function taskCheckboxPlugin() {
     return element;
   };
 
-  const decorations = (doc: ProseNode): DecorationSet => {
+  const decorations = (doc: ProseNode, from: number, to: number): Decoration[] => {
     const result: Decoration[] = [];
-    doc.descendants((node, pos) => {
+    doc.nodesBetween(from, to, (node, pos) => {
       if (node.type.name === "list_item" && node.attrs.checked != null) {
-        result.push(Decoration.widget(pos + 2, () => checkbox(Boolean(node.attrs.checked)), { side: -1 }));
+        result.push(
+          Decoration.widget(pos + 2, () => checkbox(Boolean(node.attrs.checked)), {
+            side: -1,
+            key: node.attrs.checked ? "md-task-checked" : "md-task-open",
+          }),
+        );
       }
-      return true;
+      // A paragraph or heading holds no list item.
+      return !node.isTextblock;
     });
-    return DecorationSet.create(doc, result);
+    return result;
   };
 
   return $prose(
@@ -843,9 +1069,11 @@ function taskCheckboxPlugin() {
       new Plugin<DecorationSet>({
         key: taskCheckboxKey,
         state: {
-          init: (_config, state) => decorations(state.doc),
-          apply: (tr, previous, _old, state) =>
-            tr.docChanged ? decorations(state.doc) : previous.map(tr.mapping, state.doc),
+          init: (_config, state) => decorateAll(state.doc, (from, to) => decorations(state.doc, from, to)),
+          apply: (tr, previous) =>
+            tr.docChanged
+              ? redecorate(previous, tr, changedBlocks(tr), (from, to) => decorations(tr.doc, from, to))
+              : previous,
         },
         props: {
           decorations: (state) => taskCheckboxKey.getState(state),
@@ -910,6 +1138,16 @@ function userEditPlugin(onUserEdit: () => void) {
   );
 }
 
+/**
+ * Refuses the user's edits while a long file still loads in slices (`loadInSlices`): an edit
+ * there would be lost to the next slice. The view stays editable all along: a view that is not
+ * editable reads the DOM selection on every change, and Chrome lays out the whole document for
+ * that (bench/markdown-viewer-stress.bench.ts: a third of a 10 MB file's first screen).
+ */
+function loadingGuardPlugin(loading: () => boolean) {
+  return $prose(() => new Plugin({ filterTransaction: (tr) => !(loading() && isUserEdit(tr)) }));
+}
+
 /** The code colors, and the positions of the code blocks near the viewport (null: all of them). */
 type HighlightState = { decorations: DecorationSet; near: readonly number[] | null };
 type HighlightMeta = "refresh" | { near: number[] };
@@ -958,13 +1196,20 @@ function codeBlockNear(state: EditorState, pos: number | undefined): boolean {
  */
 function codeHighlightPlugin(host: MarkdownEditorHost) {
   return $prose(() => {
-    const decorate = (doc: ProseNode, near: readonly number[] | null, refresh: () => void): DecorationSet => {
-      if (!host.highlight) return DecorationSet.empty;
-      if (near?.length === 0) return DecorationSet.empty;
+    const decorate = (
+      doc: ProseNode,
+      near: readonly number[] | null,
+      refresh: () => void,
+      from = 0,
+      to = doc.content.size,
+    ): Decoration[] => {
+      if (!host.highlight) return [];
+      if (near?.length === 0) return [];
       const nearSet = near && new Set(near);
       const decorations: Decoration[] = [];
-      doc.descendants((node, pos) => {
-        if (node.type.name !== "code_block") return true;
+      doc.nodesBetween(from, to, (node, pos) => {
+        // A paragraph or heading holds no code block: its text is not walked.
+        if (node.type.name !== "code_block") return !node.isTextblock;
         const language = String(node.attrs.language ?? "").toLowerCase();
         if (!language || DIAGRAM_LANGUAGES.has(language) || (nearSet && !nearSet.has(pos))) return false;
         // Marks the block near, so a block that stops being near (a reload replaced it with an equal
@@ -976,7 +1221,7 @@ function codeHighlightPlugin(host: MarkdownEditorHost) {
         }
         return false;
       });
-      return DecorationSet.create(doc, decorations);
+      return decorations;
     };
     let view: EditorView | null = null;
     const refresh = () => {
@@ -987,7 +1232,10 @@ function codeHighlightPlugin(host: MarkdownEditorHost) {
       state: {
         init: (_config, state) => {
           const near = NearCodeBlocks.supported ? [] : null;
-          return { near, decorations: decorate(state.doc, near, refresh) };
+          return {
+            near,
+            decorations: decorateAll(state.doc, (from, to) => decorate(state.doc, near, refresh, from, to)),
+          };
         },
         apply: (tr, previous, _old, state) => {
           const meta = tr.getMeta(highlightKey) as HighlightMeta | undefined;
@@ -998,8 +1246,16 @@ function codeHighlightPlugin(host: MarkdownEditorHost) {
               return mapped.deleted ? [] : [mapped.pos];
             });
           if (near && typeof meta === "object") near = [...new Set([...near, ...meta.near])];
-          if (!tr.docChanged && !meta) return { near, decorations: previous.decorations.map(tr.mapping, tr.doc) };
-          return { near, decorations: decorate(state.doc, near, refresh) };
+          if (meta)
+            return {
+              near,
+              decorations: decorateAll(state.doc, (from, to) => decorate(state.doc, near, refresh, from, to)),
+            };
+          if (!tr.docChanged) return { near, decorations: previous.decorations };
+          const decorations = redecorate(previous.decorations, tr, changedBlocks(tr), (from, to) =>
+            decorate(tr.doc, near, refresh, from, to),
+          );
+          return { near, decorations };
         },
       },
       view(editorView) {

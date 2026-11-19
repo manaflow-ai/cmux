@@ -33,5 +33,5 @@ echo "CODEC-BENCH-LOAD before $(uptime | sed 's/.*load averages*: //')"
 features=vp9,av1
 [[ "$(uname -m)" == x86_64 ]] && features+=,asm
 cargo build --locked --release --no-default-features --features "$features" --bin codec-bench 2>&1 | grep -v '^ *\(Compiling\|Downloaded\|Downloading\)' | tail -20
-"$CARGO_TARGET_DIR/release/codec-bench" "${args[@]}" --json "$out/rows.jsonl" | tee "$out/table.md"
+"$CARGO_TARGET_DIR/release/codec-bench" ${args[@]+"${args[@]}"} --json "$out/rows.jsonl" | tee "$out/table.md"
 echo "CODEC-BENCH-LOAD after $(uptime | sed 's/.*load averages*: //')"
