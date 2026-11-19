@@ -33,7 +33,8 @@ Scopes:
   claude  user (~/.claude/settings.json), project (.claude/settings.json), local (.claude/settings.local.json)
   codex   user (~/.codex/config.toml), project (.codex/config.toml, trusted projects), profile:NAME (NAME.config.toml)
 
-Edits keep comments, key order and every other key, and back up the prior file (FILE.cmux-backup).
+Edits keep comments, key order and every other key, and back up the file: FILE.cmux-backup is it
+before cmux's first edit (never replaced), FILE.cmux-backup-last before the latest one.
 --cwd names the project the project scopes resolve in (default: this folder).
 ";
 

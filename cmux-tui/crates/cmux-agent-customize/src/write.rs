@@ -4,23 +4,38 @@ use std::fs;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
-/// The backup of `file` kept before cmux's last write to it.
+/// The backup of `file` as it was before cmux first wrote to it. Later writes never replace it,
+/// so the user's own file can always be put back.
 pub fn backup_path(file: &Path) -> PathBuf {
+    with_suffix(file, ".cmux-backup")
+}
+
+/// The backup of `file` as it was just before cmux's latest write to it.
+pub fn last_backup_path(file: &Path) -> PathBuf {
+    with_suffix(file, ".cmux-backup-last")
+}
+
+fn with_suffix(file: &Path, suffix: &str) -> PathBuf {
     let mut name = file.file_name().unwrap_or_default().to_os_string();
-    name.push(".cmux-backup");
+    name.push(suffix);
     file.with_file_name(name)
 }
 
-/// Replaces `file` with `text`: the prior file is copied to [`backup_path`], the new text goes to
-/// a temporary file beside it and is renamed over it, so a reader never sees half a file. A
-/// symlinked file is written where it points (the link stays). The file's mode is kept.
+/// Replaces `file` with `text`: the prior file is copied to [`last_backup_path`], and to
+/// [`backup_path`] when that does not exist yet; the new text goes to a temporary file beside it
+/// and is renamed over it, so a reader never sees half a file. A symlinked file is written where
+/// it points (the link stays). The file's mode is kept.
 pub fn replace(file: &Path, text: &str) -> io::Result<()> {
     let target = fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
     let dir = target.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
     fs::create_dir_all(dir)?;
     let prior = fs::metadata(&target).ok();
     if prior.is_some() {
-        fs::copy(&target, backup_path(&target))?;
+        let first = backup_path(&target);
+        if !first.exists() {
+            fs::copy(&target, &first)?;
+        }
+        fs::copy(&target, last_backup_path(&target))?;
     }
     let mut tmp_name = target.file_name().unwrap_or_default().to_os_string();
     tmp_name.push(format!(".cmux-tmp-{}", std::process::id()));
@@ -60,6 +75,10 @@ mod tests {
         replace(&real, "new").unwrap();
         assert_eq!(fs::read_to_string(&real).unwrap(), "new");
         assert_eq!(fs::read_to_string(backup_path(&real)).unwrap(), "old");
+        // A second write keeps the original's backup and records the text it replaced.
+        replace(&real, "newer").unwrap();
+        assert_eq!(fs::read_to_string(backup_path(&real)).unwrap(), "old");
+        assert_eq!(fs::read_to_string(last_backup_path(&real)).unwrap(), "new");
         let fresh = dir.path().join("sub/fresh.json");
         replace(&fresh, "{}").unwrap();
         assert_eq!(fs::read_to_string(&fresh).unwrap(), "{}");
