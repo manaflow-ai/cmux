@@ -70,12 +70,21 @@ that starts no job at all, so on 2026-11-18 runs queued on dead 4, 8 and 16 vCPU
 The watch's next step, `cloud_overflow_switch.py --rescue-dead`, force-cancels and re-runs those
 runs once (dead_labels() there), and they then read the pool's new member.
 
-RUNNER_POOLS never names a reused machine: every member is an ephemeral Blacksmith label, so a
-job reading it can never land on an owned Mac, whoever started it (a fork's pull request
-included). Owned Macs come first through a picker's output (the routing order: owned Macs, then
-Blacksmith macOS), never through a pool, and signing jobs move through the signing picker. A pool
-that must run GitHub-hosted (npm and PyPI provenance accept only GitHub's OIDC) says
-`"hosted": true` with its reason; no other pool may name a GitHub-hosted label.
+An x64 Linux pool leads with owned GCP runners (OWNED_LINUX): `cmux-fleet-linux-x64`, the ephemeral GCP fleet (one
+VM per queued job), then `cmux-gcp-lane-x64` (persistent org runners on the gcp-agent-lane VMs, shared with hq), and
+its Blacksmith sizes follow as overflow. A pool member may be a reused machine, and a
+job holding a secret may run there. Leo, 2026-11-18: "The jobs thing, the secrets thing, you guys need to look. Didn't
+we set up those profiles? So we should basically just be able to run whatever. I mean, it's not like I'm going to all
+of a sudden write some sort of what, like exfiltrate my own secrets for what? Like it's just my pull request. There's
+essentially no risk. So you guys are just... remove that belt and suspenders, please." The rule it replaces (every
+member an ephemeral Blacksmith label) kept four idle owned Linux runners out of the pools while Blacksmith started
+almost nothing (cmux at 21:49Z that day: 2,500 runs queued, 112 in progress). The one guard kept is on the hosts: a
+job-started hook refuses pull_request jobs from forks outside the org (GitHub hands those no secrets anyway). An owned
+label is judged like any member: the probe asks for it (cloud_overflow_switch.HEALTH_LABELS), a start keeps it
+serving, a probe that starts nothing marks it dead and the pool takes its next member. Owned Macs still come first
+through a picker's output (the routing order: owned Macs, then Blacksmith macOS), never through a pool. A pool that
+must run GitHub-hosted (npm and PyPI provenance accept only GitHub's OIDC) says `"hosted": true` with its reason; no
+other pool may name a GitHub-hosted label.
 
 --check validates a RUNNER_POOLS value (every pool set, each to one of its own members) and the
 MIRRORS variables (each a member of its pool unless the overflow record changed it).
@@ -102,6 +111,10 @@ RUNNERS = ROOT / ".github" / "runners.json"
 VARIABLE = "RUNNER_POOLS"
 # Written by the overflow switch every probe run (cloud_overflow_switch.HEALTH_VARIABLE, label_health()).
 HEALTH_VARIABLE = "CI_CLOUD_LABEL_HEALTH"
+# A fresh receipt from either the build controller's /v1/linux-pool endpoint or the
+# fleet-GCE report.  It is deliberately a single variable: the producer may switch
+# sources without changing this writer, and tests can inject either shape.
+FLEET_HEALTH_VARIABLE = "CI_FLEET_HEALTH"
 # Variables older than RUNNER_POOLS that runs-on still read (`vars.LINUX_RUNNER || '<label>'`, about 250
 # jobs over main and feat-cmux-next), each with the pool it follows. Nothing kept them live: on
 # 2026-10-31 LINUX_RUNNER still held blacksmith-4vcpu-ubuntu-2404, a size outside the runner set that
@@ -155,11 +168,22 @@ LINUX_SIZE = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-\d+(?:-arm)?)$")
 DEAD_TTL = dt.timedelta(minutes=30)
 # Probe health older than this is from a run that did not finish; it decides nothing.
 HEALTH_MAX_AGE = dt.timedelta(minutes=25)
+FLEET_HEALTH_MAX_AGE = dt.timedelta(minutes=15)
 # A janitor snapshot older than this (or undated, or from the future) decides nothing: the age the
 # pool picker reads it at (pr_runner_pool.MAX_SNAPSHOT_MINUTES).
 SNAPSHOT_MAX_AGE = dt.timedelta(minutes=pr_runner_pool.MAX_SNAPSHOT_MINUTES)
 UTC = dt.timezone.utc
 EPHEMERAL = re.compile(r"^blacksmith-\d+vcpu-[a-z0-9.-]+$")
+# The owned Linux runner labels a pool may lead with (Leo 2026-11-18): cmux-fleet-linux-x64, the ephemeral GCP fleet
+# (one VM per queued job), and cmux-gcp-lane-x64, the persistent GCP lane org runners hq also uses.
+OWNED_LINUX = re.compile(r"^cmux-(?:gcp-lane|fleet-linux)-[a-z0-9-]+$")
+
+
+def pool_label(label: str) -> bool:
+    """Whether a label may be a pool member outside a hosted pool: a Blacksmith label or an owned Linux runner."""
+    return bool(EPHEMERAL.match(label) or OWNED_LINUX.match(label))
+
+
 HOSTED = re.compile(r"^(?:ubuntu|macos|windows)(?:-[\w.-]+)?$")
 KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 # The outage override (Leo, 2026-11-17, asked "Allow GitHub-hosted ubuntu-24.04 for cmux Linux CI until Blacksmith
@@ -207,8 +231,12 @@ def load_pools(path: Path = RUNNERS, env: Mapping[str, str] | None = None) -> di
     for name, spec in declared.items():
         listed = spec.get("members")
         if HOSTED_OVERRIDE_POOL.match(name) and isinstance(listed, list) and listed \
-                and all(isinstance(m, str) and X64_UBUNTU.match(m) for m in listed):
-            declared[name] = {**spec, "members": [label, *listed], "hosted": True,
+                and all(isinstance(m, str) and (X64_UBUNTU.match(m) or OWNED_LINUX.match(m)) for m in listed) \
+                and any(X64_UBUNTU.match(m) for m in listed):
+            # Owned runners stay ahead of it: the override stands in for Blacksmith, not for them.
+            owned = [m for m in listed if OWNED_LINUX.match(m)]
+            rest = [m for m in listed if not OWNED_LINUX.match(m)]
+            declared[name] = {**spec, "members": [*owned, label, *rest], "hosted": True,
                               "hosted_why": f"{HOSTED_OVERRIDE} is set: Blacksmith Linux outage override"}
     return declared
 
@@ -247,7 +275,8 @@ def valve_labels(spec: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     about 23:12Z (488 jobs queued, none running, at 01:01Z), so the pool sat on a dead label with required checks
     (clippy, acpmux tests) queued behind it, while 8 vCPU kept starting jobs. A value outside the members was reset
     by the next pass, so it could not be set by hand either."""
-    sizes = [X64_SIZE.match(label) for label in members(spec)]
+    # Owned members (OWNED_LINUX) have no size: the valve is judged on the Blacksmith ones.
+    sizes = [X64_SIZE.match(label) for label in members(spec) if not OWNED_LINUX.match(label)]
     if not sizes or not all(sizes):
         return []
     images = {match.group(2) for match in sizes}
@@ -285,13 +314,14 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
             if HOSTED.match(member):
                 if not spec.get("hosted"):
                     found.append(f"{where}: {member} is GitHub-hosted, which is not in the runner set")
-            elif not EPHEMERAL.match(member):
-                found.append(f"{where}: {member} is not an ephemeral Blacksmith label; owned Macs come only "
-                             "through a picker, never a pool")
+            elif not pool_label(member):
+                found.append(f"{where}: {member} is neither a Blacksmith label nor an owned Linux runner "
+                             "(OWNED_LINUX); owned Macs come only through a picker, never a pool")
         least = memory_floor(spec)
         if "min_vcpu" in spec and not least:
             found.append(f"{where}: min_vcpu is a positive whole number of vCPU")
-        first = X64_SIZE.match(listed[0])
+        sized = [member for member in listed if not OWNED_LINUX.match(member)]
+        first = X64_SIZE.match(sized[0]) if sized else None
         if first and int(first.group(1)) >= MEMORY_FLOOR_REQUIRED_FROM and not least:
             found.append(f"{where}: a pool led by {first.group(1)} vCPU declares min_vcpu, the smallest size its jobs fit "
                          "in, so the release valve never sends them below it (memory_floor())")
@@ -301,7 +331,7 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
                 found.append(f"{where}: {member} is below its min_vcpu ({least}); the pool's jobs do not fit there")
         if spec.get("hosted") and not str(spec.get("hosted_why", "")).strip():
             found.append(f"{where}: a hosted pool names why it cannot run on the set (hosted_why)")
-        grows = grows_before_shrinking(listed)
+        grows = grows_before_shrinking(sized)
         if grows:
             found.append(f"{where}: lists {grows} after a larger failover or out of size order; Blacksmith caps the org on vCPUs at "
                          "once, so a stalled size moves down first (list smaller sizes, largest first, before larger)")
@@ -439,7 +469,7 @@ def mirror_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
         # A hosted Ubuntu label is the outage override's footprint (HOSTED_OVERRIDE): while it is set the pool's
         # live member is that label, so nothing moves; once it is deleted the mirror follows the pool back to
         # Blacksmith, so deleting the variable is the whole revert (router-review F1 on cmux#45710).
-        if current and not EPHEMERAL.match(current) and not HOSTED_OVERRIDE_LABEL.match(current):
+        if current and not pool_label(current) and not HOSTED_OVERRIDE_LABEL.match(current):
             continue
         writes.append((name, want))
     writes += [(name, target) for name, target, _current, _why in raw_writes(value, live, owned=owned)]
@@ -591,8 +621,62 @@ def started_nothing_while_queued(snapshot: Mapping[str, Any], label: str, load: 
     return started is None or (generated - started).total_seconds() / 60 >= oldest_minutes
 
 
+def fleet_health_labels(report: Mapping[str, Any] | None, *, now: dt.datetime) -> set[str]:
+    """Return owned Linux labels with fresh positive controller/GCP evidence.
+
+    The controller receipt is normally ``{"linux_pool": {"workers": [...]}}``
+    where workers carry ``labels``, ``healthy`` and ``online``.  The GCP receipt
+    may instead carry ``instances`` with a ``RUNNING`` status and the label.  The
+    walker accepts both shapes, but requires a root timestamp so an old report
+    cannot resurrect a dead label.
+    """
+    if not isinstance(report, Mapping):
+        return set()
+    stamp = next((parse_time(report.get(key)) for key in
+                  ("generated_at", "as_of", "observed_at", "checked")
+                  if parse_time(report.get(key)) is not None), None)
+    if stamp is None or not (dt.timedelta(minutes=-1) <= now - stamp <= FLEET_HEALTH_MAX_AGE):
+        return set()
+
+    def labels(value: Any) -> set[str]:
+        if isinstance(value, str):
+            values = [value]
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            values = value
+        else:
+            values = ()
+        return {item for item in values if isinstance(item, str) and OWNED_LINUX.match(item)}
+
+    def positive(value: Mapping[str, Any]) -> bool:
+        for key in ("healthy", "online", "listening", "ready"):
+            if key in value and value[key] is False:
+                return False
+        status = str(value.get("status") or value.get("state") or "").strip().lower()
+        if status in {"down", "offline", "dead", "stopped", "terminated", "draining", "unhealthy"}:
+            return False
+        if any(value.get(key) is True for key in ("healthy", "online", "listening", "ready")):
+            return True
+        return status in {"running", "online", "healthy", "ready", "listening", "idle", "busy", "active"}
+
+    found: set[str] = set()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, Mapping):
+            named = labels(value.get("labels")) | labels(value.get("label"))
+            if named and positive(value):
+                found.update(named)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            for child in value:
+                visit(child)
+
+    visit(report)
+    return found
+
+
 def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None, *,
-                   now: dt.datetime) -> tuple[set[str], set[str], list[str]]:
+                   now: dt.datetime, fleet: Mapping[str, Any] | None = None) -> tuple[set[str], set[str], list[str]]:
     """(dead, started, notes): the labels seen starting nothing, the labels seen starting a job.
 
     A probe's stall counts only beside a fresh, complete janitor snapshot, whose `label_started` tells a dead size
@@ -634,7 +718,7 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
         age = max(0.0, (now - generated).total_seconds() / 60)
         started |= recently_started(snapshot, now=now)
         for label, load in (snapshot.get("pools") or {}).items():
-            if not (isinstance(label, str) and EPHEMERAL.match(label) and isinstance(load, Mapping)):
+            if not (isinstance(label, str) and pool_label(label) and isinstance(load, Mapping)):
                 continue
             try:
                 queued = int(load.get("queued") or 0)
@@ -658,18 +742,27 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
     if stalls - started:
         notes.append(f"probe stalled on {', '.join(sorted(stalls - started))} with no fresh janitor snapshot to tell a "
                      "dead size from a full vCPU cap; no new dead mark")
+    # Blacksmith's probe cannot prove an owned fleet label is dead: those labels are
+    # self-hosted and their liveness comes from the controller/GCP receipt.  A fresh
+    # positive receipt counts as a start; an absent or stale receipt stays unknown.
+    fleet_started = fleet_health_labels(fleet, now=now)
+    started |= fleet_started
+    dead -= {label for label in dead if OWNED_LINUX.match(label)}
+    dead -= fleet_started
     # A label both started and stalled in one pass (two probes, or a probe and a stale queue) started.
     return dead - started, started, notes
 
 
 def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None,
-                    pools: Mapping[str, Mapping[str, Any]], *, now: dt.datetime) -> set[str]:
+                    pools: Mapping[str, Mapping[str, Any]], *, now: dt.datetime,
+                    fleet: Mapping[str, Any] | None = None) -> set[str]:
     """The labels this pass has fresh evidence about, so a dead mark on one may expire.
 
     The probe's health (fresh, as label_evidence() reads it) covers the labels it lists. The janitor's
     snapshot (fresh and complete) covers every other pool member: it lists the Blacksmith macOS labels'
     queues, but no Linux label, so the linux pool's sizes are covered only by the probe."""
     covered: set[str] = set()
+    # The linux pool's sizes and owned labels are covered only by the probe (cloud_overflow_switch.HEALTH_LABELS).
     probed = set(members(pools["linux"])) if "linux" in pools else set()
     if isinstance(health, Mapping):
         checked, labels = parse_time(health.get("checked")), health.get("labels")
@@ -684,6 +777,7 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
         # A size the janitor saw start a job recently is covered too, truncated or not: label_evidence() calls it
         # started.
         covered |= recently_started(snapshot, now=now)
+    covered |= fleet_health_labels(fleet, now=now)
     return covered
 
 
@@ -698,7 +792,7 @@ def recently_started(snapshot: Mapping[str, Any], *, now: dt.datetime) -> set[st
     found = set()
     for label, when in starts.items():
         moment = parse_time(when)
-        if isinstance(label, str) and EPHEMERAL.match(label) and moment is not None \
+        if isinstance(label, str) and pool_label(label) and moment is not None \
                 and dt.timedelta(minutes=-1) <= now - moment <= RECENT_START:
             found.add(label)
     return found
@@ -714,6 +808,10 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     marks: dict[str, str] = {}
     known_now = None if covered is None else set(covered)
     for label, since in (current.get(DEAD_KEY) or {}).items():
+        # Owned labels are never dead from a Blacksmith probe.  Clear any mark
+        # written by an older policy so the fleet lead is restored immediately.
+        if OWNED_LINUX.match(label):
+            continue
         seen = parse_time(since)
         if seen is not None and now - seen < DEAD_TTL:
             marks[label] = since
@@ -727,6 +825,8 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
         if marks.pop(label, None):
             lines.append(f"{label}: started a job; it takes jobs again")
     for label in sorted(set(dead_now)):
+        if OWNED_LINUX.match(label):
+            continue
         if label not in marks:
             lines.append(f"{label}: dead (no job started there while one waited)")
         marks[label] = iso(now)
@@ -768,6 +868,23 @@ def _health(switch: Any, env: Mapping[str, str]) -> Mapping[str, Any] | None:
             print(f"::warning title=Runner pools::could not read {HEALTH_VARIABLE} ({error}); using the job's value")
     if raw is None:
         raw = env.get(HEALTH_VARIABLE)
+    try:
+        value = json.loads(raw) if (raw or "").strip() else None
+    except ValueError:
+        value = None
+    return value if isinstance(value, Mapping) else None
+
+
+def _fleet_health(switch: Any, env: Mapping[str, str]) -> Mapping[str, Any] | None:
+    """Read the controller/GCP fleet receipt through the switch API, then the job env."""
+    raw = None
+    if switch is not None and hasattr(switch, "get_variable"):
+        try:
+            raw = switch.get_variable(FLEET_HEALTH_VARIABLE)
+        except Exception as error:  # noqa: BLE001 - missing health stays unknown
+            print(f"::warning title=Runner pools::could not read {FLEET_HEALTH_VARIABLE} ({error}); using the job's value")
+    if raw is None:
+        raw = env.get(FLEET_HEALTH_VARIABLE)
     try:
         value = json.loads(raw) if (raw or "").strip() else None
     except ValueError:
@@ -858,11 +975,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                     print(f"::warning title=Runner pools::no janitor snapshot ({error}; fallback: {second}); "
                           "judging on the probe alone")
     health = _health(switch, env)
-    dead, started, notes = label_evidence(health, snapshot, now=now)
+    fleet = _fleet_health(switch, env)
+    dead, started, notes = label_evidence(health, snapshot, now=now, fleet=fleet)
     for note in notes:
         print(note)
     value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,
-                             covered=evidence_covers(health, snapshot, pools, now=now))
+                             covered=evidence_covers(health, snapshot, pools, now=now, fleet=fleet))
     # The mirrored and raw-label variables and the switch's record, read live: the switch step just before this
     # one may have moved them, so the job-start values could undo its failover.
     live, record, readable = _live(switch, env)
