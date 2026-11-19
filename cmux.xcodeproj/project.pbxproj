@@ -1260,6 +1260,7 @@
 		C1ADE40002A1B2C3D4E5F719 /* cmux-hermes-agent-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE40001A1B2C3D4E5F719 /* cmux-hermes-agent-wrapper */; };
 		C1ADE50002A1B2C3D4E5F719 /* cmux-hermes-python-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE50001A1B2C3D4E5F719 /* cmux-hermes-python-wrapper */; };
 		C1ADE60002A1B2C3D4E5F719 /* cmux-hermes-sitecustomize.py in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE60001A1B2C3D4E5F719 /* cmux-hermes-sitecustomize.py */; };
+		C1ADE70102A1B2C3D4E5F719 /* cmux-pi-cua-extension.ts in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE70101A1B2C3D4E5F719 /* cmux-pi-cua-extension.ts */; };
 		C1ADE70002A1B2C3D4E5F719 /* cmux-pi-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE70001A1B2C3D4E5F719 /* cmux-pi-wrapper */; };
 		D96970000000000000000007 /* cmux-sudo in Copy CLI */ = {isa = PBXBuildFile; fileRef = D96971000000000000000002 /* cmux-sudo */; };
 		F390E470FA17BD417C031111 /* cmux-tmux-agent.py in Copy CLI */ = {isa = PBXBuildFile; fileRef = F390E470FA17BD417C032222 /* cmux-tmux-agent.py */; };
@@ -4861,6 +4862,7 @@
 				C1ADE40002A1B2C3D4E5F719 /* cmux-hermes-agent-wrapper in Copy CLI */,
 				C1ADE50002A1B2C3D4E5F719 /* cmux-hermes-python-wrapper in Copy CLI */,
 				C1ADE60002A1B2C3D4E5F719 /* cmux-hermes-sitecustomize.py in Copy CLI */,
+				C1ADE70102A1B2C3D4E5F719 /* cmux-pi-cua-extension.ts in Copy CLI */,
 				C1ADE70002A1B2C3D4E5F719 /* cmux-pi-wrapper in Copy CLI */,
 				D96970000000000000000007 /* cmux-sudo in Copy CLI */,
 				F390E470FA17BD417C031111 /* cmux-tmux-agent.py in Copy CLI */,
@@ -6119,6 +6121,7 @@
 		C1ADE40001A1B2C3D4E5F719 /* cmux-hermes-agent-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-hermes-agent-wrapper"; sourceTree = SOURCE_ROOT; };
 		C1ADE50001A1B2C3D4E5F719 /* cmux-hermes-python-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-hermes-python-wrapper"; sourceTree = SOURCE_ROOT; };
 		C1ADE60001A1B2C3D4E5F719 /* cmux-hermes-sitecustomize.py */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.python; path = "Resources/bin/cmux-hermes-sitecustomize.py"; sourceTree = SOURCE_ROOT; };
+		C1ADE70101A1B2C3D4E5F719 /* cmux-pi-cua-extension.ts */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.typescript; path = "Resources/bin/cmux-pi-cua-extension.ts"; sourceTree = SOURCE_ROOT; };
 		C1ADE70001A1B2C3D4E5F719 /* cmux-pi-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-pi-wrapper"; sourceTree = SOURCE_ROOT; };
 		D96971000000000000000002 /* cmux-sudo */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-sudo"; sourceTree = SOURCE_ROOT; };
 		F390E470FA17BD417C032222 /* cmux-tmux-agent.py */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.python; path = "Resources/bin/cmux-tmux-agent.py"; sourceTree = SOURCE_ROOT; };
@@ -9767,6 +9770,7 @@
 					C1ADE30001A1B2C3D4E5F719 /* cmux-codex-wrapper */,
 					F390E470FA17BD417C032222 /* cmux-tmux-agent.py */,
 					C1ADE70001A1B2C3D4E5F719 /* cmux-pi-wrapper */,
+					C1ADE70101A1B2C3D4E5F719 /* cmux-pi-cua-extension.ts */,
 					C1ADE40001A1B2C3D4E5F719 /* cmux-hermes-agent-wrapper */,
 					C1ADE50001A1B2C3D4E5F719 /* cmux-hermes-python-wrapper */,
 					C1ADE60001A1B2C3D4E5F719 /* cmux-hermes-sitecustomize.py */,
