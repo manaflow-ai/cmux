@@ -62,7 +62,8 @@ export interface StartTraceList {
   hops: Partial<Record<string, HopStats>>;
 }
 
-/** One drawn piece of a hop: its offset from the start and its length, in ms. */
+/** One drawn piece of a hop: its offset from the start and its drawn length (the part at or after
+ * the start), in ms. */
 export interface HopSegment {
   offset: number;
   length: number;
@@ -109,27 +110,29 @@ export function countedSpans(hop: string, spans: readonly StartSpan[]): StartSpa
 }
 
 export function waterfall(trace: StartTrace, hops: StartTraceList["hops"] = {}): Waterfall {
-  // Offsets count from the earliest of the start and its spans, so no bar starts left of the axis.
-  const origin = Math.min(
-    ...[trace.started_at, ...trace.spans.map((span) => span.start_ms)].filter((at) => Number.isFinite(at)),
-  );
+  // Offsets count from the start (`started_at`), so a client's click posted before the server's
+  // receipt never shifts the server's bars; only the part of a bar before the start is cut off the
+  // drawing (its duration still counts all of it).
+  const origin = Number.isFinite(trace.started_at)
+    ? trace.started_at
+    : Math.min(...trace.spans.map((span) => span.start_ms));
   let end = trace.total_ms;
   // The app's create is not timed on the client yet: a start begins at the server's receipt of the
   // create, and `click` is a row only when a client (the CLI, a journey) posted a span for it.
   const shown = START_HOPS.filter((hop) => hop !== "click" || trace.spans.some((span) => span.hop === "click"));
   const rows = shown.map((hop): HopRow => {
     const counted = countedSpans(hop, trace.spans).sort((a, b) => a.start_ms - b.start_ms);
-    const segments = counted.map((span) => {
+    const segments = counted.map((span): HopSegment => {
       const part = span.attrs?.part;
       return {
         offset: Math.max(0, span.start_ms - origin),
-        length: span.end_ms - span.start_ms,
+        length: Math.max(0, span.end_ms - Math.max(span.start_ms, origin)),
         source: String(span.source),
         ...(typeof part === "string" ? { part } : {}),
       };
     });
     for (const segment of segments) end = Math.max(end, segment.offset + segment.length);
-    const duration = segments.length > 0 ? segments.reduce((sum, segment) => sum + segment.length, 0) : null;
+    const duration = counted.length > 0 ? counted.reduce((sum, span) => sum + (span.end_ms - span.start_ms), 0) : null;
     const stats = hops[hop] ?? null;
     const slow =
       duration !== null &&

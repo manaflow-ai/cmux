@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { MockCloudProvider } from "./mockProvider";
 import { cliTrace, createTrace, sampleTraceList, sampleTraces, spareTrace } from "./startTraceFixtures";
-import { StartTraceStore } from "./startTraceStore";
+import { followAccount, StartTraceStore } from "./startTraceStore";
+import { CloudStore } from "./store";
 import { axisTicks, countedSpans, formatDuration, isTraceId, waterfall, type StartSpan } from "./startTraces";
 import { CloudOps } from "./ops";
 import table from "./generated/strings.json";
@@ -30,6 +31,25 @@ describe("start trace waterfall", () => {
     const chart = waterfall(cliTrace(NOW));
     expect(chart.clicked).toBe(true);
     expect(chart.rows[0]).toMatchObject({ hop: "click", offset: 0, duration: 180 });
+  });
+
+  test("a click posted before the server's receipt never shifts the server's bars", () => {
+    const base = createTrace(NOW);
+    const clicked = {
+      ...base,
+      spans: [
+        { hop: "click", start_ms: base.started_at - 300, end_ms: base.started_at + 20, source: "cli" },
+        ...base.spans,
+      ],
+    };
+    const before = waterfall(base);
+    const after = waterfall(clicked);
+    for (const hop of ["api", "boot", "first_token"])
+      expect(after.rows.find((row) => row.hop === hop)!.offset).toBe(
+        before.rows.find((row) => row.hop === hop)!.offset,
+      );
+    expect(after.rows[0]).toMatchObject({ hop: "click", offset: 0, duration: 320 });
+    expect(after.rows[0]!.segments[0]!.length).toBe(20);
   });
 
   test("network adds the server's prepare and attach to the client's connect, each at its own offset", () => {
@@ -120,6 +140,81 @@ describe("start trace store", () => {
     // A refresh keeps the start the person picked.
     await store.refresh();
     expect(store.getSnapshot().selected).toBe(traces[2]!.trace);
+  });
+
+  test("reset (a sign-out or another team) forgets the traces and drops reads still in flight", async () => {
+    const provider = new MockCloudProvider({ unsupported: [] });
+    const traces = sampleTraces(NOW);
+    provider.startTraces = { list: sampleTraceList(NOW, traces), traces };
+    const store = new StartTraceStore(provider);
+    await store.refresh();
+    expect(store.getSnapshot().trace).toBeDefined();
+    const late = store.refresh();
+    store.reset();
+    await late;
+    expect(store.getSnapshot()).toEqual({
+      available: null,
+      list: undefined,
+      selected: undefined,
+      trace: undefined,
+      loading: false,
+      error: undefined,
+    });
+  });
+
+  test("the page's timings follow its account: a sign-out forgets them, another user reads again", async () => {
+    const settle = async () => {
+      for (let i = 0; i < 30; i++) await Promise.resolve();
+    };
+    const provider = new MockCloudProvider({ unsupported: [] });
+    const traces = sampleTraces(NOW);
+    provider.startTraces = { list: sampleTraceList(NOW, traces), traces };
+    const cloud = new CloudStore(provider);
+    const timings = new StartTraceStore(provider);
+    const stopCloud = cloud.subscribe(() => undefined);
+    const stop = followAccount(cloud, timings);
+    await settle();
+    expect(timings.getSnapshot().trace?.trace).toBe(traces[0]!.trace);
+
+    provider.setSignedIn(false);
+    await settle();
+    expect(timings.getSnapshot()).toMatchObject({ available: null, list: undefined, trace: undefined });
+
+    // The next account's team has no starts: nothing of the previous one shows.
+    provider.startTraces = { list: sampleTraceList(NOW, []), traces: [] };
+    provider.setSignedIn(true);
+    await settle();
+    expect(timings.getSnapshot().available).toBe(true);
+    expect(timings.getSnapshot().list?.traces).toEqual([]);
+    expect(timings.getSnapshot().trace).toBeUndefined();
+
+    provider.startTraces = { list: sampleTraceList(NOW, traces), traces };
+    provider.switchUser("user_2", provider.machines);
+    await settle();
+    expect(timings.getSnapshot().list?.traces).toHaveLength(traces.length);
+    stop();
+    stopCloud();
+  });
+
+  test("a late start read never lands beside an empty list", async () => {
+    const provider = new MockCloudProvider({ unsupported: [] });
+    const traces = sampleTraces(NOW);
+    provider.startTraces = { list: sampleTraceList(NOW, traces), traces };
+    const store = new StartTraceStore(provider);
+    await store.refresh();
+    const call = provider.call.bind(provider);
+    let release: () => void = () => undefined;
+    provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+      if (op === CloudOps.startTraceGet) await new Promise<void>((resolve) => (release = resolve));
+      return call<R>(op, params);
+    };
+    const pending = store.select(traces[1]!.trace);
+    provider.startTraces = { list: sampleTraceList(NOW, []), traces };
+    await store.refresh();
+    release();
+    await pending;
+    expect(store.getSnapshot().list?.traces).toEqual([]);
+    expect(store.getSnapshot().trace).toBeUndefined();
   });
 
   test("a failed read says so and keeps the entry", async () => {

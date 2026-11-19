@@ -14,7 +14,7 @@ import { MockCloudProvider } from "./mockProvider";
 import { parseLayout } from "./model";
 import { PAGE_COMMAND } from "./ops";
 import { CloudStore, parseView } from "./store";
-import { StartTraceStore } from "./startTraceStore";
+import { followAccount, StartTraceStore } from "./startTraceStore";
 import { sampleTraceList, sampleTraces } from "./startTraceFixtures";
 // The shared popup and dialog surface (ui.css imports it; this page loads no ui.css): the sheet role
 // rule `.ui-dialog.ui-glass` draws this page's dialogs.
@@ -33,17 +33,13 @@ export function mountCloudPage(root: HTMLElement, client: PageClient | null = de
   // `#/get` opens the storefront and `#/timings` the start timings; the host or a link may set either.
   window.addEventListener("hashchange", () => store.setView(parseView(location.hash)));
   // The fragment follows the view, so a later `#/get` link changes the hash and opens the storefront.
-  let probed = false;
   store.subscribe(() => {
-    const snapshot = store.getSnapshot();
-    const view = snapshot.view;
+    const view = store.getSnapshot().view;
     if (parseView(location.hash) !== view)
       history.replaceState(null, "", `${location.pathname}${location.search}${view === "machines" ? "" : `#/${view}`}`);
-    if (!probed && snapshot.auth?.signedIn) {
-      probed = true;
-      void timings.refresh();
-    }
   });
+  // A sign-out, another user or team forgets the timings read for the previous account.
+  followAccount(store, timings);
   // The page has no find or search field yet; it answers page commands as not handled so the
   // dispatcher can fall back. It never reads Cmd or Ctrl chords itself.
   client?.handle(PAGE_COMMAND, () => ({ handled: false }));

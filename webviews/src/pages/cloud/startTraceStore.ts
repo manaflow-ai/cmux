@@ -5,7 +5,8 @@
 // NIGHTLY builds). React reads it through `useSyncExternalStore`; a reply older than a newer read is
 // dropped.
 import type { PageClient } from "../shared/pageClient";
-import { CloudOps, isUnsupported } from "./ops";
+import { CloudOps, isUnsupported, type AuthStatus } from "./ops";
+import type { CloudStore } from "./store";
 import { isTraceId, type StartTrace, type StartTraceList } from "./startTraces";
 
 export interface StartTraceSnapshot {
@@ -42,6 +43,21 @@ export class StartTraceStore {
     for (const listener of this.listeners) listener();
   }
 
+  /** Forgets everything read (a sign-out, another account or team): the traces are the old team's.
+   * Reads in flight are dropped when they answer. */
+  reset(): void {
+    this.listRead++;
+    this.traceRead++;
+    this.set({
+      available: null,
+      list: undefined,
+      selected: undefined,
+      trace: undefined,
+      loading: false,
+      error: undefined,
+    });
+  }
+
   /** Reads the last day's starts, then the selected one (or the newest). */
   async refresh(): Promise<void> {
     if (!this.client) return this.set({ available: false });
@@ -60,7 +76,11 @@ export class StartTraceStore {
         error: undefined,
       });
       if (selected) await this.select(selected);
-      else this.set({ selected: undefined, trace: undefined });
+      else {
+        // A start read still in flight belongs to a list that is gone: its answer is dropped.
+        this.traceRead++;
+        this.set({ selected: undefined, trace: undefined });
+      }
     } catch (error) {
       if (read !== this.listRead) return;
       if (isUnsupported(error)) return this.set({ available: false, loading: false });
@@ -83,6 +103,23 @@ export class StartTraceStore {
       this.set({ trace: undefined, error: message(error) });
     }
   }
+}
+
+/** The timings follow the page's account: each auth answer the Cloud store takes (a sign-in, a
+ * sign-out, another user or team, a restored session) forgets what was read for the previous one
+ * and, when signed in, reads again. Returns the unsubscribe. */
+export function followAccount(cloud: CloudStore, timings: StartTraceStore): () => void {
+  let seen: AuthStatus | undefined;
+  const sync = () => {
+    const auth = cloud.getSnapshot().auth;
+    if (auth === seen) return;
+    seen = auth;
+    timings.reset();
+    if (auth?.signedIn) void timings.refresh();
+  };
+  const unsubscribe = cloud.subscribe(sync);
+  sync();
+  return unsubscribe;
 }
 
 function message(error: unknown): string {
