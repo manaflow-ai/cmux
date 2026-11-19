@@ -2331,6 +2331,8 @@ function TranscriptView({
   // Full stack height is distinct from the overlap room: a tall dock can extend beyond the
   // viewport, while an after-latest tray still needs the whole stack reserved in stage flow.
   const [dockHeight, setDockHeight] = useState(0);
+  /// Reads the bottom stack now, in a layout effect (the stack's effect below sets it).
+  const measureDock = useRef<() => void>(() => {});
   const dockHeightRef = useRef(0);
   dockHeightRef.current = dockHeight;
   /// The composer card's height, in that stack: what grows a line at a time (Shift-Return, a wrap).
@@ -2512,7 +2514,9 @@ function TranscriptView({
       rowsMove = undefined;
       return 0;
     };
-    const take = () => {
+    /// `inCommit`: called from a layout effect, whose updates React applies before the frame anyway
+    /// (flushSync is refused there); from the observer the update is flushed at once.
+    const take = (inCommit = false) => {
       noteQueue();
       const rest = toGrow();
       const drawn = over();
@@ -2530,16 +2534,20 @@ function TranscriptView({
         Math.abs(nextHeight - dockHeightRef.current) >= 0.5 ||
         Math.abs(nextCard - dockCardRef.current) >= 0.5 ||
         noticeChanged
-      )
-        flushSync(() => {
+      ) {
+        const apply = () => {
           setDockSpace(next);
           setDockHeight(nextHeight);
           setDockCard(nextCard);
           setDockTray(nextTray);
           setDockNotice(nextNotice);
-        });
+        };
+        if (inCommit) apply();
+        else flushSync(apply);
+      }
     };
-    const observer = new ResizeObserver(take);
+    measureDock.current = () => take(true);
+    const observer = new ResizeObserver(() => take());
     // perf-hot: one render and two layout reads per growth (not per frame) composer-field-growth
     const grew = (event: Event) => {
       const { detail, target } = event as FieldGrowthEvent;
@@ -2570,6 +2578,14 @@ function TranscriptView({
     };
     dock.addEventListener(FIELD_GROWTH_EVENT, grew);
     observer.observe(dock);
+    // Shown again (a tab or workspace switch back): what the stack holds now is read as the page
+    // shows, before its first frame back draws, as the transcript's own box is (`shown` below); the
+    // observer would report it only after that frame's own callbacks.
+    const doc = dock.ownerDocument;
+    const shown = () => {
+      if (doc.visibilityState !== "hidden") take();
+    };
+    doc.addEventListener("visibilitychange", shown);
     noteQueue();
     const space = over();
     const fullHeight = height();
@@ -2581,12 +2597,21 @@ function TranscriptView({
     setDockNotice(dockNoticeRef.current);
     return () => {
       observer.disconnect();
+      doc.removeEventListener("visibilitychange", shown);
       dock.removeEventListener("click", toggled, { capture: true });
       dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
       rowsMove?.cancel();
       freezeGrowthRise.current = () => {};
+      measureDock.current = () => {};
     };
   }, [dock, noteQueue]);
+  // Another transcript shown in this pane (subagent <-> chat, another chat, a workflow agent's pane):
+  // the stack under it changed in the same commit (the subagent's composer for the chat's, with the
+  // chat's hat over it), and its room is read now, in that commit, so the placement pass after it puts
+  // the last row over the new stack before any frame draws. Left to the stack's observer, the room
+  // came after the frame's own callbacks had read the rows at the old stack's room: the chat's last
+  // row 28 px low, then up by the hat's height (subagent-pane-layout-motion.test.ts `to-chat`).
+  useLayoutEffect(() => measureDock.current(), [sessionId]);
   // And each time the queue changes, in the commit that draws it. A change that leaves the stack's
   // size as it was (a prompt the fold hides, or one an opened list's cap cuts off, run by another
   // client) runs neither observer: still noted as queued, the next resize took it for a card that
