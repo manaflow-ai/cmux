@@ -28,6 +28,15 @@ struct SidebarAgentPillTests {
 
     static let states = ["idle", "running", "needsApproval", "done", "failed"]
 
+    /// The two Settings > Advanced > Experiments switches pick the arm; the beam alone turns nothing on.
+    @Test func theSwitchesPickTheArm() {
+        #expect(AgentBadgesExperiment(switches: [:]) == .off)
+        #expect(AgentBadgesExperiment(switches: ["agentBadgesBeam": true]) == .off)
+        #expect(AgentBadgesExperiment(switches: ["agentBadges": true]) == .pills)
+        #expect(AgentBadgesExperiment(switches: ["agentBadges": true, "agentBadgesBeam": false]) == .pills)
+        #expect(AgentBadgesExperiment(switches: ["agentBadges": true, "agentBadgesBeam": true]) == .beam)
+    }
+
     static func withExperiment<T>(_ experiment: AgentBadgesExperiment, _ body: () throws -> T) rethrows -> T {
         let before = DesignSettings.shared.agentBadges
         DesignSettings.shared.agentBadges = experiment

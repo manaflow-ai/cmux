@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// `experiments.agentBadges` (Settings > Experimental, off by default; taste build 5, 2026-11-19). Leo: "sidebar rows
+/// `experiments.agentBadges` (Settings > Advanced > Experiments, off by default; taste build 5, 2026-11-19). Leo: "sidebar rows
 /// get one tinted status pill (Running, Needs approval, Done); variant: a thin light beam travels along the row edge
 /// while an agent runs." Off draws the shipped row: no pill view, no beam view, no reserved width.
 ///

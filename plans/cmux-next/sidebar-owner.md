@@ -3,7 +3,7 @@
 - 2026-11-19 (lane/taste-agent-badges, taste build 5): Sidebar-Look: the desktop coordinator's taste build list,
   relaying Leo's "just build out a bunch that are really promising": "sidebar rows get one tinted status pill
   (Running, Needs approval, Done); variant: a thin light beam travels along the row edge while an agent runs."
-  Only behind Settings > Experimental > Agent Badges (`experiments.agentBadges`, off by default; nothing changes
+  Only behind Settings > Advanced > Experiments > Agent Badges (`experiments.agentBadges`, off by default; nothing changes
   off). On: one pill on the shared trailing column in place of the status mark (`SidebarAgentPill.of`), every row
   reserving the widest label's width so titles never move; Pills and Beam adds a Motion-gated Core Animation light
   on a running row's edge, removed when it stops running or leaves the screen. It puts status words on rows, which

@@ -21,7 +21,7 @@ final class SidebarTunablesWatch {
         var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
         /// Laid out, not configured: the hover close's spot and glyph size.
         var rowCloseSpot: SidebarRowCloseSpot
-        /// `experiments.agentBadges` (Settings > Experimental): a row's status pill and running beam.
+        /// `experiments.agentBadges` (Settings > Advanced > Experiments): a row's status pill and running beam.
         var agentBadges: AgentBadgesExperiment
 
         static func read() -> Snapshot {

@@ -458,7 +458,9 @@
       "agent": "settable",
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [
-        "experiments.glassToolbarGroups"
+        "experiments.glassToolbarGroups",
+        "experiments.agentBadges",
+        "experiments.agentBadgesBeam"
       ]
     },
     {

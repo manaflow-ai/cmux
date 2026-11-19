@@ -38,6 +38,8 @@
   "chrome.interfaceSize": {"case": "keep", "why": "Opt-in scale for chrome sizes, off on purpose until Lawrence promotes it; Interface Scale stays hidden from Settings."},
   "chrome.mainPane.curved": {"case": "keep", "why": "A Debug override of the appearance.chromeStyle setting, which is the real control for the curved pane."},
   "chrome.tabs.compact": {"case": "keep", "why": "Off on purpose: the familiar tab strip is the chosen look (Lawrence 10-14) and the tight strip is opt-in."},
+  "experiments.agentBadges": {"case": "keep", "why": "A taste experiment (build 5, 2026-11-19): count and status pills, off until Leo rates it; the shipped dots and spinner stay the default."},
+  "experiments.agentBadgesBeam": {"case": "keep", "why": "Agent Badges' variant (a light along a running row's edge), off until Leo rates it; no effect while Agent Badges is off."},
   "cloud.machines.layout": {"case": "keep", "why": "A layout comparison for the Cloud machine list; the rows default is the chosen one."},
   "cloud.updateMachines": {"case": "keep", "why": "A kill switch for automatically updating Cloud machines, which also touches machines where an agent works."},
   "cmuxTUI.restartUnresponsive": {"case": "keep", "why": "A kill switch for a new automatic restart of a stuck cmux-tui; keep it until the restart has proven safe."},

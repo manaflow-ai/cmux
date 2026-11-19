@@ -1,6 +1,6 @@
 {
-  "title": "Agent badges (experiments.agentBadges, Pills and Beam): an agent in a background tab runs, asks for approval, then finishes; its tab's count pill and its row's status pill change in place",
-  "settings": {"experiments": {"agentBadges": "beam"}},
+  "title": "Agent badges (experiments.agentBadges with its running beam): an agent in a background tab runs, asks for approval, then finishes; its tab's count pill and its row's status pill change in place",
+  "settings": {"experiments": {"agentBadges": true, "agentBadgesBeam": true}},
   "harnessFixture": {
     "harnesses": {
       "fake": {
