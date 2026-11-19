@@ -345,5 +345,56 @@ import Testing
         #expect(dialer.dialCount("m1b") > 0)
         #expect(live.focusedMacID == "m1")
     }
+
+    /// The hand-off's path end to end (review.sh hands a tag's phone its Mac's code, `accept`): the code's
+    /// build becomes the pick (#46718), the focus moves to it from the other build of the computer, and stays
+    /// once the code is used. Aziz's 2026-11-18 `ios-infinite-scroll-v3` run: the phone stayed on cu-all.
+    @Test func aCodeForTheOtherBuildOfTheFocusedComputerMovesTheFocusThere() async throws {
+        let userID = "user-a", teamID = "t-pick-\(UUID().uuidString.prefix(8))"
+        let pick = "cmuxMobile.live.mac.\(teamID)"
+        defer { UserDefaults.standard.removeObject(forKey: pick) }
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        let cuAll = "0ae8a0d4-d8d9-4872-b541-a48f3dc6cc50", v3 = "e7673bc3-6fc4-4184-ba29-d80ad6743844"
+        let macs = [
+            MacDevice(id: cuAll, name: "Aziz’s MacBook Pro", isOnline: true, ownerUserID: userID, machineID: machine),
+            MacDevice(id: v3, name: "Aziz’s MacBook Pro", isOnline: true, ownerUserID: userID, machineID: machine),
+        ]
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-invite-\(UUID().uuidString)")
+        let snapshots = LiveSnapshotStore(directory: directory)
+        snapshots.save(LiveSnapshot(
+            teamID: teamID, teamName: "One", macs: macs, linkedMacID: cuAll,
+            workspaces: Dictionary(uniqueKeysWithValues: macs.map { ($0.id, .init(workspaces: [], savedAt: Date())) })
+        ), accountID: userID)
+        snapshots.flush()
+        let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
+        ServiceStub.install(host: host) { _ in nil }
+        let secrets = MemorySecretStore()
+        let dialer = PerMacDialer()
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let live = LiveCoordinator(
+            store: store,
+            api: LiveAPI(baseURL: URL(string: "https://\(host)")!, session: ServiceStub.session()) { _ in "token" },
+            identity: DeviceIdentity(link: UUID().uuidString, presence: UUID().uuidString),
+            userID: userID, deviceName: "iPhone", transport: .wireGuard, dialer: dialer,
+            feedStore: FeedStore(items: []),
+            keys: PhoneKeys(userID: userID, service: "test.invite.\(UUID())", store: secrets, enclave: false),
+            snapshots: snapshots, secrets: secrets,
+            readMarks: FeedReadMarks(url: directory.appending(path: "read.json"))
+        )
+        defer { live.stop() }
+        live.showing(macIDs: nil)
+        for _ in 0..<3000 where store.macConnection[cuAll] != .connected { try? await Task.sleep(for: .milliseconds(1)) }
+        #expect(live.focusedMacID == cuAll)
+        let invite = try #require(PairInvite(text: PairInviteTests.url(mac: v3, team: teamID)))
+        #expect(live.accept(invite))
+        for _ in 0..<3000 where live.focusedMacID != v3 { try? await Task.sleep(for: .milliseconds(1)) }
+        #expect(live.focusedMacID == v3)
+        #expect(store.activeTeam?.pickedMacID == v3)
+        #expect(store.activeTeam?.listedMacs.map(\.id) == [v3])
+        // The code used up, the phone stays on v3.
+        live.pairing?.invites.drop()
+        live.retarget()
+        #expect(live.focusedMacID == v3)
+    }
 }
 #endif
