@@ -351,11 +351,13 @@ fn derive_at(
 
 // The color math (Swift `AppColor`, the web `color.ts`).
 
-#[derive(Clone, Copy)]
-struct Oklch {
-    l: f64,
-    c: f64,
-    h: f64,
+/// An OKLCH color: lightness 0...1, chroma, hue in degrees 0..<360 (Swift
+/// `ThemeRGB.oklch`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Oklch {
+    pub l: f64,
+    pub c: f64,
+    pub h: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -396,7 +398,8 @@ fn contrast(a: Rgb, b: Rgb) -> f64 {
     (x.max(y) + 0.05) / (x.min(y) + 0.05)
 }
 
-fn oklch(c: Rgb) -> Oklch {
+/// The OKLCH value of an opaque sRGB color (Swift `ThemeRGB.oklch`).
+pub fn oklch(c: Rgb) -> Oklch {
     let (r, g, b) = (linear(c.r), linear(c.g), linear(c.b));
     let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
     let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
@@ -425,8 +428,9 @@ fn in_gamut((r, g, b): (f64, f64, f64)) -> bool {
     [r, g, b].iter().all(|v| *v >= -1e-4 && *v <= 1.0 + 1e-4)
 }
 
-/// The sRGB color of an OKLCH value; out of gamut, chroma drops until it fits.
-fn from_oklch(v: Oklch) -> Rgb {
+/// The sRGB color of an OKLCH value; out of gamut, chroma drops until it fits
+/// (Swift `ThemeRGB(oklchLightness:chroma:hue:)`).
+pub fn from_oklch(v: Oklch) -> Rgb {
     let l = v.l.clamp(0.0, 1.0);
     let mut low = 0.0;
     let mut high = v.c.max(0.0);
@@ -448,6 +452,18 @@ fn from_oklch(v: Oklch) -> Rgb {
 
 fn meets(color: Rgb, constraints: &[Constraint]) -> bool {
     constraints.iter().all(|c| contrast(color, c.on) >= c.minimum)
+}
+
+/// `color`, as its 8-bit hex rounds it, with the smallest OKLCH lightness
+/// change that gives it at least each `(on, minimum)` contrast; `lighter`
+/// tries that way first (None: away from the constraints' average). The app
+/// theme's own fit, for other derivations (Swift
+/// `ThemeRGB.fitted(contrast:lighter:)`).
+pub fn fit_contrast(color: Rgb, on: &[(Rgb, f64)], lighter: Option<bool>) -> Rgb {
+    let constraints: Vec<Constraint> =
+        on.iter().map(|&(on, minimum)| Constraint { on, minimum }).collect();
+    let prefer = lighter.map(|up| if up { Direction::Lighter } else { Direction::Darker });
+    fit(color, &constraints, prefer)
 }
 
 /// `color` with the smallest OKLCH lightness change that meets every

@@ -2060,6 +2060,123 @@
             "softer",
             "frame"
           ]
+        },
+        {
+          "key": "appearance.twoTone",
+          "note": "A toggle under any chrome style and any theme: the sidebar and the tab bar in tone A, the content panes (terminal, agent pane, New Tab page, Home) in tone B, the accent fitted to both. Off (the default), From Theme (auto) or a curated pairing; the colors and the pairing table are Rust (cmux-config theme_file::two_tone; the Swift TwoTone mirrors it, checked by schemas/settings/two-tone-fixture.json). An explicit appearance.surfaces.<surface>.color wins. Leo 2026-11-19: the two-tone is just one of the toggles you can have; what would actually look good and not eyesore-ish.",
+          "title": {
+            "key": "settings.appearance.twoTone",
+            "text": "Two-Tone"
+          },
+          "help": {
+            "key": "settings.appearance.twoTone.help",
+            "text": "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme."
+          },
+          "summary": {
+            "key": "settings.appearance.twoTone.summary",
+            "text": "A second tone for the sidebar and tab bar"
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "TwoTone",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "TwoToneSetting",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.twoTone.auto",
+                "text": "From Theme"
+              },
+              "note": "Tone A from the theme's background and accent; the content keeps the theme's own."
+            },
+            {
+              "value": "inkSakura",
+              "title": {
+                "key": "settings.choice.twoTone.inkSakura",
+                "text": "Ink & Sakura"
+              }
+            },
+            {
+              "value": "charcoalRose",
+              "title": {
+                "key": "settings.choice.twoTone.charcoalRose",
+                "text": "Charcoal & Rose"
+              }
+            },
+            {
+              "value": "inkMagenta",
+              "title": {
+                "key": "settings.choice.twoTone.inkMagenta",
+                "text": "Ink Blue & Magenta"
+              }
+            },
+            {
+              "value": "creamForest",
+              "title": {
+                "key": "settings.choice.twoTone.creamForest",
+                "text": "Cream & Forest"
+              }
+            },
+            {
+              "value": "navySand",
+              "title": {
+                "key": "settings.choice.twoTone.navySand",
+                "text": "Navy & Sand"
+              }
+            },
+            {
+              "value": "boneOxblood",
+              "title": {
+                "key": "settings.choice.twoTone.boneOxblood",
+                "text": "Bone & Oxblood"
+              }
+            },
+            {
+              "value": "slateMatcha",
+              "title": {
+                "key": "settings.choice.twoTone.slateMatcha",
+                "text": "Slate & Matcha"
+              }
+            },
+            {
+              "value": "plumAmber",
+              "title": {
+                "key": "settings.choice.twoTone.plumAmber",
+                "text": "Plum & Amber"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "two tone",
+            "two-tone",
+            "duotone",
+            "tone",
+            "pairing",
+            "sidebar",
+            "tab bar",
+            "chrome",
+            "color",
+            "sakura",
+            "pink",
+            "magenta",
+            "forest",
+            "sand",
+            "oxblood",
+            "matcha",
+            "amber",
+            "palette"
+          ]
         }
       ]
     },

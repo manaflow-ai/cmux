@@ -446,3 +446,18 @@ fn the_settings_owner_keeps_the_keys_changed_over_the_theme_file() {
     assert!(file.keys().is_empty(), "{:?}", file.keys());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `appearance.twoTone` is a look key: a theme file may switch the two-tone on
+/// (`theme_file::two_tone`), and a value outside the list is refused.
+#[test]
+fn a_theme_file_sets_the_two_tone_toggle() {
+    let row =
+        Schema::embedded().row(two_tone::SETTING_KEY).expect("the schema has appearance.twoTone");
+    assert!(is_look(row));
+    let file = overlay(r#"{ "appearance": { "twoTone": "inkSakura" } }"#);
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(at(&root, two_tone::SETTING_KEY), Some(&json!("inkSakura")));
+    let refused = overlay(r#"{ "appearance.twoTone": "neon" }"#);
+    assert_eq!(refused.diagnostics.len(), 1, "{:?}", refused.diagnostics);
+}
