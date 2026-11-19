@@ -1280,7 +1280,11 @@ def main():
     if opts.record:
         # Each pane's feed ends with one line in a colour that the window's backdrop cannot show (by the app's answer).
         MARKER.append(marker_color(shown))
-        conditions["stills"] = {"marker_color": MARKER[0], "record_seconds": opts.record_seconds}
+        conditions["stills"] = {"marker_color": MARKER[0], "record_seconds": opts.record_seconds,
+                                # The layouts are built one time: the timed rounds of this run have the line too.
+                                "scene": "each pane that the suite feeds has 1 line more than in a run without --record "
+                                         "(the stills' marker line), in the timed rounds of this run too"}
+        print(f"STILLS SCENE: {conditions['stills']['scene']}", flush=True)
         row("--record: the marker line has a colour", "a colour far from the backdrop's, by the app's answer", str(MARKER[0]), MARKER[0] is not None)
     print("CONDITIONS " + json.dumps(conditions), flush=True)
     report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback,
