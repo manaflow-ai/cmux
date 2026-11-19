@@ -6478,7 +6478,11 @@ a.cv-sha:focus-visible {
   background: transparent;
 }
 /* A reply's HTML or SVG fence previewed inline (InlinePreview.tsx): the render card's look, and a
-   text action (Code, Preview, Run) in the code card's header row. */
+   text action (Code, Preview, Run) in the code card's header row. The card is the size container of
+   the height an SVG preview holds before its frame reports one (previewDocument.ts svgPreviewHeight). */
+.cv-inline-preview {
+  container-type: inline-size;
+}
 .cv-inline-preview .acpmux-render-card-head .cv-codeblock__actions {
   display: flex;
   align-items: center;
