@@ -32,7 +32,8 @@ async fn model_ids(hub: &Hub) -> Vec<String> {
 
 async fn probed(hub: &Hub, dir: &std::path::Path, ids: &[&str]) -> bool {
     let profile = hub.config.read().await.harnesses["acme"].clone();
-    let changed = hub.remember_models_from("acme", None, Some(&listed(ids)));
+    let now = hub.model_lists.stamp();
+    let changed = hub.remember_models_from("acme", None, Some(&listed(ids)), now);
     hub.keep_probed_models_in(dir.to_path_buf(), "acme", &profile, changed).await;
     changed
 }
@@ -51,9 +52,9 @@ async fn a_restarted_daemon_serves_the_last_probed_acp_list_at_once() {
     next.load_acp_cache_from(dir.path().to_path_buf()).await;
     assert_eq!(model_ids(&next).await, vec!["m-one".to_owned(), "m-two".to_owned()]);
     // Served from disk, so the probe still runs for it, and its answer replaces the copy.
-    assert!(next.acp_from_disk.lock().unwrap().contains("acme"));
+    assert_eq!(next.model_lists.acp_freshness("acme"), Freshness::Stale);
     assert!(probed(&next, dir.path(), &["m-three"]).await);
-    assert!(!next.acp_from_disk.lock().unwrap().contains("acme"));
+    assert_eq!(next.model_lists.acp_freshness("acme"), Freshness::Fresh);
     assert_eq!(model_ids(&next).await, vec!["m-three".to_owned()]);
 
     let third = hub(&["acme-acp"]);
@@ -69,7 +70,7 @@ async fn a_changed_profile_gets_no_cached_list() {
     let other = hub(&["acme-acp", "--other"]);
     other.load_acp_cache_from(dir.path().to_path_buf()).await;
     assert_eq!(model_ids(&other).await, vec!["default".to_owned()]);
-    assert!(other.acp_from_disk.lock().unwrap().is_empty());
+    assert_eq!(other.model_lists.acp_freshness("acme"), Freshness::Missing);
 }
 
 /// A probe that changed the served list tells the watchers (`_acpmux/harnesses_changed`);
@@ -121,6 +122,41 @@ async fn a_refresh_keeps_serving_the_lists_while_its_probes_run() {
     refresh.abort();
 }
 
+/// Bench-style: 1000 picker reads (`models_catalog`, what `_acpmux/models` answers) while a
+/// refresh's probe never answers. Prints how many drew the harness's list and how long the
+/// reads took; none may wait on the probe.
+#[tokio::test]
+async fn bench_picker_reads_during_a_refresh_never_wait_and_keep_the_list() {
+    const READS: usize = 1000;
+    let dir = tempfile::tempdir().unwrap();
+    let hub = hub(&["acme-acp"]);
+    assert!(probed(&hub, dir.path(), &["m-one", "m-two"]).await);
+    hub.startup_ready.send_replace(false);
+    let refreshing = hub.clone();
+    let refresh = tokio::spawn(async move { refreshing.refresh_models().await });
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    let started = std::time::Instant::now();
+    let mut with_list = 0;
+    for _ in 0..READS {
+        if model_ids(&hub).await.len() == 2 {
+            with_list += 1;
+        }
+    }
+    let elapsed = started.elapsed();
+    eprintln!(
+        "picker reads during a refresh: {with_list}/{READS} drew the list, {:?} total, {:?} per read; refresh still probing: {}",
+        elapsed,
+        elapsed / READS as u32,
+        !refresh.is_finished()
+    );
+    assert!(!refresh.is_finished());
+    assert_eq!(with_list, READS);
+    assert!(elapsed < std::time::Duration::from_secs(5), "{elapsed:?}");
+    refresh.abort();
+}
+
 /// The first `_acpmux/models` of a starting daemon waits for the disk lists: answered
 /// before them, it named only "default", and the cached list arriving after it announced
 /// nothing, so a pane with no list of its own stayed empty (#39080 review).
@@ -166,7 +202,7 @@ async fn level_variants_in_the_model_list_become_each_models_efforts() {
         "gemini-3.8-flash-low",
         "gpt-oss-120b-medium",
     ]);
-    assert!(hub.remember_models_from("acme", Some(&options), Some(&available)));
+    assert!(hub.remember_models_from("acme", Some(&options), Some(&available), hub.model_lists.stamp()));
     let catalog = hub.models_catalog().await;
     let row = catalog["harnesses"]
         .as_array()
@@ -182,9 +218,9 @@ async fn level_variants_in_the_model_list_become_each_models_efforts() {
     assert_eq!(efforts("gemini-3.8-flash"), json!(["low", "medium", "high"]));
     assert_eq!(efforts("gpt-oss-120b-medium"), Value::Null);
     // The same report again changes nothing.
-    assert!(!hub.remember_models_from("acme", Some(&options), Some(&available)));
+    assert!(!hub.remember_models_from("acme", Some(&options), Some(&available), hub.model_lists.stamp()));
     // A resumed chat's answer with no `availableModels` keeps the levels.
-    hub.remember_models_from("acme", Some(&options), None);
+    hub.remember_models_from("acme", Some(&options), None, hub.model_lists.stamp());
     assert_eq!(hub.known_efforts.lock().unwrap()["acme"]["gemini-3.8-flash"].len(), 3);
 }
 

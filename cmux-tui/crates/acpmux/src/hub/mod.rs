@@ -216,6 +216,7 @@ mod model_alias;
 pub(crate) mod model_availability;
 mod model_hint;
 mod model_options;
+mod model_lists;
 mod model_probe;
 mod models_view;
 mod moved_forward;
@@ -1252,17 +1253,16 @@ pub struct Hub {
     /// `SAVE_EVERY_MS` in tests that wait for a put-off save (`peer_cache.rs`).
     #[cfg(test)]
     pub(super) cache_test_save_every_ms: AtomicU64,
-    /// Models each agent has advertised, keyed by agent profile name. Filled
-    /// whenever a session starts, so the picker can list a harness that has
-    /// no live session.
-    pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
+    /// Every harness's model lists, ACP and live, in one tagged cache (`hub/model_lists.rs`):
+    /// the ACP lists agents advertise (a session start, a probe) and the lists of Claude Code's
+    /// and Codex's own CLIs (`hub/live_models.rs`, richer: efforts, fast). A refresh, a profile
+    /// change or a CLI update marks lists stale; a stale list is served until its probe answers.
+    pub(super) model_lists: model_lists::ModelLists,
     /// The ACP lists kept on disk by earlier probes (`live_models::AcpCache`), read once at
     /// start: by harness, the profile key it was probed under and the list. Each fills
-    /// `known_models` for a profile with the same key until its probe answers (`model_probe.rs`).
+    /// `model_lists`, stale, for a profile with the same key until its probe answers
+    /// (`model_probe.rs`).
     pub(super) acp_cached: StdMutex<HashMap<String, (String, Vec<(String, String)>)>>,
-    /// The harnesses whose `known_models` entry is that disk copy, not a report of this
-    /// daemon's: the probe still runs for them.
-    pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
     /// What each ACP harness's startup probe's `session/new` answered about a new chat's choices,
     /// by profile name: its `modes` and `configOptions`, as sent. A `_acpmux/harnesses` row's
     /// `reported` falls back to it until a chat of the harness reports (`start_mode.rs`).
@@ -1270,14 +1270,13 @@ pub struct Hub {
     /// Each agent's reasoning levels per model, from the level variants its model list names
     /// (`model_catalog::variant_efforts`): the `efforts` of its rows in `_acpmux/models`.
     pub(super) known_efforts: StdMutex<HashMap<String, HashMap<String, Vec<String>>>>,
-    /// Model lists from Claude Code's and Codex's own CLIs, by profile name
-    /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
-    pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
     /// The model ids Codex chats reported that each live list lacked, by profile name, each
     /// already probed again for once (`recheck_live_models`).
     pub(super) live_rechecks: StdMutex<HashMap<String, std::collections::HashSet<String>>>,
     /// When each live list's probe last started (`hub/live_ages.rs`): a read probes an old one again.
     pub(super) live_ages: StdMutex<live_ages::LiveAges>,
+    /// A check of the live lists' programs is running (`revalidate_live_models`): one at a time.
+    pub(super) live_binary_check: std::sync::atomic::AtomicBool,
     /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
     pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
     /// False while the daemon finishes startup work (login environment,
@@ -1829,14 +1828,13 @@ impl Hub {
             peer_cache_kick: Notify::new(),
             #[cfg(test)]
             cache_test_save_every_ms: AtomicU64::new(peer_cache::SAVE_EVERY_MS),
-            known_models: StdMutex::new(HashMap::new()),
+            model_lists: model_lists::ModelLists::default(),
             acp_cached: StdMutex::new(HashMap::new()),
-            acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             probed_choices: StdMutex::new(HashMap::new()),
             known_efforts: StdMutex::new(HashMap::new()),
-            live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             live_ages: StdMutex::new(live_ages::LiveAges::default()),
+            live_binary_check: std::sync::atomic::AtomicBool::new(false),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
             local_ready: tokio::sync::watch::channel(start_peers).0,
