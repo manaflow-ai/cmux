@@ -8,7 +8,8 @@ name: cmux NEXT helper (dev) signing
 # sdk     resolves the feat-cmux-next commit and reads its SDK pin through
 #         the API, then downloads the pinned Cua Driver SDK tarball with main's
 #         presign-r2-url.py and checks its sha256, on Blacksmith Linux. No
-#         feat-cmux-next code runs where the R2 key is.
+#         feat-cmux-next code runs where the R2 key is. A `remote` commit with
+#         no SDK pin (the Rust engine, #37003) skips the SDK.
 # build   feat-cmux-next's selected build script on an owned Mac first. It
 #         holds no secret: the SDK tarball comes from the sdk job and is
 #         checked against its pin again.
@@ -75,6 +76,7 @@ jobs:
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
       source_pr: ${{ steps.resolve.outputs.source_pr }}
+      has_sdk: ${{ steps.resolve.outputs.has_sdk }}
     steps:
       # Every workflow shares one installation API budget an hour; run 43888568476
       # (2026-11-16) died on its first gh read with "API rate limit exceeded for
@@ -130,12 +132,16 @@ jobs:
           sparse-checkout-cone-mode: false
 
       # The input may name an ancestor or an exact open PR head for feat-cmux-next.
+      # A cmux Remote whose engine is the Rust libcmux_computer_use.dylib (#37003)
+      # has no SDK pin: that commit builds no SDK in, so the SDK steps are skipped
+      # and main's signer takes the Rust engine. Computer Use always needs the pin.
       - name: Require a feat-cmux-next commit and read its SDK pin
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           WANT: ${{ inputs.sha || 'feat-cmux-next' }}
+          HELPER: ${{ inputs.helper || 'computer-use' }}
         run: |
           set -euo pipefail
           sha="$(gh api "repos/$GH_REPO/commits/$WANT" --jq .sha)"
@@ -175,6 +181,14 @@ jobs:
             source_pr="$pr_number"
             echo "Resolved unmerged feat-cmux-next PR #$pr_number at exact head $sha" >> "$GITHUB_STEP_SUMMARY"
           fi
+          has_sdk="$(gh api "repos/$GH_REPO/contents/scripts/cmux-next?ref=$sha" \
+            --jq '[.[].name] | index("cua-driver-sdk.pin.json") != null')"
+          if [[ "$has_sdk" != true ]]; then
+            [[ "$HELPER" == remote ]] || { echo "::error::$sha has no scripts/cmux-next/cua-driver-sdk.pin.json; the $HELPER helper needs it" >&2; exit 1; }
+            { echo "sha=$sha"; echo "source_pr=$source_pr"; echo "has_sdk=false"; } >> "$GITHUB_OUTPUT"
+            echo "Building the dev helper from feat-cmux-next $sha (no SDK pin: the Rust Computer Use engine)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           gh api -H 'Accept: application/vnd.github.raw+json' \
             "repos/$GH_REPO/contents/scripts/cmux-next/cua-driver-sdk.pin.json?ref=$sha" > "$RUNNER_TEMP/sdk-pin.json"
           # The pin is data: a content-addressed key in the cmux-cef bucket, nothing else.
@@ -189,10 +203,11 @@ jobs:
           print(sha, key)
           PY
           )
-          { echo "sha=$sha"; echo "source_pr=$source_pr"; echo "sdk_sha=$sdk_sha"; echo "key=$key"; } >> "$GITHUB_OUTPUT"
+          { echo "sha=$sha"; echo "source_pr=$source_pr"; echo "has_sdk=true"; echo "sdk_sha=$sdk_sha"; echo "key=$key"; } >> "$GITHUB_OUTPUT"
           echo "Building the dev helper from feat-cmux-next $sha (SDK $sdk_sha)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fetch the pinned SDK tarball
+        if: steps.resolve.outputs.has_sdk == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
@@ -209,6 +224,7 @@ jobs:
           echo "$WANT  $RUNNER_TEMP/sdk/cua-driver-sdk.tar.gz" | sha256sum -c -
 
       - name: Upload the SDK tarball
+        if: steps.resolve.outputs.has_sdk == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cua-driver-sdk
@@ -245,6 +261,7 @@ jobs:
           submodules: false
 
       - name: Download the SDK tarball
+        if: needs.sdk.outputs.has_sdk == 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cua-driver-sdk
@@ -258,7 +275,7 @@ jobs:
         id: build
         env:
           HELPER: ${{ inputs.helper || 'computer-use' }}
-          CMUX_CUA_SDK_TARBALL: ${{ runner.temp }}/sdk/cua-driver-sdk.tar.gz
+          CMUX_CUA_SDK_TARBALL: ${{ needs.sdk.outputs.has_sdk == 'true' && format('{0}/sdk/cua-driver-sdk.tar.gz', runner.temp) || '' }}
           CMUX_CUA_ASSET_NO_STORE: "1"
           CMUX_CUA_ASSET_CACHE_DIR: ${{ runner.temp }}/cua-assets
         run: |
