@@ -93,6 +93,11 @@ public final class PaneContentAreaView: NSView {
     /// pane has its terminal's ground from the key's frame, never the window's color.
     public var waitingGround: CGColor? { didSet { paintGround() } }
 
+    /// Content comes next into the area and is not made yet (a split's new terminal in its key's frame). A fact of
+    /// its own, not ``waitingGround``: over a window that is not opaque a terminal paints no ground, so the area
+    /// waits there with no ground. A pane whose area waits rides its move (`NSView.paneRidesCommitMotion`).
+    public var waitsForContent = false
+
     /// The ground the area paints where no view above paints its pane's ground (``PaneGroundOwning``).
     private var ownGround: CGColor? { waitingGround ?? (paintsRestingGround ? restingGround : nil) }
 

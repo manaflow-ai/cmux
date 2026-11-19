@@ -312,6 +312,14 @@ final class LayoutViewContext {
         return hid
     }
 
+    /// The panes that a zoom of `screen` covers and keeps for the unzoom (`Retirement.zoom`). The zoom's move shows
+    /// them until the zoomed pane covers them, and the unzoom shows them again in its first frame. So the layout
+    /// reports them as kept, not as hidden (`ScreenContentView.keepAlivePanes()`): reported hidden, their content
+    /// could go at the zoom's first frame and come back late at the unzoom.
+    func zoomCovered(of screen: ScreenID) -> [PaneID] {
+        retired.compactMap { $0.value.screen == screen && $0.value.until == .zoom ? $0.key : nil }
+    }
+
     /// Whether `pane` left the layout in a close whose host has not gone yet: it waits for the close to show, or,
     /// hidden, for the commit of the frame that showed it.
     func isClosing(_ pane: PaneID) -> Bool {
