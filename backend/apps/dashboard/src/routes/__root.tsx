@@ -21,7 +21,8 @@ header a { color:var(--fg); text-decoration:none; } header a.active { color:var(
 main { max-width: 960px; margin: 0 auto; padding: 20px 16px; }
 table { width:100%; border-collapse: collapse; } th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align: top; }
 code, .mono { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
-button { font: inherit; padding: 4px 10px; border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:6px; cursor:pointer; }
+button, a.button { font: inherit; padding: 4px 10px; border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:6px; cursor:pointer; }
+a.button { display:inline-block; text-decoration:none; }
 button.danger { color: var(--bad); }
 input, select { font: inherit; padding: 6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
 .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; margin: 12px 0; overflow-x:auto; }

@@ -1,11 +1,13 @@
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start"
 import { deleteCookie, getCookie, getRequestHeader, setCookie } from "@tanstack/react-start/server"
 import { accessTokenSubject, apiUserId, DEVELOPMENT_API_URL, DEVELOPMENT_STATE_ISSUER, developmentRefusal, integrationCompletionApi, integrationStateSignedBy } from "./integration-callback"
+import { ACCESS_COOKIE, ACCESS_MAX_AGE_SECONDS, REFRESH_COOKIE, REFRESH_MAX_AGE_SECONDS } from "./sign-in-flow"
 import { teamHeaders } from "./team-scope"
 
 /**
  * Server functions. They call only the cmux API Worker and Stack Auth's client
- * REST API (sign-in, refresh); never a database (spec D1).
+ * REST API (refresh); never a database (spec D1). Sign-in is the code + PKCE
+ * hand-off with cmux.com in sign-in-flow.ts.
  *
  * Session: the Stack access and refresh tokens live in HttpOnly, Secure,
  * SameSite=Lax cookies set here. Browser code never reads them; server
@@ -14,8 +16,9 @@ import { teamHeaders } from "./team-scope"
  */
 
 // __Host- names: Secure, path=/, no Domain, so sibling *.cmux.dev hosts cannot plant or read them.
-const ACCESS = "__Host-cmux_at"
-const REFRESH = "__Host-cmux_rt"
+// Sign in with cmux (sign-in-flow.ts, GET /auth/handoff) sets them; this file refreshes and clears them.
+const ACCESS = ACCESS_COOKIE
+const REFRESH = REFRESH_COOKIE
 
 /**
  * CSRF: SameSite=Lax still lets a sibling *.cmux.dev page POST here (same site), so every
@@ -50,29 +53,14 @@ const stackHeaders = () => {
 
 const setSession = (access: string, refresh?: string) => {
   // Stack access tokens live about 10 minutes; the cookie never outlives the token by much.
-  setCookie(ACCESS, access, { ...cookieBase, maxAge: 60 * 60 })
-  if (refresh) setCookie(REFRESH, refresh, { ...cookieBase, maxAge: 60 * 60 * 24 * 30 })
+  setCookie(ACCESS, access, { ...cookieBase, maxAge: ACCESS_MAX_AGE_SECONDS })
+  if (refresh) setCookie(REFRESH, refresh, { ...cookieBase, maxAge: REFRESH_MAX_AGE_SECONDS })
 }
 
 const clearSession = () => {
   deleteCookie(ACCESS, cookieBase)
   deleteCookie(REFRESH, cookieBase)
 }
-
-export const signIn = createServerFn({ method: "POST" })
-  .validator((d: { email: string; password: string }) => d)
-  .handler(async ({ data }): Promise<{ ok: true } | { error: string }> => {
-    requireSameOrigin()
-    const res = await fetch("https://api.stack-auth.com/api/v1/auth/password/sign-in", {
-      method: "POST",
-      headers: stackHeaders(),
-      body: JSON.stringify({ email: data.email, password: data.password })
-    })
-    const body = (await res.json()) as { access_token?: string; refresh_token?: string; error?: string; code?: string }
-    if (!res.ok || !body.access_token || !body.refresh_token) return { error: body.code ?? body.error ?? `sign-in failed (${res.status})` }
-    setSession(body.access_token, body.refresh_token)
-    return { ok: true }
-  })
 
 export const signOut = createServerFn({ method: "POST" }).handler(async () => {
     requireSameOrigin()

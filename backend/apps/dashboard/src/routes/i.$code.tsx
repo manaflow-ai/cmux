@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useState, useSyncExternalStore } from "react"
 import { INVITE_CODE, inviteAccept, invitePreview, publicOrigin, type InvitePreview } from "../lib/invites"
-import { saveReturnPath } from "../lib/return-path"
+import { saveReturnPath, signInHref } from "../lib/return-path"
 
 const TITLE = "You're invited to chat on cmux"
 const DESCRIPTION = "Join the conversation with people and their AI chiefs. Open the link to see who invited you."
@@ -68,8 +68,9 @@ function InvitePage() {
     setBusy(false)
     if (r.ok) return setStatus("You joined the conversation. Open cmux on your Mac or iPhone to reply.")
     if (!r.signedIn) {
+      // The fragment (the secret) stays in sessionStorage; the flow returns to the sign-in page, which resumes it.
       saveReturnPath(`/i/${code}#${secret}`)
-      return window.location.assign("/")
+      return window.location.assign(signInHref("/"))
     }
     setStatus(r.message)
   }
