@@ -45,8 +45,11 @@ export const failedTurn = () => [
 const failedEmptyTurn = () => [user(prompt, 6), summary(5.9, { status: "failed", durationMs: 3_000, error: apiError })];
 
 const rowAtRest = async (ctx: PlayContext) => {
-  const row = await ctx.waitFor(() => ctx.document.querySelector(".acpmux-turnSummary .cv-turn-actions"));
-  if (row && Number(getComputedStyle(row).opacity) < 1) throw new Error("The turn's footer row must show at rest");
+  const find = () => ctx.document.querySelector(".acpmux-turnSummary .cv-turn-actions");
+  await ctx.waitFor(find);
+  const row = find();
+  if (!row) throw new Error("The turn's footer row is missing");
+  if (Number(getComputedStyle(row).opacity) < 1) throw new Error("The turn's footer row must show at rest");
 };
 
 const copyAtRest = async (ctx: PlayContext) => {
