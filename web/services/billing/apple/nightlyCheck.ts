@@ -378,3 +378,122 @@ export async function checkServerApi(input: {
     return { ok: false, status: null, failure: `subscription status lookup failed: ${describeError(error)}` };
   }
 }
+
+/** Notifications Apple returns for the last day of Production history (one page). */
+export async function historyCount(
+  api: { getNotificationHistory(paginationToken: string | null, request: { startDate: number; endDate: number }): Promise<{ notificationHistory?: readonly unknown[] }> },
+  nowMs: number,
+): Promise<number> {
+  const response = await api.getNotificationHistory(null, { startDate: nowMs - 24 * 60 * 60 * 1000, endDate: nowMs });
+  return response.notificationHistory?.length ?? 0;
+}
+
+export type PostReleaseStep = {
+  readonly name: "delivery" | "stored" | "history" | "cursor";
+  readonly ok: boolean;
+  readonly detail: string;
+};
+
+export type PostReleaseReport = {
+  readonly ok: boolean;
+  readonly steps: readonly PostReleaseStep[];
+};
+
+type CursorAnswer = { readonly status: number; readonly body: unknown };
+type CursorBody = { found?: unknown; position?: unknown; retryableRuns?: unknown; nextStartAt?: unknown; updatedAt?: unknown };
+
+function cursorPosition(answer: CursorAnswer): { readonly position: string | null } | null {
+  if (answer.status !== 200) return null;
+  const body = answer.body as CursorBody | null;
+  return { position: body?.found === true && typeof body.position === "string" ? body.position : null };
+}
+
+/**
+ * Waits until the Production backfill cursor's position differs from
+ * `baseline` (a new window or page, or a first cursor where there was none).
+ * The cron runs every 30 minutes, so the default wait is 35.
+ */
+async function waitForCursorMove(
+  readCursor: () => Promise<CursorAnswer>,
+  baseline: CursorAnswer,
+  clock: NightlyClock,
+  timeoutMs: number,
+  intervalMs: number,
+): Promise<PostReleaseStep> {
+  const start = cursorPosition(baseline);
+  if (!start) return { name: "cursor", ok: false, detail: `the cursor read answered HTTP ${baseline.status} ${JSON.stringify(baseline.body)}` };
+  const deadline = clock.now() + timeoutMs;
+  let last = baseline;
+  for (;;) {
+    last = await readCursor().catch((error: unknown) => ({ status: 0, body: { error: describeError(error) } }));
+    const now = cursorPosition(last);
+    if (!now) return { name: "cursor", ok: false, detail: `the cursor read answered HTTP ${last.status} ${JSON.stringify(last.body)}` };
+    if (now.position !== null && now.position !== start.position) {
+      const body = last.body as CursorBody;
+      return { name: "cursor", ok: true, detail: `moved (next start ${String(body.nextStartAt)}, saved ${String(body.updatedAt)})` };
+    }
+    if (!(await pauseUntil(clock, deadline, intervalMs))) {
+      const body = last.body as CursorBody | null;
+      return {
+        name: "cursor",
+        ok: false,
+        detail: `did not move within ${Math.round(timeoutMs / 60_000)} min (found ${String(body?.found)}, retryable stalls ${String(body?.retryableRuns ?? 0)})`,
+      };
+    }
+  }
+}
+
+/**
+ * The check to run once the app has its first App Store release, all in
+ * Production and with no lock fallback: a TEST notification Apple delivers,
+ * cmux.com stores it, a notification-history call answers, and the backfill
+ * cursor moves. Every step runs and reports, so one failure does not hide
+ * the others.
+ */
+export async function checkPostRelease(input: {
+  readonly client: NightlyAppleClient;
+  readonly readHealth: HealthReader;
+  readonly readCursor: () => Promise<CursorAnswer>;
+  readonly productionHistory: () => Promise<number>;
+  readonly clock: NightlyClock;
+  readonly timeoutMs?: number;
+  readonly intervalMs?: number;
+  readonly cursorTimeoutMs?: number;
+  readonly cursorIntervalMs?: number;
+}): Promise<PostReleaseReport> {
+  const baseline = await input.readCursor().catch((error: unknown) => ({ status: 0, body: { error: describeError(error) } }));
+  const delivery = await checkAppleDelivery({
+    client: input.client,
+    readHealth: input.readHealth,
+    clock: input.clock,
+    environment: "Production",
+    timeoutMs: input.timeoutMs,
+    intervalMs: input.intervalMs,
+  });
+  const steps: PostReleaseStep[] = [
+    {
+      name: "delivery",
+      ok: delivery.appleDelivered,
+      detail: delivery.appleDelivered
+        ? `Apple delivered ${delivery.notificationUuid ?? "the TEST notification"} (${delivery.attempts.map((a) => a.result).join(", ")})`
+        : delivery.failure ?? "Apple did not deliver",
+    },
+    {
+      name: "stored",
+      ok: delivery.recorded,
+      detail: delivery.recorded
+        ? `cmux.com stored it, received ${delivery.receivedAt}, processed ${delivery.processedAt ?? "not yet"}`
+        : delivery.appleDelivered ? delivery.failure ?? "not recorded" : "not checked: Apple did not deliver",
+    },
+  ];
+  try {
+    const count = await input.productionHistory();
+    steps.push({ name: "history", ok: true, detail: `Production notification history answered with ${count} notification(s) for the last day` });
+  } catch (error) {
+    steps.push({ name: "history", ok: false, detail: `Production notification history failed: ${describeError(error)}` });
+  }
+  steps.push(await waitForCursorMove(
+    input.readCursor, baseline, input.clock, input.cursorTimeoutMs ?? 35 * 60_000, input.cursorIntervalMs ?? 60_000,
+  ));
+  return { ok: steps.every((step) => step.ok), steps };
+}

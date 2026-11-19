@@ -36,7 +36,7 @@ nightly = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = nightly
 spec.loader.exec_module(nightly)
 
-SECRET_JOBS = ("apple-delivery", "apple-api", "alert")
+SECRET_JOBS = ("apple-delivery", "apple-api", "apple-post-release", "alert")
 
 
 def jobs_text() -> dict[str, str]:
@@ -84,7 +84,7 @@ class Workflow(unittest.TestCase):
                     self.assertNotIn("contents: write", block)
 
     def test_apple_jobs_skip_until_configured(self) -> None:
-        for job in ("apple-delivery", "apple-api"):
+        for job in ("apple-delivery", "apple-api", "apple-post-release"):
             block = self.jobs[job]
             with self.subTest(job=job):
                 self.assertIn("scripts/ci/billing_nightly.py config --environment billing-nightly", block)
@@ -104,6 +104,13 @@ class Workflow(unittest.TestCase):
         self.assertIn("--bundle-id com.cmux.app", block)
         self.assertIn("https://cmux.com/api/cron/apple-notifications/health", block)
         self.assertTrue(CHECK.is_file())
+
+    def test_post_release_check_runs_only_on_request(self) -> None:
+        self.assertRegex(self.on, r"post_release_check:\n\s+description: .+\n\s+type: boolean\n\s+default: false")
+        block = self.jobs["apple-post-release"]
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.post_release_check", block)
+        self.assertIn("apple-nightly-check.ts post-release", block)
+        self.assertIn("--bundle-id com.cmux.app", block)
 
     def test_secret_jobs_run_on_a_literal_runner(self) -> None:
         for job in SECRET_JOBS:

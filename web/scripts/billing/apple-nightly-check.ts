@@ -6,6 +6,8 @@
 //   bun scripts/billing/apple-nightly-check.ts delivery \
 //     --environment Sandbox|Production --bundle-id com.cmux.app \
 //     --health-url https://cmux.com/api/cron/apple-notifications/health [--report FILE]
+//   bun scripts/billing/apple-nightly-check.ts post-release --bundle-id com.cmux.app \
+//     --health-url https://cmux.com/api/cron/apple-notifications/health [--cursor-timeout-seconds 2100]
 //   bun scripts/billing/apple-nightly-check.ts api \
 //     --environment Sandbox --bundle-id com.cmux.app --original-transaction-id ID [--report FILE]
 //
@@ -25,7 +27,9 @@ import { appleServerApiCredentials } from "../../services/billing/apple/config";
 import {
   appleClientForNightly,
   checkAppleDelivery,
+  checkPostRelease,
   checkServerApi,
+  historyCount,
   sandboxAcceptsKey,
   type DeliveryReport,
   type ServerApiReport,
@@ -45,12 +49,17 @@ const { positionals, values } = parseArgs({
     "original-transaction-id": { type: "string" },
     report: { type: "string" },
     "timeout-seconds": { type: "string" },
+    "cursor-timeout-seconds": { type: "string" },
   },
 });
 
 const check = positionals[0];
-if (check !== "delivery" && check !== "api") fail("usage: apple-nightly-check.ts delivery|api --environment ... --bundle-id ...");
-const environment = values.environment;
+if (check !== "delivery" && check !== "api" && check !== "post-release") {
+  fail("usage: apple-nightly-check.ts delivery|api|post-release --environment ... --bundle-id ...");
+}
+// The post-release check is Production only.
+const environment = check === "post-release" ? values.environment ?? "Production" : values.environment;
+if (check === "post-release" && environment !== "Production") fail("post-release runs in Production only");
 if (environment !== "Sandbox" && environment !== "Production") fail("--environment must be Sandbox or Production");
 const bundleId = values["bundle-id"]?.trim();
 if (!bundleId) fail("--bundle-id is required");
@@ -74,6 +83,51 @@ function summarize(lines: string[]) {
 
 function save(report: DeliveryReport | ServerApiReport) {
   if (values.report) writeFileSync(values.report, JSON.stringify(report, null, 2) + "\n");
+}
+
+/** Reads the authenticated health endpoint with `params`; never throws. */
+async function readHealthUrl(healthUrl: string, token: string, params: Record<string, string>) {
+  const url = new URL(healthUrl);
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+  const response = await fetch(url, {
+    headers: { authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = { error: "non-JSON response" };
+  }
+  return { status: response.status, body };
+}
+
+const realClock = { now: () => Date.now(), wait: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)) };
+
+if (check === "post-release") {
+  const healthUrl = values["health-url"]?.trim();
+  if (!healthUrl?.startsWith("https://")) fail("--health-url must be an https URL");
+  const token = process.env.APPLE_NOTIFICATIONS_HEALTH_TOKEN?.trim();
+  if (!token) fail("APPLE_NOTIFICATIONS_HEALTH_TOKEN is required");
+  const cursorTimeoutSeconds = Number(values["cursor-timeout-seconds"] ?? "2100");
+  if (!Number.isFinite(cursorTimeoutSeconds) || cursorTimeoutSeconds <= 0) fail("--cursor-timeout-seconds must be positive");
+  const report = await checkPostRelease({
+    client,
+    clock: realClock,
+    readHealth: (uuid) => readHealthUrl(healthUrl, token, { uuid }),
+    readCursor: () => readHealthUrl(healthUrl, token, { cursor: "Production", bundle: bundleId }),
+    productionHistory: () => historyCount(apiClient("Production"), Date.now()),
+    cursorTimeoutMs: cursorTimeoutSeconds * 1000,
+  });
+  if (values.report) writeFileSync(values.report, JSON.stringify(report, null, 2) + "\n");
+  summarize([
+    `### Post-release check: ${bundleId}, Production: ${report.ok ? "pass" : "FAIL"}`,
+    "",
+    "| Step | Result | Detail |",
+    "| --- | --- | --- |",
+    ...report.steps.map((step) => `| ${step.name} | ${step.ok ? "pass" : "FAIL"} | ${step.detail.replaceAll("|", "\\|")} |`),
+  ]);
+  process.exit(report.ok ? 0 : 1);
 }
 
 if (check === "delivery") {

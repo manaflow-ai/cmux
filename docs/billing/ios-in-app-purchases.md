@@ -160,11 +160,25 @@ A red night opens or updates the issue "Billing nightly is red" and posts to #cm
 
 ### After the first App Store release
 
-Once `com.cmux.app` has its first App Store release (1.0.0 is manual release; do this the day it goes live):
+Once `com.cmux.app` has its first App Store release (1.0.0 is manual release; do this the day it goes live), run the post-release check:
 
-1. Confirm Production answers: run the Billing nightly by hand (`gh workflow run billing-nightly.yml -R manaflow-ai/cmux --ref main`) and check that `apple-delivery (Production)` reports Apple's send attempt `SUCCESS` and the ledger recorded it, not the locked note. `billingHealth.appleServerApiProduction` in the admin analytics response should read `ok`.
-2. Set the variable so a Production 401 is red from now on: `gh variable set APPLE_IAP_PRODUCTION_RELEASED --body 1 -R manaflow-ai/cmux`.
-3. Confirm the Production history backfill moves: the next cron runs' `history.sources` entry for `com.cmux.app` / `Production` shows `locked: false`, pages read and `complete: true`, and its row in `apple_notification_history_cursors` exists with a recent `next_start_at`. The first runs catch up from 178 days back, one day window at a time.
+```bash
+gh workflow run billing-nightly.yml -R manaflow-ai/cmux --ref main -f post_release_check=true
+```
+
+Its `apple-post-release` job (the `billing-nightly` environment's secrets, so main only) runs `bun scripts/billing/apple-nightly-check.ts post-release --bundle-id com.cmux.app --health-url https://cmux.com/api/cron/apple-notifications/health`, all in Production with no lock fallback, and prints pass or fail per step in the job summary:
+
+1. **delivery**: the App Store Server API sends a Production TEST notification and reports a `SUCCESS` send attempt to `/api/billing/apple/notifications`.
+2. **stored**: `GET /api/cron/apple-notifications/health?uuid=` shows cmux.com recorded it as `Production`.
+3. **history**: a Production Get Notification History call for the last day answers.
+4. **cursor**: `GET /api/cron/apple-notifications/health?cursor=Production&bundle=com.cmux.app` (same token; timestamps, the stall count and an opaque `position`, never Apple's pagination token) shows the Production backfill cursor move: a first cursor, a new window, or a new page. The cron runs every 30 minutes, so this step waits up to 35.
+
+The same command runs from a shell with the four `APPLE_IAP_*` / `APPLE_NOTIFICATIONS_HEALTH_TOKEN` values in the environment. When every step passes:
+
+1. Set the variable so a Production 401 is red from now on: `gh variable set APPLE_IAP_PRODUCTION_RELEASED --body 1 -R manaflow-ai/cmux`.
+2. Check that `billingHealth.appleServerApiProduction` in the admin analytics response reads `ok`, and that the cron's `productionApi["com.cmux.app"]` is `ok`.
+
+A failed **delivery** with HTTP 401 means Production still refuses the key: confirm the release is live in App Store Connect and that the key's team owns the app. The first backfill runs catch up from 178 days back, one day window at a time.
 
 ### Manual release checklist
 
