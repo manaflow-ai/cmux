@@ -164,7 +164,7 @@ public nonisolated struct SidebarNestedFixture: Sendable {
                    status: "Approval", message: "Waiting to run the focused test"),
             thread("due-dates", "Add Due Dates to Todos", "todo-app", minutesAgo: 5, activity: .working(progress: nil),
                    status: "Working", message: "Adding a dueAt field and a sort by it"),
-            thread("webhook-retries", "Retry Failed Stripe Webhooks", "billing-api", minutesAgo: 48, pullRequest: "#212",
+            thread("webhook-retries", "Retry Failed Payment Webhooks", "billing-api", minutesAgo: 48, pullRequest: "#212",
                    unread: .dot, message: "Opened #212: retries with backoff, three attempts"),
             thread("invoice-pdf", "Fix Invoice PDF Totals", "billing-api", minutesAgo: 3 * 60, pullRequest: "#209",
                    message: "Rounding now happens once, at the line total"),
