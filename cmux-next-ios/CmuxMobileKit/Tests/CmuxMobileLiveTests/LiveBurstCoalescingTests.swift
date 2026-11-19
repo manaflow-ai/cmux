@@ -55,16 +55,18 @@ import Testing
         await sync.waitForUpdates()
         var frames: [@MainActor () -> Void] = []
         sync.nextFrame = { frames.append($0) }
-        var rows = 0
-        sync.onRows = { _, _, _ in rows += 1 }
+        var published = 0
+        sync.onRows = { _, _, _ in published += 1 }
+        sync.onTree = { _ in published += 1 }
         sync.handle(.titleChanged(surface: 2, title: "fresh"))
         await sync.waitForUpdates()
         #expect(frames.count == 1)
+        #expect(published == 0)
         let tree = try await sync.listNow()
         #expect(tree.workspaces.first { $0.id == "rig-ws-2" }?.tabs.first?.title == "fresh")
-        #expect(rows == 1, "published once, by the list")
+        #expect(published == 1, "published once, by the list")
         for frame in frames { frame() }
-        #expect(rows == 1, "the frame finds nothing left to publish")
+        #expect(published == 1, "the frame finds nothing left to publish")
         await sync.daemon?.close()
         await sync.bind(nil, macID: "mac")
     }

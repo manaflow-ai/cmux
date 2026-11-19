@@ -270,7 +270,10 @@ actor LiveFloodDaemon: LinkChannel {
                     // Every change went out as an event: the phone's tree is current.
                     reply["data"] = ["unchanged": true]
                 } else {
-                    reply["data"] = ["workspace_revision": revision, "workspaces": (1...count).map(row)]
+                    // A tree revision, as the real daemon sends: the phone's next list carries
+                    // it back as `known` and gets the short `unchanged` answer.
+                    reply["data"] = ["tree_revision": "rig-\(revision)", "workspace_revision": revision,
+                                     "workspaces": (1...count).map(row)]
                 }
             case "list-agents":
                 let now = Int(Date().timeIntervalSince1970 * 1000)
