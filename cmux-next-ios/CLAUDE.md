@@ -40,7 +40,10 @@ them and a nonce, waits for the app's DEBUG receipt (`CmuxMobileShell/DevShow.sw
 Release), checks it names the target's destination, tab and Settings page, then shoots. `--live`
 hands the running app a `cmux-next://dev/show?...` request instead (a request file and a Darwin
 notification on a simulator, `devicectl --payload-url` on a phone): no relaunch, the person's own data,
-and a look that is never saved. A demo target also waits for the receipt's `demo_done`. A state that needs a tap (a swipe, a long press, a typed draft) stays in the
+and a look that is never saved. A demo target also waits for the receipt's `demo_done`. On the fleet:
+`cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg shots --arg devshow=all
+--artifact artifacts/ios-sim/evidence.zip` (every target, both looks, then every link target in process;
+a missed target fails the step). A state that needs a tap (a swipe, a long press, a typed draft) stays in the
 UI-state capture suites; add a launch hook and a catalog row to make one showable.
 
 ## Hand-off command

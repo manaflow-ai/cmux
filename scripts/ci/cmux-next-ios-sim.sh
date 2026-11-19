@@ -67,6 +67,11 @@
 #             --arg shots --arg devices=-cmux-mobile-settings-page,devices \
 #               --arg feed=CMUX_MOBILE_FEED_STRESS=60,-cmux-mobile-tab,feed
 #           Run it at the base and at the head for a PR's before and after.
+#   devshow (through the fleet controller: shots devshow=all, or shots devshow=home,feed)
+#           build, plus the iOS dev CLI (cmux-next-ios/scripts/cmux-ios) driving this
+#           simulator to every target of its catalog (or those screens), light and dark,
+#           each checked by the app's DevShow receipt, then every link target in process.
+#           The artifact gets devshow/ (fixture/ and live/: PNGs and index.json) and devshow.zip.
 #   clips   build, plus the What's New clip of one iPhone highlight
 #           (release-notes/next/clips/ID.json with "app": "iphone"): the app
 #           runs the spec's scene (DEBUG launch arguments, demo drivers, mock
@@ -185,7 +190,16 @@ if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == handoff=* ]]; then
   set -- handoff "tag=${2#handoff=}"
   mode=handoff
 fi
-case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy or handoff, got '$mode'" >&2; exit 2 ;; esac
+# devshow through the fleet controller's shots form, as handoff above: `shots devshow=SCREENS`.
+devshow_screens=""
+if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == devshow=* ]]; then
+  devshow_screens="${2#devshow=}"
+  set -- devshow
+  mode=devshow
+  [[ "$devshow_screens" == all || "$devshow_screens" =~ ^[a-z][a-z,-]*$ ]] ||
+    { echo "cmux-next-ios-sim.sh: devshow= wants all or comma-separated screens, got '$devshow_screens'" >&2; exit 2; }
+fi
+case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|devshow|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, devshow, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy or handoff, got '$mode'" >&2; exit 2 ;; esac
 if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
 fi
@@ -1264,6 +1278,33 @@ if [[ "$mode" == shots ]]; then
   note "- screens: $((SECONDS - t0)) s"
 fi
 
+# --- iOS dev CLI (devshow) --------------------------------------------------
+# The dev CLI itself (cmux-next-ios/scripts/cmux-ios) drives this simulator to every target in
+# its catalog, in light and dark: each a relaunch with a fresh nonce, the app's receipt checked
+# against the target, then a screenshot. Then the in-process path: the shell is left on mock data
+# and every link target is opened as a `cmux-next://dev/show` link with no relaunch.
+if [[ "$mode" == devshow ]]; then
+  t0=$SECONDS
+  devshow_status=0
+  screen_opt=()
+  [[ "$devshow_screens" == all ]] || screen_opt=(--screen "$devshow_screens")
+  note ""
+  note "## iOS dev CLI (devshow ${devshow_screens})"
+  note ""
+  cli=(python3 -I cmux-next-ios/scripts/cmux-ios)
+  "${cli[@]}" show-all --sim-set "$sims" --sim "$udid" --bundle "$bundle_id" --out "$out/devshow/fixture" \
+    ${screen_opt[@]+"${screen_opt[@]}"} >"$work/devshow-fixture.log" 2>&1 || devshow_status=1
+  "${cli[@]}" show home --sim-set "$sims" --sim "$udid" --bundle "$bundle_id" >>"$work/devshow-live.log" 2>&1 || devshow_status=1
+  "${cli[@]}" show-all --live --sim-set "$sims" --sim "$udid" --bundle "$bundle_id" --out "$out/devshow/live" \
+    ${screen_opt[@]+"${screen_opt[@]}"} >>"$work/devshow-live.log" 2>&1 || devshow_status=1
+  cp "$work/devshow-fixture.log" "$work/devshow-live.log" "$out/devshow/" 2>/dev/null || true
+  note "- fixture: $(tail -n 1 "$work/devshow-fixture.log")"
+  note "- live: $(tail -n 1 "$work/devshow-live.log")"
+  grep -h ' MISS ' "$work/devshow-fixture.log" "$work/devshow-live.log" | sed 's/^/  - /' | tee -a "$summary" || true
+  (cd "$out" && rm -f devshow.zip && zip -qr devshow.zip devshow)
+  note "- devshow: $((SECONDS - t0)) s (status $devshow_status)"
+fi
+
 # --- What's New clip (clips) ----------------------------------------------
 if [[ "$mode" == clips ]]; then
   t0=$SECONDS
@@ -1587,5 +1628,7 @@ if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi
 if [[ "${listperf_status:-0}" -ne 0 ]]; then exit "$listperf_status"; fi
 if [[ "${energy_status:-0}" -ne 0 ]]; then exit "$energy_status"; fi
 if [[ "${clip_status:-0}" -ne 0 ]]; then exit "$clip_status"; fi
+# A dev CLI target the app did not reach fails the step, after evidence.zip is written.
+if [[ "${devshow_status:-0}" -ne 0 ]]; then exit "$devshow_status"; fi
 
 if [[ "${perf_status:-0}" -ne 0 ]]; then exit "$perf_status"; fi
