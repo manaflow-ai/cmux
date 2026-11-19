@@ -11,10 +11,10 @@ on every attempt, event and picker output, takes one of three labels that only t
     vars.CI_NIGHTLY_SIGN_RUNNER (`glaeda-trusted-next-signing`);
   - build-nightly-app: vars.CI_NIGHTLY_MINI_BUILDER (`glaeda-nightly-mini-builder`, the two warm builders);
   - every other job: vars.CI_NIGHTLY_MINI,
-except the tail jobs that hold a release key (Sentry, content signing, R2, a GitHub App key, the pr-media terms) and
-whose whole-Mac hold on the trusted signing runner would be long or wait-bound
-(test_nightly_owned_minis_only.HOSTED_TAIL_JOBS): the mini's nightly-only runners are shared and persistent, so these
-keep ephemeral GitHub-hosted Ubuntu (never Blacksmith), and they run only outside the push group.
+The tail jobs that hold a release key (Sentry, content signing, R2, a GitHub App key, the pr-media terms) are signing
+jobs too since 2026-11-19, when GitHub-hosted Ubuntu started none of them for 224-444 min: the mini's nightly-only
+runners are shared and persistent, so they take the whole-Mac claim on the signer
+(test_nightly_owned_minis_only.HOSTED_TAIL_JOBS is empty).
 republish-nightly-deltas takes the signer only on nightly-next; classic and RC runs keep GitHub-hosted Ubuntu
 (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED), as their release uploads may wait out the rate limit.
 Every Mac job (build, sign, notarize, verify, publish) runs on the mini.
@@ -38,7 +38,9 @@ MODE = {"vars.CI_NIGHTLY_MINI": MINI, "vars.CI_NIGHTLY_MINI_BUILDER": BUILDER, "
 # glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS, nightly.yml entries: the jobs that take the whole Mac.
 SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-nightly-next-notarization",
            "publish-nightly", "sign-nightly-identity-legacy", "generate-nightly-deltas",
-           "promote-nightly-next-acked", "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one"}
+           "promote-nightly-next-acked", "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one",
+           "publish-nightly-next-github", "sentry-dsyms-nightly", "sign-release-notes", "publish-release-notes",
+           "publish-nightly-reel"}
 VISUAL_GATE = {"route-visual-gate-nightly"}
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github/workflows"
 

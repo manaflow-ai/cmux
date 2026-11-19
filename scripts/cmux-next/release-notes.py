@@ -1204,9 +1204,45 @@ def since(args):
     return 0
 
 
+_OPENSSL = None
+# Homebrew's OpenSSL 3 on Apple silicon and Intel Macs.
+HOMEBREW_OPENSSL = ("/opt/homebrew/opt/openssl@3/bin/openssl", "/usr/local/opt/openssl@3/bin/openssl")
+
+
+def _is_openssl3(binary):
+    try:
+        out = subprocess.run([binary, "version"], capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    match = re.match(r"OpenSSL (\d+)\.", out)
+    return bool(match) and int(match.group(1)) >= 3
+
+
+def openssl():
+    """An OpenSSL 3 or newer, for ed25519 `pkeyutl -rawin`: $OPENSSL, else `openssl` on PATH, else Homebrew's
+    openssl@3. On a Mac (the trusted signing runner) `openssl` is LibreSSL, which has no -rawin; there Homebrew's
+    openssl@3 is installed on first use, as reel-install-ffmpeg.sh installs ffmpeg. Falls back to `openssl`."""
+    global _OPENSSL
+    if _OPENSSL:
+        return _OPENSSL
+    candidates = [os.environ.get("OPENSSL") or "", "openssl", *HOMEBREW_OPENSSL]
+    found = next((c for c in candidates if c and _is_openssl3(c)), None)
+    if not found and sys.platform == "darwin":
+        brew = next((b for b in ("brew", "/opt/homebrew/bin/brew", "/usr/local/bin/brew")
+                     if b == "brew" or os.path.exists(b)), "brew")
+        try:
+            subprocess.run([brew, "install", "openssl@3"], capture_output=True, timeout=900,
+                           env={**os.environ, "HOMEBREW_NO_AUTO_UPDATE": "1"})
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        found = next((c for c in HOMEBREW_OPENSSL if _is_openssl3(c)), None)
+    _OPENSSL = found or "openssl"
+    return _OPENSSL
+
+
 def sign(args):
     for path in args.files:
-        raw = subprocess.run(["openssl", "pkeyutl", "-sign", "-inkey", args.key, "-rawin", "-in", path],
+        raw = subprocess.run([openssl(), "pkeyutl", "-sign", "-inkey", args.key, "-rawin", "-in", path],
                              capture_output=True, check=True).stdout
         with open(path + ".sig", "w") as out:
             out.write(base64.b64encode(raw).decode() + "\n")
@@ -1270,10 +1306,10 @@ def verified(path, public_key):
         key_der, key_pem, sig = (os.path.join(tmp, n) for n in ("pub.der", "pub.pem", "sig.bin"))
         with open(key_der, "wb") as f:
             f.write(der)
-        subprocess.run(["openssl", "pkey", "-pubin", "-inform", "DER", "-in", key_der, "-out", key_pem], check=True, capture_output=True)
+        subprocess.run([openssl(), "pkey", "-pubin", "-inform", "DER", "-in", key_der, "-out", key_pem], check=True, capture_output=True)
         with open(path + ".sig") as f, open(sig, "wb") as out:
             out.write(base64.b64decode(f.read().strip()))
-        return subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", key_pem, "-rawin", "-in", path,
+        return subprocess.run([openssl(), "pkeyutl", "-verify", "-pubin", "-inkey", key_pem, "-rawin", "-in", path,
                                "-sigfile", sig], capture_output=True).returncode == 0
 
 

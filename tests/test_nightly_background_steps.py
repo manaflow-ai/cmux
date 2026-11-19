@@ -218,7 +218,8 @@ class BackgroundStepTests(unittest.TestCase):
             with self.subTest(step=name):
                 self.assertIn(off_track, step(APP_JOB, name)["if"])
         sentry = jobs["sentry-dsyms-nightly"]
-        self.assertEqual(sentry["needs"], ["published-build"])
+        # pick-nightly-sign-runner: its signing-Mac pick (the trusted signing runner since 2026-11-19).
+        self.assertEqual(sentry["needs"], ["published-build", "pick-nightly-sign-runner"])
         for condition in ("needs.published-build.outputs.track == 'nightly-next'",
                           "needs.published-build.outputs.publish_result == 'success'",
                           "needs.published-build.outputs.publish_refused != 'true'",
@@ -226,7 +227,8 @@ class BackgroundStepTests(unittest.TestCase):
             self.assertIn(condition, sentry["if"])
         self.assertNotIn("always()", sentry["if"])
         self.assertIs(sentry["continue-on-error"], True)
-        self.assertLessEqual(sentry["timeout-minutes"], 60)
+        # 45 for the upload plus glaeda's hour of signing drain; in one-mini mode its capacity wait too.
+        self.assertEqual(sentry["timeout-minutes"], "${{ vars.CI_NIGHTLY_MINI != '' && 225 || 105 }}")
         self.assertEqual(sentry["permissions"], {"contents": "read", "actions": "read"})
         self.assertNotIn("cancel-in-progress", str(sentry))
         # Nothing waits for it.

@@ -49,12 +49,9 @@ NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
 SIGNING_SLOT = 'glaeda-trusted-next-signing'
 HOSTED = 'ubuntu-24.04'
 OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
-# The tail's secret jobs that stay on GitHub-hosted Ubuntu, outside the push group, never Blacksmith
-# (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS has each one's reason). Every other nightly job runs on our own minis.
-# publish-nightly-next-github is the loop run's one hosted job (test_nightly_owned_minis_only.HOSTED_LOOP_JOBS, Leo's
-# override): an upload with the release App key that held the whole signing Mac.
-HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes', 'publish-nightly-reel',
-                      'publish-nightly-next-github')
+# No secret job on GitHub-hosted Ubuntu since 2026-11-19: the hosted pool started none of the tail jobs for 224-444 min
+# (runs 44333866030, 44359568082), so they hold the whole signing Mac (OWNED_SECRET_JOBS below).
+HOSTED_SECRET_JOBS: tuple[str, ...] = ()
 # No hosted preflight: runner-preflight runs on the nightly-only pool since 2026-11-18
 # (test_nightly_owned_minis_only.HOSTED_PREFLIGHT_JOBS has the reason).
 HOSTED_PREFLIGHT_JOBS: tuple[str, ...] = ()
@@ -65,6 +62,11 @@ NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
 # route choice, so it stays a hand list; this is the other half of it: job -> why it is not hosted. A new secret job
 # must be named in one of the two (test_every_secret_job_is_hosted_or_named_owned), so none escapes the route check.
 OWNED_SECRET_JOBS = {
+    'publish-nightly-next-github': 'the release App key and R2 names lease, on the signer behind the whole-Mac claim',
+    'sentry-dsyms-nightly': 'the Sentry token, on the signer behind the whole-Mac claim',
+    'sign-release-notes': 'the content-signing key, on the signer behind the whole-Mac claim',
+    'publish-release-notes': 'the R2 keys and release App key, on the signer behind the whole-Mac claim',
+    'publish-nightly-reel': 'the pr-media private terms, on the signer behind the whole-Mac claim',
     'nightly-next-one': "builds, signs and publishes nightly-next in one job on cmux15's signer label (NIGHTLY_NEXT_ONE_JOB)",
     'decide': 'reads the routing App key (ci-routing-agent) to place early controls; a credentialed control',
     'pick-nightly-build-runner': 'reads the routing App key (ci-routing-agent) to pick the build mini; a credentialed control',
