@@ -6,7 +6,7 @@ name: CI cloud overflow probe
 # there (LINUX_RUNNER, CI_TRUSTED_RUNNER, MACOS_RUNNER_*, CI_PAID_MACOS_OVERFLOW) are pointed at
 # the owned pools and another Blacksmith Linux size, and pointed back once it serves
 # again. One switch: `probe` asks for each Blacksmith Linux size compiles run
-# on and only prints a line; `watch`, on the trusted CI_TRUSTED_RUNNER selector, waits for them.
+# on and only prints a line; `watch`, on an owned control runner, waits for them.
 # scripts/ci/cloud_overflow_switch.py has the rules:
 #
 # - Every probe starts within CI_CLOUD_PROBE_MINUTES (default 5) of being
@@ -49,10 +49,10 @@ permissions: {}
 # One probe at a time: a second waits instead of racing the first one's writes.
 # The group is fixed on purpose: the switch's variable writes and record delete
 # are separate calls, so two watches must never run at once. A run whose probe
-# never starts cannot hold it for long: the watch runs on a size the probe does
-# not test by default (below), decides within CI_CLOUD_PROBE_MINUTES, and force-cancels its
-# own run. On 2026-10-28 the watch sat queued on Blacksmith Linux beside its
-# probe instead, so the group stayed held for an hour.
+# never starts cannot hold it for long: the watch uses the owned per-job
+# ephemeral control runner rather than a Blacksmith label that can stall, decides within
+# CI_CLOUD_PROBE_MINUTES, and force-cancels its own run. The switch's Linux
+# failover stays on Blacksmith.
 concurrency:
   group: ci-cloud-overflow-probe
   cancel-in-progress: false
@@ -84,20 +84,11 @@ jobs:
   watch:
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
-    # Its own bounded selector over CI_TRUSTED_RUNNER, the variable the other
-    # GLAEDA_ROUTE_APP_KEY control jobs read (ci-owned-pool-rescue, ci-stale-run-janitor).
-    # The expression bounds the value to one-job Blacksmith Linux VMs (2 or 8 vCPU), so no
-    # variable can move this App key to a reused machine. Unlike the shared trusted selector it
-    # never resolves to a size the probes ask for (PROBE_LABELS, 4 and 16 vCPU) or to GitHub-
-    # hosted Ubuntu: any other value, unset included (the switch's restore can unset it, and
-    # its alternate failover is 4 vCPU), takes Blacksmith 2 vCPU. So a stalled probe size never holds the watch, and with it the
-    # concurrency group, as on 2026-10-28 (tests/test_ci_cloud_overflow_switch.py).
-    # It used to name the literal blacksmith-6vcpu-macos-26, a single-label pin with no
-    # fallback: on 2026-11-03 RUNNER_POOLS marked that label dead and run 41688532704's
-    # watch queued 19 minutes (17:53Z-18:12Z), so the hosted light rescue below ran about
-    # every 20-25 minutes instead of every pass (cmuxterm-hq#6671). It needs no macOS
-    # (Python and gh only).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds the App key that writes runner variables; never a probed size
+    # Keep this control job on the owned per-job ephemeral Linux pool. It must
+    # not inherit CI_TRUSTED_RUNNER or a reused owned label: a dead overflow
+    # label would otherwise keep this watcher queued and hold the concurrency
+    # group, and the App key must not outlive the job on a reused host.
+    runs-on: cmux-fleet-linux-x64
     timeout-minutes: 25
     permissions:
       actions: write

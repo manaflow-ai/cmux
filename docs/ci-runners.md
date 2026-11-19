@@ -84,7 +84,11 @@ Glaeda minis for the lanes the pool picker routes to them. WarpBuild is paid
 overflow and is not a steady state for any lane. Most jobs in `manaflow-ai`
 avoid GitHub-hosted runners; the small exception set is documented in
 "Guard" and stays explicit because those jobs need hosted provenance,
-attestation, watch, CLA, or Intel capacity.
+attestation, the Blacksmith outage watch, CLA, or Intel capacity. The
+`ci-cloud-overflow-probe.yml` watch is intentionally pinned to the owned
+`cmux-fleet-linux-x64` per-job ephemeral runner: the observed failure was a Blacksmith
+selector queuing and holding the concurrency group, so the control job must not
+inherit that variable while it moves Linux overflow between Blacksmith labels.
 
 **The table below is the intended steady state, not a live readout.** Repository
 variables drift, and a stale table is worse than no table. For what is actually
@@ -1079,21 +1083,18 @@ sending overflow there, not to reroute a lane. `ci-cloud-overflow-probe.yml`
 does that automatically (`scripts/ci/cloud_overflow_switch.py`). Every 10
 minutes its `probe` jobs ask for each member of the linux pool
 (`PROBE_LABELS`: `blacksmith-4vcpu-ubuntu-2404` and
-`blacksmith-16vcpu-ubuntu-2404`, one matrix job each) and print a line, and
-its `watch` job waits for them. Never one label: on 2026-10-28 the 4 vCPU
+`blacksmith-16vcpu-ubuntu-2404`, one decision matrix job each; the 2, 8 and
+32 vCPU members also have health-only matrix jobs) and print a line, and its
+`watch` job waits for them. Never one label: on 2026-10-28 the 4 vCPU
 label alone stalled four times while the other sizes started jobs, and each
-stall flipped the whole fleet. The watch never runs on GitHub-hosted Ubuntu
-or on a size the probes ask for: it takes `blacksmith-6vcpu-macos-26`, so it
-can put overflow back while Blacksmith macOS serves. That label is literal:
-the watch holds the `GLAEDA_ROUTE_APP_KEY` token that writes repository
+stall flipped the whole fleet. The watch runs on the owned per-job ephemeral
+`cmux-fleet-linux-x64` pool, never on a Blacksmith size the probes ask for, so
+it can put overflow back while every Blacksmith label is stalled. That label is
+literal: the watch holds the `GLAEDA_ROUTE_APP_KEY` token that writes repository
 variables, so no variable (not `CI_CONTROL_RUNNER`) may move it to a reused
 machine, where the key could outlive the job, and it may not write its own
-runner. GitHub-hosted runners are refused, so when all of Blacksmith stops the
-watch waits, and an operator points the variables at their failovers by hand,
-as on 2026-09-29. On
-2026-10-27 a watch on hosted Ubuntu queued 94 minutes behind the switch's own
-failover and held the workflow's concurrency group, so every later run was
-evicted with nothing decided.
+runner. The watch only checks out workflows and runs Python; it needs no Linux
+build dependencies.
 The group stays one fixed group (two watches must never interleave the
 switch's writes); a watch that starts decides within `CI_CLOUD_PROBE_MINUTES`
 and force-cancels its own run, so it never holds the group for long.
@@ -1105,13 +1106,13 @@ every Blacksmith Linux size stopped at once, and those two jobs, pinned to
 `blacksmith-2vcpu-ubuntu-2404`, had nowhere else to run. Set it to a label
 that starts while Blacksmith Linux does not, for example
 `blacksmith-6vcpu-macos-26`; delete it to put them back on
-`blacksmith-2vcpu-ubuntu-2404`. The overflow watch runs on that macOS
-label; the tick and feed watch are plain bash, Python and gh (the tick hashes
-with `shasum` where `sha256sum` is missing) but had not run on macOS when this
-was added, so read the first run after setting it. `promote-nightly-next`
-stays on its literal Blacksmith Linux label, and the overflow watch on its
-literal macOS label: they hold App credentials, so `CI_CONTROL_RUNNER`, which
-may name a reused machine, must not move them
+`blacksmith-2vcpu-ubuntu-2404`. The tick and feed watch are plain bash, Python
+and gh (the tick hashes with `shasum` where `sha256sum` is missing) but had not
+run on macOS when this was added, so read the first run after setting it. The
+overflow watch is independent of `CI_CONTROL_RUNNER` and stays on its literal
+per-job ephemeral Linux label. `promote-nightly-next` stays on its literal
+Blacksmith Linux label: it holds App credentials, so `CI_CONTROL_RUNNER`, which
+may name a reused machine, must not move it
 (`tests/test_ci_cloud_overflow_switch.py` refuses a secret in any job it
 moves). This moves only
 control jobs: a nightly's Linux cross-builds still wait for Blacksmith Linux
