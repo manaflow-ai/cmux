@@ -394,47 +394,32 @@ class Reconcile(unittest.TestCase):
         value, _ = self.run_once({}, dead={"blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"})
         self.assertEqual(value["linux"], "blacksmith-32vcpu-ubuntu-2404")
 
-    def test_every_member_dead_releases_to_the_next_smaller_live_size(self) -> None:
-        # 2026-11-18 01:18Z: 16 vCPU marked dead, 32 vCPU starting nothing since about 23:12Z, and
-        # linux_16 / linux_32 left on 32 vCPU. 8 vCPU kept starting jobs (01:10Z, run 44211950380).
-        pools = {
-            "linux_8": {"why": "x", "members": ["blacksmith-8vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
-            "linux_16": {"why": "x", "members": ["blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"]},
-            "linux_32": {"why": "x", "members": ["blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
-            "linux_4": {"why": "x", "members": ["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]},
-            "macos_26": {"why": "x", "members": ["blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"]},
-        }
-        both = {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
-        value, lines = runner_pools.reconcile({}, pools, dead_now=both, served_now=(), now=NOW)
-        self.assertEqual(value["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
-        self.assertEqual(value["linux_32"], "blacksmith-8vcpu-ubuntu-2404")
-        self.assertEqual(value["linux_8"], "blacksmith-8vcpu-ubuntu-2404")
-        self.assertTrue(any("release valve" in line and "linux_16" in line for line in lines), lines)
-        # The value round-trips and passes --check: the valve label is allowed, not reset.
-        current, dropped = runner_pools.parse_value(runner_pools.render(value), pools)
-        self.assertEqual(dropped, [])
-        self.assertEqual(current["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
-        self.assertEqual(runner_pools.value_problems(value, pools), [])
-        # 8 vCPU dead too: the next smaller declared size that is not.
-        value, _ = runner_pools.reconcile({}, pools, dead_now={*both, "blacksmith-8vcpu-ubuntu-2404"},
-                                          served_now=(), now=NOW)
-        self.assertEqual(value["linux_16"], "blacksmith-4vcpu-ubuntu-2404")
-        # Nothing smaller alive: the first member, as before.
-        value, _ = runner_pools.reconcile({}, pools, dead_now={*both, "blacksmith-8vcpu-ubuntu-2404",
-                                                               "blacksmith-4vcpu-ubuntu-2404"},
-                                          served_now=(), now=NOW)
-        self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
-        # A member starting again takes the pool back from the valve.
-        released, _ = runner_pools.reconcile({}, pools, dead_now=both, served_now=(), now=NOW)
-        back, _ = runner_pools.reconcile(released, pools, dead_now=(), served_now={"blacksmith-32vcpu-ubuntu-2404"},
-                                         now=NOW + dt.timedelta(minutes=10))
-        self.assertEqual(back["linux_32"], "blacksmith-32vcpu-ubuntu-2404")
-        self.assertEqual(back["linux_16"], "blacksmith-32vcpu-ubuntu-2404")
-        # macOS pools and any other label stay out of the valve.
-        self.assertEqual(runner_pools.allowed(pools["macos_26"], pools), runner_pools.members(pools["macos_26"]))
+    def test_every_member_dead_never_leaves_the_declared_members(self) -> None:
+        # 2026-11-18 from 13:18Z: a release valve sent linux_16 and linux_8 to blacksmith-2vcpu-ubuntu-2404, a member
+        # of neither. cmux-tui's thin legs took 25-44 min instead of 2-8, and 7 aarch64 legs failed with rustc OOM
+        # (job 134837837144). A too-small size makes a memory-heavy job fail, not only wait.
+        pools = runner_pools.load_pools()
+        linux_sizes = {f"blacksmith-{n}vcpu-ubuntu-2404" for n in (2, 4, 8, 16, 32)}
+        for dead in ({"blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404",
+                      "blacksmith-32vcpu-ubuntu-2404"}, linux_sizes):
+            value, lines = runner_pools.reconcile({}, pools, dead_now=dead, served_now=(), now=NOW)
+            outside = {name: value[name] for name in pools if value[name] not in runner_pools.members(pools[name])}
+            self.assertEqual(outside, {})
+            self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+            self.assertEqual(value["linux_8"], "blacksmith-8vcpu-ubuntu-2404")
+            self.assertTrue(any("every member is dead" in line and "linux_16" in line for line in lines), lines)
+        # The writer resets a value outside a pool's members, and --check refuses it.
+        current, dropped = runner_pools.parse_value(json.dumps({**value, "linux_16": "blacksmith-2vcpu-ubuntu-2404"}),
+                                                    pools)
+        self.assertNotIn("linux_16", current)
+        self.assertTrue(any("linux_16" in line for line in dropped), dropped)
+        again, _ = runner_pools.reconcile(current, pools, dead_now=(), served_now=(), now=NOW)
+        self.assertEqual(again["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
         self.assertTrue(runner_pools.value_problems({**value, "linux_16": "blacksmith-2vcpu-ubuntu-2404"}, pools))
+        for spec in pools.values():
+            self.assertEqual(runner_pools.allowed(spec, pools), runner_pools.members(spec))
 
-    def test_the_release_valve_never_goes_below_min_vcpu(self) -> None:
+    def test_a_pool_never_goes_below_min_vcpu(self) -> None:
         # 2026-11-18 11:47Z-13:18Z: with 16, 8 and 32 vCPU marked dead the valve put linux_16 on 4 and then 2 vCPU,
         # and every fat-LTO cmux-tui tree build there was SIGKILLed out of memory (run 44289517882, acpmux rustc on
         # blacksmith-4vcpu-ubuntu-2404, then 12 runs on 2 vCPU), so no tree published and the NEXT nightlies failed.
@@ -447,13 +432,12 @@ class Reconcile(unittest.TestCase):
                                      "blacksmith-32vcpu-ubuntu-2404"]},
         }
         self.assertEqual(runner_pools.spec_problems(pools), [])
-        self.assertEqual(runner_pools.valve_labels(pools["linux_16"], pools), [])
         dead = {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404",
                 "blacksmith-4vcpu-ubuntu-2404"}
         value, _ = runner_pools.reconcile({}, pools, dead_now=dead, served_now=(), now=NOW)
         # It waits on its own first member rather than taking a size its jobs are killed on.
         self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
-        self.assertEqual(value["linux_8"], "blacksmith-2vcpu-ubuntu-2404")  # no floor: the valve as before
+        self.assertEqual(value["linux_8"], "blacksmith-8vcpu-ubuntu-2404")  # no valve: it keeps its first member
         # A value below the floor is not allowed, so a hand edit is reset too.
         self.assertTrue(runner_pools.value_problems({**value, "linux_16": "blacksmith-4vcpu-ubuntu-2404"}, pools))
 
@@ -616,7 +600,7 @@ class Main(unittest.TestCase):
             self.writes.append((name, value))
             self.variables[name] = value
 
-    def test_the_2026_11_18_pass_moves_linux_16_and_linux_32_off_the_dead_sizes(self) -> None:
+    def test_the_2026_11_18_pass_moves_linux_16_to_a_live_member(self) -> None:
         # The live RUNNER_POOLS at 01:18:46Z and a probe pass over every x64 size, with the declared pools.
         live = json.dumps({"_dead": {"blacksmith-16vcpu-ubuntu-2404": "2026-11-18T01:18:46Z",
                                      "blacksmith-4vcpu-ubuntu-2404": "2026-11-18T01:18:46Z"},
@@ -633,19 +617,19 @@ class Main(unittest.TestCase):
                                            now=now), 0)
         value = json.loads(switch.writes[0][1])
         self.assertEqual(value["linux_16"], "blacksmith-8vcpu-ubuntu-2404")
-        self.assertEqual(value["linux_32"], "blacksmith-8vcpu-ubuntu-2404")
+        # linux_32 is [32, 16] vCPU, both stalled: it keeps 32 vCPU rather than leave its members.
+        self.assertEqual(value["linux_32"], "blacksmith-32vcpu-ubuntu-2404")
         self.assertIn("blacksmith-32vcpu-ubuntu-2404", value["_dead"])
-        # linux is [4, 16] vCPU, both stalled: its valve is 2 vCPU, and the LINUX_RUNNER mirror check accepts it.
-        self.assertEqual(value["linux"], "blacksmith-2vcpu-ubuntu-2404")
-        # The next pass keeps it (the writer used to reset any label outside the members). It rewrites the
-        # variable only to refresh the dead marks' times.
+        # linux is [4, 16] vCPU, both stalled: it keeps its first member, never 2 vCPU outside its members.
+        self.assertEqual(value["linux"], "blacksmith-4vcpu-ubuntu-2404")
+        # The next pass keeps it. It rewrites the variable only to refresh the dead marks' times.
         again = self.Switch(switch.variables)
         self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": switch.writes[0][1]},
                                            api=self.Api(fresh_snapshot(now + dt.timedelta(minutes=1))),
                                            switch=again, now=now + dt.timedelta(minutes=1)), 0)
         kept = json.loads(dict(again.writes).get("RUNNER_POOLS", switch.writes[0][1]))
         self.assertEqual((kept["linux_16"], kept["linux_32"]),
-                         ("blacksmith-8vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"))
+                         ("blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"))
         self.assertEqual(runner_pools.main(["--check"], {"RUNNER_POOLS": switch.writes[0][1],
                                                          "LINUX_RUNNER": value["linux"]}), 0)
 
@@ -980,6 +964,10 @@ class RawLabelVars(unittest.TestCase):
         self.assertEqual(runner_pools.raw_substitute("blacksmith-2vcpu-ubuntu-2404", {"blacksmith-2vcpu-ubuntu-2404"},
                                                      pools), "blacksmith-4vcpu-ubuntu-2404")
         self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, set(self.SIZES), pools))
+        # Only a member of a pool that declares the dead label: 32 vCPU's pools hold 16 and 8 vCPU, so with those dead
+        # too it stays, never 4 or 2 vCPU (2026-11-18: 2 vCPU legs failed with rustc OOM).
+        self.assertIsNone(runner_pools.raw_substitute(
+            self.DEAD32, {self.DEAD32, self.LIVE16, "blacksmith-8vcpu-ubuntu-2404"}, pools))
         self.assertIsNone(runner_pools.raw_substitute("blacksmith-6vcpu-macos-26", set(), pools))
 
     def test_the_tree_build_variables_never_move_below_eight_vcpu(self) -> None:
@@ -988,7 +976,8 @@ class RawLabelVars(unittest.TestCase):
         pools = runner_pools.load_pools()
         small = {"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"}
         dead = set(self.SIZES) - small
-        self.assertEqual(runner_pools.raw_substitute(self.DEAD32, dead, pools), "blacksmith-4vcpu-ubuntu-2404")
+        # 32 vCPU's pools declare only 16 and 8 vCPU below it, so with those dead it stays, floor or not.
+        self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, dead, pools))
         self.assertIsNone(runner_pools.raw_substitute(self.DEAD32, dead, pools, 8))
         live = {"LINUX_BUILD_RUNNER": "blacksmith-2vcpu-ubuntu-2404", "CI_CONTROL_RUNNER": "blacksmith-2vcpu-ubuntu-2404"}
         previous = {"LINUX_BUILD_RUNNER": {"home": "blacksmith-16vcpu-ubuntu-2404", "to": "blacksmith-2vcpu-ubuntu-2404"}}
@@ -1204,8 +1193,8 @@ class RefusedRead(unittest.TestCase):
         value, out = self.main_output(fallback)
         self.assertEqual(fallback.calls, 1)
         self.assertIn(self.SIXTEEN, value["_dead"])
-        # Every x64 size but 2 vCPU stalled with no snapshot: linux_16 (16, 8, 32 vCPU) takes the 2 vCPU valve.
-        self.assertEqual(value["linux_16"], self.TWO)
+        # Every x64 size but 2 vCPU stalled with no snapshot: linux_16 (16, 8, 32 vCPU) keeps its first member.
+        self.assertEqual(value["linux_16"], self.SIXTEEN)
         self.assertIn("judging on the probe alone", out)
 
     def test_a_fallback_with_no_snapshot_warns_it_judges_on_the_probe(self) -> None:
@@ -1213,7 +1202,7 @@ class RefusedRead(unittest.TestCase):
         fallback = self.Counting(None)
         value, out = self.main_output(fallback)
         self.assertEqual(fallback.calls, 1)
-        self.assertEqual(value["linux_16"], self.TWO)
+        self.assertEqual(value["linux_16"], self.SIXTEEN)
         self.assertIn("judging on the probe alone", out)
         self.assertNotIn("janitor snapshot read with the fallback token", out)
 
