@@ -230,6 +230,7 @@ mod pinned_columns;
 #[cfg(unix)]
 mod project_chats;
 mod pty_reclaim;
+mod shell_state_save;
 mod tree_revision;
 mod viewport_scroll;
 mod workspace_name;
