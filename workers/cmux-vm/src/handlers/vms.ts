@@ -192,7 +192,7 @@ const createRecorded = <C, S, M = never>(
     const phases: TimedPhases = {};
     return yield* createRecordedTimed(caller, spec, proofs, attempt, phases).pipe(
       Effect.onExit((exit) => "recoverMs" in phases || "verifyImageMs" in phases || "createMs" in phases
-        ?Effect.flatMap(Clock.currentTimeMillis, (at) => logTimedEvent("vm_create", vmCreateLine(phases, {
+        ? Effect.flatMap(Clock.currentTimeMillis, (at) => logTimedEvent("vm_create", vmCreateLine(phases, {
             ok: Exit.isSuccess(exit), enteredAt: attempt.entered ?? started, preMs: started - (attempt.entered ?? started),
             totalMs: at - (attempt.entered ?? started), meshId: proofs.mesh?.mesh.value ?? null,
           })))
@@ -204,7 +204,9 @@ const createRecorded = <C, S, M = never>(
  * The vm_create line: one per create that reached the provider. A phase that made no provider call is null
  * (recoverMs and verifyImageMs for a caller whose creates send no read first, verifyImageMs without an approved image,
  * createMs when the VM was recovered, resizeMs without a grow: the VM booted at the size asked). `imageVariant` says
- * which snapshot of an approved image booted: "large" (the one baked at the size asked) or "base"; null without one.
+ * which snapshot of an approved image booted: "large" (the one baked at the size asked), "base", or "unlisted" (a retry
+ * that recovered a VM from a snapshot its entry no longer lists); null without one. `oversized`: a large boot answered
+ * bigger than was asked and was refused.
  */
 const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; readonly enteredAt: number; readonly preMs: number; readonly totalMs: number; readonly meshId: string | null }) => ({
   vmId: phases["vmId"] ?? null,
@@ -215,6 +217,7 @@ const vmCreateLine = (phases: TimedPhases, request: { readonly ok: boolean; read
   recoverMs: phases["recoverMs"] ?? null,
   verifyImageMs: phases["verifyImageMs"] ?? null,
   imageVariant: phases["imageVariant"] ?? null,
+  oversized: phases["oversized"] ?? false,
   createMs: phases["createMs"] ?? null,
   recoverAfterMs: phases["recoverAfterMs"] ?? null,
   resizeMs: phases["resizeMs"] ?? null,
@@ -286,6 +289,7 @@ const createRecordedTimed = <C, S, M>(
       // Minted above, not resumed: no attempt before this request can have sent a create for this id's slug.
       minted: attempt.prior?.phase !== "creating" && attempt.prior?.phase !== "capturing",
       source: attempt.prior?.phase === "creating" ? attempt.prior.intent?.probe.source ?? null : null,
+      request: attempt.prior?.phase === "creating" ? attempt.prior.intent?.probe.request ?? null : null,
       beforeSend: (context: string, probe: VmCreationProbe) => {
         intent ??= { receipt: attempt.prior?.phase === "capturing" ? attempt.prior.receipt : { id: cmuxId, displayName: spec.displayName, labels: spec.labels, idleTimeoutSeconds: spec.idleTimeoutSeconds,
           ...(proofs.image === undefined ? {} : { bootImage: vmImageEvidenceOf(proofs.image).receipt }),

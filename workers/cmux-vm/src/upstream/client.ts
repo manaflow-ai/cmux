@@ -76,6 +76,8 @@ export interface CreateVmSpec {
     readonly minted: boolean;
     /** A resumed creation's retained source digest (its probe's `source`), when it booted a snapshot or an image. */
     readonly source: string | null;
+    /** A resumed creation's retained request digest (its probe's `request`): what its VM carries as `cmux_create`. */
+    readonly request: string | null;
     readonly beforeSend: (context: string, probe: VmCreationProbe) => Effect.Effect<void, UpstreamError>;
     readonly beginSend: () => Effect.Effect<string, UpstreamError>;
     readonly rejected: (token: string) => Effect.Effect<void, UpstreamError>;

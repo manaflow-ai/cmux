@@ -300,6 +300,8 @@ describe("a create with no provider read before it", () => {
     h.upstream.fetch = async (request) => {
       const answer = await provider(request);
       if (request.method !== "POST" || new URL(request.url).pathname !== "/v5/vms" || answer.status !== 201) return answer;
+      // The provider really booted another snapshot: the VM says so on every later read too.
+      for (const vm of h.upstream.vms.values()) vm.snapshotId = "some-other-snapshot";
       return Response.json({ ...record(await answer.json()), snapshotId: "some-other-snapshot" }, { status: 201 });
     };
     h.upstream.fail("delete", 500);
