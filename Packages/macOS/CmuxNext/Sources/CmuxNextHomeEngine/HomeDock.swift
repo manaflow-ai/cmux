@@ -62,6 +62,8 @@ public final class HomeDock {
     /// The allow-tabs step waiting for the dock's resource ids (``allowTabsWhenIdentified``); read by tests.
     private(set) var allowTabsWait: Task<Void, Never>?
     private let defaults: UserDefaults
+    /// Where each step of a launch's dock ensure lands (`home.dock.<step>` launch marks: the app's DebugTimings).
+    public var mark: @MainActor (String) -> Void = { _ in }
     /// Set once the first launch with `pinned-dock-alone-v1` looked for the placeholder shell.
     static let placeholderCheckedKey = "cmuxNext.home.placeholderShellChecked"
     /// Set once Home's pinned dock was let take tabs (``allowTabs``), so a dock the person later
@@ -124,6 +126,7 @@ public final class HomeDock {
     private func ensureDock(_ connection: DaemonConnection, store: DaemonStore, home: ResourceID, dock: Dock) async throws -> String {
         let workspace: @MainActor @Sendable () -> WorkspaceModel? = { store.workspaces.first { $0.resourceID == home } }
         guard let first = await shown(workspace) else { return "home workspace gone" }
+        mark("home.dock.workspace_shown")
         if Self.pageTab(in: first) == nil {
             // Always the workspace (its active pane, or a first pane of an empty home), so a
             // retry under the same key names the same target and replays.
@@ -132,11 +135,13 @@ public final class HomeDock {
                 _ = try await connection.request(NewConversationTabRequest(page: Self.page, workspace: handle, origin: Self.origin,
                                                                            mutationID: mutationID))
             }
+            mark("home.dock.page_tab_replied")
         } else {
             key.settle()
         }
         // The tree reports a just-created tab after its event.
         guard let placed = await shown({ workspace().flatMap(Self.pageTab(in:)) }), !Task.isCancelled else { return "page tab not shown" }
+        mark("home.dock.page_tab_shown")
         let chiefs = Set((workspace()?.screens ?? []).flatMap { screen in
             screen.panes.flatMap { pane in pane.tabs.filter { Self.isChiefTab($0) || Self.isLegacyDockTab($0, in: pane, on: screen) } }
         }.map(\.surface))
@@ -162,8 +167,10 @@ public final class HomeDock {
             dock(placed.tab, placed.pane, respawn, alone) { done.resume(returning: $0) }
         }
         guard moved else { return "home dock move failed (see the app log)" }
+        mark("home.dock.move_replied")
         // Held until the tree shows the dock (or this run is cancelled), so a connect meanwhile reads it.
         _ = await shown { workspace().flatMap(Self.pageTab(in:)).flatMap { Self.isDocked($0.pane, on: $0.screen) ? true : nil } }
+        mark("home.dock.docked_shown")
         _ = try await pin(connection, store: store, workspace: workspace)
         _ = await allowTabsLogged(connection, store: store, workspace: workspace, fresh: true)
         return "home dock made"
