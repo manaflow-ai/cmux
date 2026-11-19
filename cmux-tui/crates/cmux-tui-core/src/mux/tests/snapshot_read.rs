@@ -687,6 +687,31 @@ fn a_snapshot_read_between_a_commit_and_its_route_publish_shows_the_routes_of_th
     );
 }
 
+/// The cached rows stay while reads take them and go once none did for the keep time; the read after that
+/// builds them again and shows the same snapshot (`committed_snapshot.rs`, module text).
+#[test]
+fn unread_cached_rows_are_let_go_and_the_next_read_shows_the_same_snapshot() {
+    let root = temp_root("release");
+    let mux = session_at_rest("snapshot-release", &root);
+    grow_to(&mux, 60);
+    let snapshots = mux.committed_snapshots.as_ref().expect("a file registry caches its rows");
+    let (first, head) = public_session_snapshot_with_journal_head(&mux).unwrap();
+    assert!(snapshots.holds_rows_for_test(), "a read caches the rows");
+    let keep = Duration::from_secs(60);
+    let now = std::time::Instant::now();
+    let due = snapshots.release_unread(now, keep).expect("rows read just now stay");
+    assert!(due > now && due <= now + keep, "they are looked at again at their deadline");
+    assert!(snapshots.holds_rows_for_test());
+    assert_eq!(snapshots.release_unread(now + keep + Duration::from_secs(1), keep), None);
+    assert!(!snapshots.holds_rows_for_test(), "rows no read took for the keep time are let go");
+    assert_eq!(snapshots.release_unread(now + keep * 3, keep), None, "nothing cached, no deadline");
+    let (again, head_again) = public_session_snapshot_with_journal_head(&mux).unwrap();
+    assert_eq!((again, head_again), (first, head), "the rebuilt rows show the same snapshot");
+    assert!(snapshots.holds_rows_for_test(), "the read cached them again");
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 mod route_wait;
 #[cfg(unix)]
 mod window;

@@ -17,9 +17,16 @@
 //! The key is a correctness key: the count must move inside every COMMIT that writes rows on the registry's
 //! connection (the WAL hook, `workspace_registry/wal_durability.rs` `note_commit`). `mux/tests/snapshot_read.rs`
 //! (`a_warm_snapshot_shows_the_next_commit_of_each_kind`) fails when a commit does not move it.
+//!
+//! The cached rows are let go when no read took them for [`COMMITTED_SNAPSHOT_KEEP`]: the owner's idle reaper
+//! (`mux/idle_close.rs`) drops them at that deadline, and the next read builds them again, as after a commit. At
+//! 1,000 workspaces they were 10.5 MB of the daemon's heap (infinite items, 2026-11-19), held for a read that a
+//! quiet session may not make for days.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError, TryLockError};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -40,10 +47,16 @@ pub(crate) struct CommittedSnapshot {
     pub(super) state: Value,
 }
 
+/// How long the cached rows stay after the last read that took them (module text).
+pub(crate) const COMMITTED_SNAPSHOT_KEEP: Duration = Duration::from_secs(60);
+
 /// The snapshot readers' own read-only connection and the rows of the last commit count a reader saw.
 pub(crate) struct CommittedSnapshots {
     reader: Mutex<rusqlite::Connection>,
     latest: arc_swap::ArcSwapOption<CommittedSnapshot>,
+    /// When a read last took the cached rows, in milliseconds after `epoch`.
+    read_at_ms: AtomicU64,
+    epoch: Instant,
 }
 
 impl CommittedSnapshots {
@@ -55,7 +68,49 @@ impl CommittedSnapshots {
                 eprintln!("cmux-tui: snapshot reader connection unavailable: {error:#}");
             })
             .ok()?;
-        Some(Self { reader: Mutex::new(reader), latest: arc_swap::ArcSwapOption::empty() })
+        Some(Self {
+            reader: Mutex::new(reader),
+            latest: arc_swap::ArcSwapOption::empty(),
+            read_at_ms: AtomicU64::new(0),
+            epoch: Instant::now(),
+        })
+    }
+
+    fn note_read(&self) {
+        let ms = u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.read_at_ms.store(ms, Ordering::Relaxed);
+    }
+
+    /// Lets the cached rows go when no read took them for `keep` before `now`. Returns when to look again: the
+    /// cached rows' deadline, or `None` when none are cached. A builder at work (its lock taken) stores rows of
+    /// its own, so this looks again at a later deadline.
+    pub(crate) fn release_unread(&self, now: Instant, keep: Duration) -> Option<Instant> {
+        self.latest.load().as_ref()?;
+        let due = |snapshots: &Self| {
+            snapshots.epoch
+                + Duration::from_millis(snapshots.read_at_ms.load(Ordering::Relaxed))
+                + keep
+        };
+        if now < due(self) {
+            return Some(due(self));
+        }
+        let _builder = match self.reader.try_lock() {
+            Ok(builder) => builder,
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(TryLockError::WouldBlock) => return Some(now + keep),
+        };
+        // A read between the check and the lock took them: they stay.
+        if now < due(self) {
+            return Some(due(self));
+        }
+        self.latest.store(None);
+        None
+    }
+
+    /// Whether rows are cached (tests).
+    #[cfg(test)]
+    pub(crate) fn holds_rows_for_test(&self) -> bool {
+        self.latest.load().is_some()
     }
 
     #[cfg(test)]
@@ -169,6 +224,7 @@ pub(super) fn committed_snapshot(mux: &Mux) -> anyhow::Result<Arc<CommittedSnaps
     };
     let current =
         |commits: u64| snapshots.latest.load_full().filter(|latest| latest.commits == commits);
+    snapshots.note_read();
     if let Some(latest) = current(mux.registry_connection.durability_counts().0) {
         return Ok(latest);
     }
@@ -187,7 +243,11 @@ pub(super) fn committed_snapshot(mux: &Mux) -> anyhow::Result<Arc<CommittedSnaps
     transaction.finish()?;
     // Before the rows go in the cache: a reader that takes them from the cache makes no try of its own.
     routes_of_committed_rows_are_published(mux);
-    snapshots.latest.store(Some(built.clone()));
+    snapshots.note_read();
+    // Rows cached where none were: the idle reaper learns their deadline (module text).
+    if snapshots.latest.swap(Some(built.clone())).is_none() {
+        mux.wake_idle_close_reaper();
+    }
     Ok(built)
 }
 

@@ -296,6 +296,15 @@ pub fn start_idle_terminal_reaper(
             let Some(owner) = mux.upgrade() else { break };
             let now = Instant::now();
             let (_, next) = owner.reap_idle_terminals_until_next(now);
+            // The session snapshot's cached rows go when no read took them for a while; this thread keeps
+            // their deadline too (`resource_api/committed_snapshot.rs`).
+            let snapshot = owner.committed_snapshots.as_ref().and_then(|snapshots| {
+                snapshots.release_unread(now, crate::resource_api::COMMITTED_SNAPSHOT_KEEP)
+            });
+            let next = match (next, snapshot) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
             drop(owner);
             let message = match next {
                 None => messages.recv().map_err(|_| RecvTimeoutError::Disconnected),
