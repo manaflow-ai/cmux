@@ -6,6 +6,7 @@
 use super::size_state_for_client;
 use crate::panic_free::RecoverPoison;
 
+use super::ATTACH_FRAMES_CAPABILITY;
 use super::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 use super::ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY;
 use super::AttachWireShape;
@@ -642,6 +643,10 @@ pub(super) fn attach_surface(
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
         return Err(error.into());
     }
+    // `attach-frames-v1`: a plain byte viewer's `output` goes out as OUTPUT frames. A hybrid
+    // viewer's events are cell frames and lines, and stay JSON.
+    let frames = hybrid_viewer.is_none()
+        && mux.control_clients.supports_capability(client, ATTACH_FRAMES_CAPABILITY);
     let worker_writer = writer.clone();
     let worker_mux = mux.clone();
     let worker_stream = outbound_stream.clone();
@@ -664,6 +669,8 @@ pub(super) fn attach_surface(
         let mut hybrid = hybrid_viewer;
         let mut hybrid_out: Vec<HybridOut> = Vec::new();
         let mut ready: Vec<AttachFrame> = Vec::new();
+        // The stream offset of the next output byte (OUTPUT frames carry their first byte's).
+        let mut offset = attach.stream_offset;
         'stream: while writer.is_open()
             && outbound_stream.is_open()
             && !attach.lifecycle.is_canceled()
@@ -729,12 +736,24 @@ pub(super) fn attach_surface(
                 }
             }
             for frame in ready.drain(..) {
-                if let Err(error) = writer.send_attach_frame_backpressured(
-                    surface_id,
-                    &frame,
-                    shape,
-                    &outbound_stream,
-                ) {
+                let start = offset;
+                if let AttachFrame::Output(output) | AttachFrame::OutputWithColors { output, .. } =
+                    &frame
+                {
+                    offset += output.len() as u64;
+                }
+                let sent = match &frame {
+                    AttachFrame::Output(output) if frames => {
+                        writer.send_output_frames_backpressured(output, start, &outbound_stream)
+                    }
+                    _ => writer.send_attach_frame_backpressured(
+                        surface_id,
+                        &frame,
+                        shape,
+                        &outbound_stream,
+                    ),
+                };
+                if let Err(error) = sent {
                     handle_attach_send_error(&attach.lifecycle, &error);
                     break 'stream;
                 }
