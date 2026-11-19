@@ -111,6 +111,22 @@ class ThisTree(unittest.TestCase):
         found = check.problems([("here", WORKFLOWS)], {name: "" for name in names} | values())
         self.assertEqual(found, [], "\n".join(found))
 
+    def test_no_allowlist_lets_a_variable_pick_a_github_hosted_runner(self) -> None:
+        # 2026-11-18/19: language-boundaries' `contains(fromJSON('["ubuntu-24.04", ...]'), vars.CI_TRUSTED_RUNNER)`
+        # took GitHub-hosted Ubuntu while CI_TRUSTED_RUNNER held it, and hosted Ubuntu started no cmux job for
+        # hours. The fork branch (`repository_owner != 'manaflow-ai' && 'ubuntu-24.04'`) is a literal, not an
+        # allowlist, and stays.
+        allowlist = re.compile(r"contains\(fromJSON\('(\[[^']*\])'\),\s*vars\.[A-Z0-9_]+\)")
+        hosted = re.compile(r"(?:ubuntu|windows|macos)-(?:latest|\d+(?:\.\d+)?)(?:-[a-z0-9]+)*")
+        found = []
+        for path in sorted(WORKFLOWS.glob("*.y*ml")):
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                for members in allowlist.findall(line):
+                    for label in json.loads(members):
+                        if isinstance(label, str) and hosted.fullmatch(label.lower()):
+                            found.append(f"{path.name}:{number}: allowlist admits GitHub-hosted {label!r}")
+        self.assertEqual(found, [], "\n".join(found))
+
     def test_a_planted_bare_read_fails_and_an_unpassed_variable_is_named(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "w.yml").write_text("jobs:\n  a:\n    runs-on: ${{ vars.CI_IOS_INTERNAL_RUNNER || 'x' }}\n"
