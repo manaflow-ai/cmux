@@ -1433,8 +1433,21 @@ async fn the_attach_flood_is_one_notice_per_peer_row() {
     assert_eq!(line["batchNotices"], json!(0), "no batch for a client that did not ask: {line}");
     assert_eq!(line["floodError"], Value::Null, "{line}");
     assert_eq!(line["peerLists"], json!(peers), "one list per peer: {line}");
-    assert_eq!(line["attachNoticesAhead"], json!(peers * rows), "one notice per row: {line}");
-    assert_eq!(line["attachNoticesAheadMax"], json!(rows), "one list's rows: {line}");
+    // A lag's `dropped` counts every hub event the fan-out missed, a few not peer rows among them
+    // (10,402 and 10,404 with 1,514 dropped, 3 of 18 god runs): exact only when none was dropped.
+    let ahead = line["attachNoticesAhead"].as_u64().expect("attachNoticesAhead");
+    if line["noticesDropped"] == json!(0) {
+        assert_eq!(ahead, peers * rows, "one notice per row: {line}");
+    } else {
+        assert!((peers * rows..=peers * rows + 32).contains(&ahead), "one notice per row: {line}");
+    }
+    // The most of one peer counts the notices read: a dropped one is of no peer.
+    let most = line["attachNoticesAheadMax"].as_u64().expect("attachNoticesAheadMax");
+    if line["noticesDropped"] == json!(0) {
+        assert_eq!(most, rows, "one list's rows: {line}");
+    } else {
+        assert!(most <= rows, "one list's rows: {line}");
+    }
     // Each notice carries its row's summary, 3,327 bytes of the fixture's 75 keys: 1,330,733 a
     // list on the Linux pool, every run. Within 1%: dropped notices are weighed at the mean.
     let per_list = line["noticeBytesPerPeerList"].as_u64().unwrap_or(0);
