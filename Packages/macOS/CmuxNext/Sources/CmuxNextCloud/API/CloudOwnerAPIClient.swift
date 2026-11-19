@@ -44,6 +44,11 @@ public struct CloudOwnerAPIClient: Sendable {
         session = Self.transport
     }
 
+    /// The same client over `session` (a test's stub transport).
+    init(baseURL: URL, accessToken: @escaping AccessToken, teamID: @escaping TeamID, session: URLSession) {
+        (self.baseURL, self.accessToken, self.teamID, self.session) = (baseURL, accessToken, teamID, session)
+    }
+
     /// `POST /v1/cloud/machines/{machine}/acpmux/keyed-start`: restarts the machine's acpmux with
     /// this app's person key. `writeKey` writes the key line (`keyLineLength` bytes) into the body
     /// stream from the caller's own zeroed buffer: no `Data` or `String` copy here, and a stream

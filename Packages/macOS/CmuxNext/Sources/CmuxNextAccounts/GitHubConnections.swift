@@ -27,15 +27,28 @@ public final class GitHubConnections {
     @ObservationIgnored public var changes: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var connectKeys: [Scope: String] = [:]
+    /// The API refused the completion link this launch (an API from before it): later connects ask without it.
+    @ObservationIgnored private var returnLinkRefused = false
+    /// When the scope's list was last read: a Connect right after (Settings read it on focus) uses it as it is.
+    @ObservationIgnored private var loadedAt: Date?
     private var loadedScope: Scope?
     private var workingScope: Scope?
+    /// The scope whose Connect is asking for GitHub's page now: the button says so until the page opens.
+    private var connectingScope: Scope?
     private var generation = 0
     @ObservationIgnored private var authorizations: [Scope: (id: String, url: URL, expires: Date)] = [:]
     private(set) var connections: [JSONValue] = []
     private(set) var configured = false
     private var errorScope: Scope?
     public var error: Bool { scope() != nil && errorScope == scope() }
-    public var pending: Bool { currentConnections.contains { $0["status"]?.stringValue == "pending" } || scope().map { authorizations[$0] != nil } == true }
+    /// A connect is waiting on the person in GitHub: this launch's own page, or a pending connection younger than its
+    /// lifetime (another launch's, Settings' elsewhere, an org owner's approval). It never holds Connect: a click opens
+    /// this launch's page, or asks for a fresh one (hq#13939).
+    public var pending: Bool {
+        currentConnections.contains { $0["status"]?.stringValue == "pending" } || scope().map { authorizations[$0] != nil } == true
+    }
+    /// Connect is asking for GitHub's page right now.
+    public var connecting: Bool { connectingScope != nil && connectingScope == scope() }
 
     public init(scope: @escaping () -> Scope?, call: @escaping Call, open: @escaping (URL) -> Void, now: @escaping () -> Date = Date.init) {
         self.scope = scope
@@ -55,11 +68,16 @@ public final class GitHubConnections {
     }
     public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
     public var ready: Bool { scope() != nil && loadedScope == scope() && configured }
-    public var canConnect: Bool { ready && !busy && !connected && (!pending || scope().map(resumable) == true) }
+    public var canConnect: Bool { ready && !busy && !connected }
 
-    /// A pending flow this launch can resume: its cached browser URL, or the idempotency key of a
-    /// connect whose response was lost (replaying it returns the same pending connection's URL).
-    private func resumable(_ bound: Scope) -> Bool { authorizations[bound] != nil || connectKeys[bound] != nil }
+    /// How long a pending connection waits for its install before the API expires it (`PENDING_CONNECTION_TTL_MS`).
+    public static let pendingLifetime: TimeInterval = 30 * 60
+
+    /// A pending row past ``pendingLifetime``: its install was cancelled or abandoned, and the API expires it.
+    func isStalePending(_ row: JSONValue) -> Bool {
+        guard row["status"]?.stringValue == "pending", let created = row["created_at"]?.doubleValue else { return false }
+        return now().timeIntervalSince1970 - created / 1000 >= Self.pendingLifetime
+    }
 
     /// An active connection's Reconfigure: its installation's page on GitHub, where the person changes the account's
     /// or org's repository access (another account or org: Disconnect, then Connect GitHub picks it).
@@ -72,13 +90,23 @@ public final class GitHubConnections {
     }
 
     /// One shared entry point for Settings, the Setup Guide, the palette and CLI.
+    /// The list read moments before (Settings reads it on focus) stands in for a refresh, so a click asks GitHub's page at once.
     public func connect() async {
         let bound = scope()
-        await perform("githubRefresh")
-        guard scope() == bound, !error else { return }
+        // The button says Opening GitHub… from the click, through the refresh, until the page opens.
+        connectingScope = bound
+        defer { if connectingScope == bound { connectingScope = nil } }
+        let fresh = bound != nil && loadedScope == bound && loadedAt.map { now().timeIntervalSince($0) < Self.listReuse } == true
+        if !fresh {
+            await perform("githubRefresh")
+            guard scope() == bound, !error else { return }
+        }
         if connected { return }
         await perform("githubConnect")
     }
+
+    /// How long a read list stands in for Connect's own refresh.
+    static let listReuse: TimeInterval = 30
 
     public func perform(_ action: String, connection: String? = nil) async {
         guard let bound = scope(), workingScope != bound else { return }
@@ -90,9 +118,9 @@ public final class GitHubConnections {
         do {
             switch action {
             case "githubConnect":
-                // A pending flow from another launch has no resumable URL or key here.
-                // Keep it pending until refresh or disconnect resolves that flow.
-                guard ready, !connected, !pending || resumable(bound) else { return }
+                // A pending connection with no page here (a cancelled install, another launch's) never holds the click:
+                // without this launch's page or key the connect asks for a fresh page; the API expires the old one.
+                guard ready, !connected else { return }
                 if let authorization = authorizations[bound], authorization.expires <= now() {
                     authorizations[bound] = nil
                     connectKeys[bound] = nil
@@ -101,11 +129,19 @@ public final class GitHubConnections {
                     open(authorization.url)
                 } else {
                     if connectKeys[bound] == nil { connectKeys[bound] = UUID().uuidString }
-                    // An API from before the completion link refuses its params: the console finishes it. The retry has its
-                    // own key, derived so its own retry is the same ask (the same key with other params is a conflict).
+                    connectingScope = bound
+                    defer { if connectingScope == bound { connectingScope = nil } }
+                    // An API from before the completion link refuses its params (`validation.invalid`, and only that): the
+                    // console finishes it, and this launch's later connects ask without the link. The retry has its own key,
+                    // derived so its own retry is the same ask (the same key with other params is a conflict).
                     let value: JSONValue
-                    do { value = try await call(bound, "integration.connect", connectParams(returning: true), connectKeys[bound]) } catch GitHubFailure.refused where completionLink != nil {
-                        value = try await call(bound, "integration.connect", connectParams(returning: false), connectKeys[bound].map { $0 + ":plain" })
+                    if returnLinkRefused || completionLink == nil {
+                        value = try await call(bound, "integration.connect", connectParams(returning: false), connectKeys[bound].map { completionLink == nil ? $0 : $0 + ":plain" })
+                    } else {
+                        do { value = try await call(bound, "integration.connect", connectParams(returning: true), connectKeys[bound]) } catch GitHubFailure.invalidParams {
+                            returnLinkRefused = true
+                            value = try await call(bound, "integration.connect", connectParams(returning: false), connectKeys[bound].map { $0 + ":plain" })
+                        }
                     }
                     guard scope() == bound, generation == ticket else { return }
                     guard let raw = value["authorize_url"]?.stringValue, let url = Self.installationURL(raw),
@@ -129,9 +165,20 @@ public final class GitHubConnections {
             guard let rows = value["connections"]?.arrayValue, let providers = value["providers"]?.arrayValue else {
                 throw GitHubFailure.invalidReply
             }
-            connections = rows.filter { $0["provider"]?.stringValue == "github" && !["revoked", "expired"].contains($0["status"]?.stringValue ?? "") }
+            // A pending row past its lifetime (a cancelled install) is not shown: the API expires it.
+            let listed = rows.filter {
+                $0["provider"]?.stringValue == "github" && !["revoked", "expired"].contains($0["status"]?.stringValue ?? "") && !isStalePending($0)
+            }
+            // A reconnect makes a new connection: the old one that needed it (`needs_reauth`, `error`) stays in the API's
+            // list beside the new active one for the same account. It is not shown, so it never asks to reconnect again.
+            let activeAccounts = Set(listed.compactMap { $0["status"]?.stringValue == "active" ? $0["account"]?["key"]?.stringValue : nil })
+            connections = listed.filter { row in
+                guard ["needs_reauth", "error"].contains(row["status"]?.stringValue ?? ""), let key = row["account"]?["key"]?.stringValue else { return true }
+                return !activeAccounts.contains(key)
+            }
             configured = providers.contains { $0["provider"]?.stringValue == "github" && $0["configured"]?.boolValue == true }
             loadedScope = bound
+            loadedAt = now()
             if let authorization = authorizations[bound],
                !connections.contains(where: { $0["id"]?.stringValue == authorization.id && $0["status"]?.stringValue == "pending" }) {
                 authorizations[bound] = nil
@@ -139,7 +186,7 @@ public final class GitHubConnections {
             }
         } catch {
             if action == "githubConnect", generation == ticket, scope() == bound,
-               let failure = error as? GitHubFailure, case .refused = failure {
+               let failure = error as? GitHubFailure, failure == .refused || failure == .invalidParams {
                 // A definitive API refusal is replayed under its mutation key.
                 // Transport failures keep the key because the mutation may have succeeded.
                 connectKeys[bound] = nil
@@ -173,5 +220,6 @@ public final class GitHubConnections {
         return "user_" + digest.prefix(10).map { String(format: "%02x", $0) }.joined()
     }
 
-    public enum GitHubFailure: Error { case changedAccount, invalidReply, refused }
+    /// `invalidParams`: the API refused the params (`validation.invalid`); `refused`: any other definitive refusal.
+    public enum GitHubFailure: Error { case changedAccount, invalidReply, refused, invalidParams }
 }

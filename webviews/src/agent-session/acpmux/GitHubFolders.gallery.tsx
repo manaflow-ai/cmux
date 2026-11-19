@@ -15,7 +15,7 @@ type Props = ComponentProps<typeof ComposerContext>;
 /// The folder menu's GitHub handle as a fixed state: the gallery draws it, nothing is asked.
 function picker(state: Partial<GitHubPickerState>): GitHubPicker {
   return {
-    state: { query: null, truncated: false, loading: false, waiting: false, ...state },
+    state: { query: null, truncated: false, loading: false, waiting: false, connecting: false, ...state },
     onOpen: () => undefined,
     onConnect: () => {
       document.documentElement.dataset.galleryGitHub = "connect";
@@ -88,6 +88,11 @@ export default componentEntry<Props>({
     "not-connected": {
       note: "A new Cloud chat before GitHub is connected: Connect to GitHub sits with the fixed actions under the list, its title alone; one click opens the install page, the menu stays open.",
       props: { ...base, github: notConnected },
+      play: openFolder,
+    },
+    connecting: {
+      note: "Right after the click, while the host asks for GitHub's page: the row's title reads Opening GitHub… in place, so the row keeps its height; a second click asks nothing more. Once the page opens the row is its title again (hq#13940).",
+      props: { ...base, github: picker({ status: { state: "not_connected", reposScope: null }, connecting: true }) },
       play: openFolder,
     },
     waiting: {

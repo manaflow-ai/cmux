@@ -105,3 +105,28 @@ test("a connected GitHub row offers Reconfigure and Disconnect", async () => {
   expect(pending.container.querySelector('[data-github-action="reconfigure"]')).toBeNull();
   pending.unmount();
 });
+
+// hq#13940: while Connect asks for GitHub's page the button says so in place, busy and disabled.
+test("while Connect asks for GitHub's page its button reads Opening GitHub…", async () => {
+  const page = await renderPage({
+    path: "/settings/accounts",
+    setup: (provider) => {
+      provider.accounts = {
+        ...provider.accounts,
+        github: {
+          ...github,
+          signIn: null,
+          busy: true,
+          canConnect: false,
+          connecting: true,
+          connectingLabel: "Opening GitHub…",
+        },
+      };
+    },
+  });
+  const button = page.container.querySelector<HTMLButtonElement>('[data-github-action="connect"]')!;
+  expect(button.textContent).toBe("Opening GitHub…");
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  expect(button.disabled || button.getAttribute("aria-disabled") === "true").toBe(true);
+  page.unmount();
+});

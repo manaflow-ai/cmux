@@ -331,14 +331,25 @@ export function FolderPopover({
       const reason = githubStatus === "unavailable" ? github?.state.status?.reason : undefined;
       // The title alone: GitHub's own page is the one place the person waits, so the row adds no
       // Waiting for GitHub… nor a reason under it. Only a click the host refused says why (#46018).
+      // While the click asks for that page the title itself says Opening GitHub…, in place, so the
+      // row keeps its height (hq#13940).
       const detail = github?.state.connectError;
+      const connecting = github?.state.connecting === true;
       return (
-        <span className="acpmux-location-action acpmux-location-row" data-github="" data-github-unavailable={reason}>
+        <span
+          className="acpmux-location-action acpmux-location-row"
+          data-github=""
+          data-github-unavailable={reason}
+          data-github-connecting={connecting ? "" : undefined}
+          aria-busy={connecting || undefined}
+        >
           <span className="acpmux-location-action-icon" aria-hidden="true">
             <GitHubMark />
           </span>
           <span className="acpmux-menu-text acpmux-location-name">
-            <span className="acpmux-menu-label">{t("composer.githubConnect")}</span>
+            <span className="acpmux-menu-label">
+              {t(connecting ? "composer.githubConnecting" : "composer.githubConnect")}
+            </span>
             {detail && <span className="acpmux-menu-description">{detail}</span>}
           </span>
         </span>

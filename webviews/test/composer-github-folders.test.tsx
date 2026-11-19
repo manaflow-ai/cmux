@@ -847,3 +847,31 @@ test("a GitHub folder goes to the Cloud start as its cwd and asks this Mac for n
   onProjectPicked?.("github:acme/api");
   expect(asked).toEqual([]);
 });
+
+test("while the host asks for GitHub's page the row says Opening GitHub… in place, and another click asks nothing more", async () => {
+  let answer: (value: unknown) => void = () => undefined;
+  const gh = host({
+    "github.status": { state: "not_connected", repos_scope: null },
+    "github.connect": () => new Promise((resolve) => (answer = resolve)),
+  });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await press(option(CONNECT)!);
+    const row = option("Opening GitHub…");
+    expect(row).toBeDefined();
+    expect(row!.querySelector("[data-github-connecting]")?.getAttribute("aria-busy")).toBe("true");
+    // The title changes in place: no second line, so the row keeps its height.
+    expect(detail(row)).toBeUndefined();
+    await press(row!);
+    expect(gh.calls.filter(([method]) => method === "github.connect")).toHaveLength(1);
+    // The page opened: the row is its title again, with no waiting line while GitHub's page is open (#46018).
+    await act(async () => answer({ opened: true }));
+    await settle();
+    expect(option(CONNECT)).toBeDefined();
+    expect(option("Opening GitHub…")).toBeUndefined();
+    expect(detail(option(CONNECT))).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
