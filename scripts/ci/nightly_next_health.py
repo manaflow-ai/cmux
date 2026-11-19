@@ -2,9 +2,9 @@
 """The cmux NEXT health gate: real-session health of the feed's newest Nightly build, judged every 15 minutes.
 
 Leo, 2026-11-19 (paraphrased): we want to be a professional software organization, so agents look these practices
-up and build them; "always be building". The practice is release health gating (Sentry release health; Google SRE
-Workbook ch. 16, canarying): a build's crash-free sessions and hang rate, read from the crash reporter and compared
-with the build before it, decide whether it stays on the feed. Before this, the crash-free rate reached a person
+up and build them; "always be building". The practice is release health gating (canarying): a build's crash-free
+sessions and hang rate, read from the crash reporter and compared with the build before it, decide whether it stays
+on the feed. Before this, the crash-free rate reached a person
 once a day (cmux-next-quality-report.yml, which gates nothing), so a bad build was found up to 24 h later, or by Leo.
 
 nightly-next-health.yml runs it every 15 minutes:
