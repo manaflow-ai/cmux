@@ -24,7 +24,8 @@ public struct ControlPaneInfo: Sendable, Hashable {
     public var dock: String?
     /// The panes directly right of this one on its screen, top to bottom, from the daemon's layout
     /// (`ScreenModel.paneIDs(rightOf:)`): the panes across the nearest side-by-side split of its own column,
-    /// else the left edge of the next scrolling column. ``column`` cannot say it: a pane split beside another is
+    /// else on the left edge of the next scrolling column, that share height with it (a pane that only touches
+    /// the row above or below is not right of it). ``column`` cannot say it: a pane split beside another is
     /// in that pane's own column. Nil where no layout was read (a topology built by hand): `column + 1` then.
     /// `beside_caller` placement reads it (ControlCaller), on and off screen.
     public var rightPaneIDs: [String]?

@@ -3,9 +3,12 @@
 /// its caller's own one (``ownPlace``), any other is not affected by a caller (``unaffected``). Neither closes,
 /// ends, archives, disconnects or destroys what it runs on, and no ``unaffected`` one changes the tab, pane,
 /// workspace or window the person has in front when the run has no target; that is what the review of each id
-/// says. Second pass, 2026-11-18 (review of 4fb5810d35c), by reading the handlers: 163 actions left
-/// ``unaffected``: 93 group actions and 8 that read the run's tab, pane or workspace to ``ownPlace``; 55 on a
-/// window, a Space or a bookmark and 7 on the front window or its Chief to `CallerActionClass.personsFront`.
+/// says. Second pass, 2026-11-18 (reviews of 4fb5810d35c and 369c9dd76d1), by reading the handlers: 168 actions
+/// left ``unaffected``: 93 group actions and 9 that read the run's tab, pane or workspace to ``ownPlace``; 55 on a
+/// window, a Space or a bookmark and 10 on the front window or its Chief to `CallerActionClass.personsFront`;
+/// Open History Entry to the browser-opening actions (its page opens beside the caller). The second review read
+/// about 25 of the handlers that stay ``unaffected``: the rest are not read one by one, and their handlers read
+/// `windows.active` directly (about 390 reads in the App), so no one accessor can aim them.
 /// Still ``unaffected`` and not read one by one: actions on a machine, a browser profile, a sidebar row or
 /// section (their handlers ask for a named one, or take the front window's machine), and actions that show a
 /// page, a palette or a dialog in the front window (the view-change rule's).
@@ -17,7 +20,7 @@
 /// `ControlRouter.besideCallerActions` (a browser tab: `profileBrowserActions`); any other goes into the list below that `ControlRouter.callerClass(of:)`
 /// gives it. An action whose target kinds change moves between the lists the same way.
 struct CallerActionClassReview {
-    /// Reviewed 2026-11-18 (751 actions).
+    /// Reviewed 2026-11-18 (752 actions).
     static let ownPlace = ids("""
         agent.openSessionTab agent.share agent.share.invite agent.share.list agent.share.uninvite agentChat.copyAcpmuxSessionFile
         agentChat.copyConversation agentChat.copyHarnessConfigFile agentChat.copyHarnessSessionID agentChat.copyHarnessSettingsFile
@@ -116,25 +119,25 @@ struct CallerActionClassReview {
         screenGroup.color.blue screenGroup.color.cyan screenGroup.color.green screenGroup.color.grey screenGroup.color.orange
         screenGroup.color.pink screenGroup.color.purple screenGroup.color.red screenGroup.color.yellow screenGroup.create
         screenGroup.expand screenGroup.moveLeft screenGroup.moveRight screenGroup.moveToNewWindow screenGroup.moveToNewWorkspace
-        screenGroup.moveToWorkspace screenGroup.newScreen screenGroup.removeScreen screenGroup.rename screenGroup.save
-        screenGroup.setColor screenGroup.setIcon screenGroup.toggleCollapsed screenGroup.ungroup screenGroup.unsave selectSurfaceByNumber
-        selectWorkspaceByNumber sendCtrlFToTerminal showBrowserJavaScriptConsole sidebar.revealWorkspace simulatorHome simulatorRotateLeft
-        simulatorRotateRight simulatorToggleAppearance simulatorToggleSoftwareKeyboard splitBrowserDown splitBrowserRight splitDown
-        splitLeft splitRight splitUp swapPaneDown swapPaneLeft swapPaneRight swapPaneUp tab.clearIcon tab.duplicateToNewSplit tab.focus
-        tab.moveToNewColumn tab.moveToNewDockColumn tab.moveToNewSplit tab.moveToNewWindow tab.moveToSpace tab.moveToWindow
-        tab.moveToWorkspace tab.muteAudio tab.muteOtherAudio tab.pictureInPicture tab.screenshot tab.search tab.setIcon tab.setTint
-        tab.showResources tab.unmuteAudio tabGroup.addTab tabGroup.clearIcon tabGroup.collapse tabGroup.color.blue tabGroup.color.cyan
-        tabGroup.color.green tabGroup.color.grey tabGroup.color.orange tabGroup.color.pink tabGroup.color.purple tabGroup.color.red
-        tabGroup.color.yellow tabGroup.create tabGroup.deleteSaved tabGroup.expand tabGroup.moveLeft tabGroup.moveRight
-        tabGroup.moveToNewColumn tabGroup.moveToNewSplit tabGroup.moveToNewWindow tabGroup.moveToNewWorkspace tabGroup.moveToWorkspace
-        tabGroup.newTab tabGroup.removeTab tabGroup.rename tabGroup.reopenSaved tabGroup.save tabGroup.setColor tabGroup.setIcon
-        tabGroup.toggleCollapsed tabGroup.ungroup tabGroup.unsave tabs.verticalTabs.collapse tabs.verticalTabs.expandOnHover
-        tabs.verticalTabs.toggle terminal.clear terminal.clearTheme terminal.decreaseFontSize terminal.fixLastCommand
-        terminal.increaseFontSize terminal.keep terminal.project terminal.resetFontSize terminal.runLastCommandAgain
-        terminal.scrollPageDown terminal.scrollPageUp terminal.scrollToBottom terminal.scrollToSelection terminal.scrollToTop
-        terminal.selectAll terminal.sendLastOutputToChat terminal.sendSelectionToChat terminal.sendText terminal.setTheme terminalCopy
-        terminalPaste toggleBrowserDesignMode toggleBrowserDeveloperTools toggleBrowserFocusMode toggleCanvasLayout
-        toggleChecklistItemComplete toggleFileEditorMinimap toggleFileEditorWordWrap toggleFloatingPane
+        screenGroup.moveToWorkspace screenGroup.newScreen screenGroup.removeScreen screenGroup.rename screenGroup.reopenSaved
+        screenGroup.save screenGroup.setColor screenGroup.setIcon screenGroup.toggleCollapsed screenGroup.ungroup screenGroup.unsave
+        selectSurfaceByNumber selectWorkspaceByNumber sendCtrlFToTerminal showBrowserJavaScriptConsole sidebar.revealWorkspace
+        simulatorHome simulatorRotateLeft simulatorRotateRight simulatorToggleAppearance simulatorToggleSoftwareKeyboard splitBrowserDown
+        splitBrowserRight splitDown splitLeft splitRight splitUp swapPaneDown swapPaneLeft swapPaneRight swapPaneUp tab.clearIcon
+        tab.duplicateToNewSplit tab.focus tab.moveToNewColumn tab.moveToNewDockColumn tab.moveToNewSplit tab.moveToNewWindow
+        tab.moveToSpace tab.moveToWindow tab.moveToWorkspace tab.muteAudio tab.muteOtherAudio tab.pictureInPicture tab.screenshot
+        tab.search tab.setIcon tab.setTint tab.showResources tab.unmuteAudio tabGroup.addTab tabGroup.clearIcon tabGroup.collapse
+        tabGroup.color.blue tabGroup.color.cyan tabGroup.color.green tabGroup.color.grey tabGroup.color.orange tabGroup.color.pink
+        tabGroup.color.purple tabGroup.color.red tabGroup.color.yellow tabGroup.create tabGroup.deleteSaved tabGroup.expand
+        tabGroup.moveLeft tabGroup.moveRight tabGroup.moveToNewColumn tabGroup.moveToNewSplit tabGroup.moveToNewWindow
+        tabGroup.moveToNewWorkspace tabGroup.moveToWorkspace tabGroup.newTab tabGroup.removeTab tabGroup.rename tabGroup.reopenSaved
+        tabGroup.save tabGroup.setColor tabGroup.setIcon tabGroup.toggleCollapsed tabGroup.ungroup tabGroup.unsave
+        tabs.verticalTabs.collapse tabs.verticalTabs.expandOnHover tabs.verticalTabs.toggle terminal.clear terminal.clearTheme
+        terminal.decreaseFontSize terminal.fixLastCommand terminal.increaseFontSize terminal.keep terminal.project terminal.resetFontSize
+        terminal.runLastCommandAgain terminal.scrollPageDown terminal.scrollPageUp terminal.scrollToBottom terminal.scrollToSelection
+        terminal.scrollToTop terminal.selectAll terminal.sendLastOutputToChat terminal.sendSelectionToChat terminal.sendText
+        terminal.setTheme terminalCopy terminalPaste toggleBrowserDesignMode toggleBrowserDeveloperTools toggleBrowserFocusMode
+        toggleCanvasLayout toggleChecklistItemComplete toggleFileEditorMinimap toggleFileEditorWordWrap toggleFloatingPane
         toggleFocusedWorkspaceGroupCollapsed toggleReactGrab toggleSplitZoom toggleTabAudioMute toggleTerminalCopyMode toggleUnread
         triggerFlash useSelectionForFind wakeTab window.movePaneToDock workspace.clearIcon workspace.clearTheme workspace.copyPath
         workspace.dockBottom workspace.dockLeft workspace.dockRight workspace.dockTop workspace.duplicate workspace.duplicateTerminalsOnly
@@ -155,7 +158,7 @@ struct CallerActionClassReview {
         workspaceGroup.sortByLastUsed workspaceGroup.sortByName workspaceGroup.togglePin workspaceGroup.ungroup
         """)
 
-    /// Reviewed 2026-11-18 (621 actions).
+    /// Reviewed 2026-11-18 (616 actions).
     static let unaffected = ids("""
         about accounts.connect accounts.githubConnect accounts.reauthenticate accounts.refresh accounts.remove accounts.show
         agent.harness.add agent.harness.addFromRegistry agent.harness.doctor agent.harness.remove agent.harness.restore
@@ -205,8 +208,8 @@ struct CallerActionClassReview {
         focusHistoryForward focusHistoryLast focusRing.singlePane.toggle focusRing.style.glow focusRing.style.ring focusRing.toggle
         gallery.openStage ghostty.showDiagnostics globalSearch goToWorkspace help.copyLogs help.discord help.documentation
         help.featureFlags help.followOnX help.github help.revealLogs help.showCrashLogs help.troubleshooting hints.show history.clear
-        history.commands history.goTo history.open history.removeSite history.reopen history.resumeAgentSession history.search
-        history.show home.addMembers home.agentMessagePlayground home.archiveChief home.attachFiles home.channels home.chatColors
+        history.commands history.goTo history.removeSite history.reopen history.resumeAgentSession history.search history.show
+        home.addMembers home.agentMessagePlayground home.archiveChief home.attachFiles home.channels home.chatColors
         home.chiefTeleportPlayground home.closeNewMessage home.compareTablePlayground home.conversationInfo home.createChannel
         home.createGroup home.deleteChief home.disableChannels home.enableChannels home.hideConversation home.invite home.inviteToTeam
         home.leaveConversation home.mcpConnectPlayground home.messageChiefFromAnyApp home.messageChiefPet home.messageTo
@@ -249,28 +252,27 @@ struct CallerActionClassReview {
         phone.ui quit quitEndEverything quitEndSessions quitKeepSessions recentlyClosed recentlyFocused reloadConfiguration
         remote.allowAccessibility remote.allowScreenRecording remote.connect remote.copyError remote.newGroup remote.newWorkspace
         remote.reconnect remote.refreshPermissions remote.restartComputerUse remote.restartScreenSharing remote.showStatus
-        remote.stopScreenSession screen.reopenClosed screenGroup.deleteSaved screenGroup.reopenSaved screenshots.open search.chats
-        selectNextWindow selectPreviousWindow sendFeedback server.addServer server.makeThisMacAServer server.pairAnotherMachine
-        server.showHealth server.showPanel server.stopServing session.moveFromBuild settings.customizeMenus showHideAllWindows
-        showMainWindow showNotifications sidebar.chat.togglePin sidebar.chief.toggleIdleSubagents sidebar.compactList.toggle
-        sidebar.controlsOnHover.off sidebar.controlsOnHover.on sidebar.custom.toggle sidebar.customize sidebar.density.comfortable
-        sidebar.density.compact sidebar.density.expanded sidebar.edit sidebar.floatOnHover.off sidebar.floatOnHover.on
-        sidebar.groupBy.folder sidebar.groupBy.none sidebar.home.add sidebar.home.remove sidebar.item.add sidebar.item.hideApp
-        sidebar.item.toggleLabel sidebar.layout.reset sidebar.noFade.off sidebar.noFade.on sidebar.priority.markRead
-        sidebar.priority.moveEarlier sidebar.priority.moveLater sidebar.priority.snooze sidebar.priority.togglePin
-        sidebar.priorityView.toggle sidebar.profileControl.hide sidebar.profileControl.show sidebar.profileMenu sidebar.projects.hide
-        sidebar.revealAndFocusWorkspace sidebar.section.add sidebar.section.hide sidebar.section.layoutGrid sidebar.section.layoutInline
-        sidebar.section.layoutList sidebar.section.moveToScrolling sidebar.section.moveToTop sidebar.section.newWorkspace
-        sidebar.section.rename sidebar.section.setAlignment sidebar.section.setColumns sidebar.section.setGap sidebar.section.setMaxRows
+        remote.stopScreenSession screen.reopenClosed screenGroup.deleteSaved screenshots.open search.chats selectNextWindow
+        selectPreviousWindow sendFeedback server.addServer server.makeThisMacAServer server.pairAnotherMachine server.showHealth
+        server.showPanel server.stopServing session.moveFromBuild settings.customizeMenus showHideAllWindows showMainWindow
+        showNotifications sidebar.chat.togglePin sidebar.chief.toggleIdleSubagents sidebar.compactList.toggle sidebar.controlsOnHover.off
+        sidebar.controlsOnHover.on sidebar.custom.toggle sidebar.customize sidebar.density.comfortable sidebar.density.compact
+        sidebar.density.expanded sidebar.edit sidebar.floatOnHover.off sidebar.floatOnHover.on sidebar.groupBy.folder sidebar.groupBy.none
+        sidebar.home.add sidebar.home.remove sidebar.item.add sidebar.item.hideApp sidebar.item.toggleLabel sidebar.layout.reset
+        sidebar.noFade.off sidebar.noFade.on sidebar.priority.markRead sidebar.priority.moveEarlier sidebar.priority.moveLater
+        sidebar.priority.snooze sidebar.priority.togglePin sidebar.priorityView.toggle sidebar.profileControl.hide
+        sidebar.profileControl.show sidebar.profileMenu sidebar.projects.hide sidebar.revealAndFocusWorkspace sidebar.section.add
+        sidebar.section.hide sidebar.section.layoutGrid sidebar.section.layoutInline sidebar.section.layoutList
+        sidebar.section.moveToScrolling sidebar.section.moveToTop sidebar.section.newWorkspace sidebar.section.rename
+        sidebar.section.setAlignment sidebar.section.setColumns sidebar.section.setGap sidebar.section.setMaxRows
         sidebar.section.toggleCollapsed sidebar.section.toggleSpaceScope sidebar.section.toggleTitle sidebar.section.useBuiltInLook
-        sidebar.section.useListLook sidebar.sections.showHidden sidebar.spaces.show space.new space.newIncognito space.next space.previous
-        stash.importOneTab stash.show stats.show tabs.overflow.scroll tabs.overflow.shrink tabs.toolbar.togglePin
-        tabs.verticalTabs.allWorkspaces taskManager.killProcess tasks.new tasks.show tasks.showMine tips.muteDay tips.muteWeek
-        toasts.showHidden toggleQuickTerminal updates.cancelDownload updates.installEarlierBuild updates.releaseNotes updates.rollback
-        updates.showDetails updates.snooze updates.whatsNew vaultCopyResumeCommand vaultFocusSession vaultOpenPullRequest vaultOpenSession
-        vaultResumeInNewWorkspace voiceRoom.open voiceRoom.stop window.screenshot workspace.archiveIdle workspace.closeAllInAllWindows
-        workspace.importClassic workspace.removeAllColors workspace.restoreArchived workspaceGroup.collapseAll workspaceGroup.expandAll
-        zoomWindow
+        sidebar.section.useListLook sidebar.sections.showHidden sidebar.spaces.show space.new space.newIncognito stash.importOneTab
+        stash.show stats.show tabs.overflow.scroll tabs.overflow.shrink tabs.toolbar.togglePin tabs.verticalTabs.allWorkspaces
+        taskManager.killProcess tasks.new tasks.show tasks.showMine tips.muteDay tips.muteWeek toasts.showHidden toggleQuickTerminal
+        updates.cancelDownload updates.installEarlierBuild updates.releaseNotes updates.rollback updates.showDetails updates.snooze
+        updates.whatsNew vaultCopyResumeCommand vaultFocusSession vaultOpenPullRequest vaultOpenSession vaultResumeInNewWorkspace
+        voiceRoom.open voiceRoom.stop window.screenshot workspace.archiveIdle workspace.closeAllInAllWindows workspace.importClassic
+        workspace.removeAllColors workspace.restoreArchived workspaceGroup.collapseAll workspaceGroup.expandAll
         """)
 
     private static func ids(_ text: String) -> Set<String> {
