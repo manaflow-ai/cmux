@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::{
-    Resolved, Short, app_list, cloud_words, confirmed, misuse, not_listed, parse, resolve,
+    Resolved, Short, app_list, cloud_words, confirmed, help, misuse, not_listed, parse, resolve,
     restore_machine, table,
 };
 
@@ -16,6 +16,34 @@ fn listed() -> serde_json::Value {
         {"machine_id": "vm_c3", "title": "twin"},
         {"machine_id": "vm_d4", "title": "twin"},
     ]})
+}
+
+/// cmuxterm-hq#13944: `cmux vm status --help` prints status's usage, as `vm pause --help` prints
+/// pause's, not the generic `cmux vm` usage; so does every short verb the VM API lacks. The API's
+/// verbs keep the API's help, and a `--help` after `--` is exec's command.
+#[test]
+fn a_short_verbs_help_is_its_own_usage() {
+    let status = help(&words(&["vm", "status", "--help"])).expect("vm status --help");
+    assert!(status.starts_with("usage: cmux vm status [NAME|ID]\n"), "{status}");
+    assert!(status.contains("cmux vm machine-status"), "{status}");
+    assert!(!status.contains("usage: cmux vm <verb>"), "{status}");
+    assert_eq!(help(&words(&["vm", "status", "dev", "-h"])), Some(status.clone()));
+    assert_eq!(help(&words(&["cloud", "status", "--help"])), Some(status));
+    for (verb, line) in [
+        (
+            "resize",
+            "usage: cmux vm resize [NAME|ID] [--size small|medium|large|xlarge] [--disk GIB]\n",
+        ),
+        ("rename", "usage: cmux vm rename [NAME|ID] --name NAME\n"),
+        ("ssh", "usage: cmux vm ssh [NAME|ID] [--focus]\n"),
+        ("move", "usage: cmux vm move [NAME|ID] [--path DIR] [--machine vm:VM_ID]\n"),
+    ] {
+        let text = help(&words(&["vm", verb, "--help"])).unwrap_or_else(|| panic!("{verb}"));
+        assert!(text.starts_with(line), "{text}");
+    }
+    assert_eq!(help(&words(&["vm", "pause", "--help"])), None, "the VM API's own help");
+    assert_eq!(help(&words(&["vm", "status", "dev"])), None);
+    assert_eq!(help(&words(&["vm", "status", "--", "--help"])), None);
 }
 
 #[test]

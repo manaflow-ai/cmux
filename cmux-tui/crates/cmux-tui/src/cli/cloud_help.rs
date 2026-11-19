@@ -830,6 +830,33 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     )
 }
 
+/// `cmux vm SHORT --help` for a short verb (vm_short.rs) that runs `cloud_verb` on a VM named by
+/// position: its own usage line, then the Cloud verb's help. `None` when `cloud_verb` is not one.
+pub(super) fn short_verb_help(short: &str, cloud_verb: &str, japanese: bool) -> Option<String> {
+    let verb = find(cloud_verb)?;
+    let flags = verb.usage.replace("{target}", "");
+    let flags = flags.trim();
+    let usage = if flags.is_empty() {
+        format!("cmux vm {short} [NAME|ID]")
+    } else {
+        format!("cmux vm {short} [NAME|ID] {flags}")
+    };
+    let long = verb_help(cloud_verb, japanese)?;
+    Some(if japanese {
+        format!(
+            "使い方: {usage}\n\n{}。VM は ID か名前で指定します（VM が 1 台なら省略可）。\n\n\
+             `cmux vm {short}` は `cmux vm {cloud_verb}` です:\n\n{long}",
+            verb.ja
+        )
+    } else {
+        format!(
+            "usage: {usage}\n\n{}. Name the VM by its id or its title (none: your one VM).\n\n\
+             `cmux vm {short}` is `cmux vm {cloud_verb}`:\n\n{long}",
+            verb.en
+        )
+    })
+}
+
 /// The usage line alone, for a parse error that names the verb.
 #[cfg_attr(not(unix), allow(dead_code))]
 pub(super) fn usage(name: &str) -> Option<String> {

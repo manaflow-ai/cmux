@@ -386,10 +386,37 @@ pub(super) fn table(listed: &Value) -> String {
     out
 }
 
+/// `cmux vm VERB --help` (or `-h`, before any `--`) for a short verb the VM API does not have
+/// (`status`, `resize`, `rename`, `ssh`, `move`): that verb's usage, as `vm pause --help` prints
+/// pause's (cmuxterm-hq#13944: it was the generic `cmux vm` usage, since vm.rs knows no such verb).
+/// The API's verbs keep the API's own help. App or not: help asks nobody.
+pub(super) fn help(command: &[String]) -> Option<String> {
+    let [scope, verb, rest @ ..] = command else { return None };
+    if (scope != "vm" && scope != "cloud") || API_VERBS.contains(&verb.as_str()) {
+        return None;
+    }
+    let cloud_verb = VERBS.iter().find(|(short, _)| short == verb).map(|(_, cloud)| *cloud)?;
+    rest.iter()
+        .take_while(|word| *word != "--")
+        .any(|word| word == "-h" || word == "--help")
+        .then(|| {
+            super::cloud_help::short_verb_help(
+                verb,
+                cloud_verb,
+                crate::localization::catalog().is_japanese(),
+            )
+        })
+        .flatten()
+}
+
 /// `Some(exit code)` when `args` is a short `vm` verb and the cmux app is here; `None` leaves
 /// it to the VM API (vm.rs).
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (mut global, command) = super::parse_globals(args).ok()?;
+    if let Some(text) = help(&command) {
+        print!("{text}");
+        return Some(0);
+    }
     let mut short = parse(&command)?;
     if short.cloud_verb == "move" {
         restore_machine(&mut short, global.machine.take());
