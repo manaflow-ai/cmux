@@ -70,8 +70,10 @@ class RunChecksConcurrently(unittest.TestCase):
                      if "run-checks-concurrently.sh --start" in str(s.get("run", "")))
         commands = [line.strip() for line in start["run"].split("<<'CHECKS'", 1)[1].splitlines()
                     if line.strip() and not line.strip().startswith(("[", "#"))]
-        self.assertEqual(commands[0], "python3 tests/test_cmux_next_prepush_gate.py")
-        self.assertEqual(commands.count("python3 tests/test_cmux_next_prepush_gate.py"), 1)
+        # Its four parts (tests/unittest_shard.py; tests/test_unittest_shard.py) start first, each once.
+        parts = [f"python3 tests/test_cmux_next_prepush_gate.py --shard {i}/4" for i in range(1, 5)]
+        self.assertEqual(commands[:4], parts)
+        self.assertEqual([c for c in commands if "test_cmux_next_prepush_gate.py" in c], parts)
 
     def test_skips_blank_lines_and_comments(self):
         result = run("\n  # a note\n  echo only\n")

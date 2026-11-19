@@ -7,6 +7,7 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import wallpaper from "../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { componentEntry } from "../gallery/format";
+import type { Play } from "../gallery/play";
 import { createGlassHost, glassHostCss, type GlassLevel, type GlassSurfaceState } from "./index";
 import { useGlassSurface } from "./react";
 
@@ -66,8 +67,19 @@ const ROWS: Record<GlassLevel, string[]> = {
   chip: ["Reply"],
 };
 
+/// How many boxes the moving menu walks through, 0.9 s apart, before it rests back at the first.
+const MOVE_STEPS = 3;
+const MOVE_MS = 900;
+
+/// The capture moments: the late app's draw landed (`late`), the moving menu back at rest
+/// (`menu-moves`). Without them a still shows whichever timer had fired when the stage went quiet.
+const appAnswered: Play = ({ waitFor, document }) => waitFor(() => document.querySelector("[data-app-answered]"));
+const movesDone: Play = ({ waitFor, document }) =>
+  waitFor(() => document.querySelector("[data-moves-done]"), { capMs: (MOVE_STEPS + 2) * MOVE_MS });
+
 function GlassHostGallery({ level, app, moves = false }: Props) {
   const [surfaces, setSurfaces] = useState<GlassSurfaceState[]>([]);
+  const [answered, setAnswered] = useState(false);
   const [host] = useState(() =>
     createGlassHost({
       deadlineMs: 50,
@@ -75,9 +87,11 @@ function GlassHostGallery({ level, app, moves = false }: Props) {
         if (app === "refuses") return Promise.reject(new Error("unknown call"));
         // A late app draws after the deadline: the surface already fell back and stays on its own look.
         const delay = app === "late" ? 120 : 0;
+        // gallery-capture: `late`'s play `appAnswered` waits for this draw (data-app-answered); 0 ms otherwise.
         return new Promise((resolve) =>
           setTimeout(() => {
             setSurfaces(next);
+            setAnswered(true);
             resolve(undefined);
           }, delay),
         );
@@ -87,15 +101,27 @@ function GlassHostGallery({ level, app, moves = false }: Props) {
   useEffect(() => () => host.destroy(), [host]);
   const element = useRef<HTMLDivElement | null>(null);
   const phase = useGlassSurface(host, element, { level });
-  const [shift, setShift] = useState(0);
+  // The moving menu walks its boxes once and rests back at the first, so it has an end state to
+  // capture; each step is one move the glass must follow.
+  const [step, setStep] = useState(0);
   useEffect(() => {
     if (!moves) return;
-    const timer = setInterval(() => setShift((value) => (value + 1) % 3), 900);
+    // gallery-capture: `menu-moves`'s play `movesDone` waits for the menu to rest (data-moves-done).
+    let taken = 0;
+    const timer = setInterval(() => {
+      taken += 1;
+      setStep(taken);
+      if (taken >= MOVE_STEPS) clearInterval(timer);
+    }, MOVE_MS);
     return () => clearInterval(timer);
   }, [moves]);
+  const shift = step % MOVE_STEPS;
+  const rested = moves && step >= MOVE_STEPS;
   const size = SIZE[level];
   return (
     <div
+      data-app-answered={answered ? "" : undefined}
+      data-moves-done={rested ? "" : undefined}
       style={{
         position: "relative",
         height: 360,
@@ -151,8 +177,9 @@ export default componentEntry<Props>({
       props: { level: "popover", app: "draws" },
     },
     "menu-moves": {
-      note: "A menu that moves and grows every 0.9 s: the glass follows its box, one report per frame.",
+      note: "A menu that moves and grows every 0.9 s through three boxes, then rests at the first: the glass follows its box, one report per frame.",
       props: { level: "menu", app: "draws", moves: true },
+      play: movesDone,
     },
     chip: {
       note: "A chip (a floating button such as Reply) at the chip level.",
@@ -161,6 +188,7 @@ export default componentEntry<Props>({
     late: {
       note: "An app that answers after the 50 ms deadline: the surface shows on the page's own look and keeps it, with no pop when the app answers.",
       props: { level: "popover", app: "late" },
+      play: appAnswered,
     },
     refuses: {
       note: "An app that does not know the call: every surface keeps the page's own look and the host stops reporting.",
