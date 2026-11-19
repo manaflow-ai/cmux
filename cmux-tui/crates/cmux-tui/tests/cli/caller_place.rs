@@ -549,6 +549,113 @@ fn a_plain_terminals_profile_browser_tab_opens_right_of_the_terminal() {
     assert_beta_still_focused(server, beta);
 }
 
+/// The raw id of the pane whose public id is `pane` (the raw tree names
+/// each pane's public id as `resource_id`).
+fn raw_pane_id(server: &HeadlessServer, pane: &str) -> Value {
+    fn find(node: &Value, pane: &str) -> Option<Value> {
+        match node {
+            Value::Object(fields) => {
+                if fields.get("resource_id").and_then(Value::as_str) == Some(pane) {
+                    return fields.get("id").cloned();
+                }
+                fields.values().find_map(|child| find(child, pane))
+            }
+            Value::Array(items) => items.iter().find_map(|child| find(child, pane)),
+            _ => None,
+        }
+    }
+    let tree = json_socket_request(&server.socket, json!({"id": 1, "cmd": "list-workspaces"}));
+    find(&tree, pane).unwrap_or_else(|| panic!("no pane {pane} in {tree}"))
+}
+
+/// Makes the pane `right` (whose first terminal is the last argument) an
+/// agent's home.
+type MakeAgentHome<'a> = &'a dyn Fn(&HeadlessServer, &str, &str);
+
+/// A plain shell's profile browser tab used the pane on its right also when
+/// that pane was another agent's home. The app never opens a caller's tab in
+/// an agent's pane: an agent's chat (a conversation tab, not a terminal), or
+/// a terminal an agent runs in. Then a new pane right of the terminal.
+#[test]
+fn a_profile_browser_tab_never_opens_in_an_agents_pane_on_the_right() {
+    let chat = |server: &HeadlessServer, right: &str, _terminal: &str| {
+        let pane = raw_pane_id(server, right);
+        let tab = json_socket_request(
+            &server.socket,
+            json!({"id": 2, "cmd": "new-conversation-tab", "pane": pane,
+                "agent_session": {"host": "install:own-ws-test", "session": null,
+                    "harness": "codex"}}),
+        );
+        json_socket_request(
+            &server.socket,
+            json!({"id": 3, "cmd": "bind-conversation-tab-session", "surface": tab["surface"],
+                "expected_session": null, "session": "sess-own-ws-neighbor"}),
+        );
+    };
+    let agent_terminal = |server: &HeadlessServer, _right: &str, terminal: &str| {
+        state_cli(
+            server,
+            None,
+            &[
+                "agent",
+                "report",
+                "--terminal",
+                terminal,
+                "--state",
+                "idle",
+                "--source",
+                "socket",
+                "--source-session",
+                "own-ws-neighbor",
+            ],
+        );
+    };
+    let homes: [(&str, MakeAgentHome<'_>); 2] =
+        [("place-right-chat", &chat), ("place-right-agent-term", &agent_terminal)];
+    for (name, make_agent_home) in homes {
+        let split = caller_in_alpha_beta_focused(name);
+        let Split { server, terminal, pane, alpha, beta } = &split;
+        // A pane on the terminal's right, which becomes an agent's home.
+        let made = state_cli(server, None, &["pane", pane, "split", "--right"]);
+        let right = created_pane(&made).to_owned();
+        let right_terminal = made["value"]["terminal_id"].as_str().unwrap().to_owned();
+        make_agent_home(server, &right, &right_terminal);
+        let before = tabs_and_panes(server, &right);
+
+        let caller = caller_in(&split, &screen_of_pane(server, pane));
+        let app = FakeApp::start(
+            server,
+            "app-agent-home",
+            json!({"caller_placement": 2, "caller": caller,
+                "beside": {"pane": pane, "placement": "own_pane"}}),
+        );
+        let opened = run(
+            server,
+            &Who::terminal(terminal).with_app(&app),
+            &[
+                "browser",
+                "profile",
+                "open",
+                "https://example.com/",
+                "--profile",
+                "default",
+                "--engine",
+                "webkit",
+            ],
+        );
+        let page_pane = created_pane(&opened);
+        assert_ne!(page_pane, right, "{name}: the page opened in the agent's pane: {opened}");
+        assert_ne!(page_pane, pane, "{name}: the page opened over the terminal: {opened}");
+        assert_eq!(workspace_of_pane(server, page_pane), *alpha, "{name}: {opened}");
+        assert_eq!(
+            tabs_and_panes(server, &right).0,
+            before.0,
+            "{name}: the agent's pane got a tab"
+        );
+        assert_beta_still_focused(server, beta);
+    }
+}
+
 #[test]
 fn an_agents_profile_browser_tab_opens_in_a_pane_of_its_own_beside_the_chat() {
     let split = caller_in_alpha_beta_focused("place-agent-profile");
