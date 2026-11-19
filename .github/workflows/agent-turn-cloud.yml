@@ -16,8 +16,13 @@ name: Agent turn overhead (staging Cloud VM)
 #   the runner. The machine is deleted in an always() step; its `cmux-test-` name also has the platform delete it
 #   6 hours on if that step never runs (as cloud-state-latency.ts names its machine).
 #
-# Manual only; nothing gates on it.
+# Manual, or a same-repo pull request that changes this file (it measures that pull request's head, 100 turns):
+# dispatch needs the file on the default branch, and a pull request that adds it is how it runs first. A fork's
+# pull request builds but never reaches the Cloud job or its environment. Nothing gates on it.
 on:
+  pull_request:
+    paths:
+      - .github/workflows/agent-turn-cloud.yml
   workflow_dispatch:
     inputs:
       ref:
@@ -35,7 +40,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: agent-turn-cloud-${{ github.run_id }}
+  group: agent-turn-cloud-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -50,7 +55,7 @@ jobs:
     steps:
       - name: Refuse a malformed turn count
         env:
-          TURNS: ${{ inputs.turns }}
+          TURNS: ${{ inputs.turns || '100' }}
         run: |
           if ! printf '%s' "$TURNS" | grep -Eqx '[1-9][0-9]{0,3}'; then
             echo "::error::turns must be a whole number from 1 to 9999"
@@ -66,7 +71,7 @@ jobs:
       # The measured ref, as data: built here, run only on the Cloud machine.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
           path: measured
           persist-credentials: false
           submodules: false
@@ -125,6 +130,8 @@ jobs:
 
   cloud:
     needs: build
+    # Never a fork's pull request: only a same-repo one, or a dispatch, gets the environment.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     # The staging agent test account's pair, as cloud-journey-pr.yml.
     environment:
       name: cmux-next-vm-image-dev
@@ -251,7 +258,7 @@ jobs:
           OUT: ${{ runner.temp }}/agent-turn-out
           NEED_GLIBC: ${{ needs.build.outputs.glibc }}
           TARGET_TMP: ${{ needs.build.outputs.target_tmp }}
-          TURNS: ${{ inputs.turns }}
+          TURNS: ${{ inputs.turns || '100' }}
         run: |
           set -euo pipefail
           if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ]; then
