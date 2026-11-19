@@ -853,7 +853,9 @@ jobs:
         # Nightly-path pushes only (feat-cmux-next, nightly-next): a lane push's legs placed here held
         # the 4 runners while the nightly path's publish queued 40 min behind them (2026-11-18,
         # run 44326602371 vs 44409109497). Lane pushes keep Blacksmith.
-        if: github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next')
+        # Not nightly-next: its build calls take the nightly-only runners (cmux-gcp-nightly-x64), and a pick
+        # here would put them back on the shared lane (inputs.linux_runner comes first in the build package).
+        if: github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
         continue-on-error: true
         timeout-minutes: 3
         env:

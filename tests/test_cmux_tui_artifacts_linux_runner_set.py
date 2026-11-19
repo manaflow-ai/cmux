@@ -305,3 +305,36 @@ class OwnedRunnerNeedsNoPasswordTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NightlyTreeLegsTakeTheNightlyRunners(unittest.TestCase):
+    """2026-11-19: tree run 44431930226 (03103fd) never started on cmux-gcp-lane-build-x64, whose runners
+    newer PR legs kept busy. A nightly-next tree must take cmux-gcp-nightly-x64 for its build legs too: the
+    macOS leg (LINUX_DARWIN_RUNNER) and the build calls, which the shared-lane placement must not re-pin."""
+
+    def test_the_macos_leg_of_a_nightly_next_tree_takes_the_nightly_runners(self) -> None:
+        package = yaml.load((WORKFLOW.parent / "cmux-tui-build-package.yml").read_text(encoding="utf-8"),
+                            Loader=yaml.BaseLoader)["jobs"]["plan-build"]
+        expr = next(step for step in package["steps"] if step.get("id") == "targets")["env"]["LINUX_DARWIN_RUNNER"]
+        artifacts = "'manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml@refs/heads/x'"
+        for ref, event, expected in (("'refs/heads/nightly-next'", "'push'", {NIGHTLY}),
+                                     ("'refs/heads/feat-cmux-next'", "'workflow_dispatch'", {NIGHTLY}),
+                                     ("'refs/heads/feat-cmux-next'", "'push'", {OWNED})):
+            text = (expr.replace("github.run_attempt", "1").replace("github.event_name", event)
+                    .replace("github.workflow_ref", artifacts))
+            text = re.sub(r"\bgithub\.ref\b", ref, text)
+            labels = resolve_labels(text, owner="manaflow-ai", silent=("needs", "inputs"), variables={
+                "LINUX_RUNNER_DARWIN_CROSS": [OWNED], "LINUX_RUNNER": ["blacksmith-2vcpu-ubuntu-2404"],
+                "CI_CLOUD_OVERFLOW_SAVED": [""]})
+            with self.subTest(ref=ref, event=event):
+                if expected == {NIGHTLY}:
+                    self.assertEqual(labels, expected)
+                else:  # the shared lane while LINUX_RUNNER_DARWIN_CROSS is set, never the nightly runners
+                    self.assertIn(OWNED, labels)
+                    self.assertNotIn(NIGHTLY, labels)
+
+    def test_the_shared_lane_placement_skips_nightly_next(self) -> None:
+        preflight = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]["tree-preflight"]
+        step = next(step for step in preflight["steps"] if step.get("id") == "gcp-placement")
+        self.assertIn("refs/heads/feat-cmux-next", step["if"])
+        self.assertNotIn("nightly-next", step["if"])
