@@ -39,6 +39,11 @@ pub struct CcConfig {
     /// reports it.
     pub lan_start_bps: u64,
     pub lan_rtt_us: u64,
+    /// D4, "growth that is multiplicative until the first overuse": until the first cut
+    /// (delay or loss) and while the capacity is unknown, each feedback may lift the target
+    /// toward twice the measured arrival rate, doubling per round trip at most, while the
+    /// stream fills the target. Off by default (`--fast-ramp 1` on `cmux-rd host`/`serve`).
+    pub fast_ramp: bool,
 }
 
 impl Default for CcConfig {
@@ -50,6 +55,7 @@ impl Default for CcConfig {
             relay_max_bps: 4_000_000,
             lan_start_bps: 30_000_000,
             lan_rtt_us: 5_000,
+            fast_ramp: false,
         }
     }
 }
@@ -96,6 +102,15 @@ const PROBE_GROWTH_PER_S: f64 = 2.0;
 const RECOVER_GROWTH_PER_S: f64 = 4.0;
 /// Growth per second near the measured capacity.
 const NEAR_GROWTH_PER_S: f64 = 1.15;
+/// Fast ramp ([`CcConfig::fast_ramp`]): the target may reach this multiple of the
+/// measured arrival rate (a slow start's two per round trip of delivered data).
+const RAMP_ACKED_GAIN: f64 = 2.0;
+/// Fast ramp: the stream fills the target when it sent at least this share of it over
+/// the last [`RAMP_FILL_SPAN_US`] (an encoder runs a little under its target).
+const RAMP_FILL: f64 = 0.7;
+const RAMP_FILL_SPAN_US: u64 = 200_000;
+/// Fast ramp: the round trip a per-round-trip doubling counts in, at least.
+const RAMP_MIN_RTT_US: u64 = 5_000;
 /// Time credited to one increase at most, so a long quiet gap is not one jump.
 const MAX_STEP_US: u64 = 200_000;
 /// Shortest time between two cuts.
@@ -401,6 +416,11 @@ pub struct CongestionController {
     last_increase_us: Option<u64>,
     last_decrease_us: Option<u64>,
     usage: Usage,
+    /// Fast ramp ([`CcConfig::fast_ramp`]) is on and no cut has happened on this path.
+    ramping: bool,
+    /// The shortest departure-to-feedback time seen: the round trip, plus the viewer's
+    /// feedback wait, on a carrier that reports none of its own.
+    feedback_rtt_us: Option<u64>,
 }
 
 impl CongestionController {
@@ -423,6 +443,8 @@ impl CongestionController {
             last_increase_us: None,
             last_decrease_us: None,
             usage: Usage::Normal,
+            ramping: config.fast_ramp,
+            feedback_rtt_us: None,
         };
         cc.clamp();
         cc
@@ -511,6 +533,9 @@ impl CongestionController {
         self.capacity_bps = None;
         self.last_decrease_us = None;
         self.usage = Usage::Normal;
+        // A new path's capacity is unknown again.
+        self.ramping = self.config.fast_ramp;
+        self.feedback_rtt_us = None;
         self.clamp();
     }
 
@@ -599,6 +624,9 @@ impl CongestionController {
         // the round trip plus the viewer's wait, never less, so a short one is a LAN.
         if let Some(rtt_us) = samples.iter().map(|s| now_us.saturating_sub(s.0)).min() {
             self.lan_start(rtt_us);
+            if rtt_us > 0 {
+                self.feedback_rtt_us = Some(self.feedback_rtt_us.map_or(rtt_us, |r| r.min(rtt_us)));
+            }
         }
         let mut evidence = false;
         for (sent_us, raw_arrival, bytes) in samples {
@@ -634,6 +662,7 @@ impl CongestionController {
             }
         }
         if loss > 0.10 {
+            self.ramping = false;
             let before = self.target_bps as f64;
             let mut target = before * (1.0 - 0.5 * loss.min(1.0));
             // Heavy loss while the stream fills the target is a full queue (a queue too
@@ -653,6 +682,8 @@ impl CongestionController {
 
     fn decrease(&mut self, now_us: u64) {
         self.last_increase_us = Some(now_us);
+        // The first overuse ends the fast ramp: from here growth is by time, as without it.
+        self.ramping = false;
         if self
             .last_decrease_us
             .is_some_and(|t| now_us.saturating_sub(t) < MIN_DECREASE_INTERVAL_US)
@@ -713,7 +744,44 @@ impl CongestionController {
         {
             next = next.min(0.9 * c).max(target);
         }
+        if self.capacity_bps.is_none()
+            && let Some(ramp) = self.fast_ramp_bps(target, dt, now_us)
+        {
+            next = next.max(ramp);
+        }
         self.target_bps = next as u64;
+    }
+
+    /// D4's fast ramp: before the first cut, while the stream fills the target, the target
+    /// may double per round trip up to twice what arrives (so it never runs further ahead
+    /// of the path than a slow start does). `None` when it does not apply.
+    fn fast_ramp_bps(&mut self, target: f64, dt_us: u64, now_us: u64) -> Option<f64> {
+        if !self.ramping {
+            return None;
+        }
+        let acked = self.acked_bps()?;
+        if self.recent_sent_bps(now_us)? < RAMP_FILL * target {
+            return None;
+        }
+        let rtt = self.outage.min_rtt_us.or(self.feedback_rtt_us)?.max(RAMP_MIN_RTT_US);
+        let per_rtt = target * 2f64.powf(dt_us as f64 / rtt as f64);
+        Some(per_rtt.min(RAMP_ACKED_GAIN * acked))
+    }
+
+    /// The send rate over the last [`RAMP_FILL_SPAN_US`] (or since the first send, if
+    /// sooner): what the encoder puts out now, without the longer window's lag.
+    fn recent_sent_bps(&mut self, now_us: u64) -> Option<f64> {
+        self.prune_sent_window(now_us);
+        let &(first, _) = self.sent_window.front()?;
+        let span = now_us.saturating_sub(first).min(RAMP_FILL_SPAN_US).max(RAMP_FILL_SPAN_US / 4);
+        let bytes: u64 = self
+            .sent_window
+            .iter()
+            .rev()
+            .take_while(|&&(t, _)| now_us.saturating_sub(t) <= span)
+            .map(|&(_, b)| u64::from(b))
+            .sum();
+        Some(bytes as f64 * 8.0 * 1e6 / span as f64)
     }
 
     fn clamp(&mut self) {

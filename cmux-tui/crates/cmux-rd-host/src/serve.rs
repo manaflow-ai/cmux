@@ -502,6 +502,9 @@ fn serve_session(
         // On by default: the frame that shows an input's effect goes out at once instead of
         // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
         input_frame_now: opts.flag_or("input-frame-now", true),
+        // Off by default: `--fast-ramp 1` lets the target grow per feedback until the
+        // first overuse (CcConfig::fast_ramp).
+        fast_ramp: opts.flag("fast-ramp"),
         // Enough frames in flight to cover the path's round trip, at least two: the next
         // frame encodes while the last one waits for its acknowledgement.
         frames_in_flight: carrier

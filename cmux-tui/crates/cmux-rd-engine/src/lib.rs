@@ -77,6 +77,9 @@ pub struct EngineConfig {
     /// (`cmux_rd_core::flow::INPUT_FRAME_WINDOW_US`), so the input's effect goes out as soon
     /// as the capture delivers it instead of on the next interval.
     pub input_frame_now: bool,
+    /// The congestion controller's fast ramp before the first overuse
+    /// ([`CcConfig::fast_ramp`]).
+    pub fast_ramp: bool,
 }
 
 impl Default for EngineConfig {
@@ -94,6 +97,7 @@ impl Default for EngineConfig {
             stream: 0,
             frames_in_flight: 1,
             input_frame_now: false,
+            fast_ramp: cc.fast_ramp,
         }
     }
 }
@@ -379,8 +383,12 @@ pub struct MediaEngine {
 
 impl MediaEngine {
     pub fn new(cfg: EngineConfig, now_us: u64) -> Self {
-        let cc_cfg =
-            CcConfig { start_bps: cfg.start_bps, max_bps: cfg.max_bps, ..CcConfig::default() };
+        let cc_cfg = CcConfig {
+            start_bps: cfg.start_bps,
+            max_bps: cfg.max_bps,
+            fast_ramp: cfg.fast_ramp,
+            ..CcConfig::default()
+        };
         let mut streams = BTreeMap::new();
         streams.insert(
             cfg.stream,
