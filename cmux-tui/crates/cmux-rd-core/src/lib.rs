@@ -17,6 +17,7 @@ pub mod pacer;
 pub mod packetize;
 pub mod policy;
 pub mod reassembly;
+pub mod resolution;
 pub mod service;
 pub mod session;
 pub mod upstream;

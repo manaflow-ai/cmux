@@ -19,6 +19,7 @@ use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{PacketizeError, Packetizer, parity_for};
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
+use cmux_rd_core::resolution::{LadderConfig, Picture, ResolutionLadder};
 use cmux_rd_proto::{
     Arrival, ClockEstimate, ClockPing, ClockPong, DatagramHeader, DatagramKind, FRAME_PREFIX_LEN,
     Feedback, FrameBody, HEADER_LEN, InputEvent, InputPacket, MAX_ARRIVALS, MAX_DATAGRAM_VPC,
@@ -77,6 +78,10 @@ pub struct EngineConfig {
     /// (`cmux_rd_core::flow::INPUT_FRAME_WINDOW_US`), so the input's effect goes out as soon
     /// as the capture delivers it instead of on the next interval.
     pub input_frame_now: bool,
+    /// The resolution ladder for the main stream (design D5): below the bits-per-pixel
+    /// floor its encoded picture gets smaller, not blurrier, and each request carries the
+    /// picture and its QP ceiling. `None` (the default): every frame is the full stream.
+    pub resolution_ladder: Option<LadderConfig>,
 }
 
 impl Default for EngineConfig {
@@ -94,6 +99,7 @@ impl Default for EngineConfig {
             stream: 0,
             frames_in_flight: 1,
             input_frame_now: false,
+            resolution_ladder: None,
         }
     }
 }
@@ -112,6 +118,9 @@ pub struct EncodeRequest {
     pub idr_reason: Option<IdrReason>,
     /// The congestion controller's target for this frame.
     pub target_kbps: u32,
+    /// The picture to encode, from the resolution ladder: its size (the source scales the
+    /// stream to it) and QP ceiling. `None` without a ladder: the full stream, no ceiling.
+    pub picture: Option<Picture>,
 }
 
 /// Why the engine asks for a keyframe.
@@ -127,6 +136,8 @@ pub enum IdrReason {
     TooLarge,
     /// Frames queued in the host's pacer through an outage were dropped unsent (D12).
     Outage,
+    /// The resolution ladder changed the encoded size.
+    Resize,
 }
 
 impl IdrReason {
@@ -137,6 +148,7 @@ impl IdrReason {
             IdrReason::TailProbe => "tail_probe",
             IdrReason::TooLarge => "too_large",
             IdrReason::Outage => "outage",
+            IdrReason::Resize => "resize",
         }
     }
 }
@@ -330,6 +342,8 @@ struct StreamState {
     sent_at_us: BTreeMap<u32, u64>,
     /// Bytes of the stream's last keyframe: what starting over costs (D12).
     last_keyframe_bytes: usize,
+    /// The resolution ladder (main stream only, when the session asks for one).
+    ladder: Option<ResolutionLadder>,
 }
 
 impl StreamState {
@@ -348,6 +362,16 @@ impl StreamState {
             probes: 0,
             sent_at_us: BTreeMap::new(),
             last_keyframe_bytes: 0,
+            ladder: None,
+        }
+    }
+
+    /// Applies a new picture from the ladder: its frame-rate cap now, and a keyframe when
+    /// the size changed (the encoder starts a new session at the new size).
+    fn apply_picture(&mut self, before: Picture, after: Picture) {
+        self.gate.set_max_fps(after.fps);
+        if (after.width, after.height) != (before.width, before.height) {
+            self.force_idr.get_or_insert(IdrReason::Resize);
         }
     }
 
@@ -382,10 +406,11 @@ impl MediaEngine {
         let cc_cfg =
             CcConfig { start_bps: cfg.start_bps, max_bps: cfg.max_bps, ..CcConfig::default() };
         let mut streams = BTreeMap::new();
-        streams.insert(
-            cfg.stream,
-            StreamState::new(cfg.width, cfg.height, cfg.max_fps, cfg.frames_in_flight),
-        );
+        let mut main = StreamState::new(cfg.width, cfg.height, cfg.max_fps, cfg.frames_in_flight);
+        main.ladder = cfg
+            .resolution_ladder
+            .map(|l| ResolutionLadder::new(l, cfg.width, cfg.height, cfg.max_fps));
+        streams.insert(cfg.stream, main);
         Self {
             streams,
             cc: CongestionController::new(cc_cfg, cfg.path),
@@ -534,6 +559,7 @@ impl MediaEngine {
                 force_idr: state.force_idr.is_some(),
                 idr_reason: state.force_idr,
                 target_kbps: self.target_kbps(stream),
+                picture: state.ladder.as_ref().map(ResolutionLadder::picture),
             }),
             FlowAction::Wait => None,
         }
@@ -547,6 +573,7 @@ impl MediaEngine {
 
     /// New damage from the source on `stream` (`None` for an unknown stream).
     pub fn damage(&mut self, stream: u16, rect: Rect, now_us: u64) -> Option<EncodeRequest> {
+        self.follow_target(stream, now_us);
         let state = self.streams.get_mut(&stream)?;
         let rect = if state.started { rect } else { state.full() };
         state.started = true;
@@ -558,12 +585,29 @@ impl MediaEngine {
     pub fn poll(&mut self, now_us: u64) -> Option<EncodeRequest> {
         let ids: Vec<u16> = self.streams.keys().copied().collect();
         for stream in ids {
+            self.follow_target(stream, now_us);
             let action = self.streams.get_mut(&stream).map(|s| s.gate.poll(now_us))?;
             if let Some(req) = self.request(stream, action) {
                 return Some(req);
             }
         }
         None
+    }
+
+    /// Moves `stream`'s resolution ladder to the controller's current target.
+    fn follow_target(&mut self, stream: u16, now_us: u64) {
+        let bps = u64::from(self.target_kbps(stream)) * 1000;
+        let Some(state) = self.streams.get_mut(&stream) else { return };
+        let Some(ladder) = state.ladder.as_mut() else { return };
+        let before = ladder.picture();
+        if let Some(after) = ladder.update(bps, now_us) {
+            state.apply_picture(before, after);
+        }
+    }
+
+    /// The picture `stream` encodes now (`None` without a resolution ladder).
+    pub fn picture(&self, stream: u16) -> Option<Picture> {
+        self.streams.get(&stream)?.ladder.as_ref().map(ResolutionLadder::picture)
     }
 
     /// When `poll` or `tick` must run next: a frame held by an fps cap, or
@@ -598,11 +642,20 @@ impl MediaEngine {
             .and_then(|s| s.tile_of)
             .and_then(|of| self.streams.get(&of))
             .map(|s| if s.last_frame == 0 { REF_NONE } else { s.last_frame });
+        let target_bps = u64::from(self.target_kbps(req.stream)) * 1000;
         let Some(state) = self.streams.get_mut(&req.stream) else { return Ok(Output::default()) };
         let Some(enc) = encoded.filter(|e| !e.access_unit.is_empty()) else {
-            // The encoder dropped the frame: its change still has to reach the viewer.
+            // The encoder dropped the frame: its change still has to reach the viewer. A drop
+            // is not a loss: no rate cut and no keyframe. With a ladder it says the picture is
+            // too large for the rate, so the ladder steps down (D3, D5).
             state.gate.clear_in_flight();
             state.gate.requeue(req.damage);
+            if let Some(ladder) = state.ladder.as_mut() {
+                let before = ladder.picture();
+                if let Some(after) = ladder.encoder_dropped(target_bps, now_us) {
+                    state.apply_picture(before, after);
+                }
+            }
             return Ok(Output::default());
         };
         let tile = state.tile_of.is_some();

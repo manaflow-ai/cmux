@@ -277,6 +277,7 @@ mod tests {
             force_idr: true,
             idr_reason: None,
             target_kbps,
+            picture: None,
         };
         Job { req, halve_first }
     }
