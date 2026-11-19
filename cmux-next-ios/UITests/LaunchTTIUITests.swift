@@ -102,7 +102,14 @@ class LaunchTTIUITests: XCTestCase {
             marks["tti_ms"] = list + open + (flow == .terminal ? (marks["echo_ms"] ?? 0) : 0)
         }
         let body = marks.sorted { $0.key < $1.key }.map { "\"\($0.key)\":\(Self.round($0.value))" }.joined(separator: ",")
-        print(#"LAUNCHTTI {"flow":"\#(flow.rawValue)","phase":"\#(phase)","workspaces":\#(Self.workspaceCount),\#(body)}"#)
+        let sample = #"LAUNCHTTI {"flow":"\#(flow.rawValue)","phase":"\#(phase)","workspaces":\#(Self.workspaceCount),\#(body)}"#
+        print(sample)
+        // Test-runner stdout is not always available through xcresulttool's
+        // console export. Keep the sample even when the test succeeds.
+        let attachment = XCTAttachment(string: sample)
+        attachment.name = "launch-tti"
+        attachment.lifetime = .keepAlways
+        add(attachment)
         return marks
     }
 
