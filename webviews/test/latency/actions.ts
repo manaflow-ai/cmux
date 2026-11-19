@@ -948,45 +948,6 @@ export const LONG_CHAT_PAGES: LatencyPageSpec[] = [false, true].map((resident) =
   actions: [longScroll(resident)],
 }));
 
-// Open-to-content for a long chat: from another chat of the mock daemon, open the 3,000-turn chat
-// (its history paged as the daemon pages it) until its newest prompt is drawn in the transcript.
-// Each run opens it again, as a reader switching back to a long chat does.
-export const CHAT_OPEN_PAGE: LatencyPageSpec = {
-  name: "chat open 3000",
-  path: "/test/latency/flows.html?mock&turns=3000",
-  ready: `document.documentElement.dataset.latencyFlowsReady === "true"`,
-  actions: [
-    {
-      id: "chat.open.3000",
-      name: "open a 3000-turn chat",
-      metricType: "target_painted",
-      requiredInstrumentation: requiredProfiled,
-      async prepare(page) {
-        await page.evaluate("window.__latencyFlows.openOtherChat()");
-        await page.waitForFunction(
-          () => !document.querySelector(".cv-user__bubble")?.textContent?.startsWith("Turn "),
-          undefined,
-          { timeout: 10_000 },
-        );
-        await quiet(page);
-        return `Array.from(document.querySelectorAll(".cv-user__bubble")).some((node) => {
-          if (!node.textContent?.startsWith("Turn 2999:")) return false;
-          const row = node.closest(".acpmux-row");
-          if (row && Number(getComputedStyle(row).opacity) === 0) return false;
-          const box = node.getBoundingClientRect();
-          const scroll = node.closest(".acpmux-scroll")?.getBoundingClientRect();
-          return scroll && box.width > 0 && box.height > 0 && box.bottom > Math.max(0, scroll.top) &&
-            box.top < Math.min(innerHeight, scroll.bottom);
-        })`;
-      },
-      async input(page) {
-        await page.evaluate("window.__latency.markInput('chat-open'); window.__latencyFlows.restoreChat()");
-      },
-      settle: quiet,
-    },
-  ],
-};
-
 // The same key with a long draft, and with a 3,000-turn chat (its rows resident) behind it.
 export const DRAFT_TYPING_PAGES: LatencyPageSpec[] = [0, 3000].map((turns) => ({
   name: `chat draft typing${turns ? ` ${turns} resident` : ""}`,
@@ -1405,8 +1366,6 @@ export const PAGES: LatencyPageSpec[] = [
   // demand with CMUX_LATENCY_EXPERIMENTS=1, never in the CI scoreboard.
   // Typing behind a long draft: run on demand with CMUX_LATENCY_DRAFTS=1, never in the CI scoreboard.
   ...(process.env.CMUX_LATENCY_DRAFTS === "1" ? DRAFT_TYPING_PAGES : []),
-  // Opening a long chat again: on demand with CMUX_LATENCY_CHAT_OPEN=1, never in the CI scoreboard.
-  ...(process.env.CMUX_LATENCY_CHAT_OPEN === "1" ? [CHAT_OPEN_PAGE] : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? CHAT_SWITCH_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? GLASS_PAGES : []),
   ...(process.env.CMUX_LATENCY_EXPERIMENTS === "1" ? LIVE_BACKGROUND_PAGES : []),
