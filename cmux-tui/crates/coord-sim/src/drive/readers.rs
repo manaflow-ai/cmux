@@ -52,6 +52,19 @@ fn attach_params(sid: &str, kinds: &[&str]) -> Value {
         "kinds": kinds, "eventStream": true, "visible": true})
 }
 
+/// The tags a live note delivers: only a stream frame (`_acpmux/event`, `session/update`) carries
+/// an event. Other notes (a `_acpmux/session_changed` row quoting the newest reply preview, tool
+/// title or plan step) repeat a tag the stream already gave, and are not counted.
+pub fn stream_tags(line: &str) -> Vec<Tag> {
+    let method = serde_json::from_str::<Value>(line)
+        .ok()
+        .and_then(|v| v.get("method").and_then(Value::as_str).map(str::to_owned));
+    match method.as_deref() {
+        Some("_acpmux/event" | "session/update") => find_tags(line),
+        _ => Vec::new(),
+    }
+}
+
 pub fn follow<'s>(
     s: &'s std::thread::Scope<'s, '_>,
     socket: &Path,
@@ -65,7 +78,7 @@ pub fn follow<'s>(
         s,
         socket,
         Box::new(move |line, at| {
-            let tags = find_tags(line);
+            let tags = stream_tags(line);
             if let Ok(mut s) = sink.lock() {
                 s.notes += 1;
                 s.bytes += line.len() as u64;
@@ -175,4 +188,21 @@ fn min_seq(v: &Value) -> Option<u64> {
         .iter()
         .filter_map(|e| e.get("seq").and_then(Value::as_u64))
         .min()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_row_notice_quoting_a_tag_is_not_a_second_delivery() {
+        let tag = crate::agent::tag(3, 7, 0, 1_000);
+        let event = json!({"jsonrpc": "2.0", "method": "_acpmux/event", "params": {"record": {"msg":
+            {"method": "session/update", "params": {"update": {"sessionUpdate": "tool_call", "title": tag}}}}}});
+        let row = json!({"jsonrpc": "2.0", "method": "_acpmux/session_changed", "params": {"row":
+            {"preview": tag, "toolTitle": tag, "planStep": tag}}});
+        let n: usize =
+            [event.to_string(), row.to_string()].iter().map(|l| stream_tags(l).len()).sum();
+        assert_eq!(n, 1);
+    }
 }
