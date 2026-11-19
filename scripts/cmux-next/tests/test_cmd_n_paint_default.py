@@ -23,6 +23,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 STORED = HERE / "fixtures" / "cmd-n-paint-default.json"
 NEEDED = ("cmd-n-paint-e2e.py", "bench_arms.py")
+# The files that `--screen` needs more: its mode, its numbers, the page's engine, and the app's settings (the look).
+SCREEN_MODE = ("new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py", "new_surface_look.py", "window_look.py")
 # Each case: the driver's arguments after `--socket app.sock --out out --json report.json`.
 CASES = {
     "default arguments, each frame good": [],
@@ -150,7 +152,7 @@ class DefaultPathTests(unittest.TestCase):
 
     def test_screen_runs_its_own_mode_and_judges_nothing(self):
         # This app's frames are one window's, with no word of their capture: each row is INVALID, and the exit is 0.
-        mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
+        mode = (*NEEDED, *SCREEN_MODE)
         got = outcome(str(HERE.parent), ["--screen", "--runs", "1", "--keys", "n", "--page-watch", "0"], bad=False, files=mode, window=True)
         self.assertEqual((got["exit"], got["stderr"]), (0, []))
         # One ask for the active app, before the first recording.
@@ -167,7 +169,7 @@ class DefaultPathTests(unittest.TestCase):
     def test_screen_takes_12_runs_of_a_case(self):
         # 12 runs of 2 keys, alone and after a key, are 72 openings in the run and 2 at most in one recording. The
         # tool counts the app's new opening records for each recording alone, so the run's own count is no limit.
-        mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
+        mode = (*NEEDED, *SCREEN_MODE)
         got = outcome(str(HERE.parent), ["--screen", "--runs", "12", "--page-watch", "0"], bad=False, files=mode, window=True)
         self.assertEqual((got["exit"], got["stderr"]), (0, []))
         self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 48 rows, 48 INVALID, 0 pictures kept")
@@ -176,7 +178,7 @@ class DefaultPathTests(unittest.TestCase):
         # The driver's own sender (a thread beside the recording's call) and its real clock, against this app: its
         # frames are one window's and it lists no tabs, so each row is INVALID. The keys that went to the app are
         # counted, and not their order: the order is by the clock.
-        mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
+        mode = (*NEEDED, *SCREEN_MODE)
         got = outcome(str(HERE.parent), ["--screen", "--runs", "1", "--keys", "w", "--page-watch", "0"], bad=False, files=mode, window=True)
         self.assertEqual((got["exit"], got["stderr"]), (0, []))
         self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 4 rows, 4 INVALID, 0 pictures kept")
@@ -194,7 +196,7 @@ class DefaultPathTests(unittest.TestCase):
     def test_screen_takes_the_counts_of_the_keys_workspaces_tabs_through_the_driver(self):
         # This app's window has no pane, so the tool can make no tab: it asks the app for no tab, and it ends at the
         # first count with the stopped run's code and no row. It made no workspace, so it asks for no other workspace.
-        mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
+        mode = (*NEEDED, *SCREEN_MODE)
         asked = ["--screen", "--runs", "12", "--keys", "t", "--gaps", "0", "--page-watch", "0", "--key-tabs", "6,84"]
         got = outcome(str(HERE.parent), asked, bad=False, files=mode, window=True)
         self.assertEqual((got["exit"], got["stderr"]), (3, []))
@@ -212,7 +214,7 @@ class DefaultPathTests(unittest.TestCase):
 
     def test_screen_ends_at_once_with_its_own_exit_code_in_an_app_that_lists_no_window(self):
         # No window: no app to make active. The driver ends with the stopped run's code, and it records no case.
-        mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
+        mode = (*NEEDED, *SCREEN_MODE)
         got = outcome(str(HERE.parent), ["--screen", "--runs", "12", "--page-watch", "0", "--key-tabs", "6,84"], bad=False, files=mode)
         self.assertEqual((got["exit"], got["stderr"]), (3, []))
         self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 0 rows, 0 INVALID, 0 pictures kept; STOPPED active: the app lists "
@@ -221,7 +223,7 @@ class DefaultPathTests(unittest.TestCase):
         self.assertEqual(json.loads(got["report"])["rows"], [])
 
     def test_screen_refuses_what_it_cannot_count_before_a_call_to_the_app(self):
-        mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
+        mode = (*NEEDED, *SCREEN_MODE)
         # The app keeps its newest 64 opening records, and the tool counts the new ones of ONE recording by the
         # list's content. A hold of 31 New Tab key-downs can make 62 records in its recording: over the limit of 60.
         many = outcome(str(HERE.parent), ["--screen", "--keys", "w", "--hold-keys", "31"], bad=False, files=mode)

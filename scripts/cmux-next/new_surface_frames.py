@@ -534,6 +534,27 @@ def summarize(rows):
     return out
 
 
+def recorder_lost(rows):
+    """One case's rows that the recorder lost: the rows with an INVALID reason `no-row` (a frame with no row where
+    the page can have come) or `refresh` (rows slower than the display's frames). Both are faults of the tool's
+    yield, not of the app. `rows`: the rows with one of the 2 reasons, `of` each row of the case."""
+    kinds = [{reason.split(":")[0] for reason in row.get("invalid") or []} & {"no-row", "refresh"} for row in rows]
+    return {"rows": sum(1 for kind in kinds if kind), "of": len(rows),
+            "no_row": sum(1 for kind in kinds if "no-row" in kind), "refresh": sum(1 for kind in kinds if "refresh" in kind)}
+
+
+def recorder_sentence(cases):
+    """The report's head sentence from each case's `recorder_lost`, in the cases' order."""
+    said = []
+    for name, case in cases.items():
+        lost = case.get("recorder_lost") or {}
+        kinds = f" (no-row {lost['no_row']}, refresh {lost['refresh']})" if lost.get("rows") else ""
+        said.append(f"{name} {lost.get('rows')} of {lost.get('of')}{kinds}")
+    if not said:
+        return "rows lost to the recorder: no case recorded"
+    return "rows lost to the recorder (INVALID by `no-row` or `refresh`, a fault of the tool's yield): " + "; ".join(said)
+
+
 def cell(summary):
     def said(name):
         frames, ms = summary[name]["frame"], summary[name]["ms"]

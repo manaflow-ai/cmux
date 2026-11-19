@@ -149,6 +149,12 @@ def launch(app_path, tag, at_end=None):
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": opts.window_screen, "CMUX_NEXT_CONFIG_FILE": config,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
+    if opts.screen:
+        # --window-look: its keys go into this launch's 2 config files before the app starts (new_surface_look.py).
+        unwritten = new_surface_screen.new_surface_look.write(opts.window_look, env)
+        if unwritten:
+            sys.exit(f"FAIL --window-look: {unwritten}")
+        LAUNCHED.update(cli=os.path.join(app_path, "Contents/Resources/bin/cmux"), env=env)
     os.makedirs(opts.out, exist_ok=True)
     log = open(os.path.join(opts.out, f"app-{tag}.log"), "a")
     process = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
@@ -188,6 +194,7 @@ def launch(app_path, tag, at_end=None):
 
 
 RUN_END = LAUNCH_FAULT = APP = None
+LAUNCHED = {}  # --screen: the launch's environment and the bundle's CLI, for the report's settings lines
 if opts.app:
     if opts.screen:
         # The record of the bundle's last run goes into the log whole before a thing of it moves (run_end_record.py).
@@ -282,7 +289,7 @@ if opts.screen:
     # The exit code says only whether the run went to its last case (a stopped run is not 0): no row is judged.
     # A launch of the driver's own that crashed is the exit code 1, after the report is written.
     screen = new_surface_screen.Screen(opts, rpc, {"spare_ready": spare_ready, "terminal_tab": terminal_tab, "close_new": close_new})
-    screen.launch_fault = LAUNCH_FAULT
+    screen.launch_fault, screen.launched = LAUNCH_FAULT, LAUNCHED or None
     screen.launch = None if not RUN_END else {"pid": APP[0].pid, "bundle": RUN_END.bundle, "fault": LAUNCH_FAULT}
     stop = None
     try:

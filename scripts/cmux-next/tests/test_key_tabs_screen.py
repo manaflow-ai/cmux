@@ -207,9 +207,13 @@ class KeyTabsTests(unittest.TestCase):
         self.assertEqual(report["key_workspace"], {"is": "a workspace of the made session", "id": "ws-3", "name": "workspace 3",
                                                    "shown_by_the_app": True, "by": "action.run goToWorkspace, then snapshot.get's focus",
                                                    "terminals_before_shown": None})
-        self.assertEqual(report["head"], ["the app was active: yes", "the key's workspace: a workspace of the made session (workspace 3)",
-                                          "the ask for the active app: 1 reads of the app's answer, 0 s from the ask to the answer",
-                                          "the key's workspace's terminals before the app showed it: NOT KNOWN (the app's list has no such fact)"])
+        self.assertEqual(report["head"][:4], ["the app was active: yes", "the key's workspace: a workspace of the made session (workspace 3)",
+                                              "the ask for the active app: 1 reads of the app's answer, 0 s from the ask to the answer",
+                                              "the key's workspace's terminals before the app showed it: NOT KNOWN (the app's list has no such fact)"])
+        # Then the rows that the recorder lost in each case, and the app's settings lines (this app gives no such answer).
+        self.assertTrue(report["head"][4].startswith("rows lost to the recorder (INVALID by `no-row` or `refresh`"), report["head"][4])
+        self.assertEqual(report["head"][5:], ["each other setting: NOT READ", "the app's motion speed: NOT READ",
+                                              "the first window shows, by the app: NOT READ", "the first window's theme, by the app: NOT READ"])
         self.assertIn("NEW-SURFACE-SCREEN-HEAD " + "; ".join(report["head"]), said.splitlines())
         self.assertEqual([(row["app_active"], row["shell_window_is_key"], row["invalid"]) for row in report["rows"]], [(True, True, [])] * 2)
 

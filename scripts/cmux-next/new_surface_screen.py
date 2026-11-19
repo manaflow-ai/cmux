@@ -114,6 +114,15 @@ row), and goes on with the next case. A call whose file did not come stops the r
 in the report and in the last printed line, and the driver's exit code is `STOPPED_EXIT`. A call that made no frame
 writes no such file and reads as one that did not end. The row's folder is removed before each call, so a file of
 an earlier run is not read as this call's.
+
+The app's settings (new_surface_look.py). The driver's launch gives its app an empty config: the app is at the
+schema's defaults. `--window-look` (the words of window_look.py) makes the launch write other settings. Each run,
+with a look or with none, first asks the app itself and prints `NEW-SURFACE-SCREEN-SETTINGS` lines: each key that
+the launch wrote with the app's own answer, each other setting that the app holds, the speed of its motion, and
+what its first window shows. An app that does not show the asked look (another value for a key, another picture,
+no answer) ends the run there: no session is made, no tab, no case (`stopped`, the exit code `STOPPED_EXIT`). The
+report has the lines as `settings`, and its `head` ends with them, after the count of the rows that the recorder
+lost in each case (new_surface_frames.py `recorder_lost`).
 """
 import argparse
 import json
@@ -128,6 +137,7 @@ import time
 
 import bench_page_engine
 import new_surface_frames as frames_of
+import new_surface_look
 
 MAKER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "perf-bench", "session_real.py")
 LEAD_MS = 120  # frame_strip sends the key this long after its recording starts (later when the first frame is late)
@@ -246,6 +256,9 @@ def add_arguments(parser):
     parser.add_argument("--hold-repeat-ms", type=float, default=90.0, help="--screen with the key w: ms between a hold's later key-downs")
     parser.add_argument("--key-tabs", type=key_tabs, default=[],
                         help="--screen: counts of tabs in the key's workspace before a case, rising (6,84): each case runs at each count")
+    parser.add_argument("--window-look", type=new_surface_look.asked, default=None,
+                        help="--screen: the settings of the launched app (window_look.py's words: opaque, or KEY=VALUE parts); "
+                             "an app that does not show them ends the run before its session")
     parser.add_argument("--gaps", default="0,100", help="--screen: ms between two keys of one recording, comma separated (0: one key)")
     parser.add_argument("--workspaces", type=int, default=0, help="--screen: make the session this many workspaces first (0: as launched)")
     parser.add_argument("--live-shells", type=int, default=8, help="--screen: terminals of the made session that keep a shell")
@@ -364,7 +377,8 @@ class Screen:
         self.keep = os.path.join(opts.out, "screen-keep")
         self.rows, self.kept, self.kept_in_case = [], 0, 0
         # The driver's word about its launch (run_end_record.py): a text makes each row INVALID. `launch`: its facts.
-        self.launch_fault, self.launch = None, None
+        # `launched`: the launch's environment and the bundle's CLI (new_surface_look.py `cli_try`), None with no launch.
+        self.launch_fault, self.launch, self.launched = None, None, None
         # `made`: the workspaces that the session's maker made. `size`, `tag`: with `--key-tabs`, the count in work
         # (asked and had) and its part of a row's label. `activation`, `key_workspace`: the report's facts of both.
         self.made, self.size, self.tag, self.activation, self.key_workspace = [], None, "", None, None
@@ -836,19 +850,25 @@ class Screen:
                   "display": opts.display or "as the host has it", "display_hz_asked": opts.display_hz or None, "build": None,
                   "key_path": "debug.key's sender: the app's own key path, not the keyboard's driver",
                   "numbers": "new_surface_frames.py", "rows": self.rows, "cases": {}}
+        # The run's first lines: what the app itself says of its settings and its window (new_surface_look.py).
+        report["settings"] = settings = new_surface_look.shown(self.rpc, getattr(opts, "window_look", None), self.sleep, self.launched)
+        for line in settings["lines"]:
+            print(f"{MARK}-SETTINGS {line}", flush=True)
         if opts.build and os.path.exists(opts.build):
             with open(opts.build, encoding="utf-8") as handle:
                 report["build"] = json.load(handle)
         report["launch"] = self.launch
         report["split"], report["chromium"] = opts.split, bench_page_engine.chromium_word(self.rpc("debug.cef", None, 10))
         print(bench_page_engine.chromium_line("new-surface-screen", report["chromium"]), flush=True)
-        report["session"] = self.session()
-        session_fault = None if report["session"]["as_asked"] else (
+        # An app that does not show the asked look ends the run here: no session is made for a take of another look.
+        ended = settings["problem"] and f"window look: {settings['problem']}: no session made, no tab made, no case recorded"
+        report["session"] = {"asked": opts.workspaces, "not_made": ended, "as_asked": False} if ended else self.session()
+        session_fault = None if ended or report["session"]["as_asked"] else (
             f"session: {opts.workspaces} workspaces asked, the app lists {report['session']['listed_by_the_app']}")
         if opts.key_tabs:
             report["key_tabs"] = {"mix": KEY_TABS_MIX, "limit": KEY_TABS_LIMIT, "sizes": []}
         # The keys' workspace, then the one ask for the active app: a reason of either ends the run before a tab or a case.
-        ended = self.place() or self.activate()
+        ended = ended or self.place() or self.activate()
         report["key_workspace"], report["activation"] = self.key_workspace, self.activation
         if ended:
             report["stopped"] = ended
@@ -888,6 +908,7 @@ class Screen:
             report["cases"][case] = frames_of.summarize(rows)
             report["cases"][case]["active"] = {name: {"yes": sum(1 for row in rows if row.get(name) is True), "of": len(rows)}
                                                for name in ("app_active", "shell_window_is_key")}
+            report["cases"][case]["recorder_lost"] = frames_of.recorder_lost(rows)
             if self.size:
                 counts = [row["workspace_tabs_before"] for row in rows if isinstance(row.get("workspace_tabs_before"), int)]
                 report["cases"][case]["key_tabs"] = {"asked": self.size["asked"], "had": self.size["had"],
@@ -907,7 +928,8 @@ class Screen:
             if report.get("stopped"):
                 print(f"{MARK} STOPPED {report['stopped']}", flush=True)
                 break
-        report["head"] = self.head()
+        # The head's first sentences keep their places; then the recorder's lost rows, then the app's settings lines.
+        report["head"] = self.head() + [frames_of.recorder_sentence(report["cases"])] + settings["lines"]
         print(f"{MARK}-HEAD {'; '.join(report['head'])}", flush=True)
         # A stopped run is not a whole run: the driver ends with this code (0: each case ran).
         report["exit_code"] = STOPPED_EXIT if report.get("stopped") else 0

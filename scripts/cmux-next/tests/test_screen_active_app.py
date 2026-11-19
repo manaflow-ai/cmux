@@ -71,9 +71,13 @@ class ActiveAppTests(unittest.TestCase):
         # Each row says the app's own answer, read directly before its recording.
         self.assertEqual([(row.get("app_active"), row.get("shell_window_is_key"), row["invalid"]) for row in report["rows"]], [(True, True, [])] * 3)
         # The head: the app, the workspace of the keys, and how long the app took to become active.
-        self.assertEqual(report["head"], ["the app was active: yes",
-                                          "the key's workspace: the workspace that the app showed at its launch (the tool asked for no other)",
-                                          "the ask for the active app: 1 reads of the app's answer, 0 s from the ask to the answer"])
+        self.assertEqual(report["head"][:3], ["the app was active: yes",
+                                              "the key's workspace: the workspace that the app showed at its launch (the tool asked for no other)",
+                                              "the ask for the active app: 1 reads of the app's answer, 0 s from the ask to the answer"])
+        # Then the rows that the recorder lost in each case, and the app's settings lines (test_screen_window_look.py).
+        self.assertEqual(report["head"][3], "rows lost to the recorder (INVALID by `no-row` or `refresh`, a fault of the tool's yield): "
+                                            "cmd-t/idle 0 of 1; cmd-w/idle 0 of 1; cmd-w/100 ms after a hold of the New Tab key "
+                                            "(6 key-downs: 1 and 5 repeats with the repeat flag) 0 of 1")
         self.assertIn("NEW-SURFACE-SCREEN-HEAD " + "; ".join(report["head"]), said.splitlines())
         self.assertEqual(report["cases"]["cmd-w/idle"]["active"], {"app_active": {"yes": 1, "of": 1}, "shell_window_is_key": {"yes": 1, "of": 1}})
 
