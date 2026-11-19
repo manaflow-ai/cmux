@@ -37,11 +37,29 @@ final class TerminalTypingWhileStreamingUITests: XCTestCase {
         try run(name: "focused-nolog", extra: [])
     }
 
+    /// The flood bench's own byte-rate workload under this test runner, for a run that draws nothing.
     @MainActor
-    private func run(name: String, extra: [String]) throws {
+    func testRateWorkloadUnderTheTestRunner() throws {
+        try run(name: "rate", extra: [], mode: "rate", checks: false)
+    }
+
+    /// Whether this test process launched the bench once already: the first launch on a fresh
+    /// simulator draws nothing for its first seconds (``AgentCLIHybridBenchUITests``).
+    @MainActor private static var warmedUp = false
+
+    @MainActor
+    private func run(name: String, extra: [String], mode: String = "agent", checks: Bool = true) throws {
+        if !Self.warmedUp {
+            Self.warmedUp = true
+            let warm = XCUIApplication()
+            warm.launchArguments += ["-CmuxMobileFloodBench", "-CmuxMobileFloodBenchSeconds", "1"]
+            warm.launch()
+            _ = warm.staticTexts["flood-bench.result"].waitForExistence(timeout: 120)
+            warm.terminate()
+        }
         let app = XCUIApplication()
         app.launchArguments += [
-            "-CmuxMobileFloodBench", "-CmuxMobileFloodBenchMode", "agent",
+            "-CmuxMobileFloodBench", "-CmuxMobileFloodBenchMode", mode,
             "-CmuxMobileFloodBenchSeconds", "10",
         ] + extra
         app.launch()
@@ -57,6 +75,7 @@ final class TerminalTypingWhileStreamingUITests: XCTestCase {
         add(summary)
         attach(app, "after-stream-\(name)")
         let flood = try XCTUnwrap(Self.phase("flood", in: result.label), "no flood phase in \(result.label)")
+        guard checks else { return app.terminate() }
         // Every key was echoed and drawn: none waits past the run.
         XCTAssertGreaterThan(flood["keyCount"] as? Int ?? 0, 40, "keys typed while streaming")
         XCTAssertGreaterThan(flood["echoCount"] as? Int ?? 0, 40, "echoes drawn while streaming")

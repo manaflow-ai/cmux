@@ -233,6 +233,8 @@ final class TerminalFloodBench {
         summary["frameLog"] = CommandLine.arguments.contains("-CmuxMobileFrameLog")
         summary["pumpAtStart"] = pumpAtStart
         summary["pumpAtEnd"] = model.benchPumpState()
+        summary["channels"] = ["main": daemon.main.counts(), "lane": daemon.lane.counts()]
+        summary["connection"] = String(describing: model.connectionState)
         if let frames = Self.streamingFrameStats() { summary["streamingFrames"] = frames }
         _ = flood
         log("summary \(summary)")
@@ -601,8 +603,16 @@ final class FloodChannel: LinkChannel, @unchecked Sendable {
     private var waiter: CheckedContinuation<Data?, any Error>?
     private var closed = false
     private var sendBuffer = Data()
+    private var pushed = 0
+    private var received = 0
+    private var receiveCalls = 0
 
     init(id: UInt32) { self.id = id }
+
+    /// Lines the fake daemon pushed, lines the app read, reads asked for, and the backlog.
+    func counts() -> [String: Int] {
+        lock.withLock { ["pushed": pushed, "received": received, "receiveCalls": receiveCalls, "backlog": queue.count - head] }
+    }
 
     func send(_ data: Data) async throws {
         let lines: [Data] = lock.withLock {
@@ -620,10 +630,12 @@ final class FloodChannel: LinkChannel, @unchecked Sendable {
     func push(_ lines: [Data]) {
         let resume: (CheckedContinuation<Data?, any Error>, Data)? = lock.withLock {
             queue.append(contentsOf: lines)
+            pushed += lines.count
             guard let waiter, head < queue.count else { return nil }
             self.waiter = nil
             let next = queue[head]
             head += 1
+            received += 1
             compact()
             return (waiter, next)
         }
@@ -640,9 +652,11 @@ final class FloodChannel: LinkChannel, @unchecked Sendable {
     func receive() async throws -> Data? {
         try await withCheckedThrowingContinuation { continuation in
             let ready: Data?? = lock.withLock {
+                receiveCalls += 1
                 if head < queue.count {
                     let next = queue[head]
                     head += 1
+                    received += 1
                     compact()
                     return .some(next)
                 }
