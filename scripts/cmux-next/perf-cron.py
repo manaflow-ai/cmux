@@ -196,17 +196,19 @@ PARTS = [
     {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
-    # Quit and reopen with the session restored (relaunch-wake-cron.py): the window, the chats live again (warm and
-    # after an in-place update) and the terminals live, the quit's own time and anything the restore lost. Budgets in
-    # that file, each with its source. Two benches, six chat relaunches and three session relaunches. Its rows
+    # Quit and reopen with the chats restored (relaunch-wake-cron.py): the window and the shown chat drawn and live
+    # again, warm and after an in-place update. Budgets in that file, each with its source. Its rows
     # (launch.relaunch.*) and the wake part's (launch.wake_proxy.*) are in the launch family, whose target is each
     # row's own budget (target_of), and ROW_PARTS sends them to their parts before the plain launch rows.
+    # run_seconds: step ab0db3de ran 2202 s on aws-m4pro-7 with its build (2026-11-19), plus margin.
     {"name": "relaunch", "args": [*MEASURE, "--suite=relaunch"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "relaunch", "run_seconds": 1500},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "relaunch", "run_seconds": 2400},
     # The app after a wake, by proxy (wake-proxy-bench.py): every process of it frozen 30 s and resumed, to the main
     # thread answering and a typed command's output drawn. A measure Mac can't sleep and wake itself in a step.
+    # run_seconds: step 5045b22e ran 1977 s on cmux20-bench with its build up to the bench's first echo (2026-11-19);
+    # its three rounds add about 3 minutes; plus margin.
     {"name": "wake", "args": [*MEASURE, "--suite=wake"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "wake"},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "wake", "run_seconds": 2400},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
