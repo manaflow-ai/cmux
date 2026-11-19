@@ -16769,6 +16769,399 @@
         }
       }
     },
+    "macScreen.card.noAnswer": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يصل رد من %@ خلال 15 ثانية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema odgovora od %@ u roku od 15 sekundi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet svar fra %@ inden for 15 sekunder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine Antwort von %@ innerhalb von 15 Sekunden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No answer from %@ within 15 seconds."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sin respuesta de %@ en 15 segundos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune réponse de %@ en 15 secondes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna risposta da %@ entro 15 secondi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "15秒以内に%@から応答がありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានការឆ្លើយតបពី %@ ក្នុងរយៈពេល 15 វិនាទីទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "15초 안에 %@에서 응답이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen svar fra %@ innen 15 sekunder."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak odpowiedzi od %@ w ciągu 15 sekund."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem resposta de %@ em 15 segundos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не ответил за 15 секунд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีการตอบกลับจาก %@ ภายใน 15 วินาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 15 saniye içinde yanıt vermedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ не відповів за 15 секунд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có phản hồi từ %@ trong 15 giây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 在 15 秒内没有应答。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 在 15 秒內沒有回應。"
+          }
+        }
+      }
+    },
+    "macScreen.card.noLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رد %@، لكن لم يُنشأ اتصال خلال 15 ثانية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ je odgovorio, ali veza nije uspostavljena u roku od 15 sekundi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ svarede, men der blev ikke oprettet forbindelse inden for 15 sekunder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ hat geantwortet, aber innerhalb von 15 Sekunden kam keine Verbindung zustande."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ answered, but no link came up within 15 seconds."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ respondió, pero no se estableció la conexión en 15 segundos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ a répondu, mais aucune liaison n’a été établie en 15 secondes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ha risposto, ma nessun collegamento è stato stabilito entro 15 secondi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@は応答しましたが、15秒以内に接続が確立しませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ បានឆ្លើយតប ប៉ុន្តែគ្មានការតភ្ជាប់ក្នុងរយៈពេល 15 វិនាទីទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@이(가) 응답했지만 15초 안에 연결되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ svarte, men ingen forbindelse kom i stand innen 15 sekunder."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ odpowiedział, ale połączenie nie powstało w ciągu 15 sekund."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ respondeu, mas nenhuma conexão foi estabelecida em 15 segundos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ответил, но соединение не установилось за 15 секунд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ตอบกลับแล้ว แต่ไม่มีการเชื่อมต่อภายใน 15 วินาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ yanıt verdi, ancak 15 saniye içinde bağlantı kurulmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ відповів, але з’єднання не встановилося за 15 секунд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ đã phản hồi, nhưng không có kết nối nào trong 15 giây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 已应答，但 15 秒内未建立连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 已回應，但 15 秒內未建立連線。"
+          }
+        }
+      }
+    },
+    "macScreen.card.noFrame": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم الاتصال بـ %@، لكن لم تصل أي صورة خلال 15 ثانية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Povezano s %@, ali slika nije stigla u roku od 15 sekundi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbundet til %@, men intet billede kom inden for 15 sekunder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mit %@ verbunden, aber innerhalb von 15 Sekunden kam kein Bild an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected to %@, but no picture arrived within 15 seconds."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectado a %@, pero no llegó ninguna imagen en 15 segundos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connecté à %@, mais aucune image n’est arrivée en 15 secondes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connesso a %@, ma nessuna immagine è arrivata entro 15 secondi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@に接続しましたが、15秒以内に画面が届きませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានតភ្ជាប់ទៅ %@ ប៉ុន្តែគ្មានរូបភាពមកដល់ក្នុងរយៈពេល 15 វិនាទីទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에 연결되었지만 15초 안에 화면이 도착하지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koblet til %@, men ikke noe bilde kom innen 15 sekunder."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połączono z %@, ale obraz nie dotarł w ciągu 15 sekund."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectado a %@, mas nenhuma imagem chegou em 15 segundos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключено к %@, но изображение не пришло за 15 секунд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อกับ %@ แล้ว แต่ไม่มีภาพมาถึงภายใน 15 วินาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ile bağlantı kuruldu, ancak 15 saniye içinde görüntü gelmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підключено до %@, але зображення не надійшло за 15 секунд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã kết nối với %@, nhưng không có hình ảnh nào trong 15 giây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已连接到 %@，但 15 秒内没有收到画面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已連線到 %@，但 15 秒內沒有收到畫面。"
+          }
+        }
+      }
+    },
     "macScreen.card.failedTitle": {
       "extractionState": "manual",
       "localizations": {
