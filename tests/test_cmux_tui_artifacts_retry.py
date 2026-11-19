@@ -68,6 +68,21 @@ class RetryPolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, "skip")
         self.assertIn("tree", decision.reason)
 
+    def test_missing_mac_live_delivery_is_retried_after_tree_publication(self):
+        published = {"id": 7, "name": "publish tree-addressed cmux-tui", "conclusion": "success"}
+        delivery = {"id": 8, "name": "publish the Mac live update", "conclusion": "failure"}
+        jobs = tree_jobs(published, delivery)
+        self.assertEqual(retry.decide(run(), jobs, {}).action, "rerun-failed-jobs")
+        self.assertEqual(retry.decide(run(run_attempt=3), jobs, {}).action, "skip")
+        self.assertEqual(retry.decide(run(), jobs, {8: [{"title": "immutable-r2-conflict"}]}).action,
+                         "refuse")
+
+    def test_successful_mac_delivery_does_not_retry_a_recovered_build(self):
+        published = {"id": 7, "name": "publish tree-addressed cmux-tui", "conclusion": "success"}
+        delivery = {"id": 8, "name": "publish the Mac live update", "conclusion": "success"}
+        self.assertEqual(retry.decide(run(), tree_jobs(published, delivery, job(1, "failure")), {}).action,
+                         "skip")
+
     def test_run_whose_tree_published_is_not_retried(self):
         # feat's macOS fallback publishes the tree although the Linux-cross legs failed.
         for name in ("publish tree-addressed cmux-tui", "publish pull request tree-addressed cmux-tui"):
