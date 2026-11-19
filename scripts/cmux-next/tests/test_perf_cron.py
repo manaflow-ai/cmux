@@ -2815,7 +2815,7 @@ class NoHostTipTests(OneRunRule):
             plan = dict(line.split("=", 1) for line in open(out).read().splitlines())
             state = json.load(open(os.path.join(d, "state.json")))
         self.assertEqual((plan["action"], plan["sha"], plan["part"], json.loads(plan["linux_matrix"])),
-                         ("part", commits[0], "", [{"part": "web-ui", "minutes": cron.linux_job_minutes("web-ui")}]),
+                         ("part", commits[0], "", [{"part": "web-ui", "minutes": cron.linux_job_minutes("web-ui"), "runner": ""}]),
                          plan["reason"])
         self.assertEqual(state["current"]["kind"], "tip")
 
@@ -3364,19 +3364,48 @@ class LinuxMatrixTests(unittest.TestCase):
         for name in LINUX_PARTS:
             runs = cron.linux_bench_runs("", name)
             minutes = cron.linux_job_minutes(name)
-            plain = sum(cron.LINUX_RUN_TIMEOUT_S for n in runs if n != "paired") / 60
+            plain = sum(cron.linux_run_seconds(name) for n in runs if n != "paired") / 60
             self.assertGreaterEqual(minutes, cron.LINUX_SETUP_MINUTES + plain, name)
             if "paired" in runs:
                 self.assertGreaterEqual(minutes * 60, cron.GOD_PAIRED_DEADLINE_S + cron.GOD_PAIRED_ROUND_TIMEOUT_S, name)
             self.assertLessEqual(minutes, 360, f"{name}: GitHub's job cap")
         self.assertGreater(cron.linux_job_minutes("infinite-items"), 60)
 
-    def test_the_matrix_output_is_one_line_of_json_with_a_timeout_per_part(self):
+    def test_flat_grown_has_headroom_over_its_28_minutes(self):
+        """2026-11-17: chat-100k-flat-grown (about 28 minutes) timed out against its 1770 s bench cap."""
+        self.assertGreaterEqual(cron.linux_run_seconds("web-ui-flat-grown"), 2700)
+        self.assertGreaterEqual(cron.linux_job_minutes("web-ui-flat-grown"), 55)
+        self.assertEqual(cron.linux_run_seconds("web-ui"), cron.LINUX_RUN_TIMEOUT_S)
+
+    def test_the_matrix_output_is_one_line_of_json_with_a_timeout_and_runner_per_part(self):
         out = cron.linux_matrix(["web-ui", "infinite-items"])
         self.assertNotIn("\n", out)
-        self.assertEqual(json.loads(out), [{"part": "web-ui", "minutes": cron.linux_job_minutes("web-ui")},
-                                           {"part": "infinite-items", "minutes": cron.linux_job_minutes("infinite-items")}])
+        self.assertEqual(json.loads(out), [
+            {"part": "web-ui", "minutes": cron.linux_job_minutes("web-ui"), "runner": ""},
+            {"part": "infinite-items", "minutes": cron.linux_job_minutes("infinite-items"), "runner": "linux_16"}])
         self.assertEqual(cron.linux_matrix([]), "[]")
+
+    def test_every_part_runner_has_a_workflow_runner(self):
+        """A part's own pool must be one the linux job's runs-on knows (its plan output), else the leg runs on the
+        default class while the plan meant another."""
+        wf = open(os.path.join(HERE, "..", "..", "..", ".github", "workflows", "cmux-next-perf-budgets.yml")).read()
+        for p in cron.PARTS:
+            if p.get("runner"):
+                self.assertTrue(cron.is_linux_part(p["name"]), p["name"])
+                self.assertIn(p["runner"], cron.LINUX_PART_POOLS, p["name"])
+        for pool, output in cron.LINUX_PART_POOLS.items():
+            self.assertIn(f"      {output}: ", wf)
+            self.assertIn(f"matrix.runner == '{pool}' && needs.plan.outputs.{output} || needs.plan.outputs.linux_runner",
+                          wf)
+            self.assertEqual(wf.count(f"matrix.runner == '{pool}' && needs.plan.outputs.{output}"), 2, "runs-on and RUNNER_CLASS")
+
+    def test_linux_class_changed_is_per_part(self):
+        old, new = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"
+        classes = cron.linux_part_classes({f"webui.infinite_items.x@{new}": 1, f"webui.chat_open.y@{old}": 1})
+        self.assertTrue(cron.linux_class_changed(f"webui.infinite_items.x@{old}", classes))
+        self.assertFalse(cron.linux_class_changed(f"webui.chat_open.z@{old}", classes))
+        self.assertFalse(cron.linux_class_changed(f"webui.chat_disk.z@{old}", classes), "chat-disk did not run")
+        self.assertFalse(cron.linux_class_changed("panes.close.stress.frame@cmux20-bench", classes))
 
     def report(self, d, linux_job):
         """A report of a tick whose linux matrix ran web-ui-flat (failed), web-ui-flat-grown (no result.json) and
@@ -3402,18 +3431,53 @@ class LinuxMatrixTests(unittest.TestCase):
     def test_the_report_stores_every_linux_part_and_a_missing_one_fails_with_why(self):
         with tempfile.TemporaryDirectory() as d:
             cur = self.report(d, "failure")
-        self.assertEqual(cur["parts_todo"], ["build", "motion"])
+        self.assertEqual(cur["parts_todo"], ["build", "motion", "web-ui-flat-grown", "chat-disk"],
+                         "a missing result runs once more (the setup retry)")
         self.assertEqual(cur["parts"]["web-ui-flat"]["why"], "chat-100k-flat: exit 1")
         for name in ("web-ui-flat-grown", "chat-disk"):
             self.assertEqual(cur["parts"][name]["state"], "failed", name)
             self.assertIn(f"the {name} runner left no result (the linux job ended failure", cur["parts"][name]["why"])
             self.assertIn(f"{cron.linux_job_minutes(name)}-minute timeout", cur["parts"][name]["why"])
+            self.assertIn("runner left no result", cur["parts"][name]["setup_retried"])
+        result = cron.missing_result(os.path.join("/nonexistent", "x"), "chat-disk", "failure")
+        cron.record_part(cur, "chat-disk", result, "r")
+        self.assertNotIn("chat-disk", cur["parts_todo"], "a second missing result ends it as failed")
+        self.assertEqual(cur["parts"]["chat-disk"]["state"], "failed")
+
+    def test_a_failed_download_counts_one_attempt_not_a_failure(self):
+        result = cron.missing_result("/nonexistent", "chat-disk", "success", "failure")
+        self.assertEqual((result["state"], result.get("no_result")), ("yielded", True))
+        self.assertEqual(cron.missing_result("/nonexistent", "chat-disk", "success", "success")["state"], "failed")
 
     def test_a_cancelled_run_counts_a_missing_linux_part_as_one_attempt(self):
         with tempfile.TemporaryDirectory() as d:
             cur = self.report(d, "cancelled")
         self.assertEqual(cur["parts_todo"], ["build", "motion", "web-ui-flat-grown", "chat-disk"])
         self.assertEqual((cur["parts"]["chat-disk"]["state"], cur["parts"]["chat-disk"]["yields"]), ("yielded", 1))
+
+
+class LinuxClassMoveTests(OneRunRule):
+    def test_a_part_moved_to_its_own_runner_class_closes_only_its_old_rows(self):
+        """infinite-items moved to linux_16 while the other Linux parts stay on linux_4: its old-class regression
+        closes (never measured there again) and its new rows start their baseline; a web-ui regression on linux_4 is
+        still judged, not closed because another part changed class."""
+        old, new = "blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"
+        items, chat = "webui.infinite_items.idle_cpu_pct.n1000", "webui.chat_open.compact.latest"
+        rows = {f"{items}@{old}": row(10.0), f"{chat}@{old}": row(10.0)}
+        state = cron.empty_state(T0)
+        parts = {"infinite-items": {"state": "done"}, "web-ui": {"state": "done"}}
+        for i, (a, b) in enumerate([(10.0, 10.0), (30.0, 30.0)]):
+            state["current"] = cron.new_measurement(f"{i + 1}" * 40, "tip", [], at(i))
+            state["current"]["parts"] = dict(parts)
+            cron.finish_measurement(state, {f"{items}@{old}": row(a), f"{chat}@{old}": row(b)}, None, "x", "r", at(i),
+                                    budgets_mod)
+        self.assertEqual(sorted(r["name"] for r in state["regressions"]), sorted(rows))
+        state["current"] = cron.new_measurement("4" * 40, "tip", [], at(2))
+        state["current"]["parts"] = dict(parts)
+        cron.finish_measurement(state, {f"{items}@{new}": row(10.0), f"{chat}@{old}": row(31.0)}, None, "x", "r",
+                                at(2), budgets_mod)
+        self.assertEqual([r["name"] for r in state["regressions"]], [f"{chat}@{old}"])
+        self.assertIn(f"the Linux runner class is now {new}", state["history"][-1].get("rebased_note") or "")
 
 
 if __name__ == "__main__":
