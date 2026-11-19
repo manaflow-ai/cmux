@@ -1,3 +1,4 @@
+public import CoreGraphics
 import Foundation
 
 /// The overlay path a session rides (plans/cmux-next/remote-desktop.md 6.6).
