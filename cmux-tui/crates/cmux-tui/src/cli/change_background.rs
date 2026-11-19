@@ -246,11 +246,7 @@ fn plan(words: &Words, env: &Env) -> Result<Plan, UsageError> {
 /// YouTube id. Checked against the row it is written to.
 fn background_id(value: &str, words: &Words, env: &Env) -> Result<String, UsageError> {
     let usage = if words.side.is_some() { Use::Fixed } else { Use::Main };
-    let id = if youtube::claims_youtube(value) {
-        YouTubeWallpaper::from_input(value).map_err(value_error)?.id()
-    } else {
-        wallpaper::background_id(value, env, usage).map_err(value_error)?
-    };
+    let id = wallpaper::background_id(value, env, usage).map_err(value_error)?;
     let id = with_youtube_options(id, words)?;
     let key = match words.side {
         Some("light") => LIGHT,

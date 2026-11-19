@@ -284,8 +284,10 @@ pub(super) fn background_id(arg: &str, env: &Env, usage: Use) -> Result<String, 
         }
         _ => {}
     }
-    // A YouTube address or `youtube:` id: its canonical id (cmux_config::youtube).
-    if cmux_config::youtube::claims_youtube(word) {
+    // A YouTube address or `youtube:` id: its canonical id (cmux_config::youtube). Another
+    // site's address is refused by name, never read as a path.
+    let web = ["http://", "https://"].iter().any(|scheme| lower.starts_with(scheme));
+    if web || cmux_config::youtube::claims_youtube(word) {
         return cmux_config::youtube::YouTubeWallpaper::from_input(word)
             .map(|wallpaper| wallpaper.id())
             .map_err(|error| format!("{arg}: {error}"));

@@ -92,6 +92,7 @@ fn a_youtube_id_reads_its_parameters_in_any_order_and_writes_them_canonically() 
 
 #[test]
 fn only_the_canonical_form_is_a_stored_id() {
+    let pattern = regex::Regex::new(ID_PATTERN).expect("pattern");
     for good in [
         "youtube:dQw4w9WgXcQ",
         "youtube:dQw4w9WgXcQ?start=90",
@@ -102,7 +103,6 @@ fn only_the_canonical_form_is_a_stored_id() {
         "youtube:dQw4w9WgXcQ?start=86399",
     ] {
         assert!(is_canonical_id(good), "{good}");
-        let pattern = regex::Regex::new(ID_PATTERN).expect("pattern");
         assert!(pattern.is_match(good), "the JSON Schema pattern takes {good}");
     }
     for bad in [
