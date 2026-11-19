@@ -241,7 +241,7 @@ struct WelcomeHeroMark<Slot: View>: View {
                         .accessibilityHidden(true)
                     }
                 }
-                .padding(.vertical, showsArt ? 40 : 0)
+                .padding(.vertical, showsArt ? 62 : 0)
             VStack(spacing: 8) {
                 Text(verbatim: "cmux")
                     .font(.system(.largeTitle, weight: .bold))
