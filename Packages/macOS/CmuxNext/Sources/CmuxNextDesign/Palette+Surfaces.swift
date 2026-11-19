@@ -26,8 +26,10 @@ extension Palette {
     }
 
     /// The split divider's line in the active scope (``SurfaceBackgrounds/dividerLine(base:)``) over
-    /// ``chromeDivider``, or nil when it has no override.
+    /// ``chromeDivider``, or nil when it has no override. Under `appearance.borders` none it draws nothing, as pages
+    /// do (`WebTheme.chromeDivider`): the clear divider made opaque would be a black line.
     private static var splitDividerOverride: NSColor? {
+        guard Borders.drawsLines else { return nil }
         let scope = ThemeContext.activeScope ?? ThemeScope.app
         let divider = chromeDivider.usingColorSpace(.sRGB) ?? chromeDivider
         let base = ThemeRGB(red: Double(divider.redComponent), green: Double(divider.greenComponent),

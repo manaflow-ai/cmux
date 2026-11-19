@@ -8,6 +8,7 @@ import type { SettingsState } from "./store";
 export const WINDOW_OPACITY_KEY = "appearance.backgroundOpacity";
 const SURFACE_OPACITY = /^appearance\.surfaces\.[A-Za-z]+\.opacity$/;
 const SPLIT_DIVIDER_OPACITY_KEY = "appearance.surfaces.splitDivider.opacity";
+const SPLIT_DIVIDER_COLOR_KEY = "appearance.surfaces.splitDivider.color";
 const SURFACE_COLOR = /^appearance\.surfaces\.[A-Za-z]+\.color$/;
 
 /** The row an unset row takes its value from, when it is another row (a surface's window value). */
@@ -17,9 +18,10 @@ export function parentKey(key: string): string | null {
   return SURFACE_OPACITY.test(key) && key !== SPLIT_DIVIDER_OPACITY_KEY ? WINDOW_OPACITY_KEY : null;
 }
 
-/** Whether `key` is a surface color, which shows the window's color while unset. */
+/** Whether `key` is a surface color, which shows the window's color while unset (not the split divider's, which
+ * shows the chrome divider's). */
 export function inheritsWindowColor(key: string): boolean {
-  return SURFACE_COLOR.test(key);
+  return SURFACE_COLOR.test(key) && key !== SPLIT_DIVIDER_COLOR_KEY;
 }
 
 /** An unset number row's resting value. `known`: it is the live value (the parent's, or the one

@@ -31,10 +31,12 @@ public nonisolated enum SurfaceKind: String, CaseIterable, Sendable, Hashable {
 /// override (the window's one backdrop, R48).
 public nonisolated struct SurfaceBackground: Hashable, Sendable {
     /// `appearance.surfaces.<surface>.color` (`#RRGGBB[AA]`); nil: the
-    /// window's color (the theme background).
+    /// window's color (the theme background), or the chrome divider's for
+    /// the split divider (``SurfaceBackgrounds/dividerLine(base:)``).
     public var color: ThemeRGB?
     /// `appearance.surfaces.<surface>.opacity`, 0...1; nil: the window's
-    /// opacity (`appearance.backgroundOpacity`).
+    /// opacity (`appearance.backgroundOpacity`), or the line's own for the
+    /// split divider.
     public var opacity: Double?
 
     public init(color: ThemeRGB? = nil, opacity: Double? = nil) {
