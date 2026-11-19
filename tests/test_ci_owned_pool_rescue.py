@@ -3341,6 +3341,16 @@ class SideLanes(unittest.TestCase):
         self.assertNotIsInstance(target, str)
         self.assertIs(target.refusals_only, True)
         self.assertEqual(rescue.next_attempt(target), "attempt 4 takes Blacksmith: a mini refused attempt 3")
+        # cmux#45612 item 4, 2026-11-17: with vars.CI_BLACKSMITH_MACOS off, run 44067209239's attempt 4 was logged as
+        # taking Blacksmith and queued on glaeda-side-std-xcode-26.6 again; the line names the label it rejoins.
+        off = dataclasses.replace(target, rerun_side=SIDE)
+        self.assertEqual(rescue.next_attempt(off),
+                         f"attempt 4 rejoins {SIDE}: vars.CI_BLACKSMITH_MACOS is not on, so cmux-next.yml's Mac "
+                         "fallback is the side label")
+        self.assertEqual(rescue.next_attempt(dataclasses.replace(off, attempt=2)),
+                         f"attempt 3 rejoins {SIDE}: vars.CI_BLACKSMITH_MACOS is not on, so cmux-next.yml's Mac "
+                         "fallback is the side label")
+        self.assertNotIn("Blacksmith:", rescue.next_attempt(off))
         self.assertEqual(rescue.sweep_target({**run, "run_attempt": 4}, "manaflow-ai/cmux", late=False),
                          "attempt 4")
         # ci.yml's placement moves only github-actions[bot]'s attempt 3 to Blacksmith (pr_runner_pool), so a
@@ -3401,7 +3411,8 @@ class SideLanes(unittest.TestCase):
         self.assertEqual(api.attempt, 3)
         self.assertNotIn("rerun-failed", api.calls)
         self.assertNotIn("cancel", api.calls)
-        self.assertIn("attempt 3 takes the side lane's Blacksmith overflow", summary)
+        # vars.CI_BLACKSMITH_MACOS is unset here (off), so attempt 3 rejoins the side label (cmux#45612 item 4)
+        self.assertIn("attempt 3 rejoins glaeda-side-std-xcode-26.6: vars.CI_BLACKSMITH_MACOS is not on", summary)
 
     def test_a_failed_cmux_next_pull_request_or_tip_suite_run_is_watched_when_it_completes(self):
         # A pull request's swift test the runner hook refused (run 40671913126) and the tip Swift suite's
@@ -5095,7 +5106,7 @@ class IOSDispatch(unittest.TestCase):
         target = rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux")
         self.assertEqual((target.pr_number, target.e2e, target.picker_job, target.path), (0, True, "runner", path))
         # Signing and streamed validation never take an owned Mac, so they are never watched.
-        for path in (".github/workflows/ios-testflight.yml", ".github/workflows/ios-streamed-validate.yml"):
+        for path in (".github/workflows/ios-appstore-upload.yml", ".github/workflows/ios-streamed-validate.yml"):
             self.assertIsInstance(rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux"), str)
 
     def test_kit_pr_rescues_only_the_unstarted_test_after_three_minutes(self):
@@ -7501,6 +7512,35 @@ class BotRerunRouteTests(unittest.TestCase):
                 self.assertIn(path, rescue.SIDE_WORKFLOW_PATHS)
                 self.assertFalse(rescue.bot_rerun_leaves_owned(path, 5))
 
+    def test_the_bound_s_escape_leaves_the_minis_with_blacksmith_macos_off(self):
+        """past_wait_bound() moves a job only where bot_rerun_leaves_owned() says the bot's re-run leaves the owned
+        labels: test-ios.yml from attempt 1 (its picker's retry_runs_on), ci.yml from LAST_OWNED_ATTEMPT (its
+        picker's retry_runner, which attempt 3 reads). With vars.CI_BLACKSMITH_MACOS off both must still be the paid
+        label, or the move lands in the owned queue it left and no owned wait is bounded."""
+        import ios_runner_pool
+        import simple_pool_picker
+        off = {"CI_BLACKSMITH_MACOS": ""}
+        # test-ios.yml: a run on the full owned pool with runners online waits there, and re-runs on the paid label.
+        live = ios_runner_pool.IOSLoad(None, live=ios_runner_pool.LiveFree(pool=0, sim=0, online=4, sim_online=2))
+        route = ios_runner_pool.resolve(
+            "test-ios", "auto", "", ios_owned="1", owned="1",
+            owned_slots=json.dumps({"glaeda-std-xcode-26.6": 40, "glaeda-ios-sim": 2}),
+            pr_xcode_app="/Applications/Xcode_26.6.app", order="", max_queued="",
+            measure=lambda: live, now=dt.datetime(2026, 11, 17, tzinfo=dt.timezone.utc),
+            blacksmith_on=ios_runner_pool.blacksmith_allowed(off))
+        self.assertTrue(route.persistent)
+        self.assertTrue(rescue.bot_rerun_leaves_owned(rescue.IOS_TEST_WORKFLOW_PATH, 1))
+        self.assertEqual(json.loads(route.retry_runs_on), rescue.PICKED_PERSISTENT_RETRY[rescue.IOS_TEST_WORKFLOW_PATH])
+        # ci.yml: an owned pick's retry_runner, attempt 3's label.
+        light = simple_pool_picker.Pool("glaeda-light-xcode-26.6", 4, 3, 0, free=1)
+        choice = simple_pool_picker.pick(simple_pool_picker.State(
+            jobs=8, owned=(light,), blacksmith=(), owned_enabled=True, wait_on_owned=True,
+            blacksmith_on=simple_pool_picker.blacksmith_allowed(off)))
+        self.assertTrue(choice.owned)
+        self.assertTrue(rescue.bot_rerun_leaves_owned(rescue.CI_WORKFLOW_PATH, rescue.LAST_OWNED_ATTEMPT))
+        retry = simple_pool_picker.write_outputs(choice, 8, env=off)["retry_runner"]
+        self.assertRegex(retry, rescue.BLACKSMITH_MACOS_LABEL)
+
     def test_cmux_tui_macos_legs_take_blacksmith_on_any_later_attempt(self):
         # The route bot_rerun_leaves_owned() relies on: every macOS runner expression in cmux-tui.yml takes
         # CI_SIDE_LANE_RUNNER only on attempt 1 and falls back to a Blacksmith macOS label otherwise.
@@ -9893,7 +9933,7 @@ class StallMove(unittest.TestCase):
     def test_only_an_open_same_repository_pull_request_run_on_the_minis_is_a_target(self):
         clock = Clock()
         api = StallAPI(clock, lambda attempt, seconds: [], attempt=4, actor=CMUX_BOT)
-        self.assertEqual(stall_target(api), "attempt 4 takes Blacksmith")
+        self.assertEqual(stall_target(api), "attempt 4 is a bot's re-run past attempt 3")
         api.actor = "teamleaderleo"  # a person's attempt 4 goes back to the minis
         target = stall_target(api)
         self.assertIsInstance(target, rescue.Target)

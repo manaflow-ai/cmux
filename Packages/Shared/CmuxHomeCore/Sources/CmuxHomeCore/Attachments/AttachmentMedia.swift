@@ -615,6 +615,20 @@ enum AttachmentMedia {
         return false
     }
 
+    /// True on macOS 26 and iOS 26, the only systems that call
+    /// `AVAssetExportSession.export(to:as:)`. On macOS 15 (and, we expect,
+    /// iOS 18), awaiting it from this `@concurrent` code in a build against
+    /// the SDK 26 interface never returns, or ends the process with signal
+    /// 11 or the task allocator's "freed pointer was not the last
+    /// allocation" abort. CmuxHomeCore's tests on the macOS 15 CI runners
+    /// did all three, while the completion-handler export (`outputURL`,
+    /// `outputFileType`, `export()`) worked in the same process. Older
+    /// systems use the completion-handler export.
+    static var usesTypedExport: Bool {
+        if #available(macOS 26, iOS 26, *) { return true }
+        return false
+    }
+
     /// A copy of the movie (or M4A) without location, written to a temp
     /// file under `root` by a passthrough export (no re-encode), with each
     /// track's transform and the asset metadata that is not location (as
@@ -626,8 +640,11 @@ enum AttachmentMedia {
     /// message would lose its content. Nil when the file has no location.
     /// The caller deletes it. Throws `HomeAttachmentError.locationNotRemoved`
     /// when the export fails or its result still holds a location.
+    /// `typedExport` picks the export call (`usesTypedExport`); tests pass
+    /// false to run the macOS 15 and iOS 18 path on any system.
     @concurrent
-    static func movieWithoutLocation(_ url: URL, mimeType: String, name: String, root: URL) async throws -> URL? {
+    static func movieWithoutLocation(_ url: URL, mimeType: String, name: String, root: URL,
+                                     typedExport: Bool = AttachmentMedia.usesTypedExport) async throws -> URL? {
         let asset = AVURLAsset(url: url)
         guard await movieHasLocation(asset) else { return nil }
         let refused = HomeAttachmentError.locationNotRemoved(name: name)
@@ -664,7 +681,7 @@ enum AttachmentMedia {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let output = root.appendingPathComponent(".incoming-\(UUID().uuidString).\(fileExtension)")
         do {
-            if #available(macOS 15, iOS 18, *) {
+            if typedExport, #available(macOS 15, iOS 18, *) {
                 try await session.export(to: output, as: fileType)
             } else {
                 session.outputURL = output

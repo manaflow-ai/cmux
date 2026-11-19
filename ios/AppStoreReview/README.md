@@ -5,7 +5,12 @@ readiness. Keep it separate from the TestFlight beta lane.
 
 ## Production Lane
 
-The official cmux iOS App Store Connect app is Apple ID `6783338052`.
+The official cmux iOS App Store Connect app is Apple ID `6783338052`. It now
+ships cmux-next from `feat-cmux-next`, so this classic app is no longer
+uploaded or submitted from `main`: `upload-app-store.sh` refuses to upload and
+`.github/workflows/ios-app-store.yml` fails every dispatch. The classic app's
+internal TestFlight home is cmux CLASSIC (`dev.cmux.app.classic`, see
+`ios/README.md`). The steps below describe the retired lane.
 
 Upload a production App Store Connect build:
 
@@ -28,10 +33,11 @@ Defaults:
 - Entitlements: `Config/cmux-appstore-release.entitlements` (VPN-free App Store build; beta keeps `Config/cmux-release.entitlements`)
 - Review submission: not automatic
 
-The beta lane remains:
+The beta and cmux CLASSIC lanes remain:
 
 ```bash
 ios/scripts/upload-testflight.sh --lane beta
+ios/scripts/upload-testflight.sh --lane classic
 ```
 
 ## Validation

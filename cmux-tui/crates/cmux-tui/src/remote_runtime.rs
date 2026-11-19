@@ -59,6 +59,11 @@ use url::Url;
 
 use crate::localization::catalog;
 
+#[cfg(unix)]
+mod startup_recovery;
+#[cfg(unix)]
+pub use startup_recovery::recover_inactive_daemon_state;
+
 pub const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
 const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
 const MAX_REMOTE_RUNTIME_WORKERS: usize = 4;

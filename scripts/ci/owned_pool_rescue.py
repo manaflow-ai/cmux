@@ -159,8 +159,12 @@ Blacksmith has room (STALL_MOVE, stall_scan(), stall_move()).
 One bound overrides those soft holds (OWNED_WAIT_BOUND_SECONDS, 45 minutes; Leo, 2026-11-16: "no required check
 waits past a bound on any owned label; past it, it moves to Blacksmith"): a job of a pull request's run that has
 waited that long for a runner moves to Blacksmith though the label has no free slot, is stalled, or has a deeper
-queue, and past the sweeper's move cap (one move a scan still). A running sibling, a delivery run, a re-run that would
-stay on the owned labels, and vars.CI_BLACKSMITH_MACOS off still keep it.
+queue, and past the sweeper's move cap (one move a scan still). A running sibling, a delivery run, and a re-run that
+would stay on the owned labels still keep it. vars.CI_BLACKSMITH_MACOS off does not: the pickers keep the paid escape
+label for re-runs then too (simple_pool_picker._retry_label(), ios_runner_pool.resolve()), so the bot's re-run of a
+test-ios.yml attempt 1 or a ci.yml attempt 2 still leaves the minis (bot_rerun_leaves_owned()); only the cmux-next
+stall scan, whose re-run takes the side label while the switch is off, moves between owned labels instead
+(OWNED_STALL_MOVE).
 
 E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
 e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
@@ -518,6 +522,8 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/agent-brands.yml",  # feat-cmux-next only
     ".github/workflows/app-host-test-rerun.yml",
     ".github/workflows/auth-refresh-tests.yml",
+    ".github/workflows/billing.yml",
+    ".github/workflows/billing-nightly.yml",  # calls billing.yml (ios-billing); feat-cmux-next has its own
     ".github/workflows/cloud-command-deadlines.yml",
     ".github/workflows/cloud-machine-tests.yml",
     ".github/workflows/cloud-task-local-tests.yml",
@@ -3442,7 +3448,8 @@ def nightly_retry_destinations(api: GitHub, target: Target, sleep: Callable[[flo
 
 # The Blacksmith label a re-run of a picker-routed workflow takes after the picker put attempt 1 on an owned pool
 # (the only placement the sweeper watches): test-ios.yml's jobs read `retry_runs_on` from its runner job, which
-# ios_runner_pool.py sets to SMALL_RUNNER for a persistent placement (a test keeps them equal). retry_labels()
+# ios_runner_pool.py sets to SMALL_RUNNER for a persistent placement, whatever vars.CI_BLACKSMITH_MACOS says (a test
+# keeps them equal: BotRerunRouteTests). retry_labels()
 # cannot see through a picker output (PICKED_RETRY), so without this every Blacksmith label counted: on
 # 2026-11-16 one Seed DerivedData job queued on blacksmith-12vcpu-macos-26 from 09:33Z held run 43863208774's
 # ios-simulator-build on glaeda-ios-sim, whose every carrier was held off, from 13:21Z on.
@@ -3582,11 +3589,17 @@ def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callab
 
 
 def next_attempt(target: Target) -> str:
-    """Where a re-run of failed jobs goes next."""
+    """Where a re-run of failed jobs goes next. A cmux-next.yml re-run past LAST_OWNED_ATTEMPT leaves the minis only
+    while vars.CI_BLACKSMITH_MACOS is `on`; otherwise its Mac jobs take `target.rerun_side` (rerun_side_label()) again,
+    and the line names that label (cmux#45612: with the switch off, run 44067209239's attempt 4 was logged as "takes
+    Blacksmith: a mini refused attempt 3" and queued on glaeda-side-std-xcode-26.6)."""
     following = target.attempt + 1
     if target.path == CMUX_NEXT_WORKFLOW_PATH:
         if following <= LAST_OWNED_ATTEMPT:
             return f"attempt {following} stays on the side lane's owned label"
+        if target.rerun_side:
+            return (f"attempt {following} rejoins {target.rerun_side}: vars.CI_BLACKSMITH_MACOS is not on, so "
+                    "cmux-next.yml's Mac fallback is the side label")
         if following > REFUSAL_RESCUE_ATTEMPT:
             return f"attempt {following} takes Blacksmith: a mini refused attempt {target.attempt}"
         return f"attempt {following} takes the side lane's Blacksmith overflow after the long mini queue"
@@ -6788,7 +6801,8 @@ def stall_target(run: Mapping[str, Any], repository: str) -> Target | str:
     attempt = int(run.get("run_attempt") or 0)
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
     if attempt < 1 or actor in RESCUE_ACTORS and attempt > REFUSAL_RESCUE_ATTEMPT:
-        return f"attempt {attempt} takes Blacksmith"
+        # where it runs depends on vars.CI_BLACKSMITH_MACOS (next_attempt()); either way no stall move re-runs it again
+        return f"attempt {attempt} is a bot's re-run past attempt {REFUSAL_RESCUE_ATTEMPT}"
     if dispatch:
         # Judged as its pull request's run: rescue() re-checks that the pull request is open at this head
         # (pull_moved()) before any cancel, as for a pull_request run.
