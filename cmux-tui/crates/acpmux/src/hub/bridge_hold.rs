@@ -161,6 +161,52 @@ pub(super) fn park(
     Some(Ok((rx, until)))
 }
 
+#[cfg(test)]
+pub(super) static TEST_HELD_ANSWER_WAIT_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+fn held_answer_wait() -> Duration {
+    #[cfg(test)]
+    {
+        let ms = TEST_HELD_ANSWER_WAIT_MS.load(std::sync::atomic::Ordering::SeqCst);
+        if ms > 0 {
+            return Duration::from_millis(ms);
+        }
+    }
+    super::ANSWER_WAIT
+}
+
+/// A held prompt's answer: its turn once the reset sent it and the app ended that turn. A hold
+/// that outlasts the call's wait (`ANSWER_WAIT`) answers `answered: false` as any long turn
+/// does, and also `held: true` with `rateLimitedUntil`: the message still waits here and goes at
+/// the reset, so the sender reads that, not a quiet end.
+pub(super) async fn held_answer(
+    session_id: &str,
+    prompt_id: &str,
+    mut rx: watch::Receiver<Outcome>,
+    until: u64,
+) -> Result<Value, crate::rpc::RpcError> {
+    let wait = rx.wait_for(Option::is_some);
+    let outcome = tokio::time::timeout(held_answer_wait(), wait)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .and_then(|o| o.clone());
+    let unanswered = outcome.is_none();
+    let mut reply = super::answer(prompt_id, outcome, None);
+    if unanswered
+        && let Some(meta) = reply
+            .as_mut()
+            .ok()
+            .and_then(|v| v.pointer_mut("/_meta/acpmux"))
+            .and_then(Value::as_object_mut)
+    {
+        meta.insert("held".to_owned(), json!(true));
+        meta.insert("rateLimitedUntil".to_owned(), json!(held_until(session_id).unwrap_or(until)));
+    }
+    reply
+}
+
 impl Deliveries {
     /// The kept delivery of each of `riders` answers as `prompt_id`'s does.
     fn ride(&mut self, session_id: &str, prompt_id: &str, riders: Vec<String>) {

@@ -337,7 +337,7 @@ impl Hub {
                         json!({"sessionId": session.id, "promptId": prompt_id, "queued": true, "state": "held", "bridged": true, "rateLimitedUntil": until}),
                     );
                 }
-                return Some(answer(&prompt_id, turn_of(rx).await, None));
+                return Some(hold::held_answer(&session.id, &prompt_id, rx, until).await);
             }
             Some(Err(rx)) => return Some(resent(session, &prompt_id, rx, opts).await),
             None => {}

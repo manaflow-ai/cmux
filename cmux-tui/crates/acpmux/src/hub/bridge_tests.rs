@@ -892,7 +892,7 @@ async fn a_desktop_chat_the_rate_limit_stopped_holds_its_messages_and_sends_them
     let transcript = config.join("sid-429.jsonl");
     std::fs::write(&transcript, "").unwrap();
     let answers = |n: usize| match n {
-        0 => rate_limited_line(),
+        0 | 2 => rate_limited_line(),
         _ => json!({"type": "assistant", "message": {"role": "assistant",
             "stop_reason": "end_turn", "content": [{"type": "text", "text": "DONE"}]}}),
     };
@@ -998,5 +998,30 @@ async fn a_desktop_chat_the_rate_limit_stopped_holds_its_messages_and_sends_them
     let again = again.await.unwrap().unwrap();
     assert_eq!(again["_meta"]["acpmux"]["duplicate"], true, "{again}");
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+    // A second storm, with a hold that outlasts the held call's wait: the call says it is still
+    // held and until when, never a quiet end, and the message still goes at the reset.
+    let (fourth, _) = send("p-four", "fourth report");
+    fourth.await.unwrap().unwrap();
+    assert_eq!(
+        inbox.load(std::sync::atomic::Ordering::SeqCst),
+        3,
+        "a completed turn ended the hold"
+    );
+    hold::TEST_HELD_ANSWER_WAIT_MS.store(300, std::sync::atomic::Ordering::SeqCst);
+    let (fifth, _) = send("p-five", "fifth report");
+    let fifth = fifth.await.unwrap().unwrap();
+    hold::TEST_HELD_ANSWER_WAIT_MS.store(0, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(fifth["_meta"]["acpmux"]["answered"], false, "{fifth}");
+    assert_eq!(fifth["_meta"]["acpmux"]["held"], true, "{fifth}");
+    assert!(fifth["_meta"]["acpmux"]["rateLimitedUntil"].as_u64().is_some(), "{fifth}");
+    assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 3, "still held");
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while inbox.load(std::sync::atomic::Ordering::SeqCst) < 4 {
+        assert!(std::time::Instant::now() < deadline, "the held message went at the reset");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let sent = got.lock().unwrap()[3].clone();
+    assert!(sent.starts_with(hold::CONTINUE_LINE) && sent.contains("fifth report"), "{sent}");
     hold::TEST_MIN_HOLD_MS.store(0, std::sync::atomic::Ordering::SeqCst);
 }
