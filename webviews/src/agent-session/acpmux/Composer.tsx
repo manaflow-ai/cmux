@@ -469,8 +469,6 @@ type Props = {
   offloadReasons?: OffloadReasons;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
-  /// The folder menu's quiet line while a new chat has no folder (ComposerContext `folderNote`).
-  folderNote?: string;
   /// A new chat's Run as rows in the environment picker (Persistent or Sandboxed, hq#3367).
   runMode?: RunModeRows;
   /// This Mac's name for the location row.
@@ -595,7 +593,6 @@ function ComposerFrame({
   offloads,
   offloadReasons,
   onRefreshMachines,
-  folderNote,
   runMode,
   localName,
   environments,
@@ -2534,7 +2531,6 @@ function ComposerFrame({
       {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
       {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
-      {...(folderNote ? { folderNote } : {})}
       {...(runMode ? { runMode } : {})}
       environments={environments}
       {...(onComputer ? { onComputer } : {})}

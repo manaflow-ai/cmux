@@ -177,7 +177,6 @@ export function ComposerContext({
   onMoveTo,
   saved,
   onRefreshMachines: onRefreshPeers,
-  folderNote,
   onComputer,
   onRepick,
   cloudMachines,
@@ -277,9 +276,6 @@ export function ComposerContext({
   /// The machine list opened, and every few seconds while it stays open: read the machines and
   /// their status again.
   onRefreshMachines?(): void;
-  /// A quiet line in the folder menu: where a new chat starts while it has no folder (its
-  /// workspace's private folder).
-  folderNote?: string;
   /// A new chat's machine was picked (`local` for this Mac) where no folder of it is known; with a
   /// known folder the pick is `onProject(folder, peer)`.
   onComputer?(computer: string): void;
@@ -1055,9 +1051,9 @@ export function ComposerContext({
               noProject={(noProject || !currentFolder) && !newProject}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               {...(onNewProject ? { onNewProject } : {})}
-              {...((folderDetail ?? folderNote) && !currentFolder ? { note: folderDetail ?? folderNote } : {})}
               {...(extra ? { extra } : {})}
-              // A new chat on Cloud or on this Mac also offers the person's GitHub repositories: on Cloud the
+              // A new chat on Cloud or on this Mac also offers the person's GitHub repositories, with This Mac
+              // picked too, so Connect to GitHub is found without knowing to pick Cloud first. On Cloud the
               // machine clones the pick; with This Mac picked the pick is this Mac's checkout of it, cloned
               // first when there is none, in a new worktree (onGitHubHere). Where neither applies (another
               // machine) a pick moves the chat to Cloud (pickFolder).
@@ -1065,7 +1061,7 @@ export function ComposerContext({
                 (!started && (runMode !== undefined || (onGitHubHere !== undefined && gitHubHere())))) &&
               !sandboxPicked &&
               !readOnly
-                ? { github }
+                ? { github, githubFirst: cloudSide }
                 : {})}
             />
           ) : (

@@ -198,3 +198,110 @@ fn landing_reads_and_answers_camel_case_json() {
         serde_json::json!({"kind": "home", "why": "firstLaunch"})
     );
 }
+
+// What a launch opens fresh, before the saved windows decide (`fresh_landing`): the two deciders that skipped the
+// rule (the empty tree's first workspace, and the New Tab workspace when no saved window is open) and the wait for
+// Home.
+
+fn fresh(
+    empty_tree: bool,
+    no_saved_window_open: bool,
+    classic_home: bool,
+    home_ensured: bool,
+) -> FreshFacts {
+    FreshFacts {
+        empty_tree,
+        no_saved_window_open,
+        classic_home,
+        home_ensured,
+        home_not_ensured_yet: false,
+    }
+}
+
+/// Decider 1, an empty tree (a fresh install, or every workspace of the person's own ended): Home once
+/// `ensure_home` named it; classic Home has no Home workspace, and an `ensure_home` that named none leaves none, so
+/// both make a New Tab workspace.
+#[test]
+fn an_empty_tree_lands_on_home_or_a_new_tab_workspace() {
+    assert_eq!(fresh_landing(&fresh(true, false, false, true)), FreshLanding::Home);
+    assert_eq!(fresh_landing(&fresh(true, false, true, true)), FreshLanding::NewTab);
+    assert_eq!(fresh_landing(&fresh(true, false, false, false)), FreshLanding::NewTab);
+    // No saved window open changes nothing for an empty tree: Home still, not a second New Tab workspace.
+    assert_eq!(fresh_landing(&fresh(true, true, false, true)), FreshLanding::Home);
+}
+
+/// Decider 2, saved windows but none of them open (the last one closed, then quit): a relaunch restores only what
+/// was open at quit (#31514), so the launch window opens a New Tab workspace; with a saved window open, nothing fresh.
+#[test]
+fn no_saved_window_open_opens_a_new_tab_workspace() {
+    for classic_home in [false, true] {
+        assert_eq!(fresh_landing(&fresh(false, true, classic_home, true)), FreshLanding::NewTab);
+        assert_eq!(fresh_landing(&fresh(false, false, classic_home, true)), FreshLanding::Saved);
+    }
+}
+
+/// Home not ensured yet (its Home starts after the first frame, so no `ensure_home` is in flight when the launch
+/// asks): before `ensure_home` answers, the tree cannot tell Home from a workspace of the person's own. A fresh
+/// install would miss Home for a New Tab workspace, and a relaunch would make a new workspace over its saved front.
+/// The launch waits, then lands where the rule says with Home ensured.
+#[test]
+fn home_not_ensured_yet_waits_for_home() {
+    for (empty_tree, no_saved_window_open, classic_home) in [
+        (true, false, false),
+        (true, true, false),
+        (true, false, true),
+        (false, false, false),
+        (false, true, true),
+    ] {
+        let facts = FreshFacts {
+            empty_tree,
+            no_saved_window_open,
+            classic_home,
+            home_ensured: false,
+            home_not_ensured_yet: true,
+        };
+        assert_eq!(fresh_landing(&facts), FreshLanding::WaitForHome, "{facts:?}");
+    }
+    // A fresh install: once Home is ensured, Home.
+    assert_eq!(fresh_landing(&fresh(true, false, false, true)), FreshLanding::Home);
+}
+
+/// The relaunch the race broke: the saved front window is on a live workspace, and before `ensure_home` answered the
+/// tree read as empty. The launch waits, then reopens the saved front (`landing`): never Home, never a new workspace.
+#[test]
+fn a_relaunch_before_home_is_ensured_waits_then_reopens_the_saved_front() {
+    let before =
+        FreshFacts { empty_tree: true, home_not_ensured_yet: true, ..FreshFacts::default() };
+    assert_eq!(fresh_landing(&before), FreshLanding::WaitForHome);
+    let after = fresh(false, false, false, true);
+    assert_eq!(fresh_landing(&after), FreshLanding::Saved);
+    assert_eq!(
+        landing(&kept(on("w2", "p1", "t3"), true, TabStanding::Live)),
+        lands_on("w2", "p1", "t3")
+    );
+}
+
+/// The app's JSON, both ways.
+#[test]
+fn fresh_landing_reads_and_answers_camel_case_json() {
+    let facts: FreshFacts = serde_json::from_value(serde_json::json!({
+        "emptyTree": true, "noSavedWindowOpen": false, "classicHome": false, "homeEnsured": true,
+        "homeNotEnsuredYet": false
+    }))
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(fresh_landing(&facts)).unwrap(),
+        serde_json::json!({"kind": "home"})
+    );
+    let waiting: FreshFacts =
+        serde_json::from_value(serde_json::json!({"homeNotEnsuredYet": true})).unwrap();
+    assert_eq!(
+        serde_json::to_value(fresh_landing(&waiting)).unwrap(),
+        serde_json::json!({"kind": "waitForHome"})
+    );
+    let bare: FreshFacts = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert_eq!(
+        serde_json::to_value(fresh_landing(&bare)).unwrap(),
+        serde_json::json!({"kind": "saved"})
+    );
+}
