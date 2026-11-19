@@ -62,6 +62,9 @@ ARMS = ("fresh-copy", "same-copy", "warm")
 #   prewarm-pages-moved  as prewarm-helpers-moved, and every page of every file in Contents/Frameworks read once
 #                   through a read-only mapping (touch_pages): is what is left after a helper's --version the
 #                   framework's pages, which a helper with no --type never touches
+#   prewarm-update-moved  what an updating person's staged copy gets, in StagedUpdatePrewarm's order: the executable to
+#                   main_start, `cmux` and `cmux-tui` --version, each Chromium helper --version, every Frameworks page,
+#                   the executable with --cmux-prewarm-chromium; then renamed into place (Sparkle's install) and launched
 EXTRA_ARMS = ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-home", "spctl", "gktool", "gktool-moved")
 # --arms=prewarm: the pre-warms only (the update path's pre-warm and what it could add), beside the base arms.
 PREWARM_ARMS = ("prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-pages-moved", "prewarm-chromium-moved", "prewarm-home", "gktool-moved")
@@ -71,6 +74,19 @@ PREWARM_ARMS = ("prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-pages-mo
 #                   build (adhoc_sign: no flags, no entitlements), then the fresh-home launch: the same code on the same
 #                   Mac, only the signature differs
 ADHOC_ARMS = ("adhoc-copy",)
+# --arms=update: the update path's whole pre-warm as one arm, beside the base arms (the nightly dogfood's NOW row "NEXT
+# update launch to Home, prewarmed copy", cmuxterm-hq nightly_dogfood.update_launch_reading).
+UPDATE_ARMS = ("prewarm-update-moved",)
+# The arms that run the copy's executable to main_start first, and the steps each adds after it.
+MAIN_FIRST = ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-pages-moved",
+              "prewarm-chromium-moved", "prewarm-update-moved")
+WITH_BINS = ("prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-pages-moved", "prewarm-chromium-moved",
+             "prewarm-update-moved")
+WITH_HELPERS = ("prewarm-helpers-moved", "prewarm-pages-moved", "prewarm-chromium-moved", "prewarm-update-moved")
+WITH_PAGES = ("prewarm-pages-moved", "prewarm-update-moved")
+WITH_CHROMIUM = ("prewarm-chromium-moved", "prewarm-update-moved")
+MOVED = ("prewarm-moved", "prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-pages-moved",
+         "prewarm-chromium-moved", "prewarm-update-moved", "prewarm-home", "gktool-moved")
 PREWARM_BINS = ("cmux", "cmux-tui")
 # The unified log around a fresh copy's launch: who works on a new executable before main.
 FIRST_EXEC_LOG = ('process == "syspolicyd" OR process == "amfid" OR process == "XProtect" OR process == "trustd" '
@@ -318,18 +334,17 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
         app = smoke.copy_app(mount_app, stage)
         before: dict = {}
         with smoke.DefaultsAside(bundle_id, root):
-            if arm in ("prewarm-main", "prewarm-moved", "prewarm-bins-moved", "prewarm-helpers-moved",
-                       "prewarm-pages-moved", "prewarm-chromium-moved"):
+            if arm in MAIN_FIRST:
                 (root / "w").mkdir()
                 before = prewarm_until_main(smoke, root, app, executable, root / "w")
-                if arm in ("prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-pages-moved", "prewarm-chromium-moved"):
+                if arm in WITH_BINS:
                     for name in PREWARM_BINS:
                         binary = app / "Contents" / "Resources" / "bin" / name
                         if binary.exists():
                             started = time.monotonic()
                             run_text([str(binary), "--version"], timeout=60)
                             before[f"{name}_s"] = round(time.monotonic() - started, 3)
-                if arm in ("prewarm-helpers-moved", "prewarm-pages-moved", "prewarm-chromium-moved"):
+                if arm in WITH_HELPERS:
                     # Each Chromium helper with no --type: it loads the CEF framework (LoadInHelper), then
                     # CefExecuteProcess returns at once for a process that is no subprocess (helper_main.mm).
                     for helper in sorted((app / "Contents" / "Frameworks").glob("* Helper*.app")):
@@ -339,9 +354,9 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
                             out = run_text([str(binary), "--version"], timeout=60)
                             before[f"{helper.stem}_s"] = round(time.monotonic() - started, 3)
                             before[f"{helper.stem}_out"] = out[-160:]
-                if arm == "prewarm-pages-moved":
+                if arm in WITH_PAGES:
                     before["pages"] = touch_pages(app / "Contents" / "Frameworks")
-                if arm == "prewarm-chromium-moved":
+                if arm in WITH_CHROMIUM:
                     # The update path's last run (StagedUpdatePrewarm.chromiumArgument): Chromium's first real start
                     # in this copy, in a throwaway profile; exit 0 when its hidden page loaded (CEFStagedPrewarm).
                     started = time.monotonic()
@@ -369,8 +384,7 @@ def extra_arm(smoke, mount_app: Path, bundle_id: str, executable: str, seconds: 
                 started = time.monotonic()
                 before = {"gktool": run_text(["/usr/bin/gktool", "scan", str(app)], timeout=900)[-400:],
                           "seconds": round(time.monotonic() - started, 3)}
-            if arm in ("prewarm-moved", "prewarm-bins-moved", "prewarm-helpers-moved", "prewarm-pages-moved",
-                       "prewarm-chromium-moved", "prewarm-home", "gktool-moved"):
+            if arm in MOVED:
                 placed = root / "placed"
                 placed.mkdir()
                 os.rename(app.parent, placed / "app")
@@ -431,10 +445,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--rounds", type=int, default=2, choices=range(1, 6))
     parser.add_argument("--seconds", type=float, default=8.0)
-    parser.add_argument("--arms", choices=("base", "extra", "prewarm", "adhoc"), default="base",
-                        help="extra: also the EXTRA_ARMS and the unified log around each fresh-copy launch; prewarm: also the PREWARM_ARMS")
+    parser.add_argument("--arms", choices=("base", "extra", "prewarm", "adhoc", "update"), default="base",
+                        help="extra: also the EXTRA_ARMS and the unified log around each fresh-copy launch; prewarm: also "
+                             "the PREWARM_ARMS; update: also the UPDATE_ARMS")
     args = parser.parse_args(argv)
-    more = {"extra": EXTRA_ARMS, "prewarm": PREWARM_ARMS, "adhoc": ADHOC_ARMS}.get(args.arms, ())
+    more = {"extra": EXTRA_ARMS, "prewarm": PREWARM_ARMS, "adhoc": ADHOC_ARMS, "update": UPDATE_ARMS}.get(args.arms, ())
     os.umask(0o022)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
