@@ -67,12 +67,10 @@ pub(super) enum Placement {
     SplitBelow { workspace: String, pane: String },
     /// No column yet: split right of the chat's pane as a new column.
     NewColumn { workspace: String, chat_pane: String },
-    /// A browser from a plain terminal, whose columns the app does not
-    /// report (`own_pane`): a tab in the pane right of `pane`, else a new
-    /// pane right of it, where a Cmd-click in that terminal opens a link by
-    /// default. The transport asks the daemon for that neighbor, and makes
-    /// a new pane when the neighbor is another agent's home
-    /// ([`holds_agent`]), as the app does. The daemon knows no more: the
+    /// A browser from a plain terminal, whose right side the app does not
+    /// report (`own_pane`): the panes right of `pane`, by the same-kind
+    /// rule, else a new pane right of it. The transport reads those panes
+    /// from the daemon ([`right_of`]). The daemon knows no more: the
     /// person's link placement setting is the app's alone.
     RightOf { workspace: String, pane: String },
 }
@@ -82,17 +80,34 @@ pub(super) fn names_no_place(params: &Map<String, Value>) -> bool {
     PARENTS.iter().all(|key| params.get(*key).is_none())
 }
 
-/// The kind of tab a creation makes: each has its own rule for the column
-/// right of the caller ([`placement`], [`browser_placement`]).
+/// The kind of tab a creation makes, for the same-kind rule ([`same_kind`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
     Terminal,
     Browser,
 }
 
+impl Kind {
+    /// The word the app's `beside.panes[].kinds` and a tab's `content_kind`
+    /// use for it.
+    fn word(self) -> &'static str {
+        match self {
+            Self::Terminal => "terminal",
+            Self::Browser => "browser",
+        }
+    }
+}
+
 /// The placement `identity` (the app's `system.identify` answer) gives, or
 /// `None` when the app does not place the caller.
 pub(super) fn placement(identity: &Value) -> Option<Placement> {
+    same_kind_placement(identity, Kind::Terminal)
+}
+
+/// [`placement`] for a new tab of `kind`: in the panes right of the caller
+/// (`beside.panes`, top to bottom, with the kinds each holds), the same-kind
+/// rule ([`same_kind`]); with none there, a new column right of the caller.
+fn same_kind_placement(identity: &Value, kind: Kind) -> Option<Placement> {
     let caller = identity.get("caller")?;
     if caller.get("found").and_then(Value::as_bool) == Some(false) {
         return None;
@@ -110,35 +125,46 @@ pub(super) fn placement(identity: &Value) -> Option<Placement> {
                     .iter()
                     .filter_map(|entry| {
                         let id = entry.get("id").and_then(Value::as_str)?;
-                        let terminal = entry
+                        let same = entry
                             .get("kinds")
                             .and_then(Value::as_array)
-                            .is_some_and(|kinds| kinds.iter().any(|kind| kind == "terminal"));
-                        Some((id, terminal))
+                            .is_some_and(|kinds| kinds.iter().any(|held| held == kind.word()));
+                        Some((id, same))
                     })
                     .collect()
             })
             .unwrap_or_default();
-        let chosen = match column.as_slice() {
-            [] => Placement::Pane { workspace, pane: pane.to_owned() },
-            panes => {
-                if let Some((same, _)) = panes.iter().rev().find(|(_, terminal)| *terminal) {
-                    Placement::Pane { workspace, pane: (*same).to_owned() }
-                } else if let [(only, _)] = panes {
-                    Placement::SplitBelow { workspace, pane: (*only).to_owned() }
-                } else {
-                    let lowest = panes.last().map_or(pane, |(id, _)| *id);
-                    Placement::Pane { workspace, pane: lowest.to_owned() }
-                }
-            }
-        };
-        return Some(chosen);
+        return Some(same_kind(workspace, pane, &column));
     }
     let chat_pane = caller.get("pane").and_then(Value::as_str)?.to_owned();
     Some(Placement::NewColumn { workspace, chat_pane })
 }
 
-/// Where a browser tab created with no place goes (`cmux browser open URL`,
+/// The same-kind rule for a new tab in the panes right of the caller
+/// (`column`: each pane's id, top to bottom, and whether it already holds a
+/// tab of the new tab's kind; `pane`: the first of them, for a caller that
+/// lists none): a tab in the lowest pane that holds the kind; else a split
+/// below a lone pane of another kind; else a tab in the lowest pane. Never a
+/// third column (the app's RightColumnPlacement).
+pub(super) fn same_kind(workspace: String, pane: &str, column: &[(&str, bool)]) -> Placement {
+    match column {
+        [] => Placement::Pane { workspace, pane: pane.to_owned() },
+        panes => {
+            if let Some((same, _)) = panes.iter().rev().find(|(_, same)| *same) {
+                Placement::Pane { workspace, pane: (*same).to_owned() }
+            } else if let [(only, _)] = panes {
+                Placement::SplitBelow { workspace, pane: (*only).to_owned() }
+            } else {
+                let lowest = panes.last().map_or(pane, |(id, _)| *id);
+                Placement::Pane { workspace, pane: lowest.to_owned() }
+            }
+        }
+    }
+}
+
+/// For an app from before `caller_placement` (the CLI names no pane for an
+/// app that places every caller itself, beside/cli.rs): where a browser tab
+/// created with no place goes (`cmux browser open URL`,
 /// `cmux tab create browser`), from the app's identity answer: a tab in the
 /// existing column right of the caller, in the pane there that already holds
 /// a browser, else the column's lowest pane, never a split below it and never
@@ -202,30 +228,18 @@ fn right_of_own_pane(identity: &Value) -> Option<Placement> {
     Some(Placement::RightOf { workspace, pane })
 }
 
-/// A new column right of the caller's pane, for a caller the app places
-/// and that has no column there yet.
-fn new_column(identity: &Value) -> Option<Placement> {
-    let caller = identity.get("caller")?;
-    if caller.get("found").and_then(Value::as_bool) == Some(false) {
-        return None;
-    }
-    let workspace = caller.get("workspace").and_then(Value::as_str)?.to_owned();
-    let chat_pane = caller.get("pane").and_then(Value::as_str)?.to_owned();
-    Some(Placement::NewColumn { workspace, chat_pane })
-}
-
 /// The placement `identity` gives a new tab of `kind` whose pane this CLI
 /// makes itself when there is none (a terminal, a profile browser tab): the
-/// kind's rule for the column right of the caller, else a new column. A
-/// browser from a plain terminal goes right of the terminal too
-/// ([`Placement::RightOf`]), as `cmux browser open` does there through the
-/// app; a terminal from a plain terminal is a tab in its own pane.
+/// same-kind rule in the panes right of the caller, else a new column. A
+/// browser from a plain terminal (`own_pane`) goes right of the terminal
+/// too ([`Placement::RightOf`]); a terminal from a plain terminal is a tab
+/// in its own pane.
 pub(super) fn placement_of(identity: &Value, kind: Kind) -> Option<Placement> {
     match kind {
         Kind::Terminal => placement(identity),
-        Kind::Browser => browser_placement(identity)
-            .or_else(|| right_of_own_pane(identity))
-            .or_else(|| new_column(identity)),
+        Kind::Browser => {
+            right_of_own_pane(identity).or_else(|| same_kind_placement(identity, Kind::Browser))
+        }
     }
 }
 
@@ -313,17 +327,82 @@ pub(super) fn app_placement(identity: &Value, caller: &Caller, kind: Kind) -> Op
 }
 
 /// The `pane.neighbor.get` params that ask the session of `create` for the
-/// pane right of `pane` ([`Placement::RightOf`]).
+/// pane on the `direction` side of `pane`.
+fn neighbor_params(create: &Map<String, Value>, pane: &str, direction: &str) -> Map<String, Value> {
+    let mut lookup = session_route(create);
+    lookup.insert("pane".into(), json!(pane));
+    lookup.insert("direction".into(), json!(direction));
+    lookup
+}
+
+/// [`neighbor_params`] for the pane right of `pane`.
 pub(super) fn right_neighbor_params(create: &Map<String, Value>, pane: &str) -> Map<String, Value> {
-    let mut lookup = Map::new();
-    for route in ["machine", "session"] {
-        if let Some(value) = create.get(route) {
-            lookup.insert(route.into(), value.clone());
+    neighbor_params(create, pane, "right")
+}
+
+/// The machine and session selectors of `create`.
+fn session_route(create: &Map<String, Value>) -> Map<String, Value> {
+    ["machine", "session"]
+        .into_iter()
+        .filter_map(|key| create.get(key).map(|value| (key.to_owned(), value.clone())))
+        .collect()
+}
+
+/// How many panes above and below the right neighbor [`right_of`] reads.
+const COLUMN_WALK: usize = 6;
+
+/// [`Placement::RightOf`] made concrete with reads of the daemon (`read`:
+/// one read of the session of `create`, `None` when it fails): the panes
+/// right of the caller's `pane` are its right neighbor and the panes above
+/// and below that one. One of them is an agent's home ([`holds_agent`]):
+/// a new pane right of the caller, as the app does. Else the same-kind rule
+/// for a browser ([`same_kind`]). Nothing on the right: a new pane there.
+pub(super) fn right_of(
+    create: &Map<String, Value>,
+    workspace: String,
+    pane: String,
+    read: &mut dyn FnMut(ResourceOperation, Map<String, Value>) -> Option<Value>,
+) -> Placement {
+    let mut neighbor = |of: &str, direction: &str| {
+        read(ResourceOperation::PaneNeighborGet, neighbor_params(create, of, direction))
+            .and_then(|answer| neighbor_pane(&answer))
+    };
+    let Some(right) = neighbor(&pane, "right") else {
+        return Placement::NewColumn { workspace, chat_pane: pane };
+    };
+    let mut column = vec![right.clone()];
+    for direction in ["up", "down"] {
+        let mut at = right.clone();
+        for _ in 0..COLUMN_WALK {
+            let Some(next) =
+                neighbor(&at, direction).filter(|next| *next != pane && !column.contains(next))
+            else {
+                break;
+            };
+            if direction == "up" {
+                column.insert(0, next.clone());
+            } else {
+                column.push(next.clone());
+            }
+            at = next;
         }
     }
-    lookup.insert("pane".into(), json!(pane));
-    lookup.insert("direction".into(), json!("right"));
-    lookup
+    let agents = read(ResourceOperation::AgentList, session_route(create)).unwrap_or(Value::Null);
+    let mut holds_browser = Vec::with_capacity(column.len());
+    for id in &column {
+        let mut tabs = session_route(create);
+        tabs.insert("pane".into(), json!(id));
+        let tabs = read(ResourceOperation::TabList, tabs).unwrap_or(Value::Null);
+        if holds_agent(&tabs, &agents) {
+            return Placement::NewColumn { workspace, chat_pane: pane };
+        }
+        let browser = rows(&tabs).iter().any(|tab| {
+            tab.get("content_kind").and_then(Value::as_str) == Some(Kind::Browser.word())
+        });
+        holds_browser.push(browser);
+    }
+    let kinds: Vec<(&str, bool)> = column.iter().map(String::as_str).zip(holds_browser).collect();
+    same_kind(workspace, &right, &kinds)
 }
 
 /// The rows of a list answer (`[…]`, `{items}`, `{agents}` or `{value}`).
@@ -341,7 +420,7 @@ fn rows(answer: &Value) -> &[Value] {
 /// of `agents` (`agent.list`) runs in and has not ended. A caller's tab never
 /// opens in another agent's pane. The caller here is a plain shell, which has
 /// no session of its own, so every agent's chat is another agent's.
-pub(super) fn holds_agent(tabs: &Value, agents: &Value) -> bool {
+fn holds_agent(tabs: &Value, agents: &Value) -> bool {
     let live: Vec<&str> = rows(agents)
         .iter()
         .filter(|agent| agent.get("state").and_then(Value::as_str) != Some("done"))

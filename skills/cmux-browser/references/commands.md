@@ -18,16 +18,18 @@ cmux browser list
 ```
 
 `tab create browser` needs `--url`. `--workspace`, `--screen` and `--pane`
-place the tab; without them it opens in the caller's own workspace: the
-column right of an agent's chat, or, from a terminal (an agent's or a plain
-shell), by the person's link placement setting: by default the pane on the
-terminal's right, else a new pane right of it. Use the flags only when the
-person names another place. UI actions `cmux tab new-browser`,
+place the tab; without them the app places it in the caller's own workspace:
+in the panes right of the caller (those that touch its right edge and overlap
+it in height) by the same-kind rule, else a new pane right of it; on screen,
+a terminal's browser also follows the person's link placement setting. Use
+the flags only when the person names another place. UI actions `cmux tab new-browser`,
 `cmux browser split-right` and `cmux browser split-down`, run from a cmux
 terminal or an agent chat with no `--target`, act at the caller's own place;
 an agent's closing or removing action needs `--target` (`target_required`).
 Only `workspace close-all` and `window stash` take `--window`; the other
-window-scoped closes are refused for an agent (`person_required`).
+window-scoped actions (`app close-window`, `app minimize-window`,
+`app zoom-window`, `space next`, ...) are refused for an agent
+(`person_required`).
 Read their arguments with `cmux action describe "browser split-right"`.
 
 ## Page commands for app tabs (`tab_…` or `page`)

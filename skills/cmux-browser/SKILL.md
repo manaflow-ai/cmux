@@ -91,12 +91,16 @@ cmux --json tab create browser --url https://example.com
 ```
 
 The result carries the new tab's `tab_…` id. With no place flag the tab opens
-in your own workspace: from an agent chat, in the column right of the chat
-(made when missing); from a cmux terminal (an agent's or a plain shell), where
-a Cmd-click there opens a link, by the person's link placement setting: by
-default the pane on the terminal's right, else a new pane right of it. When no
-window shows the terminal's workspace, it opens in the helper column right of
-the terminal (never another agent's pane), else in a new pane right of it,
+in your own workspace, and the app places it. "Right of you" means the panes
+that touch the right edge of your pane and overlap it in height, in a split or
+the next column. From an agent chat: in those panes by the same-kind rule (a
+tab in the lowest pane that already holds a browser; else a split below a lone
+pane of another kind; else a tab in the lowest pane), else a new column right
+of the chat. From a cmux terminal (an agent's or a plain shell), on screen the
+app's rule and the person's link placement setting decide: by default the
+panes right of the terminal, else a new pane right of it. When no window shows
+the terminal's workspace, the pane directly right of the terminal is used by
+the same-kind rule (never another agent's pane), else a new pane right of it,
 whatever that setting says; the terminal stays the shown tab of its pane.
 `cmux browser open URL` is the same command, and `cmux open URL` lands in the
 same place.
@@ -115,10 +119,16 @@ actions split your own pane. From an agent, an action that closes or removes
 (`tab close`, `pane close`) with no `--target` is refused with
 `target_required`: name the tab or pane. An action whose own argument names
 the object (`--session`, `--bookmark`) is not refused (an empty value does not
-name it). Only `workspace close-all` and `window stash` take `--window`; the
-other window-scoped closes, `minimize-window` and stopping the Chief are
-refused for an agent (`person_required`), and a tab-group action with no
-target acts on your own tab's group. Check an action's arguments with
+name it). Only `workspace close-all` and `window stash` take `--window`. The
+window-scoped actions that give you nothing to name are refused for an agent
+(`person_required`): `app minimize-window`, `app zoom-window`,
+`app toggle-full-screen`, `sidebar toggle-left`, `sidebar focus`,
+`space next|previous|select-1-9`, `action home-stop-all-agents`,
+`app close-window`, `app close-other-windows`. Stopping the Chief
+(`cmux chief stop`) is refused by the CLI itself (`origin.forbidden`). A
+tab-group action with no target acts on your own tab's group; `history open`
+and `screen-group reopen-saved` act at your own pane and workspace. Check an
+action's arguments with
 `cmux action describe "tab new-browser"` before use.
 
 ## Find an existing browser tab without changing focus
@@ -265,11 +275,12 @@ cmux --json tab "$TAB" show                              # extra.browser_profile
 
 `open` takes an http or https URL. Without `--engine webkit|cef` the tab opens
 in the person's default engine setting; `--pane <pane_…>` picks the pane. With
-no `--pane` the tab is placed like `browser open`: in your own workspace, in
-the column right of your chat or of the terminal you run in (made when
-missing). From a plain shell it uses the pane right of the terminal, unless
-an agent's chat or terminal is there, else a new pane. `browser profile open`
-does not read the link placement setting. `--background true` keeps the pane's selected tab.
+no `--pane` the tab opens in your own workspace by the same-kind rule: in the
+panes right of your chat or terminal (a tab in the lowest pane that holds a
+browser; else a split below a lone pane of another kind; else the lowest
+pane; never another agent's pane), else a new pane right of you. It differs
+from `browser open` in one way: it does not read the person's link placement
+setting. `--background true` keeps the pane's selected tab.
 
 A profile is named by its id or its exact name. `set-profile` keeps the tab (same id and
 position): the daemon moves the tab record and the app reloads the page at the

@@ -265,8 +265,8 @@ one the person has focused. This holds for the CLI and for the MCP server:
 
 | Command (no `--workspace`, `--screen`, `--pane`) | Agent chat or Chief turn | cmux terminal |
 | --- | --- | --- |
-| `browser open`, `tab create browser`, `open <url>` | Beside the chat: the column right of it, made when missing. | For an agent's terminal and a plain shell alike, where a Cmd-click in that terminal opens a link, by the person's link placement setting: by default the pane on the terminal's right, else a new pane right of it. |
-| `browser profile open` | Beside the chat: the column right of it, made when missing. | A terminal an agent runs in: the column right of it, made when missing. A plain shell: the pane right of the terminal unless an agent's chat or terminal is in it, else a new pane right of the terminal. It does not read the link placement setting. |
+| `browser open`, `tab create browser`, `open <url>` | The app places it beside the chat: in the panes right of it by the same-kind rule, else a new column right of it. | The app places it, for an agent's terminal and a plain shell alike. On screen: the app's rule and the person's link placement setting (by default the panes right of the terminal, else a new pane right of it). Off screen: the pane directly right of the terminal by the same-kind rule, else a new pane right of it. |
+| `browser profile open` | The CLI places it: in the panes right of the chat by the same-kind rule, else a new column right of it. | The same rule from the panes right of the terminal, else a new pane right of it. It does not read the link placement setting. |
 | `tab create terminal`, `open <file>` | Beside the chat: the column right of it, made when missing. | A terminal an agent runs in: beside it (the column right of it, made when missing). A plain shell: a tab in its own pane. |
 | `pane create` | The chat's screen (a Chief turn: the daemon's default). | The terminal's screen. |
 | `screen create`, `workspace open-url` | The chat's workspace (a Chief turn: the daemon's default). | The terminal's workspace. |
@@ -282,25 +282,33 @@ Rules:
   older app, a new terminal from a terminal caller is a tab in its own pane.
   With no app (a plain cmux-tui session, a Cloud machine), a new terminal and
   a browser from a terminal caller are tabs in its own pane.
-- A browser from a terminal opens where a Cmd-click in that terminal opens a
-  link, for every app version: the CLI names the pane of a column the app
-  reports on the right, else the run targets the terminal's own tab and the
-  app applies the person's link placement setting (by default the pane on
-  the right, else a new pane right of the terminal; `same-pane` keeps it in
-  the terminal's pane). `cmux open <url>` goes the same way (its reply says
-  `placement: caller_terminal`). When no window shows the terminal's
-  workspace, the browser opens in the helper column right of the terminal
-  (never another agent's pane), else in a new pane right of it, whatever the
-  link placement setting says; the terminal stays the shown tab of its pane.
+- "Right of the caller" means the panes that touch the right edge of the
+  caller's pane and overlap it in height, in a split or in the next column.
+  The same-kind rule for a new tab there: a tab in the lowest pane that
+  already holds a tab of its kind; else a split below a lone pane of another
+  kind; else a tab in the lowest pane. A pane that is another agent's home
+  (one of its tabs is an agent's chat, or a terminal an agent runs in) never
+  takes the tab: a new pane right of the caller is made.
+- `browser open`, `tab create browser` and `open <url>` are placed by the app.
+  With an app whose `system.identify` reports `caller_placement` 2 or more,
+  the CLI and the MCP server name no pane: the run carries the caller alone
+  (the terminal's own tab, or the agent session). On screen the app's rule
+  and the person's link placement setting decide (by default the panes right
+  of the caller, else a new pane right of it; `same-pane` keeps a terminal's
+  browser in the terminal's pane). When no window shows the caller's
+  workspace, the pane directly right of the terminal is used by the same-kind
+  rule, else a new pane right of it, whatever the setting says; the terminal
+  stays the shown tab of its pane. `cmux open <url>` replies with its
+  `placement`. For an app without the marker, the CLI names the pane of the
+  column the app reports right of the caller.
 - `browser profile open` is a daemon request, so the CLI and the MCP server
-  place it themselves. With an app that owns the session, the pane comes from
-  the app's `beside` answer: its column right of the caller that is not
-  another agent's home, else a new column right of the caller. For a plain
-  shell the app answers `own_pane`, which names no pane on the right; there
-  the CLI uses the pane the daemon reports right of the terminal, unless that
-  pane is an agent's home (one of its tabs is an agent's chat, or a terminal
-  an agent runs in), else a new pane right of the terminal. This case does
-  not read the link placement setting.
+  place it themselves, by the same-kind rule. The panes right of the caller
+  come from the app's `beside` answer (`panes[].kinds`); with none, a new
+  column right of the caller. For a plain shell the app answers `own_pane`,
+  which names no pane on the right; there the CLI reads the panes right of
+  the terminal from the daemon. It differs from `browser open` in one way: it
+  does not read the person's link placement setting, which only the app
+  applies, on screen.
 - The cmux MCP server says `origin: mcp` on the app requests that ask for or
   use a placement. Only an agent has an MCP server, so the app places its
   caller as an agent, also in a terminal whose hooks reported none: its new
@@ -310,10 +318,17 @@ Rules:
   with `target_required`. An action whose own argument names the object
   (`--session`, `--bookmark`) is not; an empty naming argument does not count
   as naming the object. Only `workspace close-all` and `window stash` take
-  `--window`. The other window-scoped closes (`app close-window`,
-  `app close-other-windows`), `minimize-window` and stopping the Chief are
-  refused for an agent (`person_required`). An agent's tab-group action with
-  no target acts on the group of its own tab.
+  `--window`. The window-scoped actions that give an agent nothing to name
+  are refused for it with `person_required`: `app minimize-window`,
+  `app zoom-window`, `app toggle-full-screen`, `sidebar toggle-left`,
+  `sidebar focus`, `space next`, `space previous`, `space select-1-9`,
+  `action home-stop-all-agents`, `app close-window` and
+  `app close-other-windows`. Stopping the Chief from an agent (`cmux chief
+  stop`, `home.stopChief`, and `home.stopAllAgents` by its id) is refused by
+  the CLI first, with `origin.forbidden`. An agent's tab-group action with no
+  target acts on the group of its own tab; `history open` and
+  `screen-group reopen-saved` with no target act at the agent's own pane and
+  workspace.
 - An agent whose chat no tab shows is placed in the workspace its session
   runs in (`CMUX_WORKSPACE_ID`, which its caller names). An agent the app
   cannot place at all (no chat tab, and that workspace is not open) is refused

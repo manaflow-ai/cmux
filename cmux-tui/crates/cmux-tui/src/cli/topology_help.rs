@@ -228,10 +228,11 @@ USAGE
 create with no --workspace, --screen or --pane opens the tab in the caller's
 own workspace. A terminal tab: beside an agent's chat or terminal (the column
 right of it, made when missing), and in the own pane of a plain terminal. A
-browser tab: the column right of an agent's chat, or, from a terminal (an
-agent's or a plain shell), by the person's link placement setting: by
-default the pane on the terminal's right, else a new pane right of it. A
-shell outside cmux, and --socket, --machine or --session for another
+browser tab: the app places it right of the caller (the panes that touch
+its right edge): a tab in the lowest pane there that holds a browser, else a
+split below a lone pane of another kind, else a new pane right of the
+caller; on screen a terminal's browser also follows the person's link
+placement setting. A shell outside cmux, and --socket, --machine or --session for another
 session, get the session's active pane. An agent cmux cannot place is refused
 (caller_unavailable). Name a place only when the person names one.
 

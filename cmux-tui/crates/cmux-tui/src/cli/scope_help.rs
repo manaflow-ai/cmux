@@ -29,24 +29,21 @@ USAGE
 
 browser open adds a browser tab, like
 `cmux tab create browser --url <url> [--workspace <selector>]`: in the named
-workspace, screen or pane. With none it opens in the caller's own workspace:
-the column right of an agent's chat (made when missing), or, from a cmux
-terminal (an agent's or a plain shell), where a Cmd-click there opens a
-link, by the person's link placement setting: by default the pane on the
-terminal's right, else a new pane right of it. When no window shows the
-terminal's workspace: the helper column right of the terminal (never another
-agent's pane), else a new pane right of it, whatever that setting says. Only
-a shell outside cmux gets the focused pane. --url <url> is the same as the
-positional URL.
+workspace, screen or pane. With none the app places it in the caller's own
+workspace, right of the caller (the panes that touch its right edge and
+overlap it in height, in a split or the next column): a tab in the lowest
+pane there that holds a browser, else a split below a lone pane of another
+kind, else a tab in the lowest pane; never another agent's pane; with none
+there, a new pane right of the caller. On screen a terminal's browser also
+follows the person's link placement setting. Only a shell outside cmux gets
+the focused pane. --url <url> is the same as the positional URL.
 
 browser profile list shows each profile's id, name, color, icon and index,
 never its cookies, history or site data. browser profile open opens a tab in
-the profile, in the named pane. With no --pane it opens in the caller's own
-workspace: the column right of an agent's chat or terminal (made when
-missing), or, from a plain shell, the pane right of the terminal unless an
-agent's chat or terminal is in it, else a new pane right of the terminal.
-It does not read the link placement setting. --background true keeps the
-pane's selected tab. The URL must be http or https. Without
+the profile, in the named pane. With no --pane it opens right of the caller
+by the same rule as browser open, with one difference: it does not read the
+person's link placement setting. --background true keeps the pane's
+selected tab. The URL must be http or https. Without
 --engine the tab uses the browser.defaultEngine setting.
 ";
 

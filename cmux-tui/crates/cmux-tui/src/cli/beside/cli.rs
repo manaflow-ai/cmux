@@ -16,9 +16,9 @@ use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
 use super::{
-    Caller, Earlier, Kind, Placement, app_placement, browser_placement, correlated,
-    correlation_key, creation_lookup_params, earlier_creation, holds_agent, names_no_place,
-    neighbor_pane, rename_params, right_neighbor_params, split_below_params, split_params,
+    Caller, Earlier, Kind, Placement, app_placement, app_places_terminals, browser_placement,
+    correlated, correlation_key, creation_lookup_params, earlier_creation, names_no_place,
+    rename_params, right_of, split_below_params, split_params,
 };
 use crate::cli::GlobalArgs;
 use crate::cli::command::{RequestPlan, WireOperation};
@@ -101,12 +101,16 @@ fn apply(
         return Outcome::Unchanged;
     }
     let Some(kind) = kind else {
-        // A browser tab the app renders: only an existing column right of
-        // the caller is named here. With none (and for a plain terminal,
-        // `own_pane`), the app run places the tab: right of the terminal
-        // whose own tab the run targets, or beside the chat it names
-        // (frontend_browser.rs).
-        let placed = route.identity().and_then(browser_placement);
+        // A browser tab the app renders. An app that places every caller
+        // (`caller_placement`) gets no pane from here: the run keeps the
+        // caller (the terminal's own tab, or the agent session,
+        // frontend_browser.rs) and the app places the tab by its whole
+        // rule: the same-kind rule, another agent's home, the person's link
+        // placement setting. Naming the pane on the right made the tab open
+        // in it and skipped all three. Only an older app, which places
+        // agent chats alone, gets the column right of the caller named.
+        let identity = route.identity().filter(|identity| !app_places_terminals(identity));
+        let placed = identity.and_then(browser_placement);
         let (Some(Placement::Pane { workspace, pane }), Some(params)) =
             (placed, plan.params.as_object_mut())
         else {
@@ -125,7 +129,17 @@ fn apply(
             resolve::read(reader, ResourceOperation::SessionCreationResolve, lookup).ok()?;
         earlier_creation(&resolution)
     });
-    let placed = route.identity().and_then(|identity| app_placement(identity, &caller, kind));
+    let placed = route.identity().and_then(|identity| app_placement(identity, &caller, kind)).map(
+        |placed| match placed {
+            // A plain shell's browser: the panes right of it, from the daemon.
+            Placement::RightOf { workspace, pane } => {
+                right_of(params, workspace, pane, &mut |operation, lookup| {
+                    resolve::read(reader, operation, lookup).ok()
+                })
+            }
+            placed => placed,
+        },
+    );
     if earlier.is_none() && placed.is_none() {
         return Outcome::Unchanged;
     }
@@ -149,46 +163,13 @@ fn apply(
             let split = split_below_params(params, &workspace, &pane);
             split_for(&mut sender, plan, kind, correlated(split, correlation.as_deref()))
         }
-        (None, Some(Placement::RightOf { workspace, pane })) => {
-            let lookup = right_neighbor_params(params, &pane);
-            let right = resolve::read(sender.reader, ResourceOperation::PaneNeighborGet, lookup)
-                .ok()
-                .and_then(|answer| neighbor_pane(&answer))
-                .filter(|right| !is_agent_home(sender.reader, params, right));
-            match right {
-                Some(right) => {
-                    let Some(params) = plan.params.as_object_mut() else {
-                        return Outcome::Unchanged;
-                    };
-                    params.insert("workspace".into(), json!(workspace));
-                    params.insert("pane".into(), json!(right));
-                    return Outcome::Placed;
-                }
-                None => {
-                    let split = split_params(params, &workspace, &pane);
-                    split_for(&mut sender, plan, kind, correlated(split, correlation.as_deref()))
-                }
-            }
-        }
-        (None, None) => return Outcome::Unchanged,
+        // Made concrete above.
+        (None, Some(Placement::RightOf { .. })) | (None, None) => return Outcome::Unchanged,
     };
     Outcome::Answered(match answered {
         Ok(result) => wire::print_result(global, plan, result),
         Err(failure) => failure.report(global.output),
     })
-}
-
-/// Whether `pane` of the session of `create` is an agent's home
-/// ([`holds_agent`]); `false` when the daemon does not say.
-fn is_agent_home(reader: &mut Reader, create: &Map<String, Value>, pane: &str) -> bool {
-    let route = resolve::route(create);
-    let mut tabs = route.clone();
-    tabs.insert("pane".into(), json!(pane));
-    let Ok(tabs) = resolve::read(reader, ResourceOperation::TabList, tabs) else { return false };
-    let Ok(agents) = resolve::read(reader, ResourceOperation::AgentList, route) else {
-        return false;
-    };
-    holds_agent(&tabs, &agents)
 }
 
 /// Makes the pane `split` asks for (a new column, or a pane below one) and

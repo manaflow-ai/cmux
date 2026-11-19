@@ -129,7 +129,20 @@ impl<B: Backend> Server<B> {
             // An MCP client is an agent, in a chat or in a terminal: its tab
             // goes beside it whatever the app's version.
             let kind = if terminal { Kind::Terminal } else { Kind::Browser };
-            match answer.and_then(|identity| beside::placement_of(&identity, kind)) {
+            let placed =
+                answer.and_then(|identity| beside::placement_of(&identity, kind)).map(|placed| {
+                    match placed {
+                        // A plain shell's browser: the panes right of it, from the daemon.
+                        Placement::RightOf { workspace, pane } => beside::right_of(
+                            &Map::new(),
+                            workspace,
+                            pane,
+                            &mut |operation, lookup| self.daemon_read(operation, lookup),
+                        ),
+                        placed => placed,
+                    }
+                });
+            match placed {
                 // The app's `browser.open_split` places a link beside the chat.
                 Some(_) if open_url => return Err(self.open_beside(&unplaced)),
                 Some(Placement::Pane { workspace, pane }) => {
@@ -148,24 +161,8 @@ impl<B: Backend> Server<B> {
                     let split = beside::correlated(split, correlation.as_deref());
                     return Err(self.split_for(tool, &unplaced, &workspace, split));
                 }
-                // A plain terminal's browser: the pane on its right, else a
-                // new pane beside it.
-                Some(Placement::RightOf { workspace, pane }) => {
-                    let mut with_place = Map::clone(&unplaced);
-                    with_place.insert("workspace".into(), json!(workspace));
-                    match self.right_neighbor(&pane).filter(|right| !self.is_agent_home(right)) {
-                        Some(right) => {
-                            with_place.insert("pane".into(), json!(right));
-                            return Ok(Cow::Owned(with_place));
-                        }
-                        None => {
-                            let split = beside::split_params(&unplaced, &workspace, &pane);
-                            let split = beside::correlated(split, correlation.as_deref());
-                            return Err(self.split_for(tool, &unplaced, &workspace, split));
-                        }
-                    }
-                }
-                None => {}
+                // Made concrete below.
+                Some(Placement::RightOf { .. }) | None => {}
             }
         }
         // Every other creation, and a tab the app does not place, gets the
@@ -239,24 +236,34 @@ impl<B: Backend> Server<B> {
     /// server's session (beside.rs `earlier_creation`); `None` for a first
     /// try, and for a daemon that does not answer.
     fn earlier_creation(&self, key: &str) -> Option<crate::cli::beside::Earlier> {
-        use crate::cli::command::{RequestPlan, ResponseView, WireOperation};
         use cmux_tui_core::resource::ResourceOperation;
 
-        let route = Map::from_iter([
-            ("machine".to_owned(), json!("current")),
-            ("session".to_owned(), json!("current")),
-        ]);
+        let lookup = crate::cli::beside::creation_lookup_params(&Map::new(), key);
+        let resolution = self.daemon_read(ResourceOperation::SessionCreationResolve, lookup)?;
+        crate::cli::beside::earlier_creation(&resolution)
+    }
+
+    /// One read of this server's own session; `None` when it fails.
+    fn daemon_read(
+        &self,
+        operation: cmux_tui_core::resource::ResourceOperation,
+        mut params: Map<String, Value>,
+    ) -> Option<Value> {
+        use crate::cli::command::{RequestPlan, ResponseView, WireOperation};
+
+        for route in ["machine", "session"] {
+            params.entry(route).or_insert_with(|| json!("current"));
+        }
         let plan = RequestPlan {
-            operation: WireOperation::Typed(ResourceOperation::SessionCreationResolve),
-            params: Value::Object(crate::cli::beside::creation_lookup_params(&route, key)),
+            operation: WireOperation::Typed(operation),
+            params: Value::Object(params),
             idempotency_key: None,
             stream: false,
             resolve: Vec::new(),
             view: ResponseView::Full,
             filter: Default::default(),
         };
-        let resolution = self.backend.resource(None, plan, &[]).ok()?;
-        crate::cli::beside::earlier_creation(&resolution)
+        self.backend.resource(None, plan, &[]).ok()
     }
 
     /// Answers with the tab an earlier try of the same call opened, and ends
@@ -564,19 +571,6 @@ impl<B: Backend> Server<B> {
         let call = tool.plan(&arguments).ok()?;
         let answer = self.backend.resource(None, call.plan, &call.prefixes).ok()?;
         crate::cli::beside::neighbor_pane(&answer)
-    }
-
-    /// Whether `pane` is an agent's home (beside.rs `holds_agent`); `false`
-    /// when the daemon does not say.
-    fn is_agent_home(&self, pane: &str) -> bool {
-        let ask = |tool: &str, arguments: Map<String, Value>| {
-            let call = v2_tools::find(tool)?.plan(&arguments).ok()?;
-            self.backend.resource(None, call.plan, &call.prefixes).ok()
-        };
-        let tabs = ask("tab_list", Map::from_iter([("pane".to_owned(), json!(pane))]));
-        let agents = ask("agent_list", Map::new());
-        matches!((tabs, agents), (Some(tabs), Some(agents))
-            if crate::cli::beside::holds_agent(&tabs, &agents))
     }
 
     /// The caller's place from the session daemon alone: the terminal in
