@@ -22,7 +22,22 @@ final class ScreenEncoderFactory: NSObject, RTCVideoEncoderFactory {
     private let base = RTCDefaultVideoEncoderFactory()
 
     func createEncoder(_ info: RTCVideoCodecInfo) -> (any RTCVideoEncoder)? {
-        base.createEncoder(Self.encoderInfo(info))
+        #if os(macOS)
+        if Self.usesLowLatencyEncoder(info) { return ScreenLowLatencyEncoder() }
+        #endif
+        return base.createEncoder(Self.encoderInfo(info))
+    }
+
+    /// Whether a stream negotiated as `info` is encoded by ``ScreenLowLatencyEncoder``
+    /// (VideoToolbox's low-latency mode): H.264 in a High profile (`profile_idc` 0x64,
+    /// the only profile that mode encodes) with packetization mode 1 (its frames' NAL
+    /// units are not sized to a packet). Anything else keeps libwebrtc's encoder.
+    static func usesLowLatencyEncoder(_ info: RTCVideoCodecInfo) -> Bool {
+        #if DEBUG
+        if usesWebRTCEncoder { return false }
+        #endif
+        guard info.name == kRTCVideoCodecH264Name, let level = info.parameters["profile-level-id"], level.count == 6 else { return false }
+        return level.lowercased().hasPrefix("64") && info.parameters["packetization-mode"] == "1"
     }
 
     func supportedCodecs() -> [RTCVideoCodecInfo] {
@@ -49,5 +64,9 @@ final class ScreenEncoderFactory: NSObject, RTCVideoEncoderFactory {
     /// environment opens the encoder at the negotiated level as before (the
     /// 68 fps cap at 3456×2234), to compare both on one build.
     static let usesNegotiatedLevel = ProcessInfo.processInfo.environment["CMUX_MAC_SCREEN_H264_LEVEL"] == "negotiated"
+
+    /// DEV builds: `CMUX_MAC_SCREEN_ENCODER=webrtc` keeps libwebrtc's H.264 encoder
+    /// instead of ``ScreenLowLatencyEncoder``, to compare both on one build.
+    static let usesWebRTCEncoder = ProcessInfo.processInfo.environment["CMUX_MAC_SCREEN_ENCODER"] == "webrtc"
     #endif
 }

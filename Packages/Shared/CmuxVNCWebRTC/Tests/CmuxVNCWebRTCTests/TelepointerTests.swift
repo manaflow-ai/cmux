@@ -56,3 +56,23 @@ struct TelepointerTests {
     }
     #endif
 }
+
+/// The pointer the viewer draws and the display it shows on keep pace with the stream.
+struct StreamPaceTests {
+    @Test func telepointersAreSampledOnceAStreamFrame() {
+        #expect(ScreenStreamHost.telepointerPeriod(frameRate: 120) == .microseconds(8333))
+        #expect(ScreenStreamHost.telepointerPeriod(frameRate: 60) == .microseconds(16666))
+        #expect(ScreenStreamHost.telepointerPeriod(frameRate: nil) == .microseconds(16666), "not agreed yet: 60")
+        #expect(ScreenStreamHost.telepointerPeriod(frameRate: 30) == .microseconds(16666), "never slower than 60")
+        #expect(ScreenStreamHost.telepointerPeriod(frameRate: 240) == .microseconds(8333), "never faster than 120")
+    }
+
+    @Test func aViewerAsksItsDisplayForTheStreamRateAboveSixty() {
+        #expect(ScreenQuality.requestedDisplayRate(frameRate: 120, inWindow: true) == 120)
+        #expect(ScreenQuality.requestedDisplayRate(frameRate: 90, inWindow: true) == 90)
+        #expect(ScreenQuality.requestedDisplayRate(frameRate: 240, inWindow: true) == 120)
+        #expect(ScreenQuality.requestedDisplayRate(frameRate: 60, inWindow: true) == nil, "60 Hz is the display's own rate")
+        #expect(ScreenQuality.requestedDisplayRate(frameRate: 0, inWindow: true) == nil, "unknown rate")
+        #expect(ScreenQuality.requestedDisplayRate(frameRate: 120, inWindow: false) == nil, "off screen")
+    }
+}

@@ -439,6 +439,7 @@ public final class ScreenVideoSource: @unchecked Sendable {
 // crash-allow: one `let` libwebrtc track; libwebrtc objects are thread-safe.
 public struct VideoTrackBox: @unchecked Sendable {
     public let track: RTCVideoTrack
+    public init(track: RTCVideoTrack) { self.track = track }
 }
 
 extension VNCPeerLink {

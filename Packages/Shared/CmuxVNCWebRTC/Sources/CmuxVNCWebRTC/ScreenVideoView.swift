@@ -1,45 +1,112 @@
 #if canImport(UIKit)
+import AVFoundation
+import CoreMedia
 import UIKit
 import WebRTC
 
-/// The streamed screen on iOS: libwebrtc's Metal renderer (hardware-decoded
-/// frames go straight to the GPU). `onSize` reports the video's pixel size.
-public final class ScreenVideoView: UIView, @preconcurrency RTCVideoViewDelegate {
+/// The streamed screen on iOS. Decoded frames go from libwebrtc's decode thread
+/// straight into the view's `AVSampleBufferDisplayLayer` (hardware-decoded frames
+/// are already `CVPixelBuffer`s, so nothing is copied), as on macOS below, and each
+/// is shown on the next refresh (`DisplayImmediately`).
+///
+/// libwebrtc's `RTCMTLVideoView`, used before, draws from an `MTKView` whose own
+/// timer runs on the main thread at the view's default 60 frames a second: it
+/// samples the newest frame on its tick instead of showing each one as it arrives,
+/// so a 120 fps stream showed at most 60 (half the frames the Mac encoded were
+/// never seen), a frame waited up to a tick before its draw, and any main-thread
+/// work (SwiftUI, the toolbar, a gesture) delayed or dropped frames. Here no frame
+/// touches the main thread.
+///
+/// `frameRate` (the rate the Mac streams at) is the display rate the view asks a
+/// ProMotion screen for while it shows a stream above 60 fps. `onSize` reports the
+/// video's pixel size (main queue).
+public final class ScreenVideoView: UIView {
     public var onSize: ((CGSize) -> Void)?
     /// Called on the main queue with each rendered frame's arrival time (perf).
     public var onFrame: (() -> Void)?
-    private let metal = RTCMTLVideoView(frame: .zero)
+    /// The stream's frame rate (0: unknown). Above 60, a ProMotion display is asked
+    /// for it while the view is in a window (``ProMotionRate``).
+    public var frameRate = 0 {
+        didSet { if frameRate != oldValue { promotion.update(frameRate: frameRate, inWindow: window != nil) } }
+    }
+    private let sink: SampleBufferSink
     private let tap = FrameTap()
+    private let promotion = ProMotionRate()
     private var track: VideoTrackBox?
 
-    public override init(frame: CGRect) {
+    override public class var layerClass: AnyClass { AVSampleBufferDisplayLayer.self }
+    private var display: AVSampleBufferDisplayLayer {
+        // crash-allow: layerClass is AVSampleBufferDisplayLayer, so the view's layer always is one.
+        layer as! AVSampleBufferDisplayLayer
+    }
+
+    override public init(frame: CGRect) {
+        sink = SampleBufferSink()
         super.init(frame: frame)
-        metal.videoContentMode = .scaleToFill
-        metal.delegate = self
-        metal.frame = bounds
-        metal.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        addSubview(metal)
+        display.videoGravity = .resize
+        display.backgroundColor = UIColor.black.cgColor
+        sink.renderer = display.sampleBufferRenderer
+        sink.onSize = { [weak self] size in DispatchQueue.main.async { self?.onSize?(size) } }
         tap.onFrame = { [weak self] in DispatchQueue.main.async { self?.onFrame?() } }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    override public func didMoveToWindow() {
+        super.didMoveToWindow()
+        promotion.update(frameRate: frameRate, inWindow: window != nil)
+    }
+
     public func attach(_ box: VideoTrackBox) {
-        track?.track.remove(metal)
+        track?.track.remove(sink)
         track?.track.remove(tap)
         track = box
-        box.track.add(metal)
+        box.track.add(sink)
         box.track.add(tap)
     }
 
-    public func videoView(_ videoView: any RTCVideoRenderer, didChangeVideoSize size: CGSize) {
-        onSize?(size)
+    deinit {
+        track?.track.remove(sink)
+        track?.track.remove(tap)
+        promotion.stop()
+    }
+}
+
+/// Asks a ProMotion display for a stream's frame rate. Core Animation runs an iPhone
+/// display at 60 Hz unless something on screen asks for more; a layer whose
+/// contents change at 120 fps does not ask by itself. A display link with a
+/// preferred frame rate range is the request (its callback does nothing). It runs
+/// only while a stream above 60 fps is in a window; `CADisableMinimumFrameDurationOnPhone`
+/// in the app's Info.plist lets an iPhone go above 60 at all.
+@MainActor
+final class ProMotionRate {
+    private var link: CADisplayLink?
+    private(set) var requested: Int?
+
+    func update(frameRate: Int, inWindow: Bool) {
+        let rate = ScreenQuality.requestedDisplayRate(frameRate: frameRate, inWindow: inWindow)
+        guard rate != requested else { return }
+        stop()
+        requested = rate
+        guard let rate else { return }
+        let link = CADisplayLink(target: Tick.shared, selector: #selector(Tick.tick(_:)))
+        let fps = Float(rate)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: min(fps, 80), maximum: fps, preferred: fps)
+        link.add(to: .main, forMode: .common)
+        self.link = link
     }
 
-    deinit {
-        track?.track.remove(metal)
-        track?.track.remove(tap)
+    func stop() {
+        link?.invalidate()
+        link = nil
+        requested = nil
+    }
+
+    /// The display link's target: holds no view, so the link never keeps one alive.
+    private final class Tick: NSObject {
+        static let shared = Tick()
+        @objc func tick(_ link: CADisplayLink) {}
     }
 }
 
@@ -66,7 +133,8 @@ public final class ScreenVideoView: NSView {
     private var track: VideoTrackBox?
 
     public override init(frame: NSRect) {
-        sink = SampleBufferSink(renderer: display.sampleBufferRenderer)
+        sink = SampleBufferSink()
+        sink.renderer = display.sampleBufferRenderer
         super.init(frame: frame)
         wantsLayer = true
         display.videoGravity = .resize
@@ -110,28 +178,33 @@ public final class ScreenVideoView: NSView {
     }
 }
 
+#endif
+
+#if canImport(UIKit) || canImport(AppKit)
+import AVFoundation
+import CoreMedia
+import WebRTC
+
 /// libwebrtc's renderer callback (decode thread): each frame as a sample
 /// buffer for the display layer, shown at once. Frames are pushed, not
 /// pulled on a display link, and `DisplayImmediately` puts each one on the
-/// next refresh, so a 120 fps stream presents at 120 Hz on a ProMotion
-/// display with no frame rate hint (macOS has no 60 Hz cap to lift).
-// crash-allow: `size`, `format` and `pool` are touched only on libwebrtc's one render thread; `onSize` is set before the sink is attached.
-private final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sendable {
+/// next refresh, so a 120 fps stream presents at 120 Hz on a ProMotion Mac
+/// with no frame rate hint (an iPhone also needs ``ProMotionRate``).
+// crash-allow: `size`, `format` and `pool` are touched only on libwebrtc's one render thread; `renderer` and `onSize` are set before the sink is attached.
+final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sendable {
     // @unchecked: `size` and `format` are touched only on libwebrtc's render thread.
     var onSize: (@Sendable (CGSize) -> Void)?
-    private let renderer: AVSampleBufferVideoRenderer
+    /// The display layer's renderer, set once by the owning view before the sink is attached.
+    var renderer: AVSampleBufferVideoRenderer?
     private var size = CGSize.zero
     private var format: CMVideoFormatDescription?
     private var pool: CVPixelBufferPool?
 
-    init(renderer: AVSampleBufferVideoRenderer) {
-        self.renderer = renderer
-    }
-
     func setSize(_ size: CGSize) {}
 
+    // perf-hot: 1ms screen-stream-present
     func renderFrame(_ frame: RTCVideoFrame?) {
-        guard let frame, let pixelBuffer = pixelBuffer(of: frame) else { return }
+        guard let renderer, let frame, let pixelBuffer = pixelBuffer(of: frame) else { return }
         let pixels = CGSize(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
         if pixels != size {
             size = pixels
@@ -195,9 +268,7 @@ private final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sen
         return out
     }
 }
-#endif
 
-#if canImport(UIKit) || canImport(AppKit)
 /// Counts frames without rendering them.
 // crash-allow: `onFrame` is set once in the view's init, before the tap is attached to a track, and only read after.
 private final class FrameTap: NSObject, RTCVideoRenderer, @unchecked Sendable {

@@ -46,6 +46,23 @@ struct HighFrameRateStreamTests {
         #expect(run.latency.count > 0, "no stamped frame was read back")
     }
 
+    /// The two H.264 encoders on the same frames: a 16" MacBook Pro's display (3456×2234)
+    /// scrolling text at 120 fps, scaled to the size Auto streams at 120 (2154×1392), as
+    /// libwebrtc hands it over. Per frame, the time from `encode` to the encoder's output,
+    /// and the frames' sizes. Prints MAC-SCREEN-120FPS encoder-compare lines.
+    @Test(.enabled(if: enabled), .timeLimit(.minutes(3)), arguments: [EncoderBench.Kind.webrtc, .lowLatency])
+    func theEncodersOnOneScrollingScreen(kind: EncoderBench.Kind) throws {
+        let bench = EncoderBench(kind: kind, sourceWidth: 3456, sourceHeight: 2234, width: 2154, height: 1392, fps: 120)
+        let result = try bench.run(frames: 1200)
+        let steady = result.outputs.filter { !$0.keyframe }
+        let latency = StreamLatencySummary(steady.map(\.latencyMs), unreadable: 0)
+        let sizes = steady.map(\.bytes).sorted()
+        let kb = { (q: Double) -> Double in sizes.isEmpty ? .nan : Double(sizes[min(sizes.count - 1, Int(q * Double(sizes.count)))]) / 1024 }
+        let fps = Double(result.outputs.count) / result.seconds
+        print("MAC-SCREEN-120FPS encoder-compare encoder=\(kind.rawValue) implementation=\"\(result.implementation)\" frames_out=\(result.outputs.count)/1200 out_fps=\(String(format: "%.1f", fps)) encode \(latency) frame_kb_p50=\(String(format: "%.1f", kb(0.5))) frame_kb_p95=\(String(format: "%.1f", kb(0.95))) frame_kb_max=\(String(format: "%.1f", kb(1.0)))")
+        #expect(result.outputs.count >= 1150, "the \(kind.rawValue) encoder kept up with 120 fps")
+    }
+
     struct Run {
         var agreed: Int?
         var sourceFps: Double
