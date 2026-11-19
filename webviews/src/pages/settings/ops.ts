@@ -410,7 +410,18 @@ export type ComputerUseState = {
   host_unverified?: boolean;
   /** Driver "upstream" was chosen, but this build has no upstream helper: the legacy helper runs. */
   upstream_fallback?: boolean;
+  /** The engine's version line ("cmux Computer Use 1.0"), localized by the host; absent while unknown. */
+  engine?: string | null;
+  /** The worker process: `running` (with its pid), `starting`, `stopped` or `failed`; absent while unknown. */
+  worker?: { state: "running" | "starting" | "stopped" | "failed"; pid?: number | null } | null;
+  /** Saved per-app answers (Approved apps): "Always allow" or "Never", newest first. */
+  approvals?: ComputerUseApproval[];
+  /** Apps running now, offered by the Denied Apps editor's Add menu. */
+  running_apps?: Array<{ id: string; name: string }>;
 };
+
+/** One saved Computer Use answer for an app (`computerUse.approval.*` actions change it). */
+export type ComputerUseApproval = { app_id: string; name: string; decision: "always" | "never" };
 
 /** One button of the Accounts part; the host localizes every text. */
 export type AccountsButton = {
@@ -1290,6 +1301,41 @@ export type IntegrationRow = {
   errorKind?: "noAnswer" | "notFinished" | null;
 };
 
+/** One coding agent of Settings > Agents > Agents on This Mac: whether it gets cmux's MCP server when
+ * cmux starts it (`cmux setup mcp`). The name is the product's own, never translated. */
+export type AgentToolsCardRow = {
+  id: string;
+  name: string;
+  /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not yet (the answer is not on). */
+  state: "ready" | "terminals" | "failed";
+  /** The line that removes a `cmux` entry in the agent's own settings that runs `cmux mcp serve`, used
+   * outside cmux (not this build's own manual line); null or absent for none. Remove runs it only on
+   * the person's click. */
+  leftover?: string | null;
+};
+
+/** Agents on This Mac (`SettingsAgentTools.state`). */
+export type AgentToolsCardState = {
+  /** The first read answered (an empty list then says none was found). */
+  loaded: boolean;
+  /** Turn On runs. */
+  applying: boolean;
+  /** The answer could not be saved. */
+  failed: boolean;
+  /** `agents.cmuxMcp` now. Absent from older hosts. */
+  choice?: "ask" | "on" | "off";
+  rows: AgentToolsCardRow[];
+  /** The lines a person runs themselves to use cmux's tools in agents started elsewhere (cmux never
+   * runs them). Absent from older hosts. */
+  manual?: string[];
+  /** Why the last Remove kept the entry (it holds settings cmux could not put back), as the CLI
+   * says it; null or absent otherwise. */
+  note?: string | null;
+};
+
+/** One Agents on This Mac gesture; `turnOn` and `removeLeftover` run only on a click. */
+export type AgentToolsCardRun = { action: "refresh" | "turnOn" } | { action: "removeLeftover"; id: string };
+
 /** The Agent integrations part (`SettingsAgentIntegrations.state`). */
 export type IntegrationsState = {
   loading: boolean;
@@ -1531,6 +1577,10 @@ export type SettingsOps = {
   "cmux.settings.integrations.state": [Record<string, never>, IntegrationsState];
   /** Native: one Agent integrations gesture (`agent hook install|uninstall <id>`, or a refresh). */
   "cmux.settings.integrations.run": [IntegrationsRun, unknown];
+  /** Native: the coding agents and whether their configs hold cmux's MCP server (Settings > Agents). */
+  "cmux.settings.agentTools.state": [Record<string, never>, AgentToolsCardState];
+  /** Native: Turn On (`agents.cmuxMcp` on), Remove an agent's old cmux entry (`cmux setup mcp --remove ID`) or a refresh. */
+  "cmux.settings.agentTools.run": [AgentToolsCardRun, AgentToolsCardState];
   /** Native: the person's saved MCP servers (Settings > MCP Servers). */
   "cmux.settings.mcp.state": [Record<string, never>, McpServersState];
   /** Native: one MCP Servers gesture (`optchat-chief integrations --json signin|remove`, or a refresh). */
@@ -1709,6 +1759,10 @@ export const settingsPageActions = [
   "palette.computerUse.restart",
   "palette.computerUse.accessibility",
   "palette.computerUse.screenRecording",
+  // Settings > Computer Use > Saved Approvals: forget an app's answer or change it (args `{app_id}`,
+  // `{app_id, decision}`); the host runs them through the worker's approvals control message.
+  "computerUse.approval.forget",
+  "computerUse.approval.set",
   "import.card",
   "importFromBrowser",
   // Settings > Mobile's Sign In, where the iPhone card says to sign in (msg 3790).
