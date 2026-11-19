@@ -87,6 +87,5 @@ stopped doing that for its own popovers and menus. The page's glass is the match
 
 ## A whole look
 
-A look add-on ([examples/looks](../../examples/looks)) sets the window's glass in its theme file and
-puts `.glass` on the pieces of its `customize/` views where glass fits. The looks there are
-written only on these public surfaces.
+A look add-on sets the window's glass in its theme file and
+puts `.glass` on the pieces of its `customize/` views where glass fits.
