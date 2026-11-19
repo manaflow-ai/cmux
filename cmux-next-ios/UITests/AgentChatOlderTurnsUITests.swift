@@ -19,9 +19,9 @@ final class AgentChatOlderTurnsUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        // The list rig's chat: 200 replayed turns, held at the newest one (no passes).
+        // The list rig's chat: 130 replayed turns, held at the newest one (no passes).
         app.launchEnvironment["CMUX_MOBILE_LIST_SCREEN"] = "chat"
-        app.launchEnvironment["CMUX_MOBILE_LIST_COUNT"] = "200"
+        app.launchEnvironment["CMUX_MOBILE_LIST_COUNT"] = "130"
         app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
         app.launchEnvironment["CMUX_MOBILE_LIST_LEAVE_NEWEST"] = "0"
         app.launchEnvironment["CMUX_MOBILE_LIST_LARGE_DIFF"] = "0"
@@ -38,20 +38,33 @@ final class AgentChatOlderTurnsUITests: XCTestCase {
         XCTAssertFalse(jump.exists, "the chat opens on its newest turn")
         attach(app, "newest")
 
-        // Up, a short drag at a time (no fling), far past the turns kept in memory.
-        for drag in 1...60 {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
-                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)),
-                       withVelocity: XCUIGestureVelocity(600), thenHoldForDuration: 0.05)
-            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
-            XCTAssertEqual(app.state, .runningForeground, "the app is still running after drag \(drag)")
+        // Up, a fling at a time, past the turns kept in memory: the window keeps the newest 80 of
+        // 130 (turns 50 to 129), so reaching turn 45 means the turns on disk were read back above
+        // the reader. Each fling settles before the check.
+        let readBack = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "(#45)")).firstMatch
+        var reached = false
+        for fling in 1...120 {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+                .press(forDuration: 0.02, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)),
+                       withVelocity: XCUIGestureVelocity(4000), thenHoldForDuration: 0)
+            RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+            XCTAssertEqual(app.state, .runningForeground, "the app is still running after fling \(fling)")
             if !jump.exists {
-                attach(app, "jumped-after-drag-\(drag)")
-                XCTFail("drag \(drag) up: the chat jumped back to its newest turn (no Jump to bottom)\n\(app.debugDescription)")
+                attach(app, "jumped-after-fling-\(fling)")
+                XCTFail("fling \(fling) up: the chat jumped back to its newest turn (no Jump to bottom)\n\(app.debugDescription)")
                 return
             }
-            if drag % 20 == 0 { attach(app, "up-\(drag)") }
+            if fling % 20 == 0 { attach(app, "up-\(fling)") }
+            if readBack.exists {
+                reached = true
+                break
+            }
         }
+        XCTAssertTrue(reached, "the reader reached turn 45, below the turns kept in memory\n\(app.debugDescription)")
+        attach(app, "read-back")
+        // Settled above the read-back: still where the reader left it.
+        RunLoop.current.run(until: Date().addingTimeInterval(3))
+        XCTAssertTrue(jump.exists, "after the read-back settled, the chat stayed where the reader scrolled")
 
         // And Jump to bottom still takes the reader to the newest turn.
         jump.tap()
