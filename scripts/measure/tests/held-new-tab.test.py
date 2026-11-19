@@ -557,14 +557,14 @@ class Case(unittest.TestCase):
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             yield
 
-    def rows(self, world, rounds=1, form="one-key", film=None, sample=0, recent=(0, 0)):
+    def rows(self, world, rounds=1, form="one-key", film=None, sample=0, recent=(0, 0), letter_cases=0, letter_only=False):
         """`run()` on the fake app: the report. `sample`: the seconds of --sample-s. `recent`: --recent-sites and
-        --recent-pages."""
+        --recent-pages. `letter_cases`, `letter_only`: --letter-cases and --letter-only (the budget is 5 s)."""
         opts = argparse.Namespace(workspaces=3, live_shells=0, page_url="http://127.0.0.1:9/", seed_deadline=1.0, out=self.out,
                                   neighbours=2, rounds=rounds, film=film, keys="app-queue", hold_ms=3000.0, every_ms=500.0,
                                   repeat_delay_ms=0.0, repeat_ms=0.0, deadline=1.0, sample_s=sample,
                                   recent_sites=recent[0], recent_pages=recent[1], recent_deadline=600.0,
-                                  letter_cases=0, letter_only=False)
+                                  letter_cases=letter_cases, letter_only=letter_only, letter_budget_s=5.0)
         app = argparse.Namespace(rpc=world.rpc, socket="/fake-app.sock", process=argparse.Namespace(pid=1))
         report = {"rows": [], "failures": []}
         with self.fakes(world):
@@ -1114,6 +1114,57 @@ class Rows(Case):
                            "between": [{"what": "stall.main_task class=background owner=NewTabSparePool.warm", "ms": 180.0, "count": 1},
                                        {"what": "tab-switch.switch", "ms": 20.0, "count": 1}],
                            "own_call_tasks_left_out": {"count": 1, "ms": 270.0}}])
+
+    def letters(self, world, **options):
+        """`rows` with a record in the place of the letter cases (new-tab-letters.py `Letters`): (the report, each
+        call of the cases as (the app's call, the count, the budget, the tabs that the keys had made at the call))."""
+        calls = []
+
+        class Cases:
+            def __init__(self, builder, rpc, wait):
+                self.rpc = rpc
+
+            def run(self, count, budget_s):
+                calls.append((self.rpc, count, budget_s, len(world.openings)))
+                return {"forms": ["the cases' report"]}
+
+        with mock.patch.object(M.LETTERS, "Letters", Cases):
+            return self.rows(world, **options), calls
+
+    def test_the_letter_cases_come_after_the_rows_with_the_count_and_the_budget(self):
+        world = World()
+        report, calls = self.letters(world, letter_cases=2)
+        self.assertEqual(report.get("letter_cases"), {"forms": ["the cases' report"]})
+        # ONE call, with the app's own call, after the last row: the keys made no tab after it.
+        self.assertEqual(calls, [(world.rpc, 2, 5.0, len(world.openings))])
+        self.assertGreater(len(world.openings), 0)
+        self.assertEqual(len(report["rows"]), 4)  # the rows are the rows of a run with no letter case
+
+    def test_no_letter_case_with_no_option(self):
+        report, calls = self.letters(World())
+        self.assertEqual((calls, "letter_cases" in report, len(report["rows"])), ([], False, 4))
+
+    def test_letter_only_runs_the_cases_and_no_row(self):
+        world = World()
+        report, calls = self.letters(world, letter_cases=1, letter_only=True)
+        self.assertEqual((report["rows"], report["failures"], len(world.openings)), ([], [], 0))
+        self.assertEqual((calls, report.get("letter_cases")), ([(world.rpc, 1, 5.0, 0)], {"forms": ["the cases' report"]}))
+
+    def test_a_round_with_no_valid_row_ends_the_run_before_the_letter_cases(self):
+        # Key 1 of each row has no record of its action, so no row of the round is valid and the run ends there: the
+        # report then has no `letter_cases` from `run()` (`main()` writes the `not_run` words, see Launch).
+        real = M.key_runs
+        with mock.patch.object(M, "key_runs", lambda intervals, record: {k: v for k, v in real(intervals, record).items() if k != 1}):
+            report, calls = self.letters(World(), letter_cases=2)
+        self.assertEqual((calls, "letter_cases" in report), ([], False))
+        self.assertIn("round 0 has no valid row: the run ends here", report["failures"])
+
+    def test_rows_that_are_not_run_do_not_stop_the_letter_cases(self):
+        # The pane of the rows is gone after the first row: the round has its valid row, each later row is not run,
+        # and the cases still run (each case has a workspace of its own).
+        report, calls = self.letters(World(pane_gone="after mixed"), letter_cases=2)
+        self.assertEqual(([count for _, count, _, _ in calls], report.get("letter_cases")), ([2], {"forms": ["the cases' report"]}))
+        self.assertTrue([why for why in report["failures"] if "not run" in why], report["failures"])
 
 
 class FirstFrame(Case):
@@ -1749,13 +1800,17 @@ class Launch(unittest.TestCase):
     """`main()` to its first row: the launch forms, what makes the app active, and the engine's word. The preflight,
     the window's placement, the session and the rows are not in it (`preflight`, `place` and `run` are stubs)."""
 
-    def main(self, faults, *args, engine=(CEF_READY,)):
-        """`main()` with `faults`: (exit code, the report, the printed lines, each fake launch)."""
+    def main(self, faults, *args, engine=(CEF_READY,), run=None):
+        """`main()` with `faults`: (exit code, the report, the printed lines, each fake launch). `run`: what the stub
+        of `run()` does with the report (None: one valid row). `self.opts`: the options that `run()` got."""
         App.made, App.faults, App.engine = [], set(faults), list(engine)
         out, said = tempfile.mkdtemp(prefix="held-new-tab-test-"), io.StringIO()
         self.addCleanup(shutil.rmtree, out, True)
 
         def rows(opts, app, signposts, report, form):
+            self.opts = opts
+            if run:
+                return run(report)
             report["rows"].append({"scenario": "mixed", "round": 0, "key_source": form, "errors": [], "invalid": []})
 
         fakes = ((M, "hid_grant", lambda: True), (M, "subprocess", LaunchServices), (M, "STRESS", Stress(World())),
@@ -1808,6 +1863,29 @@ class Launch(unittest.TestCase):
         self.assertEqual([line for line in lines if line.startswith("PREFLIGHT page engine:")],
                          ["PREFLIGHT page engine: engine=chromium default_engine=chromium chromium_state=ready unavailable=none webkit_fallbacks=0"])
         self.assertEqual(code, 0)
+
+    def test_the_letter_options_get_to_the_run_and_a_run_with_no_case_says_so(self):
+        code, report, lines, launches = self.main({"launch-activates"}, "--letter-cases", "3", "--letter-only", "--letter-budget-s", "7")
+        self.assertEqual((self.opts.letter_cases, self.opts.letter_only, self.opts.letter_budget_s), (3, True, 7.0))
+        # The stub of `run()` made no case: the report says that, and does not leave the key out.
+        self.assertEqual((code, report.get("letter_cases")), (0, {"not_run": "the run ended before the letter cases"}))
+
+    def test_a_run_with_no_letter_option_has_no_letter_cases(self):
+        code, report, lines, launches = self.main({"launch-activates"})
+        self.assertEqual((self.opts.letter_cases, self.opts.letter_only, self.opts.letter_budget_s), (0, False, M.LETTERS.BUDGET_S))
+        self.assertEqual((code, "letter_cases" in report), (0, False))
+
+    def test_the_cases_of_a_run_stay_in_the_report(self):
+        code, report, lines, launches = self.main({"launch-activates"}, "--letter-cases", "1",
+                                                  run=lambda report: report.update({"letter_cases": {"forms": []}}))
+        self.assertEqual(report.get("letter_cases"), {"forms": []})
+
+    def test_letter_only_with_a_failure_is_not_the_exit_of_a_round_with_no_row(self):
+        # A run with no row and one failure: with rows asked that is exit 1 (the round has no valid row). With
+        # --letter-only no round is asked, so the same report is exit 2.
+        failed = lambda report: report["failures"].append("a fake failure")
+        self.assertEqual(self.main({"launch-activates"}, "--letter-cases", "1", run=failed)[0], 1)
+        self.assertEqual(self.main({"launch-activates"}, "--letter-cases", "1", "--letter-only", run=failed)[0], 2)
 
 
 class Recent:
