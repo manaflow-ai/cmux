@@ -116,14 +116,23 @@ extension CloudStartChat {
                     try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
                     let key = "\(plan.createKey)-hedge-\(UUID().uuidString)"
                     let request = CloudMachineRequest(startChatKey: key, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil), size: start.size, diskMb: start.grownDiskMb)
-                    return try await cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user,
-                                                         request: request) {
+                    let created = try await cloud.createMachine(name: nil, startedByPerson: invocation.origin == .user,
+                                                                request: request)
+                    do {
                         try Self.checkAccount(account, now: cloud.account, listCurrent: true)
+                        return created
+                    } catch {
+                        if account == cloud.account {
+                            do { try await cloud.deleteMachine(created.machineID) }
+                            catch { cloud.logger.error("cloud start hedge: account changed; could not delete (created.machineID, privacy: .public): \(String(describing: error), privacy: .public)") }
+                        }
+                        throw error
                     }
                 },
                 delete: { @MainActor machineID in
                     guard account == cloud.account else { return }
-                    try? await cloud.deleteMachine(machineID)
+                    do { try await cloud.deleteMachine(machineID) }
+                    catch { cloud.logger.error("cloud start hedge: could not delete loser \(machineID, privacy: .public): \(String(describing: error), privacy: .public)") }
                 },
                 lookup: { @MainActor machineID in machines.session(machineID) }
             )
