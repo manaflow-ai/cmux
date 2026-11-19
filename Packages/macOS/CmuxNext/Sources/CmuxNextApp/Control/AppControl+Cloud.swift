@@ -22,7 +22,7 @@ extension AppControl {
                     "user_id": user.map { .string($0.id) } ?? .null,
                     "team_id": cloud.auth.teamID.map(JSONValue.string) ?? .null,
                     "backend": .string(cloud.configuration.ownerAPIBaseURL().absoluteString),
-                    "cloud_environment": cloud.configuration.runtimeSelection.map { .string($0.name) } ?? .null,
+                    "cloud_environment": cloud.configuration.runtimeSelection.map { .string($0.name) } ?? .null, "backend_label": cloud.configuration.runtimeSelection?.developerBackendLabel.map(JSONValue.string) ?? .null,
                     "client_config_source": cloud.configuration.runtimeSelection?.configSource.map(JSONValue.string) ?? .null,
                     "client_config_version": cloud.configuration.runtimeSelection?.clientConfigVersion.map { .number(Double($0)) } ?? .null,
                     "cloud_unavailable": cloud.unavailableReason.map(JSONValue.string) ?? .null,
@@ -42,7 +42,7 @@ extension AppControl {
                 return JSONValue(foundation: try JSONSerialization.jsonObject(with: reply)) ?? .null
             }.withDeadline(.fixed(.seconds(30))),
         ])
-        registerRunMethods(services)
+        registerRunMethods(services); CaptureAuthControl().register(on: service?.router, remote: services.cmuxRemote.capture) { [weak services] in services?.cloud.auth }
         registerCloudEnvironmentMethods(services)
         registerVMAgentKeyMethods(services)
         // `cmux auth token` (cmux-platform#111): the method lives in CmuxNextControl, the mint in CmuxNextCloud.
@@ -137,7 +137,6 @@ extension AppControl {
             "missing_required": .array((compat?.missingRequired ?? []).map(JSONValue.string)),
             "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
             "file_ops": fileOps.map(JSONValue.bool) ?? .null,
-            "harness_login": session.harnessLogin.map { .string($0.summary) } ?? .null,
             "workspaces": .array(store.workspaces.map { $0.cloudMachineWorkspaceRow }),
         ]
     }

@@ -10,6 +10,10 @@ cd "$(git rev-parse --show-toplevel)"
 git submodule update --init --depth 1 ghostty ghostty-next >/dev/null
 tag="editrepaint"
 out="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$out"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 reload_config=(--config bench) bench_args=()
 for arg in "$@"; do
   case "$arg" in
@@ -25,4 +29,4 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
   exit 1
 fi
-exec python3 scripts/cmux-next/edit-repaint.py --app "$app" --out "$out" --json "$PWD/edit-repaint.json" "$@"
+python3 scripts/cmux-next/edit-repaint.py --app "$app" --out "$out" --json "$PWD/edit-repaint.json" "$@"

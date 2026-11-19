@@ -391,20 +391,35 @@ SIDE_WORKFLOW_PATHS = frozenset({
     # feat-cmux-next only; on attempt 1 its placement job (side_lane_placement.py) puts a Mac job on the
     # side label only while a side runner is idle, and uploads the owned-pool-watch marker when one is.
     ".github/workflows/cmux-next.yml",
+    ".github/workflows/cmux-next-car-guards.yml",
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
+    ".github/workflows/cmux-rd-windows.yml",
     ".github/workflows/iroh-v2.yml",
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-launch-smoke.yml",
+    ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
-    ".github/workflows/test-feed-reply-providers.yml",
+    ".github/workflows/test-feed-reply-providers.yml",  # feat-cmux-next only
+})
+# Side workflows whose Mac jobs take an owned label on every attempt (feat-cmux-next only), so no
+# re-run moves them off the minis (bot_rerun_leaves_owned()). This includes workflows whose
+# CI_BLACKSMITH_MACOS-off fallback is CI_SIDE_LANE_RUNNER: unlike the historical side route,
+# that expression has no github.run_attempt gate.
+OWNED_EVERY_ATTEMPT_PATHS = frozenset({
+    ".github/workflows/cmux-next-car-guards.yml",
+    ".github/workflows/cmux-next-base-autofix.yml",
+    ".github/workflows/cmux-next-pr-autofix.yml",
+    ".github/workflows/cmux-rd-windows.yml",
+    ".github/workflows/macos-cross-parity.yml",
 })
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
 CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
+OWNED_RERUN_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, CMUX_NEXT_WORKFLOW_PATH, *sorted(OWNED_EVERY_ATTEMPT_PATHS))
 # Events whose code is this repository's own: a push or schedule runs a branch
 # of it, and a workflow_dispatch needs write access. A side-lane run of one of
 # these is owned-eligible like a same-repository pull request. merge_group,
@@ -489,6 +504,12 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
     if attempt <= 1:
         return False
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
+    if run.get("path") in OWNED_EVERY_ATTEMPT_PATHS:
+        # These side workflows keep their owned label on the rescue bot's
+        # third attempt too. Follow that one extra attempt so a refused or
+        # unclaimed mini job cannot sit queued after the first rescue; a
+        # fourth bot attempt is outside this bounded rescue loop.
+        return actor != RESCUE_ACTOR or attempt <= LAST_OWNED_ATTEMPT + 1
     if run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
         # Manual side-lane reruns stay minis-first at any attempt. The bot's
         # second attempt takes a free Blacksmith slot, else the owned side label
@@ -946,7 +967,7 @@ class GitHub:
         (owned_rerun()): a re-run of failed jobs uploads no marker. GitHub lists a run as `queued` while a job of it waits for a
         runner, so both statuses are read."""
         found: list[tuple[int, int]] = []
-        for workflow in (CI_WORKFLOW_PATH, CMUX_NEXT_WORKFLOW_PATH):
+        for workflow in OWNED_RERUN_WORKFLOW_PATHS:
             name = workflow.rsplit("/", 1)[-1]
             for status in ("queued", "in_progress"):
                 data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&per_page={count}")

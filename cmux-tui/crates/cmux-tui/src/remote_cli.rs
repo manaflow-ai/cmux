@@ -29,9 +29,9 @@ use cmux_remote::identity::{
     KnownDaemonAuth, MAX_INVITATION_URI_BYTES, credential_free_route_hint, default_state_dir,
 };
 use cmux_remote::provider::{
-    Dialer, IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
-    RelayCredentialSource, SocksDialer, SshProvider, SshProviderConfig, SupportedClientAuthModes,
-    WireGuardDialer, sanitized_route,
+    Dialer, IrohPathMode, MachinePipeDialer, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID,
+    ROUTING_RELAY_URL, RelayCredentialSource, SocksDialer, SshProvider, SshProviderConfig,
+    SupportedClientAuthModes, WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote_protocol::{
@@ -111,7 +111,15 @@ fn run_inner(
 ) -> anyhow::Result<()> {
     let rest = args.get(1..).unwrap_or_default();
     if remote_help_requested(rest) {
-        print!("{}", remote_help(args.first().map(String::as_str)));
+        let help = remote_help(args.first().map(String::as_str));
+        // `cmux remote --help` also lists the cmux app's `remote …` verbs (cli/app_action_help.rs).
+        match args.first().map(String::as_str) {
+            Some("remote") => match crate::cli::app_action_help::append("remote", help) {
+                Some(text) => print!("{text}"),
+                None => print!("{help}"),
+            },
+            _ => print!("{help}"),
+        }
         return Ok(());
     }
     match args.first().map(String::as_str) {
@@ -172,6 +180,7 @@ const REMOTE_VALUE_OPTIONS: &[&str] = &[
     "--agent-hooks",
     "--wireguard-config",
     "--wireguard-hub",
+    "--via-machine",
     "--ssh-arg",
     "--workspace-root",
     "--vm-kind",
@@ -267,6 +276,9 @@ struct ConnectFlags {
     /// Read the hub's client token (`wg hub --client-token-stdin`) as one line on
     /// stdin, so it never appears in argv, the environment or a file.
     wireguard_hub_token_stdin: bool,
+    /// `--via-machine M`: dial the route, a loopback daemon on machine M, through this
+    /// machine's acpmux and its hub carrier (`MachinePipeDialer`).
+    via_machine: Option<String>,
     /// Dial `ws`/`wss` routes with carrier authentication: no enrollment, no
     /// invitation. Only a daemon serving a trusted-network listener accepts it.
     carrier: bool,
@@ -511,6 +523,12 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                     return Err(anyhow!(catalog().remote_client.option_once("--wireguard-hub")));
                 }
             }
+            "--via-machine" => {
+                let machine = value("--via-machine")?;
+                if flags.via_machine.replace(machine).is_some() {
+                    return Err(anyhow!(catalog().remote_client.option_once("--via-machine")));
+                }
+            }
             "--wireguard-hub-token-stdin" => flags.wireguard_hub_token_stdin = true,
             "--exit-with-parent" => flags.exit_with_parent = true,
             "--vm-kind" => flags.vm_owner = value("--vm-kind")? == "owner",
@@ -583,6 +601,11 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
     }
     if flags.wireguard_config.is_some() && flags.wireguard_hub.is_some() {
         return Err(anyhow!(catalog().remote_client.wireguard_hub_conflict));
+    }
+    if flags.via_machine.is_some()
+        && (flags.wireguard_config.is_some() || flags.wireguard_hub.is_some())
+    {
+        return Err(anyhow!(catalog().remote_client.via_machine_conflict));
     }
     if flags.wireguard_hub_token_stdin && flags.wireguard_hub.is_none() {
         return Err(anyhow!(catalog().remote_client.wireguard_hub_token_needs_hub));
@@ -705,7 +728,34 @@ struct ConnectedRuntime {
     route: String,
 }
 
-fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+/// Starts the connection `connect`, `exec`, `cp` and the rest share. A far machine's refusal no
+/// redial cures (`--via-machine`'s `consent_required`, ...) ends it at once with what to do;
+/// with `--json` it is also one stdout line, `{"event":"refused","reason","error","machine"}`.
+fn start_connected(flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+    let json = flags.json;
+    let machine = flags.via_machine.clone();
+    start_connected_inner(flags).map_err(|error| {
+        let Some(refusal) = crate::remote_runtime::startup_refusal(&error) else {
+            return error;
+        };
+        let said = catalog().remote_client.machine_refused(&refusal.reason, &refusal.message);
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "event": "refused",
+                    "reason": refusal.reason,
+                    "error": said,
+                    "machine": machine,
+                })
+            );
+            let _ = io::stdout().flush();
+        }
+        anyhow!(said)
+    })
+}
+
+fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
     let owner = flags.exit_with_parent.then(current_parent_process_id);
     let invitation = flags
@@ -740,7 +790,14 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
                     dialer
                 }))
             }
-            (None, None) => None,
+            (None, None) => match flags.via_machine.take() {
+                Some(machine) => {
+                    let socket = crate::acp::daemon_socket_path()
+                        .ok_or_else(|| anyhow!(catalog().remote_client.acpmux_socket_unknown))?;
+                    Some(Arc::new(MachinePipeDialer::new(socket, machine)))
+                }
+                None => None,
+            },
         };
     let mut relay_routes = client_relay_options(
         flags.route.as_deref(),

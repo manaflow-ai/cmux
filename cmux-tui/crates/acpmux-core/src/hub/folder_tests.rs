@@ -213,6 +213,7 @@ fn folder_pages_refuse_cross_view_and_mixed_keys() {
         origin: "local".into(),
         chat_id: "a".into(),
         last_activity: 0,
+        past: false,
     });
     p.keys = Some(vec![folder.clone()]);
     assert!(hub.page(&p).is_err());

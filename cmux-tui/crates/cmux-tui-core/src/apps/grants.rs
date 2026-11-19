@@ -323,6 +323,43 @@ mod tests {
         }
     }
 
+    /// The browser page ops (reader mode, link hints): `page.read` reads with `page:read`;
+    /// `page.hints` and `page.follow` write with `page:write` and only with a gesture token.
+    #[test]
+    fn page_ops_take_the_page_scopes_and_hints_need_a_gesture() {
+        let table = ScopeTable::get();
+        assert_eq!(
+            table.check("page.read", &json!({}), &grant(&["page:read"])),
+            Decision::Allow(OpClass::Read),
+        );
+        for scopes in [vec![], vec!["page:write"], vec!["browser:read"], vec!["tab:read"]] {
+            assert!(matches!(
+                table.check("page.read", &json!({}), &grant(&scopes)),
+                Decision::ScopeMissing(_),
+            ));
+        }
+        let show = json!({"action": "show"});
+        let follow = json!({"label": "sa", "new_split": true});
+        for (op, params) in [("page.hints", &show), ("page.follow", &follow)] {
+            assert_eq!(
+                table.check(op, params, &grant(&["page:write"])),
+                Decision::Allow(OpClass::Mutation),
+            );
+            for scopes in [vec![], vec!["page:read"], vec!["browser:write"]] {
+                assert!(matches!(
+                    table.check(op, params, &grant(&scopes)),
+                    Decision::ScopeMissing(_)
+                ));
+            }
+            assert!(needs_gesture(op), "{op} needs a key or a tap");
+        }
+        assert!(!needs_gesture("page.read"));
+        // Reading any page the person has open is highlighted on the consent sheet.
+        let risk = |scope: &str| cmux_app_manifest::scope_info(scope).map(|i| i.class);
+        assert_eq!(risk("page:read"), Some(cmux_app_manifest::ScopeClass::Sensitive));
+        assert_eq!(risk("page:write"), Some(cmux_app_manifest::ScopeClass::Sensitive));
+    }
+
     #[test]
     fn a_toast_needs_no_grant_but_not_a_preview_or_a_stopping_app() {
         let table = ScopeTable::get();

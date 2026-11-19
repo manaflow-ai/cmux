@@ -134,24 +134,40 @@ pub(super) fn claude_spawn_mode(
     policy_mode(policy, "claude", &offered)
 }
 
-/// The modes a new chat a remote connection started on the Codex bridge settles in, the start
-/// first (`server/remote_guard.rs` `settle_web_session_mode`). A chat an enrolled peer of this
-/// host started (`peer`) under deny-all (`policy`: the chat's narrower policy) settles in the
-/// policy's own `read-only` (`policy_mode`) when the harness offers it: its sandbox refuses every
-/// write and the network, and deny-all refuses every escalation out of it, where in `ask`
-/// deny-all refuses every command Codex asks about, reads included. Anything else, the Web and
-/// a paired device included, settles in the bridge's asking modes
+/// The modes a new chat a remote connection started on the Codex bridge settles in, in the order
+/// they are tried, the start first (`server/remote_guard.rs` `settle_web_session_mode`). A chat an
+/// enrolled peer of this host started (`peer`) under deny-all (`policy`: the chat's narrower
+/// policy) settles in the policy's own `read-only` (`policy_mode`) when the harness offers it: its
+/// sandbox refuses every write and the network, and deny-all refuses every escalation out of it,
+/// where in `ask` deny-all refuses every command Codex asks about, reads included.
+///
+/// A chat at its caller's VM boundary (`vm_boundary`: `vm_boundary.rs`
+/// `vm_boundary_peer_approves` held for it, and full access is allowed here) with no narrower
+/// policy settles in `agent-full-access` when the harness offers it, the asking modes after it:
+/// the VM is the boundary, as for a Claude Code chat there (`remote_sandbox.rs`
+/// `boundary_plan`). In `ask` Codex's own workspace-write sandbox keeps every write outside the
+/// chat's folder and `/tmp` read-only and the network off, so a lane there could not take a
+/// checkout (`wt new` and its mirror's `fetch.lock`), write `~/.local/state` or `~/.cache`, or
+/// reach the daemon's socket (`acpmux send`).
+///
+/// Anything else, the Web and a paired device included, settles in the bridge's asking modes
 /// (`web_modes::BRIDGE_ASKING_MODES`).
 pub(crate) fn bridge_settle_modes(
     peer: bool,
     policy: Option<PermissionPolicy>,
     offered: &[String],
+    vm_boundary: bool,
 ) -> Vec<String> {
     const READ_ONLY: &str = "read-only";
+    const FULL_ACCESS: &str = "agent-full-access";
     if peer && policy == Some(PermissionPolicy::DenyAll) && offered.iter().any(|m| m == READ_ONLY) {
         return vec![READ_ONLY.to_owned()];
     }
-    crate::web_modes::BRIDGE_ASKING_MODES.iter().map(|m| (*m).to_owned()).collect()
+    let asking = crate::web_modes::BRIDGE_ASKING_MODES.iter().map(|m| (*m).to_owned());
+    if peer && vm_boundary && policy.is_none() && offered.iter().any(|m| m == FULL_ACCESS) {
+        return std::iter::once(FULL_ACCESS.to_owned()).chain(asking).collect();
+    }
+    asking.collect()
 }
 
 /// `meta`'s config options with the `mode` option set to `mode`, or `None` when it has none.
@@ -167,12 +183,24 @@ fn with_mode_option(meta: &SessionMeta, mode: &str) -> Option<Value> {
 
 impl Hub {
     /// [`bridge_settle_modes`] for `session`, which an enrolled peer started when `peer`: its
-    /// narrower policy (its own, else a deny-all default) and the modes its harness offers.
+    /// narrower policy (its own, else a deny-all default), the modes its harness offers, and
+    /// whether it is at a VM boundary this machine takes (`vm_boundary.rs`) where full access is
+    /// allowed (`sessions.allowFullAccess`, MDM).
     pub(crate) async fn bridge_settle_modes(&self, session: &Session, peer: bool) -> Vec<String> {
         let default = self.config.read().await.permission_policy;
         let meta = session.meta();
         let offered = super::start_mode::offered_ids(&meta);
-        bridge_settle_modes(peer, narrow_policy(&meta, default), &offered)
+        let vm_boundary = super::vm_boundary_peer_approves(
+            self.vm_boundary_unsandboxed(&meta).await,
+            cfg!(target_os = "macos"),
+            peer,
+            self.approve_all_allowed(),
+        ) && self.off_latch().allows_full_access()
+            // Its own approve-all (asked, or the vmHost grant `requests.rs` gives first), never a
+            // chat that only has no narrower policy (a switched fork that took none).
+            && meta.permission_policy.as_deref().and_then(|p| p.parse().ok())
+                == Some(PermissionPolicy::ApproveAll);
+        bridge_settle_modes(peer, narrow_policy(&meta, default), &offered, vm_boundary)
     }
 
     /// `session`'s policy mode when its policy is narrower than approve-all (module docs):
@@ -309,6 +337,20 @@ impl Hub {
             if s.turn().is_some_and(|t| t.control == Control::Web) {
                 self.remote_floor_cancel(s, "remote.full_access_ended");
             }
+        }
+        // A Web turn the owner's phone drove in a mode that does not ask, in a chat no policy
+        // holds (a chat started on this machine): with the phone removed or its setting off, the
+        // floor no longer lets it go on (`remote_floor_breach`). It ends now, as the held ones do.
+        let floored: Vec<Arc<Session>> = self
+            .sessions()
+            .into_iter()
+            .filter(|s| !held.iter().any(|h| Arc::ptr_eq(h, s)))
+            .filter(|s| s.turn().is_some_and(|t| t.control == Control::Web))
+            .filter(|s| self.remote_floor_breach(s).is_some())
+            .collect();
+        for s in &floored {
+            tracing::warn!(session = %s.id, "a phone's Full access ended: its turn in a mode that does not ask ends");
+            self.remote_floor_cancel(s, "remote.full_access_ended");
         }
         futures::future::join_all(held.iter().map(|s| self.follow_policy(s))).await;
         // After the move: a turn that began before it ran in the wider mode.
@@ -609,6 +651,16 @@ impl Hub {
 /// (`stop_unheld`) calls it. `cfg`: the daemon's config now, its default policy and the harness
 /// entries an `asksBeforeTools` claim is judged against ([`claim_distrust`]).
 pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), RpcError> {
+    require_enforced_as(meta, cfg, false)
+}
+
+/// `require_enforced`; `new`: the chat is being created, and a refusal discards it, so its fix is
+/// a flag of the next start, not a command on this chat (`unenforceable`).
+pub(super) fn require_enforced_as(
+    meta: &SessionMeta,
+    cfg: &Config,
+    new: bool,
+) -> Result<(), RpcError> {
     let Some(policy) = narrow_policy(meta, cfg.permission_policy) else { return Ok(()) };
     if super::policy_gate::has_gate(meta)
         || asks_before_tools(meta, cfg)
@@ -629,7 +681,8 @@ pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), R
     if held {
         return Ok(());
     }
-    let mut why = match policy_mode(policy, &family, &offered) {
+    let wanted = policy_mode(policy, &family, &offered);
+    let mut why = match &wanted {
         Some(wanted) => format!("it does not run in its mode that asks ({wanted})"),
         None => crate::web_modes::NO_ASKING_MODE.to_owned(),
     };
@@ -640,7 +693,7 @@ pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), R
             "; it says it asks before every tool call, which acpmux believes only from an agent it started from a harness entry of its own config ({distrust})"
         ));
     }
-    Err(unenforceable(policy, &meta.harness, &why))
+    Err(unenforceable(&Refused { policy, meta, wanted: wanted.as_deref(), new }, &why))
 }
 
 /// Whether `meta`'s agent said at `initialize` that it asks the client
@@ -696,23 +749,120 @@ pub(super) fn refusal_record(e: &RpcError) -> Value {
     record
 }
 
-/// The typed error of a start under a policy that harness `harness` cannot keep
-/// (`require_enforced`): `data.reason` is `policy_unenforceable`, with the policy, the harness
-/// and a hint.
-pub(super) fn unenforceable(policy: PermissionPolicy, harness: &str, why: &str) -> RpcError {
-    let hint = format!(
-        "start it with --policy approve-all, or on a harness that keeps {policy} (Claude Code, the Codex bridge)"
-    );
-    RpcError::invalid_params(format!(
-        "permission policy {policy} cannot be enforced on harness {harness}: {why}. The chat did not start; {hint}"
-    ))
-    .with_data(json!({
+/// What `require_enforced` refused: chat `meta` under `policy`, on a harness whose mode that keeps
+/// it is `wanted` (None: it has none). `new`: the chat is being created.
+pub(super) struct Refused<'a> {
+    pub policy: PermissionPolicy,
+    pub meta: &'a SessionMeta,
+    pub wanted: Option<&'a str>,
+    pub new: bool,
+}
+
+/// The typed error of a start under a policy that its harness cannot keep (`require_enforced`):
+/// `data.reason` is `policy_unenforceable`, with the policy, the harness, `why`, and the one
+/// action that runs this chat (`fix`, a command; `hint`, that action in words). Leo, 2026-11-17:
+/// "changed things shouldn't be so weirdly errored". The message says what is wrong and that
+/// action, never a harness the chat is already on. acpmux moves a chat to its policy's mode at
+/// every start (`hold_policy_mode`), so a chat refused with a `wanted` mode is one whose agent did
+/// not take it (a mode pinned in its harness entry, an agent that reports no mode): switching the
+/// mode again (`acpmux set ID mode=...`) starts the same agent, so the fix named is the policy
+/// (`acpmux set ID policy=approve-all`, `_acpmux/set_policy`), which needs no start. A chat being
+/// created is discarded by the refusal, so its fix is the start's `--policy`.
+pub(super) fn unenforceable(refused: &Refused, why: &str) -> RpcError {
+    let Refused { policy, meta, wanted, new } = *refused;
+    let harness = &meta.harness;
+    let (fix, hint) = if new {
+        ("--policy approve-all".to_owned(), "start it with `--policy approve-all`".to_owned())
+    } else {
+        let fix = format!("acpmux set {} policy=approve-all", meta.id);
+        let hint = format!("set its policy to approve-all with `{fix}`");
+        (fix, hint)
+    };
+    let problem = match wanted {
+        Some(wanted) => {
+            let runs = match crate::web_modes::mode_of(meta) {
+                Some(current) => format!("its agent stayed in {current}"),
+                None => "its agent reports no mode to switch to".to_owned(),
+            };
+            format!(
+                "Harness {harness} keeps permission policy {policy} only in its mode {wanted}, and {runs}"
+            )
+        }
+        None => format!(
+            "Harness {harness} cannot ask before tools, so a chat on it runs only under permission policy approve-all, and this one's is {policy}"
+        ),
+    };
+    RpcError::invalid_params(format!("{problem}: {hint}.")).with_data(json!({
         "reason": "policy_unenforceable",
         "policy": policy.to_string(),
         "harness": harness,
         "why": why,
         "hint": hint,
+        "fix": fix,
     }))
+}
+
+/// What a `policy_unenforceable` refusal of `meta` depends on: its harness, its own policy, its
+/// mode, the daemon's default policy (`default`) and the launch of its harness entry as
+/// configured (`launch_digest`, `Spawn::launch_digest`). A chat refused under one key is refused
+/// again under it (`RefusalLatch`).
+pub(super) fn refusal_key(
+    meta: &SessionMeta,
+    default: PermissionPolicy,
+    launch_digest: &str,
+) -> String {
+    json!([
+        meta.harness,
+        meta.permission_policy,
+        crate::web_modes::mode_of(meta),
+        default.to_string(),
+        launch_digest,
+    ])
+    .to_string()
+}
+
+/// Whether `e` is a `policy_unenforceable` refusal (`unenforceable`).
+pub(super) fn is_unenforceable(e: &RpcError) -> bool {
+    e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
+        == Some("policy_unenforceable")
+}
+
+/// A chat's last `policy_unenforceable` refusal and its `refusal_key` (`Session::policy_refusal`).
+/// Leo, 2026-11-17: "it shouldnt have errored in the first place". A chief chat with its own `ask`
+/// was started again by every wake, every 30 s, and each start spawned its harness, was refused
+/// and logged `wake failed` (3,819 lines in two days). While the key is unchanged a start fails
+/// with the refusal it had, starting nothing and logging nothing (`Hub::ensure_child`); a change
+/// of the chat's policy, mode or harness (or its entry, or the default policy) changes the key,
+/// and the person's own prompt clears it (`Session::person_wrote`), so either tries once more.
+#[derive(Default)]
+pub(crate) struct RefusalLatch(std::sync::Mutex<Option<(String, RpcError)>>);
+
+impl RefusalLatch {
+    /// The refusal held under `key`, or None; one held under another key is dropped.
+    pub(super) fn held(&self, key: &str) -> Option<RpcError> {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        match held.as_ref() {
+            Some((k, e)) if k == key => Some(e.clone()),
+            Some(_) => {
+                *held = None;
+                None
+            }
+            None => None,
+        }
+    }
+
+    /// Holds refusal `e` under `key`. Returns whether it was not held already (the first one).
+    pub(super) fn hold(&self, key: String, e: &RpcError) -> bool {
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let first = held.as_ref().is_none_or(|(k, _)| *k != key);
+        *held = Some((key, e.clone()));
+        first
+    }
+
+    /// Drops the held refusal: the next start tries again.
+    pub(crate) fn clear(&self) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).take();
+    }
 }
 
 /// Whether a chat a remote connection started runs in a mode its narrower policy does not hold:
@@ -832,17 +982,60 @@ mod tests {
     fn a_remote_bridge_start_settles_in_read_only_only_for_a_peer_under_deny_all() {
         let codex = ids(&["ask", "read-only", "agent", "agent-full-access"]);
         let deny_all = Some(PermissionPolicy::DenyAll);
-        assert_eq!(bridge_settle_modes(true, deny_all, &codex), ids(&["read-only"]));
-        assert_eq!(bridge_settle_modes(false, deny_all, &codex), ids(&["ask"]));
-        assert_eq!(bridge_settle_modes(true, deny_all, &ids(&["ask", "agent"])), ids(&["ask"]));
-        assert_eq!(bridge_settle_modes(true, deny_all, &[]), ids(&["ask"]));
+        for vm in [false, true] {
+            assert_eq!(bridge_settle_modes(true, deny_all, &codex, vm), ids(&["read-only"]));
+            assert_eq!(bridge_settle_modes(false, deny_all, &codex, vm), ids(&["ask"]));
+            assert_eq!(
+                bridge_settle_modes(true, deny_all, &ids(&["ask", "agent"]), vm),
+                ids(&["ask"])
+            );
+            assert_eq!(bridge_settle_modes(true, deny_all, &[], vm), ids(&["ask"]));
+        }
         for policy in [
             None,
             Some(PermissionPolicy::Ask),
             Some(PermissionPolicy::ApproveReads),
             Some(PermissionPolicy::ApproveEdits),
         ] {
-            assert_eq!(bridge_settle_modes(true, policy, &codex), ids(&["ask"]), "{policy:?}");
+            assert_eq!(
+                bridge_settle_modes(true, policy, &codex, false),
+                ids(&["ask"]),
+                "{policy:?}"
+            );
+        }
+    }
+
+    /// A Codex chat the owner's peer daemon starts at its VM boundary (a lane VM of its own
+    /// fleet) with approve-all runs in full access, the VM being the boundary, so the lane can
+    /// write its host's wt mirrors, `~/.local/state` and `~/.cache` and reach the daemon's socket
+    /// for `acpmux send`; `ask` (Codex's workspace-write sandbox) only if that is refused. Never
+    /// for a narrower policy, a Web client or paired device, a chat away from the boundary, or a
+    /// harness that offers no full access.
+    #[test]
+    fn a_peer_codex_start_at_the_vm_boundary_runs_in_full_access() {
+        let codex = ids(&["ask", "read-only", "agent", "agent-full-access"]);
+        assert_eq!(
+            bridge_settle_modes(true, None, &codex, true),
+            ids(&["agent-full-access", "ask"])
+        );
+        assert_eq!(bridge_settle_modes(true, None, &codex, false), ids(&["ask"]), "no boundary");
+        assert_eq!(bridge_settle_modes(false, None, &codex, true), ids(&["ask"]), "not the peer");
+        assert_eq!(
+            bridge_settle_modes(true, None, &ids(&["ask", "agent"]), true),
+            ids(&["ask"]),
+            "no full access offered"
+        );
+        for policy in [
+            PermissionPolicy::Ask,
+            PermissionPolicy::ApproveReads,
+            PermissionPolicy::ApproveEdits,
+            PermissionPolicy::Review,
+        ] {
+            assert_eq!(
+                bridge_settle_modes(true, Some(policy), &codex, true),
+                ids(&["ask"]),
+                "{policy:?}"
+            );
         }
     }
 
@@ -872,5 +1065,72 @@ mod tests {
             assert_eq!(policy_mode(policy, "opencode", &ids(&["build", "plan", "ask"])), None);
             assert_eq!(policy_mode(policy, "pi", &[]), None);
         }
+    }
+
+    /// Leo, 2026-11-17: "changed things shouldn't be so weirdly errored. and it shouldnt have
+    /// errored in the first place". A chief chat whose own policy is `ask` is refused with what
+    /// is wrong and the one command that runs it, and a wake under the same key gets the held
+    /// refusal instead of starting its harness again (every 30 s on Leo's Mac); a change of its
+    /// mode, policy or harness entry, or the person's prompt, lets it try once more.
+    #[test]
+    fn a_refused_chat_says_its_fix_and_is_not_started_again_until_it_changes() {
+        let cfg = Config::default();
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "chief-1", "name": "chief", "harness": "chief",
+            "cwd": "/w", "status": "ready", "createdAt": 0, "updatedAt": 0,
+            "permissionPolicy": "ask", "policySource": "set",
+        }))
+        .unwrap();
+        let e = require_enforced(&meta, &cfg).unwrap_err();
+        assert!(is_unenforceable(&e), "{e:?}");
+        assert_eq!(
+            e.message,
+            "Harness chief cannot ask before tools, so a chat on it runs only under permission policy approve-all, and this one's is ask: set its policy to approve-all with `acpmux set chief-1 policy=approve-all`."
+        );
+        let data = e.data.clone().unwrap();
+        assert_eq!(data["fix"], "acpmux set chief-1 policy=approve-all");
+        assert_eq!(data["policy"], "ask");
+        assert_eq!(data["harness"], "chief");
+        assert!(!e.message.contains("did not start"), "{}", e.message);
+        // Being created, the chat is discarded: its fix is the start's flag.
+        let e = require_enforced_as(&meta, &cfg, true).unwrap_err();
+        assert!(e.message.ends_with("start it with `--policy approve-all`."), "{}", e.message);
+        // A harness with a mode that keeps the policy, whose agent did not take it.
+        meta.modes = Some(json!({"currentModeId": "bypassPermissions"}));
+        let refused = Refused {
+            policy: PermissionPolicy::Ask,
+            meta: &meta,
+            wanted: Some("default"),
+            new: false,
+        };
+        let e = unenforceable(&refused, "it does not run in its mode that asks (default)");
+        assert_eq!(
+            e.message,
+            "Harness chief keeps permission policy ask only in its mode default, and its agent stayed in bypassPermissions: set its policy to approve-all with `acpmux set chief-1 policy=approve-all`."
+        );
+        meta.modes = None;
+
+        // The latch: held under its key, dropped when the key changes or the person writes.
+        let latch = RefusalLatch::default();
+        let key = refusal_key(&meta, cfg.permission_policy, "digest");
+        assert!(latch.held(&key).is_none());
+        assert!(latch.hold(key.clone(), &e), "the first refusal is logged");
+        assert!(!latch.hold(key.clone(), &e), "the same refusal again is not");
+        assert_eq!(latch.held(&key).map(|h| h.message), Some(e.message.clone()));
+        assert_eq!(refusal_key(&meta, cfg.permission_policy, "digest"), key, "a wake: same key");
+        let mut moved = meta.clone();
+        moved.permission_policy = Some("approve-all".to_owned());
+        assert!(latch.held(&refusal_key(&moved, cfg.permission_policy, "digest")).is_none());
+        assert!(latch.held(&key).is_none(), "a changed key drops the refusal");
+        latch.hold(key.clone(), &e);
+        moved = meta.clone();
+        moved.modes = Some(json!({"currentModeId": "default"}));
+        assert_ne!(refusal_key(&moved, cfg.permission_policy, "digest"), key, "its mode");
+        assert_ne!(refusal_key(&meta, cfg.permission_policy, "other"), key, "its harness entry");
+        moved = meta.clone();
+        moved.harness = "claude".to_owned();
+        assert_ne!(refusal_key(&moved, cfg.permission_policy, "digest"), key, "its harness");
+        latch.clear();
+        assert!(latch.held(&key).is_none(), "the person's prompt tries again");
     }
 }

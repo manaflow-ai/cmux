@@ -343,6 +343,12 @@ public struct WorkspacesList: View {
         open(workspace)
     }
 
+    /// New Workspace's plain tap (the empty list's button too): `WorkspaceCreator.tapStart`.
+    func createTapStart(on macID: String) {
+        let tap = creator.tapStart(on: macID)
+        create(tap.start, directory: tap.directory, on: macID)
+    }
+
     /// New Task…: opens the composer.
     func startNewTask() { composingTask = true }
 
@@ -661,7 +667,7 @@ public struct WorkspacesList: View {
                 .padding(.bottom, 4)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         // From the screen edge, as the rows: the chevron in their gutter, the
         // name at their titles' x.
         .accessibilityAddTraits(.isHeader)
@@ -877,7 +883,7 @@ public struct WorkspacesList: View {
             .frame(minHeight: 32)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(fold.isForcedOpen || (fold.reason != .offline && reconnect == nil))
         .accessibilityValue(fold.reason == .offline && !fold.isForcedOpen ? (isOpen ? "Expanded" : "Collapsed") : "")
         .background { FrameProbe(id: "fold.\(fold.mac.id)") { rowFrames.rows["fold.\(fold.mac.id)"] = WeakProbe(view: $0) } }
@@ -915,7 +921,7 @@ public struct WorkspacesList: View {
                 title: "No workspaces",
                 message: "New workspaces open right away on \(displayName(target)).",
                 primaryTitle: "New Workspace",
-                primary: { create(.terminal, directory: nil, on: target.id) }
+                primary: { createTapStart(on: target.id) }
             )
             .accessibilityIdentifier("workspaces.empty.all")
         } else {
@@ -982,7 +988,7 @@ public struct WorkspacesList: View {
                 title: "No workspaces on \(displayName(mac))",
                 message: canCreate ? "New workspaces open right away." : "\(displayName(mac)) can't take new workspaces from this iPhone.",
                 primaryTitle: canCreate ? "New Workspace" : nil,
-                primary: canCreate ? { create(.terminal, directory: nil, on: mac.id) } : nil
+                primary: canCreate ? { createTapStart(on: mac.id) } : nil
             )
             .accessibilityIdentifier("workspaces.empty.mac")
         }
@@ -1001,6 +1007,7 @@ public struct WorkspacesList: View {
             showsFilter: macs.count > 1, entries: entries, scope: scope, filterValue: filterValue, target: target,
             showsMacPicker: scope == .all, sameNames: sameNames,
             recents: target.map { creator.recentDirectories(on: $0.id) } ?? [],
+            tap: target.map { creator.tapStart(on: $0.id) },
             options: target.map { creator.options(on: $0.id) }, availableMacs: creator.availableMacs,
             grouping: grouping, canNewGroup: target.map { creator.canCreateGroup(on: $0.id) } ?? false,
             agentDestinations: NewAgentChatDestination.all(creator),
@@ -1106,6 +1113,8 @@ struct WorkspacesToolbar: View, Equatable {
         var showsMacPicker: Bool
         var sameNames: MacNameDisambiguation
         var recents: [String]
+        /// What a plain tap on New Workspace starts on the target Mac (`WorkspaceCreator.tapStart`).
+        var tap: NewWorkspaceTap?
         /// What New Workspace offers on the target Mac, and the Macs it can create on.
         var options: WorkspaceCreationOptions?
         var availableMacs: [MacDevice]
@@ -1136,7 +1145,7 @@ struct WorkspacesToolbar: View, Equatable {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     WorkspacesFilterMenu(model: model, host: host).equatable()
                     NewWorkspaceButton(creator: host.creator, target: model.target, showsMacPicker: model.showsMacPicker,
-                                       sameNames: model.sameNames, recents: model.recents, options: model.options,
+                                       sameNames: model.sameNames, recents: model.recents, tap: model.tap, options: model.options,
                                        macs: model.availableMacs, canNewGroup: model.canNewGroup,
                                        newGroup: { if let id = model.target?.id { host.startNewEmptyGroup(on: id) } },
                                        agentDestinations: model.agentDestinations,
@@ -1858,6 +1867,9 @@ struct NewWorkspaceButton: View, Equatable {
     /// The target Mac's recent directories (`WorkspaceCreator.recentDirectories`),
     /// worked out by the list: the button reads no workspaces itself.
     let recents: [String]
+    /// What a plain tap starts on `target`: an agent chat in its latest project folder when the
+    /// Mac can start one, else a terminal (`WorkspaceCreator.tapStart`, worked out by the list).
+    let tap: NewWorkspaceTap?
     /// What the backend offers on `target`, and the Macs it can create on (from the list).
     let options: WorkspaceCreationOptions?
     let macs: [MacDevice]
@@ -1876,7 +1888,7 @@ struct NewWorkspaceButton: View, Equatable {
     /// Its values, not `creator` or `create` (actions only).
     nonisolated static func == (a: Self, b: Self) -> Bool {
         a.target == b.target && a.showsMacPicker == b.showsMacPicker && a.sameNames == b.sameNames && a.recents == b.recents
-            && a.options == b.options && a.macs == b.macs && a.canNewGroup == b.canNewGroup
+            && a.tap == b.tap && a.options == b.options && a.macs == b.macs && a.canNewGroup == b.canNewGroup
             && a.agentDestinations == b.agentDestinations && a.canStartTask == b.canStartTask
     }
     /// Open Folder…: the typed path, and why the last one was refused.
@@ -1892,7 +1904,8 @@ struct NewWorkspaceButton: View, Equatable {
         } label: {
             Label("New Workspace", systemImage: "square.and.pencil")
         } primaryAction: {
-            create(.terminal, nil)
+            let tap = tap ?? NewWorkspaceTap(start: .terminal, directory: nil)
+            create(tap.start, tap.directory)
         }
         .disabled(target == nil)
         .alert("Open Folder", isPresented: $openingFolder) {
@@ -1913,7 +1926,11 @@ struct NewWorkspaceButton: View, Equatable {
             Text(folderRefusal ?? "")
         }
         .accessibilityIdentifier("workspaces.new")
-        .accessibilityHint(target.map { "Creates a workspace on \(displayName($0))" } ?? "")
+        .accessibilityHint(target.map { mac in
+            tap?.opensAgentChat == true
+                ? "Creates a workspace with an agent chat in \(Self.folderName(tap?.directory ?? "")) on \(displayName(mac))"
+                : "Creates a workspace with a terminal on \(displayName(mac))"
+        } ?? "")
     }
 
     @ViewBuilder private var menu: some View {
@@ -1999,7 +2016,9 @@ struct NewWorkspaceButton: View, Equatable {
     }
 
     @ViewBuilder private func starts(_ options: WorkspaceCreationOptions) -> some View {
-        Button("New Workspace", systemImage: "apple.terminal") { create(.terminal, nil) }
+        // A plain tap opens an agent chat; the terminal stays one item away.
+        Button("New Terminal Workspace", systemImage: "apple.terminal") { create(.terminal, nil) }
+            .accessibilityIdentifier("workspaces.newTerminal")
         ForEach(options.agents.filter { !$0.isEmpty }, id: \.self) { harness in
             Button("New \(Self.agentName(harness)) Workspace", systemImage: "sparkle") { create(.agent(harness), nil) }
         }

@@ -141,10 +141,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "machine consent grant",
-        &[(
-            "Ask to turn control consent on; a shell is refused, the cmux app changes it",
-            "acpmux machine consent grant --control",
-        )],
+        &[
+            (
+                "Ask to turn control consent on; a shell is refused, the cmux app changes it",
+                "acpmux machine consent grant --control",
+            ),
+            (
+                "Turn control consent on as this Mac's admin, with no app or screen",
+                "sudo acpmux machine consent grant --control",
+            ),
+        ],
     ),
     (
         "machine consent revoke",
@@ -210,7 +216,28 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("Pull this machine's vault now", "acpmux machine vault pull"),
             ("See which vault env vars this machine holds", "acpmux machine vault status"),
+            (
+                "Keep a key you made, sent only to its host",
+                "mint-token | acpmux machine vault keep DEPLOY_TOKEN --host api.example.com",
+            ),
         ],
+    ),
+    (
+        "machine vault keep",
+        &[
+            (
+                "Keep a key you made; new agents get cmux-secret://DEPLOY_TOKEN, filled only toward the host",
+                "mint-token | acpmux machine vault keep DEPLOY_TOKEN --host api.example.com",
+            ),
+            (
+                "A key that signs requests itself (an S3 SigV4 secret): give agents the value (weaker)",
+                "mint-secret | acpmux machine vault keep STORAGE_SECRET_ACCESS_KEY --env",
+            ),
+        ],
+    ),
+    (
+        "machine vault drop",
+        &[("Remove a kept key from this machine", "acpmux machine vault drop DEPLOY_TOKEN")],
     ),
     (
         "machine vault pull",

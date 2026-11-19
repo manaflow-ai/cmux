@@ -154,7 +154,7 @@ test("a stopped footer has no Continue even when resume is available", () => {
   // No action (a View Only chat, or not connected): no button.
   expect(renderToStaticMarkup(<TurnFooter row={row} />)).not.toContain("cv-turn-continue");
   // There a folded stopped turn with nothing else to show (no answer and nothing it said to copy)
-  // keeps no line for it. One that said something keeps its Copy row (turns.ts endsChatOnWork).
+  // keeps no line for it. One that said something keeps its Copy row (turns.ts endsOnWork).
   const folded = { ...row, folded: true, text: undefined, turnCopy: undefined };
   expect(renderToStaticMarkup(<TurnFooter row={folded} />)).toContain("cv-turn-actions--empty");
   // A completed turn's footer never draws it, even with the action.

@@ -327,13 +327,13 @@ struct TabStripFollowsPaneTickTests {
         }
     }
 
-    // MARK: (a) split, close, ratio, divider release and column springs: the guard (trace fact 2: the strip follows
-    // these springs already)
+    // MARK: (a) a split's and a close's one frame, and ratio, divider release and column springs: the guard (trace
+    // fact 2: the strip follows these already)
 
-    enum Spring: String, CaseIterable, Sendable {
-        /// Cmd-D on p2: p3 grows in beside it.
+    enum Change: String, CaseIterable, Sendable {
+        /// Cmd-D on p2: p3 shows beside it, in one frame.
         case split
-        /// p2 closes: p1 grows to the column's width.
+        /// p2 closes: p1 takes the column's width, in one frame.
         case close
         /// The split ratio springs from 0.5 to 0.3 (equalize, a width preset, another client's divider drag).
         case ratio
@@ -341,18 +341,27 @@ struct TabStripFollowsPaneTickTests {
         case dividerRelease
         /// Two columns: the first one's width springs from 0.5 to 0.35 of the window, the second one moves.
         case columnWidth
+
+        /// A split and a close are one commit, shown whole by the first frame after them; the other changes spring.
+        var springs: Bool {
+            switch self {
+            case .split, .close: false
+            case .ratio, .dividerRelease, .columnWidth: true
+            }
+        }
     }
 
-    /// In every frame of a split, a close, a ratio spring, a divider release and a column width spring, each strip's
-    /// edges are its pane's and its tabs are laid out at that width, in the tick.
-    @Test(arguments: Spring.allCases)
-    func aPaneSpringKeepsEachStripOnItsPaneInEveryFrame(_ spring: Spring) throws {
-        let rig = spring == .columnWidth
+    /// In every frame of a ratio spring, a divider release and a column width spring, and in the one frame that shows
+    /// a split or a close, each strip's edges are its pane's and its tabs are laid out at that width, in the tick. The
+    /// change's own turn leaves each strip on its pane too (a split and a close show nothing new in it).
+    @Test(arguments: Change.allCases)
+    func aPaneLayoutChangeKeepsEachStripOnItsPaneInEveryFrame(_ change: Change) throws {
+        let rig = change == .columnWidth
             ? Rig(columns: [LayoutColumn(id: "c0", width: 0.5, root: .leaf("p1")), LayoutColumn(id: "c1", width: 0.5, root: .leaf("p2"))], focused: "p1")
             : Rig(.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")), focused: "p2")
         defer { rig.window.closeAfterTest() }
         try #require(rig.strayStrips("at rest").isEmpty, "\(rig.strayStrips("at rest"))")
-        switch spring {
+        switch change {
         case .split:
             rig.model.apply(screens: [Rig.screen(.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"),
                                                          b: .split("y", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3"))))])
@@ -369,8 +378,15 @@ struct TabStripFollowsPaneTickTests {
             rig.model.setColumnWidth("c0", width: 0.35, transaction: .make(), phase: .ended)
         }
         rig.root.syncWithModel()
+        // A split and a close show at the next frame tick: their own turn leaves each strip on its pane.
+        let inTheTurn = change.springs ? [] : rig.strayStrips("the change's turn")
         let (frames, strays) = rig.runMotion()
-        try #require(frames > 3, "the \(spring.rawValue) did not spring (\(frames) frames)")
+        if change.springs {
+            try #require(frames > 3, "the \(change.rawValue) did not spring (\(frames) frames)")
+        } else {
+            #expect(frames == 1, "the \(change.rawValue) did not show in one frame (\(frames) frames)")
+        }
+        #expect(inTheTurn.isEmpty, "the \(change.rawValue)'s own turn left a strip off its pane: \(inTheTurn)")
         #expect(strays.isEmpty, "\(strays.count) strip frames off their pane in \(frames) frames: \(strays.prefix(6))")
     }
 

@@ -44,6 +44,8 @@ final class CEFPaneHost {
     /// API 11): the hidden Chromium window this popup host attaches to its
     /// view when the panel first shows it (`CEFPaneHost+PopupWindows`).
     var popupWindow: Int32?
+    /// Closes `popupWindow`'s tab when no panel attached the window in time (`closeUnattachedPopupWindow`).
+    var popupAttachDeadline: DemandTimer?
 
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
@@ -156,6 +158,7 @@ final class CEFPaneHost {
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !holdsOwnTab { runtime.lastShownHost = self }
+        if hostsExtensionWindows { runtime.lastShownWebHost = self }
         if attachPopupWindowIfNeeded(tab) { return }
         // A tab shown before its browser exists (a new tab, a hibernated one waking) gets it once
         // this turn's frame is committed: building or joining a Chromium window holds the main
@@ -350,6 +353,7 @@ final class CEFPaneHost {
         runtime.extensionStores.store(for: key.profile).refresh()
         runtime.orphans.windowBecameLive(self)
         runtime.spareWindow.windowCameUp(self)
+        runtime.pageSpareWindow?.windowCameUp(self)
         if tabs.contains(where: \.awaitsWindowMove) {
             // Never inside OnAfterCreated (Chromium's tab insertion): moving
             // a tab between tab strips there would re-enter it.
@@ -390,7 +394,7 @@ final class CEFPaneHost {
     /// (`adoptPopup`); `bounds` are its window features.
     func adoptChromiumTab(browser: Int32, disposition: BrowserNewTabDisposition = .foregroundTab, bounds: CGRect? = nil) {
         // The spare window has no pane to announce it to: the tab that takes it adopts it.
-        if isSpare { return runtime.spareWindow.park(browser, disposition: disposition, bounds: bounds) }
+        if let spare = runtime.spareWindowHolding(self) { return spare.park(browser, disposition: disposition, bounds: bounds) }
         let opener = visibleTab ?? tabs.last
         if disposition == .popup { return adoptPopup(browser: browser, bounds: bounds, opener: opener) }
         let tab = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)
@@ -406,6 +410,7 @@ final class CEFPaneHost {
         // Opened by a page: past a new tab's first paint (PageBackground), and
         // Chromium, not us, drives its document, so its page area is its own.
         tab.reachedFirstRealPage(settled: true)
+        tab.replayEarlyEvents()
         tab.inheritDelegates(from: opener)
         opener?.emit(.adoptTab(tab, disposition))
     }
@@ -418,7 +423,7 @@ final class CEFPaneHost {
         // The resize deadline addresses the page window through a live browser of it.
         hostView.layerHosting.windowBrowsersChanged(tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
         // A taken spare whose tab closed before it joined: the spare again.
-        if !holdsOwnTab, tabs.count == 1, placeholder != nil { runtime.spareWindow.giveBack(self, runtime: runtime) }
+        if !holdsOwnTab, tabs.count == 1, placeholder != nil { runtime.spareWindowServing(key)?.giveBack(self, runtime: runtime) }
         if tabs.isEmpty {
             // A spare page no tab took never outlives its window's tabs (`CEFSpareWindow.page`).
             runtime.spareWindow.closePage(in: self)

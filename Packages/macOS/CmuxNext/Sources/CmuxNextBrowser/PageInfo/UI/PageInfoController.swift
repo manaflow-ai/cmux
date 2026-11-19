@@ -114,6 +114,7 @@ public final class PageInfoController {
             model.needsReload = false
             // A site read before opens on its last counts, not on Loading; this opening's read replaces them.
             model.siteData = siteDataMemory.last(for: site)
+            model.siteDataDeleteFailure = nil
             model.certificates = nil
             startObserving()
             loadAsyncData()
@@ -170,7 +171,7 @@ public final class PageInfoController {
             popup.show(size: size, anchor: anchorRect, in: window, preferred: side)
         }
         cardSize = size
-        if let focused, let row = Self.find(focused, in: content) { panel?.makeFirstResponder(row) }
+        if let focused, let row = Self.find(focused, in: content) { FocusRoute(.system, "Page Info rows rendered: keep the focused row").moveKeyboard(in: panel, to: row) }
     }
 
     private static func find(_ identifier: NSUserInterfaceItemIdentifier, in view: NSView) -> NSView? {
