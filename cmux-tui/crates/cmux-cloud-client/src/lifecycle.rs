@@ -179,38 +179,125 @@ impl<S> Pending<S> {
     pub fn revision(&self) -> &str {
         self.state.payload().revision()
     }
+
+    fn into_unknown(self) -> Pending<Unknown>
+    where
+        S: UncertainTransition,
+    {
+        let Pending { state, intent, key } = self;
+        Pending { state: UncertainTransition::uncertain(state), intent, key }
+    }
+}
+
+/// A local conversion used when a mutation answer is ambiguous. The shared
+/// lifeline owns the same transition; this adapter only carries its snapshot
+/// payload through the client wrapper.
+trait UncertainTransition: Sized {
+    fn uncertain(state: Capability<Self>) -> Capability<Unknown>;
+}
+
+macro_rules! uncertain_transition {
+    ($($state:ty),+ $(,)?) => {
+        $(
+        impl UncertainTransition for $state {
+            fn uncertain(state: Capability<Self>) -> Capability<Unknown> {
+                Capability { vm: state.vm.uncertain() }
+            }
+        }
+        )+
+    };
+}
+
+uncertain_transition!(
+    Provisioning,
+    Preclaimed,
+    Claimed,
+    Running,
+    Ready,
+    Attached,
+    Pausing,
+    Paused,
+    Starting,
+    Stopped,
+    Deleting,
+    Failed,
+);
+
+impl UncertainTransition for Unknown {
+    fn uncertain(state: Capability<Self>) -> Capability<Unknown> {
+        state
+    }
+}
+
+/// The authoritative observation and original mutation identity after an
+/// ambiguous answer has been reconciled.
+#[derive(Debug)]
+pub struct Reconciled {
+    observed: ObservedMachine,
+    intent: Intent,
+    key: String,
+}
+
+impl Reconciled {
+    /// Consume the reconciliation result for typed state matching and retry.
+    pub fn into_parts(self) -> (ObservedMachine, Intent, String) {
+        (self.observed, self.intent, self.key)
+    }
+}
+
+impl Pending<Unknown> {
+    /// Reconcile this subject with a fresh authoritative Cloud record. No
+    /// lifecycle action is available on `Unknown` until this succeeds.
+    pub fn reconcile(self, record: CloudMachine) -> Result<Reconciled, ObserveError> {
+        let scope = self.state.machine().scope().clone();
+        let observed = observe(&scope, record)?;
+        Ok(Reconciled { observed, intent: self.intent, key: self.key })
+    }
 }
 
 /// A mutation failure that keeps the consumed capability available for a
 /// deliberate retry or cleanup action.
 #[derive(Debug)]
 pub enum MutationError<S> {
-    /// The request was refused, unreadable, or got no answer. The same key is
-    /// safe to retry when `source.retryable` is true; it is always retained so
-    /// an indeterminate network outcome cannot silently lose the handle.
+    /// The request was refused before the provider could have committed it.
     Api { pending: Pending<S>, source: ApiError },
+    /// The provider may have committed the mutation. The stable capability was
+    /// consumed into `Unknown`; reconcile it before another live operation.
+    Uncertain { pending: Pending<Unknown>, source: ApiError },
 }
 
 impl<S> MutationError<S> {
-    /// The retained mutation and its source error.
-    pub fn parts(&self) -> (&Pending<S>, &ApiError) {
+    /// The underlying transport or refusal error.
+    pub fn source(&self) -> &ApiError {
         match self {
-            Self::Api { pending, source } => (pending, source),
+            Self::Api { source, .. } | Self::Uncertain { source, .. } => source,
         }
     }
 
-    /// Consume the failure and recover the retryable operation state.
-    pub fn into_parts(self) -> (Pending<S>, ApiError) {
+    /// Consume the failure and recover either stable or uncertain state.
+    pub fn into_parts(self) -> MutationErrorParts<S> {
         match self {
-            Self::Api { pending, source } => (pending, source),
+            Self::Api { pending, source } => MutationErrorParts::Api { pending, source },
+            Self::Uncertain { pending, source } => {
+                MutationErrorParts::Uncertain { pending, source }
+            }
         }
     }
+}
+
+/// Owned state returned when consuming a [`MutationError`].
+#[derive(Debug)]
+pub enum MutationErrorParts<S> {
+    /// The mutation was refused without an ambiguous provider outcome.
+    Api { pending: Pending<S>, source: ApiError },
+    /// The mutation may have committed and must be reconciled first.
+    Uncertain { pending: Pending<Unknown>, source: ApiError },
 }
 
 impl<S> std::fmt::Display for MutationError<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Api { source, .. } => source.fmt(f),
+            Self::Api { source, .. } | Self::Uncertain { source, .. } => source.fmt(f),
         }
     }
 }
@@ -310,6 +397,21 @@ pending_delete_retry!(
     Unknown,
 );
 
+fn mutation_error<S: UncertainTransition>(
+    pending: Pending<S>,
+    source: ApiError,
+) -> MutationError<S> {
+    // A transport failure, proxy/server failure, or malformed success answer
+    // can occur after the provider accepted the mutation. Keep the original
+    // identity and key, but consume its stable capability into Unknown.
+    let ambiguous = source.status.is_none() || source.status.is_some_and(|status| status >= 500);
+    if ambiguous {
+        MutationError::Uncertain { pending: pending.into_unknown(), source }
+    } else {
+        MutationError::Api { pending, source }
+    }
+}
+
 /// A wire-op transport bound to one backend and team scope.
 #[derive(Debug, Clone)]
 pub struct LifecycleClient {
@@ -335,7 +437,7 @@ impl LifecycleClient {
         &self.scope
     }
 
-    async fn pause_impl<S>(
+    async fn pause_impl<S: UncertainTransition>(
         &self,
         state: Capability<S>,
         key: impl Into<String>,
@@ -361,14 +463,14 @@ impl LifecycleClient {
         .await
         {
             Ok(answer) => answer,
-            Err(source) => return Err(MutationError::Api { pending, source }),
+            Err(source) => return Err(mutation_error(pending, source)),
         };
         let (record, revision) = match mutation_value(answer) {
             Ok(value) => value,
-            Err(source) => return Err(MutationError::Api { pending, source }),
+            Err(source) => return Err(mutation_error(pending, source)),
         };
         pause_response(&self.scope, &expected, record.machine, revision)
-            .map_err(|source| MutationError::Api { pending, source })
+            .map_err(|source| mutation_error(pending, source))
     }
 
     async fn resume_impl(
@@ -397,17 +499,17 @@ impl LifecycleClient {
         .await
         {
             Ok(answer) => answer,
-            Err(source) => return Err(MutationError::Api { pending, source }),
+            Err(source) => return Err(mutation_error(pending, source)),
         };
         let (record, revision) = match mutation_value(answer) {
             Ok(value) => value,
-            Err(source) => return Err(MutationError::Api { pending, source }),
+            Err(source) => return Err(mutation_error(pending, source)),
         };
         resume_response(&self.scope, &expected, record.machine, revision)
-            .map_err(|source| MutationError::Api { pending, source })
+            .map_err(|source| mutation_error(pending, source))
     }
 
-    async fn delete_impl<S: DeleteTransition>(
+    async fn delete_impl<S: DeleteTransition + UncertainTransition>(
         &self,
         state: Capability<S>,
         key: impl Into<String>,
@@ -432,11 +534,11 @@ impl LifecycleClient {
         .await
         {
             Ok(answer) => answer,
-            Err(source) => return Err(MutationError::Api { pending, source }),
+            Err(source) => return Err(mutation_error(pending, source)),
         };
         let (_, revision) = match mutation_value(answer) {
             Ok(value) => value,
-            Err(source) => return Err(MutationError::Api { pending, source }),
+            Err(source) => return Err(mutation_error(pending, source)),
         };
         let mut vm = S::delete(pending.state).vm.deleted();
         vm.payload_mut().revision = revision;
@@ -683,7 +785,9 @@ mod tests {
             panic!("running status")
         };
         let error = capability.pause(&client, "ck_foreign").await.expect_err("foreign handle");
-        let (_, source) = error.into_parts();
+        let MutationErrorParts::Api { source, .. } = error.into_parts() else {
+            panic!("a foreign handle is a local refusal")
+        };
         assert_eq!(source.code.as_deref(), Some("cloud.client.unreadable"));
         assert!(source.status.is_none(), "the foreign handle was rejected locally");
     }
@@ -736,7 +840,9 @@ mod tests {
         let observed = observe(&scope, record("running", "7")).expect("running");
         let ObservedMachine::Running(capability) = observed else { panic!("running status") };
         let error = capability.pause(&client, "ck_lost").await.expect_err("lost answer");
-        let (pending, source) = error.into_parts();
+        let MutationErrorParts::Uncertain { pending, source } = error.into_parts() else {
+            panic!("a lost answer must consume the stable capability")
+        };
         assert_eq!(pending.key(), "ck_lost");
         assert_eq!(pending.revision(), "7");
         assert_eq!(pending.intent(), Intent::Pause);
@@ -744,5 +850,11 @@ mod tests {
         let request = seen_rx.await.expect("request captured");
         assert!(request.contains("\"idempotency_key\":\"ck_lost\""));
         assert!(request.contains("\"expected_revision\":\"7\""));
+
+        let (reconciled, intent, key) =
+            pending.reconcile(record("pausing", "8")).unwrap().into_parts();
+        assert_eq!(intent, Intent::Pause);
+        assert_eq!(key, "ck_lost");
+        assert!(matches!(reconciled, ObservedMachine::Pausing(_)));
     }
 }
