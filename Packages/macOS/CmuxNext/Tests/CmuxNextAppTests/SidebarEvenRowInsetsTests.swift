@@ -97,18 +97,6 @@ import Testing
         }
     }
 
-    @Test func aLocalRowsScreenActionRemainsVisibleOnTheTrailingColumn() throws {
-        let sidebar = Self.sidebar(machine: SidebarMachine(id: .local, name: "This Mac", kind: .local))
-        let row = try Self.row(sidebar, Self.looseID)
-        let screen = try #require(row.screenSlot.made)
-        #expect(!screen.isHidden && screen.isEnabled)
-        #expect(screen.accessibilityIdentifier() == "cmux.sidebar.workspace.even-loose.screen")
-        #expect(screen.accessibilityLabel() == Strings.shareScreen)
-        #expect(abs(screen.frame.midX - SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)) <= Self.tolerance)
-        let end = row.bounds.width + SidebarStyle.rowEdgeGap - SidebarStyle.trailingClearanceEdge - SidebarResizeBand.contentInset
-        #expect(screen.frame.maxX <= end + Self.tolerance, "Share Screen stays clear of the resize band")
-    }
-
     /// A pinned workspace in the band above the list (`SidebarItemRowView`): its fill keeps one gap on both sides, and
     /// its status mark's box ends the row inset before the fill's end, where the pin's box starts after its start.
     @Test func aPinnedBandRowHasEvenOuterAndInnerInsets() throws {

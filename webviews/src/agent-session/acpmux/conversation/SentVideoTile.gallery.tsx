@@ -201,8 +201,16 @@ export default componentEntry<Props>({
       chipHost: { videos: { [PATH]: VIDEO_INFO } },
     },
     "video-placed": {
-      note: "A recording placed in the text: its tile sits where it was put.",
+      note: 'Leo, 2026-11-17: "Attachments render inline in the middle of the text line, at odd sizes. Put them in a block above the text." A recording placed in the text: its tile in the block above the bubble, the words one plain flow below.',
       props: { typed: "Open the sidebar:", screenshot: false, placed: true },
+    },
+    "video-and-screenshot-placed-mid-sentence": {
+      note: "A screenshot and a recording placed mid-sentence: both in one block above the bubble, each at the sent tile's height, the sentence whole below.",
+      props: { typed: "Open the sidebar:", screenshot: true, placed: true },
+    },
+    "video-placed-loading": {
+      note: "The same while acpmux reads the poster and the screenshot: each tile's box is its final one from the first frame, so nothing moves when they land.",
+      props: { typed: "Open the sidebar:", screenshot: true, placed: true, pending: true },
     },
   },
 });
