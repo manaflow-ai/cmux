@@ -1050,18 +1050,34 @@ class RePinPublication(unittest.TestCase):
         # with that same pin, cancelling every job and starting its CI over, while the base's pin stayed ~26 h
         # behind (goal fix-running-ffi-pin). A move that changes no pin only restarts CI: next-autoland compiles the
         # combined tip, so a stale base needs no rebase. Only a failed check of its own or a conflict moves it.
+        # Kept: under the cap whatever its checks show (mergeable true or still computing); past the cap while a
+        # check still runs. Moved: a failed check of its own, a conflict, or past the cap with nothing running (a
+        # cancelled check that never runs again would otherwise hold it forever).
+        cases = {
+            "under the cap, no check running": ({"head_age_min": 200}, True),
+            "under the cap, mergeable still computing": ({"head_age_min": 200, "mergeable": None}, True),
+            "under the cap, only a cancelled check": ({"head_age_min": 200, "checks": ("cancelled",)}, True),
+            "past the cap, a check running": ({"head_age_min": 633, "checks": ("success", None)}, True),
+            "past the cap, nothing running": ({"head_age_min": 633, "checks": ("success", "cancelled")}, False),
+            "a failed check of its own": ({"head_age_min": 200, "checks": ("failure", None)}, False),
+            "conflicting": ({"head_age_min": 200, "checks": ("success", None), "mergeable": False}, False),
+        }
         for name, same in {"the same inputs": [[self.PR_PIN, self.NEWEST]], "the picked release itself": []}.items():
             pr_pin = self.PR_PIN if same else self.NEWEST
-            for mergeable in (True, None):
-                with self.subTest(name, mergeable=mergeable):
-                    result, state = self.run_repin(same_inputs=same, pr_files=self.pr_head(pr_pin),
-                                                   head_age_min=633, mergeable=mergeable)
+            for case, (options, kept) in cases.items():
+                options = {"mergeable": True, **options}
+                with self.subTest(name, case=case):
+                    result, state = self.run_repin(same_inputs=same, pr_files=self.pr_head(pr_pin), **options)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertIn("kept #1 at cccccccccccc", result.stdout)
-                    self.assertIn("already pins", result.stdout)
-                    self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
-                    self.assertEqual(state["published"], [])
-                    self.assertEqual(state["writes"], 0)
+                    if kept:
+                        self.assertIn("kept #1 at cccccccccccc", result.stdout)
+                        self.assertIn("already pins", result.stdout)
+                        self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
+                        self.assertEqual(state["published"], [])
+                        self.assertEqual(state["writes"], 0)
+                    else:
+                        self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+                        self.assertIn("verified open", result.stdout)
 
     def test_a_head_past_the_hold_whose_ci_still_runs_is_kept_up_to_the_cap(self):
         # 2026-11-19: the re-pin PR's CI took over 2 h under load and FFI releases came about hourly, so a head moved
@@ -1073,6 +1089,8 @@ class RePinPublication(unittest.TestCase):
             "past the hold, CI running, a failure of its own": ({"head_age_min": 200,
                                                                "checks": ("failure", None)}, False),
             "past the cap, CI running": ({"head_age_min": 361, "checks": ("success", None)}, False),
+            "past the hold, CI running, conflicting": ({"head_age_min": 200, "checks": ("success", None),
+                                                       "mergeable": False}, False),
         }
         for name, (options, kept) in cases.items():
             with self.subTest(name):

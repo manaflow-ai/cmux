@@ -241,10 +241,16 @@ held_pr() {
   # the same pin, and the move only cancels its CI and starts it over. 2026-11-19: #46990's head 82647df8 pinned
   # cmux-app-ffi-db4a10c2, its CI queued 10 h on starved pools, and run 44466053157 moved it past the hold to
   # 55a8bbd3 with that same pin while the base's pin stayed about 26 h behind. A stale base is not a reason either:
-  # next-autoland compiles the combined tip. So such a head is held at any age, unless GitHub calls it conflicting
-  # (mergeable false; null is still computing) or a check of its own failed (below).
-  if [[ -n "$pr_pin" && "$pr_pin" == "$pin_sha" && "$mergeable" != false ]]; then
+  # next-autoland compiles the combined tip. So such a head is held up to REPIN_HOLD_MAX_MIN whatever its checks show,
+  # and past it while a check still runs, unless a check of its own failed (below). Past the cap with nothing running
+  # (a cancelled check that never runs again) it is moved, so the move's fresh CI can finish.
+  if [[ -n "$pr_pin" && "$pr_pin" == "$pin_sha" ]]; then
     same_pin=1
+  fi
+  # A head GitHub calls conflicting (mergeable false; null is still computing) cannot land: past the hold it moves.
+  if [[ "$mergeable" == false ]] && (( age >= hold_min )); then
+    echo "#$number's head ${previous:0:12} is $age min old (hold $hold_min min) and conflicts with feat-cmux-next: moving it" >&2
+    return 1
   fi
   # Past the hold, a head is still kept while its CI runs: a check run at the head with no conclusion yet (queued or
   # in progress) and none of its own failed. The re-pin PR's CI takes 2 h and more under load, longer than the hold
@@ -266,7 +272,8 @@ held_pr() {
   # head's run with it: on 2026-11-17 #45149's head df6ee657 had its size budget checks cancelled at 08:01Z, a minute
   # after its push, and at 08:53Z re-pin run 44042861860 moved it for "8 failed check(s) of its own" while its Mac jobs
   # had been queued 47 minutes. The move cancelled those, the CI started over, and feat-cmux-next stayed red on "Check
-  # the app FFI pin". A head whose cancelled check never runs again is still moved once it is older than the hold.
+  # the app FFI pin". A head whose cancelled check never runs again is still moved: past the hold once nothing runs,
+  # or for a head that already pins the release, past REPIN_HOLD_MAX_MIN once nothing runs.
   check_runs() {
     GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
       python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$1/check-runs"
@@ -294,7 +301,7 @@ held_pr() {
     echo "#$number's head ${previous:0:12} has $failed failed check(s) of its own: moving it" >&2
     return 1
   fi
-  if [[ -n "$same_pin" ]] && (( age >= hold_min )); then
+  if [[ -n "$same_pin" ]] && (( age >= hold_min )) && (( age < hold_max_min || running > 0 )); then
     echo "kept #$number at ${previous:0:12}: pushed $age min ago (past the $hold_min min hold), but it already pins $TAG and no check of its own failed; a move would only restart its CI"
     return 0
   fi
