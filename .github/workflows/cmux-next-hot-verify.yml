@@ -378,7 +378,7 @@ jobs:
     # comes (the engine's receipt then says the apply failed).
     if: ${{ !cancelled() && needs.target.outputs.ok == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' && (needs.rust.result == 'success' || needs.rust.result == 'skipped') }}
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
-    timeout-minutes: 75
+    timeout-minutes: 240
     permissions:
       contents: read
     outputs:
@@ -419,8 +419,14 @@ jobs:
             echo "result=skipped" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # The client waits for a Mac as long as the controller's 24 h p90 queue wait for class light (its /v1/status),
+          # 30 min to 3 h; 30 min when unreadable. A fixed 30 min gave up on more than one look in ten: 77 looks on
+          # 2026-11-18 waited 13 s p50 but 6087 s p90 (hq docs/handbook/deadline-counts-queue-wait.md).
+          curl -fsS --retry 2 --max-time 30 "$CONTROLLER/v1/status" -o "$RUNNER_TEMP/status.json" || true
+          queue_bound="$(python3 scripts/cmux-next/hot-verify-ci.py queue-bound "$RUNNER_TEMP/status.json")"
+          say "hot verify: waiting up to ${queue_bound}s for a fleet Mac"
           # One fleet step per PR head. A look step runs about 2.5 min but waits 18 min p50 and 2 h p90 for a Mac
-          # (297 looks, 2026-11-17), and the client stops waiting at 30 min. Under one key per head, `look again` and
+          # (297 looks, 2026-11-17), and the client stops waiting at the bound above. Under one key per head, `look again` and
           # any later run for the head rejoin the queued step where it stands, or take its out.tar when it ran after
           # the last client left (the controller returns the step a key made, whatever its state). A step under that
           # key that already ended without a result answers at once; the look then runs a fresh one under this run's key.
@@ -439,7 +445,7 @@ jobs:
             # Streamed into look.log as it comes: the cancelled-look step reads the step id from it mid-wait.
             "$client" run --class light --repo manaflow-ai/cmuxterm-hq --ref "$2" \
               --script build-fleet/pr_capture/fleet-step-hot-verify.sh --display --artifact out.tar --key "$1" \
-              --timeout 2400 --queue-timeout 1800 "${args[@]}" 2>&1 | tee -a "$log" "$RUNNER_TEMP/look.part" || status=${PIPESTATUS[0]}
+              --timeout 2400 --queue-timeout "$queue_bound" "${args[@]}" 2>&1 | tee -a "$log" "$RUNNER_TEMP/look.part" || status=${PIPESTATUS[0]}
             step="$(grep -o -E 'step [0-9a-f]{24}' "$RUNNER_TEMP/look.part" | head -1 | cut -d' ' -f2 || true)"
             rm -f "$RUNNER_TEMP/look/out.tar"
             if [[ -n "$step" ]]; then
@@ -522,7 +528,7 @@ jobs:
   # (3 decliners fail a step), a worker that stopped renewing its lease, and a reserved mini whose gateway runner
   # took 8 looks in 20 minutes and refused each one. Nothing else starts a look again, so each such look was
   # lost for good. A look's own verdict (needs a build, failed shots) comes back in out.tar and is never retried.
-  # A look its 75 min timeout stopped ends `cancelled`, not `failure`, and is as lost, so it looks again too; a
+  # A look its 240 min timeout stopped ends `cancelled`, not `failure`, and is as lost, so it looks again too; a
   # person's cancel or a newer head's run cancels the whole run, which `!cancelled()` keeps out.
   # Once: the retry carries attempt=1, and a newer head's run replaces it (the concurrency group).
   again:

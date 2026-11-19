@@ -441,6 +441,11 @@ fleet_start_sim; fleet_finish_sim; echo "STEP=$SIM_STEP"''', {'CMUX_CI': str(ci)
         self.assertIn(f'handoff={TAG}', args)
         self.assertIn(f'cnx-ios-handoff-{TAG}-{SHA[:12]}', args)
         self.assertEqual(args[-2:], ['--target-worker', 'aws-m4pro-3'])
+        # The session is sealed from this Mac (hq build-fleet sign_in) and delivered while cmux-ci run
+        # follows the step: no worker label, and never detached.
+        self.assertIn('--sign-in agent', ' '.join(args))
+        self.assertNotIn('--label', args)
+        self.assertNotIn('--detach', args)
 
     def test_an_unreviewed_step_script_is_named_as_the_blocker(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -472,6 +477,42 @@ fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"''', {'CMUX_CI': str(
         self.assertIn("-destination 'generic/platform=iOS'", text)
         self.assertIn('CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=7WLXT3NR37', text)
 
+    def test_handoff_check_uses_the_submitters_session(self):
+        text = SIM.read_text()
+        start = text.index('  handoff_check() {')
+        body = text[start:text.index('\n  }\n', start)]
+        self.assertIn('source scripts/lib/fleet-signin-session.sh', text)
+        self.assertIn('cmux_fleet_signin_load || { handoff_sim_reason="$CMUX_FLEET_SIGNIN_ERROR"; return 1; }', body)
+        self.assertIn('account="$CMUX_FLEET_SIGNIN_EMAIL"', body)
+        self.assertIn('cmux_fleet_signin_simctl --set "$sims" launch "$udid" "$bundle_id"', body)
+        self.assertIn('cmux_fleet_signin_forget', body)
+        for gone in ('ios-agent-stack.env', 'ios-agent-signin', 'stat -f', 'CMUX_MOBILE_STACK_PASSWORD',
+                     'CMUX_MOBILE_STACK_EMAIL', 'env-value'):
+            self.assertNotIn(gone, body)
+
+    def test_the_session_reaches_only_the_auto_login_launch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            f = Path(temp) / 'session.json'
+            f.write_text(json.dumps({'profile': 'agent', 'email': 'agent@example.com', 'project': 'p',
+                                     'refresh_token': 'rt-secret'}))
+            f.chmod(0o600)
+            bin_dir = Path(temp) / 'bin'
+            bin_dir.mkdir()
+            (bin_dir / 'xcrun').write_text('#!/bin/sh\necho "TOKEN=$SIMCTL_CHILD_CMUX_MOBILE_STACK_REFRESH_TOKEN ARGS=$*"\n')
+            (bin_dir / 'xcrun').chmod(0o755)
+            r = bash(f'''PATH="{bin_dir}:$PATH"; source "{ROOT}/scripts/lib/fleet-signin-session.sh"
+cmux_fleet_signin_load || {{ echo "ERR $CMUX_FLEET_SIGNIN_ERROR"; exit 1; }}
+echo "EMAIL=$CMUX_FLEET_SIGNIN_EMAIL"; cmux_fleet_signin_simctl --set S launch U B
+env | grep -c rt-secret || true; cmux_fleet_signin_forget; cmux_fleet_signin_simctl launch U B || echo FORGOTTEN''',
+                     {'CMUX_CI_SIGNIN_FILE': str(f)})
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn('EMAIL=agent@example.com', r.stdout)
+            self.assertIn('TOKEN=rt-secret ARGS=simctl --set S launch U B', r.stdout)
+            self.assertIn('\n0\n', r.stdout)
+            self.assertIn('FORGOTTEN', r.stdout)
+            r = bash(f'source "{ROOT}/scripts/lib/fleet-signin-session.sh"; cmux_fleet_signin_load || echo "ERR $CMUX_FLEET_SIGNIN_ERROR"', {})
+            self.assertIn('ERR no CMUX_CI_SIGNIN_FILE: send the step with cmux-ci run --sign-in agent', r.stdout)
+
     def test_the_tagged_mac_starts_without_this_shells_environment(self):
         with tempfile.TemporaryDirectory() as temp:
             bin_dir = Path(temp) / 'bin'
@@ -488,7 +529,8 @@ mac_open''', {'CMUX_NEXT_CLOUD_ENV': 'prod', 'CMUX_NEXT_CLOUD_BACKEND': 'https:/
 
     def test_review_never_builds_or_boots_a_simulator_here(self):
         text = REVIEW.read_text()
-        self.assertIn('--label ios-agent-signin', text)
+        self.assertIn('--sign-in agent', text)
+        self.assertNotIn('ios-agent-signin', text)
         for word in ('xcodebuild', 'simctl', 'swift build', 'cargo '):
             self.assertNotIn(word, text)
         self.assertIn('CMUX_SANCTIONED_IPHONE_INSTALL=1 xcrun devicectl device install app', text)
