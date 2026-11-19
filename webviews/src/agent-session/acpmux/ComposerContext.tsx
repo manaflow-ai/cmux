@@ -106,7 +106,7 @@ type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Session = AcpmuxSnapshot["sessions"][number];
 const NO_SESSIONS: readonly Session[] = [];
 /// What the machine and folder lists read of a chat (`availableComputers`, `availableFolders`).
-const placeFields = (session: Session): readonly unknown[] => [
+export const placeFields = (session: Session): readonly unknown[] => [
   session.cwd,
   session.peer,
   session.hostKind,

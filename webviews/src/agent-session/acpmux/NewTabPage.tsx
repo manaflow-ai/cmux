@@ -19,7 +19,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel } from "./sessionList";
+import { firstProject, homePath, localFolderKey, NewestFolders, projectLabel } from "./sessionList";
 import { useT } from "./i18n";
 import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
@@ -42,7 +42,7 @@ import {
   NEW_TAB_LABELS,
   prefixedEdit,
   cycleKind,
-  recentSessions,
+  RecentChats,
 } from "./newTabModel";
 
 function escapedLiteral(value: string): string {
@@ -197,14 +197,23 @@ export function NewTabPage({
       browsePending.current = false;
     }
   };
+  // The chats' folders newest first (sessionList.ts `NewestFolders`) and the recent rows
+  // (newTabModel.ts `RecentChats`), each kept at the cost of the chats that changed: a key typed, or a
+  // chat working elsewhere, costs this page no pass over every listed chat
+  // (test/new-tab-no-whole-list-passes.test.tsx).
+  const lists = useRef<{ folders: NewestFolders; recent: RecentChats } | null>(null);
+  lists.current ??= { folders: new NewestFolders(localFolderKey), recent: new RecentChats() };
+  const localFolders = lists.current.folders.of(snapshot.sessions);
+  const newestProject = useMemo(
+    () => (home ? firstProject(localFolders, home, knownProjects) : undefined),
+    [localFolders, home, knownProjects],
+  );
   const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
   const projectCwd =
     picked ??
     (isStartableProject(cwd) || !home
       ? cwd
-      : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
-        mostRecentProject(snapshot.sessions, home, knownProjects) ??
-        cwd));
+      : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ?? newestProject ?? cwd));
   // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
   // folder by itself (cmux#40938: a Codex pick then started in the home folder, which the pane
   // refuses). None: the host starts the chat in its own start folder. A terminal still opens in
@@ -360,7 +369,8 @@ export function NewTabPage({
   queryRef.current = query;
   const open = focused && query.trim() !== "" && query !== dismissed;
   // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
-  const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
+  const recentChats = lists.current.recent;
+  const recent = useMemo(() => (open ? recentChats.of(snapshot.sessions) : []), [open, recentChats, snapshot.sessions]);
   const rows = useMemo(
     () =>
       open

@@ -625,6 +625,91 @@ export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limi
   return [...folders];
 }
 
+/// The folder `recentLocalFolders` lists a chat under, or undefined for one it leaves out.
+export function localFolderKey(session: AcpmuxSessionEntry): string | undefined {
+  const cwd = session.cwd?.replace(/\/+$/, "");
+  if (!cwd || cwd === "~" || isAgentHome(cwd)) return undefined;
+  return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session) ? cwd : undefined;
+}
+
+/// The folders of a chat list, newest chat first, each once (`key` names a chat's folder, undefined
+/// for a chat left out): what sorting every chat by activity and keeping each folder's first gives
+/// (``recentLocalFolders``), kept up to date at the cost of the chats that changed. A list made in
+/// place from the last one (sessionIndex.ts `noteReplaced`) where each changed chat stays in its
+/// folder and only moves forward in time, as a working chat does on each of its events, moves one
+/// folder up the list: O(folders), never a pass over every chat. Anything else (a chat added,
+/// removed, moved to another folder or back in time) sorts again.
+export class NewestFolders {
+  private last: readonly AcpmuxSessionEntry[] | undefined;
+  /// Each folder's newest chat: its activity and its place in the list (the earlier wins a tie, as
+  /// the stable sort keeps it).
+  private best = new Map<string, { at: number; position: number }>();
+  private order: string[] = [];
+  private shown: readonly string[] = [];
+
+  constructor(private readonly key: (session: AcpmuxSessionEntry) => string | undefined) {}
+
+  of(sessions: readonly AcpmuxSessionEntry[]): readonly string[] {
+    if (sessions === this.last) return this.shown;
+    const previous = this.last;
+    const replaced = previous && previous.length === sessions.length ? replacedSince(previous, sessions) : undefined;
+    this.last = sessions;
+    if (!replaced || !this.patch(previous!, sessions, replaced)) this.rebuild(sessions);
+    return this.shown;
+  }
+
+  private rebuild(sessions: readonly AcpmuxSessionEntry[]): void {
+    this.best = new Map();
+    sessions.forEach((session, position) => {
+      const folder = this.key(session);
+      if (folder === undefined) return;
+      const at = activityTime(session) ?? 0;
+      const kept = this.best.get(folder);
+      if (!kept || at > kept.at) this.best.set(folder, { at, position });
+    });
+    this.order = [...this.best.keys()].sort((a, b) => this.before(a, b));
+    this.shown = [...this.order];
+  }
+
+  /// Applies the chats replaced at `positions`; false when one needs a whole sort.
+  private patch(
+    previous: readonly AcpmuxSessionEntry[],
+    sessions: readonly AcpmuxSessionEntry[],
+    positions: readonly number[],
+  ): boolean {
+    let moved = false;
+    for (const position of positions) {
+      const before = previous[position];
+      const after = sessions[position];
+      if (!before || !after) return false;
+      const was = this.key(before);
+      const now = this.key(after);
+      if (was === undefined && now === undefined) continue;
+      if (was !== now) return false;
+      const at = activityTime(after) ?? 0;
+      if (at < (activityTime(before) ?? 0)) return false;
+      const kept = this.best.get(now!);
+      if (!kept) return false;
+      if (at < kept.at || (at === kept.at && position >= kept.position)) continue;
+      this.best.set(now!, { at, position });
+      // One folder moves up: out of its place, into the first place it now sorts before.
+      this.order.splice(this.order.indexOf(now!), 1);
+      let index = 0;
+      while (index < this.order.length && this.before(this.order[index]!, now!) < 0) index += 1;
+      this.order.splice(index, 0, now!);
+      moved = true;
+    }
+    if (moved) this.shown = [...this.order];
+    return true;
+  }
+
+  private before(a: string, b: string): number {
+    const left = this.best.get(a)!;
+    const right = this.best.get(b)!;
+    return right.at - left.at || left.position - right.position;
+  }
+}
+
 /// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with
 /// `known` (the host's project list; absent or empty is not loaded yet) one in it. `null`: the host
 /// answered and lists no project (every one removed or missing), so no folder is one.

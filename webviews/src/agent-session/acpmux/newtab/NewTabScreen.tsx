@@ -22,10 +22,19 @@ import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../newTabModel";
 import { acpmuxPerf } from "../perf";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
-import { ComposerContext } from "../ComposerContext";
+import { ComposerContext, placeFields } from "../ComposerContext";
 import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
-import { firstProject, homePath, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
+import {
+  firstProject,
+  homePath,
+  isAgentHome,
+  localFolderKey,
+  NewestFolders,
+  projectLabel,
+  SessionsBy,
+  sessionMark,
+} from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
 import { NewProjectName, NewProjectFailure, NewProjectUnsupported } from "./NewProjectName";
@@ -73,7 +82,7 @@ import { Spinner } from "../conversation/icons";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
-import { listingWanted, omnibarFolders } from "./launchRows";
+import { listingWanted, omnibarFolderKey, omnibarFoldersFrom } from "./launchRows";
 import { type CompleteFolder, useFolderListing } from "./omnibarReads";
 import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
@@ -444,9 +453,23 @@ export function NewTabScreen(props: Props) {
   }, [props.startMachine]);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
   const startsRecent = !picked && folderless && !props.startCwd;
+  // What the page reads of the chats, kept at the cost of the chats that changed, never a pass over
+  // every listed chat on a key or on another chat's event (test/new-tab-no-whole-list-passes.test.tsx):
+  // the folders newest first, for the recent project (`localFolderKey`) and the field's completions
+  // (`omnibarFolderKey`), and the chats as the location strip's machine lists read them
+  // (`placeFields`: the same list while only another field of a chat changes).
+  const chatLists = useRef<{ local: NewestFolders; bar: NewestFolders; places: SessionsBy } | null>(null);
+  chatLists.current ??= {
+    local: new NewestFolders(localFolderKey),
+    bar: new NewestFolders(omnibarFolderKey),
+    places: new SessionsBy(placeFields),
+  };
+  const localFolders = chatLists.current.local.of(snapshot.sessions);
+  const chatFolders = chatLists.current.bar.of(snapshot.sessions);
+  const placeSessions = chatLists.current.places.of(snapshot.sessions);
   const candidate = useMemo(
-    () => (startsRecent ? mostRecentProject(snapshot.sessions, home, props.knownProjects) : undefined),
-    [startsRecent, snapshot.sessions, home, props.knownProjects],
+    () => (startsRecent ? firstProject(localFolders, home, props.knownProjects) : undefined),
+    [startsRecent, localFolders, home, props.knownProjects],
   );
   // Decided once, as the page mounts (Leo 2026-10-19: the first frame showed "Choose folder", then
   // flipped to the recent project): the newest in the chats the page already has, else the newest a
@@ -1019,10 +1042,7 @@ export function NewTabScreen(props: Props) {
   // The omnibar's agent sources (launchRows.ts): the folders and agents it starts. A typed path's
   // folder listing answers later (omnibarReads.ts), never in the keystroke's turn.
   const barText = touched && !shell && !commandTyping && !profilePick ? typed : "";
-  const barFolders = useMemo(
-    () => omnibarFolders(props.projects, snapshot.sessions),
-    [props.projects, snapshot.sessions],
-  );
+  const barFolders = useMemo(() => omnibarFoldersFrom(props.projects, chatFolders), [props.projects, chatFolders]);
   const barAgents = useMemo(
     () =>
       // A saved environment or New project picks where the chat starts (askChat), so a start in
@@ -1841,8 +1861,8 @@ export function NewTabScreen(props: Props) {
   // This Mac's chats and the chats on acpmux's machines (their folders there): a Cloud chat's host
   // that acpmux does not list is no place a chat can start from this page.
   const startableSessions = useMemo(
-    () => snapshot.sessions.filter((session) => session.peer || session.hostKind !== "cloud"),
-    [snapshot.sessions],
+    () => placeSessions.filter((session) => session.peer || session.hostKind !== "cloud"),
+    [placeSessions],
   );
   /// A New Worktree that failed; `retry`, when the same ask can go again from the notice (a saved
   /// environment's send goes again from the field, where its prompt stays).
