@@ -225,6 +225,15 @@ class Case(unittest.TestCase):
         self.assertEqual((report["forms"][0]["verdict"], report["forms"][0]["chord"], len(report["cases"])), ("PASS", 1, 1))
         self.assertEqual(len(said), 2)
 
+    def test_a_case_after_the_budget_is_not_run(self):
+        letters, builder, _ = self.letters(CHORD, {"t2": "x"})
+        clock = iter([0.0, 1.0, 11.0, 12.0])
+        report = letters.run(3, forms=("three-key",), say=lambda line: None, budget_s=10.0, now=lambda: next(clock))
+        self.assertEqual([("not_run" in case) for case in report["cases"]], [False, True, True])
+        self.assertIn("budget", report["cases"][1]["not_run"])
+        self.assertEqual((report["forms"][0]["verdict"], report["forms"][0]["ran"], report["forms"][0]["not_run"]), (M.NOT_PROVED, 1, 2))
+        self.assertEqual(len([action for action in builder.actions if action[0] == "closeWorkspace"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
