@@ -1788,7 +1788,7 @@ def run_rows(opts, app, signposts, report, form):
             return
     if opts.letter_cases:
         # After the rows, in the session that they left (new-tab-letters.py, LIMITS). A case changes no exit code.
-        report["letter_cases"] = LETTERS.Letters(builder, app.rpc, STRESS.wait).run(opts.letter_cases)
+        report["letter_cases"] = LETTERS.Letters(builder, app.rpc, STRESS.wait).run(opts.letter_cases, budget_s=opts.letter_budget_s)
 
 
 def main():
@@ -1822,6 +1822,8 @@ def main():
     parser.add_argument("--letter-cases", type=int, default=0,
                         help="after the rows: this many cases of each form of new-tab-letters.py (a letter after a New Tab key; 0: none)")
     parser.add_argument("--letter-only", action="store_true", help="the session and the letter cases, with no row")
+    parser.add_argument("--letter-budget-s", type=float, default=LETTERS.BUDGET_S,
+                        help="the letter cases' time: a case that would start later is not run")
     for internal in ("--row", "--socket", "--workspace", "--pane", "--sample-pid"):
         parser.add_argument(internal, help=argparse.SUPPRESS)
     parser.add_argument("--keep", type=int, default=0, help=argparse.SUPPRESS)
