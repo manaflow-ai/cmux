@@ -27,6 +27,8 @@
 //! N. Manual, on Linux CI:
 //! `cargo test -p acpmux --release --test sessions_scale -- --ignored --nocapture`.
 //! `ACPMUX_GOD_DAEMON_BIN` runs another daemon binary (a before/after control).
+// The results' `json!` has more keys than the default limit expands, as in `god_daemon.rs`.
+#![recursion_limit = "256"]
 #![cfg(target_os = "linux")]
 
 #[path = "support/daemon_env.rs"]
@@ -155,11 +157,12 @@ fn watch(socket: &Path, watched: Arc<Watched>) -> (std::thread::JoinHandle<()>, 
     let reply_bytes = loop {
         match reader.read_until(b'\n', &mut buf) {
             Ok(0) => panic!("the daemon closed the watch"),
-            Ok(n) if buf.ends_with(b"\n") => {
+            Ok(_) if buf.ends_with(b"\n") => {
+                let len = buf.len() as u64;
                 let v: Value = serde_json::from_slice(&buf).unwrap();
                 buf.clear();
                 if v.get("method").is_none() && v["id"] == 2 {
-                    break n as u64;
+                    break len;
                 }
             }
             Ok(_) => {}
@@ -597,7 +600,7 @@ fn row_line(r: &Value, base: Option<&Value>) -> Value {
     line
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 #[ignore = "manual: minutes of churn over thousands of rows; run on Linux CI"]
 async fn daemon_cost_per_attached_remote_session() {
     let ns = std::env::var("ACPMUX_SCALE_NS").unwrap_or_else(|_| "50,200,2000".to_owned());
