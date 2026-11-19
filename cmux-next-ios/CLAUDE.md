@@ -38,7 +38,9 @@ Targets live in `scripts/cmux_ios_targets.json`: the app's own DEBUG launch argu
 and demo drivers on mock data (the hooks `UITests/AllUIStates*` use). `show` relaunches the app with
 them and a nonce, waits for the app's DEBUG receipt (`CmuxMobileShell/DevShow.swift`, compiled out of
 Release), checks it names the target's destination, tab and Settings page, then shoots. `--live`
-opens `cmux-next://dev/show?...` in the running app instead: no relaunch, the person's own data. A state that needs a tap (a swipe, a long press, a typed draft) stays in the
+hands the running app a `cmux-next://dev/show?...` request instead (a request file and a Darwin
+notification on a simulator, `devicectl --payload-url` on a phone): no relaunch, the person's own data,
+and a look that is never saved. A demo target also waits for the receipt's `demo_done`. A state that needs a tap (a swipe, a long press, a typed draft) stays in the
 UI-state capture suites; add a launch hook and a catalog row to make one showable.
 
 ## Hand-off command (under verification)

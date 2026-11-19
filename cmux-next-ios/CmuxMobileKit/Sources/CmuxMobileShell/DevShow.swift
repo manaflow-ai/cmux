@@ -4,6 +4,7 @@ import CmuxMobileSettings
 import Foundation
 import OSLog
 import SwiftUI
+import UIKit
 
 private let devShowLog = Logger(subsystem: "dev.cmux.mobile", category: "dev-show")
 
@@ -14,26 +15,35 @@ private let devShowLog = Logger(subsystem: "dev.cmux.mobile", category: "dev-sho
 ///
 /// - A launch: the CLI starts the app with a target's DEBUG launch arguments and environment
 ///   (mock data, a demo driver, a Settings page) plus `CMUX_DEV_SHOW_NONCE` and
-///   `CMUX_DEV_SHOW_TARGET`. Once the root destination (Welcome, setup or the shell) has drawn,
-///   the app writes the receipt.
-/// - A link, with the app already running (mock or the person's own signed-in data):
+///   `CMUX_DEV_SHOW_TARGET`. Once the root destination (Welcome, setup or the shell) is up, the
+///   app writes the receipt; a launch with a demo driver writes it again (`demo_done`) once the
+///   driver's `run` has returned, which for the CLI's catalog demos means its state is set.
+/// - A request, with the app already running (mock or the person's own signed-in data):
 ///   `cmux-next://dev/show?target=T&nonce=N[&tab=home|workspaces|feed|settings]
-///   [&settings=<SettingsRoute case>][&appearance=light|dark|system][&sidebar=open|closed]`,
-///   opened by `simctl openurl` or `devicectl … --payload-url`. The shell applies it in process
-///   (no relaunch, nothing reloaded) and writes the receipt on the next frame.
+///   [&settings=<SettingsRoute case>][&appearance=light|dark|system][&sidebar=open|closed]`.
+///   On a phone it comes as the link (`devicectl … process launch --payload-url`, which hands
+///   it to this bundle only). On a simulator the CLI writes it to `requestPath` in this app's
+///   container and posts the Darwin notification `<bundle id>.dev-show`: `simctl openurl` would
+///   ask "Open in …?" and could reach another tagged build that claims the same scheme. The
+///   shell applies it in process (no relaunch, nothing reloaded): the tab with its pushed pages
+///   cleared, a Settings page, the team sidebar, and a look that is not saved (the window's
+///   override only, the person's Appearance setting stays). It writes the receipt after the
+///   update.
 ///
-/// The receipt (`relativePath` in the app's data container) names the launch or link nonce and
-/// what is on screen: the destination, the tab, the Settings path, whether the team sidebar is
-/// open and the appearance. The CLI deletes the old receipt, waits for the one with its nonce,
-/// checks it against the target and only then takes the screenshot, so a screenshot never shows
-/// the screen before the one asked for. It holds nothing private: no account, Mac or token.
+/// The receipt (`relativePath` in the app's data container) names the nonce and what is on
+/// screen: the destination, the tab and how many pages are pushed on it, the Settings path,
+/// whether the team sidebar is open, the look, and the demo. The CLI deletes the old receipt,
+/// waits for the one with its nonce, checks it against the target and then takes the
+/// screenshot. A demo driver or an animation still needs the CLI's per-target settle (pacing,
+/// not synchronization). The receipt holds nothing private: no account, Mac or token.
 @MainActor
 @Observable
 final class DevShow {
     static let shared = DevShow()
     nonisolated static let relativePath = "Library/Application Support/cmux-dev-show/shown.json"
+    nonisolated static let requestPath = "Library/Application Support/cmux-dev-show/request.txt"
 
-    /// One in-process request from a `cmux-next://dev/show` link.
+    /// One in-process request (a `cmux-next://dev/show` link).
     struct Request: Equatable {
         var nonce: String
         var target: String
@@ -74,12 +84,16 @@ final class DevShow {
         }
     }
 
-    /// The link waiting for the shell (set by RootView, applied by `DevShowObserver`).
+    /// The request waiting for the shell (set by RootView or the simulator request watch,
+    /// applied by `DevShowObserver`).
     var request: Request?
 
     /// The launch's request from the CLI, if any (`CMUX_DEV_SHOW_NONCE`, `CMUX_DEV_SHOW_TARGET`).
     @ObservationIgnored private let launch: (nonce: String, target: String)?
     @ObservationIgnored private var launchWritten = false
+    @ObservationIgnored private var watching = false
+    /// The look a request set for this process only (the window's override, not the setting).
+    @ObservationIgnored private var lookOverride: AppearanceMode?
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         if let nonce = environment["CMUX_DEV_SHOW_NONCE"], Request.isToken(nonce) {
@@ -100,10 +114,14 @@ final class DevShow {
         /// `welcome`, `setup` or `shell`.
         let destination: String
         let tab: String?
+        /// Pages pushed on the shown tab (0: the tab's root).
+        let path_depth: Int
         let settings_path: [String]
         let sidebar_open: Bool
         let appearance: String
         let demo: String?
+        /// The launch's demo driver has returned from `run` (its state is set).
+        let demo_done: Bool
         let bundle_id: String
         let written_at: String
     }
@@ -113,42 +131,71 @@ final class DevShow {
         guard let launch, !launchWritten else { return }
         launchWritten = true
         write(nonce: launch.nonce, target: launch.target, source: "launch", destination: destination,
-              shell: shell, appearance: appearance, demo: demo)
+              shell: shell, appearance: appearance, demo: demo, demoDone: false)
     }
 
-    /// A link that arrives while the root shows Welcome or setup: nothing to navigate, so the
+    /// The launch's demo driver returned: the launch receipt again, marked `demo_done`.
+    func demoReached(_ demo: String, shell: ShellModel) {
+        guard let launch else { return }
+        write(nonce: launch.nonce, target: launch.target, source: "launch", destination: "shell",
+              shell: shell, appearance: shell.settings.appearance, demo: demo, demoDone: true)
+    }
+
+    /// A request that arrives while the root shows Welcome or setup: nothing to navigate, so the
     /// receipt says where the app is and the CLI reports the miss.
     func linkShown(_ request: Request, destination: String, appearance: AppearanceMode) {
         write(nonce: request.nonce, target: request.target, source: "link", destination: destination,
-              shell: nil, appearance: appearance, demo: nil)
+              shell: nil, appearance: appearance, demo: nil, demoDone: false)
     }
 
-    /// Applies a link to the shell; the receipt follows on the next frame (`DevShowObserver`).
+    /// Applies a request to the shell; the receipt follows after the update (`DevShowObserver`).
     func apply(_ request: Request, to shell: ShellModel) {
-        if let mode = request.appearance { shell.settings.appearance = mode }
-        if let open = request.sidebar { open ? shell.sidebar.open() : shell.sidebar.close() }
+        if let mode = request.appearance {
+            // This process only: the window's override, never the saved Appearance setting.
+            lookOverride = mode
+            Self.overrideWindows(mode)
+        }
+        if let open = request.sidebar {
+            if open { shell.sidebar.open() } else { shell.sidebar.close() }
+        }
         if let route = request.settings {
             shell.tab = .settings
             shell.settingsPath = [route]
         } else if let tab = request.tab {
             shell.tab = tab
-            if tab == .settings { shell.settingsPath = [] }
+            // The tab's root, as the link names it: no page left pushed from before.
+            switch tab {
+            case .home: shell.homePath = NavigationPath()
+            case .workspaces: shell.workspacesPath = []
+            case .feed: shell.feedPath = []
+            case .settings: shell.settingsPath = []
+            }
         }
     }
 
     func write(nonce: String, target: String, source: String, destination: String, shell: ShellModel?,
-               appearance: AppearanceMode, demo: String?) {
+               appearance: AppearanceMode, demo: String?, demoDone: Bool) {
+        let depth: Int = switch shell?.tab {
+        case .home: shell?.homePath.count ?? 0
+        case .workspaces: shell?.workspacesPath.count ?? 0
+        case .feed: shell?.feedPath.count ?? 0
+        case .settings: shell?.settingsPath.count ?? 0
+        case nil: 0
+        }
         let body = Shown(
             nonce: nonce, target: target, source: source, destination: destination,
             tab: shell?.tab.rawValue,
-            settings_path: shell?.settingsPath.map { "\($0)" } ?? [],
+            path_depth: depth,
+            // The case name only: an associated value (a Mac id) never goes into the receipt.
+            settings_path: shell?.settingsPath.map { String("\($0)".prefix(while: { $0 != "(" })) } ?? [],
             sidebar_open: shell?.sidebar.isOpen ?? false,
-            appearance: appearance.rawValue,
+            appearance: (lookOverride ?? appearance).rawValue,
             demo: demo,
+            demo_done: demoDone,
             bundle_id: Bundle.main.bundleIdentifier ?? "",
             written_at: ISO8601DateFormatter().string(from: Date())
         )
-        let receipt = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(Self.relativePath)
+        let receipt = Self.containerURL(Self.relativePath)
         // Off the main actor: a small file, but file IO never runs on the main thread.
         Task.detached(priority: .utility) {
             do {
@@ -163,11 +210,53 @@ final class DevShow {
             }
         }
     }
+
+    /// Starts the simulator request watch: the Darwin notification `<bundle id>.dev-show`, posted
+    /// by the CLI after it wrote `requestPath`, reads the request off the main thread.
+    func startRequestWatch() {
+        guard !watching, let bundle = Bundle.main.bundleIdentifier else { return }
+        watching = true
+        let callback: CFNotificationCallback = { _, _, _, _, _ in
+            Task { @MainActor in DevShow.shared.readRequest() }
+        }
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, callback,
+                                        "\(bundle).dev-show" as CFString, nil, .deliverImmediately)
+    }
+
+    private func readRequest() {
+        let file = Self.containerURL(Self.requestPath)
+        Task.detached(priority: .userInitiated) {
+            guard let text = try? String(contentsOf: file, encoding: .utf8),
+                  let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  let request = Request(url: url) else {
+                devShowLog.error("dev show request unreadable")
+                return
+            }
+            try? FileManager.default.removeItem(at: file)
+            await MainActor.run { DevShow.shared.request = request }
+        }
+    }
+
+    nonisolated static func containerURL(_ path: String) -> URL {
+        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(path)
+    }
+
+    private static func overrideWindows(_ mode: AppearanceMode) {
+        let style: UIUserInterfaceStyle = switch mode {
+        case .light: .light
+        case .dark: .dark
+        case .system: .unspecified
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows { window.overrideUserInterfaceStyle = style }
+        }
+    }
 }
 
-/// The shell's side of `DevShow`: the launch receipt once the shell has drawn, and each link
-/// applied in process with its receipt one frame later. Its own modifier, so ShellView's chain
-/// stays small enough to type-check.
+/// The shell's side of `DevShow`: the launch receipt once the shell is up, and each request
+/// applied in process with its receipt after the update. Its own modifier, so ShellView's
+/// chain stays small enough to type-check.
 struct DevShowObserver: ViewModifier {
     let shell: ShellModel
     let demo: String?
@@ -175,6 +264,7 @@ struct DevShowObserver: ViewModifier {
     func body(content: Content) -> some View {
         content
             .task {
+                DevShow.shared.startRequestWatch()
                 // The shell's state is set; the CLI's per-target settle covers its first frame and animations.
                 await Task.yield()
                 DevShow.shared.launchShown(destination: "shell", shell: shell, appearance: shell.settings.appearance, demo: demo)
@@ -187,7 +277,7 @@ struct DevShowObserver: ViewModifier {
                     // After this update's transaction; the CLI's settle covers the push animation.
                     await Task.yield()
                     DevShow.shared.write(nonce: request.nonce, target: request.target, source: "link", destination: "shell",
-                                         shell: shell, appearance: shell.settings.appearance, demo: nil)
+                                         shell: shell, appearance: shell.settings.appearance, demo: nil, demoDone: false)
                 }
             }
     }

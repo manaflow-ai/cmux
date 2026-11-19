@@ -28,7 +28,7 @@
     {"id": "workspaces-stale", "screen": "workspaces", "state": "error", "about": "Refresh failed, last known rows kept", "args": ["-cmux-mobile-demo", "retry-refresh-failed"], "settle": 2, "expect": {"destination": "shell"}},
     {"id": "workspaces-empty", "screen": "workspaces", "state": "empty", "about": "No Mac yet: Connect your Mac", "args": ["-cmux-mobile-demo", "connect-mac"], "settle": 2, "expect": {"destination": "shell"}},
     {"id": "workspaces-empty-other-account", "screen": "workspaces", "state": "empty", "about": "A Mac signed in to another account", "args": ["-cmux-mobile-demo", "connect-mac-no-account"], "settle": 2.5, "expect": {"destination": "shell"}},
-    {"id": "sidebar", "screen": "workspaces", "state": "sidebar", "about": "Team sidebar open", "args": ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-sidebar-open"], "link": {"tab": "workspaces", "sidebar": "open"}, "settle": 1, "expect": {"destination": "shell", "tab": "workspaces"}},
+    {"id": "sidebar", "screen": "workspaces", "state": "sidebar", "about": "Team sidebar open", "args": ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-sidebar-open"], "link": {"tab": "workspaces", "sidebar": "open"}, "settle": 1, "expect": {"destination": "shell", "tab": "workspaces", "sidebar": true}},
     {"id": "banner-reconnecting", "screen": "workspaces", "state": "banner", "about": "Reconnecting banner", "args": ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-banner-demo", "reconnecting"], "settle": 1, "expect": {"destination": "shell", "tab": "workspaces"}},
     {"id": "banner-offline", "screen": "workspaces", "state": "banner", "about": "Offline banner", "args": ["-cmux-mobile-tab", "workspaces", "-cmux-mobile-banner-demo", "offline"], "settle": 1, "expect": {"destination": "shell", "tab": "workspaces"}},
 
@@ -65,6 +65,7 @@
     {"id": "signed-out-banner", "screen": "onboarding", "state": "error", "about": "Signed-out banner", "args": ["-cmux-mobile-recovery-gallery", "signedout"], "receipt": false, "settle": 3},
 
     {"id": "cloud-chats", "screen": "cloud", "state": "default", "about": "Cloud chats gallery", "args": ["-cmux-mobile-recovery-gallery", "cloud"], "receipt": false, "settle": 3},
+
     {"id": "screen-sharing", "screen": "screen-sharing", "state": "default", "about": "Screen Sharing viewer, streaming", "signed_in": false, "args": ["-CmuxMobileScreenSharingDemo"], "receipt": false, "settle": 5}
   ]
 }
