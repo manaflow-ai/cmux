@@ -80,7 +80,7 @@ struct CloudStartChat {
             return AgentPaneReply.success(["machine": machine])
         } catch is CloudMoveFolder.Gone { // the card's own words, with no Retry: picking another folder is the way on
             return AgentPaneCloudFolderRefusal.missing.reply
-        } catch let needs as CloudMachineRoute.NeedsConnection { return await start.needsConnectionReply(needs.message, setup: services.cloud.setup) // its agent reaches no model there (cmux#45773)
+        } catch let needs as CloudMachineRoute.NeedsConnection { return start.needsConnectionReply(needs.message) // its agent reaches no model there (cmux#45773)
         } catch is CloudMachineCap.RunHere { // the cap card's Run on This Mac: the page sends it here (cloudRun.ts)
             return AgentPaneReply.failure(code: CloudMachineCap.runHereCode, message: CloudMachineCap.runHereCode)
         } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { return refusal.reply // the repos inside it, another folder or none; no Retry

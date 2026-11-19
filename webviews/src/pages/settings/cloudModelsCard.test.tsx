@@ -6,7 +6,7 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { cloudReadiness } from "./components/CloudModelsCard";
 import { mockModels } from "./mockModels";
-import type { ModelConnection, ModelsState } from "./ops";
+import type { ModelsState, ModelConnection } from "./ops";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
@@ -122,7 +122,9 @@ test("a ChatGPT plan is Connected for Cloud; Claude stays not set up", async () 
   expect(row(rendered, "chatgpt").querySelector("[data-cloud-via]")?.textContent).toContain("ChatGPT plan");
 });
 
-test("readiness follows the Cloud start's rule: off or signed out does not count, the team's key does", () => {
+// The team's shared key never reaches this Mac and no machine gets a model route to spend it (CloudSetup.swift
+// `choice`), so it serves no Cloud chat: the row stays Set Up, as the start's Set up Cloud refusal says.
+test("readiness follows the Cloud start's rule: off, signed out or the team's key alone does not count", () => {
   const off = structuredClone(mockModels.claudeForCloud);
   off.personal.connections = off.personal.connections.map((c) => ({ ...c, enabled: false }));
   expect(cloudReadiness(off, "claude").state).toBe("off");
@@ -132,7 +134,7 @@ test("readiness follows the Cloud start's rule: off or signed out does not count
     canEdit: false,
     keys: [{ agent: "claude", set: true, last4: null }],
   };
-  expect(cloudReadiness(team, "claude")).toMatchObject({ state: "ready", via: "Shared Claude key" });
+  expect(cloudReadiness(team, "claude").state).toBe("missing");
   expect(cloudReadiness(team, "chatgpt").state).toBe("missing");
   // An OpenRouter key works on this Mac only; an Anthropic key serves Cloud.
   expect(cloudReadiness(mockModels.macLogins, "apiKey")).toMatchObject({ state: "missing" });
@@ -233,7 +235,7 @@ test("Replace keeps the new token in the old one's place, and another kind added
   expect(after).toContain("openai-key");
 });
 
-test("a row served by the team's key has no menu of its own", async () => {
+test("the team's key alone gives a row no menu of its own: it serves no Cloud chat", async () => {
   const team = structuredClone(mockModels.macOnly);
   team.organization = {
     team: { id: "t", name: "Acme" },

@@ -55,9 +55,15 @@ public struct CloudStartSessionStrings {
     }
 
     /// Cloud first use refused the run (``CloudSetup/decide(harness:model:)`` answered setup, as the composer's
-    /// Set up Cloud card): no connection on this Mac or the team serves `agent`'s family, so no machine was taken.
+    /// Set up Cloud card): no connection serves `agent`'s family in Cloud, so no machine was taken.
     public static func setupRequired(agent: String, command: String) -> String {
-        String(format: String(localized: "cloud.startSession.setupRequired", defaultValue: "Nothing on this Mac or your team serves %1$@ in Cloud yet, so no Cloud machine was started. Cloud chats use a connection from Settings > Cloud (Continue with ChatGPT, Set up Claude, or an API key); a Codex or Claude Code sign-in in your terminal serves chats on this Mac only. Connect one, then run `%2$@` again.", table: "CloudSessions", bundle: .module), agent, command)
+        String(format: String(localized: "cloud.startSession.setupRequired", defaultValue: "No Cloud machine was started: add a %1$@ connection for Cloud in Settings > Models, then run `%2$@` again.", table: "CloudSessions", bundle: .module), agent, command)
+    }
+
+    /// A start whose only Cloud connection for the agent is the team's shared key (CloudSetup.Snapshot.sharedKeyOnly):
+    /// the key never reaches this Mac and no machine gets a model route to spend it.
+    public static func sharedKeyOnly(agent: String, command: String) -> String {
+        String(format: String(localized: "cloud.startSession.sharedKeyOnly", defaultValue: "Your team's shared %1$@ key doesn't serve Cloud chats, so no Cloud machine was started. Cloud chats run on your own model connection: add a %1$@ connection for Cloud in Settings > Models, then run `%2$@` again.", table: "CloudSessions", bundle: .module), agent, command)
     }
 
     public static func noSuchMachine(id: String, agent: String) -> String {

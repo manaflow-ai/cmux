@@ -152,7 +152,8 @@ Settings ops (`webviews/src/pages/settings/ops.ts`; Swift `SettingsPageProvider.
   `cmux://settings/models` opens it; `cmux://settings/models/add` opens the Add a connection sheet.
 - Settings > Cloud (category `cloud`, after Models; 2026-11-12): card `cloudModels` ("Models for
   Cloud") lists Claude, ChatGPT and API key, each "Connected for Cloud" when an enabled, signed-in
-  `serves_cloud` connection of that family exists (or the team's shared key), else "Not set up for
+  `serves_cloud` connection of that family exists (the team's shared key alone does not count, see
+  Cloud first use), else "Not set up for
   Cloud" with Set Up (the same Add a connection steps) and a plain note when only a This Mac only
   login exists. The Cloud Environments card and the Cloud Workspaces rows live there too. Routes:
   `cmux://settings/cloud`, `/cloud/claude`, `/cloud/chatgpt`, `/cloud/api-key`
@@ -163,12 +164,16 @@ Members policy (backend `backend/apps/api`, lane D): `team.models_policy.get|set
 out of this repo and noted as a follow-up.
 
 Cloud first use (lane D): before a Cloud chat starts, the app asks the personal gateway whether a
-connection serves the picker's model (`_acpmux/connections`, family of the chosen agent, plus the
-organization's gateway/keys). If one does, the chat starts on the picker's model and account with
+connection serves the picker's model (`_acpmux/connections`, family of the chosen agent). If one does, the chat starts on the picker's model and account with
 no prompt. If none does, the chat shows a "Set up Cloud" card ("Cloud threads use your
 subscriptions. Connect one to start.") with buttons Continue with ChatGPT / Sign in to Claude /
 Add an API key / Open Settings, and records nothing until a connection exists. The in-chat sign-in
 card's ways in add the connection on this Mac instead of logging in on the machine.
+The team's shared key alone serves no Cloud chat (2026-11-18): the Cloud service keeps it sealed
+and answers it to no client (backend `team-agent-keys.ts`), and no machine gets a model route to
+spend it (cmux#45583), so the Mac has nothing to send with `session/new`. A team-key-only start
+shows Set up Cloud before any machine; `cmux cloud start-session` and `cmux chat --on vm:new`
+refuse with a text that names the team's key (`CloudStartSessionStrings.sharedKeyOnly`).
 
 ## The picker's model and account in Cloud (lane E)
 
@@ -222,5 +227,6 @@ Delivery (`_acpmux/connections/credential {id}` -> `{ "family", "kind", "env": {
 - With no Cloud-serving connection for the family, the chat shows the Set up Cloud card
   (Continue with ChatGPT / Set up Claude / Add an API key / Open Settings) and starts by itself
   once one is added. Without a credential the machine falls back to today's coderouter path.
-- Organization: team shared keys (`team.agent_key.*`, served by the platform edge) stay listed;
+- Organization: team shared keys (`team.agent_key.*`) stay listed, though no machine model route
+  serves them now (see Cloud first use);
   the team gateway row is removed from the page.

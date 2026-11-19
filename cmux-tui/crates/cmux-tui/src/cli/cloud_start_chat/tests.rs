@@ -2101,8 +2101,7 @@ fn a_cleanup_never_holds_the_command_past_its_deadline() {
 fn a_harness_sign_in_failure_is_not_the_cmux_account_signed_out() {
     // acpmux's Cloud text for a Claude with no sign-in (claude_auth.rs `compose_cloud`) and its typed kind:
     // the machine's Claude, never the person's cmux account, so no `cmux cloud sign-in`.
-    let claude = "Claude is not signed in here. This Cloud machine has no Claude sign-in (Claude home ~/.claude). \
-        Set one up with `cmux inference setup`, then send the message again. \
+    let claude = "Claude is not signed in here. Add a Claude connection for Cloud in Settings > Models, then start again. \
         (Claude said: Not logged in · Please run /login)";
     for error in [
         json!({"code": "cloud_start_failed", "message": claude}),

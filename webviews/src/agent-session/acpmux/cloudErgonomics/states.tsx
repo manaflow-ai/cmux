@@ -355,7 +355,7 @@ const TURN_FAILURES: readonly TurnFailureFixture[] = [
     id: "cloud-login-gateway",
     kind: "subscription-login",
     error:
-      "Claude is not signed in here. Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again. Or click Use cmux's gateway: this machine's team has an account there. (Claude said: Not logged in · Please run /login)",
+      "Claude is not signed in here. Add a Claude connection for Cloud in Settings > Models, then start again. Or click Use cmux's gateway: this machine's team has an account there. (Claude said: Not logged in · Please run /login)",
   },
 ];
 

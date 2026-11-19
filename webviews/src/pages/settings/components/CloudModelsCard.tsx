@@ -3,7 +3,8 @@
 // card names only connections that serve Cloud (servesCloud): a Mac login that cannot reach Cloud is not
 // listed or explained here (Settings > Models marks it This Mac only). A row is Connected for Cloud by the
 // rule a Cloud start uses (CloudSetup.swift `choice`): an enabled, signed-in personal connection that
-// serves Cloud and the family, else the team's shared key for it. Each row fixes itself in place: Sign in
+// serves Cloud and the family. The team's shared key alone does not count: it never reaches this Mac, and no
+// machine gets a model route to spend it. Each row fixes itself in place: Sign in
 // with ChatGPT runs `connectChatGPT` (with the plan's id when it signed out, a reauth), Turn On runs
 // `enable` on a connection turned off, and Set Up opens Settings > Models' own Add a Connection steps
 // (`claudeSetupToken` and `addClaudeToken`, `addKey`); this card adds no second way in. A row's connection is
@@ -28,7 +29,6 @@ export type CloudRow = (typeof CLOUD_ROWS)[number];
 
 /** Product names, shown as they are in every language. */
 const ROW_NAMES: Record<Exclude<CloudRow, "apiKey">, string> = { claude: "Claude", chatgpt: "ChatGPT" };
-const AGENT_NAMES: Record<"claude" | "codex", string> = { claude: "Claude", codex: "Codex" };
 /** The API-key providers whose keys reach Cloud chats (acpmux connections.rs `serves_cloud`). */
 const CLOUD_KEY_PROVIDERS: ModelProvider[] = ["anthropic", "openai"];
 
@@ -50,12 +50,7 @@ export function cloudReadiness(models: ModelsState, row: CloudRow): CloudReadine
   }
   const family = row === "claude" ? "claude" : "codex";
   const serving = connections.filter((c) => c.servesCloud && c.families.includes(family));
-  const own = readiness(serving);
-  if (own.state === "ready") return own;
-  const team = models.organization.team && models.organization.keys.some((key) => key.agent === family && key.set);
-  // The team's shared key serves the family after the person's own (Settings > Models' Organization).
-  if (team) return { state: "ready", via: t("settingsWindow.models.org.key", AGENT_NAMES[family]), connection: null };
-  return own;
+  return readiness(serving);
 }
 
 /** The person's own connections that serve the row: ready on the first that works, else off on the

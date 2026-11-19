@@ -352867,133 +352867,133 @@
       }
     },
     "turn.failure.cloudAuthMissing": {
-      "comment": "Agent pane: Cloud provider auth failure with no credential present; do not reveal machine host.",
+      "comment": "Agent pane: a Cloud chat's agent is not signed in; it runs on the person's own model connection, sent with the start. Settings > Models is the Settings page name; keep {harness}.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Cloud machine has no provider credential for {harness}. Set it up to continue."
+            "value": "Add a {harness} connection for Cloud in Settings > Models, then start again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا توجد بيانات اعتماد لمزوّد {harness} على جهاز Cloud هذا. أعد إعداد بيانات الاعتماد للمتابعة."
+            "value": "أضف اتصال {harness} لـ Cloud في الإعدادات > النماذج، ثم ابدأ من جديد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Na ovom Cloud računaru nema vjerodajnica za provajdera {harness}. Postavite ih da nastavite."
+            "value": "Dodajte vezu za {harness} za Cloud u Postavke > Modeli, pa ponovo pokrenite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der er ingen udbyderlegitimationsoplysninger for {harness} på denne Cloud-maskine. Konfigurer dem for at fortsætte."
+            "value": "Tilføj en {harness}-forbindelse til Cloud i Indstillinger > Modeller, og start derefter igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auf diesem Cloud-Computer sind keine Anmeldedaten für {harness} vorhanden. Richte sie ein, um fortzufahren."
+            "value": "Füge unter Einstellungen > Modelle eine {harness}-Verbindung für Cloud hinzu und starte dann erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay credenciales del proveedor para {harness} en esta máquina de Cloud. Configúralas para continuar."
+            "value": "Añade una conexión de {harness} para Cloud en Ajustes > Modelos y vuelve a empezar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun identifiant fournisseur pour {harness} n’est présent sur cette machine Cloud. Configurez-les pour continuer."
+            "value": "Ajoutez une connexion {harness} pour Cloud dans Réglages > Modèles, puis recommencez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Su questa macchina Cloud non sono presenti credenziali del provider per {harness}. Configurale per continuare."
+            "value": "Aggiungi una connessione {harness} per Cloud in Impostazioni > Modelli, poi ricomincia."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Cloud マシンに {harness} のプロバイダー認証情報がありません。続行するには設定してください。"
+            "value": "「設定」>「モデル」で Cloud 用の {harness} 接続を追加してから、もう一度開始してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនមានព័ត៌មានសម្គាល់អ្នកផ្តល់សេវាសម្រាប់ {harness} នៅលើម៉ាស៊ីន Cloud នេះទេ។ សូមរៀបចំវាដើម្បីបន្ត។"
+            "value": "បន្ថែមការតភ្ជាប់ {harness} សម្រាប់ Cloud ក្នុងការកំណត់ > ម៉ូដែល រួចចាប់ផ្តើមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Cloud 머신에 {harness} 제공업체 자격 증명이 없습니다. 계속하려면 설정하세요."
+            "value": "설정 > 모델에서 Cloud용 {harness} 연결을 추가한 다음 다시 시작하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Det finnes ingen leverandørlegitimasjon for {harness} på denne Cloud-maskinen. Konfigurer den for å fortsette."
+            "value": "Legg til en {harness}-tilkobling for Cloud i Innstillinger > Modeller, og start deretter på nytt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Na tej maszynie Cloud nie ma danych logowania dostawcy dla {harness}. Skonfiguruj je, aby kontynuować."
+            "value": "Dodaj połączenie {harness} dla Cloud w Ustawienia > Modele, a potem zacznij ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não há credenciais do provedor para {harness} nesta máquina Cloud. Configure-as para continuar."
+            "value": "Adicione uma conexão do {harness} para o Cloud em Ajustes > Modelos e comece de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "На этой машине Cloud нет учётных данных провайдера для {harness}. Настройте их, чтобы продолжить."
+            "value": "Добавьте подключение {harness} для Cloud в «Настройки» > «Модели», затем начните заново."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่มีข้อมูลรับรองผู้ให้บริการสำหรับ {harness} บนเครื่อง Cloud นี้ ตั้งค่าเพื่อดำเนินการต่อ"
+            "value": "เพิ่มการเชื่อมต่อ {harness} สำหรับ Cloud ใน การตั้งค่า > โมเดล แล้วเริ่มใหม่อีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Cloud makinesinde {harness} sağlayıcısına ait kimlik bilgileri yok. Devam etmek için kurun."
+            "value": "Ayarlar > Modeller'de Cloud için bir {harness} bağlantısı ekleyin, ardından yeniden başlatın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "На цій хмарній машині немає облікових даних провайдера для {harness}. Налаштуйте їх, щоб продовжити."
+            "value": "Додайте підключення {harness} для Cloud у «Налаштування» > «Моделі», а потім почніть знову."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Máy Cloud này chưa có thông tin xác thực của nhà cung cấp cho {harness}. Hãy thiết lập để tiếp tục."
+            "value": "Thêm kết nối {harness} cho Cloud trong Cài đặt > Mô hình, rồi bắt đầu lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台 Cloud 机器上没有 {harness} 的提供商凭据。请设置凭据以继续。"
+            "value": "请在“设置”>“模型”中为 Cloud 添加 {harness} 连接，然后重新开始。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這台 Cloud 機器上沒有 {harness} 的提供者憑證。請設定憑證以繼續。"
+            "value": "請在「設定」>「模型」中為 Cloud 新增 {harness} 連線，然後重新開始。"
           }
         }
       }

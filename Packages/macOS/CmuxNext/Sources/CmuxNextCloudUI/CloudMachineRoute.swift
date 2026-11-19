@@ -115,7 +115,7 @@ public struct CloudMachineRoute: Sendable {
     }
 
     /// The machine reports no model route (``Verdict/notEdge``) or only a login the chat's agent does not use, and the chat
-    /// carries no connection of its own (a team's shared key, or nothing chosen): its agent could reach no model. The Cloud
+    /// carries no connection of its own (nothing chosen: this Mac's connections unread): its agent could reach no model. The Cloud
     /// service gives machines no route today (cmux-platform#1489: a create carrying the edge rule never binds), so this is
     /// every such start, and the way on is the person setting the agent up. A Claude or Codex start shows Set up Cloud
     /// (`cloud_setup_required`, `AgentPaneCloudStart.needsConnectionReply`), which starts again once a connection of the

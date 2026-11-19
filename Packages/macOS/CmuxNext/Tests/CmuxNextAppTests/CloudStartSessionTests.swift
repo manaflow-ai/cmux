@@ -574,13 +574,38 @@ struct CloudStartSessionTests {
         }
         let request = CloudStartSession.Request(machineID: nil, name: name, agent: "codex", cwd: nil)
         #expect(failure.message == CloudStartSessionStrings.setupRequired(agent: "codex", command: request.command), "\(failure.message)")
-        #expect(failure.message.contains("Continue with ChatGPT") && failure.message.contains("`cmux cloud start-session --name \(name) --agent codex`"))
+        // A Cloud chat runs on the person's own model connection, sent with the start (cmux#40159): the
+        // refusal names where to add one, and no Mac sign-in or setup-token step.
+        #expect(failure.message.contains("Settings > Models") && failure.message.contains("`cmux cloud start-session --name \(name) --agent codex`"), "\(failure.message)")
+        #expect(!failure.message.contains("Mac") && !failure.message.contains("setup-token"), "\(failure.message)")
         #expect(!services.machines.cloud.contains { $0.machine.title == name })
         // A ChatGPT connection that serves Cloud passes the gate (the unread machine list refuses next).
         services.cloud.setup.read = { CloudSetup.Snapshot(personal: [cliLogin, CloudSetup.Connection(id: "chatgpt-plan-1", families: ["codex"])], organization: []) }
         let served = services.registry.capturingRun { invoke(Self.invocation(["agent": .string("codex"), "name": .string(name + "-plan")])) }
         guard case .failure(let next) = await (try #require(served.results.first, "start-session tracked no result")).value else { return }
         #expect(next.message != failure.message && next.message.hasPrefix("Couldn't read your Cloud machines"), "\(next.message)")
+    }
+
+    /// `cmux chat --on vm:new` (and `cloud start-session`) for a person whose only Claude for Cloud is the team's shared
+    /// key: the key never reaches this Mac and no machine gets a model route to spend it, so the run refuses before any
+    /// machine and names why (the team's key) and the way on (Settings > Models), never a machine whose first turn says
+    /// "Not logged in".
+    @Test func aTeamKeyOnlyRunTakesNoMachineAndNamesTheTeamKey() async throws {
+        let services = Self.fixture().services
+        let name = "teamkey-\(UUID().uuidString.prefix(6).lowercased())"
+        services.cloud.setup.read = { CloudSetup.Snapshot(personal: [], organization: ["claude"]) }
+        let invoke = try #require(services.registry.action(for: CloudStartSession.action)?.invoke)
+        let refused = services.registry.capturingRun { invoke(Self.invocation(["agent": .string("claude"), "name": .string(name)])) }
+        guard case .failure(let failure) = await (try #require(refused.results.first, "start-session tracked no result")).value else {
+            Issue.record("a team-key-only run went on")
+            return
+        }
+        #expect(!failure.message.hasPrefix("Couldn't read your Cloud machines"), "\(failure.message)")
+        #expect(failure.message.contains("team's shared claude key"), "\(failure.message)")
+        #expect(failure.message.contains("Settings > Models"), "\(failure.message)")
+        #expect(failure.message.contains("`cmux cloud start-session --name \(name) --agent claude`"), "\(failure.message)")
+        #expect(!failure.message.contains("Not logged in"), "\(failure.message)")
+        #expect(!services.machines.cloud.contains { $0.machine.title == name })
     }
 
     /// A run asked in one account stops before its next step once another is signed in: the

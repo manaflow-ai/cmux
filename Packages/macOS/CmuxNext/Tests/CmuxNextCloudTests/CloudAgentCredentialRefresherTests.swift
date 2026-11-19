@@ -212,7 +212,7 @@ struct CloudAgentCredentialRefresherTests {
     /// none, and a tab that got another key than the start planned keeps the choice.
     @Test func theStartsChoiceReachesTheLaunchUnderTheTabsKey() {
         #expect(CloudSetup.Choice.connection(id: "route-claude", family: "claude").connectionID == "route-claude")
-        #expect(CloudSetup.Choice.organization(family: "claude").connectionID == nil && CloudSetup.Choice.fallback.connectionID == nil)
+        #expect(CloudSetup.Choice.setup(family: "claude", model: nil).connectionID == nil && CloudSetup.Choice.fallback.connectionID == nil)
         let credentials = CloudAgentCredentials()
         credentials.use(connection: "route-claude", chat: "planned", machine: "m1")
         credentials.move(chat: "planned", to: "tab-9", machine: "m1")
