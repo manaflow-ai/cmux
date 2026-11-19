@@ -491,7 +491,7 @@ mod tests {
     fn provider_status_is_strict_at_the_capability_boundary() {
         let mut future = record("running", "7");
         future.status = CloudMachineStatus::Unknown("ready".to_owned());
-        assert_eq!(observe(&scope(), future), Err(ObserveError::InvalidStatus));
+        assert!(matches!(observe(&scope(), future), Err(ObserveError::InvalidStatus)));
     }
 
     #[test]
