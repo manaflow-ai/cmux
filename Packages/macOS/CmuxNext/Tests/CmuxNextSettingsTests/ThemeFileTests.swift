@@ -192,6 +192,18 @@ import Testing
         #expect(settings.applied.selectedDensity.id == "theme-blocky")
     }
 
+    /// A density the person chose over the file (an exception, #44894) applies instead of the file's own.
+    @Test func thePersonsOwnDensityOverTheFileWins() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "density": { "tokens": { "tabCornerRadius": 0 } } }"#, theme: "blocky")
+        let settings = try Self.controller(home, config: #"""
+        { "appearance": { "density": "spacious", "themeFile": "blocky", "themeFileExceptions": ["appearance.density"] } }
+        """#)
+        await settings.reload()
+        #expect(settings.snapshot.selectedDensity.id == "spacious")
+    }
+
     /// A picture beside the theme file travels with it: a relative path resolves against the themes
     /// folder, `~` against home, and an absolute one is kept.
     @Test func aRelativePictureResolvesAgainstTheThemesFolder() {
