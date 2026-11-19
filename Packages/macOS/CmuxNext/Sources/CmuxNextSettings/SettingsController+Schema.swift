@@ -47,6 +47,9 @@ extension SettingsController {
         // A material the active theme file sets stays the file's: Opacity alone moved (#44894).
         var linked = try await windowBackgroundLinkedEdits(writing: descriptor.path, value: value)
             .filter { !setsInThemeFile($0.path.joined(separator: ".")) }
+        // Plain Backgrounds keeps every window opaque: the person's see-through Opacity or Material
+        // turns it off with the write, so the value saves and draws (#44894).
+        linked += plainBackgroundsOffEdits(writing: descriptor.path, value: value, by: writer)
         // A change to a key the active theme file sets applies over the file; a reset returns to it.
         if descriptor.path != ThemeFileExceptionsSetting.configPath {
             let writes = [(key: descriptor.id, sets: value != nil)] + linked.map { (key: $0.path.joined(separator: "."), sets: $0.value != nil) }
