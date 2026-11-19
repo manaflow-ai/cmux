@@ -19,6 +19,8 @@ import Observation
 /// client-local: it only changes which workspace this window shows.
 final class SidebarBridge {
     let model = SidebarCollapsedSections(defaults: .standard).restoring(SidebarModel())
+    /// Native Hosts rows consume the shared Machines page snapshot; they never keep a second catalog.
+    let hosts = HostsSidebar()
     let container: SidebarContainerView
     unowned let services: AppServices
     /// Weak: a daemon command's `Task` can outlive the window.
@@ -121,11 +123,25 @@ final class SidebarBridge {
             focus.send(.focusTarget(.content, source: .keyboard))
         }
         seedFromSnapshot(state)
+        bindHosts()
         // Clear until real content (`markReadyForReveal`, or the deadline); a no-op once it is ready.
         services.launchReveal.hold(container, until: .sidebar)
         observe()
         observeSections()
         observeCards()
+    }
+
+    private func bindHosts() {
+        hosts.bind(host: .init(
+            rows: { [weak services] in
+                guard let services else { return [] }
+                return MachineSectionRow.rows(services.machines, health: services.machineHealth, joined: services.joinedMachines,
+                                              signedIn: services.serverReach.signedIn.joinedByMachine)
+            },
+            add: { [weak services] in _ = services?.registry.perform("device.add") },
+            open: { [weak services] machine in
+                _ = services?.registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(machine.id)]))
+            }))
     }
 
     func teardown() {
