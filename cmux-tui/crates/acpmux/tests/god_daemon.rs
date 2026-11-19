@@ -59,6 +59,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     // The chat size sweep's sizes (`chat_size_sweep`).
     "ACPMUX_CHAT_SIZES",
     "ACPMUX_CHAT_SIM_BIN",
+    // The fleet's output directory, not a credential: keep the bounded daemon-log artifacts.
+    "FAST_CHECKS_OUT",
     "ACPMUX_GOD_DHAT",
     "ACPMUX_GOD_DHAT_TOP",
     // A control artifact for differential runs; the child still uses the hermetic environment.
@@ -87,6 +89,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use wait_timeout::ChildExt;
 
 /// How long any one step may take before the run says so and moves on.
 const STEP: Duration = Duration::from_secs(600);
@@ -631,9 +634,17 @@ impl Daemon {
 
     /// SIGTERM, then the exit: the daemon writes its heap profile on the way out.
     fn stop(&mut self) {
+        if self.child.try_wait().unwrap().is_some() {
+            return;
+        }
         // SAFETY: the pid is this test's own child, not yet reaped.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
-        let _ = self.child.wait();
+        if self.child.wait_timeout(Duration::from_secs(30)).unwrap().is_none() {
+            print_daemon_log(&self.log);
+            let _ = self.child.kill();
+            let _ = self.child.wait_timeout(Duration::from_secs(5));
+            panic!("daemon {} did not stop within 30 seconds", self.child.id());
+        }
     }
 
     /// The daemon's one-stop handoff through a cache-first attach (not an app render). The new
@@ -674,7 +685,7 @@ impl Daemon {
 impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _ = self.child.wait_timeout(Duration::from_secs(5));
         if std::thread::panicking() {
             print_daemon_log(&self.log);
         }
@@ -1696,6 +1707,7 @@ fn timed_rounds(
     params: impl Fn(u64) -> Value,
 ) -> (Value, Value, Value) {
     let (mut times, mut records, mut error) = (vec![], Value::Null, Value::Null);
+    let mut returned_records = vec![];
     for round in 0..rounds {
         let asked = Instant::now();
         let reply = rpc.call_until(method, params(round), Some(asked + STEP));
@@ -1703,14 +1715,26 @@ fn timed_rounds(
         rpc.notes.clear();
         match reply {
             Ok(reply) => {
+                let count = reply["events"].as_array().map_or(0, Vec::len);
+                if count == 0 {
+                    error = json!({"method": method, "round": round, "reason": "empty page"});
+                    break;
+                }
                 times.push(us);
-                records = json!(reply["events"].as_array().map_or(0, Vec::len));
+                records = json!(count);
+                returned_records.push(count);
             }
-            Err(e) if error.is_null() => error = e,
-            Err(_) => {}
+            Err(e) => {
+                error = e;
+                break;
+            }
         }
     }
-    (spread(&times), records, error)
+    let mut timing = spread(&times);
+    if let Some(timing) = timing.as_object_mut() {
+        timing.insert("returnedRecords".into(), json!(returned_records));
+    }
+    (timing, records, error)
 }
 
 /// How long a prompt may take to its first token, and to its turn's end, before the sweep counts
@@ -1861,21 +1885,21 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let rounds = ROUNDS as u64;
     let (attach_us, attach_records, attach_error) =
         timed_rounds(&mut rpc, "_acpmux/attach", rounds, |_| app_attach(&id));
+    let (rss_idle, _) = daemon.rss();
     let last = w.last_seq;
     let (newest_us, newest_records, newest_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| older_params(&id, last + 1));
-    // Scroll up at three depths, a page further each round so no round reads the last one's:
-    // just under the newest page, the middle, and near the chat's start.
-    let at = |from: u64, round: u64| from.saturating_sub(round * OLDER_PAGE_LIMIT).max(2);
-    let (recent_us, _, recent_error) = timed_rounds(&mut rpc, "_acpmux/events", rounds, |r| {
-        older_params(&id, at(last.saturating_sub(OLDER_PAGE_LIMIT), r))
+    // Warm pages at fixed proportional depths, as the repeated newest/attach reads above.
+    // Moving 2,000 raw sequences every round exhausted the 1 MB baseline (empty pages and
+    // future forward cursors) while large chats still returned content. Keep each workload
+    // nonempty and report its returned record counts alongside its latency distribution.
+    let (recent_us, _, recent_error) = timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| {
+        older_params(&id, (last * 9 / 10).max(2))
     });
     let (mid_us, _, mid_error) =
-        timed_rounds(&mut rpc, "_acpmux/events", rounds, |r| older_params(&id, at(last / 2, r)));
-    let deep_from = (last / 20).max(OLDER_PAGE_LIMIT * (rounds + 1));
-    let (deep_us, _, deep_error) = timed_rounds(&mut rpc, "_acpmux/events", rounds, |r| {
-        older_params(&id, at(deep_from.min(last), r))
-    });
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| older_params(&id, (last / 2).max(2)));
+    let (deep_us, _, deep_error) =
+        timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| older_params(&id, (last / 20).max(2)));
     // The rail's prompt index (direct.ts `readPromptIndex`).
     let (prompt_index_us, prompt_index_rows, prompt_index_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| {
@@ -1883,11 +1907,11 @@ fn size_run(label: &str, bytes: u64) -> Value {
                    "kinds": ["user_message"], "limit": 5000, "maxBytes": 256 << 10})
         });
     // A forward read from the middle (a reconnect's catch-up, a rail jump's `loadThrough`).
-    let (forward_us, _, forward_error) = timed_rounds(&mut rpc, "_acpmux/events", rounds, |r| {
-        json!({"sessionId": id, "afterSeq": last / 2 + r * OLDER_PAGE_LIMIT,
+    let (forward_us, _, forward_error) = timed_rounds(&mut rpc, "_acpmux/events", rounds, |_| {
+        json!({"sessionId": id, "afterSeq": last / 2,
                "limit": OLDER_PAGE_LIMIT, "maxBytes": OLDER_PAGE_BYTES})
     });
-    let (rss_idle, _) = daemon.rss();
+    let (rss_after_reads, _) = daemon.rss();
 
     // Typing: a prompt to its first token; the first starts the agent host.
     let (mut sends, mut send_error) = (vec![], Value::Null);
@@ -1951,7 +1975,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "promptIndexUs": prompt_index_us, "promptIndexRows": prompt_index_rows,
         "promptIndexError": prompt_index_error,
         "forwardPageUs": forward_us, "forwardPageError": forward_error,
-        "rssIdle": rss_idle,
+        "rssIdle": rss_idle, "rssAfterReads": rss_after_reads,
         "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
         "sendError": send_error,
         "rss": rss, "peakRss": peak_rss, "shutdownMs": shutdown_ms,
