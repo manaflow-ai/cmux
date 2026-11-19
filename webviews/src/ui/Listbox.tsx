@@ -1,10 +1,17 @@
 // A focusable listbox of actions (recent items): one Tab stop, Up/Down/Home/End move, typing a
 // letter jumps to the next row starting with it, Return or Space opens, a click opens. Base UI 1.8
 // has no standalone listbox, so this is the wrapper's one implementation (aria-activedescendant).
+//
+// A list longer than LISTBOX_WINDOW_AFTER rows mounts only the rows near its viewport (one viewport
+// of overscan each side) and the highlighted row, in list order between spacers, so it costs the
+// same at a thousand rows as at ten thousand; windowed rows carry aria-posinset/aria-setsize. Each
+// row is a memoized component: a highlight change re-renders the two rows it moved between.
 import {
+  memo,
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -47,12 +54,17 @@ export interface ListboxProps<T> {
   footer?: ReactNode;
   "aria-busy"?: boolean;
   id?: string;
-  /** Optional window for large editor-owned lists; indices and ids remain logical/full-list values. */
+  /** The caller's own window (an editor-owned list that keeps its scroll); indices and ids remain
+   * full-list values. Without it a list past LISTBOX_WINDOW_AFTER rows windows itself. */
   window?: { start: number; end: number; topSpace: number; bottomSpace: number };
   onScroll?: UIEventHandler<HTMLDivElement>;
 }
 
 const TYPEAHEAD_RESET_MS = 700;
+/** Up to this many rows all mount (a menu's worth); past it the list windows itself. */
+export const LISTBOX_WINDOW_AFTER = 50;
+/** A row's height before one is measured. */
+const ESTIMATED_ROW_PX = 28;
 
 export function Listbox<T>({
   items,
@@ -87,8 +99,10 @@ export function Listbox<T>({
   };
   const focused = useRef(false);
   const listEdges = useScrollEdges();
+  const scroller = useRef<HTMLDivElement | null>(null);
   const attachList = useCallback(
     (element: HTMLDivElement | null) => {
+      scroller.current = element;
       listEdges(element);
       if (typeof externalListRef === "function") externalListRef(element);
       else if (externalListRef) externalListRef.current = element;
@@ -107,6 +121,57 @@ export function Listbox<T>({
     const element = document.getElementById(activeId);
     element?.scrollIntoView?.({ block: "nearest" });
   }, [activeId]);
+
+  // The list's own window: the scroller's offset and height, and a row's measured height.
+  const ownWindow = visibleWindow === undefined && items.length > LISTBOX_WINDOW_AFTER;
+  const [view, setView] = useState({ top: 0, height: 0 });
+  const [rowPx, setRowPx] = useState(0);
+  const readView = useCallback(() => {
+    const node = scroller.current;
+    if (!node) return;
+    setView((previous) =>
+      previous.top === node.scrollTop && previous.height === node.clientHeight
+        ? previous
+        : { top: node.scrollTop, height: node.clientHeight },
+    );
+  }, []);
+  useLayoutEffect(() => {
+    if (!ownWindow) return;
+    readView();
+    const node = scroller.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(readView);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [ownWindow, readView]);
+  useLayoutEffect(() => {
+    if (!ownWindow || rowPx > 0) return;
+    const row = scroller.current?.querySelector<HTMLElement>(":scope > [role='option']");
+    if (row && row.offsetHeight > 0) setRowPx(row.offsetHeight);
+    // Again when the rows change, until one has a height (a list laid out after it mounted).
+  }, [ownWindow, rowPx, items]);
+  const segments = ownWindow
+    ? listboxSegments(items.length, current, view.top, view.height, rowPx || ESTIMATED_ROW_PX)
+    : visibleWindow
+      ? [{ start: visibleWindow.start, end: visibleWindow.end, before: visibleWindow.topSpace }]
+      : [{ start: 0, end: items.length, before: 0 }];
+  const after = ownWindow
+    ? Math.max(0, items.length - (segments.at(-1)?.end ?? 0)) * (rowPx || ESTIMATED_ROW_PX)
+    : (visibleWindow?.bottomSpace ?? 0);
+  const windowed = ownWindow || visibleWindow !== undefined;
+  // The rows' handlers are stable (a memoized row must not re-render for a new closure); they read
+  // the list's latest state when they run.
+  const latest = useRef({ current, items, onOpen, setCurrentHighlight });
+  useLayoutEffect(() => {
+    latest.current = { current, items, onOpen, setCurrentHighlight };
+  });
+  const hoverRow = useCallback((index: number) => {
+    if (index !== latest.current.current) latest.current.setCurrentHighlight(index);
+  }, []);
+  const openRow = useCallback((index: number) => {
+    const item = latest.current.items[index];
+    if (item !== undefined) latest.current.onOpen(item);
+  }, []);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // Cmd, Ctrl and Option chords are the app's.
@@ -155,38 +220,34 @@ export function Listbox<T>({
       aria-busy={ariaBusy || undefined}
       aria-activedescendant={activeId}
       onKeyDown={onKeyDown}
-      onScroll={onScroll}
+      onScroll={(event) => {
+        if (ownWindow) readView();
+        onScroll?.(event);
+      }}
     >
-      {visibleWindow && visibleWindow.topSpace > 0 && (
-        <div aria-hidden="true" style={{ height: visibleWindow.topSpace }} />
-      )}
-      {items.slice(visibleWindow?.start ?? 0, visibleWindow?.end ?? items.length).map((item, offset) => {
-        const index = (visibleWindow?.start ?? 0) + offset;
-        return (
-          <div
-            key={getKey(item)}
-            id={getItemId?.(item, index) ?? `${id}-${index}`}
-            className={cx("ui-listbox-row", rowClassName)}
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rows of the listbox above.
-            role="option"
-            tabIndex={-1}
-            aria-selected={index === current}
-            {...itemAttributes?.(item, index)}
-            onMouseMove={() => index !== current && setCurrentHighlight(index)}
-            onMouseDown={(event) => {
-              // Secondary/middle press and macOS Control-click keep the system context menu.
-              if (event.button !== 0 || event.ctrlKey) return;
-              event.preventDefault();
-              onOpen(item);
-            }}
-          >
-            {renderItem(item, index)}
-          </div>
-        );
-      })}
-      {visibleWindow && visibleWindow.bottomSpace > 0 && (
-        <div aria-hidden="true" style={{ height: visibleWindow.bottomSpace }} />
-      )}
+      {/* One flat keyed array: a row that moves between segments keeps its element. */}
+      {segments.flatMap((segment, place) => [
+        segment.before > 0 && <div key={`space-${place}`} aria-hidden="true" style={{ height: segment.before }} />,
+        ...items.slice(segment.start, segment.end).map((item, offset) => {
+          const index = segment.start + offset;
+          return (
+            <ListboxRow
+              key={getKey(item)}
+              item={item}
+              index={index}
+              id={getItemId?.(item, index) ?? `${id}-${index}`}
+              className={rowClassName}
+              selected={index === current}
+              setSize={windowed ? items.length : undefined}
+              renderItem={renderItem}
+              itemAttributes={itemAttributes}
+              onHover={hoverRow}
+              onOpen={openRow}
+            />
+          );
+        }),
+      ])}
+      {after > 0 && <div aria-hidden="true" style={{ height: after }} />}
       {items.length === 0 && empty}
       {footer}
     </div>
@@ -197,4 +258,81 @@ export function Listbox<T>({
       {list}
     </div>
   );
+}
+
+interface ListboxRowProps<T> {
+  item: T;
+  index: number;
+  id: string;
+  className?: string;
+  selected: boolean;
+  /** Set when the list is windowed: the full length, for aria-setsize and aria-posinset. */
+  setSize?: number;
+  renderItem(item: T, index: number): ReactNode;
+  itemAttributes?(item: T, index: number): Record<string, string | undefined>;
+  onHover(index: number): void;
+  onOpen(index: number): void;
+}
+
+const ListboxRow = memo(function ListboxRow<T>({
+  item,
+  index,
+  id,
+  className,
+  selected,
+  setSize,
+  renderItem,
+  itemAttributes,
+  onHover,
+  onOpen,
+}: ListboxRowProps<T>) {
+  return (
+    <div
+      id={id}
+      className={cx("ui-listbox-row", className)}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rows of the listbox above.
+      role="option"
+      tabIndex={-1}
+      aria-selected={selected}
+      aria-posinset={setSize === undefined ? undefined : index + 1}
+      aria-setsize={setSize}
+      {...itemAttributes?.(item, index)}
+      onMouseMove={() => onHover(index)}
+      onMouseDown={(event) => {
+        // Secondary/middle press and macOS Control-click keep the system context menu.
+        if (event.button !== 0 || event.ctrlKey) return;
+        event.preventDefault();
+        onOpen(index);
+      }}
+    >
+      {renderItem(item, index)}
+    </div>
+  );
+}) as <T>(props: ListboxRowProps<T> & { key?: string }) => ReactNode;
+
+/** The row ranges a self-windowed list mounts, each with the spacer height before it: the rows in
+ * view with one viewport of overscan each side, and the highlighted row when it is outside them (so
+ * aria-activedescendant names a mounted row), in list order. Before the viewport is measured (no
+ * layout yet) a viewport is taken as 400 px. */
+export function listboxSegments(
+  count: number,
+  highlighted: number,
+  scrollTop: number,
+  viewportPx: number,
+  rowPx: number,
+): { start: number; end: number; before: number }[] {
+  const height = viewportPx > 0 ? viewportPx : 400;
+  const overscan = Math.ceil(height / rowPx);
+  const start = Math.max(0, Math.floor(scrollTop / rowPx) - overscan);
+  const end = Math.min(count, Math.ceil((scrollTop + height) / rowPx) + overscan);
+  if (highlighted < 0 || (highlighted >= start && highlighted < end)) return [{ start, end, before: start * rowPx }];
+  if (highlighted < start)
+    return [
+      { start: highlighted, end: highlighted + 1, before: highlighted * rowPx },
+      { start, end, before: (start - highlighted - 1) * rowPx },
+    ];
+  return [
+    { start, end, before: start * rowPx },
+    { start: highlighted, end: highlighted + 1, before: (highlighted - end) * rowPx },
+  ];
 }
