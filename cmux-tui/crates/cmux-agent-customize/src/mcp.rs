@@ -631,7 +631,7 @@ mod claude {
                     servers.set(name, entry(server));
                 }
                 (Scope::Local, Edit::Add(server)) => {
-                    let key = key.clone().unwrap_or_default();
+                    let key = key.unwrap_or_default();
                     let projects = json.object_at("projects").ok_or("projects is not an object")?;
                     let folder =
                         projects.object_at(&key).ok_or("the folder's entry is not an object")?;
@@ -646,7 +646,7 @@ mod claude {
                     missing = json.get_mut("mcpServers").and_then(|m| m.remove(name)).is_none();
                 }
                 (Scope::Local, Edit::Remove) => {
-                    let key = key.clone().unwrap_or_default();
+                    let key = key.unwrap_or_default();
                     missing = json
                         .get_mut("projects")
                         .and_then(|p| p.get_mut(&key))
@@ -656,7 +656,7 @@ mod claude {
                 }
                 (_, Edit::Enable | Edit::Disable) => {
                     let off = matches!(edit, Edit::Disable);
-                    let key = key.clone().unwrap_or_default();
+                    let key = key.unwrap_or_default();
                     let projects = json.object_at("projects").ok_or("projects is not an object")?;
                     let folder =
                         projects.object_at(&key).ok_or("the folder's entry is not an object")?;
