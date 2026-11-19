@@ -79,7 +79,7 @@ struct BesidePaneReuseOffScreenTests {
             var params: [String: CmuxNextSettings.JSONValue] = ["action": .string(action), "args": .object(args), "caller": caller,
                                                "origin": .string(origin), "wait": true]
             if aimedAtOwnTab { params["target"] = .string("tab:" + terminal.id) }
-            let reply = await router.handle(ControlRequest(id: UUID().uuidString, method: "action.run", params: params))
+            let reply = await router.handle(ControlRequest(id: "run", method: "action.run", params: params))
             if case .failure(let error) = reply { Issue.record("\(action) was refused: \(error.code) \(error.message)") }
         }
 
