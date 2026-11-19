@@ -459,6 +459,10 @@ SHARED_TOKEN_ONLY = {
     ("resolve-nightly-cmux-tui-client", "Build the tip while its tree publishes"),
     ("resolve-nightly-cmux-tui-client", "Resolve cmux-tui client commit"),
     ("resolve-nightly-cmux-tui-client", "Leave the build slot to a newer nightly-next push"),
+    # The sign gate (nightly_sign_gate.py) only ever skips: a spent token reads as doubt, and doubt builds and
+    # signs as before, so the shared limit running out can never stop a publication here. It reads actions,
+    # which the release App does not hold, as the sign yield on the Mac does on the same token.
+    ("resolve-nightly-cmux-tui-client", "Leave the sign to a newer nightly-next build"),
     # The tick wake after nightly-next-one, a workflow dispatch like retry-nightly-next's (which reads
     # github.token from its job env). No App path fits it: the release App holds contents and workflows,
     # not actions, so it cannot dispatch; its key stays off the nightly mini; and the same call inside
