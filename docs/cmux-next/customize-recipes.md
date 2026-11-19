@@ -135,9 +135,10 @@ Or ask: "let me move between panes with ctrl-cmd-h, j, k and l"
 ### Like the Claude desktop app
 
 The Claude desktop app's Code tab, dark, with colors measured from the real app: a #191919 page,
-a warm #282524 sidebar with a 1 pt line at its edge, sessions under their project with sub-sessions
-nested under the session that started them, title-only rows, a one-line #303030 composer with a
-1 pt edge and 12 pt corners, and your prompt in a #252525 pill. It ships its theme file
+a #151515 sidebar a step darker with a hairline at its edge, sessions under their project with
+sub-sessions nested under the session that started them, title-only rows, a one-line #303030
+composer with a 1 pt edge and 12 pt corners (the chat's and the New Tab's), and your prompt in a
+#252525 pill. It keeps your density. It ships its theme file
 (`themes/claude-code-app.json`) and chat stylesheet (`agent-pane/theme.css`), so you can copy and
 change either.
 
