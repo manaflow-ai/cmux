@@ -6,8 +6,8 @@ blacksmith-16vcpu-ubuntu-2404 and it sat queued there from 05:23Z, holding the t
 build waited for, while the owned GCP runners freed up. tree-preflight's linux-placement step reads the runner census
 once (scripts/ci/portable_job_placement.py, REQUIRE_LIVE_CAPACITY): no member was idle at that instant, its output was
 empty, and the job's runs-on fell straight through to the Blacksmith pool. GitHub never moves a queued job, so one
-reading decided the job's runner for good. Leo: "why would it move OFF of gcp and into blacksmith if it was already
-linux 16!?"
+reading decided the job's runner for good. Leo: a job already headed for an owned 16 vCPU GCP runner class must not move off GCP onto
+Blacksmith.
 
 The rule: a census may choose among owned labels, but it never chooses Blacksmith. On attempt 1 of the nightly path
 (feat-cmux-next and nightly-next pushes, dispatches such as cmux-tui-tree-request.yml's) every expression in the tree

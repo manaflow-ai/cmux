@@ -1647,8 +1647,8 @@ jobs:
     # its name's "cmux_next_ daemon tests" prefix, so older runs' names with
     # a runner suffix still count. Leo, 2026-10-27: "ok do NOT label stuff as
     # os=linux...": the name, steps and marker name no runner OS.
-    # Owned first, never frozen onto Blacksmith by a one-shot census (Leo, 2026-11-19: "why would it move OFF of gcp
-    # and into blacksmith if it was already linux 16!?"). tree-preflight's linux-placement reads the runner census
+    # Owned first, never frozen onto Blacksmith by a one-shot census (Leo: a job already headed for an owned 16 vCPU
+    # GCP runner class must not move off GCP onto Blacksmith). tree-preflight's linux-placement reads the runner census
     # once; until then an empty answer (no fleet member idle at that instant) put this job on Blacksmith linux_16 for
     # good, and run 44464326281's daemon tests sat there from 05:23Z while the owned GCP runners freed up, holding
     # the tree publish the nightly waits for. Now the census only picks the fleet label when it saw one idle; with
