@@ -222,13 +222,20 @@ final class CEFRuntime {
     /// A load begun from any thread before any page asked (`CEFEngine.beginEarlyLoad`, handed over by the engine with
     /// its stores, `adopt(earlyLoad:)`); the first start or preload of its layout takes it instead of loading again.
     private(set) var earlyLoad: CEFEarlyLoad?
+    /// Runs this runtime's deadlines (an extension popup window no panel attached, `CEFPaneHost+PopupWindows`);
+    /// tests pass a manual clock.
+    let clock: any Clock<Duration>
 
-    private init() { libraryLoader = { CEFRuntime.loadLibrary($0) } }
+    private init() {
+        libraryLoader = { CEFRuntime.loadLibrary($0) }
+        clock = ContinuousClock()
+    }
 
     /// An idle runtime whose framework load is `libraryLoader`, its profiles under `storage` (tests).
     init(libraryLoader: @escaping LibraryLoader, storage: CEFProfileStorage? = nil) {
         self.libraryLoader = libraryLoader
         if let storage { self.storage = storage }
+        clock = ContinuousClock()
     }
 
     /// The disk work `CefInitialize` needs done first, read off the main thread once the first window frame has
@@ -312,9 +319,10 @@ final class CEFRuntime {
 
     /// A runtime over `shim` that never loads or starts Chromium, its profiles under `storage`
     /// (tests drive panes against a spy shim).
-    init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
+    init(shim: CEFShimLibrary, storage: CEFProfileStorage, clock: any Clock<Duration> = ContinuousClock()) {
         self.shim = shim
         self.storage = storage
+        self.clock = clock
         libraryLoader = { _ in .failure(.notEmbedded) }
         state = .ready
     }
