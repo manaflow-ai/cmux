@@ -78,6 +78,7 @@ import {
   useState,
 } from "react";
 import { experimentArm } from "../../../experiments/experiment";
+import { watchPress } from "../../../ui/pressRelease";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
@@ -621,6 +622,9 @@ export const SubagentTray = memo(function SubagentTray({
   // The top rim drags the list taller or shorter (trayResize.ts): up from folded opens it, down past
   // its last line folds it, a double-click goes back to the default five lines.
   const resizes = !(headed && opensPanel === "header");
+  // The rim drag's watch (pressRelease.ts); a tray gone mid-drag leaves no listener behind.
+  const stopRim = useRef<() => void>(undefined);
+  useEffect(() => () => stopRim.current?.(), []);
   const onRimDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const list = trayNode.current?.querySelector<HTMLElement>(".acpmux-running-tray__list");
@@ -656,28 +660,28 @@ export const SubagentTray = memo(function SubagentTray({
       last = step.height;
       setHatHeight(step.height, false);
     };
-    const end = (ended: PointerEvent) => {
-      rim.removeEventListener("pointermove", move);
-      rim.removeEventListener("pointerup", end);
-      rim.removeEventListener("pointercancel", end);
-      rim.removeEventListener("lostpointercapture", end);
+    const end = (up: boolean) => {
+      stopRim.current = undefined;
       if (dragged) {
         setHatHeight(last, true);
         return;
       }
       // No drag: the press was a click on what the band lies over (the header's top, a lone line's,
       // the composer seam), so it goes there, never swallowed by the rim.
-      if (ended.type !== "pointerup") return;
+      if (!up) return;
       rim.style.pointerEvents = "none";
       const under = document.elementFromPoint(startX, startY);
       rim.style.pointerEvents = "";
       if (under instanceof HTMLElement && !rim.contains(under)) under.click();
     };
-    rim.addEventListener("pointermove", move);
-    rim.addEventListener("pointerup", end);
-    rim.addEventListener("pointercancel", end);
-    // The hat leaves mid-drag (its last line ended): the drag ends, and what it reached is kept.
-    rim.addEventListener("lostpointercapture", end);
+    // The hat leaves mid-drag (its last line ended, the rim loses capture): the drag ends, and what
+    // it reached is kept. So does a release the page never heard (watchPress).
+    stopRim.current?.();
+    stopRim.current = watchPress(rim.ownerDocument, {
+      pointerId: event.pointerId,
+      move,
+      end: (how) => end(how === "up"),
+    });
   };
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0 || planned;

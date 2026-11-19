@@ -62,6 +62,7 @@ import { withSkillWords } from "./conversation/withSkillWords";
 import { type QueuedEntry, shownText } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
+import { watchPress } from "../../ui/pressRelease";
 import { focusRoute } from "../../ui/focusRoute";
 /** A queue of more queued prompts than this folds; folded, it shows `FOLD_SHOWS` of them. */
 const FOLD_AT = 3;
@@ -499,6 +500,9 @@ export function ComposerQueue({
   const foldButton = useRef<HTMLButtonElement>(null);
   // A press in the list, until its release: the focus it gives a row does not scroll the list.
   const pressing = useRef(false);
+  // The press's watch (pressRelease.ts); a queue gone mid-press leaves no listener behind.
+  const stopPress = useRef<() => void>(undefined);
+  useEffect(() => () => stopPress.current?.(), []);
   useEffect(() => {
     setSentNow((current) => {
       const next = new Set(
@@ -1096,17 +1100,18 @@ export function ComposerQueue({
         onPointerDown={(event) => {
           pressing.current = true;
           // Released anywhere, over the list or not; a press that ends outside the page (a
-          // native menu, the window losing focus) or before a key ends there too.
+          // native menu, the window losing focus, a release the page never heard: watchPress) or
+          // before a key ends there too.
           const page = event.currentTarget.ownerDocument;
-          const ended = new AbortController();
+          stopPress.current?.();
           const done = () => {
             pressing.current = false;
-            ended.abort();
+            page.removeEventListener("keydown", done, true);
+            stopPress.current?.();
+            stopPress.current = undefined;
           };
-          const options = { capture: true, signal: ended.signal };
-          for (const type of ["pointerup", "pointercancel", "keydown"]) page.addEventListener(type, done, options);
-          // Not capturing: a capturing window listener also hears the blur of whatever had focus.
-          page.defaultView?.addEventListener("blur", done, { signal: ended.signal });
+          page.addEventListener("keydown", done, true);
+          stopPress.current = watchPress(page, { pointerId: event.pointerId, end: done });
         }}
         aria-label={`${t("composer.queue")} (${shown.length})`}
       >

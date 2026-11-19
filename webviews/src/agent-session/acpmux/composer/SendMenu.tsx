@@ -12,6 +12,7 @@ import {
   type ReactElement,
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { watchPress } from "../../../ui/pressRelease";
 import { contextDescription } from "../../../ui/popupDescriptors";
 import { experimentArm } from "../../../experiments/experiment";
 import { Icon } from "../icons/Icon";
@@ -39,9 +40,14 @@ export function SendMenu({
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // A long press opened the menu: the click that ends that press is not a send.
   const pressed = useRef(false);
+  // The press's watch (pressRelease.ts): its release, the window's blur or a release the page
+  // never heard ends the long press.
+  const stopPress = useRef<() => void>(undefined);
   const stopTimer = () => {
     clearTimeout(timer.current);
     timer.current = undefined;
+    stopPress.current?.();
+    stopPress.current = undefined;
   };
   useEffect(() => stopTimer, []);
   const items: ContextMenuItem[] = choices.map((choice) => {
@@ -86,6 +92,7 @@ export function SendMenu({
     if (event.button !== 0 || items.length === 0) return;
     const target = event.target as Element;
     const at = { clientX: event.clientX, clientY: event.clientY };
+    stopPress.current = watchPress(target.ownerDocument, { pointerId: event.pointerId, end: stopTimer });
     timer.current = setTimeout(() => {
       timer.current = undefined;
       if (!target.isConnected) return;
@@ -108,9 +115,7 @@ export function SendMenu({
     <ContextMenu asChild popupClassName="acpmux-send-menu-popup" items={items} selection="menu" native={{ model }}>
       {cloneElement(children, {
         onPointerDown,
-        onPointerUp: stopTimer,
         onPointerLeave: stopTimer,
-        onPointerCancel: stopTimer,
         onClickCapture,
       })}
     </ContextMenu>
@@ -120,8 +125,6 @@ export function SendMenu({
 /** The press handlers SendMenu puts on Send. */
 type SendPress = {
   onPointerDown?(event: PointerEvent<Element>): void;
-  onPointerUp?(): void;
   onPointerLeave?(): void;
-  onPointerCancel?(): void;
   onClickCapture?(event: ReactMouseEvent<Element>): void;
 };

@@ -6,8 +6,9 @@
 //   and hide or show it in place; a submenu of the person's renames and deletes.
 // - New Submenu makes one of the person's; Add Separator adds one; Reset brings back the app's menu.
 // Customize Menu… at the end of a menu opens this page on it (`?focus=<menu>`).
-import { useId, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import { Button } from "../../../ui/Button";
+import { watchPress } from "../../../ui/pressRelease";
 import { Input } from "../../../ui/Input";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { nativeMenu, pickedId } from "../../../ui/nativeMenu";
@@ -145,6 +146,11 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
   // before that move rendered drops where the pointer is, not where the last render had it.
   const drag = useRef<Dragging | null>(null);
   const renameDone = useRef(false);
+  // A grip's press, followed to its end wherever the page hears it (pressRelease.ts), and the drop
+  // its pointerup makes with this render's menu.
+  const stopPress = useRef<() => void>(undefined);
+  const dropAt = useRef<(path: Path, at: { clientX: number; clientY: number }) => void>(() => {});
+  useEffect(() => () => stopPress.current?.(), []);
   if (!state || state.menus.length === 0) return null;
 
   // The chosen menu is the route's focus: Customize Menu… opens `?focus=<menu>`, and picking a menu
@@ -238,11 +244,35 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
     const slide = shifts(rows, first, last, height, target ? target.slot : undefined);
     return { ...current, dy, active: true, rows, first, last, height, target, slide };
   };
+  dropAt.current = (path, at) => {
+    const current = drag.current;
+    setDrag(null);
+    if (!current || !samePath(current.path, path)) return;
+    // Where the release is, not where the last render was.
+    const done = follow(current, at.clientX, at.clientY);
+    // The menu changed mid-drag (another window, a cmux.json edit): the paths measured at the
+    // start may name other rows now, so nothing moves. An equal menu re-sent is no change.
+    if (!done.active || !done.target || !sameLayout(done.layout, layout)) return;
+    save(move(layout, done.path, done.target.parent, done.target.index));
+    const into = done.target.into && nodeAt(layout.items, done.target.into);
+    if (into) openFolder(keyOf(into));
+  };
   const grip = (path: Path, depth: number) => ({
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
       if (event.button !== 0) return;
       event.preventDefault();
       event.currentTarget.setPointerCapture?.(event.pointerId);
+      // Its pointerup drops the row; any other end (cancelled, the window's blur, a release the page
+      // never heard) puts it back, as a pointercancel did.
+      stopPress.current?.();
+      stopPress.current = watchPress(event.currentTarget.ownerDocument, {
+        pointerId: event.pointerId,
+        end: (how, last) => {
+          stopPress.current = undefined;
+          if (how === "up" && last) dropAt.current(path, last);
+          else setDrag(null);
+        },
+      });
       setDrag({
         path,
         depth,
@@ -265,20 +295,6 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
       const next = follow(current, event.clientX, event.clientY);
       if (next !== current) setDrag(next);
     },
-    onPointerUp: (event: PointerEvent<HTMLElement>) => {
-      const current = drag.current;
-      setDrag(null);
-      if (!current || !samePath(current.path, path)) return;
-      // Where the release is, not where the last render was.
-      const done = follow(current, event.clientX, event.clientY);
-      // The menu changed mid-drag (another window, a cmux.json edit): the paths measured at the
-      // start may name other rows now, so nothing moves. An equal menu re-sent is no change.
-      if (!done.active || !done.target || !sameLayout(done.layout, layout)) return;
-      save(move(layout, done.path, done.target.parent, done.target.index));
-      const into = done.target.into && nodeAt(layout.items, done.target.into);
-      if (into) openFolder(keyOf(into));
-    },
-    onPointerCancel: () => setDrag(null),
   });
   /** A dragged row (and what an open submenu shows under it) follows the pointer, moving sideways
    * to the depth it will land at; the rows it passes slide to open the gap. Transforms only. */

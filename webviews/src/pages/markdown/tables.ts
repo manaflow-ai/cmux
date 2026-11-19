@@ -752,10 +752,8 @@ export const tableDragOutPlugin = $prose(
             if (!press || !table) return false;
             const anchor = press.pos;
             const tablePos = table.pos;
-            const window = view.dom.ownerDocument.defaultView;
-            if (!window) return false;
             const move = (moved: MouseEvent) => {
-              if (moved.buttons === 0 || view.isDestroyed) return stop();
+              if (view.isDestroyed) return stop();
               const hit = view.posAtCoords({ left: moved.clientX, top: moved.clientY });
               if (!hit) return;
               const { doc } = view.state;
@@ -764,12 +762,9 @@ export const tableDragOutPlugin = $prose(
               const selection = TextSelection.between(doc.resolve(Math.min(anchor, doc.content.size)), $head);
               if (!selection.eq(view.state.selection)) view.dispatch(view.state.tr.setSelection(selection));
             };
-            const stop = () => {
-              window.removeEventListener("mousemove", move);
-              window.removeEventListener("mouseup", stop);
-            };
-            window.addEventListener("mousemove", move);
-            window.addEventListener("mouseup", stop);
+            // Ends on the mouseup, a move with the button up, or the window's blur (watchPress): a
+            // release the page never heard leaves no move extending the selection.
+            const stop = watchPress(view.dom.ownerDocument, { events: "mouse", move, end: () => {} });
             return false;
           },
         },

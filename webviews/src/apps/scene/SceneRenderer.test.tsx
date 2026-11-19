@@ -506,6 +506,38 @@ test("Slider sends each snapped change synchronously and drops values that snap 
   expect(slider.disabled).toBe(true);
 });
 
+// A slider's drag ends on its pointerup, and also where the page never hears one: the window's own
+// blur, or a move with no button down (the button came up over another window). Until it ends the
+// app's echo does not move the thumb; after, the app's value shows.
+for (const ending of ["the window's blur", "a move with no button down"] as const)
+  test(`Slider's drag ends on ${ending}: the app's value shows again`, () => {
+    const { container, store } = render([
+      { op: "create", id: "level", type: "Slider", props: { min: 0, max: 10, step: 1, value: 2, onChange: true } },
+      { op: "root", id: "level" },
+    ]);
+    const slider = container.querySelector<HTMLInputElement>('input[type="range"]')!;
+    act(() => {
+      slider.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, buttons: 1 }));
+    });
+    // Held: a move with the button down and an element's blur elsewhere do not end it.
+    act(() => {
+      dom!.window.document.body.dispatchEvent(new dom!.window.MouseEvent("pointermove", { bubbles: true, buttons: 1 }));
+      dom!.window.document.body.dispatchEvent(new dom!.window.FocusEvent("blur"));
+      store.apply([{ op: "update", id: "level", props: { value: 7 } }]);
+    });
+    expect(slider.value).toBe("2");
+    act(() => {
+      if (ending === "the window's blur") dom!.window.dispatchEvent(new dom!.window.FocusEvent("blur"));
+      else
+        dom!.window.document.body.dispatchEvent(
+          new dom!.window.MouseEvent("pointermove", { bubbles: true, buttons: 0 }),
+        );
+    });
+    expect(slider.value).toBe("7");
+    act(() => store.apply([{ op: "update", id: "level", props: { value: 4 } }]));
+    expect(slider.value).toBe("4");
+  });
+
 test("Slider snapping matches the native renderer's range, step and decimals", () => {
   expect(sliderSnap(0.30000000000000004, [0, 1], 0.1)).toBe(0.3);
   expect(sliderSnap(-4, [0, 1], 0.01)).toBe(0);

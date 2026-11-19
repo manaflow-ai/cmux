@@ -17,6 +17,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
 import { isAgentMotionOff } from "../../shared/motion";
+import { watchPress } from "../../../ui/pressRelease";
 import { useT } from "../i18n";
 import { useFoldMotion } from "./foldMotion";
 import { heldPlace } from "./heldPlace";
@@ -268,17 +269,13 @@ export function SessionInfoSectionList({
     // Scrolling under a still pointer carries the section past its neighbours too.
     const scroll = () => place();
     const scroller = drag.current?.scroller;
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-    window.addEventListener("blur", up);
+    // Every end of the press drops the section where it is drawn: its pointerup or pointercancel,
+    // the window's blur, and a move with no button down (released where the page never heard it).
+    const stopPress = watchPress(list.current?.ownerDocument ?? document, { move, end: up });
     window.addEventListener("keydown", key, true);
     scroller?.addEventListener("scroll", scroll, { passive: true });
     return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-      window.removeEventListener("blur", up);
+      stopPress();
       window.removeEventListener("keydown", key, true);
       scroller?.removeEventListener("scroll", scroll);
     };

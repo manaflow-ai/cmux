@@ -83,6 +83,7 @@ import { type Anchor, type TickRef, tickIndex, prependedBy } from "./threadMinim
 import { railEdge } from "./railSide";
 import { focusCameFromKey } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
+import { watchPress, type PressEnd } from "../../../ui/pressRelease";
 
 /// The rail menu's filter items (model.ts `RailFilter`).
 const RAIL_FILTER_LABEL = {
@@ -355,6 +356,9 @@ export function ThreadMinimap({
   /// scrolls under a still pointer, the hovered row is the one now under it.
   const pointerY = useRef<number | undefined>(undefined);
   const swallowClick = useRef(false);
+  /// Stops following the press (watchPress); the rail gone mid-press leaves no listener behind.
+  const stopPress = useRef<() => void>(undefined);
+  useEffect(() => () => stopPress.current?.(), []);
   /// The scroller's offset as of its last scroll event. The transcript hands `scrollTop` down a
   /// frame or two late (React schedules a scroll's render), so the band of lit rows read it here
   /// instead and follows the reader on the scroll's own frame.
@@ -1251,17 +1255,18 @@ export function ThreadMinimap({
     const index = Math.floor((clientY - node.getBoundingClientRect().top + node.scrollTop) / rowPitch);
     return Math.max(0, Math.min(turns.length - 1, index));
   };
-  const endScrub = (event: React.PointerEvent<HTMLElement>) => {
+  /// Ends the press `state` on `node` (watchPress: its pointerup, also a release the page never heard).
+  const endScrub = (state: NonNullable<typeof scrub.current>, node: HTMLElement, how: PressEnd) => {
+    stopPress.current = undefined;
+    if (scrub.current !== state) return;
     pressing.current = false;
-    const state = scrub.current;
     scrub.current = undefined;
-    if (!state?.moved) return;
+    if (!state.moved) return;
     // The click a drag ends with never jumps. The next press clears it, not a timer: a slow frame
     // can run a timer between the pointerup and its click.
-    swallowClick.current = true;
+    if (how === "up" || how === "cancel") swallowClick.current = true;
     setScrubbing(false);
-    if (event.currentTarget.hasPointerCapture?.(state.pointer))
-      event.currentTarget.releasePointerCapture(state.pointer);
+    if (node.hasPointerCapture?.(state.pointer)) node.releasePointerCapture(state.pointer);
   };
   const fades = railFades(onScreen, turns.length, height, listTop, rowPitch);
   const fadeReach = railFadeReach(turns.length, height, listTop, rowPitch);
@@ -1426,20 +1431,15 @@ export function ThreadMinimap({
               swallowClick.current = false;
               const state = { pointer: event.pointerId, y: event.clientY, moved: false };
               scrub.current = state;
-              // A press released off the rail (before it moved far enough to capture the pointer) sends
-              // its pointerup elsewhere: the window sees it bubble (after the list's own, which ends a drag)
-              // and ends the press, so a later hover cannot scrub.
-              const page = event.currentTarget.ownerDocument.defaultView ?? window;
-              const released = () => {
-                page.removeEventListener("pointerup", released);
-                page.removeEventListener("pointercancel", released);
-                if (scrub.current !== state) return;
-                scrub.current = undefined;
-                pressing.current = false;
-                if (state.moved) setScrubbing(false);
-              };
-              page.addEventListener("pointerup", released);
-              page.addEventListener("pointercancel", released);
+              // The press ends wherever it is released: on the rail, off it (before it moved far enough
+              // to capture the pointer), or where the page never hears it (over another window, or
+              // after the window lost focus), so a later hover cannot scrub.
+              const node = event.currentTarget;
+              stopPress.current?.();
+              stopPress.current = watchPress(node.ownerDocument, {
+                pointerId: event.pointerId,
+                end: (how) => endScrub(state, node, how),
+              });
             }}
             onPointerMove={(event) => {
               pointerY.current = event.clientY;
@@ -1475,8 +1475,6 @@ export function ThreadMinimap({
               setCardRow(index);
               jump(index, "scrub");
             }}
-            onPointerUp={endScrub}
-            onPointerCancel={endScrub}
           >
             <TickList
               ticks={ticks}

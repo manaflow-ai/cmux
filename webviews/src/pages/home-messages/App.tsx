@@ -25,6 +25,7 @@ import type { HomeChannelsStore } from "../home-channels/store";
 import type { Strings } from "../shared/i18n";
 import type { PageClient } from "../shared/pageClient";
 import { ConversationList, DRAFT_ROW } from "./list/ConversationList";
+import { watchPress } from "../../ui/pressRelease";
 import { clampWidth, COMPACT_BELOW, HEADER, WIDTH } from "./list/layout";
 import { holdsOneConversation, listModel } from "./list/model";
 import type { HostMenuItem, MessagesChrome, MessagesDetail, MessagesHost } from "./types";
@@ -116,6 +117,9 @@ export function MessagesApp({ store, strings, host, messages, detail, onCompose,
     if (width === undefined) widthStorage?.removeItem(WIDTH_KEY);
     else widthStorage?.setItem(WIDTH_KEY, String(Math.round(width)));
   };
+  // The divider drag's press (pressRelease.ts): it ends also where the page never hears the release.
+  const stopDivider = useRef<() => void>(undefined);
+  useEffect(() => () => stopDivider.current?.(), []);
   const onDividerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     if (event.detail === 2) {
@@ -127,14 +131,14 @@ export function MessagesApp({ store, strings, host, messages, detail, onCompose,
     divider.setPointerCapture(event.pointerId);
     const left = page.current?.getBoundingClientRect().left ?? 0;
     const move = (e: PointerEvent) => keep(clampWidth(e.clientX - left, pageWidth - WIDTH.divider));
-    const up = () => {
-      divider.removeEventListener("pointermove", move);
-      divider.removeEventListener("pointerup", up);
-      divider.removeEventListener("pointercancel", up);
-    };
-    divider.addEventListener("pointermove", move);
-    divider.addEventListener("pointerup", up);
-    divider.addEventListener("pointercancel", up);
+    // Its pointerup or pointercancel, and also its lost capture, the window's blur or a move with no
+    // button down (released over another window, where the page hears nothing).
+    stopDivider.current?.();
+    stopDivider.current = watchPress(divider.ownerDocument, {
+      pointerId: event.pointerId,
+      move,
+      end: () => (stopDivider.current = undefined),
+    });
   };
 
   const select = (id: string) => {

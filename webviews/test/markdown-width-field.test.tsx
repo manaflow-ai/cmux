@@ -177,7 +177,16 @@ test("dragging the label scrubs the width; a width leaves full width", async () 
   const label = host.querySelector<HTMLElement>(".md-width-scrub")!;
   const pointer = (type: string, clientX: number) =>
     act(() => {
-      label.dispatchEvent(new dom.window.MouseEvent(type, { clientX, button: 0, bubbles: true, cancelable: true }));
+      label.dispatchEvent(
+        new dom.window.MouseEvent(type, {
+          clientX,
+          button: 0,
+          // A held button while it moves (a move with none is a release the page never heard).
+          buttons: type === "pointerup" ? 0 : 1,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
     });
   pointer("pointerdown", 200);
   pointer("pointermove", 240);
@@ -185,3 +194,29 @@ test("dragging the label scrubs the width; a width leaves full width", async () 
   expect(state.width).toBe(120);
   expect(state.fullWidth).toBe(false);
 });
+
+// The scrub ends where its press does, also where the page never hears the pointerup (a mouse
+// released over another window, or after the window lost focus mid-scrub): the window's own blur
+// and the first move with no button down end it, and a later hover over the label changes nothing.
+for (const ending of ["the window's blur", "a move with no button down"] as const)
+  test(`the label's scrub ends on ${ending}`, async () => {
+    const { state } = await render({ width: 100, fullWidth: false });
+    const label = host.querySelector<HTMLElement>(".md-width-scrub")!;
+    const pointer = (type: string, clientX: number, buttons: number) =>
+      act(() => {
+        label.dispatchEvent(
+          new dom.window.MouseEvent(type, { clientX, button: 0, buttons, bubbles: true, cancelable: true }),
+        );
+      });
+    pointer("pointerdown", 200, 1);
+    pointer("pointermove", 240, 1);
+    expect(state.width).toBe(120);
+    act(() => {
+      if (ending === "the window's blur") dom.window.dispatchEvent(new dom.window.FocusEvent("blur"));
+      else label.dispatchEvent(new dom.window.MouseEvent("pointermove", { clientX: 240, buttons: 0, bubbles: true }));
+    });
+    // A hover over the label afterwards scrubs nothing.
+    pointer("pointermove", 300, 0);
+    pointer("pointermove", 320, 1);
+    expect(state.width).toBe(120);
+  });

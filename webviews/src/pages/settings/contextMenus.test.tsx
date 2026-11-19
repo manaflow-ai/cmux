@@ -87,7 +87,11 @@ async function dragRow(container: HTMLElement, key: string, y: number, check?: (
   const grip = row(container, key).querySelector<HTMLElement>(".menu-row-grip")!;
   const pointer = (type: string, clientY: number, clientX = 40) =>
     act(async () => {
-      grip.dispatchEvent(new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY }));
+      // A held button while it moves (a move with none is a release the page never heard).
+      const buttons = type === "pointerup" ? 0 : 1;
+      grip.dispatchEvent(
+        new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons, clientX, clientY }),
+      );
     });
   const start = rowY(container, key) + 12;
   await pointer("pointerdown", start);
@@ -325,3 +329,41 @@ test("the Customize Menu… switch turns the row off in every menu", async () =>
   expect(toggle.getAttribute("aria-checked")).toBe("false");
   page.unmount();
 });
+
+// A grip's press ends where the page hears it end: a mouse released over another window, or after
+// the window lost focus mid-drag, sends no pointerup, so the window's own blur and the first move
+// with no button down end it too. The row goes back, nothing saves, and later moves drag nothing.
+for (const ending of ["the window's blur", "a move with no button down"] as const)
+  test(`a row's drag ends on ${ending}: the row goes back and nothing saves`, async () => {
+    const page = await renderPage({ path: "/settings/menus?focus=terminalSelection" });
+    await settle();
+    layOut(page.container);
+    const grip = row(page.container, "clearTerminal").querySelector<HTMLElement>(".menu-row-grip")!;
+    const pointer = (type: string, clientY: number, buttons: number) =>
+      act(async () => {
+        grip.dispatchEvent(
+          new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons, clientX: 40, clientY }),
+        );
+      });
+    const start = rowY(page.container, "clearTerminal") + 12;
+    const before = ops(page.provider, SET).length;
+    await pointer("pointerdown", start, 1);
+    await pointer("pointermove", start - 6, 1);
+    await pointer("pointermove", 102, 1);
+    expect(row(page.container, "clearTerminal").hasAttribute("data-dragging")).toBe(true);
+    // An element's blur is not the window's: the drag goes on.
+    await act(async () => grip.dispatchEvent(new window.FocusEvent("blur")));
+    expect(row(page.container, "clearTerminal").hasAttribute("data-dragging")).toBe(true);
+    if (ending === "the window's blur") await act(async () => window.dispatchEvent(new window.FocusEvent("blur")));
+    else await pointer("pointermove", 102, 0);
+    await settle();
+    expect(row(page.container, "clearTerminal").hasAttribute("data-dragging")).toBe(false);
+    expect(row(page.container, "copy").style.transform).toBe("");
+    // Moves and a release after it drag and save nothing.
+    await pointer("pointermove", 140, 1);
+    await pointer("pointerup", 140, 0);
+    await settle();
+    expect(row(page.container, "clearTerminal").hasAttribute("data-dragging")).toBe(false);
+    expect(ops(page.provider, SET).length).toBe(before);
+    page.unmount();
+  });

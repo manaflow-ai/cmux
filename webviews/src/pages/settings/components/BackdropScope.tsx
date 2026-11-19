@@ -1,6 +1,7 @@
 // The background picker's scope (cx-t2x.5): Change Background… on a workspace opens the picker for
 // that workspace, which can keep its own background over appearance.background.
 import { Button } from "../../../ui/Button";
+import { watchPress } from "../../../ui/pressRelease";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../context";
 import type { WorkspaceBackground } from "../ops";
@@ -112,6 +113,12 @@ export function WorkspaceOpacity({
     if (pending.current !== null) store.previewWorkspaceBackground(background.workspace, undefined);
   };
   useEffect(() => () => endOnLeave.current(), []);
+  // The slider's press, followed to its end wherever the page hears it (pressRelease.ts): every end
+  // releases, as its pointerup did.
+  const stopPress = useRef<() => void>(undefined);
+  const releaseRef = useRef(release);
+  releaseRef.current = release;
+  useEffect(() => () => stopPress.current?.(), []);
   return (
     <div className="rows">
       <div className="row" data-workspace-opacity="">
@@ -146,12 +153,17 @@ export function WorkspaceOpacity({
                   if (keySave.current !== null) clearTimeout(keySave.current);
                   keySave.current = setTimeout(release, KEY_SAVE_MS);
                 }}
-                onPointerDown={() => {
+                onPointerDown={(event) => {
                   dragging.current = true;
-                }}
-                onPointerUp={() => {
-                  dragging.current = false;
-                  release();
+                  stopPress.current?.();
+                  stopPress.current = watchPress(event.currentTarget.ownerDocument, {
+                    pointerId: event.pointerId,
+                    end: () => {
+                      stopPress.current = undefined;
+                      dragging.current = false;
+                      releaseRef.current();
+                    },
+                  });
                 }}
                 onBlur={() => {
                   dragging.current = false;
