@@ -32,6 +32,8 @@ export class CloudHome {
   /** The newest head read per conversation (participants, cursors, last message). */
   private readonly heads = new Map<string, Json>();
   private listed = false;
+  /** Why the last inbox read failed (`failure`); null once one answers. */
+  private failed: string | null = null;
   /** The one inbox list in flight (concurrent page reloads share it). */
   private listing: Promise<void> | null = null;
   /** Bumped by `reset`: a list that a reset overtook does not count as listed. */
@@ -135,18 +137,45 @@ export class CloudHome {
   async inbox(capable: boolean): Promise<HomeConversation[]> {
     if (!capable) return [];
     // A reset during a list (a sign-in) makes that list stale: list again, at most twice more.
+    // A failed read is not retried here: the page retries it with backoff (`failure`).
     for (let attempt = 0; !this.listed && attempt < 3; attempt++) {
       this.listing ??= this.list().finally(() => (this.listing = null));
       await this.listing;
+      if (this.failed) break;
     }
+    return this.rows();
+  }
+
+  /** The rows the page shows now: the last good list as the events keep it. */
+  rows(): HomeConversation[] {
     return [...this.entries.keys()].map((id) => this.summary(id)).filter((c): c is HomeConversation => !!c);
+  }
+
+  /** Why the last Cloud inbox read failed, or null when it answered. A failed read keeps the last
+   * good rows (it is not a sign-out); the next inbox read lists again. */
+  failure(): string | null {
+    return this.failed;
+  }
+
+  /** A Cloud read that did not answer: logged with its reason, the rows kept. */
+  private fail(cmd: string, error: unknown): void {
+    this.failed = cloudReason(error);
+    console.warn(`[home-channels] Cloud ${cmd} failed: ${this.failed}`);
   }
 
   private async list(): Promise<void> {
     const epoch = this.epoch;
-    const status = await this.daemon.request<Json>("cloud-session-status").catch(() => ({}) as Json);
+    let status: Json;
+    try {
+      status = await this.daemon.request<Json>("cloud-session-status");
+    } catch (error) {
+      // No answer is not "signed out": the last good rows stay and the failure is shown.
+      this.fail("cloud-session-status", error);
+      return;
+    }
     if (status.state !== "active" || typeof status.participant !== "string") {
-      // Signed out (or a daemon without the person's lease): no cloud rows.
+      // Signed out (or a daemon without the person's lease), as the status answered: no cloud rows.
+      this.failed = null;
       this.participant = null;
       this.entries = new Map();
       this.heads.clear();
@@ -160,8 +189,14 @@ export class CloudHome {
     this.participant = status.participant;
     // Subscribed before the list, so no inbox change falls between them.
     void this.daemon.request("cloud-inbox-subscribe").catch(() => undefined);
-    const list = await this.daemon.request<{ entries?: Json[] }>("cloud-inbox-list").catch(() => null);
-    if (!list) return;
+    let list: { entries?: Json[] };
+    try {
+      list = await this.daemon.request<{ entries?: Json[] }>("cloud-inbox-list");
+    } catch (error) {
+      this.fail("cloud-inbox-list", error);
+      return;
+    }
+    this.failed = null;
     const entries = (list.entries ?? []).map((entry) => this.localize(entry)).filter(listed);
     this.entries = new Map(entries.map((entry) => [String(entry.conversation), entry]));
     for (const id of this.entries.keys()) this.known.add(id);
@@ -424,6 +459,12 @@ export class CloudHome {
       this.hydrationWorkers--;
     }
   }
+}
+
+/** A failed read's reason in a few words: the daemon's own message, else the thrown value. */
+export function cloudReason(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error ?? "");
+  return text.trim() || "no answer";
 }
 
 /** UserDO lists removed and archived rows too; the page shows the listed ones. */
