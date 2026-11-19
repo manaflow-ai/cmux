@@ -343,9 +343,13 @@ jobs:
       step_minutes: ${{ steps.plan.outputs.step_minutes }}
       job_minutes: ${{ steps.plan.outputs.job_minutes }}
       frame_pacing: ${{ steps.plan.outputs.frame_pacing }}
+      # The linux job's cap (perf-cron.py linux_job_minutes): each bench run's 30-minute cap plus setup.
+      linux_minutes: ${{ steps.plan.outputs.linux_minutes }}
       # The one place the Linux part's runner label is computed: the linux job runs on it, and its rows carry it as
-      # their host (diff rows are compared only within one runner class).
-      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+      # their host (diff rows are compared only within one runner class). infinite-items builds release acpmux,
+      # cmux-tui and its Zig terminal engine cold: on 4 vCPUs that build alone ran past 38 minutes (2026-11-17), so
+      # that part takes 16.
+      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || steps.plan.outputs.linux_part == 'infinite-items' && fromJSON(vars.RUNNER_POOLS).linux_16 || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     steps:
       # The branch tip with the trees of its recent commits (the cmux-tui tree key of each candidate)
       # and no blobs beyond the scripts.
@@ -530,8 +534,9 @@ jobs:
     runs-on: ${{ needs.plan.outputs.linux_runner }}
     permissions:
       contents: read
-    # A part's benches run up to 30 minutes (cmd_run_linux_part's cap), after about 5 minutes of setup.
-    timeout-minutes: 40
+    # Each of a part's bench runs has a 30-minute cap (cmd_run_linux_part); the plan's linux_minutes is their sum
+    # plus setup (40 for a one-run part; 70 for infinite-items' build-only run and suite, which the fixed 40 cut off).
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.linux_minutes || '40') }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
