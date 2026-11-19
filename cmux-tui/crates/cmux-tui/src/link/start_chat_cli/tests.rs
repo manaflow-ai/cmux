@@ -121,9 +121,11 @@ fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
             "machines": [{"id": "vm-new", "title": "cloud-chats", "created_by": ME, "status": "running"}]})
         .to_string()
     };
-    // The first start made vm-new and pinned it; a second chat of ws-1 planned onto it while the first copied.
+    // The first start made vm-new and pinned it; a second chat that was explicitly
+    // assigned the same machine keeps it while the first copy is still running.
     let (first, second) = (key(), key());
     assert_eq!(pin(&path, &first, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
+    assert_eq!(pin(&path, &second, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
     assert_eq!(plan(&path, &on(&second))["machine"], "vm-new");
     // The first start fails for good: the machine is the second chat's too, so it is released, not deleted.
     assert_eq!(
@@ -133,6 +135,7 @@ fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
     assert_eq!(plan(&path, &on(&key()))["machine"], "vm-new", "the workspace keeps its machine");
     // The second fails for good too, after the third planned onto it: still shared.
     let third = key();
+    assert_eq!(pin(&path, &third, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
     assert_eq!(plan(&path, &on(&third))["machine"], "vm-new");
     assert_eq!(super::strand(&path, &second, ACCOUNT, "vm-new")["delete"], false);
 
