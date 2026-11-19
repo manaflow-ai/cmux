@@ -213,3 +213,31 @@ import Testing
         #expect(sizing.areaBottom(restingStackTop: 676) == 676)
     }
 }
+
+/// A held grid moves in one motion with the keyboard: carried up by a
+/// rising composer, left at its rest inset by a falling one.
+@Suite struct TerminalTUIHeldInsetTests {
+    let cell: CGFloat = 16.4
+
+    @Test func atRestTheHeldGridKeepsItsInset() {
+        // 37 rows over a 614 pt room: 7.2 pt of sub-row rest.
+        let held = TerminalTUIHeldInset(rest: 614 - 37 * cell, heldRows: 37, cellHeight: cell)
+        #expect(abs(held.inset(room: 614) - (614 - 37 * cell)) < 0.001)
+    }
+
+    @Test func aRisingComposerCarriesTheGridWithItsLastRowOnTheComposer() {
+        let held = TerminalTUIHeldInset(rest: 614 - 37 * cell, heldRows: 37, cellHeight: cell)
+        // The keyboard lifts the stack 276 pt: the grid's bottom stays on it.
+        let inset = held.inset(room: 338)
+        #expect(abs(inset + 37 * cell - 338) < 0.001)
+        #expect(inset < 0, "its top goes under the toolbar")
+    }
+
+    @Test func aFallingComposerLeavesTheGridAtItsRestInset() {
+        // 20 rows held with the keyboard up (room 338), the keyboard hides.
+        let rest = 338 - 20 * cell
+        let held = TerminalTUIHeldInset(rest: rest, heldRows: 20, cellHeight: cell)
+        #expect(held.inset(room: 614) == rest)
+        #expect(held.inset(room: 500) == rest)
+    }
+}

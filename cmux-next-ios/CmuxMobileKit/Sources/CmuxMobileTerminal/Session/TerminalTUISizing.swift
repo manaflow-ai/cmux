@@ -66,6 +66,34 @@ public struct TerminalTUISizing: Equatable, Sendable {
     }
 }
 
+/// Where a held grid (`TerminalTUIGridHold`) stands while the keyboard moves:
+/// one piece with the composer. A composer rising over the grid carries it
+/// up, its last row on the composer and its top under the toolbar; a
+/// composer going away leaves it at the inset it had at rest (the gap below
+/// is background until the Mac's taller grid comes). Without the ride the
+/// composer covered the app's last rows (its input, its status line) for the
+/// whole show, and they came back only with the Mac's redraw after the
+/// keyboard stopped: a second motion.
+public struct TerminalTUIHeldInset: Equatable, Sendable {
+    /// The area's top inset the held grid had at rest.
+    public var rest: CGFloat
+    /// The held grid's rows.
+    public var heldRows: Int
+    public var cellHeight: CGFloat
+
+    public init(rest: CGFloat, heldRows: Int, cellHeight: CGFloat) {
+        self.rest = rest
+        self.heldRows = heldRows
+        self.cellHeight = cellHeight
+    }
+
+    /// The area's top inset for `room`, the toolbar's edge to the composer
+    /// stack's top as laid out now (inside the keyboard's animation, its end).
+    public func inset(room: CGFloat) -> CGFloat {
+        min(rest, room - CGFloat(heldRows) * cellHeight)
+    }
+}
+
 /// The rows a full-screen app's area shows while the Mac redraws it at the
 /// rows the keyboard settled to (design/terminal R1-1, M-BLACK).
 ///

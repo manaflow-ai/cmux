@@ -1073,15 +1073,38 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The TUI area: the held grid's rows, else the page's, from the
     /// toolbar's edge down. Its top inset is the sub-row rest of the page's
     /// area (toolbar to the settled composer, minus whole rows), so at rest
-    /// the last row is on the composer; a held grid keeps the inset it had
-    /// at rest, so it stands still while the composer moves over it or away.
+    /// the last row is on the composer.
+    ///
+    /// A held grid (the Mac's redraw at the keyboard's rows is on its way)
+    /// rides the keyboard as one piece with the composer (Leo, 2026-11-19:
+    /// the terminal moves in one motion, never several steps). Where the
+    /// composer rises over it, its last row stays on the composer and its
+    /// top goes under the toolbar; where the composer goes away, it stands
+    /// at the inset it had at rest (`TerminalTUIHeldInset`). Set in the
+    /// layout pass that the keyboard's own animation runs, so the grid
+    /// moves on the keyboard's curve and timing, in its transaction. It
+    /// used to keep its rest inset either way: the composer covered the
+    /// app's last rows (its input, its status line) for the whole show,
+    /// and they came back only when the Mac's redraw swapped in after the
+    /// keyboard stopped, a second motion.
     private func applyTUIAreaHeight(cellHeight: CGFloat) {
         let areaHeight = CGFloat(tuiGridHold.rows(page: tuiRows)) * cellHeight
         if tuiHeight.constant != areaHeight { tuiHeight.constant = areaHeight }
-        let inset = tuiGridHold.heldRows != nil ? (heldTopInset ?? tuiTopInset(cellHeight: cellHeight)) : tuiTopInset(cellHeight: cellHeight)
+        let inset: CGFloat
+        if let held = tuiGridHold.heldRows {
+            inset = TerminalTUIHeldInset(rest: heldTopInset ?? tuiTopInset(cellHeight: cellHeight), heldRows: held, cellHeight: cellHeight)
+                .inset(room: tuiStackTop - chromeTop)
+        } else {
+            inset = tuiTopInset(cellHeight: cellHeight)
+        }
         if tuiHostTop.constant != inset { tuiHostTop.constant = inset }
         if tuiGridHold.heldRows == nil { heldTopInset = nil }
     }
+
+    /// The composer stack's top as laid out now, less its transient rows
+    /// (Jump to bottom, a grown draft), as the rows measure it. Inside the
+    /// keyboard's animation, its end.
+    private var tuiStackTop: CGFloat { bottomStack.frame.minY + composerGrowth + jumpRowHeight }
 
     /// The page's area's sub-row rest: from the toolbar to where the composer
     /// settles (keyboard up or down), less the whole rows that fit.
