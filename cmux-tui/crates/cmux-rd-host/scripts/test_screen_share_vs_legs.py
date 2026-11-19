@@ -100,6 +100,43 @@ class Legs(unittest.TestCase):
                 vs.load_budgets([empty])
 
 
+class CaptureSplit(unittest.TestCase):
+    """Capture's two parts: the gate wait (ss-encode-transport's stage) and the Linux readback
+    (ss-capture's capture_start_us)."""
+
+    def breakdown(self, frame):
+        o = vs.Orchestrator(types.SimpleNamespace(
+            source="synthetic", host="h", viewer="v", via="ssh", root="/r", python="p", out=None))
+        timing = [{"recv_us": 1_000, "inject_us": 1_100}, dict(frame, release_us=10_000,
+                                                              encoded_us=15_000, sent_us=16_000)]
+        sample = {"capture_us": 10_000, "sent_ns": 900_000, "first_rx_ns": 17_000_000,
+                  "complete_ns": 18_000_000, "decoded_ns": 20_000_000}
+        return o.breakdown({"sample_times": [sample]}, timing, 0)[0]
+
+    def test_linux_capture_start_splits_gate_wait_from_readback(self):
+        row = self.breakdown({"damage_us": 6_000, "capture_start_us": 8_000})
+        self.assertEqual((row["gate_wait"], row["readback"]), (2.0, 2.0))
+        b = vs.build_budget({"rows": [row]}, None)
+        self.assertEqual(rows_named(b)[" Readback"]["cmux"]["p50"], 2.0)
+        self.assertEqual(rows_named(b)[" Gate wait"]["cmux"]["p50"], 2.0)
+
+    def test_without_capture_start_the_gate_wait_runs_to_encode_start_and_readback_says_why(self):
+        row = self.breakdown({"shown_us": 5_000, "arrived_us": 7_000})
+        self.assertEqual((row["gate_wait"], row["readback"]), (3.0, None))
+        b = vs.build_budget({"rows": [row]}, None)
+        self.assertIn("capture_start_us", rows_named(b)[" Readback"]["cmux"]["null"])
+        self.assertEqual(rows_named(b)["Capture"]["cmux"]["p50"], 5.0)  # sck 2 + gate 3, unchanged
+
+    def test_a_record_from_before_the_split_still_tables_beside_a_new_one(self):
+        old = vs.build_budget({"rows": [breakdown_row()]}, None, link="old")
+        old["rows"] = [r for r in old["rows"] if r["row"] not in (" Gate wait", " Readback")]
+        new = vs.build_budget({"rows": [breakdown_row(gate_wait=2.0)]}, None, link="new")
+        lines = vs.format_legs([old, new])
+        wait = next(line for line in lines if line.strip().startswith("Gate wait"))
+        self.assertIn("-", wait.split()[2])
+        self.assertIn("2 / 2", wait)
+
+
 class FakeRemote:
     def __init__(self, fail_on=()):
         self.calls, self.fail_on = [], fail_on

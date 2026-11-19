@@ -263,6 +263,9 @@ BUDGET_ROWS = (
     ("Input", 3, "viewer key down -> host inject", ("up", "inject")),
     ("Screen", 12, "inject -> ScreenCaptureKit display time", ("draw",)),
     ("Capture", 8, "display time -> encode start", ("sck", "gate")),
+    # Capture's two parts, rows of their own (budget None: inside Capture's).
+    (" Gate wait", None, "frame ready -> capture start (encode start without it)", ("gate_wait",)),
+    (" Readback", None, "capture start -> encode start", ("readback",)),
     ("Encode", 8, "encode start -> bitstream", ("encode",)),
     ("Send", 8, "bitstream -> last datagram on the wire", ("send",)),
     ("Network", 2, "wire -> last shard received", ("down",)),
@@ -286,6 +289,9 @@ LEDGER_ROWS = {
 }
 WHY_LEDGER = "needs the per-frame stage ledger (cmux.rd-stage-ledger/1), not in this build"
 WHY_CMUX = {
+    " Readback": "the host timing log has no capture_start_us (a Linux host with ss-capture's field "
+                 "has it; a Mac host captures before the gate, so Capture holds no readback)",
+    " Gate wait": "the host timing log has no frame-ready time (arrived_us or damage_us)",
     "Reassembly": "not split today: the bench stamps a frame complete and releases it in one step, "
                   "so Network holds it; " + WHY_LEDGER,
     "Present": "the bench viewer has no window on macOS (it ends at decode); pass --presented-* for "
@@ -363,6 +369,9 @@ def cmux_cells(rows, ledgers, presented, synthetic=False):
             why = (WHY_SYNTHETIC_PRESENT if synthetic and row == "Present"
                    else WHY_CMUX.get(row, WHY_LEDGER))
             cells[row] = null(why)
+    for row in (" Gate wait", " Readback"):
+        if "null" in cells[row] and cells[row]["null"].startswith("no samples"):
+            cells[row] = null(WHY_CMUX[row])
     return cells
 
 
@@ -440,6 +449,10 @@ def build_budget(cmux=None, apple=None, label=None, rev=None, link=None, rtt=Non
     }
 
 
+def budget_text(row):
+    return "" if row.get("budget_ms") is None else row["budget_ms"]
+
+
 def cell_text(cell, keys=("p50", "p95")):
     if not cell or "null" in cell:
         return "null"
@@ -474,7 +487,7 @@ def format_budget(b):
         title += " (--source synthetic)"
     lines = [title, f"  {'row':<11} {'budget':>6}  {'cmux':<26} {'Apple Screen Sharing':<26} from, to"]
     for r in b["rows"]:
-        lines.append(f"  {r['row']:<11} {r['budget_ms']:>6}  {show(r['cmux']):<26} "
+        lines.append(f"  {r['row']:<11} {budget_text(r):>6}  {show(r['cmux']):<26} "
                      f"{show(r['apple']):<26} {r['span']}")
     lines.append(f"  {'Mbps':<11} {'':>6}  {show(b['mbps']['cmux'], ('avg', 'peak')):<26} "
                  f"{show(b['mbps']['apple'], ('avg', 'peak')):<26} received under motion, avg / peak 1 s")
@@ -542,7 +555,7 @@ def format_compare(before, after):
     for r in after["rows"]:
         b = rows_before.get(r["row"], {})
         d = delta(b.get("cmux"), r["cmux"], "p50")
-        lines.append(f"  {r['row']:<11} {r['budget_ms']:>6}  {cell_text(b.get('cmux')):<22} "
+        lines.append(f"  {r['row']:<11} {budget_text(r):>6}  {cell_text(b.get('cmux')):<22} "
                      f"{cell_text(r['cmux']):<22} {('-' if d is None else f'{d:+g}'):>10}  "
                      f"{cell_text(r['apple']):<20}")
     extra = (("Mbps", lambda x: x["mbps"]["cmux"], ("avg", "peak"), "avg"),
@@ -614,15 +627,19 @@ def format_legs(budgets):
         heads += [f"cmux {leg}", f"Apple {leg}"]
     width = max([22] + [len(h) + 2 for h in heads])
     lines.append(f"  {'stage':<15} {'budget':>6}  " + "".join(f"{h:<{width}}" for h in heads))
-    for i, r in enumerate(budgets[0]["rows"]):
-        name = r["row"]
-        if name == "Total":
-            name = "Glass to glass"
+    by_name = [{r["row"]: r for r in b["rows"]} for b in budgets]
+    names = []
+    for b in budgets:
+        names += [r["row"] for r in b["rows"] if r["row"] not in names]
+    for name in names:
+        first = next(rows[name] for rows in by_name if name in rows)
         cells = []
-        for b in budgets:
-            row = b["rows"][i] if i < len(b["rows"]) else {}
-            cells += [show(row.get("cmux")), show(row.get("apple"))]
-        lines.append(f"  {name:<15} {r['budget_ms']:>6}  " + "".join(f"{c:<{width}}" for c in cells))
+        for rows in by_name:
+            row = rows.get(name)
+            cells += ([show(row.get("cmux")), show(row.get("apple"))] if row
+                      else ["-", "-"])  # a record from before this row existed
+        label = "Glass to glass" if name == "Total" else name
+        lines.append(f"  {label:<15} {budget_text(first):>6}  " + "".join(f"{c:<{width}}" for c in cells))
     cells = []
     for b in budgets:
         cells += [show(b["mbps"]["cmux"], ("avg", "peak")), show(b["mbps"]["apple"], ("avg", "peak"))]
@@ -1569,12 +1586,18 @@ class Orchestrator:
             if not f or not inj:
                 continue
             shown, arrived = f.get("shown_us"), f.get("arrived_us")
+            ready = arrived if arrived is not None else f.get("damage_us")
+            # ss-capture's Linux field: when the encode thread began the capture (the readback).
+            start = f.get("capture_start_us")
             rows.append({
                 "up": ms(v(inj["recv_us"]) - sent),
                 "inject": ms(inj["inject_us"] - inj["recv_us"]),
                 "draw": ms(shown - inj["inject_us"]) if shown else None,
                 "sck": ms(arrived - shown) if shown and arrived else None,
                 "gate": ms(f["release_us"] - arrived) if arrived else None,
+                "gate_wait": ms((start if start is not None else f["release_us"]) - ready)
+                if ready is not None else None,
+                "readback": ms(f["release_us"] - start) if start is not None else None,
                 "encode": ms(f["encoded_us"] - f["release_us"]),
                 "send": ms(f["sent_us"] - f["encoded_us"]),
                 "first_packet": ms(s["first_rx_ns"] / 1000.0 - v(f["sent_us"])),
