@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clampNotchOffset, NOTCH_HEIGHT, NOTCH_WIDTH, notchEdgeForSide, notchOutlinePath } from "./notchOutline";
+import { clampNotchOffset, NOTCH_HEIGHT, NOTCH_WIDTH, notchEdgeForSide, notchOutlinePath } from "./notchPath";
 
 /** Every x y pair the path names, in order. */
 function points(path: string): [number, number][] {

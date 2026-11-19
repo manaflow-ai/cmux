@@ -180,12 +180,7 @@ export default componentEntry<Props>({
   experimental: true,
   height: 520,
   keywords: ["elevation", "material", "shadow", "lift", "popover arrow", "notch", "experiments.elevationLadder"],
-  covers: [
-    "ui/elevationLadder.ts",
-    "ui/NotchOutline.tsx#useNotchOutline",
-    "ui/notchOutline.ts",
-    "ui/Popover.tsx#Popover",
-  ],
+  covers: ["ui/elevationLadder.ts", "ui/NotchOutline.tsx#useNotchOutline", "ui/notchPath.ts", "ui/Popover.tsx#Popover"],
   styles: () => import("./ui.css"),
   load: async () => ElevationLadderGallery,
   variants: {

@@ -108,7 +108,7 @@
    layer's containing block and stacking context, so the layer sits under the content and may stand
    past the box by the notch's height. */
 :root[data-elevation-ladder] .ui-popup.ui-glass[data-notch] {
-  /* How far the layer starts outside the box: the notch's height (notchOutline.ts NOTCH_HEIGHT). */
+  /* How far the layer starts outside the box: the notch's height (notchPath.ts NOTCH_HEIGHT). */
   --ui-notch-reach: 9px;
   position: relative;
   z-index: 0;

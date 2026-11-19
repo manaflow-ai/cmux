@@ -1,12 +1,12 @@
 // A popover's notch (experiments.elevationLadder): the glass of a popover whose arrow is a smooth
-// notch in its own outline (notchOutline.ts), drawn as one shape. The popup's own fill, frost and rim
+// notch in its own outline (notchPath.ts), drawn as one shape. The popup's own fill, frost and rim
 // step aside (elevationLadder.css `[data-notch]`) and this layer, the popup's first child, draws them
 // in the notched outline instead: the lift outside it, the frost and tint clipped to it, the
 // hairline along it. The outline follows the popup's size and the anchor's place along the edge;
 // one ResizeObserver and one MutationObserver (its side, its positioner's place) per open popover,
 // and a re-render only when the outline changes.
 import { useCallback, useId, useState, type ReactNode } from "react";
-import { NOTCH_HEIGHT, NOTCH_WIDTH, notchEdgeForSide, notchOutlinePath, type NotchEdge } from "./notchOutline";
+import { NOTCH_HEIGHT, NOTCH_WIDTH, notchEdgeForSide, notchOutlinePath, type NotchEdge } from "./notchPath";
 
 type Shape = { width: number; height: number; radius: number; edge: NotchEdge; offset: number };
 

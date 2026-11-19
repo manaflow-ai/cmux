@@ -4,7 +4,7 @@ import { useCallback, useRef, type ReactNode } from "react";
 import { Popover as BasePopover } from "@base-ui/react/popover";
 import { useElevationLadder } from "./elevationLadder";
 import { useNotchOutline } from "./NotchOutline";
-import { NOTCH_HEIGHT } from "./notchOutline";
+import { NOTCH_HEIGHT } from "./notchPath";
 import { useOverlayPosition, usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
