@@ -20,7 +20,7 @@ export function ComposerHatHeadStage({
   tuck = false,
 }: {
   start?: ComposerHatHeadState;
-  /// The hat can tuck away: its tuck control shows at its top middle (hatTuck.experiment.ts).
+  /// The hat can tuck away: its tuck control shows at its top middle (SubagentTray.tsx `onTuck`).
   tuck?: boolean;
 }) {
   const [clock] = useState(() => Date.now());
