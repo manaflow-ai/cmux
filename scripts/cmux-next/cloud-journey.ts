@@ -122,6 +122,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
+import { emptySendProgram, hugeSendProgram, judgeRefusal, judgeTwinCreate, parseBreak, sendOutcome, twinSent, twinTurnProgram } from "./cloud-journey-break.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
@@ -2298,7 +2299,7 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
   secrets.push(s.access, s.refresh);
   const api = new Api(backend.api, team);
   api.bearer = s.access;
-  const names = new Set([`cloud journey auto ${tag}`, `cloud journey auto ${tag} gateway`]);
+  const names = new Set([`cloud journey auto ${tag}`, `cloud journey auto ${tag} gateway`, `cloud journey auto ${tag} twin`]);
   // --kept: also the machine a --keep run with this tag made (`cloud journey TAG`), once its operator is done with it.
   if (kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
   const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
@@ -2929,7 +2930,7 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
     const name = typeof r.name === "string" ? r.name : "";
     // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
-    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
+    const m = /^cloud journey auto jr-([0-9a-z]+)( gateway| twin)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
     if (!m) continue;
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
@@ -3553,6 +3554,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (startVia !== "acp" && startVia !== "app") throw new Error(`--start-via ${startVia}: acp or app`);
   if (startVia === "app" && !cmux) throw new Error("--start-via app needs --cmux PATH: the app's start goes over the carrier dial");
   const only =new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
+  // --break LEGS: the degenerate legs (cloud-journey-break.ts), each on this run's machine after its first reply.
+  const breaks = parseBreak(argValue("--break", argv));
   if (reuse) only.add("pause");
   // --model stub: the model endpoint is the only stand-in (the shared model stub on the machine). The login the
   // journey passes is then a made-up setup-token shape: the stub checks it arrived, and no real credential exists.
@@ -3607,6 +3610,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const api = new Api(backend.api, team);
   let machine: string | null = null;
   let gatewayMachine: string | null = null;
+  // --break twin-create: the second machine's create (sent with the journey's own) and its id once answered.
+  let twinCreate: Promise<{ ok: boolean; why: string }> | null = null;
+  let twinMachine: string | null = null;
   // The team's gateway mode before this run changed it, the API that set it, and the local gateway this run started.
   let gatewayModeBefore: string | null = null;
   let gatewayMachineBefore: string | null = null;
@@ -3708,6 +3714,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step("delete gateway machine (cleanup)", async () => {
         await api.deleteMachine(g, `${tag}-gw-delete`);
         return { value: null, detail: g };
+      }).catch(() => undefined);
+    }
+    if (twinCreate) await twinCreate;
+    if (twinMachine) {
+      const t: string = twinMachine;
+      twinMachine = null;
+      await J.step("delete twin machine (cleanup)", async () => {
+        await api.deleteMachine(t, `${tag}-twin-delete`);
+        return { value: null, detail: t };
       }).catch(() => undefined);
     }
     if (deleted) return;
@@ -3958,6 +3973,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       : await J.step("create machine", async () => {
           J.firstText.mark("create");
           createSentAt = Date.now();
+          if (breaks.has("twin-create")) {
+            twinCreate = api.op("cloud.machine.create", { name: `${machineName} twin`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-twin-create`)
+              .then((t: any) => {
+                const id = String(t?.machine?.id ?? "");
+                if (id) twinMachine = id;
+                return { ok: Boolean(id), why: `${id || "no machine id"} status ${t?.machine?.status ?? "?"}` };
+              },
+                (e: Error) => ({ ok: false, why: String(e?.message ?? e) }));
+          }
           const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 }, ...(seed === "none" ? { seed: "none" } : {}) }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
@@ -3974,6 +3998,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       J.firstText.mark("running");
       return { value: m, detail: `host ${m.host}, daemon ${m.image?.daemon_version ?? "?"}` };
     });
+    if (twinCreate) {
+      // Both creates were sent in one tick; the twin must reach running too, or have been refused with a next step.
+      await J.step("break: twin-create", async () => {
+        const second = await twinCreate!;
+        let running = second;
+        if (second.ok && twinMachine) {
+          running = await waitMachine(api, twinMachine, (x) => x.status === "running" && Boolean(x.host), 300_000).then(
+            (m) => ({ ok: true, why: `${twinMachine} running on ${m.host}` }),
+            (e: Error) => ({ ok: false, why: `${twinMachine} never ran: ${String(e?.message ?? e).slice(0, 200)}` }));
+        }
+        const v = judgeTwinCreate({ ok: true, why: created.id }, second.ok ? running : second);
+        if (!v.ok) throw new Error(v.why);
+        return { value: null, detail: v.why };
+      }).catch(() => undefined);
+    }
     const exec = namesUnavailableFirstExec(cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J));
     machineExec = exec;
     if (reuse) {
@@ -4387,6 +4426,58 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (!(fresh[0].step >= 1)) throw new Error(`this turn's first model request is at step ${fresh[0].step}: the session lost the earlier turns`);
       return { value: null, detail: `${last.slice(0, 120)} (model request at step ${fresh[0].step}: the earlier turns came along)` };
     };
+    // --break: one session's reply once its turn ends (a session other than the journey's own), or why not.
+    const replyFor = async (s: string): Promise<string> => {
+      const t0 = Date.now();
+      let last = "";
+      while (Date.now() - t0 < chatBudget) {
+        const r = await exec(`${GUEST}"$c" acp wait ${shq(s)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(s)} 2>&1`, 45_000);
+        const wait = /@@wait (\d+)/.exec(r.stdout)?.[1];
+        last = r.stdout.replace(/@@wait \d+\n?/, "").trim();
+        if (wait === "0" && last) return last;
+        if (wait === "2") throw new Error(`${s} waits on a permission: ${last.slice(-160)}`);
+        if (wait && wait !== "3" && wait !== "0") throw new Error(`${s}: acp wait exit ${wait}: ${await failedTurnWhy(exec, s, last)}`);
+      }
+      throw new Error(`${s}: no reply within ${chatBudget / 1000} s; last: ${last.slice(-200)}`);
+    };
+    const stubbed = (reply: string) => !modelStub || reply.includes(`Stub reply ${nonce}.`);
+    // The degenerate legs (cloud-journey-break.ts), each on this machine after the first reply; a failed leg is
+    // recorded and the next one still runs.
+    const breakLegs = async () => {
+      if (breaks.has("empty-prompt")) await J.step("break: empty-prompt", async () => {
+        const t0 = Date.now();
+        const o = sendOutcome((await exec(emptySendProgram(GUEST, session), 60_000)).stdout, Date.now() - t0);
+        const refused = judgeRefusal(o);
+        if (refused && !refused.ok) throw new Error(refused.why);
+        if (refused) return { value: null, detail: refused.why };
+        // Accepted: the turn it made must end, so the chat is usable again.
+        await awaitReply();
+        return { value: null, detail: `accepted in ${o.ms} ms; the turn ended and the session is idle again` };
+      }).catch(() => undefined);
+      if (breaks.has("huge-prompt")) await J.step("break: huge-prompt", async () => {
+        const s = `${session}-huge`;
+        const ensured = await exec(`${GUEST}"$c" acp ensure ${shq(s)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
+        if (!/@@exit 0/.test(ensured.stdout)) throw new Error(`acp ensure ${s}: ${ensured.stdout.slice(-300)}`);
+        const t0 = Date.now();
+        const o = sendOutcome((await exec(hugeSendProgram(GUEST, s, `/tmp/journey-huge-${tag}.txt`, 256 * 1024), 120_000)).stdout, Date.now() - t0);
+        const refused = judgeRefusal(o);
+        if (refused && !refused.ok) throw new Error(`256 KiB prompt: ${refused.why}`);
+        if (refused) return { value: null, detail: `256 KiB prompt ${refused.why}` };
+        const reply = await replyFor(s);
+        if (!stubbed(reply)) throw new Error(`256 KiB prompt: the reply does not carry the stub's nonce: ${reply.slice(-160)}`);
+        return { value: null, detail: `256 KiB prompt sent in ${o.ms} ms and answered in ${Date.now() - t0} ms` };
+      }).catch(() => undefined);
+      if (breaks.has("twin-turn")) await J.step("break: twin-turn", async () => {
+        const pair: [string, string] = [`${session}-t1`, `${session}-t2`];
+        const t0 = Date.now();
+        const sent = twinSent((await exec(twinTurnProgram(GUEST, pair, agent, "Reply with one short sentence."), 180_000)).stdout, pair);
+        if (sent.length !== 2) throw new Error(`started and sent ${sent.length} of 2 sessions at once (${sent.join(", ") || "none"})`);
+        const replies = await Promise.allSettled(pair.map((s) => replyFor(s)));
+        const bad = replies.map((r, i) => (r.status === "rejected" ? `${pair[i]}: ${String(r.reason?.message ?? r.reason).slice(0, 160)}` : stubbed(r.value) ? "" : `${pair[i]}: no stub nonce`)).filter(Boolean);
+        if (bad.length) throw new Error(bad.join("; "));
+        return { value: null, detail: `two sessions started at once both replied in ${Date.now() - t0} ms` };
+      }).catch(() => undefined);
+    };
     // An agent with no login to pass (OpenCode on its free Zen models) gets the later turns with --lifecycle.
     const lifecycle = (provider || argv.includes("--lifecycle")) && !gatewayAny && !only.has("chat") && !only.has("lifecycle") && startVia !== "app";
     if (only.has("chat")) {
@@ -4572,6 +4663,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           });
         }
       }
+      if (breaks.size) await breakLegs();
       if (!lifecycle) {
         J.skip("turn 2 (same session)", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
         J.skip("daemon restart keeps the session", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
@@ -4718,9 +4810,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // A step that failed without ending the run (the key probe, a chaos fault, the handoff record): its facts first.
     await readFailureFacts();
     if (!keep) {
-      await J.step("delete", async () => {
+      // --break delete-mid-turn: the delete is sent while a turn runs on the machine (a person deleting a busy chat).
+      const midTurn = breaks.has("delete-mid-turn") && machineExec !== null;
+      if (midTurn) {
+        await machineExec!(`${GUEST}"$c" acp ensure ${shq(`journey-${tag}-mid`)} -m ${shq(agent)} --json >/dev/null 2>&1; ` +
+          `printf '%s' 'Count slowly from 1 to 200, one number per line.' | "$c" acp send --no-wait ${shq(`journey-${tag}-mid`)} - 2>&1; echo "@@exit $?"`, 120_000)
+          .catch(() => undefined);
+      }
+      await J.step(midTurn ? "break: delete-mid-turn" : "delete", async () => {
+        const t0 = Date.now();
         await api.deleteMachine(created.id, `${tag}-delete`);
+        const answered = Date.now() - t0;
         deleted = true;
+        if (midTurn) {
+          const m = await waitMachine(api, created.id, (x) => x.status === "deleted" || x.status === "deleting", 120_000, true);
+          return { value: null, detail: `delete answered in ${answered} ms mid-turn; ${created.id} ${m?.status ?? "gone"} in ${Date.now() - t0} ms` };
+        }
         const m = await waitMachine(api, created.id, (x) => x.status === "deleted" || x.status === "deleting", 120_000, true).catch(() => null);
         return { value: null, detail: `${created.id} ${m?.status ?? "gone"}` };
       });

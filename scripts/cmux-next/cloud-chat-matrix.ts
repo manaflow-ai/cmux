@@ -107,6 +107,24 @@ export const CELLS: Cell[] = [
     args: ["--preclaim", "--start-bench", "5", "--cmux", "$CMUX_BIN"],
     needs: { env: "CMUX_BIN", why: "a cmux CLI for the warm the app sends (the spare path)" },
   },
+  // Not a happy path: the degenerate legs (cloud-journey-break.ts) on one stubbed Claude and one stubbed Codex machine:
+  // a twin create in the same tick, an empty prompt, a 256 KiB prompt, two sessions started at once, and the delete
+  // sent mid-turn. Each must work or fail fast with words that say what to do. Named in --cells only (each makes two
+  // machines). Leo, 2026-11-19: "getting the sort of connectivity, reliability, ergonomics, whatever, all that down pat".
+  {
+    id: "break-claude-stub",
+    agent: "claude",
+    signIn: "Claude Code login (the app's copy), the shared model stub",
+    proof: "stubbed",
+    args: ["--agent", "claude", "--model", "stub", "--break", "all", "--skip", "lifecycle"],
+  },
+  {
+    id: "break-codex-stub",
+    agent: "codex",
+    signIn: "ChatGPT subscription (codex login), the app's copy, the shared model stub",
+    proof: "stubbed",
+    args: ["--agent", "codex", "--model", "stub", "--break", "all", "--skip", "lifecycle"],
+  },
   // TODO(hq#11225 PR4): gemini and grok through the team's inference gateway (a second machine), once gateway
   // routing for those harnesses lands: a started session there, never sign_in_required.
 ];
@@ -215,7 +233,7 @@ export function main(argv: string[]): number {
     return 2;
   }
   // The bench is never part of a default run: it is long and makes many machines; name it in --cells.
-  const cells = want ? CELLS.filter((c) => want.includes(c.id)) : CELLS.filter((c) => c.proof !== "bench");
+  const cells = want ? CELLS.filter((c) => want.includes(c.id)) : CELLS.filter((c) => c.proof !== "bench" && !c.id.startsWith("break-"));
   // The default is a folder mkdtemp makes, never a guessable /tmp name another account could make first.
   const given = argValue("--out", argv);
   const out = given ? path.resolve(given) : mkdtempSync(path.join(os.tmpdir(), "cloud-chat-matrix-"));
