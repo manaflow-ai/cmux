@@ -126,15 +126,18 @@ final class PaneZoomDim {
         returning = nil
         let fade = self.fade(on: screen)
         guard fade > 0, let view = place(around: pane, on: screen) else { return leave() }
+        // The dim ends with the move of the pane that closes, by the motion's own time: no dim shows over panes that
+        // are at their places. With no move the fade is the pane veil's.
+        let limit = motion.inFlight ? motion.remaining : nil
         // An unzoom in a zoom's move lets that zoom's dim go from the strength it shows: no step up to its full strength.
-        view.fadeOut(continuing: zoomDimShowed)
+        view.fadeOut(continuing: zoomDimShowed, atMost: limit)
         if let before, started?.act == .unzoom {
             // The hole goes with the pane that closes to its place: the dim never covers that pane.
             let spring = PaneCommitMotion.Act.unzoom.spring
             view.moveHole(from: before) { part, origin, size in motion.move(part, spring, origin: origin, size: size) }
         }
         phase = .going
-        remaining = fade
+        remaining = min(fade, limit ?? fade)
         screen.context.requestFrames()
     }
 

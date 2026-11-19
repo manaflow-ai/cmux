@@ -90,8 +90,8 @@ final class PaneCommitMotion {
     static let rest = 0.002
 
     private var armed: Armed?
-    /// Seconds of frame time left in the motion.
-    private var remaining: TimeInterval = 0
+    /// Seconds of frame time left in the motion. An unzoom's dim reads it: the dim ends with the motion (`PaneZoomDim`).
+    private(set) var remaining: TimeInterval = 0
     /// The frame ticks that a motion whose time is spent stayed for the pass of a change that waits (``step(_:)``).
     private var overtime = 0
     /// One number for each act, in the keys of its animations.

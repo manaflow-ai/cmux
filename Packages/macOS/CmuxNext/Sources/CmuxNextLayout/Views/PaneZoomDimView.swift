@@ -79,9 +79,15 @@ final class PaneZoomDimView: NSView {
     }
 
     /// The dim goes, on the pane veil's fade: from its full strength to nothing, or, `continuing` a dim that came
-    /// with a zoom, from the strength it shows.
-    func fadeOut(continuing: Bool) {
-        Motion.panes.set(dim, "opacity", to: Float(0), fade: .paneDim, from: continuing ? nil : Float(amount))
+    /// with a zoom, from the strength it shows. `limit`: the seconds that the move of the pane that closes has left;
+    /// the fade takes no longer, so the dim and the move end in one frame. Nil: no pane moves.
+    func fadeOut(continuing: Bool, atMost limit: TimeInterval? = nil) {
+        let from: Any? = continuing ? nil : Float(amount)
+        if let limit {
+            Motion.panes.set(dim, "opacity", to: Float(0), fade: .paneDim, atMost: limit, from: from)
+        } else {
+            Motion.panes.set(dim, "opacity", to: Float(0), fade: .paneDim, from: from)
+        }
     }
 
     override func viewDidChangeEffectiveAppearance() {
