@@ -198,8 +198,7 @@ public final class AutomationsPage {
         do {
             let cloud = rows.contains { $0.target == .cloud && $0.runs.contains { $0.id == run.id } }
             let data = try await cli(["automation", "logs", run.id] + (cloud ? ["--target", "cloud"] : []))
-            let text = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["log"] as? String ?? ""
-            shownLog = (run.id, Self.tail(text))
+            shownLog = (run.id, await Self.logTail(data))
         } catch {
             shownLog = (run.id, (error as? AutomationsPageHost.SourceError)?.description ?? String(describing: error))
         }
@@ -218,10 +217,25 @@ public final class AutomationsPage {
         return true
     }
 
-    /// The last 40 lines of a log, so a long one never floods the page.
-    static func tail(_ text: String, lines: Int = 40) -> String {
+    /// The last 40 lines of a log, so a long one never floods the page. Read off the main actor: a log
+    /// may be any length.
+    @concurrent nonisolated static func tail(_ text: String, lines: Int = 40) async -> String {
         let all = text.split(separator: "\n", omittingEmptySubsequences: false)
         return all.suffix(lines).joined(separator: "\n").trimmingCharacters(in: .newlines)
+    }
+
+    /// The tail of the log in `automation logs`' reply (`{"log": ...}`), decoded off the main actor.
+    @concurrent nonisolated static func logTail(_ reply: Data) async -> String {
+        await tail(field("log", of: reply) ?? "")
+    }
+
+    /// A string field of the CLI's JSON reply, decoded off the main actor.
+    @concurrent nonisolated static func stringField(_ key: String, of reply: Data) async -> String? {
+        field(key, of: reply)
+    }
+
+    private nonisolated static func field(_ key: String, of reply: Data) -> String? {
+        ((try? JSONSerialization.jsonObject(with: reply)) as? [String: Any])?[key] as? String
     }
 
     /// Saves the form: a new automation or the edit. Keeps the form open with the CLI's words
@@ -233,7 +247,7 @@ public final class AutomationsPage {
         do {
             let data = try await cli(draft.arguments)
             actionError = nil
-            let id = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["id"] as? String
+            let id = await Self.stringField("id", of: data)
             self.draft = nil
             await reload(now: now)
             if let id = id ?? draft.editing { selection = id }
