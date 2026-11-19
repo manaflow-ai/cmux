@@ -117,15 +117,22 @@ def sample_proc(pid):
             csw = 0
             tids = os.listdir(f"/proc/{pid}/task")
             out["threads"] = len(tids)
+            per_tid = {}
             for tid in tids:
                 try:
+                    name, n = "?", 0
                     with open(f"/proc/{pid}/task/{tid}/status") as f:
                         for line in f:
-                            if line.startswith(("voluntary_ctxt", "nonvoluntary_ctxt")):
-                                csw += int(line.split()[1])
+                            if line.startswith("Name:"):
+                                name = line.split(None, 1)[1].strip() if len(line.split()) > 1 else "?"
+                            elif line.startswith(("voluntary_ctxt", "nonvoluntary_ctxt")):
+                                n += int(line.split()[1])
+                    csw += n
+                    per_tid[tid] = (name, n)
                 except OSError:
                     pass
             out["wakeups"] = csw
+            out["tid_wakeups"] = per_tid
         else:
             ps = subprocess.run(["ps", "-o", "rss=,time=", "-p", str(pid)], capture_output=True, text=True).stdout.split()
             out["rss"] = int(ps[0]) * 1024
@@ -253,6 +260,9 @@ def idle_window(top, seconds, disks):
         if IS_LINUX and "smaps_kb" not in r:
             r["smaps_kb"] = smaps_kinds(pid)  # one process of the role, where its memory sits
         r["cmds"][s["cmd"]] = r["cmds"].get(s["cmd"], 0) + 1
+        named = r.setdefault("thread_names", {})
+        for name, _ in (s.get("tid_wakeups") or {}).values():
+            named[name] = named.get(name, 0) + 1
         r["count"] += 1
         r["threads"] += s.get("threads") or 0
         r["rss"] += s["rss"]
@@ -263,9 +273,19 @@ def idle_window(top, seconds, disks):
             r["cpu_s"] += max(0.0, s["cpu_s"] - b["cpu_s"])
             if s.get("wakeups") is not None and b.get("wakeups") is not None:
                 r["wakeups"] += max(0, s["wakeups"] - b["wakeups"])
+            # Which threads woke, by name (a daemon's 1,000 readers show as one name with a count of threads):
+            # the idle wakeups' owner without perf or strace.
+            names = r.setdefault("thread_wakeups", {})
+            old = b.get("tid_wakeups") or {}
+            for tid, (name, n) in (s.get("tid_wakeups") or {}).items():
+                woke = max(0, n - old.get(tid, (name, n))[1])
+                if woke:
+                    names[name] = names.get(name, 0) + woke
     for r in roles.values():
         r["cpu_pct"] = round(100 * r.pop("cpu_s") / seconds, 3)
         r["wakeups_per_s"] = round(r.pop("wakeups") / seconds, 2)
+        r["thread_wakeups"] = dict(sorted(r.get("thread_wakeups", {}).items(), key=lambda kv: -kv[1])[:8])
+        r["thread_names"] = dict(sorted(r.get("thread_names", {}).items(), key=lambda kv: -kv[1])[:6])
     total = {
         "pss_mb": round(sum(r["pss"] for r in roles.values()) / 1048576, 2),
         "rss_mb": round(sum(r["rss"] for r in roles.values()) / 1048576, 2),
@@ -786,7 +806,9 @@ def report(results):
                 top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
                 print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
                       f"cpu={v['cpu_pct']} "
-                      f"wk={v['wakeups_per_s']} fds={v['fds']} cmd={top_cmds} one_kb={v.get('smaps_kb', {})}", flush=True)
+                      f"wk={v['wakeups_per_s']} fds={v['fds']} cmd={top_cmds} one_kb={v.get('smaps_kb', {})} "
+                      f"woke={json.dumps(v.get('thread_wakeups', {}))} named={json.dumps(v.get('thread_names', {}))}",
+                      flush=True)
         grown = r["samples"][1:]
         if grown:
             # The slope over the days after creation (day 0 holds what the open made), per file group.
