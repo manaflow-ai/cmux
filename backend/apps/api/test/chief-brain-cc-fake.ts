@@ -46,6 +46,7 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
   const uploads = new Map<string, { vm: string; path: string; size: number; got: Array<number> }>()
   const snapshots = new Map<string, { source: string; body: any; deleted?: boolean }>()
   const lifecycle: Array<string> = []
+  const listCalls: Array<{ limit: number; offset: number }> = []
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init)
     const url = new URL(req.url)
@@ -184,6 +185,16 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
       if (req.method === "PATCH") it.body = { ...it.body, ...((await req.json()) as object) }
       return Response.json({ id: sn[1], displayName: it.body.displayName ?? null, ttlSeconds: it.body.ttlSeconds ?? null })
     }
+    if (req.method === "GET" && url.pathname === "/v5/vms") {
+      const limit = Number(url.searchParams.get("limit") ?? 100)
+      const offset = Number(url.searchParams.get("offset") ?? 0)
+      listCalls.push({ limit, offset })
+      const rows = made.filter((m) => !deleted.includes(m.id)).map((m) => {
+        const v = Object.assign({}, m.body, ...patches.filter((p) => p.vm === m.id).map((p) => p.body))
+        return { id: m.id, state: states.get(m.id) ?? "running", ipMode: "dualStack", resources: sizes.get(m.id), metadata: v.metadata ?? {}, displayName: v.displayName ?? null, idleTimeoutSeconds: v.idleTimeoutSeconds ?? null, ttlSeconds: v.ttlSeconds ?? null }
+      })
+      return Response.json({ vms: rows.slice(offset, offset + limit), totalCount: rows.length })
+    }
     if (req.method === "POST" && url.pathname === "/v5/vms") {
       events.push({ name: "create:start", at: Date.now() })
       const body = await req.json()
@@ -246,7 +257,7 @@ export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?
     }
     return new Response("unexpected", { status: 500 })
   })
-  return { events, made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes, identities, tokens, execAuth, states, patches, files, uploads, snapshots, lifecycle }
+  return { events, made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes, identities, tokens, execAuth, states, patches, files, uploads, snapshots, lifecycle, listCalls }
 }
 
 export const notes = (s: Started, body: unknown, token = s.input.token) => worker.fetch(s.input.notes_url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })

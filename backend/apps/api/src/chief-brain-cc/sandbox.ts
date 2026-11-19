@@ -95,6 +95,33 @@ const fetchVm = async (b: ChiefBrainDO, id: string): Promise<Vm | null | "unknow
   const r = (await res.json().catch(() => null)) as Record<string, unknown> | null
   return res.ok && r ? vmOf(r) : "unknown"
 }
+
+/**
+ * Reads the account VM list once for list/cap operations. A Chief already owns the
+ * ids in its durable list, so this is only a state refresh; the per-id `own` check
+ * remains the authorization path for commands that target one VM.
+ *
+ * The provider list is paginated. Stop as soon as every requested id is found, or
+ * on a short page. A failed list returns null so callers retain the old per-id
+ * behavior during a transient provider/API rollout.
+ */
+const listVms = async (b: ChiefBrainDO, ids: ReadonlySet<string>): Promise<Map<string, Vm> | null> => {
+  const found = new Map<string, Vm>()
+  if (ids.size === 0) return found
+  for (let offset = 0; offset <= 100_000; offset += 100) {
+    const res = await freestyle(b.doEnv, "GET", `/v5/vms?limit=100&offset=${offset}`, undefined, 10_000).catch(() => null)
+    if (!res?.ok) return null
+    const body = (await res.json().catch(() => null)) as { vms?: unknown } | null
+    if (!Array.isArray(body?.vms)) return null
+    for (const raw of body.vms) {
+      if (!raw || typeof raw !== "object" || typeof (raw as { id?: unknown }).id !== "string") continue
+      const id = (raw as { id: string }).id
+      if (ids.has(id)) found.set(id, vmOf(raw as Record<string, unknown>))
+    }
+    if (found.size === ids.size || body.vms.length < 100) return found
+  }
+  return found
+}
 /** A sandbox as the Chief sees it: the record plus its size and cost per hour. */
 const view = (s: Sandbox, v: Vm | "unknown") => (v === "unknown" ? { ...s, state: "unknown" } : { ...s, state: v.state, display_name: v.display_name, resources: v.resources, cost: costOf(v.resources), idle_timeout_seconds: v.idle_timeout_seconds, ttl_seconds: v.ttl_seconds, metadata: v.metadata })
 
@@ -104,8 +131,12 @@ const liveCount = async (b: ChiefBrainDO) => (await live(b)).length
 const live = async (b: ChiefBrainDO) => {
   const out: Array<ReturnType<typeof view>> = []
   const gone = new Set<string>()
-  for (const s of listOf(b)) {
-    const v = await fetchVm(b, s.id)
+  const saved = listOf(b)
+  const listed = await listVms(b, new Set(saved.map((s) => s.id)))
+  for (const s of saved) {
+    // A list failure falls back to the previous exact-id reads. This keeps list/cap
+    // available while preserving the old outage behavior.
+    const v = listed ? (listed.get(s.id) ?? null) : await fetchVm(b, s.id)
     if (v === null) gone.add(s.id)
     else out.push(view(s, v))
   }
