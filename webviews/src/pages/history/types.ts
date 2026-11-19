@@ -46,6 +46,14 @@ export interface HistoryListParams {
   range?: HistoryRange;
   limit?: number;
   cursor?: string;
+  /** The `follow` cursor of the answer the page holds for this query: the owner answers a delta. */
+  follow?: string;
+}
+
+/** A delta answer: drop `removed` and each entry's id, then insert each entry at its `at`, in order. */
+export interface HistoryListDelta {
+  removed: string[];
+  at: number[];
 }
 
 export interface HistoryListResult {
@@ -56,6 +64,10 @@ export interface HistoryListResult {
    * still behind): `entries` is what it has so far. The page shows that and asks again until the field
    * is absent; `cmux.history.changed` only makes it sooner (it comes only when an entry of the kind changes). */
   pending_kinds?: HistoryKind[];
+  /** This answer's cursor (an owner with list follow): sent back as `follow` on the next read. */
+  follow?: string;
+  /** Present when `entries` holds only what changed since the `follow` the page sent. */
+  delta?: HistoryListDelta;
 }
 
 export interface HistoryChanged {

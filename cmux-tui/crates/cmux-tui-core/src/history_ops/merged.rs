@@ -62,6 +62,8 @@ pub(crate) struct HistoryHost {
     /// take turns page by page, so neither reads a page the other folds.
     turn: Mutex<()>,
     feed_claimed: AtomicBool,
+    /// The windows `history.entries.list` answered, for a reader's `follow`.
+    follows: super::follow::Follows,
 }
 
 struct HostState {
@@ -99,6 +101,7 @@ impl Default for HistoryHost {
             }),
             turn: Mutex::new(()),
             feed_claimed: AtomicBool::new(false),
+            follows: super::follow::Follows::default(),
         }
     }
 }
@@ -392,7 +395,18 @@ pub(super) fn list(
             row
         })
         .collect::<Vec<_>>();
-    let mut reply = json!({"entries": rows, "revision": mux.history.revision().to_string()});
+    // A reader that holds an answer of this query (`follow`) gets only what
+    // changed since (follow.rs).
+    let after = fields.get("follow").and_then(Value::as_str);
+    let answer = mux.history.follows.answer(fields, after, rows);
+    let mut reply = json!({
+        "entries": answer.entries,
+        "revision": mux.history.revision().to_string(),
+        "follow": answer.follow,
+    });
+    if let Some(delta) = answer.delta {
+        reply.set("delta", delta);
+    }
     if !pending.is_empty() {
         reply.set("pending_kinds", json!(pending));
     }

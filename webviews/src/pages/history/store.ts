@@ -23,6 +23,7 @@ import {
   type CookieBackupsDeleted,
   type HistoryChanged,
   type HistoryEntry,
+  type HistoryListDelta,
   type HistoryListParams,
   type HistoryListResult,
   type HistoryRange,
@@ -80,6 +81,8 @@ export class HistoryStore {
   /** The one trailing read for the changes that came within the gap after the last change read. */
   private changeTimer?: ReturnType<typeof setTimeout>;
   private lastChangeRead = Number.NEGATIVE_INFINITY;
+  /** The owner's cursor of the answer `entries` holds (`follow`): the next read asks for a delta. */
+  private follow?: string;
 
   constructor(
     private readonly client: PageClient | null,
@@ -194,6 +197,7 @@ export class HistoryStore {
     this.subscribingChanges = false;
     this.refollowQueued = false;
     this.changesUnsupported = false;
+    this.follow = undefined;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.unpage?.();
@@ -358,6 +362,8 @@ export class HistoryStore {
     if (!wasDown && (this.unsubscribe || this.changesUnsupported || this.subscribingChanges || this.starting)) return;
     if (wasDown) {
       this.linkEpoch += 1;
+      // Another owner may answer now: the re-read is a whole one.
+      this.follow = undefined;
       // The owner may have been replaced (an upgraded daemon): ask for the change stream again
       // even when the old one did not have it.
       this.changesUnsupported = false;
@@ -397,13 +403,19 @@ export class HistoryStore {
     const generation = ++this.generation;
     const { text, filter } = this.snapshot;
     const params: HistoryListParams = { kinds: filterKinds(filter), text, limit: PAGE_LIMIT };
+    // The page holds an answer: the owner sends only what changed since (a cursor of another query
+    // or daemon run is answered whole). Only the newest read's reply applies, so the entries it
+    // patches are the ones this cursor names.
+    if (this.follow) params.follow = this.follow;
     if (!this.snapshot.loading) this.set({ loading: true });
     try {
       const result = await this.client.call<HistoryListResult>(HistoryOps.list, params);
       if (generation !== this.generation) return;
       // cmux.protocol/2 sends a decimal as a string ("1791916418192"); `new Date("…")` of that is
       // an invalid date, and the grouping threw while rendering (a blank page, cx-hnmbt.8).
-      const entries = result.entries.map((entry) => ({ ...entry, at_ms: Number(entry.at_ms) }));
+      const changed = result.entries.map((entry) => ({ ...entry, at_ms: Number(entry.at_ms) }));
+      const entries = result.delta ? applyDelta(this.snapshot.entries, changed, result.delta) : changed;
+      this.follow = result.follow;
       const pending = (result.pending_kinds?.length ?? 0) > 0;
       this.set({
         entries,
@@ -488,6 +500,17 @@ export class HistoryStore {
     this.snapshot = { ...this.snapshot, ...patch };
     for (const listener of this.listeners) listener();
   }
+}
+
+/** The window after a delta answer: `held` without the removed and changed ids, then each changed
+ * entry at its index in the new window (ascending). Every unchanged entry keeps its object, so its
+ * row does not render again. */
+function applyDelta(held: HistoryEntry[], changed: HistoryEntry[], delta: HistoryListDelta): HistoryEntry[] {
+  const dropped = new Set(delta.removed);
+  for (const entry of changed) dropped.add(entry.id);
+  const entries = dropped.size ? held.filter((entry) => !dropped.has(entry.id)) : held.slice();
+  changed.forEach((entry, index) => entries.splice(delta.at[index] ?? entries.length, 0, entry));
+  return entries;
 }
 
 /** The least time between two reads that `history-changed` starts. */

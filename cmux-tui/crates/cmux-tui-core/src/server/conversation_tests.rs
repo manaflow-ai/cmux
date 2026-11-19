@@ -695,3 +695,42 @@ fn an_agent_connection_cannot_import_history() {
     let (error, _) = rejection(&mux, agent, import_request(&id));
     assert!(error.contains("only the local user"), "{error}");
 }
+
+/// Detector (cmuxterm-hq `docs/handbook/whole-list-reread-on-delta.md`): a
+/// Home page answers a new message in one conversation with `home-inbox`
+/// `only` (`home-inbox-only-v1`): the reply carries that conversation's row
+/// and `conversation-list` summary, and no other conversation's.
+#[test]
+fn home_inbox_only_answers_just_the_asked_conversations() {
+    let (mux, client) = conversation_mux();
+    let mut ids = Vec::new();
+    for index in 0..5 {
+        let created = run(
+            &mux,
+            client,
+            json!({"cmd":"conversation-create","idempotency_key":format!("only-{index}"),
+                   "actor":"user_local","title":format!("c{index}"),"participants":participants()}),
+        )
+        .unwrap();
+        ids.push(created["conversation"]["id"].as_str().unwrap().to_string());
+    }
+    let whole = run(&mux, client, json!({"cmd":"home-inbox","owners":["local"]})).unwrap();
+    assert_eq!(whole["rows"].as_array().unwrap().len(), 5);
+    let only = run(&mux, client, json!({"cmd":"home-inbox","only":[ids[2]]})).unwrap();
+    let rows = only["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "only the asked row: {only}");
+    assert_eq!(rows[0]["id"], ids[2]);
+    let summaries = only["conversations"].as_array().unwrap();
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0]["id"], ids[2]);
+    // The row is the one the whole read derives (kind, name, unread).
+    let whole_row =
+        whole["rows"].as_array().unwrap().iter().find(|row| row["id"] == ids[2]).unwrap().clone();
+    assert_eq!(rows[0], whole_row);
+    assert_eq!(only["cloud"], "not_asked");
+    // A conversation that is not listed answers no row; too many ids are refused.
+    let gone = run(&mux, client, json!({"cmd":"home-inbox","only":["conv_missing"]})).unwrap();
+    assert!(gone["rows"].as_array().unwrap().is_empty());
+    let many: Vec<String> = (0..65).map(|index| format!("conv_{index}")).collect();
+    assert!(run(&mux, client, json!({"cmd":"home-inbox","only":many})).is_err());
+}

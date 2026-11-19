@@ -12916,6 +12916,56 @@
             "max_items": 5
           },
           "description": "The asked kinds whose entries are not complete in this answer: the daemon's fold of the session journal did not reach the journal head inside the list's 2 s budget (a first read after a start on a large journal). entries holds what is folded so far. A caller that gets it asks again until the field is absent: each list folds for 2 s more, and the session's feed folds on between lists. history-changed of that kind says that more entries are folded, but it does not come when the rest of the journal changes no entry of that kind or when the session has no feed, so a caller must not wait for the event only. Omitted when every asked kind is complete; today only agent can be pending."
+        },
+        "follow": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "This answer's cursor: a list of the same query that passes it back as follow is answered with a delta over this answer's entries."
+        },
+        "delta": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "HistoryEntriesListDelta"
+          },
+          "description": "Present when the answer is a delta over the window of the follow cursor the caller sent: entries then holds only the entries that came or changed. The caller drops removed and each entry's id from what it holds, then inserts each entry at its index in at, in order. Absent: entries is the whole window."
+        }
+      },
+      "extra": false
+    },
+    "HistoryEntriesListDelta": {
+      "kind": "object",
+      "fields": {
+        "removed": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "max_items": 5000
+          },
+          "description": "Ids of the cursor's window that are not in this one."
+        },
+        "at": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "max_items": 5000
+          },
+          "description": "The index in the new window of each entry, in the order of entries (ascending)."
         }
       },
       "extra": false
@@ -29051,6 +29101,16 @@
               "name": "decimal"
             },
             "description": "The local start of today in Unix milliseconds, from the caller's time zone, for range today. Omitted: the daemon's local midnight."
+          },
+          "follow": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The follow cursor of an answer the caller holds for this same query: the answer is a delta over it (delta). A cursor of another query, another daemon run or one the daemon no longer keeps is answered with the whole window, as a list without it."
           }
         },
         "extra": false

@@ -25,6 +25,7 @@
 
 mod closed;
 mod commands;
+mod follow;
 mod hidden_doc;
 mod journal_feed;
 pub(crate) mod ledger;
