@@ -1,4 +1,5 @@
 @testable import CmuxNextAgentPane
+import Observation
 import Testing
 
 /// The native New Tab page (Lawrence 2026-10-29: "make the new tab page in swift"): the dropdown's
@@ -62,6 +63,41 @@ struct NativeNewTabModelTests {
         #expect(!model.page.omnibar.actions.isEmpty)
     }
 
+    /// The palette's actions read again at the page's first use: an equal list changes nothing; a list that differs
+    /// changes the rows in one update, and the highlighted row stays the same row, by its id, while the rows have it.
+    @Test func aListReadAgainKeepsTheHighlightedRowByItsID() throws {
+        var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
+        let listed = Self.page(actions: 3).omnibar.actions
+        let model = NativeNewTabModel(page: Self.page(actions: 3), actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _ in }),
+                                      paletteRefresh: { _, deliver in asks.append(deliver) })
+        model.text = "action number"
+        model.text = "action number "
+        try #require(asks.count == 1, "the page asks for the actions again once, at its first letter: \(asks.count) asks")
+        // The first and the last action row: the highlight goes on the last one.
+        let rows = model.rows.map(\.id)
+        let actionRows = rows.indices.filter { rows[$0].hasPrefix("action:") }
+        let above = try #require(actionRows.first, "no action row: \(rows)")
+        let at = try #require(actionRows.last, "no action row: \(rows)")
+        try #require(above < at, "one action row only: \(rows)")
+        let (aboveID, atID) = (String(rows[above].dropFirst("action:".count)), String(rows[at].dropFirst("action:".count)))
+        model.highlighted = at
+
+        let change = Change()
+        withObservationTracking { _ = model.page } onChange: {
+            MainActor.assumeIsolated { change.seen = true } // main-proof: the model is main-actor state, set by this row
+        }
+        asks[0](listed)
+        #expect(!change.seen && model.highlighted == at, "an equal list changed the page")
+
+        // A row above the highlighted one is gone: the highlight follows its row.
+        asks[0](listed.filter { $0.id != aboveID })
+        #expect(model.selectedIndex.map { model.rows[$0].id } == rows[at], "the highlight left its row: \(model.rows.map(\.id)), highlighted \(String(describing: model.highlighted))")
+        #expect(model.highlighted == at - 1, "the row above did not go away: \(model.rows.map(\.id))")
+        // The highlighted row is gone: Return goes back to the first row.
+        asks[0](listed.filter { $0.id != aboveID && $0.id != atID })
+        #expect(model.highlighted == nil, "the highlight stayed at \(String(describing: model.highlighted)) with its row gone")
+    }
+
     @Test func everyPaletteActionIsReachable() {
         let omnibar = Self.page().omnibar
         #expect(omnibar.actions.count == 301, "the 40-entry cap no longer drops palette actions")
@@ -103,4 +139,9 @@ struct NativeNewTabModelTests {
         print("native-new-tab: 5 keystrokes over 1000 actions took \(elapsed)")
         #expect(elapsed < .milliseconds(50))
     }
+}
+
+/// Whether an observed value changed.
+@MainActor private final class Change {
+    var seen = false
 }

@@ -34,8 +34,8 @@ struct NewTabPageHandler {
     var listProjects: (String?) async -> [String] = { _ in [] }
     /// Runs a host-owned action advertised by the omnibar.
     var action: (String) -> Void = { _ in }
-    /// `(page tab)`: the bar's lists of now, for a view that is made after its tab's key; nil keeps the page's own.
-    var places: (String) -> NewTabPlaces.Lists? = { _ in nil }
+    /// `(page tab)`: asked at the make of the page's view, after its tab's key: it asks for the palette's actions (a page with no view takes no kept list) and gives the bar's lists of now; nil keeps the page's own.
+    var listsAtViewMake: (String) -> NewTabPlaces.Lists? = { _ in nil }
 }
 
 enum NewTabPage {
@@ -175,11 +175,14 @@ enum NewTabPage {
                 }.value
             },
             action: { [weak services] id in
-                // As the palette runs its row: an action that needs arguments asks for them there.
-                services?.palette.runCommand(ActionID(rawValue: id), relativeTo: services?.windows.active?.window)
+                // As the palette runs its row: an action that needs arguments asks for them there. A row it refuses now leaves the bar's list: the actions are read again.
+                guard let services, !services.palette.runCommand(ActionID(rawValue: id), relativeTo: services.windows.active?.window) else { return }
+                fillPaletteActions(services, again: true)
             },
-            places: { [weak services] key in
-                guard let services, services.newTabPlaces.rows != nil else { return nil }
+            listsAtViewMake: { [weak services] key in
+                guard let services else { return nil }
+                fillPaletteActions(services)
+                guard services.newTabPlaces.rows != nil else { return nil }
                 return NewTabPage.places(services, excluding: key, current: services.workspaceID(ofTab: key))
             }
         )

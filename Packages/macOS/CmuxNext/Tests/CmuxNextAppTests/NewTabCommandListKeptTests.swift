@@ -50,7 +50,7 @@ struct NewTabCommandListKeptTests {
     }
 
     /// A request that comes after a listing's last slice and before its hand-over joins that list: the finished
-    /// list is not dropped, and no new read starts.
+    /// list is handed over as it is, and no new read starts.
     @Test func aRequestBeforeTheHandOverKeepsTheFinishedList() async throws {
         let app = try await Self.shown()
         defer { app.close() }
@@ -76,9 +76,8 @@ struct NewTabCommandListKeptTests {
         let list = try #require(asked.list, "the second request never got a list")
         let end = lister.counts
         print("new-tab-list: a request before the hand-over: \(end.started - start.started) listings started, "
-            + "\(end.dropped - start.dropped) lists dropped, \(end.actionsRead - read.actionsRead) catalog actions read again")
+            + "\(end.actionsRead - read.actionsRead) catalog actions read again")
         #expect(page.page.omnibar.actions == list.actions, "the page and the second request did not get one list")
-        #expect(end.dropped == start.dropped, "a request before the hand-over dropped \(end.dropped - start.dropped) finished lists")
         #expect(end.started == read.started,
                 "a request before the hand-over started \(end.started - read.started) more listings (\(end.actionsRead - read.actionsRead) catalog actions read again)")
     }
@@ -108,7 +107,7 @@ struct NewTabCommandListKeptTests {
         let held = await Self.listed(services)
         let after = lister.counts
         print("new-tab-list: a hold of 10 pages: \(without) pages showed without the actions, \(after.started - before.started) listings started, "
-            + "\(after.dropped - before.dropped) lists dropped, \(after.actionsRead - before.actionsRead) catalog actions read again in \(held.frames) frames with a lister task after the last page")
+            + "\(after.actionsRead - before.actionsRead) catalog actions read again in \(held.frames) frames with a lister task after the last page")
         #expect(without == 0, "\(without) of the 10 pages showed without the palette's actions")
         #expect(after.started == before.started,
                 "the hold started \(after.started - before.started) listings and read \(after.actionsRead - before.actionsRead) catalog actions again")
@@ -127,7 +126,7 @@ struct NewTabCommandListKeptTests {
 
     /// A hold of the New Tab key in a window that has no list yet, for as long as the listing takes: an ask each two
     /// frames from the first frame until the hand-over (the first ten are pages). One listing serves them all, and
-    /// no finished list is dropped.
+    /// each of its pages has that list.
     @Test func aHoldWithNoListYetIsOneListing() async throws {
         let app = try await Self.shown()
         defer { app.close() }
@@ -182,13 +181,61 @@ struct NewTabCommandListKeptTests {
         let now = lister.counts
         let end = hold.handed ?? now
         print("new-tab-list: a hold with no list yet: \(hold.asks) asks, one each 2 frames, until the hand-over; "
-            + "\(end.started - start.started) listings started, \(end.dropped - start.dropped) lists dropped, "
+            + "\(end.started - start.started) listings started, "
             + "\(end.actionsRead - start.actionsRead) catalog actions read, \(hold.frames) frames with a lister task")
-        let list = try #require(got, "\(hold.failure ?? "no hand-over"); \(hold.asks) asks; listings started = \(now.started - start.started), lists dropped = \(now.dropped - start.dropped)")
+        let list = try #require(got, "\(hold.failure ?? "no hand-over"); \(hold.asks) asks; listings started = \(now.started - start.started)")
         let without = hold.pages.filter { $0.page.omnibar.actions != list.actions }.count
         #expect(end.started == start.started + 1, "the hold started \(end.started - start.started) listings in \(hold.asks) asks")
-        #expect(end.dropped == start.dropped, "the hold dropped \(end.dropped - start.dropped) finished lists in \(hold.asks) asks")
         #expect(without == 0, "\(without) of the hold's \(hold.pages.count) pages do not have the list after its hand-over")
+    }
+
+    /// The first letter in a page that showed with the kept list reads the actions again, and never in its own
+    /// turn: the keystroke's turn reads no action and starts no listing (it queues the listing's first task for a
+    /// later frame), and a second letter while that listing runs starts no second one.
+    @Test func theFirstLetterReadsTheActionsAgainInLaterFrames() async throws {
+        let app = try await Self.shown()
+        defer { app.close() }
+        let services = app.services
+        let lister = services.newTabActions
+        let first = try Self.openPage(app)
+        first.loadPaletteActions()
+        let cold = await Self.listed(services)
+        let list = try #require(cold.list, "the first page's listing never handed its list over")
+        let page = try Self.openPage(app)
+        try #require(page.page.omnibar.actions == list.actions, "the second page did not show with the kept list")
+        let before = lister.counts
+
+        page.text = "a"
+        let typed = lister.counts
+        #expect(typed == before, "the first letter's turn started \(typed.started - before.started) listings and read \(typed.actionsRead - before.actionsRead) catalog actions")
+        #expect(services.mainWork.frames.activeClients.contains(Self.lister), "the first letter queued no task of the lister")
+
+        // The row is the display: the listing's first task runs in one of these frames, never in the letter's turn.
+        let limit = Self.frameLimit(services)
+        var fired = 0
+        while lister.counts.started == before.started, fired < limit {
+            services.mainWork.frameDidFire()
+            fired += 1
+        }
+        let running = lister.counts
+        try #require(running.started == before.started + 1, "the first letter started no listing in \(fired) frames")
+        try #require(running.actionsRead == before.actionsRead, "the listing ended in its first task")
+        // A second letter while the listing runs.
+        page.text = "ab"
+        let again = await Self.listed(services)
+        let end = lister.counts
+        // A third letter: the page's own listing read its list, so it asks for nothing more.
+        page.text = "abc"
+        let third = await Self.listed(services)
+        let last = lister.counts
+        print("new-tab-list: the first letter in a page with the kept list: \(typed.started - before.started) listings started and "
+            + "\(typed.actionsRead - before.actionsRead) catalog actions read in its turn, the listing's first task \(fired) frames later; "
+            + "\(end.started - before.started) listings started and \(end.actionsRead - before.actionsRead) catalog actions read to the hand-over, "
+            + "\(again.frames) frames with a lister task after the second letter; a third letter: \(last.started - end.started) listings started")
+        #expect(again.list != nil && third.list != nil)
+        #expect(end.started == before.started + 1, "two letters started \(end.started - before.started) listings")
+        #expect(end.actionsRead > before.actionsRead, "the first letter's listing read no catalog action")
+        #expect(last.started == end.started, "a third letter started \(last.started - end.started) more listings")
     }
 
     // MARK: - The web page
@@ -218,7 +265,17 @@ struct NewTabCommandListKeptTests {
                     "the second page has \(view.model.newTab?.omnibar.actions.count ?? 0) of the \(web.list.actions.count) actions")
 
             // The page's own report of its person's first input. The row asks for nothing: it is only the display.
+            let frames = services.mainWork.frames
+            try #require(!frames.activeClients.contains(Self.lister), "the lister has a task before the first input")
             _ = await view.model.respond(to: .touched)
+            // The write of the page's flag only asks for the read, in the main queue's next turn: its own turn
+            // queues no task of the lister.
+            #expect(!frames.activeClients.contains(Self.lister), "the first input's own turn queued a task of the lister")
+            // Exactly one turn of the main queue: a block of the row's own, which the queue runs after the app's. The
+            // lister's first task is queued then, and it ran in no frame yet. An ask two turns away is an issue here.
+            await withCheckedContinuation { turn in DispatchQueue.main.async { turn.resume() } }
+            #expect(frames.activeClients.contains(Self.lister), "one turn of the main queue after the first input the lister has no task")
+            #expect(lister.counts == shown, "the turn after the first input started \(lister.counts.started - shown.started) listings")
             let limit = Self.frameLimit(services)
             var fired = 0
             while lister.counts.started == shown.started, fired < limit {
@@ -462,7 +519,7 @@ struct NewTabCommandListKeptTests {
         let working = await frames.value
         if got == nil {
             let counts = services.newTabActions.counts
-            Issue.record("no hand-over in \(working) frames with a lister task (the limit is \(limit)); listings started = \(counts.started), lists dropped = \(counts.dropped)")
+            Issue.record("no hand-over in \(working) frames with a lister task (the limit is \(limit)); listings started = \(counts.started)")
         }
         return Asked(list: got, frames: working)
     }

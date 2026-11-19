@@ -1,4 +1,6 @@
 import Foundation
+public import CmuxNextActions
+import CmuxNextCompat
 public import CmuxNextPalette
 public import CmuxNextWakeups
 
@@ -12,8 +14,12 @@ public import CmuxNextWakeups
 /// class reads ``slice`` of actions per task and yields to the person's input and to the frame's budget
 /// (``MainFrameBudget``). It starts on the frame after the one that shows the page, never in the key's turn.
 ///
+/// The list depends on the focus's context and on the registry, not on the page, so the last one is kept
+/// (``kept``): a page that shows while it holds takes it with no read. What the kept list's key lacks (a state an
+/// action's own rule reads) is read again at the person's first use of such a page (``read(wanted:_:)``).
+///
 /// ```swift
-/// let actions = AgentPaneNewTabActions(on: mainWork) { palette.commandListing() }
+/// let actions = AgentPaneNewTabActions(on: mainWork, registry: registry) { palette.commandListing() }
 /// actions.list(wanted: { !pages.isEmpty }) { listed in pages.forEach { $0.refreshNewTabActions(listed) } }
 /// ```
 @MainActor
@@ -27,24 +33,45 @@ public final class AgentPaneNewTabActions {
         public var json: String
     }
 
+    /// What a list was read from, beyond each action's own state: the focus's context and the registry's changes.
+    private struct Key: Equatable {
+        var context: ActionContext
+        var changes: Int
+    }
+
     private let queue: FrameBatchQueue
+    private let registry: ActionRegistry
     private let listing: @MainActor () -> PaletteCommandListing
     private let measure: @MainActor (() -> Void) -> Void
     private var running: PaletteCommandListing?
-    /// Who waits for the list being read: each one's `wanted` (asked at the first task) and `deliver`.
+    /// Who waits for the list: each one's `wanted` (asked at the first task) and `deliver`.
     private var waiters: [(wanted: @MainActor () -> Bool, deliver: @MainActor (Listed) -> Void)] = []
     /// The last list read. A read that lists the same rows gives this value again (its array's buffer too), so a page
     /// that shows it compares equal at once and sends nothing, and its JSON is not encoded again.
     public private(set) var last: Listed?
-    private var encoding = 0
+    /// The key `last` holds for; nil when its listing saw two contexts or a change of the registry.
+    private var lastKey: Key?
+    /// The key of the listing being read; nil once it saw another context.
+    private var readKey: Key?
+    /// Changes of the registry's catalog, binds, keys and features since the lister was made, counted inside each
+    /// change's own write (``watch()``): a page that shows in the turn of a change takes no older list.
+    nonisolated private let changed = Atomic<Int>(0)
+    private let tracking = SingleArmedTracking()
+    private var queued = false
+    /// A list is read to its end and waits for its hand-over (its JSON, then a frame).
+    private var pending = false
+    /// The queued first task reads the actions even while the kept list holds (``read(wanted:_:)``).
+    private var fresh = false
+
+    /// Whether the list being handed over now is the kept one, read before these waiters asked: a page that takes
+    /// it reads the actions again at its person's first use.
+    public private(set) var handingKept = false
 
     /// What the lister did since it was made, as counts: the tests and the benches hold a page's cost by them.
-    /// Three integers, each added to once for a listing at most.
+    /// Two integers, each added to once for a listing.
     public struct Counts: Sendable, Equatable {
         /// Listings started: the first task of a read ran.
         public var started = 0
-        /// Lists read to their end and then not handed over, because a request came before the hand-over.
-        public var dropped = 0
         /// Catalog actions whose state was read, over every listing read to its end (added when the read ends).
         public var actionsRead = 0
     }
@@ -53,84 +80,108 @@ public final class AgentPaneNewTabActions {
 
     /// - Parameters:
     ///   - work: The app's main-thread scheduler; the reads are one background ``FrameBatchQueue`` on it.
+    ///   - registry: The palette's registry: its context and its changes are the kept list's key.
     ///   - measure: Runs each task (the app times it for its benches).
     ///   - listing: Starts one palette listing (``PaletteController/commandListing()``).
-    public init(on work: MainWorkScheduler, measure: @escaping @MainActor (() -> Void) -> Void = { $0() },
+    public init(on work: MainWorkScheduler, registry: ActionRegistry, measure: @escaping @MainActor (() -> Void) -> Void = { $0() },
                 listing: @escaping @MainActor () -> PaletteCommandListing) {
         queue = FrameBatchQueue(owner: "NewTab.paletteActions", budgeted: .background, on: work)
+        self.registry = registry
         self.listing = listing
         self.measure = measure
     }
 
-    /// Lists the actions in background tasks from the next frame on and gives them to `deliver` once read (their
-    /// JSON is encoded off the main thread), when `wanted` still holds at the first task: the key's turn only queues
-    /// it. A call while a list is read joins it: every waiter whose `wanted` held gets the same list (the web pages'
-    /// fill and each native page ask on their own).
+    /// The last list, while what it was read from holds: the focus's context is the one of its listing, and the
+    /// registry's catalog, binds, keys and features did not change since that listing started. A page that shows
+    /// takes it with no read.
+    public var kept: Listed? {
+        guard let last, lastKey == Key(context: registry.context, changes: changed.load(ordering: .relaxed)) else { return nil }
+        return last
+    }
+
+    /// Gives the actions to `deliver`, when `wanted` still holds at the first task: the key's turn only queues it.
+    /// While the kept list holds (``kept``) that task hands it over and reads nothing. Else the actions are listed in
+    /// background tasks from the next frame on and handed over once read (their JSON is encoded off the main
+    /// thread). A call while a list is read, or while a read one waits for its hand-over, joins it: every waiter gets
+    /// the same list (the web pages' fill and each native page ask on their own).
     public func list(wanted: @escaping @MainActor () -> Bool, _ deliver: @escaping @MainActor (Listed) -> Void) {
         waiters.append((wanted, deliver))
-        encoding &+= 1 // a list being encoded is older than this request
-        guard !queued, running == nil else { return }
+        guard !pending, !queued, running == nil else { return }
         queued = true
         queue.enqueue { [weak self] in self?.start() }
     }
 
-    private var queued = false
-
-    /// A native New Tab page's ask for the actions (``NativeNewTabModel/PaletteActionsRequest``): one waiter of the listing.
-    public var request: NativeNewTabModel.PaletteActionsRequest {
-        { [weak self] wanted, deliver in self?.list(wanted: wanted) { deliver($0.actions) } }
+    /// ``list(wanted:_:)`` for a page's first use (its person typed in it or ran a row), when the page showed with
+    /// the kept list: the actions are read again, never taken from the kept list, since an action's own rule can
+    /// read a state that is no part of the kept list's key. It joins a listing that runs or waits for its hand-over.
+    public func read(wanted: @escaping @MainActor () -> Bool, _ deliver: @escaping @MainActor (Listed) -> Void) {
+        if !pending, running == nil { fresh = true }
+        list(wanted: wanted, deliver)
     }
 
     /// The first task: the palette's context (the focused object) and catalog are read here, not in the key's turn.
     private func start() {
         queued = false
+        let read = fresh
+        fresh = false
         waiters.removeAll { !$0.wanted() }
         guard !waiters.isEmpty else { return }
+        if !read, let kept {
+            handingKept = true
+            defer { handingKept = false }
+            return hand(kept)
+        }
+        watch()
+        readKey = Key(context: registry.context, changes: changed.load(ordering: .relaxed))
         measure { running = listing() }
         counts.started += 1
         queue.enqueue { [weak self] in self?.step() }
     }
 
+    /// Counts the next change of what a row's face reads from the registry itself: the catalog, the binds, the
+    /// keys and the features. One tracking armed at a time; the first listing after it fires arms it again.
+    private func watch() {
+        tracking.track(shape: []) {
+            _ = (registry.descriptors, registry.actions, registry.shortcutOverrides, registry.chordOverrides,
+                 registry.alternateShortcuts, registry.keyBindingLayers, registry.disabledFeatures)
+        } onChange: { [weak self] in
+            self?.changed.add(1, ordering: .relaxed)
+        }
+    }
+
     private func step() {
         guard let reading = running else { return }
+        // The key's context is the one the first action is read under (the focus settles after the key's turn). A
+        // listing that then sees another context mixes the rows of both: it is handed over as it is, and not kept.
+        if reading.actionsRead == 0 { readKey?.context = registry.context } else if readKey?.context != registry.context { readKey = nil }
         var entries: [PaletteCommandEntry]?
         measure { entries = reading.step(until: .now + Self.slice) }
         guard let entries else { return queue.enqueue { [weak self] in self?.step() } }
         running = nil
         counts.actionsRead += reading.actionsRead
+        let key = readKey?.changes == changed.load(ordering: .relaxed) ? readKey : nil
         let actions = entries.map(AgentPaneOmnibar.Action.init(paletteEntry:))
-        encoding &+= 1
-        let generation = encoding
+        // A request from now to the hand-over joins this list (`list(wanted:_:)`): it is not read again.
+        pending = true
         if let last, last.actions == actions {
-            return queue.enqueue { [weak self] in
-                guard let self, self.isNewest(generation) else { return }
-                hand(last)
-            }
+            lastKey = key
+            return queue.enqueue { [weak self] in self?.hand(last) }
         }
         // Best effort: only a person typing in the bar reads the list, and it takes the last one until this one comes.
         let json = Task.detached(priority: WorkPriority.bestEffort.taskPriority) { Self.encode(actions) }
-        // task-owner: one hand-over per list; a newer list or request (generation) drops it.
+        // task-owner: one hand-over per list.
         Task { @MainActor [weak self] in
             let encoded = await json.value
-            guard let self, self.isNewest(generation) else { return }
+            guard let self else { return }
             let listed = Listed(actions: actions, json: encoded)
-            last = listed
+            (last, lastKey) = (listed, key)
             // The pages take it as background work too (P5): each one's event is a JSON encode and a script call.
-            queue.enqueue { [weak self] in
-                guard let self, self.isNewest(generation) else { return }
-                hand(listed)
-            }
+            queue.enqueue { [weak self] in self?.hand(listed) }
         }
     }
 
-    /// Whether the list of `generation` is still the one to hand over; a list that is not is counted as dropped.
-    private func isNewest(_ generation: Int) -> Bool {
-        if generation == encoding { return true }
-        counts.dropped += 1
-        return false
-    }
-
     private func hand(_ listed: Listed) {
+        pending = false
         let waiting = waiters
         waiters.removeAll()
         for waiter in waiting { waiter.deliver(listed) }
