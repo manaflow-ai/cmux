@@ -2274,6 +2274,52 @@ mod tests {
         assert!(!phone.is_closed() && !mac.is_closed());
     }
 
+    /// A keepalive beat that fired just before the phone parked must not put
+    /// its ping on the wire after the park: the Mac takes any ping from a
+    /// parked phone as the phone back, and would unpark while the phone
+    /// sleeps. The pinger here is held between its beat and its send (it
+    /// waits on the ping table, which another thread holds) until the park
+    /// was accepted.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_keepalive_ping_deferred_past_a_park_stays_unsent() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let beat = Duration::from_millis(200);
+        let config =
+            LinkConfig { keepalive: Some(beat), keepalive_timeout: Duration::from_secs(30), aligned: true };
+        let phone = Link::new(a, Role::Phone, config, None);
+        let mac = Link::new(b, Role::Mac, LinkConfig { keepalive: None, ..LinkConfig::default() }, None);
+        let first_nonce = phone.inner.next_nonce.load(Ordering::Relaxed);
+
+        // Hold the phone's ping table, so the next beat's pinger stops
+        // between taking its nonce and queueing its ping.
+        let (taken_tx, taken_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let held = Arc::clone(&phone.inner);
+        let holder = std::thread::spawn(move || {
+            let _table = held.pings.lock().unwrap_or_else(PoisonError::into_inner);
+            taken_tx.send(()).unwrap();
+            let _ = release_rx.recv();
+        });
+        taken_rx.recv().unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while phone.inner.next_nonce.load(Ordering::Relaxed) == first_nonce {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("a keepalive beat fired");
+
+        // The park is sent and accepted while that pinger waits.
+        assert!(phone.park(Duration::from_secs(5), Duration::from_secs(1)).await.unwrap());
+        assert!(mac.is_parked());
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+
+        tokio::time::sleep(beat * 3).await;
+        assert!(phone.is_parked(), "the phone left its park");
+        assert!(mac.is_parked(), "a keepalive ping queued after the park unparked the Mac");
+    }
+
     /// A Mac that predates parking refuses the service: the phone is told,
     /// and nothing on its side is parked.
     #[tokio::test]
