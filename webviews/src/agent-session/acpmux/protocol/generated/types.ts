@@ -347,6 +347,16 @@ export type DeliveryState = "queued" | "acknowledged";
 /** An acknowledgement with nothing in it. */
 export type Done = Record<string, unknown>;
 
+/** One dot. `x`, `y` and `r` are fractions of the glyph box, top left origin. */
+export type Dot = {
+  /** Where the dot starts on its drift circle, 0..1 of a turn. */
+  phase: number;
+  /** The radius. */
+  r: number;
+  x: number;
+  y: number;
+} & Record<string, unknown>;
+
 /**
  * Why a link is down (`cause`), so a surface can tell this Mac's network apart from the
  * machine. Null while the link is up or on its way the first time.
@@ -469,6 +479,20 @@ export interface ForkParams {
 export interface ForumRulesParams {
   _meta?: RequestMeta;
 }
+
+/** A session's glyph. */
+export type Glyph = {
+  /** The variant's accent, `#RRGGBB`. */
+  accent: string;
+  /** 5 to 9 dots, none overlapping. */
+  dots: Dot[];
+  /** The variant's `speed`: how far the running line's dots drift. */
+  drift: number;
+  /** 0..1, the meaning `Frame.size.w` has for a wallpaper. */
+  seed: number;
+  /** The particles variant's name. */
+  variant: string;
+} & Record<string, unknown>;
 
 /** A row that left the list since a follow's cursor. */
 export type GoneRow = {
@@ -2113,6 +2137,18 @@ export interface SideParams {
   chat?: unknown;
   sessionId?: unknown;
 }
+
+/** `session/signature` params. */
+export interface SignatureParams {
+  _meta?: unknown;
+  /** At most 512 session ids. Any string gets a glyph: it is a pure function of the id. */
+  sessionIds: string[];
+}
+
+/** `session/signature` result: one glyph per distinct id asked. */
+export type SignatureResult = {
+  signatures: Record<string, Glyph>;
+} & Record<string, unknown>;
 
 export interface StartModeParams {
   _meta?: RequestMeta;

@@ -68,10 +68,10 @@ async function mount(src: AgentSignatureSource) {
     await Promise.resolve();
   });
   const html = host.innerHTML;
-  const circles = host.querySelectorAll("svg.cv-signature circle");
+  const circles = host.querySelectorAll(".cv-signature .cv-signature__at");
   const circleList = [...circles].map((circle) => ({
-    fill: circle.getAttribute("fill"),
-    opacity: circle.getAttribute("fill-opacity"),
+    color: (circle.parentElement as HTMLElement | null)?.style.color ?? "",
+    left: (circle as HTMLElement).style.left,
   }));
   await act(async () => root.unmount());
   await settleReact();
@@ -97,14 +97,14 @@ test("off: the line is today's, and acpmux is asked nothing", async () => {
   expect(src.asked).toEqual([]);
 });
 
-test("on: the line draws one circle per dot in the accent at 0.85, asked once for the pane's chat", async () => {
+test("on: the line draws one dot per glyph dot in the accent, asked once for the pane's chat", async () => {
   configureAgentSignature(true);
   const src = source();
   const { html, circles } = await mount(src);
   expect(circles).toHaveLength(GLYPH.dots.length);
   for (const circle of circles) {
-    expect(circle.fill).toBe(GLYPH.accent);
-    expect(circle.opacity).toBe("0.85");
+    expect(circle.color).not.toBe("");
+    expect(circle.left).toMatch(/%$/);
   }
   // The glyph comes before the words.
   expect(html.indexOf("cv-signature")).toBeLessThan(html.indexOf("cv-thinking"));
