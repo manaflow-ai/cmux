@@ -6,11 +6,12 @@
 //! A stream can also die without ending: a carrier that keeps the connection open but moves no
 //! bytes (a half-open TCP connection, a stalled relay), or a Mac that went to sleep. Neither side
 //! is told. So the machine pings an attached stream every [`HEARTBEAT`]; a stream that has heard
-//! nothing for [`STALL_WAIT`] since a ping went out is *stalled*: its asks in flight fail over
-//! (to a newer stream, else as `Away`) and new asks do not go to it, until a byte arrives on it
-//! again (the Mac woke) or the Mac dials anew. The Mac's end ([`answer_asks`]) gives up a stream
-//! that brought no ask, pings included, for [`MAC_IDLE`] (the read timeout its caller sets on the
-//! stream) and dials again.
+//! nothing for [`STALL_WAIT`] since a ping went out is *stalled*. The machine stops pinging it, so
+//! the Mac's end ([`answer_asks`]), which gives up a stream that brought no ask for [`MAC_IDLE`]
+//! (the read timeout its caller sets on the stream), dials again; asks in flight then go to the
+//! new stream. A stalled stream that speaks again (a Mac that woke) answers what it was asked.
+//! Meanwhile asks wait for one or the other, up to [`STALL_HOLD`] after the stall, then fail as
+//! `Away`: a host that sleeps half a minute costs a wait, not a failed read.
 
 use std::collections::HashMap;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -35,11 +36,18 @@ pub const STALL_WAIT: Duration = Duration::from_secs(10);
 /// How long the Mac's end waits for any ask (pings come every [`HEARTBEAT`]) before it gives the
 /// stream up and dials again: the read timeout the Mac sets on its stream.
 pub const MAC_IDLE: Duration = Duration::from_secs(20);
+/// How long asks wait, once the attached stream stalled, for it to speak again or for the Mac's
+/// next stream, before they fail as `Away`.
+pub const STALL_HOLD: Duration = Duration::from_secs(60);
+/// How often an ask in flight looks at whether its stream stalled too long.
+const TICK: Duration = Duration::from_millis(100);
 
 type Writer = Box<dyn Write + Send>;
 /// An ask in flight: the attachment it went out on, and where its answer goes (`None` when that
 /// stream ended first).
 type Waiter = (u64, Sender<Option<Vec<Part>>>);
+/// Where an ask's answer arrives (`None` when its stream ended first).
+type Answer = Receiver<Option<Vec<Part>>>;
 
 struct Attached {
     /// Which attachment this is (an old stream's reader never touches a newer one).
@@ -49,8 +57,8 @@ struct Attached {
     heard: Arc<AtomicU64>,
     /// When the oldest ping not yet followed by a byte went out (ms since the epoch; 0: none).
     pinged: u64,
-    /// No byte since a ping [`Link::stall_wait`] ago: asks do not go to it.
-    stalled: bool,
+    /// Since when no byte came after a ping [`Link::stall_wait`] ago: new asks do not go to it.
+    stalled: Option<Instant>,
 }
 
 #[derive(Default)]
@@ -68,6 +76,7 @@ pub struct Link {
     away_wait: Duration,
     heartbeat: Duration,
     stall_wait: Duration,
+    stall_hold: Duration,
     epoch: Instant,
 }
 
@@ -107,12 +116,17 @@ impl Link {
     /// A link with no stream yet, whose asks wait `away_wait` for one.
     #[must_use]
     pub fn new(away_wait: Duration) -> Self {
-        Self::with_heartbeat(away_wait, HEARTBEAT, STALL_WAIT)
+        Self::with_heartbeat(away_wait, HEARTBEAT, STALL_WAIT, STALL_HOLD)
     }
 
-    /// [`Link::new`] with its own heartbeat and stall wait (tests).
+    /// [`Link::new`] with its own heartbeat, stall wait and stall hold (tests).
     #[must_use]
-    pub fn with_heartbeat(away_wait: Duration, heartbeat: Duration, stall_wait: Duration) -> Self {
+    pub fn with_heartbeat(
+        away_wait: Duration,
+        heartbeat: Duration,
+        stall_wait: Duration,
+        stall_hold: Duration,
+    ) -> Self {
         Self {
             state: Mutex::new(State::default()),
             changed: Condvar::new(),
@@ -120,6 +134,7 @@ impl Link {
             away_wait,
             heartbeat,
             stall_wait,
+            stall_hold,
             epoch: Instant::now(),
         }
     }
@@ -139,12 +154,21 @@ impl Link {
     /// Whether the attached stream is stalled (see the module's docs).
     #[must_use]
     pub fn stalled(&self) -> bool {
-        self.lock().attached.as_ref().is_some_and(|attached| attached.stalled)
+        self.lock().attached.as_ref().is_some_and(|attached| attached.stalled.is_some())
+    }
+
+    /// Whether stream `generation` has been stalled for longer than the stall hold.
+    fn held_too_long(state: &State, generation: u64, hold: Duration) -> bool {
+        state.attached.as_ref().is_some_and(|attached| {
+            attached.generation == generation
+                && attached.stalled.is_some_and(|since| since.elapsed() >= hold)
+        })
     }
 
     /// Pings stream `generation` every heartbeat and marks it stalled when a ping goes unheard
-    /// for the stall wait, until `ended`. A wait that overran by far (this process was paused)
-    /// only pings again: that silence was this side's.
+    /// for the stall wait, until `ended`; a stalled stream is not pinged, so the Mac's end gives it
+    /// up. A wait that overran by far (this process was paused) only pings again: that silence
+    /// was this side's.
     fn watch(&self, generation: u64, ended: &AtomicBool) {
         let stall_ms = whole_ms(self.stall_wait);
         let mut state = self.lock();
@@ -174,18 +198,12 @@ impl Link {
             if paused || (attached.pinged != 0 && heard >= attached.pinged) {
                 attached.pinged = 0;
             }
+            if attached.stalled.is_some() {
+                continue;
+            }
             let silent = attached.pinged != 0 && now.saturating_sub(attached.pinged) >= stall_ms;
-            if silent && !attached.stalled {
-                attached.stalled = true;
-                // Its asks in flight fail over: to a newer stream, else as `Away`.
-                state.waiting.retain(|_, (of, sender)| {
-                    if *of == generation {
-                        let _ = sender.send(None);
-                        false
-                    } else {
-                        true
-                    }
-                });
+            if silent {
+                attached.stalled = Some(Instant::now());
                 self.changed.notify_all();
                 continue;
             }
@@ -217,7 +235,7 @@ impl Link {
                 writer: Box::new(BufWriter::with_capacity(64 * 1024, writer)),
                 heard: heard.clone(),
                 pinged: 0,
-                stalled: false,
+                stalled: None,
             });
             // Asks of an older stream are answered with nothing: the asker asks again here.
             state.waiting.retain(|_, (of, sender)| {
@@ -237,19 +255,18 @@ impl Link {
         std::thread::scope(|scope| {
             scope.spawn(|| self.watch(generation, &ended));
             while let Ok(Some((ask, parts))) = wire::read_answer(&mut reader) {
-                let waiter =
-                    {
-                        let mut state = self.lock();
-                        // A stalled stream that speaks again is back (the Mac woke up).
-                        if let Some(attached) = state.attached.as_mut().filter(|attached| {
-                            attached.generation == generation && attached.stalled
-                        }) {
-                            attached.stalled = false;
-                            attached.pinged = 0;
-                            self.changed.notify_all();
-                        }
-                        state.waiting.remove(&ask).filter(|(of, _)| *of == generation)
-                    };
+                let waiter = {
+                    let mut state = self.lock();
+                    // A stalled stream that speaks again is back (the Mac woke up).
+                    if let Some(attached) = state.attached.as_mut().filter(|attached| {
+                        attached.generation == generation && attached.stalled.is_some()
+                    }) {
+                        attached.stalled = None;
+                        attached.pinged = 0;
+                        self.changed.notify_all();
+                    }
+                    state.waiting.remove(&ask).filter(|(of, _)| *of == generation)
+                };
                 if let Some((_, sender)) = waiter {
                     let _ = sender.send(Some(parts));
                 }
@@ -295,25 +312,44 @@ impl Link {
     fn ask(&self, make: &dyn Fn(u32) -> Ask) -> Result<Vec<Part>, FetchError> {
         let deadline = Instant::now() + self.away_wait;
         loop {
-            let receiver = self.send(make, deadline)?;
-            match receiver.recv_timeout(ANSWER_WAIT) {
-                Ok(Some(parts)) => return Ok(parts),
-                // The stream ended (or was replaced) before the answer: ask again on the next.
-                Ok(None) | Err(RecvTimeoutError::Disconnected) => {}
-                // An attached Mac that never answers: the read fails rather than hangs.
-                Err(RecvTimeoutError::Timeout) => return Err(FetchError::Failed),
+            let (receiver, number, generation) = self.send(make, deadline)?;
+            let sent = Instant::now();
+            loop {
+                match receiver.recv_timeout(TICK) {
+                    Ok(Some(parts)) => return Ok(parts),
+                    // The stream ended (or was replaced) before the answer: ask again on the next.
+                    Ok(None) | Err(RecvTimeoutError::Disconnected) => break,
+                    Err(RecvTimeoutError::Timeout) => {}
+                }
+                let mut state = self.lock();
+                // A stream stalled past the hold: neither it nor a new one answered.
+                if Self::held_too_long(&state, generation, self.stall_hold) {
+                    state.waiting.remove(&number);
+                    return Err(FetchError::Away);
+                }
+                // An attached Mac that moves bytes but never answers: the read fails rather than
+                // hangs.
+                if sent.elapsed() >= ANSWER_WAIT {
+                    state.waiting.remove(&number);
+                    return Err(FetchError::Failed);
+                }
             }
         }
     }
 
+    /// Sends one ask on the attached stream once it is live: waits for one until `deadline` while
+    /// none is attached, and up to the stall hold while the attached one is stalled. The answer's
+    /// receiver, the ask's number and the stream it went out on.
     fn send(
         &self,
         make: &dyn Fn(u32) -> Ask,
         deadline: Instant,
-    ) -> Result<Receiver<Option<Vec<Part>>>, FetchError> {
+    ) -> Result<(Answer, u32, u64), FetchError> {
         let mut state = self.lock();
         loop {
-            if let Some(attached) = state.attached.as_mut().filter(|attached| !attached.stalled) {
+            if let Some(attached) =
+                state.attached.as_mut().filter(|attached| attached.stalled.is_none())
+            {
                 let number = self.next.fetch_add(1, Ordering::Relaxed);
                 let generation = attached.generation;
                 let sent =
@@ -324,9 +360,13 @@ impl Link {
                 }
                 let (sender, receiver) = channel();
                 state.waiting.insert(number, (generation, sender));
-                return Ok(receiver);
+                return Ok((receiver, number, generation));
             }
             let now = Instant::now();
+            let deadline = match state.attached.as_ref().and_then(|attached| attached.stalled) {
+                Some(since) => deadline.max(since + self.stall_hold),
+                None => deadline,
+            };
             if now >= deadline {
                 return Err(FetchError::Away);
             }
