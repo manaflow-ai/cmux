@@ -420,7 +420,10 @@ fn serve_session(
     };
     // macOS: the desktop opens while the link connects. ScreenCaptureKit's start and first
     // frame took about 1 s when they ran after the viewer's Start (95% of its first frame).
-    // It opens at the bitrate of an unknown path; Start sets the path's.
+    // It opens at the bitrate of an unknown path; Start sets the path's. It opens with the
+    // cursor in the pictures: no viewer offers cap `cursor` yet (the app's and the bench's
+    // hello list none), and a wrong guess opens the desktop a second time beside the first
+    // (measured: 208 ms from Start against 168 ms with no early open).
     #[cfg(target_os = "macos")]
     let opening = crate::desktop::open_ahead(
         &session_cfg(
@@ -433,7 +436,7 @@ fn serve_session(
             start_kbps(None, None, None)?,
             2,
         ),
-        crate::desktop::reports_cursor(),
+        false,
     );
     let mut hello = None;
     let mut start = None;
