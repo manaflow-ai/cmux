@@ -1,5 +1,5 @@
 import { composerHealthHarness } from "./composerPickerEntries";
-import { forkMenuRows } from "./header/forkMenu";
+import { agentForkRows, forkMenuRows } from "./header/forkMenu";
 import { openFork, openInOwnTab } from "./conversation/openFork";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
@@ -11069,33 +11069,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ? { key: "share", label: t("share.menu"), icon: "action.share", onSelect: () => setShareOpen(true) }
         : undefined;
     // Fork immediately; destination choices are a separate action and Option-click shortcut.
-    const fork =
+    const forkHere: ChatMenuItem[] =
       forkable && lastForkSeq !== undefined ? forkMenuRows(lastForkSeq, () => turnActions.fork?.(lastForkSeq), t) : [];
     // New side chat, New terminal and New browser: something new beside the chat, every time.
     const opensBeside = opensBesideRows({ sideChat, quick }, { terminal: newTerminal, browser: newBrowser }, t);
-    const continueIn: ChatMenuItem[] =
-      snapshot.canHandoff && handoffTargets.length > 0
-        ? [
-            {
-              key: "continue",
-              label: handoffLabels.continueIn,
-              icon: "agent.handoff",
-              disabled: !canContinue,
-              children: handoffTargets.map((target) => ({
-                key: target.id,
-                label: target.name,
-                // In place where the chat can fork (`chat.switchModel`), no review; Continue In…'s
-                // review only where it cannot.
-                onSelect: () =>
-                  ignoreFailure(
-                    callNative(switchForks(snapshot) ? "chat.switchModel" : "chat.handoff.prepare", {
-                      harness: target.id,
-                    }),
-                  ),
-              })),
-            },
-          ]
-        : [];
+    // Another agent: Fork to Agent… beside Fork where the chat forks onto it in place
+    // (`chat.switchModel`), no review; Hand off to…'s review, in its own group, only where it cannot.
+    const forksToAgent = switchForks(snapshot);
+    const toAgent = agentForkRows(
+      snapshot.canHandoff ? handoffTargets : [],
+      { forks: forksToAgent, disabled: !canContinue, handOffLabel: handoffLabels.continueIn },
+      (harness) => ignoreFailure(callNative(forksToAgent ? "chat.switchModel" : "chat.handoff.prepare", { harness })),
+      t,
+    );
+    const continueIn = toAgent.handOff;
+    const fork = [...forkHere, ...toAgent.fork];
     const replay: ChatMenuItem[] =
       !quick && snapshot.sessionId && experimentArm(sessionReplay) === "on"
         ? [
