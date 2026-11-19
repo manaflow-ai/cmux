@@ -17,8 +17,9 @@ use std::os::unix::ffi::{OsStrExt as _, OsStringExt as _};
 use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 
-/// The threads a walk uses unless told otherwise: past about eight, a Mac's disk answers no
-/// faster (the bench in `examples/walk_bench.rs` measures 1 to 16).
+/// The threads a walk uses unless told otherwise. On a cold 1M-file tree (Linux, a cloud disk)
+/// 8 threads walked about 3x faster than 1, and 16 only about 20% faster than 8; 8 leaves the
+/// person's Mac most of its cores. `examples/walk_bench.rs` measures 1 to 16.
 pub const DEFAULT_THREADS: usize = 8;
 
 /// What one `fstatat` said of an entry.
