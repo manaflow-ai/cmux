@@ -34,7 +34,7 @@ BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_appli
                                                     "late_frames", "motion_arms", "commit_notes", "commit_placements",
                                                     "layout_spans", "window_look", "look_tag", "look_config",
                                                     "look_terminal_lines", "look_problem", "look_resolved",
-                                                    "windows_behind"})
+                                                    "windows_behind", "marker_color", "marker_command", "stills_facts"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -455,6 +455,60 @@ class NotApplicable(unittest.TestCase):
     def test_other_actions_apply_to_one_column(self):
         for step in ("split", "close", "column", "column-close", "zoom", "unzoom", "keys", "window-zoom"):
             self.assertIsNone(self.not_applicable(step, 1), step)
+
+
+class RecordedStills(unittest.TestCase):
+    """--record: each pane gets one line of text in a colour that no pixel of the window's backdrop can have, and each
+    recording has its frames, its index and a pane trace (a reader compares the stills of a move with the rests)."""
+
+    def setUp(self):
+        self.bench = loaded(json=json)
+
+    def test_the_marker_colour_is_the_farthest_from_what_the_backdrop_can_show(self):
+        color = self.bench["marker_color"]
+        # A tint of alpha 0.5 over a picture: a channel of the window is between tint x 0.5 and that + 127.5.
+        # Red 0x20: 16 to 143 = white is farther (112) than black (16). Green 0xE0: 112 to 239 = black. Blue 0x7F:
+        # 63.75 to 190.75 = white (64.25 against 63.75); blue 0x80: 64.25 to 191.25 = black.
+        self.assertEqual(color({"tint": "#20E07F80", "picture": "test-picture"}), [255, 0, 255])
+        self.assertEqual(color({"tint": "#20E08080", "picture": "test-picture"}), [255, 0, 0])
+        # Liquid Glass carries the tint; an opaque window shows its sheet and nothing through it.
+        self.assertEqual(color({"tint": "", "glassTint": "#000000CC"}), [255, 255, 255])
+        self.assertEqual(color({"sheet": "#F0F0F0"}), [0, 0, 0])
+        self.assertEqual(color({"sheet": "#101010", "tint": ""}), [255, 255, 255])
+        for unread in (None, {}, {"tint": "20E08080"}, {"tint": "#20E0"}, {"tint": "#ZZE08080"}, "text"):
+            self.assertIsNone(color(unread))
+
+    def test_the_marker_command_prints_one_line_in_that_colour_and_no_command_without_one(self):
+        command = self.bench["marker_command"]
+        self.assertEqual(command([255, 0, 255]), "; printf '\\033[38;2;255;0;255m%s\\033[0m\\n' 'the pane text of the stills'")
+        self.assertEqual(command(None), "")
+
+    def test_a_recording_has_its_frames_its_index_and_a_pane_rect_in_each_sample(self):
+        facts = self.bench["stills_facts"]
+        row = [7, 0, 0, 100, 80, 1, 0, 0, 0, 100, 80, 100, 80, 1, 0, 0, 100, 80]
+        trace = {"samples": [{"t": 0, "panes": [row]}, {"t": 8.3, "panes": [row, row]}], "t0_s": 50.0}
+        names = ["frame-00000.jpg", "frame-00001.jpg", "frames.json"]
+        found = facts(trace, {"samples": [{"t": 0}]}, names)
+        self.assertEqual(found, {"frames": 2, "index": True, "samples": 2, "samples_with_panes": 2, "samples_at_record_start": 1,
+                                 "presentation_rects": False, "problem": None})
+        # The sampler of a build that says where a pane is in each sample: 4 numbers more at each row's end.
+        there = {"samples": [{"t": 0, "panes": [row + [0, 0, 100, 80]]}], "t0_s": 50.0}
+        self.assertTrue(facts(there, {"samples": []}, names)["presentation_rects"])
+        self.assertFalse(facts({"samples": [{"t": 0, "panes": [row + [0, 0, 100, 80], row]}]}, None, names)["presentation_rects"])
+
+    def test_a_recording_with_no_frame_no_index_or_no_trace_says_which(self):
+        facts = self.bench["stills_facts"]
+        row = [7, 0, 0, 100, 80, 1, 0, 0, 0, 100, 80, 100, 80, 1, 0, 0, 100, 80]
+        trace = {"samples": [{"t": 0, "panes": [row]}, {"t": 8.3, "panes": []}, {"t": 16.6}]}
+        names = ["frame-00000.jpg", "frame-00001.jpg", "frames.json"]
+        self.assertEqual(facts(trace, None, names)["problem"], "1 of 3 samples have a pane")
+        self.assertEqual(facts(trace, None, names)["samples_at_record_start"], None)
+        self.assertEqual(facts({"error": "no such window"}, None, names)["problem"], "no sample in the pane trace: {'error': 'no such window'}")
+        self.assertEqual(facts(None, None, names)["problem"], "no sample in the pane trace: None")
+        good = {"samples": [{"t": 0, "panes": [row]}]}
+        self.assertEqual(facts(good, None, ["frame-00000.jpg", "frames.json"])["problem"], "1 frames")
+        self.assertEqual(facts(good, None, ["frame-00000.jpg", "frame-00001.jpg", "notes.txt"])["problem"], "no frames.json")
+        self.assertEqual(facts(good, None, [])["problem"], "0 frames; no frames.json")
 
 
 class Activate(unittest.TestCase):

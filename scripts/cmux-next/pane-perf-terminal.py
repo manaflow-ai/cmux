@@ -37,7 +37,11 @@ pages it holds the resize wait of fork API 27), frames the springs moved (`movin
 spring, or the strip camera: New Column moves only the camera), frames a commit motion had a pane in flight
 (`commit_frames`: the `layout.commit` samples; 0 on a build without them), grids sent to the PTY owner
 (`debug.window_transition`) and hangs (`debug.hangs`). With --record, a second pass records each action with
-`debug.window_record` (frames/ in --out; the recording itself costs frames, so it never runs in the timed pass).
+`debug.window_record` (frames/ in --out; the recording itself costs frames, so it never runs in the timed pass),
+for --record-seconds each, with the pane trace through it (`debug.motion` trace: where each pane is at each display
+tick) as trace.json beside the frames, and a row that fails when the frames, their index or the trace are not there.
+With --record each pane's feed also ends with one line of text in a colour that no pixel of the window's backdrop
+can have (`marker_color`, from the app's own answer): a reader of the stills tells text from the backdrop by it.
 The window action also samples its size once per display frame (`debug.motion trace_*`), reports the active
 resize's p95/max interval, missed intervals and largest geometry step, and rejects a snap, a no-op or a failed restore even without
 --gate. Run this script from the candidate checkout against both the base and candidate app for an A/B.
@@ -83,7 +87,7 @@ the fork geometry posts per moving frame (posts_per_frame). A layout whose page 
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
        [--browser-engine chromium|webkit]
        [--actions split,close,column,zoom,window,drag,keys,scroll,idle,page] [--rounds 3] [--scrollback 5000] [--stream]
-       [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N] [--pane-motion on,off]
+       [--record [--record-seconds S] [--record-layouts NAMES]] [--json PATH] [--out DIR] [--gate] [--missed-budget N] [--pane-motion on,off]
        [--window-look opaque|KEY=VALUE[,KEY=VALUE...]]
 """
 import argparse, glob, json, math, os, pathlib, signal, subprocess, sys, tempfile, time
@@ -100,6 +104,9 @@ parser.add_argument("--rounds", type=int, default=3)
 parser.add_argument("--scrollback", type=int, default=5000)
 parser.add_argument("--stream", action="store_true", help="keep output streaming in the first terminal")
 parser.add_argument("--record", action="store_true", help="record each action once (a separate, untimed pass)")
+parser.add_argument("--record-seconds", type=float, default=2.0,
+                    help="--record: the length of each recording (0.2 s of it is before the action; 12 at most)")
+parser.add_argument("--record-layouts", default="", help="--record: only these layouts (a list with commas; default: each)")
 parser.add_argument("--browser", action="store_true", help="the top-left pane shows a Chromium page (pump and tracker counters)")
 parser.add_argument("--browser-engine", default="chromium", choices=["chromium", "webkit"],
                     help="with --browser: the engine of the probe page and the --pages pages")
@@ -281,8 +288,67 @@ def row(check, expected, observed, ok):
     print(f"{'PASS' if ok else 'FAIL'} | {check} | {expected} | {observed}", flush=True)
 
 
+def marker_color(backdrop):
+    """The colour of the one text line that --record puts in each pane: [r, g, b], each channel 0 or 255, the end
+    that is farther from what a pixel of the window's backdrop can show. `backdrop` is `debug.themes`'
+    `windows[0].backdrop`: under a tint `#RRGGBBAA` of alpha A (the tint, or the glass's, or an opaque window's sheet
+    with A = 1) a channel of the backdrop is between tint x A and tint x A + (1 - A) x 255, whatever is behind it. A
+    reader of the stills takes a pixel outside that range as text; this line is far outside it in each pane. None
+    when the backdrop has no such colour (it was not read)."""
+    if not isinstance(backdrop, dict):
+        return None
+    text = next((backdrop.get(name) for name in ("tint", "glassTint", "sheet") if backdrop.get(name)), None)
+    if not (isinstance(text, str) and len(text) in (7, 9) and text[0] == "#"):
+        return None
+    try:
+        tint = [int(text[at:at + 2], 16) for at in (1, 3, 5)]
+        alpha = int(text[7:9], 16) / 255 if len(text) == 9 else 1.0
+    except ValueError:
+        return None
+    color = []
+    for channel in tint:
+        low = channel * alpha
+        high = low + (1 - alpha) * 255
+        color.append(255 if 255 - high >= low else 0)
+    return color
+
+
+def marker_command(color):
+    """What a pane's feed goes on with to print the marker line in `color` (`marker_color`); nothing without one."""
+    if not color:
+        return ""
+    return f"; printf '\\033[38;2;{color[0]};{color[1]};{color[2]}m%s\\033[0m\\n' 'the pane text of the stills'"
+
+
+def stills_facts(trace, at_start, names):
+    """What one recording of --record left for a reader of its stills: `frames` (the frame files among `names`, the
+    recording folder's files), `index` (frames.json is there), `samples` and `samples_with_panes` of the pane trace
+    that ran through it (`trace`: the reply of `debug.motion` trace_stop), `samples_at_record_start` (the samples of
+    `at_start`, the trace read directly after the recorder's start: the first frame is the next sample or the one
+    after it; None when it was not read), `presentation_rects` (each pane row of the trace has 22 numbers or more: a
+    build with a sampler that says where a pane is in each sample, not only where it ends) and `problem`: None, or what is
+    missing (2 frames at the least, the index, a pane in each sample)."""
+    frames = sum(1 for name in names if name.startswith("frame-") and name.endswith(".jpg"))
+    samples = trace.get("samples") if isinstance(trace, dict) and isinstance(trace.get("samples"), list) else []
+    rows = [row for sample in samples if isinstance(sample, dict) for row in sample.get("panes") or []]
+    with_panes = sum(1 for sample in samples if isinstance(sample, dict) and sample.get("panes"))
+    first = at_start.get("samples") if isinstance(at_start, dict) else None
+    missing = ([f"{frames} frames"] if frames < 2 else []) + ([] if "frames.json" in names else ["no frames.json"])
+    if not samples:
+        missing.append(f"no sample in the pane trace: {trace!r}"[:200])
+    elif with_panes != len(samples):
+        missing.append(f"{with_panes} of {len(samples)} samples have a pane")
+    return {"frames": frames, "index": "frames.json" in names, "samples": len(samples), "samples_with_panes": with_panes,
+            "samples_at_record_start": len(first) if isinstance(first, list) else None,
+            "presentation_rects": bool(rows) and all(isinstance(row, list) and len(row) >= 22 for row in rows),
+            "problem": "; ".join(missing) or None}
+
+
+MARKER = []  # --record: the marker line's colour, one time, after the app said what its window shows (main)
+
+
 def feed(stream=False):
-    text = f"seq 1 {opts.scrollback}\r" if opts.scrollback else ""
+    text = f"seq 1 {opts.scrollback}{marker_command(MARKER[0] if MARKER else None)}\r" if opts.scrollback else ""
     if stream:
         text += "while :; do echo \"$RANDOM $RANDOM $RANDOM streaming output line\"; sleep 0.004; done\r"
     if text:
@@ -988,13 +1054,31 @@ def steps():
 
 
 def record(name, label):
+    """One recording of `name` (an untimed pass): the window's frames (`debug.window_record`), and through them the
+    pane trace (`debug.motion` trace: where each pane is at each display tick), kept beside the frames as
+    trace.json. A reader compares the stills of the move with the stills at rest before and after it. The row fails
+    when the frames, their index or the trace are not there."""
     folder = os.path.join(opts.out, "frames", label.replace(" ", "-"))
-    reply = rpc("debug.window_record", {"dir": folder, "seconds": 2.0})
+    rpc("debug.motion", {"action": "trace_start", "targets": ["panes", "window"]})  # the window's size: a still's scale
+    time.sleep(0.1)  # test harness: the trace has samples at rest before the recorder starts
+    reply = rpc("debug.window_record", {"dir": folder, "seconds": opts.record_seconds})
+    at_start = rpc("debug.motion", {"action": "trace_read"})
     if isinstance(reply, dict) and reply.get("error"):
         print(f"  (no recording of {label}: {reply['error']})", flush=True)
     time.sleep(0.2)  # test harness: the recorder takes its first frame at rest
-    perform(name)
-    time.sleep(2.2)  # test harness: the recording stops by itself
+    error = perform(name)
+    time.sleep(opts.record_seconds + 0.2)  # test harness: the recording stops by itself
+    trace = rpc("debug.motion", {"action": "trace_stop"})
+    deadline = time.monotonic() + 10
+    while not os.path.exists(os.path.join(folder, "frames.json")) and time.monotonic() < deadline:
+        time.sleep(0.25)  # test harness: the recorder's own queue writes its index after its last frame
+    facts = stills_facts(trace, at_start, os.listdir(folder) if os.path.isdir(folder) else [])
+    if os.path.isdir(folder):
+        json.dump({"act": name, "label": label, "error": error, "seconds": opts.record_seconds, **facts, "trace": trace},
+                  open(os.path.join(folder, "trace.json"), "w"))
+    seen = ", ".join(f"{key.replace('_', ' ')} {value}" for key, value in facts.items() if key != "problem")
+    row(f"{label}: the recording has its frames, its index and a pane trace", "2 frames or more, frames.json, a pane in each sample",
+        f"{facts['problem'] or 'each is there'} ({seen})" + (f"; the act: {error}" if error else ""), not facts["problem"] and not error)
 
 
 def profile(name, label):
@@ -1193,6 +1277,11 @@ def main():
     if look:
         conditions["window_look"]["over"] = "the fixture's desktop" if behind is None else behind
         row("no window of another app is behind the window with the look", "none", str(others)[:300], others == [])
+    if opts.record:
+        # Each pane's feed ends with one line in a colour that the window's backdrop cannot show (by the app's answer).
+        MARKER.append(marker_color(shown))
+        conditions["stills"] = {"marker_color": MARKER[0], "record_seconds": opts.record_seconds}
+        row("--record: the marker line has a colour", "a colour far from the backdrop's, by the app's answer", str(MARKER[0]), MARKER[0] is not None)
     print("CONDITIONS " + json.dumps(conditions), flush=True)
     report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback,
               "conditions": conditions, "runs": []}
@@ -1268,7 +1357,7 @@ def main():
             where, _, what = wanted.partition(":")
             if where == name and not not_applicable(what, columns if name != "stress" else None):
                 profile(what, f"{name}-{what}")
-        if opts.record:
+        if opts.record and (not opts.record_layouts or name in opts.record_layouts.split(",")):
             for step in sequence:
                 if not not_applicable(step, columns if name != "stress" else None):
                     record(step, f"{name}-{step}")
