@@ -87,18 +87,15 @@ const LOOK_PREFIXES: [&str; 7] = [
 /// Look keys outside those prefixes: the terminal font; the sidebar's shape,
 /// edges, text, group headers and buttons; the tab strip's and titlebar's
 /// buttons and inactive tabs; pane corners; and the agent chat's text sizes,
-/// sender marks, Session Info, and the transcript look and its tokens
-/// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
+/// sender marks and Session Info. Keep in step with Swift
 /// `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 37] = [
+const LOOK_KEYS: &[&str] = &[
     "terminal.fontFamily",
     "terminal.fontSize",
     "sidebar.style",
     "sidebar.border",
     "sidebar.borderWidth",
     "sidebar.sectionLook",
-    "agentPane.display.transcriptLook",
-    "agentPane.display.transcriptTokens",
     "sidebar.density",
     "sidebar.textSize",
     "sidebar.groupHeader.background",
@@ -128,6 +125,9 @@ const LOOK_KEYS: [&str; 37] = [
     "agentPane.display.senderIcon.badge",
     "agentPane.display.senderIcon.corner",
     "agentPane.display.trayHandle",
+    // The transcript look and its tokens (docs/cmux-next/transcript-customization.md).
+    "agentPane.display.transcriptLook",
+    "agentPane.display.transcriptTokens",
 ];
 
 /// Whether a theme file may set `row`: a look setting an agent may set too.
