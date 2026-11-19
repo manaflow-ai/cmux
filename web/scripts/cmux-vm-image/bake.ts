@@ -1410,6 +1410,17 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   return result;
 }
 
+/**
+ * --large, refused with the flags it has no image for: the large image is a personal Cloud machine's default size;
+ * a team image, a dev tree, a production copy and a promotion have none yet.
+ */
+function largeFlag(argv: string[]): boolean {
+  if (!hasFlag("--large", argv)) return false;
+  const other = ["--promotion", "--prod-copy", "--team-vm", "--dev-tree"].find((flag) => hasFlag(flag, argv));
+  if (other) throw new Error(`--large is for dev snapshots of the personal Cloud image; it cannot be combined with ${other}`);
+  return true;
+}
+
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
   if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered [--defer-inventory]] [--large]");
@@ -1422,8 +1433,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
   if (hasFlag("--dev-tree", argv) && hasFlag("--promotion", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --promotion");
-  // The large image is a personal Cloud machine's default size; a team image, a dev tree and a production copy have none yet.
-  for (const other of ["--promotion", "--prod-copy", "--team-vm", "--dev-tree"]) if (hasFlag("--large", argv) && hasFlag(other, argv)) throw new Error(`--large is for dev snapshots of the personal Cloud image; it cannot be combined with ${other}`);
+  const large = largeFlag(argv);
   const promotion = hasFlag("--promotion", argv);
   return {
     tag,
@@ -1440,7 +1450,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     prodCopy: hasFlag("--prod-copy", argv),
     layered: hasFlag("--layered", argv),
     deferInventory: hasFlag("--defer-inventory", argv),
-    large: hasFlag("--large", argv),
+    large,
   };
 }
 

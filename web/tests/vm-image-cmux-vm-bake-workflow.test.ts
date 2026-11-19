@@ -33,14 +33,24 @@ const PROD_COPY: Inputs = { mode: "prod-copy", clones: "2", keep_snapshot: false
 /** The id the bun stub prints as the large image's (bake.ts --large). */
 const LARGE_SNAPSHOT = `sh-${"a".repeat(32)}`;
 
+type EvalContext = { inputs: Inputs; out: string; snapshot: string; key: string; plan: Record<string, string>; missing?: string; smokePassed?: boolean };
+
+/** The two expressions of the run's cleanup step ("Delete everything this run created"), or undefined for any other. */
+function evaluateCleanup(expr: string, ctx: EvalContext): string | undefined {
+  const bake = ctx.inputs.mode === "bake" && !ctx.inputs.dev_tree;
+  // Keep the snapshot only after a passed smoke (and probes, when they ran: these tests run none).
+  if (expr === "inputs.keep_snapshot && inputs.mode == 'bake' && steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && (!(inputs.agent_tools && inputs.probes) || steps.agent_tools_probe.outcome == 'success') && '--keep-snapshot' || ''") {
+    return bake && ctx.inputs.keep_snapshot && ctx.smokePassed && !ctx.inputs.probes ? "--keep-snapshot" : "";
+  }
+  if (expr === "inputs.layered && !inputs.dev_tree && inputs.mode == 'bake' && 'true' || ''") return bake && ctx.inputs.layered ? "true" : "";
+  return undefined;
+}
+
 /** Evaluates the expression forms this workflow uses in env values. */
-function evaluate(value: string, ctx: { inputs: Inputs; out: string; snapshot: string; key: string; plan: Record<string, string>; missing?: string; smokePassed?: boolean }): string {
+function evaluate(value: string, ctx: EvalContext): string {
   return value.replace(/\$\{\{\s*(.+?)\s*\}\}/g, (_, expr: string) => {
-    // The run's cleanup: keep the snapshot only after a passed smoke (and probes, when they ran: not in these tests).
-    if (expr === "inputs.keep_snapshot && inputs.mode == 'bake' && steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && (!(inputs.agent_tools && inputs.probes) || steps.agent_tools_probe.outcome == 'success') && '--keep-snapshot' || ''") {
-      return ctx.inputs.keep_snapshot && ctx.inputs.mode === "bake" && ctx.smokePassed && !ctx.inputs.dev_tree && !ctx.inputs.probes ? "--keep-snapshot" : "";
-    }
-    if (expr === "inputs.layered && !inputs.dev_tree && inputs.mode == 'bake' && 'true' || ''") return ctx.inputs.layered && !ctx.inputs.dev_tree && ctx.inputs.mode === "bake" ? "true" : "";
+    const cleanup = evaluateCleanup(expr, ctx);
+    if (cleanup !== undefined) return cleanup;
     if (expr === "(inputs.team_vm || inputs.dev_tree || inputs.probes) && 'set' || ''") return ctx.inputs.team_vm || ctx.inputs.dev_tree || ctx.inputs.probes ? "set" : "";
     if (expr === "secrets.FREESTYLE_API_KEY != '' && 'yes' || ''") return ctx.key ? "yes" : "";
     const presence = expr.match(/^secrets\.(CMUX_UITEST_STACK_EMAIL|CMUX_UITEST_STACK_PASSWORD) != '' && 'yes' \|\| ''$/);
