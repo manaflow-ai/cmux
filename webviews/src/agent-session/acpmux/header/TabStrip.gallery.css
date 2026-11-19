@@ -3,7 +3,7 @@
    its geometry so the arms can be compared side by side. Nothing here ships. The mock's own measures and the glass
    picture's colours are custom properties on the stage, so each lives in one place. */
 
-.ttb-sheet-stage,.ttb-ovf-stage{--ttb-window-h:150px;--ttb-strip-h:40px;--ttb-glass-strip-h:48px;--ttb-capsule-h:36px;--ttb-fused-strip-h:38px;--ttb-fused-tab-h:32px;--ttb-tab-h:var(--ds-control-row);--ttb-tab-basis:160px;--ttb-tab-max:180px;--ttb-glass-tab-basis:150px;--ttb-icon:var(--grid-glyph,12px);--ttb-close:18px;--ttb-foot:var(--ds-space-2);--ttb-capsule:999px;--ttb-rule:2px;--ttb-hairline:.5px;--ttb-white:#fff;--ttb-black:#000;--ttb-pic-a:#ff8a3d;--ttb-pic-b:#6a5cff;--ttb-pic-c:#18c2a8;--ttb-pic-d:#e8508a;--ttb-blur:18px;--ttb-sheet-blur:24px;--ttb-shadow-y:4px;--ttb-shadow-r:14px;--ttb-resize-time:7s;--ttb-wide:1200px;--ttb-narrow:420px;--ttb-menu-w:200px;--ttb-menu-h:330px;--ttb-pill-w:92px;--ttb-more-w:84px;--ttb-fade:44px;--ttb-tab-w:140px}
+.ttb-sheet-stage,.ttb-ovf-stage{--ttb-window-h:150px;--ttb-strip-h:40px;--ttb-glass-strip-h:48px;--ttb-capsule-h:36px;--ttb-fused-strip-h:38px;--ttb-fused-tab-h:32px;--ttb-tab-h:var(--ds-control-row);--ttb-tab-basis:160px;--ttb-tab-max:180px;--ttb-glass-tab-basis:150px;--ttb-icon:var(--grid-glyph,12px);--ttb-close:18px;--ttb-foot:var(--ds-space-2);--ttb-capsule:999px;--ttb-rule:2px;--ttb-line:1px;--ttb-hairline:.5px;--ttb-white:#fff;--ttb-black:#000;--ttb-pic-a:#ff8a3d;--ttb-pic-b:#6a5cff;--ttb-pic-c:#18c2a8;--ttb-pic-d:#e8508a;--ttb-blur:18px;--ttb-sheet-blur:24px;--ttb-shadow-y:4px;--ttb-shadow-r:14px;--ttb-resize-time:7s;--ttb-wide:1200px;--ttb-narrow:420px;--ttb-menu-w:200px;--ttb-menu-h:330px;--ttb-pill-w:92px;--ttb-more-w:84px;--ttb-fade:44px;--ttb-tab-w:140px}
 
 .ttb-window{--ttb-bar:color-mix(in srgb,var(--ds-color-fg) 5%,var(--ds-color-surface,Canvas));--ttb-sheet:var(--ds-color-surface,Canvas);display:flex;flex-direction:column;width:100%;height:var(--ttb-window-h);box-sizing:border-box;border:1px solid var(--ds-color-separator);border-radius:var(--ds-radius-xl);overflow:hidden;background:var(--ttb-bar);color:var(--ds-color-fg)}
 .ttb-strip{flex:none;display:flex;align-items:center;gap:var(--ds-space-2);height:var(--ttb-strip-h);padding:0 var(--ds-space-2);box-sizing:border-box;min-width:0}
@@ -59,7 +59,7 @@
 .ttb-window[data-style=underline] .ttb-tabs{gap:var(--ds-space-1)}
 .ttb-window[data-style=underline] .ttb-tab{height:100%;border-radius:0}
 .ttb-window[data-style=underline] .ttb-tab:hover{color:var(--ds-color-fg)}
-.ttb-window[data-style=underline] .ttb-tab[data-selected]::after{content:"";position:absolute;left:var(--ds-space-2);right:var(--ds-space-2);bottom:-1px;height:var(--ttb-rule);border-radius:1px;background:var(--ds-color-accent)}
+.ttb-window[data-style=underline] .ttb-tab[data-selected]::after{content:"";position:absolute;left:var(--ds-space-2);right:var(--ds-space-2);bottom:calc(-1 * var(--ttb-line));height:var(--ttb-rule);border-radius:calc(var(--ttb-rule) / 2);background:var(--ds-color-accent)}
 .ttb-window[data-style=underline] .ttb-tab[data-selected] .ttb-label{font-weight:600}
 .ttb-window[data-style=underline] .ttb-content{border-top:0}
 .ttb-label-stack{flex:1 1 auto;min-width:0;display:grid}
@@ -72,8 +72,8 @@
 .ttb-caption{font-size:var(--text-caption);color:var(--ds-color-muted)}
 
 /* Overflow (TabOverflow.gallery.tsx): 20 tabs of one fixed width, the strip's width a CSS variable a resize animates. */
-.ttb-ovf-stage{padding:var(--ds-space-3);box-sizing:border-box;width:100%;display:grid;gap:var(--ds-space-2);align-content:start}
-.ttb-ovf{position:relative;width:var(--ttb-strip-width,100%);max-width:100%;height:var(--ttb-strip-h);box-sizing:border-box;display:flex;align-items:center;border:1px solid var(--ds-color-separator);border-radius:var(--ds-radius-lg);background:color-mix(in srgb,var(--ds-color-fg) 5%,var(--ds-color-surface,Canvas));color:var(--ds-color-fg)}
+.ttb-ovf-stage{padding:var(--ds-space-3);box-sizing:border-box;width:100%;display:grid;grid-template-columns:minmax(0,1fr);gap:var(--ds-space-2);align-content:start}
+.ttb-ovf{position:relative;min-width:0;width:var(--ttb-strip-width,100%);max-width:100%;height:var(--ttb-strip-h);box-sizing:border-box;display:flex;align-items:center;border:1px solid var(--ds-color-separator);border-radius:var(--ds-radius-lg);background:color-mix(in srgb,var(--ds-color-fg) 5%,var(--ds-color-surface,Canvas));color:var(--ds-color-fg)}
 /* A window resize, recorded: linear between holds, like a drag. Gallery-only; nothing in the app animates this way. */
 .ttb-ovf[data-resize]{max-width:none;animation:ttb-ovf-resize var(--ttb-resize-time) linear infinite}
 @keyframes ttb-ovf-resize{0%,8%{width:var(--ttb-wide)}46%,54%{width:var(--ttb-narrow)}92%,100%{width:var(--ttb-wide)}}
