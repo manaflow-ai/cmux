@@ -5,9 +5,9 @@ import { fenceStep } from "./fenceRule";
  * Replies write LaTeX with `\[ … \]` (display) and `\( … \)` (inline) as well as
  * dollars; rewrite display brackets to dollars outside code fences. Inline brackets remain explicit
  * for the inline renderer. A display block may span
- * lines; its lines are joined.
+ * lines; its lines are joined. `origin`, when given, gets the index in `lines` of each line returned.
  */
-export function normalizeMath(lines: string[]): string[] {
+export function normalizeMath(lines: string[], origin?: number[]): string[] {
   const out: string[] = [];
   let fenced = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -15,6 +15,7 @@ export function normalizeMath(lines: string[]): string[] {
     fenced = fenceStep(fenced, line);
     if (fenced) {
       out.push(line);
+      origin?.push(i);
       continue;
     }
     const open = line.match(/^(\s*)\\\[(.*)$/);
@@ -35,6 +36,7 @@ export function normalizeMath(lines: string[]): string[] {
       const prose = j === i && /^[A-Za-z'’,]+(?:\s+[A-Za-z'’,]+){2,}[.!?:]?$/.test(tex);
       if (/\\\]\s*$/.test(rest) && !prose) {
         out.push(`${open[1]}$$${tex}$$`);
+        origin?.push(i);
         i = j;
         continue;
       }
@@ -42,6 +44,7 @@ export function normalizeMath(lines: string[]): string[] {
     // Explicit inline \(…\) remains distinct from ambiguous dollar math. The inline renderer
     // parses it directly, so shell exclusions for `$(` and `${` cannot reject grouped TeX.
     out.push(line);
+    origin?.push(i);
   }
   return out;
 }
