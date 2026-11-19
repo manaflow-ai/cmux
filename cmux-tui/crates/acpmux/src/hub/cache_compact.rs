@@ -30,11 +30,33 @@
 //!
 //! A turn of [`KIND`] that fails is not continued by `auto_resume.rs` (`turns.rs`): the next
 //! turn's usage arms the timer again, and a continuation would be a model call nobody asked for.
+//!
+//! Before the person's next prompt (Leo, 2026-11-07: "i thought it'd do a thing where like... it
+//! compacted BEFORE you sent a prompt automatically? ... if it had been a while and you were close
+//! to the end of the context window anyways"), with no setting: a person's prompt to a Claude chat
+//! whose prompt cache has lapsed ([`Session::cache_cold_at`], from the same `usage_update`s) and
+//! whose context is at least [`BEFORE_PROMPT_SHARE`] of its window first runs `/compact` as
+//! acpmux's own prompt (this [`KIND`], `"when": "before_prompt"`), and the person's prompt queues
+//! behind it. A cold cache means the prompt would read the whole context again uncached anyway; the
+//! compaction reads it once, and the prompt and the turns after it run on the summary instead of
+//! hitting Claude Code's own compaction mid-turn. Only when the chat is idle as the timer requires
+//! it (`cache_compact_ready`'s idle and remote-floor checks; the person is the one typing), never
+//! for a slash command (the person's own `/compact` runs as typed), a steer, a resend or a prompt
+//! that must not queue. Once per idle stretch: it clears the mark, and the compaction's own usage
+//! names no cache expiry.
 
 use super::*;
 
 /// The provenance kind of the compaction this timer sends.
 pub(crate) const KIND: &str = "cache_compact";
+/// The provenance `when` of the compaction that runs before the person's prompt.
+pub(crate) const BEFORE_PROMPT: &str = "before_prompt";
+/// The context share (0-1) at which a cold chat compacts before the person's next prompt: "close
+/// to the end of the context window", short of Claude Code's own compaction mid-turn.
+pub(crate) const BEFORE_PROMPT_SHARE: f64 = 0.7;
+/// How long the person's prompt waits for the compaction's turn to be taken before it goes on its
+/// own (a refused or slow start never holds the person's prompt).
+const BEFORE_PROMPT_ACCEPT: std::time::Duration = std::time::Duration::from_secs(10);
 /// How long before the cache's expiry the compaction runs: room for the request to reach the
 /// model while the cache is still warm.
 pub(crate) const LEAD_MS: u64 = 30_000;
@@ -117,10 +139,77 @@ impl Hub {
         let usage =
             |u: &&Value| u.get("sessionUpdate").and_then(Value::as_str) == Some("usage_update");
         if let Some(update) = update.filter(|u| !replayed && usage(u)) {
+            self.note_cache_cold_at(session, update);
             self.cache_compact_on_usage(session, update);
         } else if update.is_some_and(|u| !replayed && completed_compaction(u)) {
+            session.cache_cold_at.store(0, Ordering::SeqCst);
             Self::cache_compact_disarm(&session.id);
         }
+    }
+
+    /// Notes when `session`'s prompt cache lapses, on the hub clock, from a live `usage_update`:
+    /// none named (a compaction's, a subagent's, no cache use) clears it.
+    fn note_cache_cold_at(&self, session: &Session, update: &Value) {
+        let at = update.pointer("/_meta/acpmux/cacheExpiresAt").and_then(Value::as_u64).map_or(
+            0,
+            |expires| {
+                let left_ns = expires.saturating_sub(now_ms()).saturating_mul(1_000_000);
+                self.clock_now().saturating_add(left_ns).max(1)
+            },
+        );
+        session.cache_cold_at.store(at, Ordering::SeqCst);
+    }
+
+    /// Before the person's prompt `blocks`: `/compact` first when the chat is cold, near the end of
+    /// its window and idle (module docs). Returns once the compaction's turn is taken (the
+    /// person's prompt then queues behind it), refused, or [`BEFORE_PROMPT_ACCEPT`] passed.
+    pub(in crate::hub) async fn compact_before_prompt(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        blocks: &[Value],
+    ) {
+        let cold_at = session.cache_cold_at.load(Ordering::SeqCst);
+        if cold_at == 0 || self.clock_now() < cold_at {
+            return;
+        }
+        // A slash command (the person's own /compact, /clear, a skill) runs as typed.
+        let first = blocks.iter().find_map(|b| b.get("text").and_then(Value::as_str));
+        if first.is_some_and(|t| t.trim_start().starts_with('/')) {
+            return;
+        }
+        let used = session.read_meta(|m| m.usage.as_ref().and_then(share));
+        if !used.is_some_and(|used| over(used, BEFORE_PROMPT_SHARE)) {
+            return;
+        }
+        let remote = session.floor.last_turn_web.load(Ordering::SeqCst)
+            || session.floor.cloud_mobile_turn.load(Ordering::SeqCst);
+        let idle = self.idle_eligible(session) && session.turn_lock.try_lock().is_ok();
+        if remote || !idle || !self.can_compact(session).await {
+            return;
+        }
+        // Once per idle stretch, even if the compaction is refused.
+        session.cache_cold_at.store(0, Ordering::SeqCst);
+        let (taken, accepted) = tokio::sync::oneshot::channel::<()>();
+        let opts = PromptOptions {
+            prompt_id: Some(format!("compact-before-prompt-{}", uuid::Uuid::now_v7())),
+            provenance: Some(json!({"kind": KIND, "when": BEFORE_PROMPT})),
+            no_queue: true,
+            on_accepted: Some(Box::new(move |_| {
+                let _ = taken.send(());
+            })),
+            ..PromptOptions::default()
+        };
+        let blocks = vec![json!({"type": "text", "text": "/compact"})];
+        let (hub, target) = (self.clone(), session.clone());
+        let compaction: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> = Box::pin(
+            async move {
+                if let Err(e) = hub.prompt_with(&target, blocks, "acpmux", false, opts).await {
+                    tracing::info!(session = %target.id, error = ?e, "compaction before the prompt not run");
+                }
+            },
+        );
+        self.scope.spawn_named("compact-before-prompt", compaction);
+        let _ = tokio::time::timeout(BEFORE_PROMPT_ACCEPT, accepted).await;
     }
 
     /// Ends `session`'s armed timer, if one is.

@@ -212,11 +212,59 @@ async fn an_idle_claude_chat_compacts_once_before_its_cache_expires_only_when_op
 
     // The setting off (the default): no compaction, however full and idle.
     set(false);
-    let off = c.ok("session/new", new).await["sessionId"].as_str().unwrap().to_owned();
+    let off = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
     c.ok("session/prompt", prompt(&off, "cache-probe")).await;
     clock.advance(Duration::from_secs(3600));
     settle_until(Duration::from_millis(500), || false).await;
     assert_eq!(compactions(&hub, &off), 0, "{:?}", prompts(&hub, &off));
+
+    // Before the person's next prompt, with no setting (it is off here): a chat at 75% of its
+    // window whose cache lapsed runs /compact first, as acpmux's, then the person's prompt (Leo,
+    // 2026-11-07: "it compacted BEFORE you sent a prompt automatically? ... if it had been a while
+    // and you were close to the end of the context window").
+    let cold = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&cold, "cache-probe")).await;
+    clock.advance(Duration::from_secs(3600));
+    c.ok("session/prompt", prompt(&cold, "what next")).await;
+    settle_until(Duration::from_secs(20), || prompts(&hub, &cold).len() == 3).await;
+    let ran = prompts(&hub, &cold);
+    let kinds: Vec<(&str, Option<&str>)> =
+        ran.iter().map(|(text, kind)| (text.as_str(), kind.as_deref())).collect();
+    assert_eq!(
+        kinds,
+        [("cache-probe", None), ("/compact", Some("cache_compact")), ("what next", None)],
+        "{ran:?}"
+    );
+    let when = hub.events(&cold, 0, 10_000).unwrap().into_iter().find_map(|e| {
+        (e.kind == "user_message" && e.msg["text"] == "/compact")
+            .then(|| e.msg.pointer("/_meta/provenance/when").cloned())
+            .flatten()
+    });
+    assert_eq!(when, Some(json!("before_prompt")));
+    // Once per idle stretch: the next prompt right after goes straight in.
+    c.ok("session/prompt", prompt(&cold, "and then")).await;
+    assert_eq!(compactions(&hub, &cold), 1, "{:?}", prompts(&hub, &cold));
+
+    // Still warm: the prompt goes straight in.
+    let warm = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&warm, "cache-probe")).await;
+    clock.advance(Duration::from_secs(60));
+    c.ok("session/prompt", prompt(&warm, "what next")).await;
+    assert_eq!(compactions(&hub, &warm), 0, "{:?}", prompts(&hub, &warm));
+
+    // The person's own slash command runs as typed: no second /compact ahead of theirs.
+    let slash = c.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&slash, "cache-probe")).await;
+    clock.advance(Duration::from_secs(3600));
+    c.ok("session/prompt", prompt(&slash, "/compact")).await;
+    assert_eq!(compactions(&hub, &slash), 0, "{:?}", prompts(&hub, &slash));
+
+    // Far from the end of the window (4.2K of 200K): cold or not, nothing is compacted.
+    let roomy = c.ok("session/new", new).await["sessionId"].as_str().unwrap().to_owned();
+    c.ok("session/prompt", prompt(&roomy, "usage-probe")).await;
+    clock.advance(Duration::from_secs(3600));
+    c.ok("session/prompt", prompt(&roomy, "what next")).await;
+    assert_eq!(compactions(&hub, &roomy), 0, "{:?}", prompts(&hub, &roomy));
 
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);

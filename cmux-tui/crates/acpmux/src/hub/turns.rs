@@ -243,6 +243,19 @@ impl Hub {
         {
             self.release_protected_hold(session);
         }
+        // A person's own prompt to a cold chat near the end of its window: compacted first, the
+        // prompt queued behind it (`cache_compact.rs`).
+        if opts.agent.is_none()
+            && opts.provenance.is_none()
+            && opts.after_turn.is_none()
+            && !steer
+            && !opts.steer_only
+            && !opts.no_queue
+            && !opts.resend
+            && !opts.unproven_owner
+        {
+            self.compact_before_prompt(session, &blocks).await;
+        }
         let Some(prompt_id) = opts.prompt_id.clone() else {
             // `session/prompt` accepts prompts without a client id.  They still need a
             // durable message id when they came from another session, so wrap the

@@ -11,7 +11,7 @@ import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
 import { extraFoldersParam, summaryExtraFolders, type ExtraFolderDraft } from "./extraFolders";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
-import { CACHE_EXPIRY_REASON, isCacheCompaction } from "./conversation/cacheCompaction";
+import { CACHE_EXPIRY_REASON, isCacheCompaction, isCacheExpiryCompaction } from "./conversation/cacheCompaction";
 import { isModelRouterKind } from "./routerKinds";
 import type { SwitchPort } from "./harnessSwitch";
 import { OlderPageDelay } from "./conversation/olderPageDelay";
@@ -9971,7 +9971,7 @@ export class AcpmuxDirectClient {
         // The continuation's raw instructions stay hidden. Its provenance supplies only the
         // attempt marker; a new prompt clears it, while a steer keeps the same turn's marker.
         if (msg.steer !== true) this.autoResumedAttempt = autoResumeAttempt(msg);
-        if (msg.steer !== true) this.cacheCompactPrompt = isCacheCompaction(msg);
+        if (msg.steer !== true) this.cacheCompactPrompt = isCacheExpiryCompaction(msg);
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
         this.planRow = undefined;
         // The checklist before it has ended for Session Info's Progress (ProgressSection `currentPlan`).

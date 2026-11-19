@@ -501,6 +501,10 @@ pub struct Session {
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
+    /// The hub clock's time (`Hub::clock_now`) at which the chat's prompt cache lapses, from its
+    /// newest live `usage_update`, or 0 while none named one (`cache_compact.rs`: a compaction
+    /// before the person's next prompt).
+    pub(super) cache_cold_at: AtomicU64,
     /// The hub clock's time (`Hub::clock_now`) at which the idle exit hibernated its harness
     /// (`idle.rs`), or 0: the next start of its agent is a wake, logged with its cause and how
     /// long it took.
