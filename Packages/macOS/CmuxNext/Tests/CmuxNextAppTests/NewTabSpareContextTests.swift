@@ -23,6 +23,9 @@ struct NewTabSpareContextTests {
         return page
     }
 
+    /// The row is for the pool's path. The app starts on a New Tab page that the person did not touch, and the tab
+    /// of a New Tab key takes that page's view before the pool's spare (`AgentTabStore.idlePage`). So the row counts
+    /// each New Tab page of the app as used before its key (`NewTabOpenFramesTests.useEachNewTabPage`).
     @Test func theParkedSpareDrawsTheFocusedPanesContextBeforeCmdT() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-context")
@@ -105,6 +108,7 @@ struct NewTabSpareContextTests {
 
             // Cmd-T adopts it, and the screen it drew is the screen the tab gets: no remount after the key.
             let drawn = Self.screen(spare.model.newTab)
+            NewTabOpenFramesTests.useEachNewTabPage(services) // the pool's path: no idle page that the key's tab takes first
             NewTabPage.open(in: pane, seed: nil)
             #expect(pool.spare?.view !== spare, "Cmd-T did not adopt the parked spare")
             #expect(Self.screen(spare.model.newTab) == drawn, "the adoption changed the screen the spare drew before the key")

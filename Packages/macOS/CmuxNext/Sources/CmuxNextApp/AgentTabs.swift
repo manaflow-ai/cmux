@@ -178,7 +178,7 @@ final class AgentTabStore {
         }
         set { resolvedLocalHost = newValue }
     }
-    var views: AgentTabMap<AgentPaneView> = .init()
+    var views: AgentTabMap<AgentPaneView> = .init(marking: { $0.model.newTab != nil }) // `marked`: the New Tab page views (`idlePage`)
     /// The machine link each pane's composer strip shows, and the reconnect a chat's use of a down machine runs.
     let machineLink = AgentPaneMachineLink()
     /// Agent tabs whose view waits for the launch's first pane content (`deferAtLaunch`).
@@ -205,6 +205,8 @@ final class AgentTabStore {
     var recycle: ((AgentPaneView) -> Bool)?
     /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool); the next one follows as `refill` says.
     var takeSpare: ((AgentPaneSpareRefill) -> AgentPaneView?)?
+    /// What ``idlePage(for:leaving:take:)`` asks of the windows: whether one shows tab `key` (a pane draws it, or a pane of a shown workspace has it selected; the pane that leaves the tab now is the one pane that does not count, so the same pane of another window of the workspace does; with no windows each tab counts, so no page is idle), and that a pane which holds the tab off screen lets go of the view that the tab gave away.
+    var idlePanes: (draws: (String, PaneController?) -> Bool, letGo: (String) -> Void) = ({ _, _ in true }, { _ in })
     /// The prewarmed page once it is connected and drawn, for a tab opening an existing chat of
     /// this Mac (``AgentPaneSpareAdoption``); nil leaves the spare in the pool.
     var takeConnectedSpare: (() -> AgentPaneView?)?
@@ -510,7 +512,7 @@ final class AgentTabStore {
     /// The tab's pane view, made on first show. A tab whose session runs on another machine is
     /// carried by that tab's own session daemon (``remoteHost``); nil when it cannot be (the
     /// pane then shows the "runs on" notice).
-    func view(for key: String, machine: String? = nil, known: (record: AgentSessionRef, store: DaemonStore)? = nil) -> AgentPaneView? { // known: a tab no store lists (a reserved Cmd-N page)
+    func view(for key: String, machine: String? = nil, known: (record: AgentSessionRef, store: DaemonStore)? = nil, leaving: PaneController? = nil) -> AgentPaneView? { // known: a tab no store lists (a reserved Cmd-N page); leaving: the pane that shows the tab now, and leaves another tab for it (`idlePage`)
         let tabKey = tabKey(key, machine: machine)
         if let view = views[tabKey] { return view }
         let key = tabKey.key
@@ -552,8 +554,7 @@ final class AgentTabStore {
         // load and React mount on the open path (cx-ec99); its folder rides on the page context (`newTab.cwd`). A page with a kept
         // composer (``wakeStates``) gets its own page: the spare's handshake is past. A reserved Cmd-N page (`known`) asked the pool
         // already as idle work (``reserveWorkspace(on:cwd:)``): a take here was a cold open on an empty pool, marking a launch's pool used.
-        if known == nil, local, kind == .local, sessions[tabKey] == nil, record.session == nil, let newTab = newTabPages[tabKey],
-           seed?.holdsOnlyFolder ?? true, wakeStates[tabKey] == nil, !relaunchWake.mayHold(tabKey.relaunchKeyCandidates), let spare = takeSpare?(.now) {
+        if known == nil, takesWarmPage(tabKey, seed: seed, known: (thisMac: kind == .local, record: record)), let newTab = newTabPages[tabKey], let spare = warmPage(.now, leaving: leaving) {
             adoptSpare(spare, key: tabKey, page: newTab.page.listing(newTab.handler.places(tabKey.key)))
             track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)

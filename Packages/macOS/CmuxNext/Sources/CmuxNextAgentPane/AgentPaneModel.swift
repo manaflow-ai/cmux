@@ -500,9 +500,11 @@ public final class AgentPaneModel {
 
     /// Cmd-T adopted this prewarmed new tab page: `page` is the context of the tab it became
     /// (plans/cmux-next/new-tab.md section 2.2). A page that already became a chat keeps its chat.
-    /// User input reached the page, or it ran any op beyond boot (the handshake, frame pacing, render
+    /// User input reached the page (the host marks it first: ``hostTouch``), or it ran any op beyond boot (the handshake, frame pacing, render
     /// rate, capabilities). A touched page is never recycled into the prewarm pool (coordinator: strictly untouched).
-    public private(set) var userTouched = false
+    public var userTouched: Bool { pageTouched || hostTouch.marked }
+    private var pageTouched = false
+    public let hostTouch = AgentPaneHostTouch()
     /// The request that first touched the page, its case name only (diagnostics).
     public private(set) var touchedBy: String?
 
@@ -578,7 +580,7 @@ public final class AgentPaneModel {
             if touchedBy?.split(separator: ",").contains(Substring(name)) != true, (touchedBy?.count ?? 0) < 200 {
                 touchedBy = touchedBy.map { $0 + "," + name } ?? name
             }
-            userTouched = true
+            pageTouched = true
         }
         switch request {
         case .uiPointerReport: return AgentPaneReply.success()
