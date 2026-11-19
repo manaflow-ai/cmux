@@ -38,7 +38,7 @@ enum IntentUndo: Equatable {
     indirect case guessedTab(hidden: HiddenTab, provisional: IntentUndo?)
     /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
     /// provisional one (inserted) rather than the daemon's.
-    case createdWorkspace(key: WorkspaceKey, inserted: Bool)
+    case createdWorkspace(key: WorkspaceKey, inserted: Bool, hidden: HiddenScreens)
     /// What a dock's overlay changed (``ProvisionalDock``).
     case dockTab(ProvisionalDock.Undo)
     /// A creation whose stand-in tab the person closed while the creation goes on (a dock's fresh tab,

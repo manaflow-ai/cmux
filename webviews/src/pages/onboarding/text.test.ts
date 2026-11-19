@@ -2,7 +2,19 @@ import { describe, expect, test } from "bun:test";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import type { OnboardingFooter } from "./ops";
-import { countsLine, keychainLine, keyIntent, primaryLabel, quotedList } from "./text";
+import { agentToolsState } from "./fixtures";
+import {
+  agentToolsDetail,
+  agentToolsStatus,
+  countsLine,
+  keychainLine,
+  keyIntent,
+  primaryLabel,
+  primaryLabels,
+  quotedList,
+  skipLabel,
+  windowTitle,
+} from "./text";
 
 const en = createStrings(table, ["en"]);
 const de = createStrings(table, ["de"]);
@@ -60,6 +72,21 @@ describe("primary label", () => {
   });
 });
 
+describe("cmux tools text", () => {
+  test("the buttons, the window title and the status line follow the state", () => {
+    expect(primaryLabel(en, "addTools")).toBe("Turn On");
+    expect(primaryLabels(en, "agentTools")).toEqual(["Turn On", "Done"]);
+    expect(skipLabel(en, "notNow")).toBe("Not Now");
+    expect(windowTitle(en, agentToolsState("found"))).toBe("cmux Tools");
+    expect(agentToolsStatus(en, agentToolsState("found").agentTools)).toBeNull();
+    expect(agentToolsStatus(en, agentToolsState("adding").agentTools)).toBe("Turning on…");
+    expect(agentToolsStatus(en, null)).toBe("Checking…");
+  });
+  test("the place in Settings is translated with the Settings page's own names", () => {
+    expect(de.t("onboarding.agentTools.settings")).toContain("Einstellungen > Agenten");
+  });
+});
+
 describe("Return and Escape", () => {
   const element = (selector: string | null, extra: Record<string, unknown> = {}) => ({
     tagName: "DIV",
@@ -89,6 +116,18 @@ describe("Return and Escape", () => {
   test("a checkbox does not keep Return", () => {
     expect(keyIntent({ key: "Enter", target: element(null, { tagName: "INPUT", type: "checkbox" }) }, footer)).toBe(
       "next",
+    );
+  });
+});
+
+describe("cmux Tools in another language", () => {
+  test("an agent that gets cmux's tools says so, and the Done line names agents started in cmux", () => {
+    const tools = agentToolsState("added").agentTools!;
+    const row = { id: "claude", name: "Claude Code", state: "terminals" as const };
+    expect(agentToolsDetail(en, row, tools)).toBe("Gets cmux’s tools in cmux");
+    expect(agentToolsDetail(de, row, tools)).toBe("Bekommt die Werkzeuge von cmux in cmux");
+    expect(agentToolsStatus(de, tools)).toBe(
+      "Fertig. Agenten, die du in den Terminals und Agent-Chats von cmux startest, bekommen die Werkzeuge von cmux.",
     );
   });
 });

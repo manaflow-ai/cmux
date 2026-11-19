@@ -54,6 +54,7 @@ function LiveCard({ initial, look }: { initial: PresetApproval; look: PresetAppr
       look={look}
       onAnswer={(outcome) => {
         setState((current) => presetApprovalSending(current, outcome));
+        // gallery-capture: only after an answer click; no arm clicks before its still.
         setTimeout(() => setState((current) => presetApprovalClosed(current, outcome)), 350);
       }}
     />
