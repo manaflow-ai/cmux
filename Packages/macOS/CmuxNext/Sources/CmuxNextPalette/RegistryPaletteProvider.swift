@@ -246,6 +246,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
         item.aliases = ActionDescriptor.paletteAliases[actionID] ?? []
         item.keywords += item.aliases
         item.rankBias = Self.rankBias(for: descriptor.paletteTier)
+        // Read only for the row the preview pane shows (`experiments.palettePreview`).
+        let (name, keycaps, category, hint) = (descriptor.title, face.keycaps, descriptor.category, descriptor.hint)
+        item.facts = { PaletteFacts.command(name: name, keycaps: keycaps, category: category.title, description: hint) }
         return item
     }
 

@@ -43,6 +43,13 @@ enum PaletteSourcesBridge {
             return PaletteRankSettings(aliases: aliases, pins: setting.pins.map(canonical).filter { seen.insert($0).inserted },
                                        remembersSearches: setting.remembersSearches)
         }
+        // cmux.json `experiments.paletteV2` and `experiments.palettePreview` (Settings > Advanced > Experiments),
+        // read on every open; absent or unknown values are off.
+        sources.experiments = { [weak services] in
+            let experiments = services?.settings?.fileRoot["experiments"]
+            return PaletteExperiments(look: PaletteV2Look(setting: experiments?["paletteV2"]?.stringValue),
+                                      preview: experiments?["palettePreview"]?.boolValue ?? false)
+        }
         // Theme rows draw the theme's swatch strip (R98), from the catalog's
         // cache (read off the main thread at launch).
         sources.argumentSwatches = { [weak services] source, value in
@@ -161,13 +168,17 @@ enum PaletteSourcesBridge {
                 let cwd = tabs.first { $0.cwd != nil }?.cwd
                 // A Chief subagent's workspace is found by the id the Chief gave it (`a612`).
                 let agentID = subagents.id(name: workspace.displayName, chats: tabs.compactMap(\.agentSession))
+                // The preview pane's facts (`experiments.palettePreview`), from the tabs read above.
+                let agentCount = live.filter { $0.agent != nil || $0.agentSession != nil }.count
+                let branch: String? = live.lazy.compactMap { tab -> String? in tab.gitDetached ? nil : tab.gitBranch }.first { !$0.isEmpty }
                 // Named as its sidebar row is: a default-named workspace reads as its front tab.
                 return PaletteWorkspace(id: workspace.id, title: title, directory: cwd,
                                         isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
                                         groupName: groupNames[workspace.id], machineName: services.otherMachineName(daemon),
                                         agentID: agentID,
                                         keywords: (lone ?? repeating).map { PaletteWorkspace.loneTabWords(title: resolver.title($0), url: $0.url, session: $0.agentSession?.session) } ?? [],
-                                        sidebarRank: ranks[workspace.id], lastUsed: tabs.compactMap { lastActive[$0.id] }.max()) // latest tab focus
+                                        sidebarRank: ranks[workspace.id], lastUsed: tabs.compactMap { lastActive[$0.id] }.max(), // latest tab focus
+                                        tabCount: live.count, agentCount: agentCount, branch: branch)
             }
         }
 

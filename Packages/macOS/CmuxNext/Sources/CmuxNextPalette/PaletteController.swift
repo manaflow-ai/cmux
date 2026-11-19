@@ -414,6 +414,8 @@ public final class PaletteController {
         panel.capturesKeyEquivalent = { [weak self] event in
             guard let model = self?.model else { return false }
             if PaletteKeyMap.isActionsKey(event) { return model.selectedItem != nil || model.actionsMenu != nil }
+            // Cmd-1 to Cmd-3 pick a scope bar segment, not the main menu's item, while the bar shows.
+            if model.experiments.look.showsScopeBar, PaletteKeyMap.scopeSegment(for: event) != nil { return true }
             guard PaletteKeyMap.isCloseItem(event) else { return false }
             return model.currentPageOwnsCloseKey || model.selectedItem?.closeCommand != nil
         }
@@ -455,6 +457,13 @@ public final class PaletteController {
             return shortcutRecorder.handle(PaletteShortcutRecorder.shortcut(for: event), keyCode: event.keyCode, event: event)
         }
         if Self.inputMethodOwns(event, in: window) { return false }
+        // The v2 rail's categories (⌥↑ / ⌥↓), only while a rail shows.
+        if let step = PaletteRailView.step(for: event), model.moveRail(by: step) { return true }
+        // The v2 scope bar's segments (⌘1 All, ⌘2 This Workspace, ⌘3 Sessions), only while the bar shows.
+        if model.experiments.look.showsScopeBar, let segment = PaletteKeyMap.scopeSegment(for: event) {
+            model.chooseScopeSegment(segment)
+            return true
+        }
         let caret = Self.caret(in: window)
         guard let command = PaletteKeyMap.command(
             for: event,

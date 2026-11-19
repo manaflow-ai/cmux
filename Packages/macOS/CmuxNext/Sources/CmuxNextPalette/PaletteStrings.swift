@@ -49,6 +49,28 @@ nonisolated enum PaletteStrings {
         String(localized: "palette.noMatch.runCommand", defaultValue: "Run “\(text)” in a New Workspace", bundle: .module)
     }
     static var actions: String { String(localized: "palette.footer.actions", defaultValue: "Actions", bundle: .module) }
+    // The preview pane's Information list (`experiments.palettePreview`): its heading and each fact's label.
+    static var previewInformation: String { String(localized: "palette.preview.information", defaultValue: "Information", bundle: .module) }
+    static var factName: String { String(localized: "palette.preview.fact.name", defaultValue: "Name", bundle: .module) }
+    static var factTitle: String { String(localized: "palette.preview.fact.title", defaultValue: "Title", bundle: .module) }
+    static var factKind: String { String(localized: "palette.preview.fact.kind", defaultValue: "Kind", bundle: .module) }
+    static var factDirectory: String { String(localized: "palette.preview.fact.directory", defaultValue: "Directory", bundle: .module) }
+    static var factAddress: String { String(localized: "palette.preview.fact.address", defaultValue: "Address", bundle: .module) }
+    static var factWorkspace: String { String(localized: "palette.preview.fact.workspace", defaultValue: "Workspace", bundle: .module) }
+    static var factGroup: String { String(localized: "palette.preview.fact.group", defaultValue: "Group", bundle: .module) }
+    static var factMachine: String { String(localized: "palette.preview.fact.machine", defaultValue: "Machine", bundle: .module) }
+    static var factTabs: String { String(localized: "palette.preview.fact.tabs", defaultValue: "Tabs", bundle: .module) }
+    static var factAgents: String { String(localized: "palette.preview.fact.agents", defaultValue: "Agents", bundle: .module) }
+    static var factAgent: String { String(localized: "palette.preview.fact.agent", defaultValue: "Agent", bundle: .module) }
+    static var factBranch: String { String(localized: "palette.preview.fact.branch", defaultValue: "Branch", bundle: .module) }
+    static var factStatus: String { String(localized: "palette.preview.fact.status", defaultValue: "Status", bundle: .module) }
+    static var factSession: String { String(localized: "palette.preview.fact.session", defaultValue: "Session", bundle: .module) }
+    static var factLastActive: String { String(localized: "palette.preview.fact.lastActive", defaultValue: "Last Active", bundle: .module) }
+    static var factCommand: String { String(localized: "palette.preview.fact.command", defaultValue: "Command", bundle: .module) }
+    static var factShortcut: String { String(localized: "palette.preview.fact.shortcut", defaultValue: "Shortcut", bundle: .module) }
+    static var factCategory: String { String(localized: "palette.preview.fact.category", defaultValue: "Category", bundle: .module) }
+    static var factDescription: String { String(localized: "palette.preview.fact.description", defaultValue: "Description", bundle: .module) }
+    static var factDetails: String { String(localized: "palette.preview.fact.details", defaultValue: "Details", bundle: .module) }
     static var hideFromPalette: String { String(localized: "palette.action.hideFromPalette", defaultValue: "Hide from Palette", bundle: .module) }
     static var showInPalette: String { String(localized: "palette.action.showInPalette", defaultValue: "Show in Palette", bundle: .module) }
     static var resetRanking: String { String(localized: "palette.action.resetRanking", defaultValue: "Reset Ranking", bundle: .module) }
@@ -84,6 +106,10 @@ nonisolated enum PaletteStrings {
     static var paneKeyword: String { String(localized: "palette.keyword.pane", defaultValue: "pane", bundle: .module) }
     static var sectionGroups: String { String(localized: "palette.section.groups", defaultValue: "Groups", bundle: .module) }
     static var sectionPanes: String { String(localized: "palette.section.panes", defaultValue: "Panes", bundle: .module) }
+    /// The palette v2 look's group headers and rail (`PaletteV2Group`); Workspaces and Commands reuse their titles.
+    static var v2GroupSessions: String { String(localized: "palette.v2.group.sessions", defaultValue: "Sessions", bundle: .module) }
+    static var v2GroupAgents: String { String(localized: "palette.v2.group.agents", defaultValue: "Agents", bundle: .module) }
+    static var v2RailAll: String { String(localized: "palette.v2.rail.all", defaultValue: "All", bundle: .module) }
     /// The Search scope's title (the sidebar's Search button) and its field's placeholder.
     static var searchEverythingTitle: String { String(localized: "palette.scope.search", defaultValue: "Search", bundle: .module) }
     /// The Chats & agents scope: Search narrowed to agent chats and sessions.
@@ -198,4 +224,32 @@ extension PaletteStrings {
     static var goToAskHint: String { String(localized: "palette.goTo.askHint", defaultValue: "New agent chat; type your prompt", bundle: .module) }
     static var goToAskSendsHint: String { String(localized: "palette.goTo.askSendsHint", defaultValue: "New agent chat; sends this prompt", bundle: .module) }
     static var goToCopyURL: String { String(localized: "palette.goTo.copyURL", defaultValue: "Copy URL", bundle: .module) }
+}
+
+// The palette v2 look's Esc chip and scope bar (`PaletteV2Look`): segments, typed token suggestions and chips.
+// Nonisolated: the scope bar's segment and token values read them off the main actor too.
+nonisolated extension PaletteStrings {
+    static var escKey: String { String(localized: "palette.escChip.key", defaultValue: "Esc", bundle: .module) }
+    static var closePalette: String { String(localized: "palette.escChip.close", defaultValue: "Close Palette", bundle: .module) }
+    static var scopeAll: String { String(localized: "palette.scopeBar.all", defaultValue: "All", bundle: .module) }
+    static var scopeThisWorkspace: String { String(localized: "palette.scopeBar.thisWorkspace", defaultValue: "This Workspace", bundle: .module) }
+    static var scopeSessions: String { String(localized: "palette.scopeBar.sessions", defaultValue: "Sessions", bundle: .module) }
+    static var thisWorkspacePlaceholder: String {
+        String(localized: "palette.scopeBar.thisWorkspace.placeholder", defaultValue: "Search this workspace…", bundle: .module)
+    }
+    static var sessionsPlaceholder: String {
+        String(localized: "palette.scopeBar.sessions.placeholder", defaultValue: "Search sessions…", bundle: .module)
+    }
+    static var sectionSuggestions: String { String(localized: "palette.scopeToken.suggestions", defaultValue: "Suggestions", bundle: .module) }
+    static var sessionContains: String { String(localized: "palette.scopeToken.sessionContains", defaultValue: "Session contains:", bundle: .module) }
+    static var workspaceContains: String {
+        String(localized: "palette.scopeToken.workspaceContains", defaultValue: "Workspace contains:", bundle: .module)
+    }
+    static var addScopeToken: String { String(localized: "palette.scopeToken.add", defaultValue: "Filter", bundle: .module) }
+    static func sessionTokenChip(_ text: String) -> String {
+        String(localized: "palette.scopeToken.sessionChip", defaultValue: "Session: \(text)", bundle: .module)
+    }
+    static func workspaceTokenChip(_ text: String) -> String {
+        String(localized: "palette.scopeToken.workspaceChip", defaultValue: "Workspace: \(text)", bundle: .module)
+    }
 }
