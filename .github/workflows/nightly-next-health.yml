@@ -1,0 +1,38 @@
+name: nightly-next health
+
+# The cmux NEXT health gate. Its jobs and tooling live on feat-cmux-next and nightly-next
+# (.github/workflows/nightly-next-health.yml there, scripts/ci/nightly_next_health.py,
+# docs/ci/nightly-next-canary.md, Health gate). GitHub runs a schedule, and registers a dispatch,
+# only from the default branch, so this copy on main holds the cron and the dispatch's inputs.
+# Every 15 minutes job start dispatches the workflow on nightly-next, where release-next releases
+# the feed's R2 token; that run judges the newest Nightly builds' real-session health from Sentry,
+# writes health/<build>.json beside the build, and a failing newest build is pulled from the feed.
+#
+# Repository variable NIGHTLY_NEXT_HEALTH_GATE: `off` runs nothing; `report` writes verdicts and
+# pulls nothing; unset or anything else pulls a failing build.
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+    inputs:
+      build:
+        description: Judge this feed build (digits). Empty judges the newest Nightly builds.
+        required: false
+        default: ''
+        type: string
+
+permissions: {}
+
+jobs:
+  # No secrets: it only dispatches this workflow on nightly-next.
+  start:
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'schedule' && vars.NIGHTLY_NEXT_HEALTH_GATE != 'off'
+    permissions:
+      actions: write # dispatch nightly-next-health.yml
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Dispatch the judge on nightly-next
+        run: gh workflow run nightly-next-health.yml -R "$GITHUB_REPOSITORY" --ref nightly-next
