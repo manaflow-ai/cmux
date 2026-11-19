@@ -74,6 +74,16 @@ jobs:
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
           fetch-depth: 150
 
+      # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
+
       # This workflow's own copy of the wrapper, not the checked-out branch's.
       - name: Checkout the gh rate-limit wait
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -85,6 +95,15 @@ jobs:
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
           sparse-checkout-cone-mode: false
+
+      # Sparse on purpose: keep its sparse set, rewrite only the files it holds.
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git -C .tick-tooling reset -q --hard HEAD
+          fi
 
       # A tick refused "API rate limit exceeded for installation" lost its promotion
       # (2026-10-26, run 40325957281, while /rate_limit showed thousands of calls left).

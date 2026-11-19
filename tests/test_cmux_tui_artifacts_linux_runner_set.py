@@ -87,7 +87,9 @@ RESERVED = "cmux-gcp-lane-release-x64"
 # Jobs that keep their own route on the nightly path: the daemon tests (linux-placement, then Blacksmith;
 # their full checkout is not repaired for a reused self-hosted workspace) and the shadow (its override).
 OWN_ROUTE_JOBS = ("cmux-next-daemon-tests", DARWIN_CROSS_JOB)
-# The jobs a NEXT nightly waits for; only these take the 4-runner owned GCP lane first.
+# The jobs a NEXT nightly waits for. Since 2026-11-19 (cmuxterm-hq#13909: no artifacts run published from 11-18
+# 14:26Z, preflights queued on GitHub-hosted ubuntu-24.04 and on Blacksmith) every Linux job of this workflow but
+# OWN_ROUTE_JOBS takes the reserved release runner first; these must stay among them.
 NIGHTLY_TREE_JOBS = ("tree-preflight", "tree-owner-wait", "darwin-fallback-plan", "publish", "publish-tree", "publish-tree-tested",
                      "mark-tree-commits", "request-nightly-next")
 OVERFLOW_RECORD = '{"probe":"blacksmith-4vcpu-ubuntu-2404"}'
@@ -159,8 +161,11 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             labels = resolved(runs_on, "manaflow-ai", linux_runner, overflow, trusted)
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
             # tests) stays on Blacksmith. The nightly path's attempt 1 takes the owned pool.
-            allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
-                       | ({OWNED, RESERVED} if name in NIGHTLY_TREE_JOBS else set()))
+            # A GitHub-hosted LINUX_RUNNER (the overflow switch's failover) is never taken: hosted Linux started
+            # nothing on 2026-11-19 while preflights queued there; owned, then Blacksmith, is the overflow.
+            hosted_ok = name in OWN_ROUTE_JOBS  # their own routes are out of this PR's scope
+            allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner == POOL or (hosted_ok and linux_runner == HOSTED) else set())
+                       | ({OWNED, RESERVED} if name not in OWN_ROUTE_JOBS else set()))
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
 
@@ -200,8 +205,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         # 2026-11-19 (cmuxterm-hq#13909): attempt 1 takes the reserved release runner, which no pull request job can
         # name, since the shared lane's runners were busy with PR CI while the tree publisher sat queued; attempt 2
         # falls back to the shared lane (a dead reserved runner) and attempt 3 keeps Blacksmith.
-        routes = [(WORKFLOW.name, name, runs_on) for name, runs_on in linux_routes() if name in NIGHTLY_TREE_JOBS]
-        self.assertEqual({name for _, name, _ in routes}, set(NIGHTLY_TREE_JOBS))
+        routes = [(WORKFLOW.name, name, runs_on) for name, runs_on in linux_routes() if name not in OWN_ROUTE_JOBS]
+        self.assertLessEqual(set(NIGHTLY_TREE_JOBS), {name for _, name, _ in routes})
         for workflow in ("cmux-tui-build-package.yml", "cmux-tui-tree-request.yml"):
             jobs = yaml.load((WORKFLOW.parent / workflow).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
             routes.extend((workflow, name, job["runs-on"]) for name, job in jobs.items()
