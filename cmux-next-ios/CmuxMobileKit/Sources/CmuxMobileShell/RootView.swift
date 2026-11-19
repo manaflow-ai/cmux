@@ -242,7 +242,7 @@ public struct RootView: View {
             }
             if options.setupPairDemo { await runSetupPairDemo() }
             // The hand-off's --no-auth proof (DogfoodReadiness): this launch resolved signed out.
-            if !auth.isSignedIn, !auth.isMock { DogfoodReadiness().writeSignedOut(apiBase: auth.apiBaseURL) }
+            if !auth.isSignedIn, !auth.isMock { DogfoodReadiness(auth: auth).writeSignedOut(apiBase: auth.apiBaseURL) }
             #endif
         }
         // Signed in (or out): live data and the team list follow the account.
@@ -474,7 +474,7 @@ public struct RootView: View {
             coordinator.accept(invite)
         }
         // The end-of-task hand-off's signed-in (and paired) proof, when its launcher asks.
-        DogfoodReadiness().start(auth: auth, live: coordinator, apiBase: base)
+        DogfoodReadiness(auth: auth).start(auth: auth, live: coordinator, apiBase: base)
         #endif
     }
 
