@@ -11,6 +11,10 @@ or second workspace to select; both use the 100-workspace baseline for the ratio
 For report-only use (and unit tests), pass ``--instant-report``, ``--sidebar-report`` and
 ``--typing-report``.  With ``--app`` the three probes are run for each count and their reports are
 loaded automatically.
+
+``--scale`` is the judged part (perf cron workspace-scale): new workspace, sidebar switch and scroll, and the sidebar's
+app CPU at 1,000 and 5,000 workspaces, each as a ratio over its smallest topology (see SCALE_BASELINE). Replay it with
+``--scale-instant-report`` and ``--scale-sidebar-report``.
 """
 import argparse
 import json
@@ -19,6 +23,7 @@ import pathlib
 import signal
 import subprocess
 import sys
+import time
 
 HERE = pathlib.Path(__file__).resolve().parent
 COUNTS = (1, 100, 1000)
@@ -268,13 +273,27 @@ def coverage_failures(rows):
     return failures
 
 
-def run_probe(script, args, out, timeout=900):
+def run_probe(script, args, out, timeout=900, heartbeat=None):
+    """Runs one probe into OUT/<script>.log; exit 124 past `timeout`. With `heartbeat` (seconds) it prints a line that
+    often with the log's last line: the measure controller ends a step that prints nothing for 45 minutes, and a
+    5,000-workspace probe writes only to its log."""
     path = out / (script.stem + ".log")
     with path.open("w") as log:
         process = subprocess.Popen([sys.executable, str(script), *args], stdout=log, stderr=subprocess.STDOUT,
                                     cwd=HERE.parent.parent, start_new_session=True)
+        started = time.monotonic()
         try:
-            return process.wait(timeout=timeout)
+            while True:
+                left = timeout - (time.monotonic() - started)
+                if left <= 0:
+                    raise subprocess.TimeoutExpired(process.args, timeout)
+                try:
+                    return process.wait(timeout=min(left, heartbeat) if heartbeat else left)
+                except subprocess.TimeoutExpired:
+                    if not heartbeat or time.monotonic() - started >= timeout:
+                        raise
+                    print(f"workspace-scale: {script.stem} running, {time.monotonic() - started:.0f} s: "
+                          f"{last_line(path)[:200]}", flush=True)
         except subprocess.TimeoutExpired:
             log.write(f"workspace-scaling: probe timed out after {timeout}s\n")
             try:
@@ -289,6 +308,14 @@ def run_probe(script, args, out, timeout=900):
                 pass
             process.wait()
             return 124
+
+
+def last_line(path):
+    try:
+        lines = [line for line in pathlib.Path(path).read_text(errors="replace").splitlines() if line.strip()]
+    except OSError:
+        return ""
+    return lines[-1] if lines else ""
 
 
 def read_report(path):
@@ -419,6 +446,179 @@ def run_app(opts):
     return reports, failures
 
 
+# ---------------------------------------------------------------- --scale: judged rows at 1,000 and 5,000 workspaces
+# The perf cron's workspace-scale part (perf-cron.py). Leo: interaction cost stays constant as workspaces grow, never
+# linear growth. So each interaction's p95 at 1,000 and at 5,000 workspaces is divided by its p95 at the smallest
+# topology where it exists, and that ratio's budget is LIMIT (1.10, this bench's own constant-cost line). The sidebar's
+# app CPU, idle and with 15 agents ticking, also has the sidebar part's absolute budget, 10 % (perf-budgets.json
+# `sidebar\.\d+\.ticking\.cpu_pct`). Two app launches cover every count: the new-workspace probe grows one list to
+# 1, 1,000 and 5,000 rows, the sidebar probe one list to 100, 1,000 and 5,000.
+SCALE_COUNTS = (1000, 5000)
+SCALE_INSTANT_COUNTS = (1, 1000, 5000)
+SCALE_SIDEBAR_COUNTS = (100, 1000, 5000)
+# The baseline topology per interaction: a new workspace at one workspace; the sidebar's scroll, switch and CPU at 100
+# (a shorter list does not scroll, and the 15 ticking agents need rows of their own).
+SCALE_BASELINE = {"new_workspace": 1, "switch": 100, "sidebar_scroll": 100,
+                  "sidebar_cpu_idle": 100, "sidebar_cpu_active": 100}
+SCALE_RATIO_MAX = LIMIT
+SIDEBAR_CPU_MAX = 10.0
+# A CPU ratio divides by at least this many percent: under it a 10 s window's share is noise (0.2 % to 0.6 % is
+# 1x to 3x), not a cost that grew.
+CPU_RATIO_FLOOR_PCT = 1.0
+
+
+def sidebar_cpu_rows(report, size):
+    """{sidebar_cpu_idle, sidebar_cpu_active: {p50, p95, p99, n}} from sidebar-stress-bench.py's ticks scenario at
+    `size` (the app's CPU share over 10 s, the tickers paused, then running)."""
+    sizes = (report if isinstance(report, dict) else {}).get("sizes")
+    entry = sizes.get(str(size)) if isinstance(sizes, dict) else None
+    ticks = entry.get("ticks") if isinstance(entry, dict) else None
+    if not isinstance(ticks, dict):
+        return {}
+    out = {}
+    for interaction, key in (("sidebar_cpu_idle", "idle"), ("sidebar_cpu_active", "ticking")):
+        share = ticks.get(key)
+        value = share.get("cpu_pct") if isinstance(share, dict) else None
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            out[interaction] = {"p50": value, "p95": value, "p99": value, "n": 1}
+    return out
+
+
+def scale_values(instant, sidebar):
+    """{interaction: {workspaces: {p50, p95, p99, n}}} from the two scale probes' reports (pure). The sidebar probe
+    starts from one bootstrap row, so its size key is the count minus one."""
+    values = {}
+    for count in SCALE_INSTANT_COUNTS:
+        for interaction, row in instant_rows(instant, count).items():
+            if interaction == "new_workspace":
+                values.setdefault(interaction, {})[count] = row
+    for count in SCALE_SIDEBAR_COUNTS:
+        found = {**sidebar_rows(sidebar, count - 1), **sidebar_cpu_rows(sidebar, count - 1)}
+        for interaction, row in found.items():
+            values.setdefault(interaction, {})[count] = row
+    return values
+
+
+def scale_rows(values):
+    """The workspace_scale rows (pure): each interaction's p95 at each count (ms, or % for the CPU rows, which carry
+    SIDEBAR_CPU_MAX), and its ratio_<count> row at 1,000 and 5,000 (count p95 / baseline p95, budget SCALE_RATIO_MAX)."""
+    rows = []
+    for interaction in sorted(values):
+        by_count = values[interaction]
+        cpu = interaction.startswith("sidebar_cpu_")
+        for count in sorted(by_count):
+            rows.append({"name": f"workspace_scale.{interaction}.{count}", "interaction": interaction,
+                         "workspaces": count, "unit": "%" if cpu else "ms",
+                         "budget": SIDEBAR_CPU_MAX if cpu else None, "floor": 1.0, **by_count[count]})
+        base_count = SCALE_BASELINE.get(interaction)
+        base = (by_count.get(base_count) or {}).get("p95")
+        if not isinstance(base, (int, float)):
+            continue
+        denominator = max(base, CPU_RATIO_FLOOR_PCT) if cpu else base
+        if denominator <= 0:
+            continue
+        for count in SCALE_COUNTS:
+            many = (by_count.get(count) or {}).get("p95")
+            if not isinstance(many, (int, float)):
+                continue
+            ratio = round(many / denominator, 3)
+            rows.append({"name": f"workspace_scale.{interaction}.ratio_{count}", "interaction": interaction,
+                         "workspaces": count, "baseline_workspaces": base_count, "unit": "x", "p50": ratio,
+                         "p95": ratio, "budget": SCALE_RATIO_MAX, "floor": 0.1, "p95_baseline": base,
+                         "p95_at_count": many})
+    return rows
+
+
+def scale_coverage(rows):
+    """The judged rows a scale run did not produce: each interaction's p95 and ratio at 1,000 and 5,000."""
+    names = {row.get("name") for row in rows}
+    missing = [f"workspace_scale.{interaction}.{kind}"
+               for interaction in sorted(SCALE_BASELINE) for count in SCALE_COUNTS
+               for kind in (str(count), f"ratio_{count}")
+               if f"workspace_scale.{interaction}.{kind}" not in names]
+    return [{"probe": "scale", "missing": missing, "incomplete": "missing_rows"}] if missing else []
+
+
+def scale_result(instant, sidebar, failures):
+    rows = scale_rows(scale_values(instant, sidebar))
+    return {"workspaces": sorted({*SCALE_INSTANT_COUNTS, *SCALE_SIDEBAR_COUNTS}), "rows": rows,
+            "incomplete": failures + scale_coverage(rows),
+            "budget": {"ratio": SCALE_RATIO_MAX, "sidebar_cpu_pct": SIDEBAR_CPU_MAX, "baseline": SCALE_BASELINE}}
+
+
+def run_scale(opts):
+    """Both scale probes against the app; returns (instant report, sidebar report, failures)."""
+    root = pathlib.Path(opts.out) / "scale"
+    root.mkdir(parents=True, exist_ok=True)
+    failures = []
+    instant, sidebar = root / "instant", root / "sidebar"
+    started = time.monotonic()
+    print(f"workspace-scale: new workspace at {SCALE_INSTANT_COUNTS} workspaces", flush=True)
+    code = run_probe(HERE / "instant-new-surfaces-bench.py",
+                     ["--tag", opts.tag, "--app", opts.app, "--commands", "new_workspace",
+                      "--workspaces", ",".join(map(str, SCALE_INSTANT_COUNTS)), "--empty-workspaces", "--exact-workspaces",
+                      "--arms", "warm", "--phases", "idle", "--runs", "6",
+                      "--out", str(instant), "--json", str(instant / "report.json")], root, opts.scale_instant_timeout,
+                     heartbeat=300)
+    print(f"workspace-scale: new workspace probe exit {code} after {time.monotonic() - started:.0f} s", flush=True)
+    if code != 0 or not (instant / "report.json").exists():
+        failures.append({"probe": "instant", "exit": code, "report": str(instant / "report.json"),
+                         **probe_reason(instant / "report.json", root / "instant-new-surfaces-bench.log")})
+    instant_report = read_report(instant / "report.json")
+    summary = instant_report.get("summary") if isinstance(instant_report.get("summary"), dict) else {}
+    for count in SCALE_INSTANT_COUNTS:
+        entry = summary.get(f"idle@{count}ws/new_workspace")
+        if not isinstance(entry, dict):
+            failures.append({"workspaces": count, "probe": "instant", "incomplete": "missing_summary"})
+        elif entry.get("missed") or (entry.get("n") or 0) < 6:
+            failures.append({"workspaces": count, "probe": "instant", "incomplete": "missed_samples",
+                             "samples": entry.get("n") or 0, "missed": entry.get("missed") or 0})
+    write_json(opts.json, scale_result(instant_report, {}, failures))
+    started = time.monotonic()
+    print(f"workspace-scale: sidebar at {SCALE_SIDEBAR_COUNTS} workspaces", flush=True)
+    code = run_probe(HERE / "sidebar-stress-bench.py",
+                     ["--tag", opts.tag, "--app", opts.app, "--sizes", ",".join(str(c - 1) for c in SCALE_SIDEBAR_COUNTS),
+                      "--tickers", "15", "--scenarios", "ticks,scroll,switch", "--stop", "--no-trace", "--out", str(sidebar)],
+                     root, opts.scale_sidebar_timeout, heartbeat=300)
+    print(f"workspace-scale: sidebar probe exit {code} after {time.monotonic() - started:.0f} s", flush=True)
+    if code != 0 or not (sidebar / "results.json").exists():
+        failures.append({"probe": "sidebar", "exit": code, "report": str(sidebar / "results.json"),
+                         **probe_reason(sidebar / "results.json", root / "sidebar-stress-bench.log")})
+    sidebar_report = read_report(sidebar / "results.json")
+    for count in SCALE_SIDEBAR_COUNTS:
+        mismatch = sidebar_row_mismatch(sidebar_report, count - 1, count)
+        if mismatch:
+            failures.append(mismatch)
+    return instant_report, sidebar_report, failures
+
+
+def write_json(path, value):
+    output = pathlib.Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(value, indent=2) + "\n")
+
+
+def main_scale(opts):
+    failures = []
+    if opts.app:
+        instant, sidebar, failures = run_scale(opts)
+    else:
+        loaded = []
+        for probe, path in (("instant", opts.scale_instant_report), ("sidebar", opts.scale_sidebar_report)):
+            value = read_report(pathlib.Path(path)) if path else {}
+            if not value:
+                failures.append({"probe": probe, "report": path, "error": "no report"})
+            loaded.append(value)
+        instant, sidebar = loaded
+    result = scale_result(instant, sidebar, failures)
+    write_json(opts.json, result)
+    for row in result["rows"]:
+        print("WORKSPACE-SCALE-ROW " + json.dumps({k: row.get(k) for k in ("name", "p95", "unit", "budget")}), flush=True)
+    for failure in result["incomplete"]:
+        print("WORKSPACE-SCALE-INCOMPLETE " + json.dumps(failure), flush=True)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--app")
@@ -432,7 +632,17 @@ def main():
     ap.add_argument("--instant-report", action="append", default=[])
     ap.add_argument("--sidebar-report", action="append", default=[])
     ap.add_argument("--typing-report", action="append", default=[])
+    ap.add_argument("--scale", action="store_true",
+                    help="the judged rows at 1,000 and 5,000 workspaces (the perf cron's workspace-scale part)")
+    ap.add_argument("--scale-instant-timeout", type=int, default=1500,
+                    help="--scale: seconds for the new-workspace probe (1, 1,000 and 5,000 workspaces)")
+    ap.add_argument("--scale-sidebar-timeout", type=int, default=1800,
+                    help="--scale: seconds for the sidebar probe (100, 1,000 and 5,000 workspaces)")
+    ap.add_argument("--scale-instant-report", help="--scale without --app: the new-workspace probe's report")
+    ap.add_argument("--scale-sidebar-report", help="--scale without --app: the sidebar probe's results.json")
     opts = ap.parse_args()
+    if opts.scale:
+        return main_scale(opts)
     reports, failures = {}, []
     if opts.app:
         reports, failures = run_app(opts)

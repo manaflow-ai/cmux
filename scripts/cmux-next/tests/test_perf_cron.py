@@ -670,6 +670,35 @@ class WebUiTests(unittest.TestCase):
                          "no empty sample: no ratio either")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
 
+    def test_the_workspace_scale_part_judges_its_ratio_and_cpu_rows(self):
+        """1,000 and 5,000 workspaces (workspace-scaling-bench.py --scale): a ratio row over 1.10 and a sidebar CPU row
+        over 10 % miss their target; a latency row at one count has none (the generic 10 ms does not apply)."""
+        self.assertIn("workspace-scale", FLEET, "a Mac part on the measure host")
+        part = cron.PART_BY_NAME["workspace-scale"]
+        self.assertEqual(part["run_seconds"], 3600)
+        self.assertIn("--scale", part["args"])
+        self.assertIn("--vdisplay-hold=3600", part["args"])
+        self.assertEqual(cron.part_for_row("workspace_scale.switch.ratio_5000@cmux20-bench"), "workspace-scale")
+        self.assertEqual(cron.part_for_row("workspace_scaling.switch.1000@cmux20-bench"), "workspace-scaling")
+        report = {"rows": [
+            {"name": "workspace_scale.switch.ratio_5000", "unit": "x", "p50": 4.0, "p95": 4.0, "budget": 1.1, "floor": 0.1},
+            {"name": "workspace_scale.new_workspace.ratio_1000", "unit": "x", "p50": 1.02, "p95": 1.02, "budget": 1.1,
+             "floor": 0.1},
+            {"name": "workspace_scale.sidebar_cpu_active.5000", "unit": "%", "p50": 31.0, "p95": 31.0, "budget": 10.0,
+             "floor": 1.0},
+            {"name": "workspace_scale.switch.5000", "unit": "ms", "p50": 40.0, "p95": 40.0, "budget": None, "floor": 1.0}]}
+        rows = cron.rows_of_part(part, report, budgets_mod, {})
+        self.assertEqual(set(rows), {r["name"] for r in report["rows"]})
+        self.assertTrue(cron.over_target("workspace_scale.switch.ratio_5000@cmux20-bench",
+                                         rows["workspace_scale.switch.ratio_5000"], 8.33))
+        self.assertFalse(cron.over_target("workspace_scale.new_workspace.ratio_1000@cmux20-bench",
+                                          rows["workspace_scale.new_workspace.ratio_1000"], 8.33))
+        self.assertEqual(cron.target_of("workspace_scale.sidebar_cpu_active.5000@cmux20-bench",
+                                        rows["workspace_scale.sidebar_cpu_active.5000"], 8.33), 10.0)
+        self.assertIsNone(cron.target_of("workspace_scale.switch.5000@cmux20-bench",
+                                         rows["workspace_scale.switch.5000"], 8.33))
+        self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("workspace_scale.switch.ratio_5000"), "judged, not shown only")
+
     def test_the_memory_agents_part_measures_the_optimized_app(self):
         """CMUX-571 ram-baseline compares the app with other apps' release builds and with the 2026-11-08 Release
         baseline (app process 243-285 MB). The part measured the Debug build (app process 323.3 MB at 8c515cc5), so

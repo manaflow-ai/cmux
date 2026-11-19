@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import contextlib
 import importlib.util
+import io
 import unittest
 from pathlib import Path
 
@@ -296,6 +298,94 @@ class ProbeReasonTests(unittest.TestCase):
     def test_missing_report_and_log_give_no_reason(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(bench.probe_reason(Path(tmp, "none.json"), Path(tmp, "none.log")), {})
+
+
+def scale_sidebar_size(scroll, switch, idle, active):
+    return {"scroll": {"frames": {"intervals_ms": scroll, "frame_metrics": {"complete": True}}},
+            "switch": {"frames": {"frame_metrics": {"complete": True}},
+                       "click_to_idle_ms": {"p50": switch, "p95": switch, "p99": switch}},
+            "ticks": {"idle": {"cpu_pct": idle}, "ticking": {"cpu_pct": active}}}
+
+
+def scale_instant(values):
+    summary, runs = {}, []
+    for count, ms in values.items():
+        summary[f"idle@{count}ws/new_workspace"] = {"n": 6, "missed": 0}
+        runs += [{"phase": f"idle@{count}ws", "command": "new_workspace", "visible_ms": ms}] * 6
+    return {"summary": summary, "runs": runs}
+
+
+class WorkspaceScaleTests(unittest.TestCase):
+    """--scale: the perf cron's workspace-scale part, judged rows at 1,000 and 5,000 workspaces."""
+
+    def rows(self):
+        sidebar = {"sizes": {"99": scale_sidebar_size([8.0, 8.4], 10.0, 0.4, 6.0),
+                             "999": scale_sidebar_size([8.0, 8.4], 12.0, 2.0, 9.0),
+                             "4999": scale_sidebar_size([8.0, 16.8], 40.0, 8.0, 31.0)}}
+        result = bench.scale_result(scale_instant({1: 5.0, 1000: 5.0, 5000: 25.0}), sidebar, [])
+        return {row["name"]: row for row in result["rows"]}, result
+
+    def test_ratio_rows_divide_by_the_smallest_real_topology(self):
+        rows, _ = self.rows()
+        self.assertEqual(rows["workspace_scale.new_workspace.ratio_1000"]["p95"], 1.0)
+        self.assertEqual(rows["workspace_scale.new_workspace.ratio_5000"]["p95"], 5.0)
+        self.assertEqual(rows["workspace_scale.new_workspace.ratio_5000"]["baseline_workspaces"], 1)
+        self.assertEqual(rows["workspace_scale.switch.ratio_5000"]["p95"], 4.0)
+        self.assertEqual(rows["workspace_scale.switch.ratio_5000"]["baseline_workspaces"], 100)
+        for name, row in rows.items():
+            if ".ratio_" in name:
+                self.assertEqual((row["unit"], row["budget"]), ("x", bench.SCALE_RATIO_MAX), name)
+
+    def test_cpu_rows_carry_the_sidebar_budget_and_a_floored_ratio(self):
+        rows, _ = self.rows()
+        self.assertEqual(rows["workspace_scale.sidebar_cpu_active.5000"]["p95"], 31.0)
+        self.assertEqual(rows["workspace_scale.sidebar_cpu_active.5000"]["budget"], 10.0)
+        self.assertEqual(rows["workspace_scale.sidebar_cpu_active.5000"]["unit"], "%")
+        # The 100-workspace idle share (0.4 %) is under the floor: the ratio divides by 1 %.
+        self.assertEqual(rows["workspace_scale.sidebar_cpu_idle.ratio_5000"]["p95"], 8.0)
+        self.assertEqual(rows["workspace_scale.sidebar_cpu_active.ratio_1000"]["p95"], 1.5)
+
+    def test_latency_rows_have_no_absolute_budget(self):
+        rows, _ = self.rows()
+        self.assertIsNone(rows["workspace_scale.switch.5000"]["budget"])
+        self.assertEqual(rows["workspace_scale.sidebar_scroll.5000"]["p95"], 16.36)
+
+    def test_a_complete_run_is_not_incomplete(self):
+        _, result = self.rows()
+        self.assertEqual(result["incomplete"], [])
+
+    def test_a_missing_5000_topology_names_its_rows(self):
+        sidebar = {"sizes": {"99": scale_sidebar_size([8.0], 10.0, 0.4, 6.0),
+                             "999": scale_sidebar_size([8.0], 12.0, 2.0, 9.0)}}
+        result = bench.scale_result(scale_instant({1: 5.0, 1000: 5.0}), sidebar, [])
+        missing = result["incomplete"][0]["missing"]
+        self.assertIn("workspace_scale.switch.ratio_5000", missing)
+        self.assertIn("workspace_scale.new_workspace.5000", missing)
+        self.assertNotIn("workspace_scale.switch.ratio_1000", missing)
+
+    def test_no_baseline_gives_no_ratio(self):
+        result = bench.scale_result(scale_instant({1000: 5.0, 5000: 6.0}), {}, [])
+        names = {row["name"] for row in result["rows"]}
+        self.assertIn("workspace_scale.new_workspace.5000", names)
+        self.assertNotIn("workspace_scale.new_workspace.ratio_5000", names)
+
+    def test_report_replay_writes_the_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            instant, sidebar, out = Path(tmp, "i.json"), Path(tmp, "s.json"), Path(tmp, "out.json")
+            instant.write_text(json.dumps(scale_instant({1: 5.0, 1000: 5.0, 5000: 5.5})))
+            sidebar.write_text(json.dumps({"sizes": {"99": scale_sidebar_size([8.0], 10.0, 0.4, 6.0)}}))
+            argv = sys.argv
+            sys.argv = ["bench", "--scale", "--out", tmp, "--json", str(out),
+                        "--scale-instant-report", str(instant), "--scale-sidebar-report", str(sidebar)]
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(bench.main(), 0)
+            finally:
+                sys.argv = argv
+            result = json.loads(out.read_text())
+        names = {row["name"] for row in result["rows"]}
+        self.assertIn("workspace_scale.new_workspace.ratio_5000", names)
+        self.assertTrue(result["incomplete"])
 
 
 if __name__ == "__main__":

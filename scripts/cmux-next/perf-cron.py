@@ -16,7 +16,7 @@ runs on a cron instead, only on idle fleet capacity, behind every nightly and de
   measure (gateway) runs only on its own runner label (vars.CI_PERF_CRON_GATEWAY), skips unless the part's host
                     (the measurement's, else cmux20-bench) is idle and no dev build waits in the controller queue,
                     then runs ONE part (its run_seconds: 15 minutes, the build 20, STRESS and sidebar 25, workspace
-                    scaling 60 because it seeds and measures a 1000-row topology) as a
+                    scaling 60 because it seeds and measures a 1000-row topology, workspace scale 60 for 5,000) as a
                     background (lowest priority) measurement step on that host, and cancels it when a foreground
                     job queues that the host could run (its labels, its name, or a target worker).
   request (controller) with no gateway label and vars.CMUX_NEXT_PERF_CRON_CONTROLLER=1: a job named for the part;
@@ -175,6 +175,12 @@ PARTS = [
     # part: seeding and measuring all three topologies is intentionally longer than the normal 15-minute tick.
     {"name": "workspace-scaling", "args": [*MEASURE, "--vdisplay-hold=3600", "--suite=workspace-scaling"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "workspace-scaling", "run_seconds": 3600},
+    # 1,000 and 5,000 workspaces, judged (workspace-scaling-bench.py --scale): new workspace, sidebar switch and scroll,
+    # and the sidebar's app CPU idle and with 15 agents ticking, each p95 over its smallest topology's (budget 1.10:
+    # Leo, cost stays constant as workspaces grow, never linear), and the CPU rows also under the sidebar's 10 %. Its
+    # own part, so the 1/100/1000 trend keeps its hour: two app launches, each growing one list to 5,000 rows.
+    {"name": "workspace-scale", "args": [*MEASURE, "--vdisplay-hold=3600", "--suite=workspace-scaling", "--scale"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "workspace-scale", "run_seconds": 3600},
     {"name": "home-idle", "args": [*MEASURE, "--suite=budgets", "--only=home,idle"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
@@ -235,7 +241,7 @@ PART_BY_NAME = {p["name"]: p for p in PARTS}
 ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
-    (r"^workspace_scaling\.", "workspace-scaling"),
+    (r"^workspace_scaling\.", "workspace-scaling"), (r"^workspace_scale\.", "workspace-scale"),
     (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
@@ -839,6 +845,10 @@ def target_of(name, row, refresh_ms):
         # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
         # latency is intentionally advisory and must not inherit the generic 10 ms target.
         return None
+    if name.startswith("workspace_scale."):
+        # Its ratio rows (x, 1.10) and sidebar CPU rows (%, 10) carry their budget; a latency row at one count has
+        # none (its ratio judges it), so it is compared with its own reference only.
+        return row.get("budget")
     if name.startswith(("diff.", "launch.", "webui.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
@@ -1915,6 +1925,10 @@ def supported_parts_at(sha):
             ok = "--suite=workspace-scaling" in text and subprocess.run(
                 ["git", "-C", ROOT, "cat-file", "-e", f"{sha}:scripts/cmux-next/workspace-scaling-bench.py"],
                 capture_output=True).returncode == 0
+        elif need == "workspace-scale":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/workspace-scaling-bench.py"],
+                                  capture_output=True, text=True).stdout
+            ok = '"--scale"' in text
         else:
             ok = True
         if ok:

@@ -742,10 +742,12 @@ def main():
     rows = []
     switched = switch_keys(opts.switch_keys) if opts.switch_keys else []
     counts = [int(c) for c in opts.workspaces.split(",") if c] or [None]
-    for count in counts:
+    for index, count in enumerate(counts):
         suffix = ""
         if count is not None:
-            if opts.exact_workspaces:
+            # The first count starts from a cleared list; a later, larger one grows the same list (each new_workspace
+            # run closes its workspace), so 1,1000,5000 seeds 5,000 rows once instead of 6,001.
+            if opts.exact_workspaces and (index == 0 or workspace_count() > count):
                 reset_workspaces()
             ensure_terminal()
             suffix = f"@{grow_workspaces(count)}ws"
