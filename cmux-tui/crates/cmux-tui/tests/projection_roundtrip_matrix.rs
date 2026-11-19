@@ -140,10 +140,27 @@ impl Machine {
         machine
     }
 
+    /// A Cloud machine's records (the debug-only `CMUX_TEST_CLOUD_ETC` seam): only a Cloud host
+    /// serves `fs-v1` and `projection-v1`.
+    fn cloud_etc(&self) -> PathBuf {
+        let etc = self.side.home.parent().unwrap().join("etc-cmux");
+        fs::create_dir_all(&etc).unwrap();
+        fs::write(etc.join("image-stamp"), "cmux-vm inputs=projection-roundtrip-matrix\n").unwrap();
+        fs::write(etc.join("vm-kind"), "owner\n").unwrap();
+        fs::set_permissions(&etc, fs::Permissions::from_mode(0o755)).unwrap();
+        for file in ["image-stamp", "vm-kind"] {
+            fs::set_permissions(etc.join(file), fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        etc
+    }
+
     fn server(&self, action: &str) -> Command {
         let mut command = self.side.cmux();
         command
             .env("ACPMUX_HOME", self.side.home.parent().unwrap().join("acpmux"))
+            .env("CMUX_TEST_CLOUD_ETC", self.cloud_etc())
+            .env("CMUX_VM_ID", "vm-projection-roundtrip-matrix")
+            .env("CMUX_CODEROUTER_URL", "http://127.0.0.1:9")
             .args(["server", action, "--json", "--session", &self.session, "--socket"])
             .arg(&self.socket);
         command
