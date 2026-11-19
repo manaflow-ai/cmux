@@ -174,6 +174,9 @@ trap 'echo "cmux-next-ios-sim.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' E
 
 # shellcheck source-path=SCRIPTDIR source=../cmux-next/lib/fleet-only.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/lib/fleet-only.sh"
+# test ui=ScreenSharingLiveUITests: the live Screen Sharing leg, a real host behind the phone.
+# shellcheck source-path=SCRIPTDIR source=ios-screen-share-live.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ios-screen-share-live.sh"
 cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "cmux-next-ios kit tests" \
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
@@ -225,6 +228,7 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
           [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+)?$ ]] ||
             { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
           ui_suites+=("-only-testing:CmuxMobileAppUITests/$item")
+          ss_live_select "$item"
         done ;;
       video) ui_video=1 ;;
       profile) ui_profile=1 ;;
@@ -1041,6 +1045,52 @@ ui_profile_finish() {
   rm -rf "$profile_trace"
 }
 
+# build_mac_app PREFIX: a tagged DEBUG cmux NEXT Mac app of this run (reload.sh), as mac_app; exits on a
+# failure. Its tag is this run's own (PREFIX, the commit and this PID): its own bundle id, socket, settings
+# and state, all removed by the EXIT trap (mac_dd, mac_tag).
+build_mac_app() {
+  t0=$SECONDS
+  mac_tag="$1-$(git rev-parse --short=8 HEAD)-$$"
+  prev_last_log="$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || true)"
+  mac_dd="$work/mac-dd"
+  # A fleet step checks out no submodules (only their empty gitlink directories): the Mac app
+  # needs Ghostty's headers, the ghostty-next tree and GhosttyKit.xcframework (a prebuilt
+  # download), as the measure steps do (scripts/measure/action-signposts.sh). Without them
+  # reload.sh stops at once: "ghostty/include/ghostty.h is missing" (step 4baf44ec, 2026-10-27).
+  for sub in ghostty ghostty-next; do
+    [[ -e "$sub/.git" ]] || git submodule update --init --depth 1 "$sub" >"$work/submodules.log" 2>&1 ||
+      { tail -20 "$work/submodules.log"; echo "error: could not check out the $sub submodule" >&2; exit 1; }
+  done
+  if [[ ! -f GhosttyKit.xcframework/Info.plist ]]; then
+    rm -rf GhosttyKit.xcframework
+    if [[ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" && -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
+      export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
+    fi
+    ./scripts/download-prebuilt-ghosttykit.sh >"$work/ghosttykit.log" 2>&1 ||
+      { tail -20 "$work/ghosttykit.log"; echo "error: could not download GhosttyKit.xcframework" >&2; exit 1; }
+  fi
+  # ghostty-vt-sys (ghostty-next) needs the fleet's pinned Zig 0.17 (the worker's tools, as
+  # its probe reports); PATH can name /usr/local's 0.16, which it refuses ("Your Zig version
+  # v0.16.0 does not meet the required build version of v0.17.0", steps
+  # e00987962032845838c55ef5 and b9658de920bf40d484a998ac). Only ZIG, which ghostty-vt-sys
+  # reads first: the classic Ghostty CLI helper reads CMUX_ZIG and needs its own 0.16, as
+  # scripts/measure/projection.sh sets it.
+  fleet_zig=/Users/Shared/cmux-build-fleet/tools/bin/zig
+  vt_zig="${ZIG:-}"
+  [[ -z "$vt_zig" && -x "$fleet_zig" ]] && vt_zig="$fleet_zig"
+  # A fleet build (CMUX_FLEET_BUILD_TAG) builds acpmux, optchat-chief and
+  # cmux-mobile-host on a cache miss and requires them in the bundle.
+  set +e
+  ZIG="$vt_zig" CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
+    --no-global-cli-links >"$work/mac-build.log" 2>&1
+  status=$?
+  set -e
+  cp "$work/mac-build.log" "$out/mac-build.log"
+  mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
+  [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
+  note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
+}
+
 # --- UI tests (test ui=...) -------------------------------------------------
 if [[ ${#ui_suites[@]} -gt 0 ]]; then
   t0=$SECONDS
@@ -1080,11 +1130,33 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
     recorder=$!
   fi
   set +e
+  # The live Screen Sharing leg: its host up, shared and approving before the tests (ios-screen-share-live.sh).
+  if [[ $ss_live -eq 1 && $ui_status -eq 0 ]]; then
+    ss_live_start || ui_status=1
+  fi
   ui_t0=$SECONDS
-  if [[ $ui_status -eq 0 ]]; then
+  if [[ $ui_status -eq 0 && $ss_live -eq 1 ]]; then
+    # The step's session reaches the phone through this one xcodebuild's environment only.
+    # shellcheck source=scripts/lib/fleet-signin-session.sh
+    source scripts/lib/fleet-signin-session.sh
+    if cmux_fleet_signin_load; then
+      TEST_RUNNER_CMUX_SS_REFRESH_TOKEN="$_cmux_fleet_signin_token" env "${SS_TEST_ENV[@]}" \
+        xcodebuild "$ui_action" "${ui_xcodebuild[@]}" -resultBundlePath "$work/ui.xcresult" \
+        "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
+      ui_status=$?
+    else
+      ss_fail "$CMUX_FLEET_SIGNIN_ERROR"
+      ui_status=1
+    fi
+    cmux_fleet_signin_forget
+  elif [[ $ui_status -eq 0 ]]; then
     xcodebuild "$ui_action" "${ui_xcodebuild[@]}" -resultBundlePath "$work/ui.xcresult" \
       "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
     ui_status=$?
+  fi
+  if [[ $ss_live -eq 1 ]]; then
+    ss_live_finish
+    [[ $ss_status -eq 0 ]] || ui_status=1
   fi
   ui_seconds=$((SECONDS - ui_t0))
   if [[ -n "$recorder" ]]; then
@@ -1502,47 +1574,7 @@ fi
 
 # --- Pairing by QR code ----------------------------------------------------
 if [[ "$mode" == pair-e2e ]]; then
-  t0=$SECONDS
-  # A tag of this run only: its own bundle id, socket, settings and state.
-  mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
-  prev_last_log="$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || true)"
-  mac_dd="$work/mac-dd"
-  # A fleet step checks out no submodules (only their empty gitlink directories): the Mac app
-  # needs Ghostty's headers, the ghostty-next tree and GhosttyKit.xcframework (a prebuilt
-  # download), as the measure steps do (scripts/measure/action-signposts.sh). Without them
-  # reload.sh stops at once: "ghostty/include/ghostty.h is missing" (step 4baf44ec, 2026-10-27).
-  for sub in ghostty ghostty-next; do
-    [[ -e "$sub/.git" ]] || git submodule update --init --depth 1 "$sub" >"$work/submodules.log" 2>&1 ||
-      { tail -20 "$work/submodules.log"; echo "error: could not check out the $sub submodule" >&2; exit 1; }
-  done
-  if [[ ! -f GhosttyKit.xcframework/Info.plist ]]; then
-    rm -rf GhosttyKit.xcframework
-    if [[ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" && -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
-      export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
-    fi
-    ./scripts/download-prebuilt-ghosttykit.sh >"$work/ghosttykit.log" 2>&1 ||
-      { tail -20 "$work/ghosttykit.log"; echo "error: could not download GhosttyKit.xcframework" >&2; exit 1; }
-  fi
-  # ghostty-vt-sys (ghostty-next) needs the fleet's pinned Zig 0.17 (the worker's tools, as
-  # its probe reports); PATH can name /usr/local's 0.16, which it refuses ("Your Zig version
-  # v0.16.0 does not meet the required build version of v0.17.0", steps
-  # e00987962032845838c55ef5 and b9658de920bf40d484a998ac). Only ZIG, which ghostty-vt-sys
-  # reads first: the classic Ghostty CLI helper reads CMUX_ZIG and needs its own 0.16, as
-  # scripts/measure/projection.sh sets it.
-  fleet_zig=/Users/Shared/cmux-build-fleet/tools/bin/zig
-  vt_zig="${ZIG:-}"
-  [[ -z "$vt_zig" && -x "$fleet_zig" ]] && vt_zig="$fleet_zig"
-  # A fleet build (CMUX_FLEET_BUILD_TAG) builds acpmux, optchat-chief and
-  # cmux-mobile-host on a cache miss and requires them in the bundle.
-  set +e
-  ZIG="$vt_zig" CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
-    --no-global-cli-links >"$work/mac-build.log" 2>&1
-  status=$?
-  set -e
-  cp "$work/mac-build.log" "$out/mac-build.log"
-  mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
-  [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
-  note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
+  build_mac_app iospair
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
     --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary"

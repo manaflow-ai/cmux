@@ -16,6 +16,12 @@
 # reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
 # 5: no target measured a window).
 set -uo pipefail
+# ios-live-host=DIR, inside CmuxScreenEvalLauncher.app only: the Mac host of the iPhone's live Screen
+# Sharing leg (scripts/ci/ios-screen-share-live.sh), run under the launcher's console grants. The launcher
+# runs only this script, so the leg comes in through here.
+if [[ $# -eq 1 && "$1" == ios-live-host=* && -n "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
+  exec /bin/bash "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/ci/ios-screen-share-live-host.sh" "${1#ios-live-host=}"
+fi
 targets="rd,webrtc" samples=200 repeats=3 lan="" viewer_of="" peer_token="" input_frame_now=0 prebuilt="" tools_only=0 scene_marker=0
 presented_observer=0 presented_pid="" presented_window="" presented_marker_origin="" presented_cell_size="" presented_input_point="" presented_display=main presented_timeout_ms=1000 presented_seed=1
 ocr_host_crop="" ocr_viewer_crop="" ocr_calibration=""

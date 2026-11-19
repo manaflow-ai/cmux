@@ -19,13 +19,20 @@ final class ScreenSharingLiveUITests: XCTestCase {
 
     @MainActor
     func testSeeAndControlAMac() throws {
-        guard environment["CMUX_SS_LIVE"] == "1", let mac = environment["CMUX_SS_MAC"],
-              let email = environment["CMUX_SS_EMAIL"], let password = environment["CMUX_SS_PASSWORD"] else {
+        guard environment["CMUX_SS_LIVE"] == "1", let mac = environment["CMUX_SS_MAC"] else {
             throw XCTSkip("live rig only (TEST_RUNNER_CMUX_SS_LIVE)")
         }
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_MOBILE_STACK_EMAIL"] = email
-        app.launchEnvironment["CMUX_MOBILE_STACK_PASSWORD"] = password
+        // The fleet step's own session (cmux-ci run --sign-in agent), else the manual rig's account.
+        if let token = environment["CMUX_SS_REFRESH_TOKEN"], !token.isEmpty {
+            app.launchEnvironment["CMUX_MOBILE_STACK_REFRESH_TOKEN"] = token
+        } else if let email = environment["CMUX_SS_EMAIL"], let password = environment["CMUX_SS_PASSWORD"] {
+            app.launchEnvironment["CMUX_MOBILE_STACK_EMAIL"] = email
+            app.launchEnvironment["CMUX_MOBILE_STACK_PASSWORD"] = password
+        } else {
+            XCTFail("live rig: no TEST_RUNNER_CMUX_SS_REFRESH_TOKEN and no TEST_RUNNER_CMUX_SS_EMAIL/PASSWORD")
+            return
+        }
         if let hub = environment["CMUX_SS_HUB"] { app.launchEnvironment["CMUX_MOBILE_DEVICE_HUB_URL"] = hub }
         app.launchArguments += ["-cmux-mobile-no-restore"]
         app.launch()
