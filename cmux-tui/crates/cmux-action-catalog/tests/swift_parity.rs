@@ -417,6 +417,18 @@ fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
                 list.retain(|m| !m.as_str().is_some_and(|m| listed(ids, m)));
             }
         }
+        // A new family: every member waits on the re-pin and the dump has no such family, so
+        // the family itself leaves the Rust side until then.
+        let in_dump = swift["palette"]["families"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|f| f["id"] == *family);
+        if !in_dump && let Some(list) = rust["palette"]["families"].as_array_mut() {
+            list.retain(|f| {
+                f["id"] != *family || f["members"].as_array().is_some_and(|m| !m.is_empty())
+            });
+        }
         // A member's row derives its family and its tier (a family member is niche) from the
         // list: those two take the dump's values, every other field is still compared.
         let dump = |id: &str| {
