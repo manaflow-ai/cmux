@@ -291,7 +291,16 @@ struct Book {
     changes: u64,
     /// The deliveries changed since the last write: the next one journals them.
     dirty: BTreeSet<String>,
+    /// When [`Book::changed`] last swept every delivery for lapsed and long-settled ones.
+    swept_at: u64,
 }
+
+/// How often a change sweeps every delivery (`Book::changed`): the sweep walks the whole book
+/// under its lock, and every read of a delivery (a sidebar row's, a send's status) waits on that
+/// lock. Leo's daemon, 2026-11-18, with 4,000 deliveries: request workers sat in `Outbox::get`
+/// for a third of a 4 s sample behind sweeps run on each change. What it drops is a day old and
+/// what it fails a month old, so a second's delay changes nothing.
+const SWEEP_EVERY_MS: u64 = 1000;
 
 /// What the files hold.
 #[derive(Default)]
@@ -886,9 +895,15 @@ fn read_saved(path: &Path) -> Saved {
 }
 
 impl Book {
-    /// Counts a change and drops what settled long ago; returns the change's number.
+    /// Counts a change and, at most once per [`SWEEP_EVERY_MS`], fails lapsed open deliveries and
+    /// drops what settled long ago; returns the change's number.
     fn changed(&mut self) -> u64 {
         let now = crate::store::now_ms();
+        if self.swept_at != 0 && now < self.swept_at.saturating_add(SWEEP_EVERY_MS) {
+            self.changes += 1;
+            return self.changes;
+        }
+        self.swept_at = now;
         for d in self.deliveries.values_mut().filter(|d| d.open_lapsed(now)) {
             tracing::warn!(delivery = %d.id, target = %d.target, "an open delivery lapsed; failed");
             d.fail_open(OPEN_LAPSED.to_owned());
