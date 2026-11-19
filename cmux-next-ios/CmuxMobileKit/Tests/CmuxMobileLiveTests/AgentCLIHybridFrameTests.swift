@@ -26,8 +26,8 @@ import Testing
         let frame = try #require(AgentCLIHybridFrame(event(frame: 1, base: nil, data: keyframeData)))
         let bytes = try #require(frame.terminalBytes)
         #expect(String(decoding: bytes, as: UTF8.self)
-            == "\u{1b}[?2026h\u{1b}[?25l\u{1b}[0m\u{1b}[H\u{1b}[2J\u{1b}[1;3H\u{1b}[0;1;38;5;174mhi\u{1b}[0m"
-            + "\u{1b}[2;1H\u{1b}[3X\u{1b}[0m\u{1b}[4;2H\u{1b}[?25h\u{1b}[?2026l")
+            == "\u{1b}[?25l\u{1b}[0m\u{1b}[H\u{1b}[2J\u{1b}[1;3H\u{1b}[0;1;38;5;174mhi\u{1b}[0m"
+            + "\u{1b}[2;1H\u{1b}[3X\u{1b}[0m\u{1b}[4;2H\u{1b}[?25h")
     }
 
     @Test func aScrollUpIsLineFeedsOnTheLastRow() throws {
@@ -37,6 +37,17 @@ import Testing
         #expect(text.contains("\u{1b}[4;1H\n\n"))
         #expect(!text.contains("\u{1b}[2J"))
         #expect(!text.contains("\u{1b}[?25h"), "a hidden cursor stays hidden")
+    }
+
+    /// One frame is one `process_output`, parsed under the terminal lock: a synchronized
+    /// update (DEC 2026) around it only woke Ghostty's IO thread and re-armed its 1 s reset
+    /// timer, once per frame.
+    @Test func aFramesBytesStartNoSynchronizedUpdate() throws {
+        for (frame, base) in [(1, nil), (2, 1)] as [(Int, Int?)] {
+            let parsed = try #require(AgentCLIHybridFrame(event(frame: frame, base: base, data: keyframeData)))
+            let text = String(decoding: try #require(parsed.terminalBytes), as: UTF8.self)
+            #expect(!text.contains("\u{1b}[?2026"), "frame \(frame)")
+        }
     }
 
     @Test func wideGlyphsAndColorsDecode() throws {
@@ -69,9 +80,77 @@ import Testing
         let next = parser.parse(line(event(frame: 2, base: 1, data: Data([0, 0, 0, 0]))))
         #expect(next.count == 2)
         #expect(next.last == .hybridFrame(stream: "s1", frame: 2, resumed: false))
-        // A later keyframe (after a resize) starts the mirror over.
-        let again = parser.parse(line(event(frame: 3, base: nil, data: keyframeData)))
-        #expect(again.prefix(3) == [.columns(20), .rows(4), .resetMirror(alternate: false)])
+        // A later keyframe at the same grid (the program switched screens) clears and draws
+        // the screen: no reset, so the scrollback stays.
+        let same = parser.parse(line(event(frame: 3, base: nil, data: keyframeData)))
+        #expect(same == [.columns(20), .rows(4), .output(keyBytes), .hybridFrame(stream: "s1", frame: 3, resumed: false)])
+        // A keyframe after a resize starts the mirror over.
+        var resized = event(frame: 4, base: nil, data: keyframeData)
+        resized["cols"] = 30
+        let again = parser.parse(line(resized))
+        #expect(again.prefix(3) == [.columns(30), .rows(4), .resetMirror(alternate: false)])
+    }
+
+    /// Frames carry cells, not modes: the daemon says the alternate screen (Codex, opencode)
+    /// and the input modes as `output` bytes, and a keyframe keeps them. One after a resize
+    /// resets the mirror, which clears them, so it puts them back before it draws (#44052 F1).
+    @Test func keyframesKeepTheAlternateScreenAndInputModes() throws {
+        var parser = DaemonTerminalEventParser(surface: 7)
+        let modes = line(["event": "output", "surface": 7,
+                          "data": Data("\u{1b}[?1049h\u{1b}[?2004h\u{1b}[?1h".utf8).base64EncodedString()])
+        #expect(parser.parse(modes).contains(.alternateScreen(true)))
+        let first = parser.parse(line(event(frame: 1, base: nil, data: keyframeData)))
+        #expect(first.contains(.alternateScreen(true)), "\(first)")
+        #expect(!first.contains(.alternateScreen(false)), "the keyframe left the alternate screen: \(first)")
+
+        var resized = event(frame: 2, base: nil, data: keyframeData)
+        resized["cols"] = 30
+        let again = parser.parse(line(resized))
+        let keyBytes = try #require(AgentCLIHybridFrame(resized)?.terminalBytes)
+        #expect(again == [.columns(30), .rows(4), .resetMirror(alternate: true),
+                          .output(Data("\u{1b}[?1049h\u{1b}[?1h\u{1b}[?2004h".utf8)),
+                          .output(keyBytes), .hybridFrame(stream: "s1", frame: 2, resumed: false)])
+
+        // The program leaves the alternate screen and resets its modes: a later reset puts
+        // back none of them.
+        let off = line(["event": "output", "surface": 7,
+                        "data": Data("\u{1b}[?2004l\u{1b}[?1l\u{1b}[?1049l".utf8).base64EncodedString()])
+        #expect(parser.parse(off).contains(.alternateScreen(false)))
+        var smaller = event(frame: 3, base: nil, data: keyframeData)
+        smaller["cols"] = 25
+        let last = parser.parse(line(smaller))
+        #expect(last.prefix(3) == [.columns(25), .rows(4), .resetMirror(alternate: false)])
+        #expect(last.count == 5, "no modes to put back: \(last)")
+    }
+
+    /// A resumed stream applies on the mirror as it was: on the alternate screen it showed, which
+    /// a later resize's reset puts back (#44052 F1).
+    @Test func aResumedStreamKeepsTheAlternateScreenItResumesOn() {
+        var parser = DaemonTerminalEventParser(surface: 7, hybridResume: (stream: "s1", frame: 5), alternate: true)
+        let resumed = parser.parse(line(event(frame: 6, base: 5, data: Data([0, 0, 0, 0]))))
+        #expect(!resumed.contains(.alternateScreen(false)), "\(resumed)")
+        var resized = event(frame: 7, base: nil, data: keyframeData)
+        resized["cols"] = 30
+        let again = parser.parse(line(resized))
+        #expect(again.prefix(4) == [.columns(30), .rows(4), .resetMirror(alternate: true),
+                                    .output(Data("\u{1b}[?1049h".utf8))])
+    }
+
+    /// A varint past 64 bits is not a delta: the shift used to drop its high bits and read a
+    /// smaller value, drawing a wrong frame instead of falling back (#44052 F2).
+    @Test func aVarintPast64BitsIsNotADelta() {
+        // seq, then at_ms 0, shift 0 and no spans.
+        func withSeq(_ seq: [UInt8]) -> Data { Data(seq + [0, 0, 0]) }
+        #expect(AgentCLIHybridFrame.Delta(withSeq(Array(repeating: 0xFF, count: 9) + [0x01]))?.seq == UInt64.max)
+        #expect(AgentCLIHybridFrame.Delta(withSeq(Array(repeating: 0x80, count: 9) + [0x02])) == nil, "bit 64")
+        #expect(AgentCLIHybridFrame.Delta(withSeq(Array(repeating: 0x80, count: 10) + [0x00])) == nil, "an eleventh byte")
+        // A row past UInt16 (the width the grid is read in): one span, row 65536.
+        #expect(AgentCLIHybridFrame.Delta(Data([0, 0, 0, 1, 0x80, 0x80, 0x04, 0, 2])) == nil, "a row past UInt16")
+        // A lean frame reads the same varints: a numbered keyframe whose number overflows.
+        var decoder = AgentCLIHybridLeanDecoder()
+        var lean = [UInt8](leanKeyframe)
+        lean.replaceSubrange(6...6, with: Array(repeating: 0x80, count: 9) + [0x02])
+        #expect(decoder.decode(Data(lean)) == nil, "a lean frame number past 64 bits")
     }
 
     @Test func aResumedAttachsFirstFrameKeepsTheScreen() {
@@ -187,7 +266,7 @@ import Testing
                                         delta: .init(shift: 0, spans: [.set(row: 0, column: 0, cells: cells)]),
                                         cursorX: 0, cursorY: 0, cursorVisible: false)
         let text = String(decoding: try #require(frame.terminalBytes), as: UTF8.self)
-        #expect(text == "\u{1b}[?2026h\u{1b}[?25l\u{1b}[0m\u{1b}[H\u{1b}[2J\u{1b}[1;1H\u{1b}[1;2H\u{1b}[0;4;38;2;1;2;3;101m "
-            + "\u{1b}[1;1H\u{1F680}\u{1b}[1;3Ha\u{E9}\u{1b}[1;5Hb\u{1b}[0m\u{1b}[1;1H\u{1b}[?2026l")
+        #expect(text == "\u{1b}[?25l\u{1b}[0m\u{1b}[H\u{1b}[2J\u{1b}[1;1H\u{1b}[1;2H\u{1b}[0;4;38;2;1;2;3;101m "
+            + "\u{1b}[1;1H\u{1F680}\u{1b}[1;3Ha\u{E9}\u{1b}[1;5Hb\u{1b}[0m\u{1b}[1;1H")
     }
 }

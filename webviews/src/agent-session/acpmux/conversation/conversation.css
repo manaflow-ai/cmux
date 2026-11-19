@@ -1194,6 +1194,20 @@
   color: var(--cv-text);
   -webkit-font-smoothing: antialiased;
 }
+/* The agent's reply (rows/MessageRow.tsx): a font pack's prose family when it sets one
+   (chatDisplay.ts `--cv-reply-font`, which falls back to --cv-font itself), else the chat's font.
+   The person's prompts, cards and chrome keep --cv-font. model.ts measures reply rows in the same
+   face (`replyMeasureFont`). */
+.cv-md.cv-reply {
+  font-family: var(--cv-reply-font, var(--cv-font));
+  letter-spacing: var(--cv-reply-tracking, var(--cv-tracking, 0px));
+}
+/* A code block's header (its language, its buttons) is chrome, not prose: the chat's font, as in a
+   prompt, never the reply's serif. Without a pack the two are the same font. */
+.cv-md.cv-reply .cv-codeblock__header {
+  font-family: var(--cv-font);
+  letter-spacing: var(--cv-tracking, 0px);
+}
 .cv-md > :first-child {
   margin-top: 0;
 }
@@ -1246,6 +1260,8 @@
   font-size: var(--cv-code-size, 13px);
   line-height: var(--cv-code-line-height, inherit);
   letter-spacing: var(--cv-code-tracking, 0px);
+  font-variant-ligatures: var(--cv-code-ligatures, normal);
+  font-feature-settings: var(--cv-code-features, normal);
   padding: var(--cv-code-padding, 0.75px 5px);
   border-radius: var(--cv-code-radius, 5px);
   background: var(--cv-code-bg);
@@ -1652,6 +1668,9 @@
 .cv-codeblock__body {
   display: block;
   margin: 0 1px 13px 13px;
+  /* Inherited into the highlighter's lines: a font pack's code face draws without ligatures. */
+  font-variant-ligatures: var(--cv-code-ligatures, normal);
+  font-feature-settings: var(--cv-code-features, normal);
 }
 /* An unlabeled fence (CodeHeader.tsx `corner`): no header row. Its actions float in the card's
    top-right corner as bare glyphs, no strip behind them (the first line keeps their room, below),
@@ -2606,10 +2625,10 @@ pre.cv-math-source {
   height: var(--cv-footer-row);
   padding-top: 0;
 }
-/* Right under a step row it is one more line of the run (model.ts isLiveStep, #29965): 22 tall,
-   its ⌃B hint on its line. */
+/* Right under a step row (model.ts isLiveStep) its box is transcriptGrid.ts's TRANSCRIPT_LIVE_STEP_BOX, set on the
+   scroller as --cv-live-step-height (transcriptLiveVars): never a length here. Its ⌃B hint stays on its line. */
 .acpmux-row--below.acpmux-row--after-step > .cv-worked.is-below {
-  height: var(--cv-tool-row-height);
+  height: var(--cv-live-step-height);
 }
 /* Its "⌃B to run in background" keeps its room while it is offered, and pointing at the line changes
    only its opacity, on every live line (backgroundHintRoom.experiment.ts). It used to take its room
@@ -7042,12 +7061,13 @@ a.cv-sha:focus-visible {
 .acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
   min-height: var(--cv-footer-row);
 }
-/* Right under a step row it is one more line of the run instead (model.ts isLiveStep, #29965). */
+/* Right under a step row it takes the live line's box in a run, as the Thinking line does (transcriptGrid.ts
+   TRANSCRIPT_LIVE_STEP_BOX, --cv-live-step-height). */
 .acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step {
-  height: var(--cv-tool-row-height);
+  height: var(--cv-live-step-height);
 }
 .acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step .cv-activity {
-  min-height: var(--cv-tool-row-height);
+  min-height: var(--cv-live-step-height);
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */

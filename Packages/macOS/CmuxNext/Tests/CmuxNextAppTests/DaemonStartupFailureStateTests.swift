@@ -19,7 +19,23 @@ struct DaemonStartupFailureStateTests {
         service.noteStartupFailure(.timedOut("server ensure"))
         #expect(service.store.connectionState == .connecting, "a first attempt that failed while the daemon starts read failed")
         #expect(service.startup == .connecting)
-        #expect(service.notConnectedReason == RefusalStrings.describe(DaemonError.timedOut("server ensure")), "the attempt's cause still answers")
+        #expect(service.notConnectedReason == RefusalStrings.daemonConnecting, "a timed-out attempt reads the service still starting")
+    }
+
+    /// A daemon error a person reads never names the command, its code, the socket or cmux-tui.
+    @Test func aDaemonErrorReadsPlainWords() {
+        let refusal = DaemonError.command(cmd: "workspace.place", message: "That workspace is no longer open.", code: "not_found")
+        #expect(RefusalStrings.describe(refusal) == "That workspace is no longer open.")
+        #expect(RefusalStrings.describe(DaemonError.timedOut("workspace.place (no reply within 2.0 seconds)")) == RefusalStrings.daemonTimedOut)
+        #expect(RefusalStrings.describe(DaemonError.connectionClosed(reason: "eof")) == RefusalStrings.daemonConnecting)
+        for error in [DaemonError.notConnected, .daemonShutdown, .connectFailed(path: "/tmp/cmux.sock", errno: 2),
+                      .socketPathTooLong("/tmp/x"), .malformedResponse("bad"), .wrongApp("other"),
+                      .binaryNotFound(searched: ["/a"]), .launchFailed("exit 3"), .invalidSessionName("x"), refusal] {
+            let shown = RefusalStrings.describe(error)
+            for word in ["cmux-tui", "socket", "workspace.place", "[not_found]", "daemon"] {
+                #expect(!shown.contains(word), "\(error) reads \(shown)")
+            }
+        }
     }
 
     /// Cloud's `link_ended_detail` read only "connection ended" and dropped the failure that ended

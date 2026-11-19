@@ -51,6 +51,7 @@ export function cloudMcpGatewayFor(
   modelPlane?: VmModelPlaneRevoker,
 ): CloudMcpGateway {
   return {
+    callerId: caller.userId,
     listMachines: async () => {
       const listed = await run(listUserVms(caller.userId, await caller.listScope()));
       if (!listed.ok) throw await toolErrorFromResponse(listed.response);
