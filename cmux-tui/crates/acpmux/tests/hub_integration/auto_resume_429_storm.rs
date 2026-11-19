@@ -285,3 +285,77 @@ async fn a_folded_turn_that_hits_the_limit_again_holds_longer_not_from_the_first
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A 429 that outlasts every configured wait (gui-429-finish's live storm, 2026-11-19: turns that
+/// fail in about a second each spent one step of the ladder, the fourth landed about 20 minutes
+/// in, and then the ladder was used up, so 279 of 280 queued messages still sat there 20 minutes
+/// after the limit lifted). While the 429 lasts the chat keeps probing at the longest wait, never
+/// giving up; at the first success every message goes in, within one wait of the lift.
+#[tokio::test]
+async fn a_429_that_outlasts_the_waits_keeps_probing_and_delivers_soon_after_the_lift() {
+    const WAITS: [u64; 2] = [100, 250];
+    let root = std::env::temp_dir().join(format!("acpmux-429-long-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let limit = root.join("rate-limited");
+    std::fs::write(&limit, "").unwrap();
+    let env =
+        BTreeMap::from([("FAKE_RATE_LIMIT_FILE".to_owned(), limit.to_string_lossy().into_owned())]);
+    let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(WAITS.to_vec());
+    let id = new_session(&mut c, "coord-long").await;
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({
+                "sessionId": id, "prompt": [{"type": "text", "text": "plan the day"}],
+                "_meta": {"acpmux": {"promptId": "p-coord"}}
+            }),
+        )
+        .await;
+    assert!(r.unwrap_err().contains("429"));
+    // Agents report while the first hold lasts; their turn takes the continuation's place.
+    for n in 0..5 {
+        let text = format!("report {n} from lane-{n}");
+        c.send(
+            method::SESSION_PROMPT,
+            from_agent(&id, &format!("m-{n}"), &format!("lane-{n}"), &text),
+        )
+        .await;
+    }
+    // The limit lasts ten times the longest wait: far past the two configured attempts.
+    tokio::time::sleep(Duration::from_millis(WAITS[1] * 10)).await;
+    let k = kinds(&hub, &id);
+    assert!(
+        !k.iter().any(|k| k == "auto_resume_exhausted"),
+        "the chat gave up while the 429 lasted: {k:?}"
+    );
+    let starts = of_kind(&hub, &id, "turn_started").len();
+    assert!(starts >= 4, "it stopped probing: {starts} turns in {} ms: {k:?}", WAITS[1] * 10);
+    let cap = WAITS[WAITS.len() - 1];
+    let bound = cap + cap / 5 + 100;
+    let at: Vec<u64> = of_kind(&hub, &id, "turn_started").iter().map(|e| e.at).collect();
+    let gaps: Vec<u64> = at.windows(2).map(|w| w[1] - w[0]).collect();
+    assert!(gaps.iter().all(|g| *g <= bound), "a probe past the longest wait {bound} ms: {gaps:?}");
+
+    // The limit lifts: every report is in a conversation that went on, within one wait.
+    std::fs::remove_file(&limit).unwrap();
+    let lifted = tokio::time::Instant::now();
+    let all = |hub: &Hub| {
+        let done = completed_texts(hub, &id);
+        (0..5).all(|n| done.contains(&format!("report {n} from lane-{n}")))
+    };
+    while !all(&hub) && lifted.elapsed() < Duration::from_millis(bound + 2_000) {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    let took = lifted.elapsed().as_millis();
+    eprintln!(
+        "429 long: {starts} turns while held, gaps {gaps:?} ms, delivered {took} ms after the lift"
+    );
+    assert!(all(&hub), "reports not delivered {took} ms after the lift: {:?}", kinds(&hub, &id));
+    assert!(
+        took <= u128::from(bound + 1_000),
+        "delivered {took} ms after the lift (bound {bound})"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
