@@ -242,6 +242,7 @@ import {
   promptCoachFromRecord,
 } from "./conversation/promptCoach";
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
+import { readAnswer, type IndexAnswer, type IndexSearch } from "./conversation/findIndex";
 import { promptCoachEnabled } from "./chatDisplay";
 import {
   PRESET_APPROVAL,
@@ -527,6 +528,12 @@ const WINDOW_PARALLEL_PAGES = 16;
 /// between the open tail and the target. The cache key is a sequence bucket; adjacent buckets are
 /// warmed after the target page so a fast drag has a page ready before its next frame.
 const INDEXED_PAGE_RADIUS = 240;
+/// Older pages Find in Chat reads at most toward an index hit the daemon could not place by seq
+/// (`loadToward`): a hit further back stays counted, and the next step asks again.
+const FIND_LOAD_PAGES = 40;
+/// How long Find in Chat waits on the transcript index, and the text it asks for around a hit.
+const TRANSCRIPT_SEARCH_MS = 10_000;
+const TRANSCRIPT_SEARCH_CONTEXT = 120;
 const INDEXED_PAGE_LIMIT = 400;
 const INDEXED_PAGE_CACHE_LIMIT = 5;
 /// Gap pages (`fillIndexedGaps`) merged per redraw after the first: each redraw refolds from the gap
@@ -15474,6 +15481,58 @@ export class AcpmuxDirectClient {
       await this.loadOlder(seq);
       if (this.firstSeq === from) return held();
     }
+  }
+
+  /// Find in Chat's ask of the daemon's transcript index for the chat on screen
+  /// (`_acpmux/transcript_search`, conversation/findIndex.ts): its hits oldest first. Undefined when
+  /// there is no index to ask: an acpmux that predates the method or a host that does not relay it,
+  /// which this connection then never asks again, and Find reads the loaded rows alone.
+  async searchTranscript(search: IndexSearch): Promise<IndexAnswer | undefined> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.transcriptSearchUnserved === this.socket) return undefined;
+    try {
+      const raw = await this.request(
+        "_acpmux/transcript_search",
+        { ...search, sessionId, order: "transcript", context: TRANSCRIPT_SEARCH_CONTEXT },
+        TRANSCRIPT_SEARCH_MS,
+      );
+      return sessionId === this.selectedSessionId ? readAnswer(raw) : undefined;
+    } catch (error) {
+      const code = (error as { code?: unknown } | undefined)?.code;
+      if (
+        code === METHOD_NOT_FOUND ||
+        code === "transport.method_refused" ||
+        (error instanceof AcpmuxRpcError && refusedByHost(error))
+      )
+        this.transcriptSearchUnserved = this.socket;
+      return undefined;
+    }
+  }
+  /// The connection that answered it has no transcript index (`searchTranscript`).
+  private transcriptSearchUnserved?: WebSocket;
+
+  /// Whether the published rows hold the record at `seq` (Find's index hits, findIndex.ts `hitLoaded`).
+  holdsSeq(seq: number): boolean {
+    return this.firstSeq !== undefined && this.firstSeq <= seq;
+  }
+
+  /// Pages history in until a loaded row holds an index hit with no seq: a row of its message, or
+  /// a record no newer than it. Older pages one at a time, as a reader scrolling up reads them (the
+  /// transcript keeps its place as each lands), FIND_LOAD_PAGES at most; another chat, or a page that
+  /// moves nothing, ends it. True once it is held.
+  async loadToward(hit: { messageId?: string; at: number }): Promise<boolean> {
+    const generation = this.selectionGeneration;
+    const held = () =>
+      (hit.messageId !== undefined && this.rowsOfMessage(hit.messageId).length > 0) ||
+      (this.events[0] !== undefined && this.events[0].at <= hit.at);
+    for (let page = 0; page < FIND_LOAD_PAGES; page++) {
+      if (generation !== this.selectionGeneration) return false;
+      if (held()) return true;
+      const before = `${this.firstSeq}:${this.events.length}`;
+      await this.loadOlder(undefined, false, true);
+      if (`${this.firstSeq}:${this.events.length}` === before) return held();
+    }
+    return held();
   }
 
   /// Pages older transcript events in without reattaching, so the live summary,

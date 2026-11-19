@@ -61,6 +61,9 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMs?: number;
   /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
   cmuxAcpmuxMockListSize?: number;
+  /** `_acpmux/transcript_search`: `absent` answers method-not-found, as an acpmux before the index;
+   * `noSeq` leaves out each hit's seq, as for a chat acpmux could not place in its log. */
+  cmuxAcpmuxMockTranscriptSearch?: "absent" | "noSeq";
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -818,6 +821,8 @@ export class MockAcpmuxSocket {
       }
       case "_acpmux/events":
         return this.page(target, params);
+      case "_acpmux/transcript_search":
+        return this.transcriptSearch(target, params);
       case "_acpmux/attachment": {
         // Only an image the session's own log names, as acpmux reads it.
         const id = String(params.id ?? "");
@@ -1287,6 +1292,64 @@ export class MockAcpmuxSocket {
     if (!page.hasMore || !first || first.seq <= 1 || opens(first)) return null;
     const prompts = this.page(target, { beforeSeq: first.seq, limit: 16, kinds: ["user_message"] }).events;
     return [...prompts].reverse().find(opens) ?? null;
+  }
+
+  /// `_acpmux/transcript_search` scoped to one chat (acpmux transcript_search.rs), over this daemon's
+  /// own log: every case-insensitive occurrence of the query in a prompt or a reply's text, with the
+  /// record's seq and its message id. `order: "transcript"` is oldest first (else newest first);
+  /// `window` puts the hits inside it first, marked `inWindow`; `offset` and `limit` page; `total`
+  /// counts them all.
+  private transcriptSearch(target: string, params: Record<string, any>) {
+    const mode = (globalThis as MockAuthGlobals).cmuxAcpmuxMockTranscriptSearch;
+    if (mode === "absent")
+      throw Object.assign(new Error("Method not found: _acpmux/transcript_search"), { code: -32601 });
+    const needle = String(params.query ?? "")
+      .trim()
+      .toLowerCase();
+    if (!needle) throw Object.assign(new Error("query is required"), { code: -32602 });
+    const context = Math.min(4000, Number(params.context ?? 300));
+    type Hit = Record<string, unknown> & { at: number; seq: number };
+    const hits: Hit[] = [];
+    for (const event of this.events) {
+      if (event.sessionId !== target) continue;
+      const update = event.msg?.params?.update;
+      const prompt = event.dir === "mux" && event.kind === "user_message" ? event.msg?.text : undefined;
+      const reply = event.kind === "agent_message_chunk" ? update?.content?.text : undefined;
+      const text = typeof prompt === "string" ? prompt : typeof reply === "string" ? reply : undefined;
+      if (!text) continue;
+      const folded = text.toLowerCase();
+      for (let at = folded.indexOf(needle); at >= 0; at = folded.indexOf(needle, at + needle.length)) {
+        const from = Math.max(0, at - Math.floor(context / 2));
+        hits.push({
+          sessionId: target,
+          harness: "claude",
+          at: event.at,
+          seq: event.seq,
+          line: event.seq,
+          role: prompt === undefined ? "assistant" : "user",
+          ...(typeof update?.messageId === "string" && { messageId: update.messageId }),
+          snippet: text.slice(from, from + context),
+          matchStart: at - from,
+          matchLen: needle.length,
+          cutBefore: from > 0,
+          cutAfter: from + context < text.length,
+        });
+      }
+    }
+    if (params.order !== "transcript") hits.reverse();
+    const window = params.window as { fromMs?: number; toMs?: number } | undefined;
+    const inside = (hit: Hit) =>
+      window !== undefined && hit.at >= Number(window.fromMs ?? -Infinity) && hit.at <= Number(window.toMs ?? Infinity);
+    const ordered = window ? [...hits.filter(inside).map((hit) => ({ ...hit, inWindow: true })), ...hits.filter((hit) => !inside(hit))] : hits;
+    const offset = Math.max(0, Number(params.offset ?? 0));
+    const limit = Math.min(200, Math.max(1, Number(params.limit ?? 20)));
+    const page = ordered.slice(offset, offset + limit).map((hit) => {
+      if (mode !== "noSeq") return hit;
+      const placed: Record<string, unknown> = { ...hit };
+      delete placed.seq;
+      return placed;
+    });
+    return { hits: page, total: hits.length, files: 1, caughtUpBytes: 0, catchUpMs: 0, queryMs: 0, tookMs: 0, unreached: [] };
   }
 
   private record(target: string, step: Step, at = Date.now()): EventRecord {

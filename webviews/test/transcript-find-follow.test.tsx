@@ -72,6 +72,8 @@ const turn = (index: number) => [
 ];
 const turns = Array.from({ length: 30 }, (_, index) => turn(index)).flat();
 const noop = () => {};
+/// Find with no transcript index (chatFind.ts): its steps are the loaded matches.
+const NO_INDEX = { position: 0, total: 1, busy: false, index: "none", reveal: noop } satisfies Partial<ChatFind>;
 
 test("a Find jump stays on its match when the transcript measures again before the scroll event", async () => {
   const rows = turnView(turns, new Set());
@@ -90,6 +92,7 @@ test("a Find jump stays on its match when the transcript measures again before t
     next: noop,
     previous: noop,
     focusRequest: 1,
+    ...NO_INDEX,
   };
   const render = (shown: AcpmuxRow[], withFind?: ChatFind) =>
     root.render(<VirtualTranscript rows={shown} onToggleActivity={noop} expanded={new Set()} find={withFind} />);
@@ -127,6 +130,7 @@ test("Find keeps an already visible match parked when a reply streams below it",
     next: noop,
     previous: noop,
     focusRequest: 1,
+    ...NO_INDEX,
   };
   const render = (shown: AcpmuxRow[], withFind?: ChatFind) =>
     root.render(<VirtualTranscript rows={shown} onToggleActivity={noop} expanded={new Set()} find={withFind} />);
@@ -163,6 +167,7 @@ for (const mode of ["find", "count"] as const) {
       next: noop,
       previous: noop,
       focusRequest: 1,
+    ...NO_INDEX,
     };
     const render = (shown: AcpmuxRow[], key = 1) =>
       root.render(
@@ -252,6 +257,7 @@ test("an already visible Find match survives an immediate hide, stream and wake"
     next: noop,
     previous: noop,
     focusRequest: 1,
+    ...NO_INDEX,
   };
   const anchorNow: { current: (() => ScrollAnchor | null | undefined) | undefined } = { current: undefined };
   const reported: (ScrollAnchor | null)[] = [];
@@ -367,6 +373,7 @@ test("a Find selection completes placement before a short chat first overflows",
     next: noop,
     previous: noop,
     focusRequest: 1,
+    ...NO_INDEX,
   };
   const render = (shown: AcpmuxRow[], withFind?: ChatFind) =>
     root.render(<VirtualTranscript rows={shown} onToggleActivity={noop} expanded={new Set()} find={withFind} />);
