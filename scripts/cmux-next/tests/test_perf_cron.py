@@ -3480,5 +3480,99 @@ class LinuxClassMoveTests(OneRunRule):
         self.assertIn(f"the Linux runner class is now {new}", state["history"][-1].get("rebased_note") or "")
 
 
+FAST, SLOW = 5.3, 38.0  # the host-speed canary's ms on the two kinds of shared Linux runner (cmux#44255)
+
+
+class SpeedTests(unittest.TestCase):
+    """cmux#24569: the shared Linux runner pool has two kinds of host, the slow one 1.2x to 1.4x slower on the web
+    benches while the contention probe reads 1. A time row is judged only against values of its own speed kind, and
+    an open regression from before the canary is judged per kind, with the real confirm and recover rules."""
+
+    def setUp(self):
+        self.state = cron.empty_state(T0)
+        self.n = 0
+
+    def measured(self, value, speed=None, name="t.e2e"):
+        self.n += 1
+        t = at(self.n)
+        self.state["current"] = cron.new_measurement((format(self.n, "x") * 40)[:40], "tip", [], t)
+        self.state["current"]["parts"] = {"motion": {"state": "done"}}
+        rows = {name: {**row(value), **({"speed": speed} if speed else {})}}
+        return cron.finish_measurement(self.state, rows, None, "h", f"u{self.n}", t, budgets_mod)
+
+    def test_the_canary_splits_the_two_kinds(self):
+        self.assertEqual([cron.speed_kind(v) for v in (5.0, 5.7, 23.0, 42.0)], ["fast", "fast", "slow", "slow"])
+        self.assertEqual([cron.speed_kind(v) for v in (None, 0, -1, True, "5")], [None] * 5)
+
+    def test_slow_hosts_open_nothing_against_fast_values_and_build_their_own_baseline(self):
+        for v in (20.0, 20.5, 21.0):
+            self.measured(v, FAST)
+        for v in (27.0, 27.5, 27.2):
+            self.assertIn(self.measured(v, SLOW), ("good", "partial"), "slow, not regressed")
+        self.assertEqual(self.state["regressions"], [])
+        self.assertEqual(self.state.get("pending") or {}, {})
+        self.assertEqual([e.get("speed") for e in self.state["row_history"]["t.e2e"]], [FAST] * 3 + [SLOW] * 3)
+        self.assertEqual(self.measured(20.8, FAST), "good", "fast values are judged against fast values only")
+        self.measured(40.0, SLOW)
+        self.assertEqual(self.measured(40.5, SLOW), "regressed", "within its kind a step is still a regression")
+        self.assertEqual(cron.kind_of(self.state["regressions"][0]), "slow")
+
+    def test_a_regression_of_one_kind_is_neither_judged_nor_missing_on_the_other(self):
+        for v in (20.0, 20.5, 21.0):
+            self.measured(v, FAST)
+        self.measured(30.0, FAST)
+        self.assertEqual(self.measured(30.5, FAST), "regressed")
+        self.assertEqual(self.measured(20.2, SLOW), "still", "a slow host does not judge a fast regression")
+        self.assertEqual(self.state["last"]["speed_skipped"], ["t.e2e"], "not missing: the measurement counts")
+        self.assertIn("another speed kind of host", cron.issue_body(self.state, "o/r", at(self.n)))
+        self.assertEqual(self.measured(20.4, FAST), "still")
+        self.assertEqual(self.measured(20.6, FAST), "recovered")
+
+    def test_an_open_regression_from_before_the_canary_is_rejudged_per_kind(self):
+        for v in (20.0, 20.5, 21.0):
+            self.measured(v)
+        self.measured(27.0)
+        self.assertEqual(self.measured(27.3), "regressed", "a slow host before the canary: nothing told them apart")
+        self.assertEqual(self.measured(20.4, FAST), "still")
+        self.assertEqual(self.measured(27.1, SLOW), "still", "the slow kind is still worse against the old reference")
+        self.assertEqual([v.get("speed") for v in self.state["regressions"][0]["recovering"]], [FAST],
+                         "a slow value does not end the fast kind's recovery streak")
+        self.assertEqual(self.measured(20.6, FAST), "recovered", "the fast kind is within it twice in a row")
+        self.assertEqual([e.get("speed") for e in self.state["row_history"]["t.e2e"]][-2:], [FAST, FAST])
+
+    def test_a_real_regression_from_before_the_canary_stays_open_on_both_kinds(self):
+        for v in (20.0, 20.5, 21.0):
+            self.measured(v)
+        self.measured(27.0)
+        self.measured(27.3)
+        for v, speed in ((27.1, FAST), (35.0, SLOW), (27.4, FAST), (34.0, SLOW)):
+            self.assertEqual(self.measured(v, speed), "still")
+        self.assertEqual([r["name"] for r in self.state["regressions"]], ["t.e2e"])
+        self.assertNotIn("speed", self.state["regressions"][0], "it keeps no kind: both kinds judge it")
+
+
+class SpeedBisectTests(OneRunRule):
+    measured, bisected, rng = FinishTests.measured, FinishTests.bisected, FinishTests.rng
+
+    def test_a_bisect_step_on_the_other_kind_is_measured_again_then_skipped_never_a_verdict(self):
+        state = cron.empty_state(T0)
+        fast = lambda v: {**row(v), "speed": FAST}
+        slow = lambda v: {**row(v), "speed": SLOW}
+        self.measured(state, "a" * 40, {"t.e2e": fast(5.0)}, 0)
+        self.assertEqual(self.measured(state, "e" * 40, {"t.e2e": fast(9.0)}, 1), "regressed")
+        self.assertEqual(self.bisected(state, "c" * 40, {"t.e2e": slow(9.2)}, 2), "skipped", "slow, not bad")
+        self.assertEqual(state["history"][-1]["status"], "retry")
+        self.assertEqual(state["regressions"][0]["range"]["skip"], [], "the next step measures the commit again")
+        self.assertEqual(self.bisected(state, "c" * 40, {"t.e2e": slow(5.0)}, 3), "skipped")
+        self.assertEqual(state["regressions"][0]["range"]["skip"], ["c" * 40], "the second time it is skipped")
+        self.assertEqual(self.bisected(state, "d" * 40, {"t.e2e": fast(9.2)}, 4), "narrowed")
+        self.assertEqual(self.rng(state, "t.e2e"), ("a" * 40, "d" * 40))
+
+    def test_a_web_ui_row_keeps_the_canary_of_its_bench(self):
+        rows = cron.webui_rows([{"name": "chat_open.latest", "p95": 400, "speed": 21.5}, {"name": "chat_open.other", "p95": 4}])
+        self.assertEqual(rows["webui.chat_open.latest"]["speed"], 21.5)
+        self.assertNotIn("speed", rows["webui.chat_open.other"])
+
+
 if __name__ == "__main__":
     unittest.main()
