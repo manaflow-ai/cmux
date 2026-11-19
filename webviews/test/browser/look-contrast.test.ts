@@ -186,7 +186,7 @@ await requireBrowserLane("look-contrast.test.ts", async () => {
     if (scene.act) await scene.act(page);
     // Hover and focus fades finish before the read.
     await page.mouse.move(1, 1);
-    await page.waitForTimeout(400);
+    await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))));
     await settle(page);
   }
 
