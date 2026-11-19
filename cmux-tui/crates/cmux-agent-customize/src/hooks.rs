@@ -12,8 +12,9 @@
 //! Disabling: Codex has a per-handler `enabled = false`, which is what cmux
 //! writes. Claude Code has only the all-or-nothing `disableAllHooks`, so a
 //! disabled Claude handler is moved out of the settings file into a cmux-owned
-//! store (`<store>/claude-disabled-hooks.json`) with the place it came from,
-//! and enabling puts it back there. Every write keeps the file's other keys
+//! store (`<store>/claude-disabled-hooks.json`) with the event's layout as it
+//! was before the first one went (its groups and handlers, and the order of
+//! the events), and enabling puts it back there, in any order. Every write keeps the file's other keys
 //! and their order, goes through a temp file and rename, and leaves the prior
 //! file in `<store>/backups/`.
 //!
@@ -925,7 +926,7 @@ pub fn remove(paths: &AgentPaths, id: &str, allow_cmux: bool) -> anyhow::Result<
     }
     let mut group_emptied = false;
     edit_json(paths, &hook.file, |root| {
-        group_emptied = take_handler(root, &hook)?.1;
+        group_emptied = take_handler(root, &hook, true)?.1;
         Ok(())
     })?;
     if hook.agent == Agent::Codex {
@@ -944,7 +945,14 @@ fn event_groups_mut<'a>(root: &'a mut OJson, event: &str) -> anyhow::Result<&'a 
 
 /// Takes `hook`'s handler out of `root`, checking it is the one listed.
 /// Returns the handler and whether its group was emptied (and removed).
-fn take_handler(root: &mut OJson, hook: &HookEntry) -> anyhow::Result<(OJson, bool)> {
+/// An emptied event goes; an emptied `hooks` object goes only when
+/// `drop_empty_hooks` (a removal; a turned-off hook keeps `"hooks": {}` so
+/// turning it back on leaves the file's key order as it was).
+fn take_handler(
+    root: &mut OJson,
+    hook: &HookEntry,
+    drop_empty_hooks: bool,
+) -> anyhow::Result<(OJson, bool)> {
     let events =
         root.get_mut("hooks").and_then(OJson::as_object_mut).context("the file has no hooks")?;
     let groups = events
@@ -972,16 +980,103 @@ fn take_handler(root: &mut OJson, hook: &HookEntry) -> anyhow::Result<(OJson, bo
     if groups.is_empty() {
         events.shift_remove(&hook.event);
     }
+    if drop_empty_hooks && events.is_empty() {
+        if let Some(object) = root.as_object_mut() {
+            object.shift_remove("hooks");
+        }
+    }
     Ok((handler, emptied))
+}
+
+fn group_matcher(group: &OJson) -> Option<&str> {
+    group.get("matcher").and_then(OJson::as_str).filter(|matcher| !matcher.is_empty())
+}
+
+fn group_handlers(group: &OJson) -> &[OJson] {
+    group.get("hooks").and_then(OJson::as_array).map(Vec::as_slice).unwrap_or_default()
+}
+
+/// The layout group `file_group` is: the same matcher and a handler in common.
+fn layout_group_of(layout: &[OJson], file_group: &OJson) -> Option<usize> {
+    layout.iter().position(|candidate| {
+        group_matcher(candidate) == group_matcher(file_group)
+            && group_handlers(file_group)
+                .iter()
+                .any(|handler| group_handlers(candidate).contains(handler))
+    })
+}
+
+/// The event's groups as they were before cmux turned any of them off: the
+/// layout every disabled record of one file and event shares, so turning
+/// hooks back on in any order puts each where it was. Starts as the file's
+/// groups at the first turn-off; a handler the layout lacks (added since) is
+/// placed after the handler before it in the file.
+fn claude_layout(store: &[OJson], root: &OJson, hook: &HookEntry, handler: &OJson) -> OJson {
+    let file = hook.file.to_string_lossy();
+    let shared = store
+        .iter()
+        .filter(|record| {
+            record.get("file").and_then(OJson::as_str) == Some(file.as_ref())
+                && record.get("event").and_then(OJson::as_str) == Some(hook.event.as_str())
+        })
+        .find_map(|record| record.get("layout").cloned());
+    let file_groups =
+        root.get("hooks").and_then(|hooks| hooks.get(&hook.event)).and_then(OJson::as_array);
+    let Some(mut layout) = shared else {
+        let events = root
+            .get("hooks")
+            .and_then(OJson::as_object)
+            .map(|events| events.keys().map(|key| OJson::from(key.as_str())).collect())
+            .unwrap_or_default();
+        let mut map = IndexMap::new();
+        map.insert("events".to_owned(), OJson::Array(events));
+        map.insert("groups".to_owned(), OJson::Array(file_groups.cloned().unwrap_or_default()));
+        return OJson::Object(map);
+    };
+    let known = layout
+        .get("groups")
+        .and_then(OJson::as_array)
+        .is_some_and(|groups| groups.iter().any(|group| group_handlers(group).contains(handler)));
+    if known {
+        return layout;
+    }
+    let file_group = file_groups.and_then(|groups| groups.get(hook.location.group));
+    if let Some(groups) = layout.get_mut("groups").and_then(OJson::as_array_mut) {
+        match file_group.and_then(|group| layout_group_of(groups, group).map(|at| (group, at))) {
+            Some((group, at)) => {
+                let before = &group_handlers(group)
+                    [..hook.location.handler.min(group_handlers(group).len())];
+                if let Some(handlers) = groups[at].get_mut("hooks").and_then(OJson::as_array_mut) {
+                    let after = before
+                        .iter()
+                        .rev()
+                        .find_map(|previous| handlers.iter().position(|item| item == previous))
+                        .map_or(0, |index| index + 1);
+                    handlers.insert(after, handler.clone());
+                }
+            }
+            None => groups.push(file_group.cloned().unwrap_or_else(|| {
+                let mut map = IndexMap::new();
+                if let Some(matcher) = &hook.matcher {
+                    map.insert("matcher".to_owned(), OJson::from(matcher.as_str()));
+                }
+                map.insert("hooks".to_owned(), OJson::Array(vec![handler.clone()]));
+                OJson::Object(map)
+            })),
+        }
+    }
+    layout
 }
 
 fn claude_disable(paths: &AgentPaths, hook: &HookEntry) -> anyhow::Result<()> {
     // The store gets the handler first; when the settings write then fails,
     // the store entry is taken back, so a failure never loses the handler.
-    let mut edited = read_json(&hook.file)?.context("the settings file is gone")?;
-    let (handler, _) = take_handler(&mut edited, hook)?;
+    let original = read_json(&hook.file)?.context("the settings file is gone")?;
+    let mut edited = original.clone();
+    let (handler, _) = take_handler(&mut edited, hook, false)?;
+    let file = hook.file.to_string_lossy().into_owned();
     let mut record = IndexMap::new();
-    record.insert("file".to_owned(), OJson::from(hook.file.to_string_lossy().as_ref()));
+    record.insert("file".to_owned(), OJson::from(file.as_str()));
     record.insert("scope".to_owned(), OJson::from(hook.scope.as_str()));
     record.insert("event".to_owned(), OJson::from(hook.event.as_str()));
     if let Some(matcher) = &hook.matcher {
@@ -989,8 +1084,20 @@ fn claude_disable(paths: &AgentPaths, hook: &HookEntry) -> anyhow::Result<()> {
     }
     record.insert("group".to_owned(), OJson::from(hook.location.group as u64));
     record.insert("index".to_owned(), OJson::from(hook.location.handler as u64));
-    record.insert("handler".to_owned(), handler);
+    record.insert("handler".to_owned(), handler.clone());
     edit_disabled_store(paths, |store| {
+        let layout = claude_layout(store, &original, hook, &handler);
+        // Every record of this file and event shares the one layout.
+        for other in store.iter_mut() {
+            if other.get("file").and_then(OJson::as_str) == Some(file.as_str())
+                && other.get("event").and_then(OJson::as_str) == Some(hook.event.as_str())
+            {
+                if let Some(map) = other.as_object_mut() {
+                    map.insert("layout".to_owned(), layout.clone());
+                }
+            }
+        }
+        record.insert("layout".to_owned(), layout);
         store.push(OJson::Object(record));
         Ok(())
     })?;
@@ -1005,27 +1112,60 @@ fn claude_disable(paths: &AgentPaths, hook: &HookEntry) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn claude_enable(paths: &AgentPaths, hook: &HookEntry) -> anyhow::Result<()> {
-    let index = hook.location.disabled_index.context("this hook is not in the disabled store")?;
-    let store = read_disabled_store(&disabled_store_path(paths))?;
-    let record = store.get(index).cloned().context("the disabled store changed; list again")?;
-    let handler = record.get("handler").cloned().context("the disabled record has no handler")?;
-    edit_json(paths, &hook.file, |root| {
-        let groups = event_groups_mut(root, &hook.event)?;
-        let same_matcher = |group: &OJson| {
-            group.get("matcher").and_then(OJson::as_str).filter(|m| !m.is_empty())
-                == hook.matcher.as_deref()
-        };
-        // Back into its old group when that group still has the same
-        // matcher, else the first group with that matcher, else a new group
-        // at its old place.
-        let target = if groups.get(hook.location.group).is_some_and(same_matcher) {
-            Some(hook.location.group)
-        } else {
-            groups.iter().position(same_matcher)
-        };
-        match target
-            .and_then(|index| groups.get_mut(index))
+/// Where a turned-off handler goes back: its layout group's file group (else
+/// a new group after the file groups that come before it in the layout), after
+/// the last handler that came before it in the layout and is still there.
+fn claude_reinsert(
+    root: &mut OJson,
+    hook: &HookEntry,
+    handler: OJson,
+    layout: Option<&OJson>,
+) -> anyhow::Result<()> {
+    let object = root.as_object_mut().context("the settings file is not a JSON object")?;
+    let events = object.entry("hooks".to_owned()).or_insert_with(OJson::object);
+    let events = events.as_object_mut().context("`hooks` is not an object")?;
+    if !events.contains_key(&hook.event) {
+        // Back between the events it sat between.
+        let order: Vec<&str> = layout
+            .and_then(|layout| layout.get("events"))
+            .and_then(OJson::as_array)
+            .map(|names| names.iter().filter_map(OJson::as_str).collect())
+            .unwrap_or_default();
+        let at = order
+            .iter()
+            .position(|name| *name == hook.event)
+            .and_then(|mine| {
+                order[..mine].iter().rev().find_map(|previous| events.get_index_of(*previous))
+            })
+            .map_or(if order.contains(&hook.event.as_str()) { 0 } else { events.len() }, |index| {
+                index + 1
+            });
+        events.shift_insert(at, hook.event.clone(), OJson::Array(Vec::new()));
+    }
+    let groups = events
+        .get_mut(&hook.event)
+        .and_then(OJson::as_array_mut)
+        .with_context(|| format!("`hooks.{}` is not an array", hook.event))?;
+    let new_group = |handler: OJson| {
+        let mut group = IndexMap::new();
+        if let Some(matcher) = &hook.matcher {
+            group.insert("matcher".to_owned(), OJson::from(matcher.as_str()));
+        }
+        group.insert("hooks".to_owned(), OJson::Array(vec![handler]));
+        OJson::Object(group)
+    };
+    let layout_groups = layout.and_then(|layout| layout.get("groups")).and_then(OJson::as_array);
+    let place = layout_groups.and_then(|layout_groups| {
+        let mine =
+            layout_groups.iter().position(|group| group_handlers(group).contains(&handler))?;
+        Some((layout_groups, mine))
+    });
+    let Some((layout_groups, mine)) = place else {
+        // No layout (a record from before layouts): its old group and index.
+        let same_matcher = |group: &OJson| group_matcher(group) == hook.matcher.as_deref();
+        match groups
+            .get_mut(hook.location.group)
+            .filter(|group| same_matcher(group))
             .and_then(|group| group.get_mut("hooks"))
             .and_then(OJson::as_array_mut)
         {
@@ -1034,16 +1174,47 @@ fn claude_enable(paths: &AgentPaths, hook: &HookEntry) -> anyhow::Result<()> {
                 handlers.insert(at, handler);
             }
             None => {
-                let mut group = IndexMap::new();
-                if let Some(matcher) = &hook.matcher {
-                    group.insert("matcher".to_owned(), OJson::from(matcher.as_str()));
-                }
-                group.insert("hooks".to_owned(), OJson::Array(vec![handler]));
                 let at = hook.location.group.min(groups.len());
-                groups.insert(at, OJson::Object(group));
+                groups.insert(at, new_group(handler));
             }
         }
-        Ok(())
+        return Ok(());
+    };
+    let mapped: Vec<Option<usize>> =
+        groups.iter().map(|group| layout_group_of(layout_groups, group)).collect();
+    match mapped.iter().position(|at| *at == Some(mine)) {
+        Some(index) => {
+            let layout_handlers = group_handlers(&layout_groups[mine]);
+            let position = layout_handlers.iter().position(|item| *item == handler).unwrap_or(0);
+            let handlers = groups[index]
+                .get_mut("hooks")
+                .and_then(OJson::as_array_mut)
+                .context("a hook group has no `hooks` array")?;
+            let at = layout_handlers[..position]
+                .iter()
+                .rev()
+                .find_map(|previous| handlers.iter().position(|item| item == previous))
+                .map_or(0, |index| index + 1);
+            handlers.insert(at, handler);
+        }
+        None => {
+            let at = mapped
+                .iter()
+                .rposition(|at| at.is_some_and(|at| at < mine))
+                .map_or(0, |index| index + 1);
+            groups.insert(at, new_group(handler));
+        }
+    }
+    Ok(())
+}
+
+fn claude_enable(paths: &AgentPaths, hook: &HookEntry) -> anyhow::Result<()> {
+    let index = hook.location.disabled_index.context("this hook is not in the disabled store")?;
+    let store = read_disabled_store(&disabled_store_path(paths))?;
+    let record = store.get(index).cloned().context("the disabled store changed; list again")?;
+    let handler = record.get("handler").cloned().context("the disabled record has no handler")?;
+    edit_json(paths, &hook.file, |root| {
+        claude_reinsert(root, hook, handler, record.get("layout"))
     })?;
     edit_disabled_store(paths, |store| {
         if store.get(index) == Some(&record) {

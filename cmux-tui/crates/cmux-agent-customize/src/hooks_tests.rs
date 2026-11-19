@@ -358,3 +358,85 @@ fn a_hook_changed_on_disk_after_listing_is_not_removed() {
     fs::write(&settings, CLAUDE_SETTINGS.replace("guard-one", "guard-zero")).unwrap();
     assert!(remove(&fixture.paths, &id, false).is_err());
 }
+
+/// Turning every hook off and back on, in any order, leaves the file as it
+/// was, even with two groups of one matcher (where "the first group with that
+/// matcher" would merge them) and events that empty out.
+#[test]
+fn claude_disable_enable_any_order_round_trips() {
+    const SETTINGS: &str = r#"{
+  "model": "opus",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "a" }, { "type": "command", "command": "b" } ] },
+      { "hooks": [ { "type": "command", "command": "c" } ] },
+      { "matcher": "Bash", "hooks": [ { "type": "command", "command": "d" } ] }
+    ],
+    "Stop": [ { "hooks": [ { "type": "command", "command": "e" } ] } ],
+    "PostToolUse": [ { "hooks": [ { "type": "command", "command": "f" } ] } ]
+  },
+  "theme": "dark"
+}
+"#;
+    let commands = ["a", "b", "c", "d", "e", "f"];
+    // Disable orders x enable orders: forward, reverse, and two interleavings.
+    let orders: [[usize; 6]; 4] =
+        [[0, 1, 2, 3, 4, 5], [5, 4, 3, 2, 1, 0], [1, 3, 0, 5, 2, 4], [2, 0, 4, 1, 5, 3]];
+    for disable_order in &orders {
+        for enable_order in &orders {
+            let fixture = fixture();
+            let paths = AgentPaths { project: None, ..fixture.paths.clone() };
+            let file = paths.claude_dir.join("settings.json");
+            fs::write(&file, SETTINGS).unwrap();
+            let normalized = OJson::parse(SETTINGS).unwrap().to_pretty();
+            fs::write(&file, &normalized).unwrap();
+            for &at in disable_order {
+                let listing = list(&paths);
+                let id = by_command(&listing, commands[at]).id.clone();
+                set_enabled(&paths, &id, false, false).unwrap();
+            }
+            let off = fs::read_to_string(&file).unwrap();
+            assert!(!commands.iter().any(|c| off.contains(&format!("\"command\": \"{c}\""))));
+            assert!(off.contains("\"hooks\": {}"), "{off}");
+            for &at in enable_order {
+                let listing = list(&paths);
+                let id = by_command(&listing, commands[at]).id.clone();
+                set_enabled(&paths, &id, true, false).unwrap();
+            }
+            assert_eq!(
+                fs::read_to_string(&file).unwrap(),
+                normalized,
+                "disable {disable_order:?} then enable {enable_order:?}"
+            );
+            assert!(read_disabled_store(&disabled_store_path(&paths)).unwrap().is_empty());
+        }
+    }
+}
+
+/// Adding a hook to a file with no `hooks` and removing it leaves the file
+/// byte for byte as it was (no `"hooks": {}` left behind).
+#[test]
+fn claude_add_remove_into_file_without_hooks() {
+    let fixture = fixture();
+    let paths = AgentPaths { project: None, ..fixture.paths.clone() };
+    let file = paths.claude_dir.join("settings.json");
+    let before = "{\n  \"model\": \"opus\",\n  \"theme\": \"dark\"\n}\n";
+    fs::write(&file, before).unwrap();
+    let new = NewHook {
+        agent: Agent::Claude,
+        scope: Scope::User,
+        event: "UserPromptSubmit".into(),
+        matcher: None,
+        command: "echo hi".into(),
+        timeout: None,
+    };
+    let hook = add(&paths, &new).unwrap();
+    set_enabled(&paths, &hook.id, false, false).unwrap();
+    let listing = list(&paths);
+    let id = by_command(&listing, "echo hi").id.clone();
+    set_enabled(&paths, &id, true, false).unwrap();
+    let listing = list(&paths);
+    let id = by_command(&listing, "echo hi").id.clone();
+    remove(&paths, &id, false).unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), before);
+}
