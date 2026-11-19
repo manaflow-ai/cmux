@@ -69,6 +69,16 @@ def executable(app: Path) -> Path:
         return app / "Contents/MacOS" / plistlib.load(handle)["CFBundleExecutable"]
 
 
+# The app's code, which links the library: CmuxNextApp.framework behind a stub executable (CMUX-629),
+# or the executable itself in a static (live code) build.
+CODE_FRAMEWORK_BINARY = "Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp"
+
+
+def code_image(app: Path) -> Path:
+    framework = app / CODE_FRAMEWORK_BINARY
+    return framework if framework.is_file() else executable(app)
+
+
 def _git(repo: Path, *args: str) -> str:
     done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, errors="replace")
     if done.returncode != 0:
@@ -232,8 +242,9 @@ def archs(path: Path) -> list[str]:
 
 
 def imports(app: Path) -> set[str]:
-    """The symbols the app's executable binds to libcmux_app_ffi (nm -m: `(from libcmux_app_ffi)`)."""
-    out = _run("nm", "-m", "-u", "-arch", host_arch(), str(executable(app))).stdout
+    """The symbols the app's code binds to libcmux_app_ffi (nm -m: `(from libcmux_app_ffi)`). The stub
+    executable binds none, so it is the code image's, or every library would pass this check."""
+    out = _run("nm", "-m", "-u", "-arch", host_arch(), str(code_image(app))).stdout
     return {line.split()[2] for line in out.splitlines() if line.rstrip().endswith("(from libcmux_app_ffi)")}
 
 
