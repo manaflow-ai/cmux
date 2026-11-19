@@ -16,6 +16,7 @@ import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneSymbol } from "./SceneSymbol";
+import { SceneChoreography, nodeChoreography } from "./SceneChoreography";
 import { SceneParticles } from "./SceneParticles";
 import { loopStyle, trimRange } from "./motionProps";
 import {
@@ -425,7 +426,8 @@ function contentOf(
     case "RoundedRectangle":
       return trimmedOutline(node) ? <SceneShapeOutline node={node} partRef={partRef} /> : null;
     case "Particles":
-      return <SceneParticles node={node} />;
+      // A choreography (validated by the host) wins over a preset.
+      return nodeChoreography(node) ? <SceneChoreography node={node} /> : <SceneParticles node={node} />;
     case "Image":
       return <SceneImage source={props.src} />;
     case "Toggle":

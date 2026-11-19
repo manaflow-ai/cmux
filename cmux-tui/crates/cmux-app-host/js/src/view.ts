@@ -33,12 +33,20 @@ export type LoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bo
 export type Loop = { effect: LoopEffect; period?: number; amount?: number }
 export type Transition = "opacity" | "slide" | "scale" | "move" | "pop"
 export type ParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
-/** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst. */
+/** A `cmux.particles/1` document (ABI.md "Particles choreography"); the host validates it. */
+export type ParticleChoreography = { $schema: "cmux.particles/1" } & Record<string, unknown>
+/** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst.
+ * With `choreography` the node plays that glyph instead: `trigger` (an acpmux kind) picks its phases,
+ * `phase` loops one phase, `size` and `colors[0]` override the document's particle. */
 export type ParticlesProps = {
-  preset: Bindable<ParticlePreset>
+  preset?: Bindable<ParticlePreset>
   colors?: Bindable<string[] | null>
   rate?: Bindable<number>
   burst?: Bindable<number>
+  choreography?: Bindable<ParticleChoreography | null>
+  trigger?: Bindable<string | null>
+  phase?: Bindable<string | null>
+  size?: Bindable<number>
 }
 
 export class ViewNode {

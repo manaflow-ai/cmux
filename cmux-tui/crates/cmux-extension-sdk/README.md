@@ -92,6 +92,7 @@ cmux ext dev --once --json   # one round, for an agent's loop
 | `.transition(t)` | `opacity`, `slide`, `scale`, `move`, `pop`: how the node enters when a render adds it and leaves when one removes it (`Transition`). |
 | `.clipped()` | Clip the node's content (children, a sliding transition) to its frame and corner radius. |
 | `Particles({preset, colors?, rate?, burst?})` | `confetti`, `sparkles`, `rain`, `snow`, `embers`, `stars`, filling its frame; each increase of `burst` fires one burst. Loops, particles and springs stop or go instant under Reduce Motion and `ui.animationSpeed: off`. |
+| `Particles({choreography, trigger?, phase?, size?})` | A glyph of dots that plays a `cmux.particles/1` document frame by frame (`ParticleChoreography`; app-host `js/ABI.md` "Particles choreography"): `trigger` is an acpmux tool kind or session state (`ChoreographyTrigger`) that picks the phases, `phase` loops one phase. cmux validates the document and draws nothing for one it refuses (the app log says why). |
 | `SDK_VERSION`, `API_VERSION`, `RUNTIME_VERSION` | Versions (below). |
 
 Events (from `cmux-app-host/schema/v2/events.json`; each is an invalidation with no payload):

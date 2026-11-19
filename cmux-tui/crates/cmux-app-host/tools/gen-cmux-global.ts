@@ -553,8 +553,32 @@ type CmuxLoop = { effect: CmuxLoopEffect; period?: number; amount?: number }
 type CmuxTransition = "opacity" | "slide" | "scale" | "move" | "pop"
 type CmuxParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
 /** \`rate\` multiplies a continuous preset's emission (default 1); each increase of \`burst\` fires one burst. */
-type CmuxParticlesProps = { preset: Bindable<CmuxParticlePreset>; colors?: Bindable<string[] | null>; rate?: Bindable<number>; burst?: Bindable<number> }
-/** A particle field (confetti, sparkles, rain, snow, embers, stars) that fills its frame and takes no input; first in a ZStack, it draws behind its siblings. Host-run; stops off screen and under Reduce Motion. */
+/** A choreography curve: the Motion curves, a spring, or a cubic Bezier. A frame's \`ease\` shapes the segment that ends at it. */
+type CmuxChoreographyEase = "linear" | "easeIn" | "easeOut" | "easeInOut" | "smooth" | "snappy" | { spring: { response: number; dampingFraction?: number } } | { bezier: [number, number, number, number] }
+/** \`[x, y, scale]\`: points from the glyph's centre (+y down), scale 0 to 4 over \`particle.size\`. */
+type CmuxChoreographyDot = [number, number, number]
+type CmuxChoreographyFrame = { at: number; dots?: CmuxChoreographyDot[]; formation?: string; ease?: CmuxChoreographyEase }
+type CmuxChoreographyPhase = {
+  duration: number
+  ease?: CmuxChoreographyEase
+  frames?: CmuxChoreographyFrame[]
+  sites?: [number, number][]
+  spawn?: { every: number; order: number[]; life: number }
+  lifeFrames?: { at: number; pos: "centre" | "site" | "between"; offset?: [number, number]; s: number; ease?: CmuxChoreographyEase }[]
+}
+/** The acpmux tool kinds and session states a choreography's \`triggers\` may name (\`cycle\` plays for any other kind). */
+type CmuxChoreographyTrigger = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" | "other" | "sendMessage" | "turnStart" | "thinking" | "idle" | "cursor" | "cycle"
+/** A \`cmux.particles/1\` document (ABI.md "Particles choreography"). The host refuses unknown keys and anything past a limit (16 dots, 32 phases, 64 frames, 50 ms to 30 s, scale 0 to 4, 32 KiB). */
+type CmuxParticleChoreography = {
+  $schema: "cmux.particles/1"
+  particle: { shape?: "circle" | "square"; size: number; color?: string; max?: number }
+  phases: Record<string, CmuxChoreographyPhase>
+  formations?: Record<string, CmuxChoreographyDot[]>
+  triggers?: Partial<Record<CmuxChoreographyTrigger, string[] | { intro?: string[]; loop: string[] }>>
+}
+/** \`rate\` multiplies a continuous preset's emission (default 1); each increase of \`burst\` fires one burst. With \`choreography\` the node plays that glyph instead: \`trigger\` picks the phases by acpmux kind (read when a phase ends), \`phase\` loops one phase, \`size\` (points) and \`colors[0]\` override the document's particle. */
+type CmuxParticlesProps = { preset?: Bindable<CmuxParticlePreset>; colors?: Bindable<string[] | null>; rate?: Bindable<number>; burst?: Bindable<number>; choreography?: Bindable<CmuxParticleChoreography | null>; trigger?: Bindable<CmuxChoreographyTrigger | string | null>; phase?: Bindable<string | null>; size?: Bindable<number> }
+/** A particle field (confetti, sparkles, rain, snow, embers, stars) that fills its frame and takes no input, or a choreographed glyph of dots (\`choreography\`) centred in it; first in a ZStack, it draws behind its siblings. Host-run; stops off screen and under Reduce Motion. */
 declare function Particles(props: CmuxParticlesProps): CmuxView
 type CmuxChildren = Array<CmuxView | (() => unknown) | null | undefined | false>
 interface CmuxListSpec<T> { items: () => readonly T[] | null | undefined; key: (item: T, index: number) => string | number; onMove?: (id: string, index: number, extra: { side?: string; block?: boolean }) => unknown; onDragChange?: (state: unknown) => unknown; spacing?: number }
