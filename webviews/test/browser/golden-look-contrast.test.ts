@@ -16,7 +16,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { belowMinimum, distinctPairs, formatPair, readContrast } from "../support/contrastWalk";
-import { knownFor } from "../support/contrastKnown";
+import { goldenKnownFor } from "../support/contrastKnown";
 import { galleryFrame, warmGalleryFrame } from "../support/galleryFrame";
 import { requireBrowserLane } from "../support/requireBrowserLane";
 
@@ -107,10 +107,10 @@ await requireBrowserLane("golden-look-contrast.test.ts", async () => {
               writeFileSync(path.join(out, `${name}.json`), JSON.stringify(lines, null, 1));
               writeFileSync(path.join(out, `${name}.png`), await page.screenshot({ fullPage: true }));
             }
-            for (const line of failing.filter((line) => knownFor(line)))
+            for (const line of failing.filter((line) => goldenKnownFor(line, look.id)))
               console.log(`golden-look-contrast KNOWN ${look.id} ${scheme} ${screen.name}: ${formatPair(line)}`);
             const unexpected = failing
-              .filter((line) => !knownFor(line))
+              .filter((line) => !goldenKnownFor(line, look.id))
               .map((line) => `${look.id} ${scheme} ${screen.name} (${look.source}): ${formatPair(line)}`);
             console.log(
               `golden-look-contrast ${look.id} ${scheme} ${screen.name}: ${lines.length} lines, ${failing.length} under the minimum, ${unexpected.length} not known`,
