@@ -5,84 +5,14 @@
 //! timestamps in epoch milliseconds, statuses and reasons as their raw words. The app writes the
 //! same JSON back when it asks a rule about a record it holds.
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::json::{self, Strict, int, present};
 
-/// A machine's status. The in-between states stay their own (cloud-machine-ops.ts
-/// `CloudMachineStatus`): a pausing machine is not paused yet, and a deleting one is not gone.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Status {
-    Provisioning,
-    Running,
-    Failed,
-    Paused,
-    Destroyed,
-    Unknown,
-    /// A Pause Machine (or the idle auto-pause) the server accepted; the provider call has not
-    /// landed yet, so the machine is not paused.
-    Pausing,
-    /// A Resume Machine the server accepted; the VM is starting again.
-    Starting,
-    /// A Kill Machine the server accepted; the VM is not gone yet.
-    Deleting,
-}
-
-impl Status {
-    pub const ALL: [Status; 9] = [
-        Status::Provisioning,
-        Status::Running,
-        Status::Failed,
-        Status::Paused,
-        Status::Destroyed,
-        Status::Unknown,
-        Status::Pausing,
-        Status::Starting,
-        Status::Deleting,
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Status::Provisioning => "provisioning",
-            Status::Running => "running",
-            Status::Failed => "failed",
-            Status::Paused => "paused",
-            Status::Destroyed => "destroyed",
-            Status::Unknown => "unknown",
-            Status::Pausing => "pausing",
-            Status::Starting => "starting",
-            Status::Deleting => "deleting",
-        }
-    }
-
-    /// The status a word names; `Unknown` for any other word.
-    pub fn from_word(word: &str) -> Status {
-        Status::ALL.into_iter().find(|status| status.as_str() == word).unwrap_or(Status::Unknown)
-    }
-
-    /// A machine whose daemon can be reached (or soon will be).
-    pub fn is_live(self) -> bool {
-        matches!(self, Status::Running | Status::Provisioning | Status::Starting)
-    }
-
-    /// A pause, resume or delete is on its way. Power actions wait until it ends.
-    pub fn is_changing(self) -> bool {
-        matches!(self, Status::Pausing | Status::Starting | Status::Deleting)
-    }
-}
-
-impl Serialize for Status {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.as_str())
-    }
-}
-
-impl<'de> Deserialize<'de> for Status {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Ok(Status::from_word(&String::deserialize(deserializer)?))
-    }
-}
+/// Shared lifecycle vocabulary. UI records may display `Unknown`; operation
+/// boundaries parse strictly before constructing a lifecycle capability.
+pub use cmux_lifeline::vm::Status;
 
 /// Why a paused machine is paused: cmux's idle auto-pause (`idle`) or a person or caller's Pause
 /// Machine (`user`).

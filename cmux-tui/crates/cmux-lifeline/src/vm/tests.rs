@@ -2,11 +2,21 @@ use super::*;
 
 #[test]
 fn vm_lifecycle_wire_rejects_unrecognized_and_missing_states() {
-    for raw in ["\"runing\"", "\"\"", "null", "42", "{}"] {
+    for raw in [
+        "\"runing\"",
+        "\"ready\"",
+        "\"attached\"",
+        "\"preclaimed\"",
+        "\"claimed\"",
+        "\"\"",
+        "null",
+        "42",
+        "{}",
+    ] {
         assert!(serde_json::from_str::<Status>(raw).is_err(), "{raw}");
     }
     assert_eq!(serde_json::from_str::<Status>("\"unknown\"").unwrap(), Status::Unknown);
-    assert_eq!(serde_json::from_str::<Status>("\"destroyed\"").unwrap(), Status::Deleted);
+    assert_eq!(serde_json::from_str::<Status>("\"destroyed\"").unwrap(), Status::Destroyed);
 }
 
 #[test]
@@ -31,4 +41,15 @@ fn vm_lifecycle_failed_provisioning_keeps_a_cleanup_capability() {
     let vm = Vm::<Unallocated, _>::new("vm-a").provision().failed();
     let deleted = vm.delete().deleted();
     assert_eq!(*deleted.payload(), "vm-a");
+}
+
+#[test]
+fn vm_lifecycle_wire_roundtrips_every_provider_state() {
+    for status in Status::ALL {
+        let raw = serde_json::to_string(&status).unwrap();
+        assert_eq!(serde_json::from_str::<Status>(&raw).unwrap(), status);
+        assert_eq!(status.as_str().parse::<Status>().unwrap(), status);
+    }
+    assert!("runing".parse::<Status>().is_err());
+    assert_eq!("deleted".parse::<Status>().unwrap(), Status::Destroyed);
 }

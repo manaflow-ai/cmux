@@ -41,24 +41,89 @@ use serde::{Deserialize, Serialize};
 
 /// The lifecycle vocabulary at the wire boundary. Unknown words are errors;
 /// `unknown` is an explicit provider observation and grants no live capability.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Pool ownership and agent readiness are local protocol states, never wire power
+/// states: neither can be granted by a provider claiming `ready` or `attached`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Provisioning,
-    Preclaimed,
-    Claimed,
     Running,
-    Ready,
-    Attached,
     Pausing,
     Paused,
     Starting,
     Stopped,
     Deleting,
-    #[serde(alias = "destroyed")]
-    Deleted,
+    #[serde(alias = "deleted")]
+    Destroyed,
     Failed,
     Unknown,
+}
+
+impl Status {
+    /// Every provider observation accepted at the lifecycle boundary.
+    pub const ALL: [Self; 10] = [
+        Self::Provisioning,
+        Self::Running,
+        Self::Failed,
+        Self::Paused,
+        Self::Destroyed,
+        Self::Unknown,
+        Self::Pausing,
+        Self::Starting,
+        Self::Deleting,
+        Self::Stopped,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Provisioning => "provisioning",
+            Self::Running => "running",
+            Self::Failed => "failed",
+            Self::Paused => "paused",
+            Self::Destroyed => "destroyed",
+            Self::Unknown => "unknown",
+            Self::Pausing => "pausing",
+            Self::Starting => "starting",
+            Self::Deleting => "deleting",
+            Self::Stopped => "stopped",
+        }
+    }
+
+    /// Compatibility for display-only records. Operation boundaries use
+    /// `parse` or serde instead, so malformed observations grant no capability.
+    pub fn from_word(word: &str) -> Self {
+        word.parse().unwrap_or(Self::Unknown)
+    }
+
+    pub fn is_live(self) -> bool {
+        matches!(self, Self::Running | Self::Provisioning | Self::Starting)
+    }
+
+    pub fn is_changing(self) -> bool {
+        matches!(self, Self::Pausing | Self::Starting | Self::Deleting)
+    }
+}
+
+/// An unrecognized provider status. The raw value is deliberately not retained.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InvalidStatus;
+
+impl std::fmt::Display for InvalidStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("unrecognized VM lifecycle state")
+    }
+}
+impl std::error::Error for InvalidStatus {}
+
+impl std::str::FromStr for Status {
+    type Err = InvalidStatus;
+
+    fn from_str(word: &str) -> Result<Self, Self::Err> {
+        if word == "deleted" {
+            return Ok(Self::Destroyed);
+        }
+        Self::ALL.into_iter().find(|status| status.as_str() == word).ok_or(InvalidStatus)
+    }
 }
 
 /// A capability for `T` in state `S`. It is neither cloneable nor deserializable:
@@ -124,6 +189,15 @@ impl<T> Vm<Unallocated, T> {
     }
 }
 
+impl<T> Vm<Running, T> {
+    /// Bind an authoritative running observation to its subject. A connected
+    /// transport may also establish this fact, but must still identify the agent
+    /// before granting readiness. This does not allocate or resume a VM.
+    pub fn observed_running(payload: T) -> Self {
+        Self { payload, state: PhantomData }
+    }
+}
+
 macro_rules! edge {
     ($from:ident, $method:ident, $to:ident, $doc:literal) => {
         impl<T> Vm<$from, T> {
@@ -185,11 +259,7 @@ fallible!(Provisioning, Preclaimed, Claimed, Running, Ready, Attached, Pausing, 
 #[derive(Debug)]
 pub enum Observed<T> {
     Provisioning(Vm<Provisioning, T>),
-    Preclaimed(Vm<Preclaimed, T>),
-    Claimed(Vm<Claimed, T>),
     Running(Vm<Running, T>),
-    Ready(Vm<Ready, T>),
-    Attached(Vm<Attached, T>),
     Pausing(Vm<Pausing, T>),
     Paused(Vm<Paused, T>),
     Starting(Vm<Starting, T>),
@@ -207,17 +277,13 @@ impl Status {
         let vm = Vm::<Unallocated, T>::new(payload);
         match self {
             Self::Provisioning => Observed::Provisioning(vm.next()),
-            Self::Preclaimed => Observed::Preclaimed(vm.next()),
-            Self::Claimed => Observed::Claimed(vm.next()),
             Self::Running => Observed::Running(vm.next()),
-            Self::Ready => Observed::Ready(vm.next()),
-            Self::Attached => Observed::Attached(vm.next()),
             Self::Pausing => Observed::Pausing(vm.next()),
             Self::Paused => Observed::Paused(vm.next()),
             Self::Starting => Observed::Starting(vm.next()),
             Self::Stopped => Observed::Stopped(vm.next()),
             Self::Deleting => Observed::Deleting(vm.next()),
-            Self::Deleted => Observed::Deleted(vm.next()),
+            Self::Destroyed => Observed::Deleted(vm.next()),
             Self::Failed => Observed::Failed(vm.next()),
             Self::Unknown => Observed::Unknown(vm.next()),
         }
