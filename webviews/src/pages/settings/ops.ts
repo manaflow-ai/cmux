@@ -45,6 +45,13 @@ export type ListRow = {
 
 export type Diagnostic = { path: string | string[]; message: string; kind?: string };
 
+/**
+ * A note at a row, not a problem (#44894): where its value comes from or why it does not draw.
+ * `setByThemeFile` and `overThemeFile` name the theme file (`themes/<name>.json`); `plainBackgrounds`
+ * marks the window background rows while Plain Backgrounds is on.
+ */
+export type RowNoteData = { path: string; kind: string; file?: string };
+
 /** `recent_fonts`: font families written lately to any font setting, newest first (RecentFonts.swift). */
 export type Domains = { themes: string[]; font_families: string[]; sounds: string[]; recent_fonts: string[] };
 
@@ -57,6 +64,8 @@ export type SnapshotResult = {
   effective: Record<string, unknown>;
   managed: Record<string, ManagedInfo>;
   diagnostics: Diagnostic[];
+  /** Row notes; absent from an older host. */
+  notes?: RowNoteData[];
   domains?: Partial<PublishedDomains> | null;
 };
 
