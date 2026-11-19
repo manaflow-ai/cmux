@@ -35,7 +35,9 @@ import {
   withDraft,
 } from "./model";
 import type { PaletteItem } from "./Palette";
-import { ChiefRoutePage, ChiefWorkPane, Palette, preloadSheets, RouteSheets, RunSheet } from "./lazySheets";
+import { lazySheets, preloadSheets } from "./lazySheets";
+
+const { ChiefRoutePage, ChiefWorkPane, Palette, RouteSheets, RunSheet } = lazySheets;
 import { backToList, conversationHash, setHash, useHashPane, useNarrow, type Pane } from "./panes";
 import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
