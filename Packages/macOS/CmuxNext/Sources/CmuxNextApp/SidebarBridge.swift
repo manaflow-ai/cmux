@@ -149,7 +149,7 @@ final class SidebarBridge {
     /// by the transport client; lane updates remain event-driven through the shared turn-state feed.
     private func bindRemoteMachines() {
         let socket = QuitAgents.environment(services)?.socketPath ?? services.agentLanes.socketPath
-        remoteMachines.bind(host: .host(socketPath: socket,
+        remoteMachines.bind(host: RemoteMachinesSidebar.host(socketPath: socket,
             displayName: { [weak services] peer in services?.machines.machineName(peer: peer) },
             open: { [weak services] lane in
                 guard let services else { return }
