@@ -26,6 +26,9 @@ final class GlassParityBackdropView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
+        // The stripes run past the column's edge; unclipped (the default since macOS 14) they painted
+        // over the next column's glass.
+        clipsToBounds = true
     }
 
     @available(*, unavailable)
