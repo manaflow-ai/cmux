@@ -135,7 +135,9 @@ function runner(one: Case, rounds: number, paced: number, batch: number) {
     const gpu = info && gl ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : "unknown";
     const state = host.glassLensState(document);
     if (!state?.drawing || state.engine !== one.engine)
-      throw new Error(`not drawing as asked: ${JSON.stringify(state)}`);
+      throw new Error(
+        `not drawing as asked: ${JSON.stringify(state)}; webgl ${gpu}, webgl2 ${!!document.createElement("canvas").getContext("webgl2")}, ${innerWidth}x${innerHeight}@${devicePixelRatio}`,
+      );
     host.glassLensDrawCost(document, 20);
     const cost: number[] = [];
     for (let round = 0; round < rounds; round++) cost.push(host.glassLensDrawCost(document, batch) ?? Number.NaN);
@@ -201,6 +203,7 @@ type Raw = {
 };
 const raws = new Map<number, Raw>();
 let groupDone: (() => void) | null = null;
+let probeDone: ((inner: { width: number; height: number }) => void) | null = null;
 const server = Bun.serve({
   port: 0,
   hostname: "127.0.0.1",
@@ -209,6 +212,16 @@ const server = Bun.serve({
     if (pathname === "/lens.js") return new Response(script, { headers: { "content-type": "text/javascript" } });
     if (pathname === "/wallpaper.jpg") return new Response(wallpaper, { headers: { "content-type": "image/jpeg" } });
     if (pathname === "/done") return new Response("<!doctype html><title>done</title>", { headers: { "content-type": "text/html" } }); // prettier-ignore
+    // The window-size probe (Chrome): the page posts its own viewport in CSS px.
+    if (pathname === "/probe" && request.method === "GET")
+      return new Response(
+        `<!doctype html><body><script>requestAnimationFrame(() => fetch("/probe", { method: "POST", body: JSON.stringify({ width: innerWidth, height: innerHeight }) }));</script></body>`,
+        { headers: { "content-type": "text/html" } },
+      );
+    if (pathname === "/probe" && request.method === "POST") {
+      probeDone?.(JSON.parse(await request.text()));
+      return new Response("ok");
+    }
     const page = /^\/case\/(\d+)$/.exec(pathname);
     if (page) {
       const one = cases[Number(page[1])];
@@ -255,6 +268,12 @@ const CHROME_ARGS = [
   "--disable-backgrounding-occluded-windows",
 ];
 const GPU_ARGS = process.platform === "darwin" ? ["--enable-gpu", "--use-angle=metal", "--ignore-gpu-blocklist"] : [];
+// Off a Mac: SwiftShader flags for a Chrome this bench starts. On a GPU-less lane VM (2026-11-19) such a Chrome still
+// made no WebGL context ("webgl unknown" in the error), so smoke-test there with BROWSER=chromium (Playwright).
+const CHROME_ONLY_ARGS =
+  process.platform === "darwin"
+    ? []
+    : ["--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"];
 
 async function chromeVersion(binary: string): Promise<string> {
   return new Promise((resolve) => {
@@ -277,16 +296,18 @@ try {
         : "google-chrome");
     if (path.isAbsolute(binary) && !fs.existsSync(binary)) throw new Error(`no Chrome at ${binary} (set CHROME=path)`);
     browserName = `${(await chromeVersion(binary)) || binary} ${CHROME_MODE}`;
-    for (const { size, cases: group } of groups) {
+    /// Starts the Chrome of one page at `url`, a window of `width` x `height` CSS px; resolves when `done` does.
+    const withChrome = async (url: string, width: number, height: number, dpr: number, done: Promise<unknown>) => {
       const profile = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "glass-engine-chrome-"));
       const args = [
         `--user-data-dir=${profile}`,
         ...CHROME_ARGS,
         ...GPU_ARGS,
+        ...CHROME_ONLY_ARGS,
         ...(CHROME_MODE === "headless" ? ["--headless=new"] : ["--new-window", "--window-position=0,0"]),
-        `--window-size=${size.width},${size.height}`,
-        `--force-device-scale-factor=${size.dpr}`,
-        `${origin}/case/${group[0]!.index}`,
+        `--window-size=${width},${height}`,
+        `--force-device-scale-factor=${dpr}`,
+        url,
       ];
       const child = spawn(binary, args, { stdio: ["ignore", "ignore", "pipe"] });
       let stderr = "";
@@ -295,7 +316,7 @@ try {
         child.on("exit", (code, signal) => reject(new Error(`Chrome exited (${code ?? signal}) mid-run\n${stderr}`))),
       );
       try {
-        await Promise.race([groupFinished(group.length), exited]);
+        await Promise.race([done, exited]);
       } finally {
         // Only the Chrome this bench started, by its pid; then the profile this bench made.
         if (child.exitCode === null && child.pid) {
@@ -305,6 +326,17 @@ try {
         }
         fs.rmSync(profile, { recursive: true, force: true });
       }
+    };
+    for (const { size, cases: group } of groups) {
+      // A window's size includes its frame (even headless), so the page is smaller than the window: a probe page
+      // reads its own viewport and the group's window grows by the difference, so the canvas is the asked size.
+      const probed = new Promise<{ width: number; height: number }>((resolve) => (probeDone = resolve));
+      await withChrome(`${origin}/probe`, size.width, size.height, size.dpr, probed);
+      const inner = await probed;
+      const width = size.width + Math.max(0, size.width - inner.width);
+      const height = size.height + Math.max(0, size.height - inner.height);
+      log(`${size.width}x${size.height}@${size.dpr}: a ${size.width}x${size.height} window shows ${inner.width}x${inner.height}; the run's window is ${width}x${height}`); // prettier-ignore
+      await withChrome(`${origin}/case/${group[0]!.index}`, width, height, size.dpr, groupFinished(group.length));
     }
   } else {
     const type = BROWSER === "webkit" ? webkit : chromium;
