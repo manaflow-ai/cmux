@@ -256,6 +256,14 @@ struct Pause {
     total: f64,
     /// The request sent to its answer: the installed build's `daemon handoff-check`.
     request: f64,
+    /// Of `request`: sent until the check's child runs.
+    dispatch: f64,
+    /// Of `request`: the check's child, from its start to its reaping.
+    check: f64,
+    /// The old image's resident MiB as the request was sent.
+    rss_mib: f64,
+    /// The check's child's nice value.
+    check_nice: f64,
     /// The answer to the exec: the old image's stop.
     stop: f64,
     /// The exec to `daemon::run` (the new image's gauges are born there).
@@ -267,11 +275,16 @@ struct Pause {
 }
 
 impl Pause {
-    const PARTS: [&'static str; 5] = ["request", "stop", "init", "start", "status"];
+    const PARTS: [&'static str; 9] =
+        ["request", "dispatch", "check", "stop", "init", "start", "status", "rss_mib", "nice"];
 
     fn part(&self, name: &str) -> f64 {
         match name {
             "request" => self.request,
+            "dispatch" => self.dispatch,
+            "check" => self.check,
+            "rss_mib" => self.rss_mib,
+            "nice" => self.check_nice,
             "stop" => self.stop,
             "init" => self.init,
             "start" => self.start,
@@ -280,26 +293,75 @@ impl Pause {
     }
 }
 
-/// The instant the pid's command line names handoff count `n` (the exec of restart `n`), read
-/// every half millisecond from a thread; None past [`BENCH_WITHIN`].
-fn exec_seen(pid: u64, n: u64) -> std::thread::JoinHandle<Option<Instant>> {
+/// What a thread saw of the daemon at `pid` during restart `n` (Linux `/proc`; all None without
+/// it).
+#[derive(Default)]
+struct Seen {
+    /// The `daemon handoff-check` child first listed under one of the daemon's threads.
+    check_from: Option<Instant>,
+    /// That child no longer listed: it ended and was reaped.
+    check_to: Option<Instant>,
+    /// The child's nice value, as it ran.
+    check_nice: Option<i64>,
+    /// The pid's command line names handoff count `n`: the exec of restart `n`.
+    exec: Option<Instant>,
+}
+
+/// The daemon's children now: every thread's `children` list.
+fn children(pid: u64) -> Vec<u64> {
+    let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return Vec::new() };
+    tasks
+        .flatten()
+        .filter_map(|task| std::fs::read_to_string(task.path().join("children")).ok())
+        .flat_map(|list| {
+            list.split_whitespace().filter_map(|c| c.parse().ok()).collect::<Vec<u64>>()
+        })
+        .collect()
+}
+
+/// [`Seen`] for restart `n`, read from a thread until the exec (at most [`BENCH_WITHIN`]).
+fn watch_restart(pid: u64, n: u64) -> std::thread::JoinHandle<Seen> {
     let want = format!("--handoff-count\0{n}\0").into_bytes();
     std::thread::spawn(move || {
+        let mut seen = Seen::default();
         // No `/proc` (macOS): the stop and the new image's init read as one part.
         if !Path::new("/proc/self/cmdline").exists() {
-            return None;
+            return seen;
         }
         let deadline = Instant::now() + BENCH_WITHIN;
         while Instant::now() < deadline {
+            if seen.check_to.is_none() {
+                let now = children(pid);
+                match (seen.check_from, now.first()) {
+                    (None, Some(child)) => {
+                        seen.check_from = Some(Instant::now());
+                        seen.check_nice = std::fs::read_to_string(format!("/proc/{child}/stat"))
+                            .ok()
+                            .and_then(|stat| {
+                                let after = stat.rsplit_once(')')?.1.to_owned();
+                                after.split_whitespace().nth(16)?.parse().ok()
+                            });
+                    }
+                    (Some(_), None) => seen.check_to = Some(Instant::now()),
+                    _ => {}
+                }
+            }
             if let Ok(argv) = std::fs::read(format!("/proc/{pid}/cmdline"))
                 && argv.windows(want.len()).any(|w| w == want)
             {
-                return Some(Instant::now());
+                seen.exec = Some(Instant::now());
+                return seen;
             }
-            std::thread::sleep(Duration::from_micros(500));
+            std::thread::sleep(Duration::from_micros(200));
         }
-        None
+        seen
     })
+}
+
+/// The resident KiB of `pid` now (`VmRSS`), on Linux.
+fn rss_kib(pid: u64) -> Option<u64> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    status.lines().find(|l| l.starts_with("VmRSS:"))?.split_whitespace().nth(1)?.parse().ok()
 }
 
 /// The new image's `daemon::run` start and its `requests ready` mark, from a status it answered
@@ -355,7 +417,8 @@ fn pauses(shape: &Shape, runs: u64) -> [Vec<Pause>; 2] {
                 std::thread::sleep(Duration::from_millis(20));
             }
         }
-        let exec = exec_seen(pid, n);
+        let watch = watch_restart(pid, n);
+        let rss = rss_kib(pid).map_or(-1.0, |kib| kib as f64 / 1024.0);
         let asked = Instant::now();
         let answer = call(dial(&socket), "_acpmux/shutdown", restart_request())
             .expect("the restart request was answered")
@@ -364,7 +427,10 @@ fn pauses(shape: &Shape, runs: u64) -> [Vec<Pause>; 2] {
         assert_eq!(answer["handoff"], true, "{} restart {n}: {answer}", shape.name);
         let status = status_after(&socket, BENCH_WITHIN, |s| s["handoffs"] == n);
         let got = Instant::now();
-        let exec = exec.join().unwrap().unwrap_or(answered);
+        let seen = watch.join().unwrap();
+        let exec = seen.exec.unwrap_or(answered);
+        let check_from = seen.check_from.unwrap_or(asked);
+        let check_to = seen.check_to.unwrap_or(check_from);
         let (born, ready) = born_and_ready(&status, got).unwrap_or((exec, got));
         // The new image's startup phases, once per series: where its start spent the time.
         if n == runs || n == runs * 2 {
@@ -376,6 +442,10 @@ fn pauses(shape: &Shape, runs: u64) -> [Vec<Pause>; 2] {
         series[usize::from(after_startup)].push(Pause {
             total: ms(asked, got),
             request: ms(asked, answered),
+            dispatch: ms(asked, check_from),
+            check: ms(check_from, check_to),
+            rss_mib: rss,
+            check_nice: seen.check_nice.map_or(-99.0, |nice| nice as f64),
             stop: ms(answered, exec),
             init: ms(exec, born),
             start: ms(born, ready),

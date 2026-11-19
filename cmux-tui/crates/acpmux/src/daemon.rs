@@ -537,6 +537,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     }
 
     let store = crate::store::open(&config.store, &home())?;
+    gauges.mark("store open");
     let mut moved_listener = false;
     // A restart's exec in place keeps the WebSocket listener too, when it is at the address this
     // start would bind; one that is not is closed and the address bound as usual.
