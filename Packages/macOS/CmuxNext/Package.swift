@@ -280,7 +280,12 @@ let appFrameworkLinkerSettings: [LinkerSetting] = [
 ] + (appLinksStatically ? [] : [
     .unsafeFlags(["-Xlinker", "-objc_stubs_small"]),
     // Release only: a Debug or `swift test` link of a test bundle keeps every symbol.
-    .unsafeFlags(["-Xlinker", "-exported_symbol", "-Xlinker", "_cmux_next_*", "-Xlinker", "-dead_strip"],
+    // A release test bundle gets these flags too (it links this target), and swiftpm-testing-helper
+    // finds the bundle's Swift Testing runner with dlsym("main"): with only `_cmux_next_*` exported
+    // it found nothing and every release suite ran 0 tests. `_mai[n]` is a pattern, so the
+    // framework, which has no `main`, links as before.
+    .unsafeFlags(["-Xlinker", "-exported_symbol", "-Xlinker", "_cmux_next_*",
+                  "-Xlinker", "-exported_symbol", "-Xlinker", "_mai[n]", "-Xlinker", "-dead_strip"],
                  .when(configuration: .release)),
 ])
 
