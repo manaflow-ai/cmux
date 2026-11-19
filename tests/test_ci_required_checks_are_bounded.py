@@ -170,10 +170,8 @@ def main() -> int:
     for path, workflow in workflows.items():
         if "pull_request" not in triggers(workflow):
             continue
-        # A group is the requirement; what it does with a superseded run is
-        # the workflow's call. repair-nightly-appcast-content-types.yml sets
-        # cancel-in-progress: false on purpose because it writes to R2, and
-        # serializing is as good an answer as cancelling.
+        # A group is the requirement; whether it cancels a superseded pull
+        # request run is checked by test_ci_pr_runs_cancel_superseded.py.
         if not workflow.get("concurrency") and path.name not in OWN_SUPERSESSION:
             failures.append(
                 f"{path.relative_to(ROOT)} runs on pull_request with no "
