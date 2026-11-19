@@ -439,8 +439,8 @@ jobs:
   # failed shots) comes back in out.tar and is never retried. Once: the retry carries attempt=1.
   again:
     name: look again
-    needs: target
-    if: ${{ !cancelled() && inputs.look_result != '' && needs.target.outputs.ok == 'true' && needs.target.outputs.tar == 'false' && inputs.attempt != '1' }}
+    needs: [target, publish]
+    if: ${{ !cancelled() && inputs.look_result != '' && needs.target.outputs.ok == 'true' && (needs.target.outputs.tar == 'false' || needs.publish.outputs.again == 'true') && inputs.attempt != '1' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     permissions:
@@ -466,6 +466,8 @@ jobs:
     name: post the look
     needs: target
     if: ${{ !cancelled() && inputs.look_result != '' && needs.target.outputs.ok == 'true' && needs.target.outputs.tar == 'true' }}
+    outputs:
+      again: ${{ steps.stage.outputs.again }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 50  # 20, plus hot-verify-ci.py's QUOTA_WAIT_SECONDS (1800) for a post out of quota
     environment: pr-media
@@ -505,12 +507,21 @@ jobs:
         env:
           PR: ${{ needs.target.outputs.pr }}
           HEAD_SHA: ${{ needs.target.outputs.head }}
+          ATTEMPT: ${{ inputs.attempt }}
         run: |
           set -euo pipefail
           out="$(python3 scripts/cmux-next/hot-verify-ci.py unpack "$RUNNER_TEMP/artifact/out.tar" "$RUNNER_TEMP/out")"
           echo "out=$out" >> "$GITHUB_OUTPUT"
+          rc=0
           python3 scripts/cmux-next/hot-verify-ci.py stage "$out" --pr "$PR" --head "$HEAD_SHA" \
-            --stage "$RUNNER_TEMP/hv/media" --text "$RUNNER_TEMP/hv/text/hv-text.txt" > "$RUNNER_TEMP/stage.out"
+            --stage "$RUNNER_TEMP/hv/media" --text "$RUNNER_TEMP/hv/text/hv-text.txt" > "$RUNNER_TEMP/stage.out" || rc=$?
+          # Exit 3: the tar has no receipt (the worker stopped first, e.g. its GitHub read ran out of quota). Once, look again.
+          if [[ "$rc" == 3 && "${ATTEMPT:-}" != 1 ]]; then
+            echo "again=true" >> "$GITHUB_OUTPUT"
+            echo "hot verify: the look's out.tar has no receipt; one more look runs" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          [[ "$rc" == 0 ]] || exit "$rc"
           if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["needs_build"] else 1)' "$RUNNER_TEMP/stage.out"; then
             echo "needs_build=true" >> "$GITHUB_OUTPUT"
             echo "hot verify: the worker's plan against the nightly says this change needs a build; no comment (the build path covers it)" | tee -a "$GITHUB_STEP_SUMMARY"

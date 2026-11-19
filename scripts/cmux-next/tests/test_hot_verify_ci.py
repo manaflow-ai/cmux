@@ -227,6 +227,18 @@ class Result(unittest.TestCase):
         self.assertIn("cmux17", str(refused.exception))
         self.assertIn("timed out after 300 seconds", str(refused.exception))
         self.assertIn("plan 300", str(refused.exception))
+        self.assertIsInstance(refused.exception, hv.NoReceipt)
+
+    def test_a_tar_with_no_receipt_exits_3_so_the_workflow_looks_again(self) -> None:
+        # Run 44455465520 (#45972): the worker's GitHub read ran out of quota, its out.tar had a step.json and no
+        # receipt, and `post the look` failed hard. Exit 3 is the retryable result; a bad marker stays exit 1.
+        out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "worker": "mini", "error": "rate limit"}).encode()})
+        argv = ["stage", str(out), "--pr", "43000", "--head", HEAD, "--stage", str(self.tmp / "m"),
+                "--text", str(self.tmp / "t.txt")]
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(hv.main(argv), 3)
+            bad = self.unpacked(look_files(marker="<!-- something else -->"))
+            self.assertEqual(hv.main(["stage", str(bad)] + argv[2:]), 1)
 
     def test_needs_build_stages_nothing(self) -> None:
         out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "needs_build": True}).encode()})
@@ -517,7 +529,8 @@ class Workflow(unittest.TestCase):
         # stopped renewing its lease, and a reserved fleet Mac's gateway runner refused 8 looks (runs
         # 43833883489, 43834069668, ...). Each lost its look for good: nothing started one again.
         block = "\n".join(self.job_block("again"))
-        self.assertIn("needs: target", block)
+        self.assertIn("needs: [target, publish]", block)
+        self.assertIn("needs.publish.outputs.again == 'true'", block)
         self.assertIn("needs.target.outputs.tar == 'false'", block)
         self.assertIn("inputs.look_result != ''", block)
         self.assertIn("inputs.attempt != '1'", block)
