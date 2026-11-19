@@ -190,10 +190,6 @@ UNWIRED: set[str] = {
     # only as text (each failing step asks cargo-locks.py explain) and lists cargo --locked wrappers. Run it by hand
     # after changing cargo-locks.py or a step that runs cargo with --locked.
     "tests/test_cargo_locks_explain.py",
-    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It reads
-    # cmux-tui-build-package.yml as data: the shipped fat-LTO legs' warm sticky disks and their
-    # restore/record calls. Run it by hand after changing those steps. Exit: as above.
-    "tests/test_ci_cmux_tui_fat_warm_target.py",
     # No new CI tests (CLAUDE.md). It reads the cmux-tui tree workflows as text: their Linux build legs install
     # Debian packages only when missing (no sudo on the owned GCP lanes, run 44363923089). Run it by hand after
     # changing an apt step there (about 0.1 s). Exit: as above.
@@ -210,6 +206,13 @@ UNWIRED: set[str] = {
     # No new CI tests (CLAUDE.md). It checks every network fetch nightly.yml's nightly-next-one job runs (curl,
     # git, urlopen) has its own bound; run it by hand after changing a step of that job or a script it runs.
     "tests/test_nightly_next_network_bounds.py",
+    # No new CI tests (CLAUDE.md). It reads nightly.yml and cmux-tui-artifacts.yml (concurrency groups, the
+    # bundle step's owner-aware wait) and runs that wait against fake runs; run it by hand after changing the wait
+    # or either workflow's tree steps.
+    "tests/test_ci_nightly_tree_wait_follows_owner.py",
+    # No new CI tests (CLAUDE.md). It reads cmux-tui-artifacts.yml: a superseded lane-branch push skips before
+    # taking a Blacksmith runner; run it by hand after changing that workflow's preflight gate.
+    "tests/test_cmux_tui_superseded_gate.py",
 }
 
 

@@ -69,6 +69,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import deadline_http  # noqa: E402  - the notes read ends by its deadline, not only each socket wait
 STABLE_CHANNEL = "cmux-next-stable"
 NIGHTLY_CHANNELS = (None, "cmux-next", STABLE_CHANNEL)
 KEEP = 3
@@ -145,15 +147,15 @@ def notes_published(source: str, build: int) -> bool:
     last = None
     for attempt in range(3):  # a transient 5xx or timeout must not fail plan (it counts toward the night's 3 failures)
         try:
-            with urllib.request.urlopen(request, timeout=30):
-                return True
+            deadline_http.request(request, 30, raise_errors=True)
+            return True
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 return False
             if error.code < 500:
                 raise Refused(f"notes/{build}.json: HTTP {error.code}") from error
             last = error
-        except (urllib.error.URLError, TimeoutError) as error:
+        except OSError as error:  # URLError, a refused connection, deadline_http.RequestTimeout
             last = error
         if attempt < 2:
             time.sleep(5 * (attempt + 1))  # backoff between HTTP retries, not synchronization

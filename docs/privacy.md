@@ -160,6 +160,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `thumb.wikimedia.org` | connects | museum art for backgrounds, when you search for art |
 | `upload.wikimedia.org` | connects | museum art for backgrounds, when you search for art |
 | `formulae.brew.sh` | connects | checks for a newer cmux CLI when installed with Homebrew |
+| `models.dev` | connects | the public model list for the model pickers, one conditional GET an hour; nothing about you is sent |
 | `www.notion.so` | connects | the Notion integration, only when an agent uses it in your signed-in browser |
 
 ### Pages the app opens when you ask
