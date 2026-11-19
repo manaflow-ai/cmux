@@ -23,7 +23,7 @@ if [ "$#" -eq 0 ]; then
 fi
 
 # The console user is the account of IOConsoleUsers' session on the console, the one rule of the fleet worker gate
-# and bench_launch.py. Not /dev/console's owner: another account's Screen Sharing session off the console (the
+# and bench_launch.py. Not the console device's owner: another account's Screen Sharing session off the console (the
 # fleet's hidden CI accounts, 2026-11-18) is not where the bench's windows draw.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 console_user="$(/usr/bin/python3 -I "$here/../../cmux-next/bench_launch.py" console-user 2>/dev/null || true)"
