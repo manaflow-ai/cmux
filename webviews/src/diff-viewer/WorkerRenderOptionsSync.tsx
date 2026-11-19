@@ -72,7 +72,7 @@ export function WorkerRenderOptionsSync({
   codeViewRef,
   highlighterOptions,
 }: {
-  codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>;
+  codeViewRef: React.MutableRefObject<CodeViewHandle<any, any> | null>;
   highlighterOptions: ReturnType<typeof workerHighlighterOptions>;
 }) {
   useWorkerRenderOptionsSync(highlighterOptions, codeViewRef);
@@ -80,7 +80,7 @@ export function WorkerRenderOptionsSync({
   return null;
 }
 
-function useDrawPlainBeforeWorkers(codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>): void {
+function useDrawPlainBeforeWorkers(codeViewRef: React.MutableRefObject<CodeViewHandle<any, any> | null>): void {
   const workerPool = useWorkerPool();
   useEffect(() => {
     if (!workerPool) {
@@ -103,7 +103,7 @@ function useDrawPlainBeforeWorkers(codeViewRef: React.MutableRefObject<CodeViewH
 
 function useWorkerRenderOptionsSync(
   highlighterOptions: ReturnType<typeof workerHighlighterOptions>,
-  codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>,
+  codeViewRef: React.MutableRefObject<CodeViewHandle<any, any> | null>,
 ): void {
   const workerPool = useWorkerPool();
   const syncedOptions = useRef<ReturnType<typeof workerHighlighterOptions> | null>(null);

@@ -14,7 +14,7 @@ import { type DiffItem } from "../diff-stream";
  * so the code view lays out the collapsed item before the scroll resolves.
  */
 export function keepStuckHeaderInView(
-  codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>,
+  codeViewRef: React.MutableRefObject<CodeViewHandle<any, any> | null>,
   collapsingItemId: string | null,
   update: () => void,
 ): void {

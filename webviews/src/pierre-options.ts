@@ -60,7 +60,10 @@ export type DrawnDiffOptions = Omit<DiffViewerOptions, "layout"> & { layout: "sp
 /** Height of a file header row; also the virtualizer's header metric. */
 export const DIFF_FILE_HEADER_HEIGHT = 38;
 
-export function codeViewOptions(options: DrawnDiffOptions, appearance: DiffViewerAppearance): CodeViewOptions<any> {
+export function codeViewOptions(
+  options: DrawnDiffOptions,
+  appearance: DiffViewerAppearance,
+): CodeViewOptions<any, any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
     itemMetrics: { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT },

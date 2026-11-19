@@ -170,7 +170,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   // This mount's host writes (viewed marks, prefs): disposed with the viewer (diff-writes.ts).
   const writes = useDiffWrites();
   const latestState = useSyncedRef(state);
-  const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
+  const codeViewRef = useRef<CodeViewHandle<any, any> | null>(null);
   const previousDraft = useRef(state.draft);
   useLayoutEffect(() => {
     // Pierre pins the gutter utility to its selection until the draft closes.
@@ -1171,7 +1171,7 @@ export function App({ config, initialStatus }: ConfigProps) {
                       />
                     );
                   }}
-                  renderAnnotation={(annotation, item) =>
+                  renderAnnotation={(annotation, _file, item) =>
                     isPreviewAnnotation(annotation) ? (
                       previewLoader ? (
                         <InlinePreview
