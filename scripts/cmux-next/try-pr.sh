@@ -329,6 +329,11 @@ for kind, paths in sorted(left.items()):
     echo "the PR head's daemon is not published yet (CI publishes a same-repo PR's cmux-tui tree after its push)"
     return 2
   fi
+  # A daemon PR that also changes web UI: patched in after the daemon (below).
+  local web=""
+  if [[ -n "$(python3 -c 'import json,sys; print("y" if json.load(sys.stdin)["left"].get("web (not published for a branch)") else "")' <<<"$planned")" ]]; then
+    web=1
+  fi
   if [[ -n "$here" ]]; then
     target="$from"
   else
