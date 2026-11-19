@@ -1389,6 +1389,49 @@ export type McpServersState = {
 /** One MCP Servers gesture; sign in and remove run only on a click. */
 export type McpServersRun = { action: "refresh" } | { action: "signin" | "remove"; name: string };
 
+/** One skill or slash command an agent loads (`cmux agent-config skills list --json`). */
+export type AgentSkillRow = {
+  agent: "claude" | "codex";
+  kind: "skill" | "command";
+  scope: "user" | "project" | "plugin" | "system" | "admin";
+  /** What the person types after `/` (Claude Code) or `$` (Codex). */
+  name: string;
+  description: string;
+  /** The SKILL.md or command file: what Edit opens. */
+  path: string;
+  /** `plugin@marketplace` for a plugin's. */
+  plugin?: string;
+  enabled: boolean;
+  /** Claude Code's `skillOverrides` value, when one is set. */
+  override?: string;
+  /** The agent's own settings file the switch writes; absent: the agent has no switch for it. */
+  switchFile?: string;
+};
+
+/** Settings > Agents > Claude Code & Codex > Skills (`SettingsAgentSkills.state`); Labs `labs.agentCustomization`. */
+export type AgentSkillsState =
+  | { enabled: false }
+  | {
+      enabled: true;
+      loading: boolean;
+      /** `unavailable`: no bundled CLI; `failed`: the list did not answer. */
+      problem: "unavailable" | "failed" | null;
+      skills: AgentSkillRow[];
+      /** Files an agent skips, in its own words. */
+      problems: Array<{ agent: "claude" | "codex"; path: string; message: string }>;
+      /** `files` (cmux read the folders) or `app-server` (Codex's own list). */
+      sources: { claude: string; codex: string } | null;
+      elapsedMs: number | null;
+      /** The CLI's refusal of the last switch ("" with no words of its own). */
+      refusal: { path: string; message: string } | null;
+    };
+
+/** One Skills gesture; on and off run only on a click. */
+export type AgentSkillsRun =
+  | { action: "refresh" }
+  | { action: "open" | "reveal"; path: string }
+  | { action: "on" | "off"; path: string; agent: "claude" | "codex" };
+
 /** One Agent integrations gesture; each runs only on a click. */
 export type IntegrationsRun = { action: "refresh" } | { action: "install" | "repair" | "remove"; id: string };
 
@@ -1594,6 +1637,10 @@ export type SettingsOps = {
   "cmux.settings.mcp.state": [Record<string, never>, McpServersState];
   /** Native: one MCP Servers gesture (`optchat-chief integrations --json signin|remove`, or a refresh). */
   "cmux.settings.mcp.run": [McpServersRun, unknown];
+  /** Native: Claude Code's and Codex's skills and slash commands (Settings > Agents, Labs `labs.agentCustomization`). */
+  "cmux.settings.agentSkills.state": [Record<string, never>, AgentSkillsState];
+  /** Native: one Skills gesture (`cmux agent-config skills on|off FILE`, open, reveal, or a refresh). */
+  "cmux.settings.agentSkills.run": [AgentSkillsRun, AgentSkillsState];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */

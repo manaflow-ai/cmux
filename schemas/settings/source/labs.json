@@ -152,6 +152,31 @@
             "theme",
             "labs"
           ]
+        },
+        {
+          "key": "labs.agentCustomization",
+          "name": "agentCustomization",
+          "note": "Settings > Agents > Claude Code & Codex: each agent's own skills and slash commands (and, as they land, MCP servers, hooks and settings) read and changed in the agent's own files through `cmux agent-config`. Off by default; off hides the card and nothing else changes. Leo 2026-11-19: the customization with Claude Code and Codex.",
+          "title": {
+            "key": "settings.labs.agentCustomization",
+            "text": "Claude Code and Codex Customization"
+          },
+          "help": {
+            "key": "settings.labs.agentCustomization.help",
+            "text": "See and change Claude Code's and Codex's own skills and commands in Settings > Agents."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "claude",
+            "codex",
+            "skills",
+            "commands",
+            "slash",
+            "customize",
+            "agents"
+          ]
         }
       ]
     }

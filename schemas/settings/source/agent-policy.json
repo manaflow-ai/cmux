@@ -40,6 +40,13 @@
     },
     {
       "agent": "settable",
+      "why": "Whether Settings shows the Claude Code & Codex card: showing it changes nothing, and every change there is the person's own click.",
+      "keys": [
+        "labs.agentCustomization"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).",
       "keys": [
         "contextMenus.showCustomizeItem"

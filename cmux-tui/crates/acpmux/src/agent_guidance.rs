@@ -208,22 +208,10 @@ fn valid_name(name: &str) -> bool {
         && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-/// `name` and `description` from a `---` frontmatter block (one line each, quotes removed).
+/// `name` and `description` from a `---` frontmatter block, read as YAML (a `description: >-`
+/// block scalar included), the one reader `cmux agent-config skills` uses too.
 pub(crate) fn frontmatter(text: &str) -> Option<(String, String)> {
-    let body = text.strip_prefix("---\n").or_else(|| text.strip_prefix("---\r\n"))?;
-    let (block, _) = body.split_once("\n---")?;
-    let field = |key: &str| {
-        block.lines().find_map(|line| {
-            let value = line.strip_prefix(key)?.strip_prefix(':')?.trim();
-            let value = value
-                .strip_prefix('"')
-                .and_then(|v| v.strip_suffix('"'))
-                .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
-                .unwrap_or(value);
-            (!value.is_empty()).then(|| value.to_owned())
-        })
-    };
-    Some((field("name")?, field("description")?))
+    cmux_agent_customize::frontmatter::name_and_description(text)
 }
 
 /// The first-turn guidance for a session of `family`, or `None` when nothing is on.

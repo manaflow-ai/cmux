@@ -67,6 +67,8 @@ import {
   type AgentToolsCardRun,
   type AgentToolsCardState,
   type IntegrationsState,
+  type AgentSkillsRun,
+  type AgentSkillsState,
   type McpServersRun,
   type McpServersState,
   type ListRow,
@@ -794,6 +796,18 @@ export class SettingsStore {
   async runMcpServers(run: McpServersRun): Promise<McpServersState | null> {
     await this.request("cmux.settings.mcp.run", run);
     return this.mcpServersState();
+  }
+
+  /** Settings > Agents > Claude Code & Codex > Skills; null when the host has none. */
+  async agentSkillsState(): Promise<AgentSkillsState | null> {
+    const reply = await this.request("cmux.settings.agentSkills.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Skills gesture, then the card as it is after it (null: the host has none). */
+  async runAgentSkills(run: AgentSkillsRun): Promise<AgentSkillsState | null> {
+    const reply = await this.request("cmux.settings.agentSkills.run", run);
+    return reply.ok ? reply.value : this.agentSkillsState();
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */

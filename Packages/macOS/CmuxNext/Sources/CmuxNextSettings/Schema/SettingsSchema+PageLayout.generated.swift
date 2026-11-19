@@ -25,6 +25,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case agentIntegrations
         /// Settings > Agents > Agents on This Mac: each coding agent and whether it gets cmux's MCP server when cmux starts it (`cmux setup mcp`, which writes nothing), with Turn On, an old cmux entry in its own config with Remove (the person's click only), and the manual lines for agents started elsewhere, right under the agents.cmuxMcp choice row (the onboarding step's question); `cmux.settings.agentTools.*`.
         case agentTools
+        /// Settings > Agents > Claude Code & Codex > Skills (Labs labs.agentCustomization; drawn only while it is on): every skill and slash command Claude Code and Codex load, per agent and scope, with name, description and file; Edit opens the SKILL.md in cmux's editor, the switch turns a skill on or off in the agent's own settings (`cmux agent-config skills --json`); `cmux.settings.agentSkills.*`.
+        case agentSkills
         case chiefs
         case advancedInfo
         case advancedActions

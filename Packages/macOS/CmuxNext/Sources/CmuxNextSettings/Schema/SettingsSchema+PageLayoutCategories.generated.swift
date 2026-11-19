@@ -196,7 +196,7 @@ extension SettingsPageLayout {
             // Whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP server, Computer Use included (the onboarding step's question); the agentTools card under it lists the agents with Turn On.
             GroupSpec(group: "settings.group.agentTools"),
         ],
-        trail: [.agentTools, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
+        trail: [.agentTools, .agentSkills, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
     )
 
     /// Every Computer Use setting on one page (Aziz 2026-11-05: "all CU settings in their own Settings tab"): the Computer Use card draws the status (engine, permissions, worker), the mode, the denied apps, the saved approvals and the switches from the `settings.group.computerUse` rows; the page does not draw that group a second time.
