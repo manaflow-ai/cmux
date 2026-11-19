@@ -57,12 +57,28 @@ public final class MobileHostPairedStore: Sendable {
     /// in memory (``State/memoryOnly``). Until then no phone is trusted and none is asked about.
     public static let sealWaits: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15)]
     private let clock: any Clock<Duration>
-    /// The seal of the list in an account folder whose parent is named for the bundle id.
-    private let seal: @Sendable (_ bundleID: String) -> any MobileHostPairingSealStore
+    /// The seal of the list, by its name (``sealName(bundleID:storageNamespace:)``).
+    private let seal: @Sendable (_ name: String) -> any MobileHostPairingSealStore
     /// The app's store: each account folder's list sealed in the Keychain behind the app's one `loginKeychain`.
     public init(loginKeychain: LoginKeychain) {
         seal = { MobileHostKeychainPairingSeal(bundleID: $0, loginKeychain: loginKeychain) }
         clock = ContinuousClock()
+    }
+    /// A store whose seals `named` makes (tests: which name each list is sealed under).
+    init(named: @escaping @Sendable (_ name: String) -> any MobileHostPairingSealStore, clock: any Clock<Duration> = ContinuousClock()) {
+        seal = named
+        self.clock = clock
+    }
+
+    /// The name a build's list is sealed under: its bundle id, and with a runtime storage namespace (a dev
+    /// build's Cloud backend, ``CloudRuntimeSelection``) that namespace too. The namespace folder sits
+    /// between the bundle's folder and the state folder, and every build on one backend has the same one,
+    /// so a seal named for the folder above the state folder was one login-Keychain item for all of them:
+    /// the build that made it owned it, and every other build's save got `errSecInvalidOwnerEdit`, so its
+    /// paired phones were not kept across a relaunch (2026-11-18, review.sh on a real iPhone).
+    public static func sealName(bundleID: String, storageNamespace: String?) -> String {
+        guard let storageNamespace, !storageNamespace.isEmpty else { return bundleID }
+        return "\(bundleID).\(storageNamespace)"
     }
     /// A store whose list is sealed by `seal` (tests), waiting on `clock` for a refused seal.
     public init(seal: any MobileHostPairingSealStore, clock: any Clock<Duration> = ContinuousClock()) {
@@ -142,13 +158,14 @@ public final class MobileHostPairedStore: Sendable {
     ///   - cutOffSettled: Told once a cut-off save's fact is safe without that record.
     /// - Returns: The directory's one list file: every read and save of the list, from any transport, runs on its queue.
     @discardableResult
-    public func configure(directory: URL, lastQuitCutOff: @escaping @Sendable () -> Bool = { false },
+    public func configure(directory: URL, sealName: String? = nil, lastQuitCutOff: @escaping @Sendable () -> Bool = { false },
                           cutOffSettled: @escaping @Sendable () -> Void = {}) -> MobileHostPairedDevicesFile {
         state.withLock { state in
             if let file = state.file { return file }
             do {
-                let bundleID = directory.deletingLastPathComponent().lastPathComponent
-                let file = MobileHostPairedDevicesFile(directory: directory, seal: seal(bundleID),
+                // Without a name: the folder above the state folder, the bundle's own when it has no namespace.
+                let name = sealName ?? directory.deletingLastPathComponent().lastPathComponent
+                let file = MobileHostPairedDevicesFile(directory: directory, seal: seal(name),
                                                        lastQuitCutOff: lastQuitCutOff, cutOffSettled: cutOffSettled)
                 state.file = file
                 for user in state.forgotten { file.saveInBackground(MobileHostPairedDevices(userID: user)) }

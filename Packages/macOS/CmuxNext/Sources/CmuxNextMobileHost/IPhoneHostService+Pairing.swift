@@ -30,7 +30,7 @@ extension IPhoneHostService {
     /// The store's one list file for `directory`, wired to the last quit's record and watched by the quit deadline.
     func configurePairedFile(_ directory: URL) {
         let record = pairedQuitRecord
-        let file = pairedStore.configure(directory: directory, lastQuitCutOff: { record?.lastQuitCutOffPairedPhones() ?? false },
+        let file = pairedStore.configure(directory: directory, sealName: dependencies?.pairingSealName, lastQuitCutOff: { record?.lastQuitCutOffPairedPhones() ?? false },
                                          cutOffSettled: { record?.pairedCutOffSettled() })
         guard pairedFile !== file else { return }
         pairedFile = file

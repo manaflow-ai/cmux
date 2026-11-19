@@ -46,6 +46,8 @@ public final class IPhoneHostService {
         var stackProjectID: String
         /// Per-bundle state (device id, hostd log).
         var stateDirectory: URL
+        /// The name the paired list is sealed under (``MobileHostPairedStore/sealName(bundleID:storageNamespace:)``).
+        var pairingSealName: String?
         var accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
         /// The app's own cmux-tui daemon socket.
         var daemonSocket: @MainActor () async throws -> String
