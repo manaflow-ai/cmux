@@ -16,17 +16,19 @@
 import "../shared/desktop";
 import "../shared/transientMaterial";
 import "../../ui/popupSurface.css";
+import "../../ui/notice.css";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import {
   HOST_GLASS_ENGINES_ATTRIBUTE,
   HOST_GLASS_ROLE_ATTRIBUTE,
   reportHostGlass,
   type HostGlassLevel,
+  type HostGlassRole,
 } from "../../ui/glass/hostGlass";
 import "./styles.css";
 
 /** The surfaces the playground compares, as the App names them (GlassParityKind.swift). */
-export type ParityKind = "menu" | "card" | "tooltip" | "dialog";
+export type ParityKind = "menu" | "popover" | "card" | "tooltip" | "dialog" | "toast";
 
 export type ParityCell = {
   id: string;
@@ -51,28 +53,37 @@ export const GlassParityOps = {
 /** The host glass level each surface draws on (hostGlass.ts levels). */
 export const PARITY_LEVEL: Record<ParityKind, HostGlassLevel> = {
   menu: "menu",
+  popover: "popover",
   card: "popover",
   tooltip: "chip",
   dialog: "popover",
+  toast: "popover",
 };
+
+/** The native role a surface's glass is when it is not its level's own (hostGlass.ts
+ * HOST_GLASS_ROLE_ATTRIBUTE): a dialog's is the native dialog card's (CmuxDialogCardSurface, `sheet`), a
+ * toast's the native toast's. */
+export const PARITY_ROLE: Partial<Record<ParityKind, HostGlassRole>> = { dialog: "sheet", toast: "toast" };
 
 /** The web UI's own classes for each surface: the same rules the shipped popups, cards, tooltips and
  * dialogs get, nothing of this page's. */
 export const PARITY_CLASS: Record<ParityKind, string> = {
   menu: "ui-popup ui-menu ui-glass",
-  card: "ui-card ui-glass",
+  popover: "ui-popup ui-glass ui-popover",
+  card: "ui-tooltip ui-card ui-glass",
   tooltip: "ui-tooltip",
   dialog: "ui-dialog ui-glass ui-glass-floats",
+  toast: "ui-notice ui-glass",
 };
 
 /** The layout outside the app: one of each surface, on the page's own glass. */
 export const PARITY_FIXTURE: ParityLayout = {
   mode: "css",
-  cells: (["menu", "card", "tooltip", "dialog"] as const).map((kind, index) => ({
+  cells: (["menu", "popover", "card", "tooltip", "dialog", "toast"] as const).map((kind, index) => ({
     id: kind,
     kind,
-    left: 24,
-    top: 24 + index * 120,
+    left: 24 + (index % 2) * 300,
+    top: 24 + Math.floor(index / 2) * 120,
     width: 240,
     height: 72,
     radius: kind === "tooltip" ? 6 : 12,
@@ -89,8 +100,8 @@ export function paritySurface(doc: Document, cell: ParityCell, mode: ParityLayou
   surface.dataset.parityKind = cell.kind;
   if (mode === "host") {
     surface.setAttribute("data-host-glass", PARITY_LEVEL[cell.kind]);
-    // A dialog's glass is the native dialog card's neutral glass (CmuxDialogCardSurface: `.sheet`).
-    if (cell.kind === "dialog") surface.setAttribute(HOST_GLASS_ROLE_ATTRIBUTE, "sheet");
+    const role = PARITY_ROLE[cell.kind];
+    if (role) surface.setAttribute(HOST_GLASS_ROLE_ATTRIBUTE, role);
   }
   surface.style.left = `${cell.left}px`;
   surface.style.top = `${cell.top}px`;

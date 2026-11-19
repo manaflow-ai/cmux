@@ -4,57 +4,81 @@ import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextSettings
 import CmuxNextWakeups
-import ImageIO
 
 /// Debug: Liquid Glass Parity (`debug.glass_parity`, DEV and NIGHTLY; Lawrence 2026-11-18: "make liquid
 /// glass in web UI pixel perfect with macos liquid glass, it needs to handle like the transparent webview
-/// bgs we have, make same thing in both swift and web and we need it to match perfectly").
+/// bgs we have, make same thing in both swift and web and we need it to match perfectly", then "make sure
+/// we overlay on top of each other and do pixel matching stuff so we are 100% matching liquid glass in
+/// every single scenario").
 ///
-/// One window, one backdrop under all of it, and every glass surface the web UI draws, three times side
-/// by side over the same backdrop pixels: natively (the App's own surface of that role, as its native
-/// menus, hover cards, tooltips and dialogs draw it), in a see-through WebKit page and in a see-through
-/// Chromium page of the real web UI (webviews/src/pages/glass-parity: glass.css, popupSurface.css and
-/// the tooltip surface, nothing of its own). The page draws in one of two modes:
+/// One window, one backdrop, and every glass surface the web UI draws, rendered three times **on top of
+/// each other at the same boxes**: natively (the App's own surface of that role, as its native menus,
+/// popovers, hover cards, tooltips, dialog cards and toasts draw it), in a see-through WebKit page and in a
+/// see-through Chromium page of the real web UI (webviews/src/pages/glass-parity: glass.css,
+/// popupSurface.css, notice.css and the tooltip surface, nothing of its own). One renderer shows at a time
+/// (``solo(_:)``), so each capture has the same window, frame, screen position and backdrop pixels, and
+/// only the glass differs. The page draws in one of two modes:
 ///
 /// - `host`: the App's own glass under the page at each surface's box (host glass, as the agent pane
-///   draws its menus and popovers: ``Glass/hostGlassRole(_:)`` at ``Glass/hostTintLevel(_:)``), and the page lays only the veil and
-///   the content on it. The material is then the native one, so this is the path that can match.
+///   draws its menus and popovers: ``Glass/hostGlassRole(_:)`` or the role the surface names, at
+///   ``Glass/hostTintLevel(_:)``), and the page lays only the veil and the content on it.
 /// - `css`: the page's own glass alone, what a web surface shows without the App's glass under it.
 ///
-/// Backdrops (``Backdrop``): the plain window color, a detailed wallpaper, an opaque terminal, a
-/// terminal at 0.6 opacity over the wallpaper (cmux's terminal transparency over a custom background),
-/// and a photo (the Mac's own desktop picture, else the wallpaper). Each column draws the backdrop in its
-/// own coordinates, so the pixels under a surface are the same in every column and a pixel diff of one
-/// cell against its native neighbor measures the glass and nothing else.
-///
-/// `measure` captures the window as the window server composites it (the App's `debug.window_snapshot`,
-/// handed in as `capture`: the WebKit page in place, Chromium's own image of its page over the App's
-/// glass) and answers each web surface's ``GlassParityDiff`` against the native one, with and without its
-/// text. The capture's decoding, cropping, diffing and writing run off the main actor.
+/// A scenario (``Scenario``) is the backdrop (the plain window color, a custom color, a detailed
+/// wallpaper, a terminal at any background opacity over the wallpaper, the Mac's desktop picture), its
+/// offset (the backdrop moved under the glass), the window active or not, and the mode; appearance,
+/// backing scale and Reduce Transparency come from the App (`debug.appearance`, the screen, and
+/// `debug.reduce_transparency`). `measure` captures each renderer through `capture` (the App's
+/// `debug.window_snapshot`) and writes, per surface, each renderer's crop, the onion skin (web over
+/// native at half opacity) and the difference, with ``GlassParityDiff`` numbers (+Measure.swift).
 @MainActor
 public final class GlassParityPlayground {
     nonisolated enum Kind: String, CaseIterable, Sendable {
-        case menu, card, tooltip, dialog
+        case menu, popover, card, tooltip, dialog, toast
     }
 
     nonisolated enum Backdrop: String, CaseIterable, Sendable {
-        case plain, wallpaper, terminal
-        case terminalTranslucent = "terminal-translucent"
-        case image
+        case plain, color, wallpaper, terminal, image
     }
 
     nonisolated enum Mode: String, CaseIterable, Sendable {
         case host, css
     }
 
+    /// The renderers stacked on the stage.
     nonisolated enum Column: String, CaseIterable, Sendable {
         case native, webkit, chromium
     }
 
+    /// Everything a capture depends on that the playground sets itself.
+    nonisolated struct Scenario: Equatable, Sendable {
+        var backdrop: Backdrop = .wallpaper
+        var mode: Mode = .host
+        /// The custom background color of `color` (0xRRGGBB).
+        var color: UInt32 = 0x2D6CDF
+        /// The terminal's background opacity (`terminal`: below 1 the wallpaper shows through it).
+        var opacity: CGFloat = 1
+        /// How far the backdrop moved under the glass (points, down and right).
+        var offset: CGFloat = 0
+        /// The window key and its app active, else inactive.
+        var active = true
+
+        var stem: String {
+            var parts = [backdrop.rawValue]
+            if backdrop == .color { parts.append(String(format: "%06x", color)) }
+            if backdrop == .terminal { parts.append("o\(Int((opacity * 100).rounded()))") }
+            if offset != 0 { parts.append("s\(Int(offset.rounded()))") }
+            parts.append(mode.rawValue)
+            parts.append(active ? "active" : "inactive")
+            return parts.joined(separator: "-")
+        }
+    }
+
     // MARK: Geometry (points; the pages run at zoom 1, so CSS px are points)
 
-    static let columnWidth: CGFloat = 300
+    static let cellWidth: CGFloat = 300
     static let rowHeight: CGFloat = 116
+    static let gridColumns = 2
     static let surfaceOrigin = CGPoint(x: 30, y: 22)
     /// The content box inside a surface where its text draws (left out of the material diff).
     static let textInset = NSEdgeInsets(top: 8, left: 10, bottom: 0, right: 10)
@@ -70,40 +94,47 @@ public final class GlassParityPlayground {
     static func radius(_ kind: Kind) -> CGFloat {
         switch kind {
         case .menu: GlassMenuMaterial.cornerRadius
-        case .card: Metrics.panelCornerRadius
+        case .popover, .card: Metrics.panelCornerRadius
         case .tooltip: 6
         case .dialog: 16
+        case .toast: Metrics.surfaceCornerRadius
         }
     }
 
-    /// A surface's box in its column (flipped, top-left origin).
+    /// A surface's box on the stage (flipped, top-left origin): the surfaces in a grid of
+    /// ``gridColumns``, every renderer's at the same box.
     static func surfaceRect(_ kind: Kind) -> CGRect {
-        let row = CGFloat(Kind.allCases.firstIndex(of: kind) ?? 0)
-        return CGRect(origin: CGPoint(x: surfaceOrigin.x, y: surfaceOrigin.y + row * rowHeight), size: surfaceSize(kind))
+        let index = Kind.allCases.firstIndex(of: kind) ?? 0
+        let column = CGFloat(index % gridColumns), row = CGFloat(index / gridColumns)
+        return CGRect(origin: CGPoint(x: column * cellWidth + surfaceOrigin.x, y: row * rowHeight + surfaceOrigin.y),
+                      size: surfaceSize(kind))
     }
 
     static var contentSize: CGSize {
-        CGSize(width: columnWidth * CGFloat(Column.allCases.count), height: rowHeight * CGFloat(Kind.allCases.count))
+        let rows = (Kind.allCases.count + gridColumns - 1) / gridColumns
+        return CGSize(width: cellWidth * CGFloat(gridColumns), height: rowHeight * CGFloat(rows))
     }
 
     static func title(_ kind: Kind) -> String { "Liquid Glass" }
     static func detail(_ kind: Kind) -> String {
         switch kind {
         case .menu: "Menu"
+        case .popover: "Popover"
         case .card: "Hover card"
         case .tooltip: "Tooltip"
         case .dialog: "Dialog"
+        case .toast: "Toast"
         }
     }
 
     // MARK: State
 
     private(set) var window: NSWindow?
-    private(set) var backdrop: Backdrop = .wallpaper
-    private(set) var mode: Mode = .host
-    private var pages: [Column: PageWebView] = [:]
-    private var hosts: [Column: GlassParityHostLayer] = [:]
-    private var backdrops: [GlassParityBackdropView] = []
+    private(set) var scenario = Scenario()
+    var pages: [Column: PageWebView] = [:]
+    var hosts: [Column: GlassParityHostLayer] = [:]
+    private var backdropView: GlassParityBackdropView?
+    private var nativeLayer: NSView?
     private var ready: Set<Column> = []
     /// The Mac's desktop picture for the `image` backdrop, read off the main actor once.
     private var picture: NSImage?
@@ -127,7 +158,7 @@ public final class GlassParityPlayground {
                 "title": .string(Self.title(kind)), "detail": .string(Self.detail(kind)),
             ]
         }
-        return ["mode": .string(mode.rawValue), "cells": .array(cells)]
+        return ["mode": .string(scenario.mode.rawValue), "cells": .array(cells)]
     }
 
     /// A page's report of its surfaces' boxes (host mode): the App's glass goes there.
@@ -164,23 +195,25 @@ public final class GlassParityPlayground {
 
     // MARK: Open and configure
 
-    /// Opens the playground (or reconfigures it) on `backdrop` in `mode`, on a screen of backing `scale`
-    /// when one is attached, and waits until both pages painted (and, in host mode, the App drew their
-    /// glass). Answers what it shows.
-    func show(backdrop: Backdrop, mode: Mode, scale: CGFloat?) async -> JSONValue {
-        let reload = window == nil || mode != self.mode
-        self.backdrop = backdrop
-        self.mode = mode
+    /// Opens the playground (or reconfigures it) for `scenario`, on a screen of backing `scale` when one
+    /// is attached, and waits until both pages painted (and, in host mode, the App drew their glass).
+    /// Answers what it shows.
+    func show(_ scenario: Scenario, scale: CGFloat?) async -> JSONValue {
+        let reload = window == nil || scenario.mode != self.scenario.mode
+        self.scenario = scenario
         let window = window ?? makeWindow()
         self.window = window
         if let scale { place(window, scale: scale) }
-        if backdrop == .image, !pictureRead {
+        if scenario.backdrop == .image, !pictureRead {
             pictureRead = true
             picture = await Self.readDesktopPicture().flatMap(NSImage.init(data:))
         }
-        for view in backdrops {
-            view.backdrop = backdrop
+        if let view = backdropView {
+            view.backdrop = scenario.backdrop
             view.picture = picture
+            view.color = scenario.color
+            view.terminalOpacity = scenario.opacity
+            view.offset = scenario.offset
             view.needsDisplay = true
         }
         if reload {
@@ -188,14 +221,37 @@ public final class GlassParityPlayground {
             for host in hosts.values { host.apply([]) }
             for page in pages.values { page.reload() }
         }
-        window.orderFrontRegardless()
+        // Every page loads and reports while shown; the capture solos one renderer at a time after.
+        solo(nil)
+        if scenario.active {
+            NSApp.activate()
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            NSApp.deactivate()
+            window.orderFrontRegardless()
+        }
         await wait(until: { self.ready.count >= self.pages.count }, limit: .seconds(15))
-        if mode == .host {
+        if scenario.mode == .host {
             await wait(until: { !self.hosts.values.contains { $0.count < Kind.allCases.count } }, limit: .seconds(4))
         }
-        // Liquid Glass settles its adaptive look over a new backdrop over a few frames.
-        await wait(until: { false }, limit: .milliseconds(700))
+        await settle()
         return status()
+    }
+
+    /// Shows only `column`'s renderer (nil: all of them), so a capture holds one renderer over the backdrop.
+    func solo(_ column: Column?) {
+        nativeLayer?.isHidden = column != nil && column != .native
+        for (renderer, page) in pages {
+            let hidden = column != nil && column != renderer
+            page.isHidden = hidden
+            hosts[renderer]?.isHidden = hidden
+        }
+    }
+
+    /// Liquid Glass settles its adaptive look over a new backdrop, and a page shown again paints, over a
+    /// few frames.
+    func settle() async {
+        await wait(until: { false }, limit: .milliseconds(700))
     }
 
     func status() -> JSONValue {
@@ -205,14 +261,21 @@ public final class GlassParityPlayground {
         var drawn: [String: JSONValue] = [:]
         for (column, host) in hosts { drawn[column.rawValue] = .number(Double(host.count)) }
         return [
-            "open": true, "window": .number(Double(window.windowNumber)),
-            "scale": .number(window.backingScaleFactor), "backdrop": .string(backdrop.rawValue), "mode": .string(mode.rawValue),
-            "appearance": .string(window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? "dark" : "light"),
+            "open": true, "window": .number(Double(window.windowNumber)), "stem": .string(scenario.stem),
+            "scale": .number(window.backingScaleFactor), "backdrop": .string(scenario.backdrop.rawValue),
+            "mode": .string(scenario.mode.rawValue), "key": .bool(window.isKeyWindow), "app_active": .bool(NSApp.isActive),
+            "appearance": .string(appearance),
+            "reduce_transparency": .bool(ReduceTransparency.shared.isEnabled),
+            "increase_contrast": .bool(NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast),
             "engines": .object(engines), "host_glass": .object(drawn),
             "ready": .array(ready.map { .string($0.rawValue) }.sorted { ($0.stringValue ?? "") < ($1.stringValue ?? "") }),
             "liquid_glass": .bool(Glass.isLiquidGlassAvailable),
             "desktop_picture": .bool(picture != nil),
         ]
+    }
+
+    var appearance: String {
+        window?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? "dark" : "light"
     }
 
     func close() {
@@ -221,7 +284,8 @@ public final class GlassParityPlayground {
         window = nil
         pages = [:]
         hosts = [:]
-        backdrops = []
+        backdropView = nil
+        nativeLayer = nil
         ready = []
     }
 
@@ -253,55 +317,54 @@ public final class GlassParityPlayground {
 
     private func makeWindow() -> NSWindow {
         let size = Self.contentSize
-        let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable],
-                              backing: .buffered, defer: false)
+        let stage = CGRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: stage, styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "Liquid Glass Parity"
         window.isReleasedWhenClosed = false
         window.setAccessibilityIdentifier("cmux.glassParity")
-        let root = GlassParityFlippedView(frame: CGRect(origin: .zero, size: size))
-        // Layer-backed, so every column's backdrop draws into its own layer: in window-backing drawing
-        // AppKit skipped the backdrops under the web views (opaque to it), and the glass sampled nothing.
+        let root = GlassParityFlippedView(frame: stage)
+        // Layer-backed, so the backdrop draws into its own layer under the web views (in window-backing
+        // drawing AppKit skipped it under them, opaque to it, and the glass sampled nothing).
         root.wantsLayer = true
         window.contentView = root
-        for (index, column) in Column.allCases.enumerated() {
-            let frame = CGRect(x: CGFloat(index) * Self.columnWidth, y: 0, width: Self.columnWidth, height: size.height)
-            let backdrop = GlassParityBackdropView(frame: frame)
-            backdrop.backdrop = self.backdrop
-            root.addSubview(backdrop)
-            backdrops.append(backdrop)
-            switch column {
-            case .native:
-                for kind in Kind.allCases { root.addSubview(nativeSurface(kind, in: frame)) }
-            case .webkit, .chromium:
-                let host = GlassParityHostLayer(frame: frame)
-                root.addSubview(host)
-                hosts[column] = host
-                let provider = GlassParityProvider(playground: self, column: column)
-                let options = column == .webkit ? PageEngineOptions(requiresWebKit: .transparentOverlay) : .standard
-                guard let page = PageWebView(descriptor: .glassParity,
-                                             routes: [PageRoute(prefix: "cmux.glass_parity.", provider: provider)],
-                                             options: options) else { continue }
-                page.followsUIScale = false
-                page.frame = frame
-                root.addSubview(page)
-                pages[column] = page
-            }
+        let backdrop = GlassParityBackdropView(frame: stage)
+        backdrop.autoresizingMask = [.width, .height]
+        root.addSubview(backdrop)
+        backdropView = backdrop
+        let native = GlassParityFlippedView(frame: stage)
+        native.wantsLayer = true
+        for kind in Kind.allCases { native.addSubview(nativeSurface(kind)) }
+        root.addSubview(native)
+        nativeLayer = native
+        for column in [Column.webkit, .chromium] {
+            let host = GlassParityHostLayer(frame: stage)
+            root.addSubview(host)
+            hosts[column] = host
+            let provider = GlassParityProvider(playground: self, column: column)
+            let options = column == .webkit ? PageEngineOptions(requiresWebKit: .transparentOverlay) : .standard
+            guard let page = PageWebView(descriptor: .glassParity, routes: [PageRoute(prefix: "cmux.glass_parity.", provider: provider)],
+                                         options: options) else { continue }
+            page.followsUIScale = false
+            page.frame = stage
+            root.addSubview(page)
+            pages[column] = page
         }
         window.center()
         return window
     }
 
     /// The App's own surface for `kind`, as its native UI draws that role, with the same text.
-    private func nativeSurface(_ kind: Kind, in column: CGRect) -> NSView {
+    private func nativeSurface(_ kind: Kind) -> NSView {
         let radius = Self.radius(kind)
         let surface: OverlaySurfaceView = switch kind {
         case .menu: Glass.makeMenuPanel(cornerRadius: radius, interactive: false)
-        case .card: Glass.makeSurface(.popover, cornerRadius: radius, interactive: false)
+        case .popover, .card: Glass.makeSurface(.popover, cornerRadius: radius, interactive: false)
         case .tooltip: Glass.makeSurface(.tooltip, cornerRadius: radius, interactive: false)
         case .dialog: Glass.makeSurface(.sheet, cornerRadius: radius, interactive: false)
+        case .toast: Glass.makeSurface(.toast, cornerRadius: radius, interactive: false)
         }
         surface.translatesAutoresizingMaskIntoConstraints = true
-        surface.frame = Self.surfaceRect(kind).offsetBy(dx: column.minX, dy: column.minY)
+        surface.frame = Self.surfaceRect(kind)
         // Pinned to the content view: it is laid out later, and autoresizing from its empty first frame
         // pushed the labels out of the surface.
         let text = GlassParityTextView(frame: CGRect(origin: .zero, size: surface.frame.size), title: Self.title(kind), detail: Self.detail(kind))
@@ -314,132 +377,6 @@ public final class GlassParityPlayground {
             text.bottomAnchor.constraint(equalTo: surface.contentView.bottomAnchor),
         ])
         return surface
-    }
-
-    // MARK: Measure
-
-    /// One surface's boxes in the capture's pixels: the cell (the surface and a margin, so its shadow and
-    /// rim are in the diff) in each column, and its text inside the cell.
-    nonisolated struct CellBoxes: Sendable {
-        var kind: String
-        var columns: [(column: String, box: CGRect)]
-        var text: CGRect
-    }
-
-    /// Captures the window into `directory` through `capture` (`debug.window_snapshot` params: the window
-    /// and a PNG path) and answers each web surface's diff against its native neighbor, with its text
-    /// (`full`) and without (`material`), and writes every cell and its heat map beside the capture.
-    public func measure(into directory: URL, capture: ([String: JSONValue]) async -> JSONValue) async -> JSONValue {
-        guard let window, let content = window.contentView else { return ["error": "the playground is not open"] }
-        let appearance = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? "dark" : "light"
-        let scale = window.backingScaleFactor
-        let stem = "\(backdrop.rawValue)-\(mode.rawValue)-\(appearance)-\(Int(scale))x"
-        let png = directory.appending(path: "window-\(stem).png", directoryHint: .notDirectory)
-        await Task.detached(priority: .utility) { try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true) }.value
-        let snapshot = await capture(["window": .string(String(window.windowNumber)), "path": .string(png.path)])
-        // The capture is the window's frame at its backing scale, title bar on top, no shadow.
-        let contentInWindow = content.convert(content.bounds, to: nil)
-        let contentTop = (window.frame.height - contentInWindow.maxY) * scale
-        func pixelBox(_ rect: CGRect) -> CGRect {
-            CGRect(x: rect.minX * scale, y: contentTop + rect.minY * scale, width: rect.width * scale, height: rect.height * scale)
-        }
-        let cells = Kind.allCases.map { kind -> CellBoxes in
-            let surface = Self.surfaceRect(kind)
-            let box = surface.insetBy(dx: -8, dy: -8)
-            let text = CGRect(x: (surface.minX - box.minX + Self.textInset.left) * scale,
-                              y: (surface.minY - box.minY + Self.textInset.top) * scale,
-                              width: (surface.width - Self.textInset.left - Self.textInset.right) * scale,
-                              height: Self.textHeight * scale)
-            let columns = Column.allCases.enumerated().map { index, column in
-                (column.rawValue, pixelBox(box.offsetBy(dx: CGFloat(index) * Self.columnWidth, dy: 0)))
-            }
-            return CellBoxes(kind: kind.rawValue, columns: columns, text: text)
-        }
-        let expectedWidth = Int((window.frame.width * scale).rounded())
-        let report = await Task.detached(priority: .utility) { Self.diffCells(png: png, directory: directory, stem: stem, cells: cells,
-                                                          expectedWidth: expectedWidth) }.value
-        var reply = report
-        if case .object(var members) = reply {
-            members["status"] = status()
-            members["snapshot"] = snapshot
-            reply = .object(members)
-        }
-        return reply
-    }
-
-    /// Reads the capture at `png`, crops every cell, writes the crops and heat maps, and diffs each web
-    /// column against the native one (off the main actor).
-    nonisolated static func diffCells(png: URL, directory: URL, stem: String, cells: [CellBoxes], expectedWidth: Int) -> JSONValue {
-        guard let source = CGImageSourceCreateWithURL(png as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return ["error": "no capture"] }
-        var out: [String: JSONValue] = [:]
-        var worst: Double = 0
-        var passes = true
-        for cell in cells {
-            var crops: [String: (bytes: [UInt8], width: Int, height: Int)] = [:]
-            for (column, box) in cell.columns {
-                guard let crop = GlassParityDiff.pixels(of: image, in: box) else { continue }
-                crops[column] = crop
-                writePNG(crop, to: directory.appending(path: "\(cell.kind)-\(column)-\(stem).png", directoryHint: .notDirectory))
-            }
-            guard let native = crops[Column.native.rawValue] else { continue }
-            var row: [String: JSONValue] = [:]
-            for column in [Column.webkit.rawValue, Column.chromium.rawValue] {
-                guard let web = crops[column], web.width == native.width, web.height == native.height else { continue }
-                let full = GlassParityDiff.compare(native.bytes, web.bytes, width: web.width, height: web.height,
-                                                   bytesPerRow: web.width * 4)
-                let material = GlassParityDiff.compare(native.bytes, web.bytes, width: web.width, height: web.height,
-                                                       bytesPerRow: web.width * 4, excluded: [cell.text])
-                if let material {
-                    worst = Swift.max(worst, material.mean)
-                    if !material.within(GlassParityDiff.hostTolerance) { passes = false }
-                }
-                row[column] = [
-                    "full": full.map { JSONValue.object($0.json.mapValues(JSONValue.number)) } ?? .null,
-                    "material": material.map { JSONValue.object($0.json.mapValues(JSONValue.number)) } ?? .null,
-                ]
-                writeDiffPNG(native, web, to: directory.appending(path: "\(cell.kind)-\(column)-diff-\(stem).png",
-                                                                  directoryHint: .notDirectory))
-            }
-            out[cell.kind] = .object(row)
-        }
-        return [
-            "window_png": .string(png.path), "stem": .string(stem), "cells": .object(out),
-            "image_width": .number(Double(image.width)), "expected_width": .number(Double(expectedWidth)),
-            "tolerance": ["mean": .number(GlassParityDiff.hostTolerance.mean), "p99": .number(Double(GlassParityDiff.hostTolerance.p99))],
-            "within_tolerance": .bool(passes), "worst_material_mean": .number((worst * 1000).rounded() / 1000),
-        ]
-    }
-
-    private nonisolated static func image(_ crop: (bytes: [UInt8], width: Int, height: Int)) -> CGImage? {
-        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let provider = CGDataProvider(data: Data(crop.bytes) as CFData) else { return nil }
-        return CGImage(width: crop.width, height: crop.height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: crop.width * 4,
-                       space: space, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
-    }
-
-    private nonisolated static func writePNG(_ crop: (bytes: [UInt8], width: Int, height: Int), to url: URL) {
-        guard let image = image(crop),
-              let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { return }
-        CGImageDestinationAddImage(destination, image, nil)
-        CGImageDestinationFinalize(destination)
-    }
-
-    /// The per-pixel error as a heat image: black where equal, brighter with the error (x8, so a step of
-    /// 32 is white).
-    private nonisolated static func writeDiffPNG(_ a: (bytes: [UInt8], width: Int, height: Int),
-                                                 _ b: (bytes: [UInt8], width: Int, height: Int), to url: URL) {
-        var bytes = [UInt8](repeating: 255, count: a.bytes.count)
-        for i in stride(from: 0, to: a.bytes.count, by: 4) {
-            let error = Swift.max(abs(Int(a.bytes[i]) - Int(b.bytes[i])), abs(Int(a.bytes[i + 1]) - Int(b.bytes[i + 1])),
-                                  abs(Int(a.bytes[i + 2]) - Int(b.bytes[i + 2])))
-            let value = UInt8(Swift.min(255, error * 8))
-            bytes[i] = value
-            bytes[i + 1] = value
-            bytes[i + 2] = value
-        }
-        writePNG((bytes, a.width, a.height), to: url)
     }
 
     /// The first desktop picture the Mac ships (sorted by path), as its file's bytes, read off the main actor.
@@ -462,127 +399,39 @@ public final class GlassParityPlayground {
 
     // MARK: Control
 
-    /// `debug.glass_parity {backdrop?, mode?, scale?, measure?, dir?, close?}` (the App routes it here):
-    /// opens or reconfigures the playground (``show(backdrop:mode:scale:)``) and, with `measure`, captures
-    /// and diffs it into `dir` (default a folder in the temporary directory). `close` closes it.
+    /// `debug.glass_parity {backdrop?, mode?, color?, opacity?, offset?, active?, scale?, measure?, dir?,
+    /// close?}` (the App routes it here): opens or reconfigures the playground (``show(_:scale:)``; a key
+    /// left out keeps its value) and, with `measure`, captures every renderer and diffs them into `dir`
+    /// (default a folder in the temporary directory). `close` closes it.
     public func handle(_ params: [String: JSONValue], capture: ([String: JSONValue]) async -> JSONValue) async -> JSONValue {
         if params["close"]?.boolValue == true {
             close()
             return ["open": false]
         }
-        let backdrop = params["backdrop"]?.stringValue.flatMap(Backdrop.init(rawValue:)) ?? backdrop
-        let mode = params["mode"]?.stringValue.flatMap(Mode.init(rawValue:)) ?? mode
+        var next = scenario
+        if let name = params["backdrop"]?.stringValue {
+            guard let backdrop = Backdrop(rawValue: name) else { return ["error": .string("unknown backdrop \(name)")] }
+            next.backdrop = backdrop
+        }
+        if let name = params["mode"]?.stringValue {
+            guard let mode = Mode(rawValue: name) else { return ["error": .string("unknown mode \(name)")] }
+            next.mode = mode
+        }
+        if let hex = params["color"]?.stringValue {
+            guard let value = UInt32(hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")), radix: 16), value <= 0xFFFFFF else {
+                return ["error": .string("color must be RRGGBB")]
+            }
+            next.color = value
+        }
+        if let opacity = params["opacity"]?.doubleValue { next.opacity = CGFloat(min(max(opacity, 0), 1)) }
+        if let offset = params["offset"]?.doubleValue { next.offset = CGFloat(min(max(offset, -200), 200)) }
+        if let active = params["active"]?.boolValue { next.active = active }
         let scale = params["scale"]?.doubleValue.map { CGFloat($0) }
-        let shown = await show(backdrop: backdrop, mode: mode, scale: scale)
+        let shown = await show(next, scale: scale)
         guard params["measure"]?.boolValue == true else { return shown }
         let directory = params["dir"]?.stringValue.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath, isDirectory: true) }
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true).appending(path: "glass-parity", directoryHint: .isDirectory)
         return await measure(into: directory, capture: capture)
     }
-}
-
-/// The page provider of one web column: its layout, its surfaces' boxes, its first paint.
-@MainActor
-final class GlassParityProvider: PageProvider {
-    private weak var playground: GlassParityPlayground?
-    private let column: GlassParityPlayground.Column
-
-    init(playground: GlassParityPlayground, column: GlassParityPlayground.Column) {
-        self.playground = playground
-        self.column = column
-    }
-
-    func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
-        guard let playground else { throw PageError.unknownOp(op) }
-        switch op {
-        case "cmux.glass_parity.layout": return playground.layout(for: column)
-        case "cmux.glass_parity.surfaces": return try playground.surfaces(params, from: column)
-        case "cmux.glass_parity.ready":
-            playground.pageReady(column)
-            return .null
-        default: throw PageError.unknownOp(op)
-        }
-    }
-}
-
-/// The App's glass under one web column (host glass): a surface per reported box, under the page.
-@MainActor
-final class GlassParityHostLayer: NSView {
-    struct Surface: Equatable {
-        var id: String
-        var level: GlassLevel
-        var role: SurfaceRole
-        var rect: CGRect
-        var radius: CGFloat
-        var opacity: CGFloat
-    }
-
-    private var views: [String: (role: SurfaceRole, level: GlassLevel, view: OverlaySurfaceView)] = [:]
-    var count: Int { views.count }
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        wantsLayer = true
-        layer?.masksToBounds = true
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    func apply(_ surfaces: [Surface]) {
-        var kept = Set<String>()
-        for surface in surfaces {
-            kept.insert(surface.id)
-            if let old = views[surface.id], old.role != surface.role || old.level != surface.level {
-                old.view.removeFromSuperview()
-                views[surface.id] = nil
-            }
-            if views[surface.id] == nil {
-                // As the agent pane draws its host glass (AgentPaneView+HostGlass.swift).
-                let view = Glass.makeSurface(surface.role, interactive: false)
-                view.tintLevel = Glass.hostTintLevel(surface.level)
-                view.translatesAutoresizingMaskIntoConstraints = true
-                addSubview(view)
-                views[surface.id] = (surface.role, surface.level, view)
-            }
-            guard let view = views[surface.id]?.view else { continue }
-            if view.frame != surface.rect { view.frame = surface.rect }
-            if view.cornerRadius != surface.radius { view.cornerRadius = surface.radius }
-            if view.alphaValue != surface.opacity { view.alphaValue = surface.opacity }
-        }
-        for (id, entry) in views where !kept.contains(id) {
-            entry.view.removeFromSuperview()
-            views[id] = nil
-        }
-    }
-}
-
-final class GlassParityFlippedView: NSView {
-    override var isFlipped: Bool { true }
-}
-
-/// A surface's two lines, in the type the web cells draw (the body size, 13 pt on 18 pt lines, 8 pt from
-/// the top and 12 pt from the left: `--ds-space-2` and `--ds-space-3`), primary then secondary ink.
-final class GlassParityTextView: NSView {
-    init(frame: NSRect, title: String, detail: String) {
-        super.init(frame: frame)
-        for (index, (text, color)) in [(title, Palette.textPrimary), (detail, Palette.textSecondary)].enumerated() {
-            let label = NSTextField(labelWithString: text)
-            label.font = .systemFont(ofSize: TypeScale.body)
-            label.textColor = color
-            label.frame = CGRect(x: 12, y: 8 + CGFloat(index) * 18, width: frame.width - 24, height: 18)
-            label.autoresizingMask = [.width]
-            addSubview(label)
-        }
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 #endif
