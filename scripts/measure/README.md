@@ -18,6 +18,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 |---|---|---|
 | bundle | `bundle-size.sh` (DMG on a fleet Mac), an .app tree, or `--compare-zip URL` | Bundle size by component, against other apps. |
 | launch | `launch-ready.sh` | Dock launch: bounce end, first window, main, first frame, every launch mark. |
+| launch-background | `background-ready.sh` | Show from the background (Cmd-H, windows closed to a menu bar app, quit) against a cold relaunch, and each state's idle cost. |
 | launch-premain | `launch-premain.sh` (also launch's mode=premain) | Time to main after a 60 s full run vs a short launch, and what it pays: pageins, residency, the code checkers' CPU, per arm. |
 | post-update | `update-click-ab.sh` (default), `relaunch-shift.sh` (mode=shift), `nightly-fresh-launch.sh` (mode=fresh-copy) | First launch after an update and its hitches. |
 | screen-share | `screen-stream-eval.sh` (default), `screen-share-vs.py` (mode=vs, once on base) | Screen share kbps, fps under motion, input-to-frame latency. |
@@ -41,6 +42,9 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `launch-reboot.sh` | The first launch after a reboot, with and without a post-login pre-read of the app's binaries (row F, background-ready-copy): one phase per step, before (shutdown -r) and after (noread, read, residency). | row F | 2026-11-18 | active |
 | `launch-capture-probe.sh` | Launch image sources with no Screen Recording grant: TCC rows and prompts, the window composite and Chromium page image against the screen, ms and main-thread stall per source. | ask-b2b0f899c1 | 2026-11-17 | active |
 | `launch-capture-probe.py` | Python driver for launch-capture-probe.sh. | ask-b2b0f899c1 | 2026-11-17 | active |
+| `background-ready.sh` | Open request to window on screen from the background (hide, close, quit) against a cold relaunch; idle CPU, wakeups, energy, memory, files and sleep assertions per state. | ask-b2b0f899c1 | 2026-11-17 | active |
+| `background-ready.swift` | Driver for background-ready.sh: one arm per process, holding the marks FIFO across shows. | ask-b2b0f899c1 | 2026-11-17 | active |
+| `background-ready-idle.py` | Idle cost of a running or quit copy (procs.py) and its stop by pid, for background-ready.sh. | ask-b2b0f899c1 | 2026-11-17 | active |
 | `launch-ready-profile.py` | Main-thread Time Profiler summary of one launch-ready launch. | - | 2026-11-15 | active |
 | `fresh-home-launch.sh` | Fresh-home launch of any commit's app on a fleet Mac. | - | 2026-11-14 | active |
 | `nightly-fresh-launch.sh` | Where a published nightly's fresh-home launch spends its time. | CMUX-571 | 2026-11-15 | active |
@@ -118,7 +122,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `idle-cpu.sh` | Idle CPU and wakeups of the app, acpmux and cmux-tui after N minutes. | - | 2026-11-04 | active |
 | `mcp-fanout.sh` | MCP tool-server processes, RSS and idle CPU per kind at N open chats (Claude, Codex) on any build (`app=`). | nightly-mcp-fanout | 2026-11-17 | active |
 | `mcp-fanout.py` | Python driver for mcp-fanout.sh. | nightly-mcp-fanout | 2026-11-17 | active |
-| `perf-10x-idle.sh` | Idle CPU, wakeups and RSS at 1, 10 and 50 workspaces. | perf-10x | 2026-11-14 | active |
+| `perf-10x-idle.sh` | Idle CPU, wakeups and RSS at 1, 10 and 50 workspaces; with `axes=`, the marginal idle cost (CPU, footprint, wakeups, disk bytes per hour, GPU utilization) of one more chat or terminal, hidden or visible, per process. | perf-10x, CMUX-672 | 2026-11-19 | active |
 | `perf-idle-ab.sh` | Interleaved base vs head idle A/B in one step. | - | 2026-11-14 | active |
 | `perf-idle-power.sh` | Idle power and wakeups in the scenarios of a browser comparison. | msg 2654 | 2026-11-15 | active |
 | `perf-bench.sh` | xbench: cmux NEXT against other browsers (power, scroll, video, tab switch, launch). | msg 2654 | 2026-11-15 | active |
@@ -230,7 +234,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
 | `app-ffi-size.sh` | Size the app FFI Rust library adds per LTO mode. | #42471 | 2026-11-13 | active |
-| `cli-size.sh` | CLI size per compiler optimization mode. | CMUX-570 | 2026-11-14 | active |
+| `cli-size.sh` | CLI size per compiler optimization mode; `toolchain BASE [HEAD]` builds two commits and HEAD with acpmux + cmux-tui-core at opt-level s and z, with speed. | CMUX-570 | 2026-11-18 | active |
+| `cli-size-speed.py` | Bytes plus interleaved CLI and headless-daemon p50 for the builds `cli-size.sh toolchain` makes. | CMUX-570 | 2026-11-18 | active |
 | `panic-abort-size.sh` | Size saved by panic=abort on the shipped Rust helpers. | CMUX-570 | 2026-11-15 | active |
 | `macos-floor.sh` | How much CmuxNext code needs a newer macOS than a given floor. | - | 2026-11-07 | active |
 | `macho-filter-parity.sh` | Thin-bundle Mach-O filter: old file scan vs new list, with timings. | - | 2026-10-20 | active |

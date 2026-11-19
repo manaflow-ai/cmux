@@ -158,11 +158,11 @@ main() {
   fi
   [[ -f "$package/Package.swift" ]] || { echo "swift-test-bench.sh: $package has no Package.swift at $(git rev-parse HEAD)" >&2; exit 2; }
   if [[ -n "$restore_sha" ]]; then
-    for path in "${restore_paths[@]}"; do
+    for path in ${restore_paths[@]+"${restore_paths[@]}"}; do
       [[ "$(git cat-file -t "$restore_sha:$path" 2>/dev/null)" == blob ]] ||
         { echo "swift-test-bench.sh: $path is not a file at $restore_sha" >&2; exit 2; }
     done
-    git checkout -q "$restore_sha" -- "${restore_paths[@]}"
+    git checkout -q "$restore_sha" -- ${restore_paths[@]+"${restore_paths[@]}"}
   fi
 
   note "# swift-test-bench"
@@ -173,7 +173,7 @@ main() {
   note "- configuration: ${config:-debug}${config_args[*]:+ (${config_args[*]})}${bench_switch:+, $bench_switch=1}"
   if [[ -n "$restore_sha" ]]; then
     note "- restored from $restore_sha: ${restore_paths[*]}"
-    git diff --stat HEAD -- "${restore_paths[@]}" | tee -a "$report"
+    git diff --stat HEAD -- ${restore_paths[@]+"${restore_paths[@]}"} | tee -a "$report"
   fi
   note "- host: $(hostname -s), $(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores, macOS $(sw_vers -productVersion)"
   note "- Xcode: $(xcodebuild -version | tr '\n' ' ')"
