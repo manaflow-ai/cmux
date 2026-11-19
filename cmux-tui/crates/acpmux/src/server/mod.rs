@@ -2391,6 +2391,9 @@ mod media_forward;
 mod mesh_control_send;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
+#[cfg(test)]
+#[path = "stream_cursor_tests.rs"]
+mod stream_cursor_tests;
 mod team;
 mod trigger_authority;
 mod trigger_chat;
