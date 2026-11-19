@@ -16,6 +16,10 @@ public final class MacScreenHubViewer {
     public internal(set) var phase: MacScreenHubPhase = .idle
     /// The scope the person asked for last (Try Again asks for it again).
     public internal(set) var lastScope: SessionScope = .full
+    /// The host's own reason this session failed, from the hub's end (`failed: <reason>`, which
+    /// the host sends when it could not start serving: no helper, a helper that stopped before
+    /// the link); nil when no host reason came. A new request clears it.
+    public internal(set) var hostFailure: String?
 
     /// The hub, while this app is signed in to one.
     @ObservationIgnored var hub: @MainActor () -> DeviceHub?
@@ -67,6 +71,7 @@ public final class MacScreenHubViewer {
     public func request(_ scope: SessionScope) {
         failureEnd.cancel()
         failedWhileOffline = false
+        hostFailure = nil
         cancelPending(endingSession: true)
         stopStream()
         lastScope = scope
@@ -321,6 +326,7 @@ public final class MacScreenHubViewer {
     /// `session.revoked`: end now, and say why.
     func revoked(reason: String?) {
         failureEnd.cancel()
+        keepHostFailure(reason)
         if keepsFailedCard(reason) { return }
         requestTask?.cancel()
         approvalExpiry.cancel()
@@ -333,6 +339,7 @@ public final class MacScreenHubViewer {
     /// `session.ended`.
     func ended(reason: String?) {
         failureEnd.cancel()
+        keepHostFailure(reason)
         if keepsFailedCard(reason) { return }
         requestTask?.cancel()
         approvalExpiry.cancel()
@@ -343,9 +350,18 @@ public final class MacScreenHubViewer {
         phase = .ended(reason: reason)
     }
 
+    /// A hub end for this tab's session that carries the host's reason (`failed: <reason>`):
+    /// the card says it, whether it shows the failed card or the ended one. A bare `failed` names
+    /// no one (it is often this tab's own `/end` coming back), so it leaves the card's guess.
+    private func keepHostFailure(_ reason: String?) {
+        guard phase.sessionID != nil, let detail = MacScreenEndReason.failureDetail(reason), !detail.isEmpty else { return }
+        hostFailure = detail
+    }
+
     /// The stream failed first and the hub's end only echoes this tab's own
-    /// `failed`: the failed card (which says why) stays. Any other reason is
-    /// the cause (the host stopped, turned sharing off, revoked) and wins.
+    /// `failed` (or carries the host's reason, which the card then says): the
+    /// failed card stays. Any other reason is the cause (the host stopped,
+    /// turned sharing off, revoked) and wins.
     private func keepsFailedCard(_ reason: String?) -> Bool {
         guard let failed = failedSession, failed == phase.sessionID else { return false }
         let cause = MacScreenEndReason(reason)
