@@ -61,6 +61,8 @@ impl Brain {
     /// runs again, and its next report is the one to tell, so this one asks
     /// for no post (persona replay, Oct 28: "this ping is noise").
     pub(super) fn outcome_resumed(&mut self, id: &str) {
+        // Nor does the running turn owe it now (landed_told.rs).
+        self.turn_landed.retain(|(i, _)| i != id);
         let before = self.state.untold.len();
         self.state.untold.retain(|u| u.id != id);
         if self.state.untold.len() != before {
