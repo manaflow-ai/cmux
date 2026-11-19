@@ -249,6 +249,11 @@ path = "tests/test_ci_label_events_skip_full_ci.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_label_has_provider.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Every runs-on label, runners.json member and FLEET_LINUX / runner-label constant maps to a provider in tests/ci_label_providers.json, and no provider of ours runs on Blacksmith (the 2026-11-19 cmux-fleet-linux-x64 outage). Run python3 tests/test_ci_label_has_provider.py yourself after adding a runner label or moving a provider (about 7 s, no build)."
+
+[[test]]
 path = "tests/test_ci_late_placement.py"
 lane = "linux-guard"
 
