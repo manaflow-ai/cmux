@@ -33,7 +33,7 @@ fn repo(dir: &Path) {
         "git init -q -b lane/t . && git config user.email t@t && git config user.name t \
          && printf 'one\\n' > kept.txt && printf 'bye\\n' > gone.txt \
          && printf '\\000\\001\\002' > bin.dat && printf 'target/\\n' > .gitignore \
-         && git add -A && git commit -qm base",
+         && touch empty.txt && git add -A && git commit -qm base",
     );
 }
 
@@ -221,6 +221,14 @@ fn index_and_worktree_snapshots_match_independently_for_every_change_kind() {
             "printf 'new\\n' > new.txt && git add -N new.txt && printf 'staged\\n' > renamed.txt && git add renamed.txt",
             2,
         ),
+        ("intent replacing tracked file", "git rm -q --cached kept.txt && git add -N kept.txt", 1),
+        (
+            "intent replacing tracked empty file",
+            "git rm -q --cached empty.txt && git add -N empty.txt",
+            1,
+        ),
+        ("intent symlink", "ln -s kept.txt newlink && git add -N newlink", 1),
+        ("deleted intent symlink", "ln -s kept.txt newlink && git add -N newlink && rm newlink", 1),
         ("untracked unusual names", "printf 'new\\n' > 'space name'", 2),
     ];
     for (name, setup, files) in cases {
@@ -240,6 +248,8 @@ fn index_and_worktree_snapshots_match_independently_for_every_change_kind() {
             [index_entries, staged_diff, unstaged_diff].map(|cmd| sh(src.path(), cmd));
         let paths = [
             "kept.txt",
+            "empty.txt",
+            "newlink",
             "gone.txt",
             "bin.dat",
             "renamed.txt",
@@ -248,11 +258,15 @@ fn index_and_worktree_snapshots_match_independently_for_every_change_kind() {
             "line\nbreak",
         ];
         let source_bytes = paths.map(|p| std::fs::read(src.path().join(p)).ok());
+        let source_links = paths.map(|p| std::fs::read_link(src.path().join(p)).ok());
         let carry = snapshot(&here, src.path(), true).unwrap();
         assert_eq!(carry.files, files, "{name}");
         assert_eq!(
             carry.record()["bytes"],
-            carry.patch.len() + carry.staged_patch.len() + carry.intent_to_add.len(),
+            carry.patch.len()
+                + carry.staged_patch.len()
+                + carry.intent_to_add.len()
+                + carry.intent_placeholders.len(),
             "{name}"
         );
         sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
@@ -267,11 +281,23 @@ fn index_and_worktree_snapshots_match_independently_for_every_change_kind() {
             assert_eq!(&std::fs::read(dst.path().join(path)).ok(), bytes, "{name}: {path}");
             assert_eq!(&std::fs::read(src.path().join(path)).ok(), bytes, "{name}: source {path}");
         }
+        for (path, link) in paths.iter().zip(&source_links) {
+            assert_eq!(
+                &std::fs::read_link(dst.path().join(path)).ok(),
+                link,
+                "{name}: link {path}"
+            );
+        }
         assert_eq!(std::fs::read(src.path().join(".git/index")).unwrap(), index_before, "{name}");
         assert_eq!(sh(src.path(), "git show-ref --head"), refs_before, "{name}");
         assert_eq!(sh(dst.path(), "git rev-parse HEAD").trim(), carry.base, "{name}");
         // Retrying an already-applied carry must fail without changing either target snapshot.
-        assert!(!apply(dst.path(), &carry).ok, "{name}: repeated apply must refuse");
+        let retry = apply(dst.path(), &carry);
+        if !carry.patch.is_empty() || !carry.staged_patch.is_empty() {
+            assert!(!retry.ok, "{name}: repeated patch apply must refuse");
+        } else {
+            assert!(retry.ok, "{name}: replaying only flags is idempotent");
+        }
         for (cmd, expected) in [index_entries, staged_diff, unstaged_diff].iter().zip(&source_state)
         {
             assert_eq!(&sh(dst.path(), cmd), expected, "{name}: retry {cmd}");
@@ -280,6 +306,47 @@ fn index_and_worktree_snapshots_match_independently_for_every_change_kind() {
             assert_eq!(&std::fs::read(dst.path().join(path)).ok(), bytes, "{name}: retry {path}");
         }
     }
+}
+
+#[test]
+fn intent_paths_keep_non_utf8_bytes_and_line_breaks() {
+    use std::os::unix::ffi::OsStringExt as _;
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    let name = std::ffi::OsString::from_vec(b"intent-\xff\nfile".to_vec());
+    std::fs::write(src.path().join(&name), b"intent bytes\n").unwrap();
+    assert!(
+        Command::new("git")
+            .args(["add", "-N", "--"])
+            .arg(&name)
+            .current_dir(src.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let index = std::fs::read(src.path().join(".git/index")).unwrap();
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    assert_eq!(carry.files, 1);
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    let out = apply(dst.path(), &carry);
+    assert!(out.ok, "{}", out.stderr);
+    let entries = |dir: &Path| {
+        let out = Command::new("git")
+            .args(["ls-files", "--stage", "-z"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        out.stdout
+    };
+    assert_eq!(entries(src.path()), entries(dst.path()));
+    assert_eq!(std::fs::read(src.path().join(".git/index")).unwrap(), index);
+    assert_eq!(std::fs::read(dst.path().join(&name)).unwrap(), b"intent bytes\n");
+    assert_eq!(
+        sh(src.path(), "git --no-optional-locks diff --binary"),
+        sh(dst.path(), "git --no-optional-locks diff --binary")
+    );
 }
 
 #[test]
@@ -377,6 +444,7 @@ fn carry_transport_before_after() {
         staged_patch: vec![b'x'; 8 * 1024 * 1024],
         patch: vec![b'y'; 8 * 1024 * 1024],
         intent_to_add: vec![],
+        intent_placeholders: vec![],
         files: 1,
         left_out: vec![],
     };
@@ -392,7 +460,7 @@ printf '%s' "$staged" | base64 -d >"$s/staged"
 printf '%s' "$patch" | base64 -d >"$s/patch""#;
     let new_script = r#"s=$(mktemp -d); trap 'rm -rf -- "$s"' EXIT
 read -r d; read -r base
-tar -xf - -C "$s" staged patch intent"#;
+tar -xf - -C "$s" staged patch intent intent-placeholders"#;
     for round in 0..3 {
         let start = std::time::Instant::now();
         assert!(here(old_script, old.as_bytes()).unwrap().ok);
@@ -531,6 +599,7 @@ fn a_base_that_moved_refuses() {
         patch: vec![],
         staged_patch: vec![],
         intent_to_add: vec![],
+        intent_placeholders: vec![],
         files: 0,
         left_out: vec![],
     };

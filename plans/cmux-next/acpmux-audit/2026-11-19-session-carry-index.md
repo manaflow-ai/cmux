@@ -9,14 +9,17 @@ patches: HEAD to index, and HEAD to final working tree. Apply prepares a candida
 intent-to-add flags, and publishes it only after the final working-tree patch
 applies. A failed worktree apply leaves the original index byte-for-byte intact.
 Unmerged source indexes refuse with recovery guidance instead of losing conflict
-stages. Payloads stream through tar; no patch occupies a shell variable.
+stages. Intent flags come from the index flags rather than differences between
+name lists: a path can already be in HEAD, with identical empty content. Unknown
+index debug formats refuse instead of silently losing flags. Raw path bytes and
+symlink modes survive through a scratch placeholder archive. Payloads stream through tar; no patch occupies a shell variable.
 File counts are the union of both patches' raw paths; byte counts include both and the intent-to-add path list.
 Secrets, ignored files and nested repositories retain their existing exclusions.
 
 Detector: `session_move_carry::tests::index_and_worktree_snapshots_match_independently_for_every_change_kind`
 compares Git index entries, staged and unstaged diffs, filesystem bytes and source
 refs independently. It covers canceling edits, staged binary edits, renames,
-additions followed by deletion, intent-to-add (including deleted and empty files),
+additions followed by deletion, intent-to-add (including tracked replacements, symlinks, deleted and empty files),
 and unusual untracked paths. The companion
 failure tests cover preflight refusal, failure after candidate index preparation, retry, and
 changed target HEAD and existing target index locks. The ignored

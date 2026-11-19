@@ -40,6 +40,8 @@ pub(crate) struct Carry {
     pub staged_patch: Vec<u8>,
     /// NUL-separated paths whose source index entry has the intent-to-add flag.
     pub intent_to_add: Vec<u8>,
+    /// A tar of empty files (or safe symlink placeholders) with the intent entries' modes.
+    pub intent_placeholders: Vec<u8>,
     /// The files either snapshot changes, adds or deletes.
     pub files: usize,
     /// Untracked files that stay on the source, each with why.
@@ -51,7 +53,7 @@ impl Carry {
     pub fn record(&self) -> Value {
         let left: Vec<Value> =
             self.left_out.iter().map(|(p, why)| json!({"path": p, "why": why})).collect();
-        json!({"files": self.files, "bytes": self.staged_patch.len() + self.patch.len() + self.intent_to_add.len(), "leftOut": left})
+        json!({"files": self.files, "bytes": self.staged_patch.len() + self.patch.len() + self.intent_to_add.len() + self.intent_placeholders.len(), "leftOut": left})
     }
 }
 
@@ -68,7 +70,7 @@ echo"#;
 
 /// The fixed script that makes the patches: the top folder, the base commit and the untracked
 /// files to add (NUL-separated, base64) on three lines of stdin. Prints the changed paths
-/// (NUL-separated, base64), visible and ordinary index paths, staged and final patch sizes,
+/// (NUL-separated, base64), index entries with flags, staged and final patch sizes,
 /// then both patches in base64, whatever
 /// their size: a move never leaves work behind for being large. Exit 4: HEAD is no longer the
 /// base.
@@ -96,9 +98,8 @@ if [ -s "$s/unmerged" ]; then
   echo "the index has unresolved conflicts: resolve and stage them, then move again" >&2; exit 5
 fi
 g diff --cached --binary --ita-visible-in-index --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base" >"$s/staged" || exit 3
-g diff --cached --name-only -z --no-renames --ita-visible-in-index "$base" >"$s/index-names" || exit 3
-g diff --cached --name-only -z --no-renames --ita-invisible-in-index "$base" >"$s/staged-names" || exit 3
-cp -- "$s/index-names" "$s/names" || exit 2
+g diff --cached --name-only -z --no-renames --ita-visible-in-index "$base" >"$s/names" || exit 3
+g ls-files --stage --debug -z >"$s/index-entries" || exit 3
 # `--sparse`: a sparse checkout's changes inside its cone carry like any other.
 g add --sparse --update -- . || exit 3
 if [ -n "$keep" ]; then
@@ -109,9 +110,7 @@ tree=$(g write-tree) || exit 3
 g diff --name-only -z --no-renames "$base" "$tree" >>"$s/names" || exit 3
 base64 <"$s/names" | tr -d '\n'
 echo
-base64 <"$s/index-names" | tr -d '\n'
-echo
-base64 <"$s/staged-names" | tr -d '\n'
+base64 <"$s/index-entries" | tr -d '\n'
 echo
 wc -c <"$s/staged" | tr -d ' '
 g diff --binary --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base" "$tree" >"$s/patch" || exit 3
@@ -177,15 +176,14 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
     }
     let mut lines = out.stdout.lines();
     let names = decode(lines.next().unwrap_or_default()).context("the changed paths")?;
-    let files = names.split(|b| *b == 0).filter(|p| !p.is_empty()).collect::<BTreeSet<_>>().len();
-    let index_names = decode(lines.next().unwrap_or_default()).context("the index paths")?;
-    let staged_names = decode(lines.next().unwrap_or_default()).context("the staged paths")?;
-    let staged_names: BTreeSet<_> = staged_names.split(|b| *b == 0).collect();
-    let intent_to_add = index_names
+    let index_entries = decode(lines.next().unwrap_or_default()).context("the index entries")?;
+    let (intent_to_add, intent_placeholders) = intent_payload(&index_entries)?;
+    let files = names
         .split(|b| *b == 0)
-        .filter(|p| !p.is_empty() && !staged_names.contains(p))
-        .flat_map(|p| p.iter().copied().chain(std::iter::once(0)))
-        .collect();
+        .chain(intent_to_add.split(|b| *b == 0))
+        .filter(|p| !p.is_empty())
+        .collect::<BTreeSet<_>>()
+        .len();
     let mut number = || lines.next().and_then(|l| l.trim().parse::<usize>().ok());
     let (Some(staged_size), Some(size)) = (number(), number()) else {
         bail!("reading the uncommitted changes answered no counts");
@@ -201,7 +199,68 @@ pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry>
     if patch.len() != size {
         bail!("the uncommitted changes came over cut short ({} of {size} bytes)", patch.len());
     }
-    Ok(Carry { base, patch, staged_patch, intent_to_add, files, left_out })
+    Ok(Carry { base, patch, staged_patch, intent_to_add, intent_placeholders, files, left_out })
+}
+
+/// Git's debug record is a NUL-terminated stage/path header followed by five stat lines.
+/// Read the actual CE_INTENT_TO_ADD bit (1 << 29), not a diff heuristic: an intent entry
+/// may replace a path in HEAD, even one whose empty blob is unchanged. Unknown formats
+/// refuse rather than silently losing index flags. Paths remain raw bytes throughout.
+fn intent_payload(mut data: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+    let mut paths = Vec::new();
+    let mut archive = tar::Builder::new(Vec::new());
+    while !data.is_empty() {
+        let nul = data.iter().position(|b| *b == 0).context("unterminated index entry")?;
+        let entry = &data[..nul];
+        data = &data[nul + 1..];
+        let tab = entry.iter().position(|b| *b == b'\t').context("index entry without a path")?;
+        let path = &entry[tab + 1..];
+        let metadata = std::str::from_utf8(&entry[..tab])?;
+        let mut metadata = metadata.split_whitespace();
+        let mode = u32::from_str_radix(metadata.next().context("index entry without a mode")?, 8)?;
+        let mut flags = 0;
+        for prefix in ["  ctime:", "  mtime:", "  dev:", "  uid:", "  size:"] {
+            let end = data.iter().position(|b| *b == b'\n').context("truncated index flags")?;
+            let line = std::str::from_utf8(&data[..end])?;
+            if !line.starts_with(prefix) {
+                bail!("unrecognized Git index debug format: cannot preserve intent-to-add");
+            }
+            if prefix == "  size:" {
+                let (_, value) = line.split_once("flags:").context("missing index flags")?;
+                flags = u32::from_str_radix(value.trim(), 16)?;
+            }
+            data = &data[end + 1..];
+        }
+        if flags & (1 << 29) == 0 {
+            continue;
+        }
+        let mut header = tar::Header::new_gnu();
+        header.set_size(0);
+        match mode {
+            0o100644 | 0o100755 => header.set_mode(mode & 0o777),
+            0o120000 => {
+                header.set_entry_type(tar::EntryType::Symlink);
+                header.set_mode(0o777);
+                // The index stores an empty blob for a symlink's intent, which cannot be
+                // checked out as a symlink. Its actual target comes from the worktree patch.
+                header.set_link_name(".")?;
+            }
+            _ => bail!("unsupported intent-to-add mode {mode:o}"),
+        }
+        #[cfg(unix)]
+        let name = {
+            use std::os::unix::ffi::OsStrExt as _;
+            Path::new(std::ffi::OsStr::from_bytes(path))
+        };
+        #[cfg(not(unix))]
+        let name = Path::new(std::str::from_utf8(path)?);
+        header.set_cksum();
+        archive.append_data(&mut header, name, std::io::empty())?;
+        paths.extend_from_slice(path);
+        paths.push(0);
+    }
+    let placeholders = if paths.is_empty() { Vec::new() } else { archive.into_inner()? };
+    Ok((paths, placeholders))
 }
 
 /// Why an untracked file stays behind (`cmux_git::secrets`), or None when it goes.
@@ -218,7 +277,7 @@ fn leave_out(_top: &Path, _relative: &[u8]) -> Option<&'static str> {
 }
 
 /// The target folder and base commit are plain lines, followed by a tar stream containing
-/// only `staged`, `patch` and `intent`. The candidate index is prepared under the target's
+/// only `staged`, `patch`, `intent` and `intent-placeholders`. The candidate index is prepared under the target's
 /// index lock and published only after the worktree apply succeeds. Exit 4: different HEAD.
 pub(crate) const APPLY_SCRIPT: &str = r#"read -r d || exit 2; read -r base || exit 2
 top=$(git -C "$d" rev-parse --show-toplevel) || exit 2
@@ -227,7 +286,7 @@ if [ "$head" != "$base" ]; then echo "the new worktree is at $head, not $base" >
 s=$(mktemp -d) || exit 2
 trap 'rm -rf -- "$s"' EXIT
 # Do not read multi-megabyte payloads into shell variables: tar consumes stdin directly.
-tar -xf - -C "$s" staged patch intent || exit 2
+tar -xf - -C "$s" staged patch intent intent-placeholders || exit 2
 cd -- "$top" || exit 2
 real=$(git rev-parse --git-path index) || exit 3
 # Claim only our own lock. A concurrent Git writer makes the carry refuse unchanged.
@@ -246,10 +305,10 @@ if [ -s "$s/staged" ]; then
   git -c core.fsmonitor=false -C "$top" apply --binary --whitespace=nowarn --cached "$s/staged" || exit 5
 fi
 if [ -s "$s/intent" ]; then
-  # The visible-index patch supplies the empty blobs and modes of intent entries. Recreate
-  # their flags against a scratch worktree, even when the final worktree deleted the file.
+  # Recreate flags against a scratch worktree with the original modes. The safe
+  # placeholders also support deleted worktree paths and intent-to-add symlinks.
   mkdir "$s/intent-worktree" || exit 2
-  git checkout-index --prefix="$s/intent-worktree/" -z --stdin <"$s/intent" || exit 5
+  tar -xf "$s/intent-placeholders" -C "$s/intent-worktree" || exit 5
   git update-index --force-remove -z --stdin <"$s/intent" || exit 5
   git -c core.fsmonitor=false --work-tree="$s/intent-worktree" add -N -f --pathspec-from-file="$s/intent" --pathspec-file-nul -- || exit 5
 fi
@@ -280,6 +339,7 @@ pub(crate) fn apply_input(folder: &str, carry: &Carry) -> Result<Vec<u8>> {
             ("staged", carry.staged_patch.as_slice()),
             ("patch", carry.patch.as_slice()),
             ("intent", carry.intent_to_add.as_slice()),
+            ("intent-placeholders", carry.intent_placeholders.as_slice()),
         ] {
             let mut header = tar::Header::new_ustar();
             header.set_size(bytes.len() as u64);
