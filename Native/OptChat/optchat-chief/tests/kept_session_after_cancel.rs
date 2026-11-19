@@ -16,11 +16,11 @@ mod common;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use cmux_conversation::{Op, Part};
 use common::*;
 use optchat_chief::brain::{Input, Settings};
 use optchat_chief::subagents::{Spawner, SubagentSettings};
 use optchat_chief::tools::{Orchestrator, SendCall};
-use cmux_conversation::{Op, Part};
 use optchat_core::Kind;
 use serde_json::Value;
 
@@ -234,10 +234,7 @@ fn a_person_message_that_cannot_reach_the_turn_goes_on_in_the_same_session() {
         tb.iter().all(|t| !t.contains("<chat>")),
         "only the new message, no view again: {tb:?}"
     );
-    assert!(
-        tb.iter().any(|t| t.contains("wait, wrong repo")),
-        "{tb:?}"
-    );
+    assert!(tb.iter().any(|t| t.contains("wait, wrong repo")), "{tb:?}");
 }
 
 /// The posted texts that contain `needle`.
@@ -274,7 +271,10 @@ fn the_next_turn_in_a_kept_session_posts_its_reply_once() {
     h.settle_posts();
     h.say("user_local", "two");
     h.settle_posts();
-    assert_eq!(h.agents.inner.lock().unwrap().prompt_sessions, vec!["s1", "s1"]);
+    assert_eq!(
+        h.agents.inner.lock().unwrap().prompt_sessions,
+        vec!["s1", "s1"]
+    );
     assert_eq!(posted(&h, "answer 1"), 1, "the second turn's reply, once");
     assert_eq!(posted(&h, "On it."), 1, "the first turn's line, once");
 }
@@ -310,7 +310,10 @@ fn the_owners_stop_after_the_chiefs_own_stop_still_ends_the_session() {
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.specs.len(), 2, "a new session after the owner's Stop");
-    assert!(inner.ended.contains(&"s1".to_owned()), "the stopped session ended");
+    assert!(
+        inner.ended.contains(&"s1".to_owned()),
+        "the stopped session ended"
+    );
 }
 
 #[test]
@@ -366,7 +369,11 @@ fn an_unread_message_taken_back_from_the_session_goes_on_in_it() {
     h.settle_posts();
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.withdrawn.len(), 1, "the unread steer was asked back");
-    assert!(inner.withdrawn[0].1.starts_with("optchat-steer:"), "{:?}", inner.withdrawn);
+    assert!(
+        inner.withdrawn[0].1.starts_with("optchat-steer:"),
+        "{:?}",
+        inner.withdrawn
+    );
     assert_eq!(
         inner.prompt_sessions,
         vec!["s1", "s1"],
