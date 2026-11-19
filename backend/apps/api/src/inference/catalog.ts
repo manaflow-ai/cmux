@@ -157,7 +157,7 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
   },
   {
     // Gemini 4 Carbon (Google, 2026-11-10): proposed by the model scout (scripts/models/scout.ts) on 2026-11-19.
-    // It answered a tool-call smoke turn on our Vertex AI (global). List price from models.dev; check it before merging.
+    // It answered a tool-call smoke turn on our Vertex AI (global). Price: the models.dev list price, decided 2026-11-19 (chat 40603); staging only.
     id: "google/gemini-4-carbon",
     name: "Gemini 4 Carbon",
     card: { input: 2, output: 10 },
@@ -166,6 +166,18 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     defaultMaxTokens: 16_384,
     tools: true,
     routes: [{ provider: "vertex", id: "google/gemini-4-carbon", list: { input: 2, output: 10 } }]
+  },
+  {
+    // Gemini 4 Hydrogen (Google, 2026-11-12): proposed by the model scout (scripts/models/scout.ts) on 2026-11-19.
+    // It answered a tool-call smoke turn on our Vertex AI (global). Price: the models.dev list price, decided 2026-11-19 (chat 40603); staging only.
+    id: "google/gemini-4-hydrogen",
+    name: "Gemini 4 Hydrogen",
+    card: { input: 1.5, output: 7.5 },
+    context: 1_048_576,
+    maxOutput: 65_536,
+    defaultMaxTokens: 16_384,
+    tools: true,
+    routes: [{ provider: "vertex", id: "google/gemini-4-hydrogen", list: { input: 1.5, output: 7.5 } }]
   },
   // models-scout: new Vertex models go above this line.
   {
