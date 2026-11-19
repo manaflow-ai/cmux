@@ -1002,6 +1002,75 @@ class LiveFrom(unittest.TestCase):
                 self.assertEqual(hot.pins_daemon(Path(repo), sha), [path])
 
 
+class NativeFrom(unittest.TestCase):
+    """`live-from`'s native_from: the apps a bin/ swap brings fully to SHA. A Swift, web or bundled-helper change
+    keeps an older app daemon-compatible (live_from) but not native-equal, so `cmux app try` needs a full build."""
+
+    SWIFT = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Thing.swift"
+    RUST = "cmux-tui/crates/cmux-tui/src/thing.rs"
+    HELPER = "cmux-tui/crates/mobile-host/src/lib.rs"
+    DOC = "docs/thing.md"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="hot-apply-native-from-")
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.hot = load_hot("hot_apply_native_from_under_test")
+        self.git("init", "-q")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        self.commits = {"base": self.change("base", "base")}
+        for patcher in (mock.patch.object(self.hot, "pins_daemon", return_value=[]),
+                        mock.patch.object(self.hot, "helper_rust",
+                                          side_effect=lambda _repo, paths: [p for p in paths if "mobile-host" in p])):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def change(self, path, text):
+        target = self.repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text + "\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", path)
+        return self.git("rev-parse", "HEAD")
+
+    def test_a_swift_change_ends_native_from_but_not_live_from(self):
+        swift = self.change(self.SWIFT, "struct Thing { let shown = 1 }")
+        rust = self.change(self.RUST, "pub fn a() {}")
+        doc = self.change(self.DOC, "doc")
+        tip = self.change(self.RUST, "pub fn b() {}")
+        out = self.hot.live_from(self.repo, tip)
+        self.assertEqual(out["live_from"], [tip, doc, rust, swift, self.commits["base"]])
+        # An app built at `swift` holds the Swift change; one built before it does not.
+        self.assertEqual(out["native_from"], [tip, doc, rust, swift])
+        self.assertEqual((out["native_floor"], out["native_floor_paths"]), (swift, [self.SWIFT]))
+
+    def test_the_target_commit_is_always_native(self):
+        tip = self.change(self.SWIFT, "struct Thing { let shown = 2 }")
+        out = self.hot.live_from(self.repo, tip)
+        self.assertEqual(out["native_from"], [tip])
+        self.assertEqual(out["native_floor"], tip)
+
+    def test_a_bundled_helper_change_ends_native_from(self):
+        helper = self.change(self.HELPER, "pub fn h() {}")
+        tip = self.change(self.RUST, "pub fn c() {}")
+        out = self.hot.live_from(self.repo, tip)
+        self.assertEqual(out["native_from"], [tip, helper])
+        self.assertEqual(out["native_floor_paths"], [self.HELPER])
+
+    def test_daemon_only_history_is_native_to_the_end(self):
+        first = self.change(self.RUST, "pub fn d() {}")
+        tip = self.change(self.DOC, "doc 2")
+        out = self.hot.live_from(self.repo, tip)
+        # Every change after the oldest live_from entry is one the swap carries.
+        self.assertEqual(out["native_from"], [tip, first, self.commits["base"]])
+        self.assertIsNone(out["native_floor"])
+
+
 class PinCompatibility(unittest.TestCase):
     """Missing historical pins and broken present pins never silently mean the same release."""
 

@@ -577,7 +577,8 @@ class MacLivePayload(unittest.TestCase):
         self.manifest = self.tmp / "manifest.json"
         self.manifest.write_text(json.dumps({"commit": MAC_COMMIT, "binaries": binaries}))
         self.live = self.tmp / "live-from.json"
-        self.live.write_text(json.dumps({"sha": MAC_COMMIT, "live_from": [MAC_COMMIT, "e" * 40], "floor": "e" * 40}))
+        self.live.write_text(json.dumps({"sha": MAC_COMMIT, "live_from": [MAC_COMMIT, "e" * 40], "floor": "e" * 40,
+                                         "native_from": [MAC_COMMIT]}))
 
     def download(self, argv, check):
         url, out = argv[-1], argv[argv.index("-o") + 1]
@@ -598,6 +599,8 @@ class MacLivePayload(unittest.TestCase):
         self.assertEqual((value["purpose"], value["channel"], value["commit"]),
                          ("cmux-mac-live-update", "nightly-live", MAC_COMMIT))
         self.assertEqual(value["live_from"], [MAC_COMMIT, "e" * 40])
+        # A Swift change at MAC_COMMIT keeps "e"'s daemon compatible but not its app: only a full build serves it.
+        self.assertEqual(value["native_from"], [MAC_COMMIT])
         files = value["targets"]["aarch64-apple-darwin"]
         # acpmux and the hook are not the app's bin/ files; a companion the build lacks is left out.
         self.assertEqual(sorted(files), sorted(n for n in channel.MAC_LIVE_NAMES if n != "cmux-tui-browser-host"))
@@ -609,12 +612,19 @@ class MacLivePayload(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.run_payload()  # served bytes that differ from the manifest
         (self.served / "cmux-tui-host-aarch64-apple-darwin").write_bytes(b"cmux-tui-host-aarch64-apple-darwin bytes")
-        for live in ({"live_from": ["e" * 40]}, {"live_from": [MAC_COMMIT, "short"]},
-                     {"live_from": [MAC_COMMIT] * 2}, {"live_from": [MAC_COMMIT] + ["%040x" % i for i in range(400)]}):
+        native = {"native_from": [MAC_COMMIT]}
+        for live in ({"live_from": ["e" * 40], **native}, {"live_from": [MAC_COMMIT, "short"], **native},
+                     {"live_from": [MAC_COMMIT] * 2, **native},
+                     {"live_from": [MAC_COMMIT] + ["%040x" % i for i in range(400)], **native},
+                     # native_from: missing, empty, not starting at the commit, or not a run of live_from.
+                     {"live_from": [MAC_COMMIT, "e" * 40]}, {"live_from": [MAC_COMMIT], "native_from": []},
+                     {"live_from": [MAC_COMMIT, "e" * 40], "native_from": ["e" * 40]},
+                     {"live_from": [MAC_COMMIT, "e" * 40], "native_from": [MAC_COMMIT, "f" * 40]},
+                     {"live_from": [MAC_COMMIT], "native_from": [MAC_COMMIT, "e" * 40]}):
             self.live.write_text(json.dumps(live))
-            with self.subTest(live=str(live)[:60]), self.assertRaises(SystemExit):
+            with self.subTest(live=str(live)[:80]), self.assertRaises(SystemExit):
                 self.run_payload()
-        self.live.write_text(json.dumps({"live_from": [MAC_COMMIT]}))
+        self.live.write_text(json.dumps({"live_from": [MAC_COMMIT], **native}))
         with self.assertRaises(SystemExit):
             self.run_payload("--machine-path")
 
@@ -632,7 +642,7 @@ class MacLivePoint(LinuxReleasePoint):
             return super().payload(commit, committed_at, published_at, sha, purpose)
         value = {"schema": 1, "purpose": purpose, "channel": "nightly-live", "commit": commit,
                  "committed_at": committed_at, "published_at": published_at, "expires_at": int(time.time()) + 86400,
-                 "live_from": [commit],
+                 "live_from": [commit], "native_from": [commit],
                  "targets": {"aarch64-apple-darwin": {"cmux-tui": {
                      "url": f"https://files.cmux.com/cmux-tui/{commit}/cmux-tui-aarch64-apple-darwin",
                      "sha256": sha, "size": 5}}}}

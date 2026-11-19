@@ -42,11 +42,13 @@ With --purpose mac-live it makes the Mac live update file instead (cmuxterm-hq
 docs/design/nightly-live-updates.md): cmux-tui/<commit>/mac-live.json, written once, which `cmux app try`
 reads, and cmux-tui/channels/mac-live.json, forward only. It names the commit's aarch64-apple-darwin daemon
 binaries the app's bin/ holds (cmux-tui and its companions, from the commit's manifest, each downloaded and
-checked like the Cloud machine channel's) and `live_from`, every app commit that can take them live
-(`hot-apply.py live-from`, --live-from):
+checked like the Cloud machine channel's), `live_from`, every app commit whose daemon protocol can take them,
+and `native_from`, the first of those whose app already holds everything else of the commit (`hot-apply.py
+live-from`, --live-from):
 
   {"schema": 1, "purpose": "cmux-mac-live-update", "channel": "nightly-live", "commit": "<sha>",
    "committed_at": T, "published_at": T, "expires_at": T, "live_from": ["<sha>", "<parent>", ...],
+   "native_from": ["<sha>", ...],
    "targets": {"aarch64-apple-darwin": {"cmux-tui": {"url", "sha256", "size"},
                                         "cmux-tui-app-host": {...}, ...}}}
 
@@ -146,7 +148,12 @@ def live_from(args):
         fail(f"{args.live_from} names {len(commits)} commits (at most {MAC_LIVE_FROM_MAX}, each once)")
     if not all(isinstance(c, str) and re.fullmatch(r"[0-9a-f]{40}", c) for c in commits):
         fail(f"{args.live_from} names something that is not a full commit sha")
-    return commits
+    native = value.get("native_from")
+    # The app commits that already hold everything of the commit but these bin/ files: the commit, then a run
+    # of live_from's next entries. `cmux app try` swaps live only for those; any other app needs a full build.
+    if not isinstance(native, list) or not native or native != commits[:len(native)]:
+        fail(f"{args.live_from} has no native_from that starts live_from")
+    return commits, native
 
 
 def mac_live(args):
@@ -154,7 +161,7 @@ def mac_live(args):
     if not args.manifest or not args.live_from or args.machine_path or args.channel or args.cargo_version:
         fail("--purpose mac-live takes --manifest and --live-from only")
     binaries = expected_sha256(args)
-    commits = live_from(args)
+    commits, native = live_from(args)
     os.makedirs(args.download_dir, exist_ok=True)
     files = {}
     for name in MAC_LIVE_NAMES:
@@ -175,7 +182,7 @@ def mac_live(args):
     now = int(time.time())
     return {"schema": SCHEMA, "purpose": MAC_LIVE_PURPOSE, "channel": MAC_LIVE_CHANNEL, "commit": args.commit,
             "committed_at": int(args.committed_at), "published_at": now, "expires_at": now + LIFETIME,
-            "live_from": commits, "targets": {MAC_LIVE_TARGET: files}}
+            "live_from": commits, "native_from": native, "targets": {MAC_LIVE_TARGET: files}}
 
 
 def payload(args):
