@@ -1,10 +1,11 @@
 //! The smaller window handlers' ops (`window_notifications_*`,
 //! `window_history_*`, `window_remote_*`, `window_browser_*`,
-//! `window_files_*`, `window_appearance_*`, `window_launch_*`, `window_restore_*`): their tables
-//! and refusals.
+//! `window_files_*`, `window_appearance_*`, `window_launch_*`, `window_restore_*`,
+//! `window_editors_*`): their tables and refusals.
 
 use cmux_window_rules::{
-    appearance, browser, files, history, launch, notifications, remote, restore, screen_share,
+    appearance, browser, editors, files, history, launch, notifications, remote, restore,
+    screen_share,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -148,7 +149,7 @@ struct RestoreOrder {
 }
 
 /// The domains whose ops this module answers.
-const DOMAINS: [&[u8]; 8] = [
+const DOMAINS: [&[u8]; 9] = [
     b"window_restore_",
     b"window_notifications_",
     b"window_history_",
@@ -157,6 +158,7 @@ const DOMAINS: [&[u8]; 8] = [
     b"window_files_",
     b"window_appearance_",
     b"window_launch_",
+    b"window_editors_",
 ];
 
 /// Whether `operation` is one of this module's.
@@ -282,6 +284,9 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             let facts: launch::LandingFacts = read(request)?;
             value(launch::landing(&facts))?
         }
+        // The editors Open in Editor knows, and which installed one opens a folder.
+        b"window_editors_table" => json!({ "editors": editors::EDITORS }),
+        b"window_editors_pick" => value(editors::pick(&read(request)?))?,
         _ => return Err(ERR_INVALID),
     };
     serde_json::to_vec(&answer).map_err(|_| ERR_INVALID)
