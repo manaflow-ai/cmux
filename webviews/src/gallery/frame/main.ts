@@ -113,7 +113,9 @@ const envTheme = themeNamed(env.theme, DEFAULT_DARK_THEME);
 const theme =
   (appHosted ? appHostTheme() : undefined) ?? (look ? lookTheme(look, envTheme, (name) => byName.get(name)) : envTheme);
 const accent: AppAccent =
-  look?.accent && (APP_ACCENTS as readonly string[]).includes(look.accent) ? (look.accent as AppAccent) : env.accent;
+  look?.accent && (APP_ACCENTS as readonly string[]).includes(look.accent)
+    ? (look.accent as AppAccent)
+    : (env.accent ?? "neutral");
 const scheme = env.colorScheme === "auto" ? (themeIsDark(theme) ? "dark" : "light") : env.colorScheme;
 // Pages that hold both sides (the diff and markdown appearance) get the theme on the side the
 // window shows and the default on the other, as `theme = light:A,dark:B` would.
