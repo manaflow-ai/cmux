@@ -188,8 +188,9 @@ public final class HomeNativeTranscriptView: NSView {
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
     /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
+    /// - Parameter composerFocused: the message box took the keyboard, with its text view (the app's `window_usable` mark).
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
-                openPanel: MadeAheadOpenPanel? = nil) {
+                openPanel: MadeAheadOpenPanel? = nil, composerFocused: ((NSView) -> Void)? = nil) {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
@@ -201,6 +202,7 @@ public final class HomeNativeTranscriptView: NSView {
         // view holds open (https://github.com/manaflow-ai/cmux/issues/26397).
         binding = HomeStoreBinding(store: store, conversation: conversation)
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
+        transcript.onComposerFocused = composerFocused
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
         transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
         attachmentPreparer = store
@@ -441,8 +443,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The zoom steps from here, and Cmd-0 comes back to it.
     static let defaultChatScale: CGFloat = 1
 
-    /// The Chief chat's scale: its default size times Agent Chat Zoom.
-    static var chatScale: CGFloat { defaultChatScale * DesignSettings.shared.agentPaneZoom }
+    /// The Chief chat's scale: its default size times Agent Chat Zoom, times a custom density's Home chat text scale
+    /// (``Typography/homeChatDensityScale``, 1 at every built-in).
+    static var chatScale: CGFloat { defaultChatScale * DesignSettings.shared.agentPaneZoom * Typography.homeChatDensityScale }
 
     /// The person's text scale (Text Size, never the density: ``Typography/chatUserScale``) applies to the native
     /// first-run chrome, times the Chief chat's scale

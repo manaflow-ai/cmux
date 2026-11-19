@@ -4,7 +4,10 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered]
+ *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered] [--large]
+ *
+ * - --large: a second snapshot of the same builder, grown to the default Cloud chat start size (large-image.ts),
+ *   named <name>-large and recorded as `large` in the result. The image's own snapshot, id and fields do not change.
  *
  * - --layered: the image as cached layers, system -> agents -> app (layers.ts); only a layer whose inputs
  *   changed rebuilds. Dev snapshots only; the full bake stays the weekly and manual source of truth.
@@ -111,6 +114,7 @@ import {
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
+import { growToShape, LARGE_IMAGE_SHAPE, type LargeImageRecord, largeImageName, MEMORY_GUARD_REFRESH_COMMAND, memoryGuardProblems, ROOT_DEVICE_COMMAND } from "./large-image";
 import {
   argValue,
   createVm,
@@ -269,6 +273,12 @@ export type BakeOptions = {
    * smoke): they were 73 s of a warm per-commit bake. --layered only.
    */
   deferInventory?: boolean;
+  /**
+   * Also snapshot the builder grown to LARGE_IMAGE_SHAPE (large-image.ts), after the image's own snapshot: the
+   * same tree at the size a default Cloud chat start asks for. Dev snapshots only. A failure here never fails
+   * the bake: the image's own snapshot is already taken, and nothing boots the large one yet.
+   */
+  large?: boolean;
 };
 
 /**
@@ -298,7 +308,7 @@ export const AGENT_SIGN_IN_FILES = [
  * session, and Codex's managed config overrides `~/.codex/config.toml`, so a login a user or an older copy
  * left in HOME is never used. Only a key the person exports themselves still wins, which is theirs to do.
  */
-export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array<{ path: string; text: string; mode: number }> {
+export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array<{ path: string; target: string; text: string; mode: number }> {
   const env = vmGuestModelPlaneEnv(alias);
   const claude = {
     // Kept from the devbox image's managed defaults.
@@ -335,21 +345,92 @@ export function agentModelRouteFiles(alias: string = vmEdgeAliasDomain()): Array
     "",
   ].join("\n");
   return [
-    { path: "/etc/claude-code/managed-settings.json", text: `${JSON.stringify(claude, null, 2)}\n`, mode: 0o644 },
-    { path: "/etc/codex/managed_config.toml", text: codex, mode: 0o644 },
+    { path: `${AGENT_MODEL_ROUTE_DIR}/claude-managed-settings.json`, target: "/etc/claude-code/managed-settings.json", text: `${JSON.stringify(claude, null, 2)}\n`, mode: 0o644 },
+    { path: `${AGENT_MODEL_ROUTE_DIR}/codex-managed_config.toml`, target: "/etc/codex/managed_config.toml", text: codex, mode: 0o644 },
   ];
 }
 
-/** Fails unless both route files exist, parse, point at the edge, and carry no credential. `root` prefixes every path (tests). */
+/**
+ * Where the image stages each agent's managed route (agentModelRouteFiles). The same snapshot boots in the dev
+ * pool, staging and production, and only the dev pool's machines get the coderouter edge rule
+ * (cmux-platform CloudCore, "development only"). Baked in place, the route sent every Claude chat on a staging
+ * or production machine to a name that does not resolve (ENOTFOUND after about 180 s, cmux-platform#1442).
+ * So the bake stages the files here, and agentModelRouteSyncScript installs them where the alias resolves.
+ */
+export const AGENT_MODEL_ROUTE_DIR = "/etc/cmux/agent-model-route";
+export const AGENT_MODEL_ROUTE_SYNC_PATH = "/usr/local/sbin/cmux-agent-model-route";
+export const AGENT_MODEL_ROUTE_UNIT = "cmux-agent-model-route";
+
+/** The file cmux-host writes when a clone binds (PER_MACHINE_FILES); its edge rule was made with it at create. */
+export const AGENT_MODEL_ROUTE_TRIGGER = "/var/lib/cmux/bound.json";
+
+/**
+ * One pass, once per machine (agentModelRouteUnitFiles): when the edge alias resolves, each staged route file is
+ * copied to its agent's managed path; when it does not, a managed file with the staged bytes is removed, and any
+ * other file there is left alone. Always exits 0. `CMUX_AGENT_MODEL_ROUTE_ROOT` prefixes every path (tests).
+ */
+export function agentModelRouteSyncScript(alias: string = vmEdgeAliasDomain()): string {
+  const pairs = agentModelRouteFiles(alias).map((f) => `${f.path} ${f.target}`).join("\n");
+  return [
+    "#!/bin/sh",
+    "# cmux: the agents' managed model route, only on a machine whose coderouter edge alias resolves.",
+    "# Managed by the image (web/scripts/cmux-vm-image/bake.ts agentModelRouteSyncScript); do not edit.",
+    'root="${CMUX_AGENT_MODEL_ROUTE_ROOT:-}"',
+    `if timeout 5 getent hosts ${sq(alias)} >/dev/null 2>&1; then up=1; else up=0; fi`,
+    "while read -r staged target; do",
+    '  s="$root$staged"; t="$root$target"',
+    '  [ -s "$s" ] || continue',
+    '  if [ "$up" = 1 ]; then',
+    '    cmp -s "$s" "$t" || { mkdir -p "$(dirname "$t")" && cp "$s" "$t.new" && chmod 644 "$t.new" && mv -f "$t.new" "$t"; }',
+    '  elif cmp -s "$s" "$t"; then',
+    '    rm -f "$t"',
+    "  fi",
+    "done <<EOF",
+    pairs,
+    "EOF",
+    "exit 0",
+    "",
+  ].join("\n");
+}
+
+/**
+ * A path unit (inotify, no wakeups) starts the pass when the clone binds, and the service stays active after it
+ * (RemainAfterExit), so the path unit does not start it again: one pass per machine, then nothing runs. A clone
+ * resumes the bake's running system with no boot, so the path unit is started at bake, before any bind.
+ */
+export function agentModelRouteUnitFiles(): Array<{ path: string; text: string; mode: number }> {
+  return [
+    {
+      path: `/etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.service`,
+      text: `[Unit]\nDescription=cmux: the agents' managed model route where the coderouter edge resolves\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nTimeoutStartSec=30\nExecStart=${AGENT_MODEL_ROUTE_SYNC_PATH}\n`,
+      mode: 0o644,
+    },
+    {
+      path: `/etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.path`,
+      text: `[Unit]\nDescription=cmux: the agents' managed model route, once the machine binds\n\n[Path]\nPathExists=${AGENT_MODEL_ROUTE_TRIGGER}\n\n[Install]\nWantedBy=paths.target\n`,
+      mode: 0o644,
+    },
+  ];
+}
+
+/**
+ * Fails unless both staged route files exist, parse, point at the edge, and carry no credential, and neither is
+ * in its agent's managed path (the sync script puts it there on a machine with the edge). `root` prefixes every
+ * path (tests).
+ */
 export function agentModelRouteCheckCommand(root = ""): string {
-  const claude = sq(`${root}/etc/claude-code/managed-settings.json`);
-  const codex = sq(`${root}/etc/codex/managed_config.toml`);
+  const [claudeFile, codexFile] = agentModelRouteFiles();
+  const claude = sq(`${root}${claudeFile!.path}`);
+  const codex = sq(`${root}${codexFile!.path}`);
   const files = `${claude} ${codex}`;
   return [
     `test -s ${claude}`,
     `test -s ${codex}`,
     `python3 -I -c 'import json, sys, tomllib; s = json.load(open(sys.argv[1])); c = tomllib.load(open(sys.argv[2], "rb")); sys.exit(0 if s["env"]["ANTHROPIC_BASE_URL"].startswith("https://") and s["apiKeyHelper"] and c["model_provider"] == "cmux" and c["model_providers"]["cmux"]["base_url"].startswith("https://") else 1)' ${files}`,
     `! grep -Eq 'CLAUDE_CODE_OAUTH_TOKEN|sk-ant-|sk-proj-|crt_|refresh_token|access_token' ${files}`,
+    `test ! -e ${sq(`${root}${claudeFile!.target}`)}`,
+    `test ! -e ${sq(`${root}${codexFile!.target}`)}`,
+    `sh -n ${sq(`${root}${AGENT_MODEL_ROUTE_SYNC_PATH}`)}`,
     "echo agent-model-route-baked",
   ].join(" && ");
 }
@@ -639,6 +720,26 @@ export function aptDownloadBatches(
   return batches;
 }
 
+/** Runs of one download batch before the bake fails. */
+export const APT_FETCH_ATTEMPTS = 3;
+
+/**
+ * One download batch, run again when it fails: a slow mirror can push a batch past the guest's 5-minute exec cap
+ * (image roll 44263286356, status 124), and aptDebFetchCommand keeps every .deb it verified, so each run only fetches
+ * what is still missing. A .deb no mirror serves fails every run and still fails the bake.
+ */
+export async function fetchAptBatch(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts = APT_FETCH_ATTEMPTS): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await L.step(vm, attempt === 1 ? label : `${label}-try-${attempt}`, command);
+      return;
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+      L.log(`${label} failed (try ${attempt} of ${attempts}); running it again, keeping the .debs it verified`);
+    }
+  }
+}
+
 /**
  * Fetch and install a locked Ubuntu closure by content (aptDebFetchCommand, aptLocalInstallCommand): no apt index is
  * read, so a pin the public archive has superseded comes from the dated snapshot instead of failing the bake (run
@@ -652,7 +753,7 @@ async function installUbuntuDebs(ctx: Ctx, prefix: string, packages: Readonly<Re
   const batches = aptDownloadBatches(packages, ubuntu.debs);
   L.log(`${prefix} fetch: ${Object.keys(packages).length} packages, ${batches.length} batches: ${batches.map((b) => `${b.pins.length} pkgs ${(b.bytes / 1e6).toFixed(1)} MB`).join(", ")}`);
   for (const [i, batch] of batches.entries()) {
-    await L.step(vm, `${prefix}-download-${i + 1}-of-${batches.length}`, aptDebFetchCommand(ubuntu.debs, batch.pins, ubuntu.uri, APT_DEB_DIR));
+    await fetchAptBatch(L, vm, `${prefix}-download-${i + 1}-of-${batches.length}`, aptDebFetchCommand(ubuntu.debs, batch.pins, ubuntu.uri, APT_DEB_DIR));
   }
   await L.step(vm, `${prefix}-install`, `${aptLocalInstallCommand(ubuntu.debs, aptPins(packages), APT_DEB_DIR, log)}; grep -c '^Setting up' ${log}`);
 }
@@ -933,9 +1034,13 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv()), 0o644);
   for (const file of AGENT_SIGN_IN_FILES) await writeGuestFile(vm, file.path, devboxFileBytes(file.name), 0o644);
   await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
-  await L.step(vm, "agent-model-route-dirs", "install -d -m 755 /etc/claude-code /etc/codex");
+  await L.step(vm, "agent-model-route-dirs", `install -d -m 755 /etc/claude-code /etc/codex ${AGENT_MODEL_ROUTE_DIR}`);
   for (const file of agentModelRouteFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  await writeGuestFile(vm, AGENT_MODEL_ROUTE_SYNC_PATH, agentModelRouteSyncScript(), 0o755);
+  for (const file of agentModelRouteUnitFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
   await L.step(vm, "agent-model-route", agentModelRouteCheckCommand());
+  // --now: a clone resumes this running system (no boot); the builder never binds, so no pass runs here.
+  await L.step(vm, "agent-model-route-path", `test ! -e ${AGENT_MODEL_ROUTE_TRIGGER} && systemd-analyze verify /etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.service /etc/systemd/system/${AGENT_MODEL_ROUTE_UNIT}.path && systemctl daemon-reload && systemctl enable --now --quiet ${AGENT_MODEL_ROUTE_UNIT}.path && systemctl is-active ${AGENT_MODEL_ROUTE_UNIT}.path`);
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
   await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
   await L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand());
@@ -1151,7 +1256,38 @@ async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<Arr
 }
 const SNAPSHOT_PAGE = 100;
 
-/** One builder from `from`, `steps` on it, its snapshot slugged `name`; the builder is deleted unless kept. */
+/**
+ * The large image (large-image.ts): the builder, already snapshotted as the image, grown to LARGE_IMAGE_SHAPE and
+ * snapshotted again as `<name>-large`. Only the resize and checks run in between, so both snapshots hold one tree;
+ * the checks that guard the image's snapshot (nothing writing under /tmp, no per-machine file, the health timer
+ * armed with no pass recorded) run again right before this one.
+ */
+async function snapshotLarge(vm: Vm, name: string, options: BakeOptions, ledger: Ledger, L: StepLog, parentSlug?: string): Promise<LargeImageRecord> {
+  const t0 = Date.now();
+  const largeName = largeImageName(name);
+  const grow = await growToShape(vm);
+  L.log(`LARGE grow ${JSON.stringify(grow)}`);
+  // The memory guards are percentages systemd resolved at the small size: reload them, and refuse a stale one.
+  const guards = memoryGuardProblems(await L.step(vm, "large-memory-guards", MEMORY_GUARD_REFRESH_COMMAND));
+  if (guards.length > 0) throw new Error(`the memory guards did not follow the new size: ${guards.join("; ")}`);
+  const rootDevice = (await L.step(vm, "large-root-device", ROOT_DEVICE_COMMAND)).trim();
+  await L.step(vm, "large-tmp-no-writer", tmpWritersCommand());
+  await L.step(vm, "large-snapshot-ready", snapshotReadyCommand());
+  await L.step(vm, "large-machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
+  const tSnap = Date.now();
+  // The same parent label as the image's own snapshot, so gc-layers.ts keeps the layers this one was built on.
+  const snap = await vm.snapshot({ displayName: options.layered ? layerLabel(largeName, parentSlug) : largeName, slug: largeName });
+  if (!snap?.snapshotId) throw new Error("large snapshot response carried no id");
+  ledger.record(snap.snapshotId, "snapshot", largeName);
+  const snapshotMs = Date.now() - tSnap;
+  L.log(`SNAPSHOT ${largeName} ${snap.snapshotId} (${snapshotMs} ms)`);
+  return { name: largeName, snapshotId: snap.snapshotId, size: { ...LARGE_IMAGE_SHAPE }, grow, rootDevice, snapshotMs, ms: Date.now() - t0 };
+}
+
+/**
+ * One builder from `from`, `steps` on it, its snapshot slugged `name`; the builder is deleted unless kept. With
+ * `large`, the builder is then grown and snapshotted again (snapshotLarge) and the outcome goes into `large.into`.
+ */
 async function bakeOn(
   fs: ReturnType<typeof freestyleClient>,
   ledger: Ledger,
@@ -1163,6 +1299,7 @@ async function bakeOn(
   L: StepLog,
   keepForInventory = false,
   parentSlug?: string,
+  large?: { ledger: Ledger; into: Record<string, unknown> },
 ): Promise<string> {
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
   let kept = false;
@@ -1180,6 +1317,16 @@ async function bakeOn(
     ledger.record(snap.snapshotId, "snapshot", name);
     result.snapshotMs = Date.now() - tSnap;
     L.log(`SNAPSHOT ${name} ${snap.snapshotId} (${result.snapshotMs} ms)`);
+    // After the image's own snapshot, which it cannot change. The builder may be left grown: the inventory reads
+    // files, and no file differs.
+    if (large) {
+      try {
+        large.into.large = await snapshotLarge(builder.vm, name, options, large.ledger, L, parentSlug);
+      } catch (error) {
+        large.into.largeError = String(error);
+        L.log(`LARGE IMAGE FAILED (the image ${name} is unaffected): ${large.into.largeError}`);
+      }
+    }
     // inventory.ts reads this builder next and deletes it; the run's cleanup deletes it from the ledger if not.
     kept = keepForInventory;
     if (kept) result.inventoryVmId = builder.vmId;
@@ -1203,6 +1350,8 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const fs = freestyleClient();
   const t0 = Date.now();
   const ctxFor = (vm: Vm, as: string): Ctx => ({ vm, L, lock, lockText, options, result, name: as });
+  // A ledger of its own (as the cached layers have): the run keeps or deletes the large snapshot by its own smoke.
+  const large = options.large ? { ledger: new Ledger(path.join(options.outDir, "large", "resources.tsv")), into: result } : undefined;
   try {
     // --agent-tools needs the cmux-rd release pinned: fail before any builder exists.
     if (options.agentTools) {
@@ -1246,12 +1395,12 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
       const app: Record<string, unknown> = { layer: "app", hit: false, parent };
       layers.push(app);
       const t = Date.now();
-      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory), parentSlug);
+      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory), parentSlug, large);
       if (app.inventoryVmId) result.inventoryVmId = app.inventoryVmId;
       app.ms = Date.now() - t;
       app.snapshotId = result.snapshotId;
     } else {
-      result.snapshotId = await bakeOn(fs, ledger, lock.base.snapshot, name, options, (vm) => baseSteps(ctxFor(vm, name)), result, L);
+      result.snapshotId = await bakeOn(fs, ledger, lock.base.snapshot, name, options, (vm) => baseSteps(ctxFor(vm, name)), result, L, false, undefined, large);
     }
   } catch (error) {
     result.error = String(error);
@@ -1264,9 +1413,20 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   return result;
 }
 
+/**
+ * --large, refused with the flags it has no image for: the large image is a personal Cloud machine's default size;
+ * a team image, a dev tree, a production copy and a promotion have none yet.
+ */
+function largeFlag(argv: string[]): boolean {
+  if (!hasFlag("--large", argv)) return false;
+  const other = ["--promotion", "--prod-copy", "--team-vm", "--dev-tree"].find((flag) => hasFlag(flag, argv));
+  if (other) throw new Error(`--large is for dev snapshots of the personal Cloud image; it cannot be combined with ${other}`);
+  return true;
+}
+
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered [--defer-inventory]]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered [--defer-inventory]] [--large]");
   if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
   if (hasFlag("--layered", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv) || hasFlag("--update-lock", argv))) throw new Error("--layered is for dev snapshots from a fixed lock; the full bake makes production copies and promotions");
   if (hasFlag("--defer-inventory", argv) && !hasFlag("--layered", argv)) throw new Error("--defer-inventory needs --layered; the full bake records its SBOM and manifest before the snapshot");
@@ -1276,6 +1436,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
   if (hasFlag("--dev-tree", argv) && hasFlag("--promotion", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --promotion");
+  const large = largeFlag(argv);
   const promotion = hasFlag("--promotion", argv);
   return {
     tag,
@@ -1292,6 +1453,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     prodCopy: hasFlag("--prod-copy", argv),
     layered: hasFlag("--layered", argv),
     deferInventory: hasFlag("--defer-inventory", argv),
+    large,
   };
 }
 
@@ -1300,5 +1462,8 @@ export async function main(argv = process.argv): Promise<number> {
   const result = await bake(bakeOptionsFromArgv(argv));
   if (result.error || !result.snapshotId) return 1;
   console.log(`IMAGE_ID ${result.snapshotId}`);
+  // Its own line and prefix: a reader of IMAGE_ID never sees the large image's id.
+  const large = result.large as LargeImageRecord | undefined;
+  if (large) console.log(`LARGE_IMAGE_ID ${large.snapshotId}`);
   return 0;
 }

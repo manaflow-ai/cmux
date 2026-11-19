@@ -134,6 +134,33 @@ struct Book {
     running: Option<(u64, NodeId)>,
 }
 
+impl Book {
+    /// Keeps each queued summary once, at its last place: changes close
+    /// together share the summaries above them, and the last change's
+    /// rebuild, which comes after every line below it, covers the earlier
+    /// ones (2026-11-17: 8 nearby redescriptions queued 128 rebuilds, 16
+    /// each). An earlier change no longer lists a summary it gave up, as when
+    /// a summary changed while it was built (`rebuild_loop`).
+    fn dedupe(&mut self) {
+        let mut seen = BTreeSet::new();
+        let mut kept = VecDeque::with_capacity(self.queue.len());
+        let mut given_up = Vec::new();
+        for (change, node) in self.queue.drain(..).rev() {
+            if seen.insert(node) {
+                kept.push_front((change, node));
+            } else {
+                given_up.push((change, node));
+            }
+        }
+        self.queue = kept;
+        for (change, node) in given_up {
+            if let Some(c) = self.changes.iter_mut().find(|c| c.id == change) {
+                c.stale.retain(|n| *n != node);
+            }
+        }
+    }
+}
+
 /// The owner's change book for one Chief's memory.
 pub struct Editor {
     chat: Arc<OptChat>,
@@ -157,6 +184,7 @@ impl Editor {
             .iter()
             .flat_map(|c| c.pending().map(move |n| (c.id, n)))
             .collect();
+        book.dedupe();
         let editor = Arc::new(Editor {
             chat,
             dir: dir.to_owned(),
@@ -325,6 +353,7 @@ impl Editor {
         let answer = change.json();
         book.queue.extend(stale.iter().map(|n| (change.id, *n)));
         book.changes.push(change);
+        book.dedupe();
         drop(book);
         self.work.notify_all();
         Ok(answer)
@@ -382,8 +411,30 @@ impl Editor {
         for (target, old, _) in mine.iter().rev() {
             self.write(*target, old)?;
         }
+        let dropped: Vec<NodeId> = book
+            .queue
+            .iter()
+            .filter(|(c, _)| *c == id)
+            .map(|(_, n)| *n)
+            .collect();
         book.queue.retain(|(c, _)| *c != id);
         book.changes[k].undone = true;
+        // A summary this change took over from an earlier change (`dedupe`)
+        // is still stale for that one: it goes back to the newest of them.
+        for node in dropped {
+            let owner =
+                book.changes.iter_mut().rev().find(|c| {
+                    !c.undone && c.id != id && c.target.above(&self.chat).contains(&node)
+                });
+            if let Some(c) = owner {
+                if !c.stale.contains(&node) {
+                    c.stale.push(node);
+                }
+                let owner = c.id;
+                book.queue.push_back((owner, node));
+            }
+        }
+        book.dedupe();
         Ok(book.changes[k].json())
     }
 
