@@ -556,6 +556,21 @@ fn every_vector_op_the_server_serves_reaches_the_backend_by_its_wire_name() {
         }
         let out = s.handle(&request);
         let calls = &s.control_plane().calls;
+        if matches!(
+            case["name"].as_str(),
+            Some("machine.pause.not_running" | "machine.start.not_paused")
+        ) {
+            assert_eq!(calls.len(), 1, "invalid state must not send a mutation");
+            assert_eq!(calls[0].op, "cloud.machine.get");
+            assert_eq!(calls[0].params, case["params"]);
+            let expected = if op == "cloud.machine.pause" {
+                "cmux.cloud.not_running"
+            } else {
+                "cmux.cloud.not_paused"
+            };
+            assert_eq!(err_json(out)["code"], expected);
+            continue;
+        }
         let expected_calls = if lifecycle { 2 } else { 1 };
         assert_eq!(
             calls.len(),
