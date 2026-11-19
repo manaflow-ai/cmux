@@ -78,13 +78,13 @@ Give me one line to paste on my other machine MACHINE so it can use this one: ru
 
 What only you can do: pasting the line on the other machine.
 
-## Give Claude Code and Codex the cmux MCP server outside cmux (chats cmux starts have it)
+## Give agents you start in cmux the cmux MCP server (its terminals, agent chats and the Chief)
 
 ```text
-Give Claude Code and Codex outside cmux the cmux MCP server: run `cmux setup mcp`. If it names a setting, give me that one line to turn on; do not edit the file. Tell me the undo.
+Tell me whether agents I start in cmux get cmux's MCP tools: run `cmux setup mcp`. If it names a setting, give me that one line to turn on; do not edit the file. If I want cmux's tools in agents started outside cmux, show me its manual lines to run myself; do not run them.
 ```
 
-What only you can do: turning on "mcp": {"enabled": true} in the cmux settings file.
+What only you can do: turning on cmux Tools for agents in Settings > Agents (agents.cmuxMcp), and running the report's manual lines yourself to use cmux's tools in agents started elsewhere.
 
 ## Let agents use the Mac (cmux Computer Use)
 
