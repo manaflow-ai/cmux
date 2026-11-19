@@ -192,20 +192,19 @@ class DefaultPathTests(unittest.TestCase):
         self.assertEqual(labels, ["cmd-w-idle-0", "cmd-w-key100-0", "cmd-w-downs100-0", "cmd-w-hold100-0"])
 
     def test_screen_takes_the_counts_of_the_keys_workspaces_tabs_through_the_driver(self):
-        # This app's window has no pane, so the tool can make no tab: each row says the count asked and that the app
-        # listed none, and the tool asks the app for no tab. It made no workspace, so it asks for no other workspace.
+        # This app's window has no pane, so the tool can make no tab: it asks the app for no tab, and it ends at the
+        # first count with the stopped run's code and no row. It made no workspace, so it asks for no other workspace.
         mode = (*NEEDED, "new_surface_screen.py", "new_surface_frames.py", "bench_page_engine.py")
-        asked = ["--screen", "--runs", "1", "--keys", "t", "--gaps", "0", "--page-watch", "0", "--key-tabs", "6,84"]
+        asked = ["--screen", "--runs", "12", "--keys", "t", "--gaps", "0", "--page-watch", "0", "--key-tabs", "6,84"]
         got = outcome(str(HERE.parent), asked, bad=False, files=mode, window=True)
-        self.assertEqual((got["exit"], got["stderr"]), (0, []))
-        self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 2 rows, 2 INVALID, 0 pictures kept")
+        self.assertEqual((got["exit"], got["stderr"]), (3, []))
+        self.assertEqual(got["stdout"][-1], "NEW-SURFACE-SCREEN report only: 0 rows, 0 INVALID, 0 pictures kept; STOPPED key-tabs: 6 tabs asked "
+                                            "and the tool made no tab (the app lists no pane of the shown workspace (debug.focus); the app "
+                                            "lists no tab): no case recorded at this count")
         report = json.loads(got["report"])
-        self.assertEqual([(size["asked"], size["tabs"]) for size in report["key_tabs"]["sizes"]], [(6, None), (84, None)])
-        self.assertEqual([row["label"] for row in report["rows"]], ["cmd-t-idle-tabsnolistof6-0", "cmd-t-idle-tabsnolistof84-0"])
-        for row in report["rows"]:
-            self.assertTrue(any(reason.startswith("key-tabs: ") for reason in row["invalid"]), row["invalid"])
-        self.assertEqual([call for call in got["calls"] if '"action.run"' in call], [])
-        self.assertEqual(report["head"][0], "the app was active: yes")
+        self.assertEqual([(size["asked"], size["tabs"]) for size in report["key_tabs"]["sizes"]], [(6, None)])
+        self.assertEqual([call for call in got["calls"] if '"action.run"' in call or '"frame_strip"' in call], [])
+        self.assertEqual((report["rows"], report["head"][0]), ([], "the app was active: yes"))
         # Counts that do not rise are refused before a call to the app.
         falls = outcome(str(HERE.parent), ["--screen", "--key-tabs", "84,6"], bad=False, files=mode)
         self.assertEqual((falls["exit"], falls["calls"]), (2, []))

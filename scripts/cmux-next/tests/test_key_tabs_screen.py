@@ -159,14 +159,25 @@ class KeyTabsTests(unittest.TestCase):
         self.assertEqual([(size["asked"], size["tabs"], size["added"]) for size in sizes],
                          [(6, 4, {"page": 2, "terminal": 0}), (84, 4, {"page": 0, "terminal": 0})])
         self.assertTrue(sizes[0]["fault"].startswith("the app refused newSurface: "), sizes[0]["fault"])
-        self.assertEqual(list(report["cases"]), ["cmd-t/idle, 4 tabs in the key's workspace before the case (6 asked)",
-                                                 "cmd-t/idle, 4 tabs in the key's workspace before the case (84 asked)"])
+        # The first count has fewer tabs than asked: its cases run, and the name, the label and a reason say the count.
+        self.assertEqual(list(report["cases"]), ["cmd-t/idle, 4 tabs in the key's workspace before the case (6 asked)"])
         rows = report["rows"]
-        self.assertEqual([row["label"] for row in rows], ["cmd-t-idle-tabs4of6-0", "cmd-t-idle-tabs4of84-0"])
-        self.assertEqual([row["key_tabs"] for row in rows], [{"asked": 6, "had": 4}, {"asked": 84, "had": 4}])
-        for row, asked in zip(rows, (6, 84)):
-            self.assertEqual(len(row["invalid"]), 1, row["invalid"])
-            self.assertTrue(row["invalid"][0].startswith(f"key-tabs: {asked} tabs asked, the app lists 4 (the app refused newSurface: "), row["invalid"])
+        self.assertEqual(([row["label"] for row in rows], [row["key_tabs"] for row in rows]), (["cmd-t-idle-tabs4of6-0"], [{"asked": 6, "had": 4}]))
+        self.assertEqual(len(rows[0]["invalid"]), 1, rows[0]["invalid"])
+        self.assertTrue(rows[0]["invalid"][0].startswith("key-tabs: 6 tabs asked, the app lists 4 (the app refused newSurface: "), rows[0]["invalid"])
+        # At the second count the tool made no tab: its cases would be the first count's again, so the run ends there.
+        self.assertTrue(report.get("stopped", "").startswith("key-tabs: 84 tabs asked and the tool made no tab (the app refused newSurface: "), report.get("stopped"))
+        self.assertTrue(report["stopped"].endswith("; the app lists 4 tabs): no case recorded at this count"), report["stopped"])
+        self.assertEqual((report["exit_code"], app.strips), (new_surface_screen.STOPPED_EXIT, 1))
+
+    def test_a_first_count_at_which_the_tool_can_make_no_tab_ends_the_run_before_a_case(self):
+        app = KeyTabsApp(self.folder)
+        app.refuse_from = 1
+        report, said = self.run_mode(app)
+        self.assertEqual([(size["asked"], size["tabs"], size["added"]) for size in report["key_tabs"]["sizes"]], [(6, 2, {"page": 0, "terminal": 0})])
+        self.assertTrue(report["stopped"].startswith("key-tabs: 6 tabs asked and the tool made no tab (the app refused openBrowser.chromium: "), report["stopped"])
+        self.assertEqual((report["rows"], report["cases"], app.strips, len(app.actions)), ([], {}, 0, 1))
+        self.assertIn("; STOPPED key-tabs: 6 tabs asked and the tool made no tab ", said.splitlines()[-1])
 
     def test_a_made_tab_that_the_app_does_not_list_ends_the_making_and_the_rows_say_it(self):
         app = KeyTabsApp(self.folder)
