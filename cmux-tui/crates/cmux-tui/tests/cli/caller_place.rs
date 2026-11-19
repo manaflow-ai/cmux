@@ -616,6 +616,97 @@ fn a_profile_browser_tab_splits_below_a_lone_terminal_pane_on_the_right() {
     assert_eq!(tabs_and_panes(server, &below), (2, panes), "{second}");
 }
 
+/// The pane right of `pane`, as the daemon reports it.
+fn right_neighbor(server: &HeadlessServer, pane: &str) -> Option<String> {
+    let answer = state_cli(server, None, &["pane", pane, "neighbor", "right"]);
+    answer
+        .pointer("/pane/id")
+        .or_else(|| answer.pointer("/value/pane/id"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
+/// The caller T has another pane O split off its right, another agent's
+/// home, so the app answers `new_column`. The new pane was a strip column,
+/// which goes after T's whole column: past O. The app's right-of relation
+/// (the panes that touch T's right edge) then still found only O, and every
+/// creation made one more column. For a caller that is not docked the new
+/// pane is a split of T's own pane: the order is T, new, O, and the next
+/// creation finds the new pane on T's right.
+#[test]
+fn a_new_pane_beside_an_undocked_caller_lands_directly_right_of_it() {
+    let split = caller_in_alpha_beta_focused("place-split-right");
+    let Split { server, pane, alpha, beta, .. } = &split;
+    let made = state_cli(server, None, &["pane", pane, "split", "--right"]);
+    let other = created_pane(&made).to_owned();
+    assert_eq!(right_neighbor(server, pane), Some(other.clone()));
+    let mut caller = caller_in(&split, &screen_of_pane(server, pane));
+    caller["docked"] = json!(false);
+
+    let app = FakeApp::start(server, "app-undocked-first", without_column(&caller));
+    let first = run(server, &Who::agent().with_app(&app), &["tab", "create", "terminal"]);
+    drop(app);
+    let new = created_pane(&first).to_owned();
+    assert_ne!(new, other, "{first}");
+    assert_ne!(new, *pane, "{first}");
+    assert_eq!(workspace_of_pane(server, &new), *alpha, "{first}");
+    // T, new, O.
+    assert_eq!(right_neighbor(server, pane), Some(new.clone()), "the new pane is not right of T");
+    assert_eq!(right_neighbor(server, &new), Some(other), "O is not right of the new pane");
+
+    // The relation now finds the new pane right of T, so the app names it:
+    // the second creation is a tab there, and no pane is made.
+    let panes = tabs_and_panes(server, &new).1;
+    let app = FakeApp::start(server, "app-undocked-second", with_column(&caller, &new, "terminal"));
+    let second = run(server, &Who::agent().with_app(&app), &["tab", "create", "terminal"]);
+    assert_eq!(created_pane(&second), new, "{second}");
+    assert_eq!(tabs_and_panes(server, &new), (2, panes), "{second}");
+    assert_beta_still_focused(server, beta);
+}
+
+/// A plain shell's browser reads the panes right of its terminal from the
+/// daemon. A pane below the terminal and its right neighbor (full width
+/// under both) is not right of the terminal: it was counted, and the page
+/// opened in it.
+#[test]
+fn a_pane_below_the_caller_and_its_neighbor_is_not_right_of_the_caller() {
+    let split = caller_in_alpha_beta_focused("place-not-right");
+    let Split { server, terminal, pane, .. } = &split;
+    // split(down, split(right, T, A), B).
+    let below =
+        created_pane(&state_cli(server, None, &["pane", pane, "split", "--down"])).to_owned();
+    let right =
+        created_pane(&state_cli(server, None, &["pane", pane, "split", "--right"])).to_owned();
+    let below_tabs = tabs_and_panes(server, &below).0;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let app = FakeApp::start(
+        server,
+        "app-not-right",
+        json!({"caller_placement": 2, "caller": caller,
+            "beside": {"pane": pane, "placement": "own_pane"}}),
+    );
+    let opened = run(
+        server,
+        &Who::terminal(terminal).with_app(&app),
+        &[
+            "browser",
+            "profile",
+            "open",
+            "https://example.com/",
+            "--profile",
+            "default",
+            "--engine",
+            "webkit",
+        ],
+    );
+    // A is the one pane right of T, and holds no browser: a pane below A.
+    let page = created_pane(&opened);
+    assert_ne!(page, below, "the page opened in the pane below both: {opened}");
+    assert_ne!(page, right, "{opened}");
+    assert_ne!(page, *pane, "{opened}");
+    assert_eq!(tabs_and_panes(server, &below).0, below_tabs, "{opened}");
+}
+
 /// The raw id of the pane whose public id is `pane` (the raw tree names
 /// each pane's public id as `resource_id`).
 fn raw_pane_id(server: &HeadlessServer, pane: &str) -> Value {

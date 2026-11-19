@@ -162,6 +162,39 @@ fn an_app_that_places_callers_gets_no_pane_for_a_browser_right_of_a_terminal_pan
     }
 }
 
+/// With no pane on its right, a caller's new terminal gets a new pane. A
+/// strip column (`fit`) goes after the caller's whole column: with another
+/// agent's pane split off the caller's right, the column landed past that
+/// pane, the app's right-of relation never found it, and every creation made
+/// one more. A caller that is not docked gets a plain split of its own pane,
+/// directly beside it; a docked chat cannot split and keeps the column, as
+/// does an app that does not say (`caller.docked`).
+#[test]
+fn a_new_pane_beside_a_caller_is_a_split_of_its_pane_unless_the_caller_is_docked() {
+    for (mode, fit) in [
+        (AppMode::NewColumn { docked: Some(false) }, None),
+        (AppMode::NewColumn { docked: Some(true) }, Some(true)),
+        (AppMode::NewColumn { docked: None }, Some(true)),
+    ] {
+        let run = Run::app(mode).cli_as(&["--json", "tab", "create", "terminal"], Caller::Agent);
+        assert!(run.output.status.success(), "{}", run.stderr());
+        let split = run
+            .daemon
+            .iter()
+            .find(|request| request["operation"] == "pane.split")
+            .unwrap_or_else(|| panic!("no pane.split: {:?}", run.daemon));
+        assert_eq!(split["params"]["pane"], PANE, "{split}");
+        assert_eq!(split["params"]["workspace"], WORKSPACE, "{split}");
+        assert_eq!(split["params"]["direction"], "right", "{split}");
+        assert_eq!(split["params"].get("fit").and_then(Value::as_bool), fit, "{split}");
+        assert!(
+            !run.daemon_operations().contains(&"tab.create_terminal".to_string()),
+            "{:?}",
+            run.daemon
+        );
+    }
+}
+
 #[test]
 fn with_an_older_app_a_browser_with_no_place_opens_in_the_column_right_of_its_caller() {
     // Lawrence 2026-11-15: an agent's `cmux browser open`, run in a terminal
@@ -464,6 +497,10 @@ enum AppMode {
     /// An app that places every caller (`caller_placement` 2), with one
     /// terminal pane (`RIGHT_PANE`) on the caller's right.
     PlacesCallersRightColumn,
+    /// An app that places every caller, with no pane right of the caller
+    /// (`new_column`), which says whether the caller is docked
+    /// (`caller.docked`; `None`: an app from before it said).
+    NewColumn { docked: Option<bool> },
     /// The app shows the agent nowhere: `system.identify` finds no caller
     /// and an untargeted openBrowser is refused with `caller_unavailable`.
     UnplacedAgent,
@@ -628,6 +665,13 @@ fn daemon_result(request: &Value) -> Result<Value, String> {
     match request["operation"].as_str().unwrap_or_default() {
         "tab.create_browser" => Ok(json!({"value": created, "generation": "g", "revision": "2",
             "replayed": false})),
+        // No earlier try of this request made anything.
+        "session.creation.resolve" => Ok(json!({"correlation_key": params["correlation_key"],
+            "state": "not_applied", "recovery": "retry_new_idempotency_key"})),
+        "pane.split" => Ok(json!({"value": {"kind": "terminal", "workspace_id": WORKSPACE,
+            "screen_id": SCREEN, "pane_id": RIGHT_PANE, "tab_id": NEW_TAB,
+            "terminal_id": "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+            "generation": "g", "revision": "2", "replayed": false})),
         "tab.get" if params["tab"] == NEW_TAB => Ok(json!({"id": NEW_TAB, "pane_id": PANE,
             "content_kind": "browser", "content_id": NEW_BROWSER})),
         "tab.get" if params["tab"] == "current" => Ok(json!({"id": SHOWN_TAB, "pane_id": PANE,
@@ -675,8 +719,11 @@ fn app_response(mode: AppMode, request: &Value) -> Value {
             identity["beside"] = json!({"pane": RIGHT_PANE, "placement": "existing_column",
                 "panes": [{"id": RIGHT_PANE, "kinds": ["terminal"]}]});
         }
-        if matches!(mode, AppMode::PlacesCallersRightColumn) {
+        if matches!(mode, AppMode::PlacesCallersRightColumn | AppMode::NewColumn { .. }) {
             identity["caller_placement"] = json!(2);
+        }
+        if let AppMode::NewColumn { docked: Some(docked) } = mode {
+            identity["caller"]["docked"] = json!(docked);
         }
         if matches!(mode, AppMode::UnplacedAgent) {
             identity = json!({"caller": {"is_caller": true,
@@ -691,7 +738,7 @@ fn app_response(mode: AppMode, request: &Value) -> Value {
     }
     let refused = match mode {
         AppMode::Workspace | AppMode::PlacesTerminals | AppMode::RightColumn => false,
-        AppMode::PlacesCallersRightColumn => false,
+        AppMode::PlacesCallersRightColumn | AppMode::NewColumn { .. } => false,
         AppMode::UnplacedAgent => false,
         AppMode::Home | AppMode::HomeNoReveal => {
             params["action"] == "openBrowser" && params.get("target").is_none()
