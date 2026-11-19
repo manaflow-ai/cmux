@@ -57,7 +57,7 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
         return makeSession() ? 0 : -1 // WEBRTC_VIDEO_CODEC_OK / ERROR
     }
 
-    func releaseEncoder() -> Int {
+    func release() -> Int {
         let old = lock.withLock { () -> VTCompressionSession? in
             defer { session = nil }
             return session
@@ -109,13 +109,13 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
     // MARK: Session
 
     /// The session's specification and properties (``ScreenLowLatencyEncoder`` above).
-    static let specification: [CFString: Any] = [
+    static var specification: [CFString: Any] { [
         kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true,
         kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true,
-    ]
+    ] }
 
     private func makeSession() -> Bool {
-        _ = releaseEncoder()
+        _ = release()
         let (width, height) = lock.withLock { (self.width, self.height) }
         guard width > 0, height > 0 else { return false }
         var made: VTCompressionSession?

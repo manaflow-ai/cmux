@@ -114,7 +114,7 @@ final class EncoderBench: @unchecked Sendable {
         settings.mode = .screensharing
         #expect(encoder.startEncode(with: settings, numberOfCores: 8) == 0, "the encoder started")
         _ = encoder.setBitrate(bitrateKbps, framerate: UInt32(fps))
-        defer { _ = encoder.releaseEncoder() }
+        defer { _ = encoder.release() }
 
         let screen = ScrollingPictures(width: sourceWidth, height: sourceHeight)
         let interval = 1_000_000_000 / UInt64(fps)
