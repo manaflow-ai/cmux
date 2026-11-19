@@ -399,8 +399,6 @@ impl Hub {
         let open = &mut watching.open;
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
         let bridged = session.meta().tags.contains_key("bridge");
-        // The app's turns that stopped on the account's rate limit, held once the batch is kept.
-        let mut limited: Vec<(Option<String>, String)> = Vec::new();
         for line in lines {
             let Ok(record) = serde_json::from_str::<Value>(line) else { continue };
             let at = record_time(&record);
@@ -408,11 +406,14 @@ impl Hub {
             // never as the agent's answer (`bridge_hold.rs`).
             if let Some(error) = super::bridge::hold::api_error(&watching.family, &record) {
                 let turn = open.take();
+                // Held before the turn's call answers, so nothing sent after that answer goes
+                // into the app before the reset.
+                if bridged && super::bridge::hold::rate_limited(&record, &error) {
+                    let turn_id = turn.as_ref().map(|t| t.turn_id.as_str());
+                    self.bridge_rate_limited(session, turn_id, &error);
+                }
                 if let Some(turn) = &turn {
                     self.end_watched_turn_failed(session, turn, at, &error);
-                }
-                if bridged && super::bridge::hold::rate_limited(&record, &error) {
-                    limited.push((turn.map(|t| t.turn_id), error));
                 }
                 continue;
             }
@@ -479,9 +480,6 @@ impl Hub {
             m.watching = Some(watching);
         }
         self.save_meta(session);
-        for (turn_id, error) in limited {
-            self.bridge_rate_limited(session, turn_id.as_deref(), &error);
-        }
         true
     }
 
