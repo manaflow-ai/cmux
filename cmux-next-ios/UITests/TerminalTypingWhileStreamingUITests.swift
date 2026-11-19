@@ -79,6 +79,12 @@ final class TerminalTypingWhileStreamingUITests: XCTestCase {
         // Every key was echoed and drawn: none waits past the run.
         XCTAssertGreaterThan(flood["keyCount"] as? Int ?? 0, 40, "keys typed while streaming")
         XCTAssertGreaterThan(flood["echoCount"] as? Int ?? 0, 40, "echoes drawn while streaming")
+        // The lag (2026-11-18): with the keyboard, each key cost about 6 ms of main thread
+        // (UIKit re-read the whole document after every insert); without it, 0.3 ms.
+        if !extra.contains("-CmuxMobileFloodBenchNoFocus") {
+            let p50 = flood["keyMainP50ms"] as? Double ?? .infinity
+            XCTAssertLessThan(p50, 1.5, "main-thread ms of a typed key while the agent streams, p50")
+        }
         app.terminate()
     }
 
