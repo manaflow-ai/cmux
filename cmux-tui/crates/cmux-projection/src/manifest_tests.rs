@@ -71,15 +71,33 @@ fn a_bad_or_doubled_path_is_refused() {
 }
 
 #[test]
+fn wire_manifests_cannot_bypass_case_collision_checks() {
+    let mut manifest = Manifest::build(1, vec![file("A", 1), file("b", 2)]).unwrap();
+    manifest.entries[2].name = "a".into();
+    assert!(Manifest::decode(&manifest.encode().unwrap()).is_err());
+}
+
+#[test]
 #[ignore = "large acceptance fixture; run on the Linux fleet"]
 fn a_manifest_accepts_one_point_five_million_files() {
-    // Keep the fixture's directory fan-out realistic so the acceptance run exercises the
-    // manifest's large-entry path without making one BTreeMap hold every file in the folder.
-    let items = (0..1_500_000)
-        .map(|index| file(&format!("files/{:04}/{index:07}.dat", index / 150), 1))
-        .collect();
-    let manifest = Manifest::build(1, items).unwrap();
-    assert_eq!(manifest.totals(), (1_500_000, 1_500_000));
-    let encoded = manifest.encode().unwrap();
-    assert_eq!(Manifest::decode(&encoded).unwrap().len(), 1_510_002);
+    // A flat directory must also scale: case checks used to scan every sibling for each insert.
+    for flat in [false, true] {
+        let started = std::time::Instant::now();
+        let items = (0..1_500_000)
+            .map(|index| {
+                let path = if flat {
+                    format!("{index:07}.dat")
+                } else {
+                    format!("files/{:04}/{index:07}.dat", index / 150)
+                };
+                file(&path, 1)
+            })
+            .collect();
+        let manifest = Manifest::build(1, items).unwrap();
+        assert_eq!(manifest.totals(), (1_500_000, 1_500_000));
+        let encoded = manifest.encode().unwrap();
+        let expected = if flat { 1_500_001 } else { 1_510_002 };
+        assert_eq!(Manifest::decode(&encoded).unwrap().len(), expected);
+        eprintln!("1.5M files flat={flat}: {:?}, {} wire bytes", started.elapsed(), encoded.len());
+    }
 }

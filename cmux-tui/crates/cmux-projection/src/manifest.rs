@@ -8,7 +8,7 @@
 //! What goes in is decided by the Mac (the copy's own rules, `sync_cli/local.rs`): a path that is
 //! not in the manifest can never be asked for.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Read as _;
 
 use serde::{Deserialize, Serialize};
@@ -82,6 +82,7 @@ struct Node {
     mtime_ns: i64,
     link: Option<String>,
     children: BTreeMap<String, Node>,
+    folded_names: BTreeMap<String, String>,
 }
 
 impl Manifest {
@@ -96,7 +97,7 @@ impl Manifest {
             let (last, above) = names.split_last().ok_or_else(|| anyhow::anyhow!("empty path"))?;
             let mut at = &mut root;
             for name in above {
-                ensure_case_unique(&at.children, name, &item.path)?;
+                ensure_case_unique(&mut at.folded_names, name, &item.path)?;
                 anyhow::ensure!(
                     matches!(at.kind, None | Some(Kind::Dir)),
                     "{} is below a file",
@@ -113,7 +114,7 @@ impl Manifest {
                 "{} is below a file",
                 item.path
             );
-            ensure_case_unique(&at.children, last, &item.path)?;
+            ensure_case_unique(&mut at.folded_names, last, &item.path)?;
             let node = at.children.entry((*last).to_owned()).or_default();
             anyhow::ensure!(
                 node.kind.is_none() || (node.kind == Some(Kind::Dir) && item.kind == Kind::Dir),
@@ -284,6 +285,7 @@ impl Manifest {
                 .ok_or_else(|| anyhow::anyhow!("entry {index}'s children are out of range"))?;
             anyhow::ensure!(entry.children == 0 || start > index, "entry {index} loops");
             let mut before: Option<&Entry> = None;
+            let mut folded_names = BTreeSet::new();
             for ((child, seen), node) in seen
                 .iter_mut()
                 .enumerate()
@@ -300,6 +302,10 @@ impl Manifest {
                         "entry {index}'s children are not sorted"
                     );
                 }
+                anyhow::ensure!(
+                    folded_names.insert(node.name.to_lowercase()),
+                    "entry {index} has case-insensitive sibling collisions"
+                );
                 before = Some(node);
             }
         }
@@ -308,15 +314,20 @@ impl Manifest {
 }
 
 fn ensure_case_unique(
-    children: &BTreeMap<String, Node>,
+    folded_names: &mut BTreeMap<String, String>,
     name: &str,
     path: &str,
 ) -> anyhow::Result<()> {
     let folded = name.to_lowercase();
-    anyhow::ensure!(
-        children.keys().all(|existing| existing == name || existing.to_lowercase() != folded),
-        "{path} collides with a case-insensitive sibling"
-    );
+    match folded_names.entry(folded) {
+        std::collections::btree_map::Entry::Occupied(existing) => anyhow::ensure!(
+            existing.get() == name,
+            "{path} collides with a case-insensitive sibling"
+        ),
+        std::collections::btree_map::Entry::Vacant(slot) => {
+            slot.insert(name.to_owned());
+        }
+    }
     Ok(())
 }
 

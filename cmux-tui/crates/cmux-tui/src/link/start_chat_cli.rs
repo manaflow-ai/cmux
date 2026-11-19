@@ -48,7 +48,7 @@
 //!   personal Default).
 //! - `preflight --local FOLDER`: asked before any machine or lease is made for the send: every
 //!   absolute folder goes on, whatever its size; attached local folders project first and fall
-//!   back to the existing seed/copy path ([`preflight`]).
+//!   back to the existing copy path ([`preflight`]).
 //! - `import --entries JSON`: takes in the sends the App kept in its user
 //!   defaults before this did ([`Ledger::import`]), once, on upgrade.
 //!
@@ -1178,47 +1178,42 @@ pub(super) fn import(ledger: &Path, entries: &str) -> Value {
 /// message.
 pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, Value> + 'a;
 
-/// `cmux link seed push` (design/cloud.md, "Getting the project onto the
-/// machine"): a git folder with a GitHub remote is seeded from it, anything
-/// else copied (`cmux link sync push`), which refuses a machine without
-/// `fs-v1` (`machine_outdated`) itself. A seed answers once the machine has the
-/// head the chat opens on (the root's files, the harness folders and `subpath`),
-/// `filling` while it fills the rest under its sync barrier, so every tool in the
-/// chat still sees the whole checkout. The send's copy counts as finished then
-/// ([`StartCopy::run`]): the chat may open in that folder, so a retry of the send
-/// never pushes over it. What a later delta builds on waits for the fill to be
-/// done (`seed_cli`'s record).
+/// Prepare an attached local folder: project it first, otherwise copy its local
+/// contents. A retry reuses the completed folder rather than overwriting the
+/// chat's edits. A GitHub repository selected separately uses its own seed path.
 fn push(
     socket: &Path,
     local: &Path,
     remote: &str,
-    subpath: &str,
+    _subpath: &str,
     chat: &str,
 ) -> Result<Value, Value> {
     if let Some(projected) = project_first(socket, local, remote, chat) {
         return Ok(projected);
     }
-    super::seed_cli::push(socket, local, remote, Some(subpath))
+    super::seed_cli::push_copy_only(socket, local, remote)
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
 
 /// An attached local folder is projected when that is on (sync_cli/project.rs): the chat opens on
 /// all of it at once, its files read from this Mac on first use. None for anything else, and for
-/// any failure to project, so the caller seeds or copies as before. Both pushes try it first: the
+/// any failure to project, so the caller copies as before. Both pushes try it first: the
 /// App's first copy asks (`--on-seed-refusal ask`), and a folder its machine's disk cannot hold
 /// would end there, refused, before a projection that needs no room was tried.
 fn project_first(socket: &Path, local: &Path, remote: &str, chat: &str) -> Option<Value> {
     match super::sync_cli::project::start(socket, local, remote, chat) {
-        Ok(Ok(answer)) => Some(json!({
-            "ok": true,
-            "chat": super::sync_cli::project::chat_name(chat),
-            "folder": remote,
-            "copied": false,
+        Ok(Ok(answer)) => Some(pushed_fields(&json!({
             "mode": "projected",
             "projected": answer.get("data").cloned()
-        })),
-        Ok(Err(_)) => None,
+        }))),
+        Ok(Err(why)) => {
+            eprintln!(
+                "cmux link start-chat: {} is not projected ({why:?}); copying it",
+                local.display()
+            );
+            None
+        }
         Err(error) => {
             eprintln!(
                 "cmux link start-chat: projecting {} failed: {error:#}; copying it",
@@ -1229,19 +1224,19 @@ fn project_first(socket: &Path, local: &Path, remote: &str, chat: &str) -> Optio
     }
 }
 
-/// [`push`] that never copies: a refused seed is `seed_refused`
-/// (`--on-seed-refusal ask`). A projection is no copy: it is tried first, as in [`push`].
+/// The older `--on-seed-refusal ask` caller takes the same attached-folder path:
+/// projection first, then the local folder's copy. GitHub selections seed separately.
 fn push_seed_only(
     socket: &Path,
     local: &Path,
     remote: &str,
-    subpath: &str,
+    _subpath: &str,
     chat: &str,
 ) -> Result<Value, Value> {
     if let Some(projected) = project_first(socket, local, remote, chat) {
         return Ok(projected);
     }
-    super::seed_cli::push_seed_only(socket, local, remote, Some(subpath))
+    super::seed_cli::push_copy_only(socket, local, remote)
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
@@ -1253,8 +1248,17 @@ fn push_seed_only(
 /// answered at the seed's head.
 fn pushed_fields(line: &Value) -> Value {
     let mut fields = serde_json::Map::new();
-    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files", "filling"]
-    {
+    // The caller owns chat/folder paths (including the selected subpath) and
+    // whether this preparation is new or cached. Transport metadata cannot replace them.
+    for key in [
+        "mode",
+        "fallback_code",
+        "fallback_why",
+        "install_url",
+        "skipped_files",
+        "filling",
+        "projected",
+    ] {
         if let Some(value) = line.get(key).filter(|value| !value.is_null()) {
             fields.insert(key.to_string(), value.clone());
         }
@@ -1553,24 +1557,15 @@ fn join(base: &str, name: &str) -> String {
     if base.ends_with('/') { format!("{base}{name}") } else { format!("{base}/{name}") }
 }
 
-/// A copied folder's name on a machine: its own name and a 128-bit SHA-256
-/// digest of where it is on this Mac, so distinct folders with one basename
-/// do not share a copy. The same name Move to Cloud gives
-/// (`CloudMoveFolder.remoteName`).
+/// A copied folder keeps its local basename. Each copy already has a distinct
+/// place (`fresh_place`), so equal basenames do not share a destination.
 pub(super) fn remote_name(root: &str) -> String {
-    use sha2::{Digest as _, Sha256};
-
-    let mut hasher = Sha256::new();
-    hasher.update(root.as_bytes());
-    let digest = hasher.finalize();
-    let suffix: String = digest.iter().take(16).map(|byte| format!("{byte:02x}")).collect();
-    let name = root
-        .trim_end_matches('/')
+    root.trim_end_matches('/')
         .rsplit('/')
         .next()
         .filter(|name| !name.is_empty() && *name != "." && *name != "..")
-        .unwrap_or("folder");
-    format!("{name}-{suffix}")
+        .unwrap_or("folder")
+        .to_owned()
 }
 
 /// `--flag value` pairs; a flag may repeat (`--work-root`).

@@ -274,6 +274,7 @@ fn a_folder_past_the_limits_is_projected_whole_and_reads_come_from_the_mac() {
     let start = start_chat(&state, &w.socket, &w.local, &w.home.join("work"), true, &[]);
     let folder = &start.folder;
     assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+    assert_eq!(start.answer["chat"].as_str(), folder.to_str(), "{}", start.answer);
     // One projection per chat, named by its start key: Bring Back finds the chat's edits by it.
     assert_eq!(start.answer["projected"]["name"], format!("chat-{KEY}"), "{}", start.answer);
 
@@ -312,11 +313,40 @@ fn the_apps_asking_copy_projects_too() {
     let w = world(50);
     let state = w.home.parent().unwrap().join("state");
     let work = w.home.join("work");
-    let start = start_chat(&state, &w.socket, &w.local, &work, true, &["--on-seed-refusal", "ask"]);
+    let start = start_chat(
+        &state,
+        &w.socket,
+        &w.local,
+        &work,
+        true,
+        &["--on-seed-refusal", "ask", "--subpath", "cmux"],
+    );
     assert_eq!(start.answer["mode"], "projected", "{}", start.answer);
+    let chat = Path::new(start.answer["chat"].as_str().unwrap());
+    assert_eq!(chat, start.folder.join("cmux"));
+    assert_eq!(git(chat, &["status", "--short"]), "");
     let image = std::fs::metadata(start.folder.join("Downloads/disk.img")).unwrap();
     assert_eq!(image.len(), 21 * 1024 * 1024 * 1024);
     stop(&state, &start.folder);
+}
+
+#[test]
+fn the_kill_switch_copies_the_attached_folder_without_a_projection_mount() {
+    let root = tempfile::tempdir().unwrap();
+    let local = root.path().join("local");
+    let home = root.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    write(&local.join("src/file.txt"), "local contents\n");
+    let socket = root.path().join("machine.sock");
+    machine(&socket, &home);
+    let state = root.path().join("state");
+    let start =
+        start_chat(&state, &socket, &local, &home.join("work"), false, &["--subpath", "src"]);
+    assert_ne!(start.answer["mode"], "projected");
+    let chat = Path::new(start.answer["chat"].as_str().unwrap());
+    assert_eq!(chat, start.folder.join("src"));
+    assert_eq!(std::fs::read_to_string(chat.join("file.txt")).unwrap(), "local contents\n");
+    assert_eq!(std::fs::read_to_string(local.join("src/file.txt")).unwrap(), "local contents\n");
 }
 
 #[test]

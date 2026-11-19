@@ -927,19 +927,43 @@ mod tests {
         let staging = top.path().join("staging");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::create_dir_all(&staging).unwrap();
-        std::fs::write(root.join("race.txt"), "planned\n").unwrap();
-        std::fs::write(staging.join("incoming"), "machine\n").unwrap();
         let planned = Expected { sha256: sha256(b"planned\n"), permissions: 0o644 };
+        let mut seed = 0x7072_6f6a_6563_7465u64;
+        let mut cases = [0usize; 4];
         for trial in 0..10_000 {
-            std::fs::write(root.join("race.txt"), format!("local-{trial}\n")).unwrap();
+            // Reproducible edit schedules: a local write after planning races a
+            // remote replacement, deletion, creation, or symlink replacement.
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            let case = (seed % 4) as usize;
+            cases[case] += 1;
+            let local = format!("local-{trial}-{seed}\n");
+            let incoming = format!("machine-{trial}-{seed}\n");
+            std::fs::write(staging.join("incoming"), &incoming).unwrap();
+            if case == 3 {
+                std::os::unix::fs::symlink(&local, root.join("race.txt")).unwrap();
+            } else {
+                std::fs::write(root.join("race.txt"), &local).unwrap();
+            }
             let mut transaction = Transaction::new(&root, &staging).unwrap();
-            let error = transaction.write("race.txt", "incoming", Some(&planned)).unwrap_err();
+            let result = match case {
+                0 => transaction.write("race.txt", "incoming", Some(&planned)),
+                1 => transaction.delete("race.txt", &planned),
+                2 => transaction.write("race.txt", "incoming", None),
+                _ => transaction.remove_link("race.txt", "planned"),
+            };
+            let error = result.unwrap_err();
             assert!(error.downcast_ref::<Changed>().is_some(), "trial {trial}: {error:#}");
             transaction.roll_back().unwrap();
-            assert_eq!(
-                std::fs::read_to_string(root.join("race.txt")).unwrap(),
-                format!("local-{trial}\n")
-            );
+            if case == 3 {
+                assert_eq!(std::fs::read_link(root.join("race.txt")).unwrap(), Path::new(&local));
+            } else {
+                assert_eq!(std::fs::read_to_string(root.join("race.txt")).unwrap(), local);
+            }
+            assert_eq!(std::fs::read_to_string(staging.join("incoming")).unwrap(), incoming);
+            std::fs::remove_file(root.join("race.txt")).unwrap();
         }
+        assert!(cases.iter().all(|count| *count > 2000), "seeded coverage: {cases:?}");
     }
 }

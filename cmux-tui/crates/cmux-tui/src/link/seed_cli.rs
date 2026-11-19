@@ -561,6 +561,16 @@ pub(super) fn push_seed_only(
     push_full(socket, local, remote, head_first, false)
 }
 
+/// A copy of `local`, never a seed: an attached folder that could not be
+/// projected keeps its local contents and does not require access to its GitHub remote.
+pub(super) fn push_copy_only(socket: &Path, local: &Path, remote: &str) -> anyhow::Result<Pushed> {
+    let machine = Machine::read(socket)?;
+    let local = std::fs::canonicalize(local).map_err(|error| {
+        SeedError::new("sync_failed", format!("cannot open {}: {error}", local.display()))
+    })?;
+    copy(&machine, &local, remote, None)
+}
+
 fn push_full(
     socket: &Path,
     local: &Path,
