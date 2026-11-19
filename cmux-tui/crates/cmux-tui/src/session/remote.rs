@@ -991,12 +991,19 @@ enum RemoteGeometryTestStep {
 }
 
 /// Where a scrolled-back viewport is, for a rebuilt mirror: the rows from its
-/// top to the end of the screen, and the text of the rows it shows.
+/// top to the end of the screen, the text of the rows it shows, and the width
+/// that text was laid out at.
 #[derive(Debug)]
 pub(crate) struct ScrolledBackAnchor {
     pub(crate) rows_from_end: u64,
     rows: Vec<String>,
+    cols: u16,
 }
+
+/// How far above the distance from the end a rebuilt mirror looks for the
+/// reader's rows: a bound on the rows printed while it was away, and on the
+/// rows read under the terminal lock (this times the viewport's height).
+const ANCHOR_SEARCH_ROWS: u64 = 2_000;
 
 /// The anchor of a scrolled-back viewport, or `None` when the viewport
 /// follows the live bottom.
@@ -1018,19 +1025,27 @@ pub(crate) fn scrolled_back_anchor(term: &mut Terminal) -> Option<ScrolledBackAn
     Some(ScrolledBackAnchor {
         rows_from_end: scrollbar.total.saturating_sub(scrollbar.offset),
         rows,
+        cols: term.cols(),
     })
 }
 
 /// Scroll a freshly rebuilt mirror back to the rows the anchor was taken on:
-/// the nearest place at or above the same distance from the end whose rows
-/// read the same, else that distance, clamped to the retained history.
+/// the nearest place at or within ANCHOR_SEARCH_ROWS above the same distance
+/// from the end whose rows read the same, else that distance, clamped to the
+/// retained history. At a new width the rows reflowed: they may now sit below
+/// that distance and read differently, so an upward search could only find an
+/// older copy of the same text, and the distance alone places them.
 pub(crate) fn restore_scrolled_back_anchor(term: &mut Terminal, anchor: &ScrolledBackAnchor) {
     let Some(scrollbar) = term.scrollbar() else {
         return;
     };
     let live_offset = scrollbar.total.saturating_sub(scrollbar.len);
     let by_end = scrollbar.total.saturating_sub(anchor.rows_from_end).min(live_offset);
-    let target = offset_showing(term, &anchor.rows, by_end).unwrap_or(by_end);
+    let target = if term.cols() == anchor.cols {
+        offset_showing(term, &anchor.rows, by_end).unwrap_or(by_end)
+    } else {
+        by_end
+    };
     let delta = i128::from(target) - i128::from(scrollbar.offset);
     if let Ok(delta) = isize::try_from(delta)
         && delta != 0
@@ -1039,15 +1054,16 @@ pub(crate) fn restore_scrolled_back_anchor(term: &mut Terminal, anchor: &Scrolle
     }
 }
 
-/// The highest viewport offset at or below `from` whose rows read `rows`
-/// (blank rows alone match anywhere, so they find nothing). One row read per
-/// offset tried, past the first mismatch; it runs once per resync.
+/// The highest viewport offset at or below `from`, and at most
+/// ANCHOR_SEARCH_ROWS above it, whose rows read `rows` (blank rows alone match
+/// anywhere, so they find nothing). One row read per offset tried, past the
+/// first mismatch; it runs once per resync.
 fn offset_showing(term: &mut Terminal, rows: &[String], from: u64) -> Option<u64> {
     if rows.iter().all(|row| row.trim().is_empty()) {
         return None;
     }
     let last_col = term.cols().saturating_sub(1);
-    (0..=from).rev().find(|&top| {
+    (from.saturating_sub(ANCHOR_SEARCH_ROWS)..=from).rev().find(|&top| {
         rows.iter().zip(top..).all(|(want, row)| {
             let have = term.selection_text_absolute((0, row), (last_col, row)).unwrap_or_default();
             have.trim_end() == want.trim_end()
