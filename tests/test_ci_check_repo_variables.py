@@ -141,6 +141,35 @@ class Values(unittest.TestCase):
         self.assertIn("repeats MACOS_RUNNER_PR", found[0])
 
 
+class NoGitHubHosted(unittest.TestCase):
+    # 2026-11-19: CI_LINUX_HOSTED_RUNNER=ubuntu-24.04 left LINUX_RUNNER, LINUX_BUILD_RUNNER and RUNNER_POOLS on
+    # ubuntu-24.04 with 12,011 jobs queued there (Leo: "Fuck GitHub.").
+    def test_a_hosted_label_in_any_runner_variable_fails(self) -> None:
+        for name, value in (("LINUX_RUNNER", "ubuntu-24.04"), ("LINUX_BUILD_RUNNER", "ubuntu-24.04"),
+                            ("CI_TRUSTED_RUNNER", "ubuntu-24.04"), ("MACOS_RUNNER_PR", "macos-15"),
+                            ("WINDOWS_RUNNER", "windows-2025"), ("LINUX_RUNNER_DARWIN_CROSS", "ubuntu-latest")):
+            with self.subTest(name=name, value=value):
+                found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=f"{name}={value}\n"))
+                self.assertEqual(len(found), 1, found)
+                self.assertIn("GitHub-hosted", found[0])
+
+    def test_the_retired_override_fails_while_set(self) -> None:
+        found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=GOOD_RUNNERS + "CI_LINUX_HOSTED_RUNNER=ubuntu-24.04\n"))
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("gh variable delete CI_LINUX_HOSTED_RUNNER", found[0])
+        self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES=GOOD_RUNNERS + "CI_LINUX_HOSTED_RUNNER=\n")), [])
+
+    def test_owned_and_cloud_labels_pass(self) -> None:
+        for value in ("blacksmith-4vcpu-ubuntu-2404", "cmux-gcp-lane-build-x64"):
+            with self.subTest(value=value):
+                self.assertEqual(check.hosted_findings({"LINUX_BUILD_RUNNER": value}), [])
+
+    def test_the_build_variables_are_checked(self) -> None:
+        names = {line.partition("=")[0] for line in runner_block("ci-repo-variables.yml")}
+        self.assertLessEqual({"LINUX_RUNNER", "LINUX_BUILD_RUNNER", "LINUX_RUNNER_DARWIN_CROSS", "CI_TRUSTED_RUNNER",
+                              "CI_LINUX_HOSTED_RUNNER", "MACOS_RUNNER_PR"}, names)
+
+
 class Wiring(unittest.TestCase):
     def test_same_runner_variables_as_the_health_report(self) -> None:
         mine = runner_block("ci-repo-variables.yml")

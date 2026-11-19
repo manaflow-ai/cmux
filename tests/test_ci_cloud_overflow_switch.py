@@ -1180,7 +1180,7 @@ class WorkflowTests(unittest.TestCase):
 
 class RepoVariableCheckTests(unittest.TestCase):
     def env(self, **extra: str) -> dict[str, str]:
-        return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\nLINUX_RUNNER=ubuntu-24.04\n",
+        return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\nLINUX_RUNNER=blacksmith-4vcpu-ubuntu-2404\n",
                 "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN, **extra}
 
     def test_a_signing_variable_the_drift_policy_accepts_is_still_reported(self) -> None:

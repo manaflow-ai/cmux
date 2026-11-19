@@ -28,6 +28,7 @@ MACOS_RUNNER_* is otherwise refused.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -44,6 +45,26 @@ DAEMON_POOL_VARIABLE = "CI_NEXT_DAEMON_POOL"
 SIDE_LANE_VARIABLE = "CI_SIDE_LANE_RUNNER"
 PIN_POOL_VARIABLE = "CI_PIN_DAEMON_POOL"
 LIGHT_LANE_VARIABLE = "CI_LIGHT_LANE_RUNNER"
+# No runner variable may name a GitHub-hosted label (Leo, 2026-11-19: "why the fuck do you keep having the fucking
+# GitHub hosted runners? Fuck GitHub."). On 2026-11-19 CI_LINUX_HOSTED_RUNNER=ubuntu-24.04 left RUNNER_POOLS,
+# LINUX_RUNNER and LINUX_BUILD_RUNNER on ubuntu-24.04 with 12,011 jobs queued there and 31 running. The provenance
+# jobs that need GitHub's OIDC name their pool in .github/runners.json ("hosted": true), never through a variable.
+HOSTED_LABEL = re.compile(r"^(?:ubuntu|macos|windows)-[\w.-]+$")
+RETIRED_HOSTED_OVERRIDE = "CI_LINUX_HOSTED_RUNNER"
+
+
+def hosted_findings(variables: dict[str, str]) -> list[str]:
+    """One finding per runner variable naming a GitHub-hosted label, and one while the retired override is set."""
+    found = []
+    for name, value in sorted(variables.items()):
+        if name == RETIRED_HOSTED_OVERRIDE and value.strip():
+            found.append(f"{name}={value.strip()!r}: the hosted outage override is retired and nothing reads it. "
+                         f"Fix: gh variable delete {name}")
+        elif HOSTED_LABEL.match(value.strip()):
+            found.append(f"{name}={value.strip()!r} is a GitHub-hosted label; cmux jobs run on owned or cloud "
+                         "runners. Fix: run the runner pools pass (ci-cloud-overflow-probe.yml) or set it to the "
+                         "pool's live member")
+    return found
 
 
 def parse_runner_variables(raw: str) -> dict[str, str]:
@@ -127,14 +148,17 @@ def problems(env: dict[str, str]) -> list[str]:
                              "that gate the nightly-next promotion queue behind pull request side lanes. "
                              "Fix: point it at a pool pull requests do not fill, or clear it for the promote pool")
             found.extend(pin_pool_findings(env.get(PIN_POOL_VARIABLE, "").strip(), daemon_pool, variables)[0])
-            drifted = list(drifted_runner_variables(variables))
-            reported = {name for name, _, _ in drifted}
+            hosted = hosted_findings(variables)
+            found.extend(hosted)
+            drifted = [d for d in drifted_runner_variables(variables) if not HOSTED_LABEL.match(d[1])]
+            reported = {name for name, _, _ in drifted} | {name for name, value in variables.items()
+                                                            if HOSTED_LABEL.match(value.strip())}
             for name, value in sorted(variables.items()):
                 # Checked on their own: the drift policy accepts some labels (an older provider's,
                 # say) that no signing job may run on.
                 if name not in reported and not allowed_value(name, value):
                     found.append(f"{name}={value!r}: signing jobs run on it, so it may only name blacksmith-* "
-                                 "or ubuntu-* (scripts/ci/signing_runner_variables.py)")
+                                 "ubuntu-* or the owned cmux-fleet-linux-*/cmux-gcp-lane-* (scripts/ci/signing_runner_variables.py)")
             for name, value, reason in drifted:
                 if (switched.get(name) == value and not HOSTED_MACOS_LABEL.search(value.strip().lower())
                         and allowed_value(name, value)):
@@ -143,7 +167,7 @@ def problems(env: dict[str, str]) -> list[str]:
                     continue
                 found.append(f"{name}={value!r}: {reason}")
             trusted = variables.get(TRUSTED_VARIABLE, "").strip()
-            if trusted and trusted not in TRUSTED_BLACKSMITH_LABELS:
+            if trusted and trusted not in TRUSTED_BLACKSMITH_LABELS and not hosted_findings({TRUSTED_VARIABLE: trusted}):
                 # Its readers accept only these, so any other value silently falls back to Blacksmith 4 vCPU.
                 found.append(f"{TRUSTED_VARIABLE}={trusted!r}: its readers accept only "
                              + ", ".join(sorted(TRUSTED_BLACKSMITH_LABELS)) + "; anything else falls back")
