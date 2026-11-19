@@ -47,6 +47,10 @@ pub(crate) struct RemoteRows {
     /// How many rows each peer lists, kept by every write: `_acpmux/status` reads it per peer,
     /// not per row.
     per_peer: PMap<String, usize>,
+    /// Every row's key by its byte-page key (`session_pages::page_key_of`, fixed by its id and
+    /// peer): a byte page of the whole list (`_acpmux/sessions` with no `limit`) reads its own
+    /// rows from here, not a hash and a sort of every row.
+    by_page_key: PSet<(u128, Box<str>)>,
 }
 
 /// A row's place in list order: newest first, then its session id, then its peer (none first),
@@ -95,6 +99,7 @@ impl RemoteRows {
             self.by_pair.entry(pair).or_default().insert(key.clone());
         }
         *self.per_peer.entry(row.peer.clone()).or_default() += 1;
+        self.by_page_key.insert((page_key(&row), key.as_str().into()));
         let peer = self.by_peer.entry(row.peer.clone()).or_default();
         peer.entry(row.receipt.mux_session_id.clone()).or_default().insert(key.clone());
         self.names.add(&key, &row);
@@ -131,6 +136,7 @@ impl RemoteRows {
                 self.by_pair.remove(&pair);
             }
         }
+        self.by_page_key.remove(&(page_key(&row), key.into()));
         if let Some(count) = self.per_peer.get_mut(&row.peer) {
             *count = count.saturating_sub(1);
             if *count == 0 {
@@ -251,6 +257,20 @@ impl RemoteRows {
         Merged { a: open, b: closed.peekable() }.filter_map(|place| self.rows.get(&*place.key))
     }
 
+    /// The rows in byte-page key order from the first with a key past `after` (every row when
+    /// None), each with its key: a byte page costs the rows it takes.
+    pub(crate) fn by_page_key<'a>(
+        &'a self,
+        after: Option<u128>,
+    ) -> impl Iterator<Item = (u128, &'a Arc<RemoteSession>)> + 'a {
+        let start = after.map_or(0, |after| after.saturating_add(1));
+        let past_max = after == Some(u128::MAX);
+        self.by_page_key
+            .range((start, Box::<str>::from(""))..)
+            .filter(move |_| !past_max)
+            .filter_map(|(hash, key)| self.rows.get(&**key).map(|row| (*hash, row)))
+    }
+
     /// How many rows are closed, counted as they are written.
     pub(crate) fn closed_count(&self) -> usize {
         self.closed_order.len()
@@ -315,6 +335,11 @@ impl RemoteRows {
     pub(crate) fn pairs(&self) -> usize {
         self.by_pair.len()
     }
+}
+
+/// `row`'s byte-page key, as a whole list's byte pages order it.
+fn page_key(row: &RemoteSession) -> u128 {
+    super::session_pages::page_key_of(row.summary.session_id().unwrap_or(""), row.summary.peer())
 }
 
 /// Two iterators in ascending order, merged into one.

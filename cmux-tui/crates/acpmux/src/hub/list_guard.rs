@@ -510,7 +510,7 @@ fn row_text<'a>(
 /// `row` (whose paging keys are `key`): whole when it fits in `budget`, else trimmed to fit, its
 /// largest fields first (`reply_fit.rs`), or as [`too_large_stub`] when even the fields it keeps
 /// do not.
-fn fit_row<'a, K: PageRow + ?Sized>(
+pub(crate) fn fit_row<'a, K: PageRow + ?Sized>(
     row: &'a str,
     key: &K,
     budget: usize,
