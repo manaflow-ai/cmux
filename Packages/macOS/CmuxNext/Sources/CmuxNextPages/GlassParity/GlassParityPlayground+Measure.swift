@@ -70,7 +70,28 @@ extension GlassParityPlayground {
         guard case .object(var members) = report else { return report }
         members["status"] = status()
         members["snapshots"] = .object(snapshots)
+        var probes: [String: JSONValue] = [:]
+        for (column, page) in pages { probes[column.rawValue] = await Self.probe(page) }
+        members["probe"] = .object(probes)
         return .object(members)
+    }
+
+    /// What each web surface draws itself (its computed fill, filters, edge and veil), so a residual
+    /// names its CSS: read from the page in either engine.
+    static func probe(_ page: PageWebView) async -> JSONValue {
+        let script = """
+        const pick = (s) => ({ bg: s.backgroundColor, image: s.backgroundImage.slice(0, 160),
+          backdrop: s.backdropFilter || s.webkitBackdropFilter || '', filter: s.filter, shadow: s.boxShadow.slice(0, 160),
+          border: s.borderTopWidth + ' ' + s.borderTopStyle + ' ' + s.borderTopColor, opacity: s.opacity, radius: s.borderTopLeftRadius });
+        return JSON.stringify({ root: Object.assign({}, document.documentElement.dataset),
+          cells: [...document.querySelectorAll('.glass-parity-surface')].map((e) => ({ kind: e.dataset.parityKind,
+            drawn: e.getAttribute('data-host-glass-drawn'), self: pick(getComputedStyle(e)),
+            before: pick(getComputedStyle(e, '::before')), after: pick(getComputedStyle(e, '::after')) })) });
+        """
+        guard let text = await page.callPageFunction(script) as? String, let value = try? JSONValue.parse(Data(text.utf8)) else {
+            return .null
+        }
+        return value
     }
 
     /// Reads each renderer's capture, crops every surface, writes the crops, onion skins and differences,

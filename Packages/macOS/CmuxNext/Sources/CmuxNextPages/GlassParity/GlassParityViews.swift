@@ -86,19 +86,18 @@ final class GlassParityFlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// A surface's two lines, in the type the web cells draw (the body size, 13 pt on 18 pt lines, 8 pt from
-/// the top and 12 pt from the left: `--ds-space-2` and `--ds-space-3`), primary then secondary ink.
+/// A surface's two lines, laid out as the web cells lay them: the body size on 18 pt lines, 8 pt from the
+/// top and 12 pt from the left (`--ds-space-2`, `--ds-space-3`), primary then secondary ink. Drawn, not
+/// labels: each line's glyphs sit where CSS puts them in its line box (half the leading above the font's
+/// ascent), with no text field cell insets.
 final class GlassParityTextView: NSView {
+    private let lines: [(String, NSColor)]
+    static let lineHeight: CGFloat = 18
+    static let origin = CGPoint(x: 12, y: 8)
+
     init(frame: NSRect, title: String, detail: String) {
+        lines = [(title, Palette.textPrimary), (detail, Palette.textSecondary)]
         super.init(frame: frame)
-        for (index, (text, color)) in [(title, Palette.textPrimary), (detail, Palette.textSecondary)].enumerated() {
-            let label = NSTextField(labelWithString: text)
-            label.font = .systemFont(ofSize: TypeScale.body)
-            label.textColor = color
-            label.frame = CGRect(x: 12, y: 8 + CGFloat(index) * 18, width: frame.width - 24, height: 18)
-            label.autoresizingMask = [.width]
-            addSubview(label)
-        }
     }
 
     @available(*, unavailable)
@@ -106,5 +105,20 @@ final class GlassParityTextView: NSView {
 
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let font = NSFont.systemFont(ofSize: TypeScale.body)
+        let halfLeading = (Self.lineHeight - (font.ascender - font.descender)) / 2
+        for (index, (text, color)) in lines.enumerated() {
+            let top = Self.origin.y + CGFloat(index) * Self.lineHeight + halfLeading
+            NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
+                .draw(at: CGPoint(x: Self.origin.x, y: top))
+        }
+    }
 }
 #endif
