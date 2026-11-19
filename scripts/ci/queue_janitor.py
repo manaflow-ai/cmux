@@ -315,6 +315,23 @@ GHOST_GIVE_UP_AGE = dt.timedelta(hours=72)
 # a sweep spends on runs GitHub refuses to cancel.
 DEFAULT_MAX_ORPHAN_CANCELS = 5
 MAX_ORPHAN_CANCELS_LIMIT = 10
+# Linux-only workflows hold no macOS pool, so needs_jobs() never lists their runs' jobs, and neither the orphan
+# pass nor category e saw their lost assignments: on 2026-11-19 feat-cmux-next pull request runs' `rust workspaces`
+# and `resolve head and base` jobs sat queued 14 to 24 h on Linux labels that served newer jobs, holding every
+# agent PR head's verdict open. The Linux orphan pass reads the jobs of the oldest such runs past the orphan age,
+# LINUX_JOB_READS a sweep (one job listing each), never a protected run (orphan_protected_reason(): nightly, DEV,
+# promote, release); the summary counts those. Their lost jobs join category e under its caps (an open head's run
+# is cancelled and re-run there), and their other orphans are cancelled under MAX_LINUX_ORPHAN_CANCELS.
+DEFAULT_LINUX_JOB_READS = 30
+LINUX_JOB_READS_LIMIT = 60
+DEFAULT_MAX_LINUX_ORPHAN_CANCELS = 40
+MAX_LINUX_ORPHAN_CANCELS_LIMIT = 40
+# What bounds the Linux cap: a cancel costs up to ORPHAN_CANCEL_CALLS requests (cancel, recheck, force-cancel), and
+# the Linux cancels never take the token's core budget below LINUX_CANCEL_BUDGET_FLOOR, which every other user of
+# the cmux-bot App's 12,500 an hour shares (linux_cancel_cap()). At 40 a sweep and about 6 sweeps an hour, a 2,500
+# backlog drains in about 10 h instead of 21 h at 20.
+ORPHAN_CANCEL_CALLS = 3
+LINUX_CANCEL_BUDGET_FLOOR = 2000
 # Concurrency holders (find_concurrency_holders): a pull request run `pending` this long behind its concurrency
 # group, held by an older run of the same workflow and branch at a superseded head whose only unfinished jobs have
 # sat `queued` with no runner HOLDER_JOB_WAIT. On 2026-11-18 cancel-in-progress cancelled such runs (web-validation's
@@ -3398,6 +3415,43 @@ def left_to_github(orphan: Orphan, now: dt.datetime) -> bool:
             and now - orphan.queued_since >= GHOST_GIVE_UP_AGE and orphan_protected_reason(orphan.run) is None)
 
 
+def linux_orphan_reads(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+                       linux_only: frozenset[str], now: dt.datetime, *, min_age: dt.timedelta, cap: int,
+                       branch_linux_only: Mapping[str, frozenset[str]] | None = None,
+                       ) -> tuple[list[Mapping[str, Any]], int, int]:
+    """(the runs whose jobs the Linux orphan pass reads, oldest first, at most `cap`; how many more it left for a
+    later sweep; how many it never reads for being protected).
+
+    A candidate is an in-flight run past `min_age` that needs_jobs() skips for its linux-only workflow alone:
+    without the linux-only paths it would be listed. A ghost queued past GHOST_QUEUED_RUN_AGE is never one."""
+    wanted: list[Mapping[str, Any]] = []
+    protected = 0
+    for run in runs:
+        if run["id"] in jobs_by_run or run.get("status") not in IN_FLIGHT_RUN_STATUSES:
+            continue
+        if not needs_jobs(run, frozenset(), now) \
+                or needs_jobs(run, linux_only, now, branch_linux_only=branch_linux_only):
+            continue
+        created = parse_time(run.get("created_at"))
+        if created is None or now - created < min_age:
+            continue
+        if orphan_protected_reason(run) is not None:
+            protected += 1
+            continue
+        wanted.append(run)
+    wanted.sort(key=lambda run: (str(run.get("created_at") or ""), run["id"]))
+    return wanted[:max(0, cap)], max(0, len(wanted) - max(0, cap)), protected
+
+
+def linux_cancel_cap(cap: int, limits: Mapping[str, Mapping[str, int]]) -> int:
+    """`cap`, lowered so this sweep's Linux cancels leave LINUX_CANCEL_BUDGET_FLOOR of the core budget; `cap` when no
+    budget header was seen."""
+    remaining = (limits.get("core") or {}).get("remaining")
+    if remaining is None:
+        return cap
+    return max(0, min(cap, (remaining - LINUX_CANCEL_BUDGET_FLOOR) // ORPHAN_CANCEL_CALLS))
+
+
 def orphan_branches(orphans: Iterable[Orphan], now: dt.datetime) -> list[str]:
     """Branches whose pull requests the orphan plan needs: `no-janitor`, and an open PR at a run's head.
 
@@ -4012,11 +4066,12 @@ def render_orphan_summary(
     now: dt.datetime,
     min_age: dt.timedelta,
     results: Mapping[int, str] | None = None,
+    title: str = "Orphaned runs",
 ) -> str:
     results = results or {}
     lines = [
         "",
-        "### Orphaned runs",
+        f"### {title}",
         "",
         f"A job queued with no runner for {format_age(min_age)} while a newer job on its pool got one, or "
         f"anything still queued after {format_age(max(GHOST_QUEUED_RUN_AGE, min_age))}. Cancelled whatever the "
@@ -4669,6 +4724,8 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     parser.add_argument("--orphan-minutes", type=int, default=None)
     parser.add_argument("--max-orphan-cancels", type=int, default=None)
     parser.add_argument("--max-holder-cancels", type=int, default=None)
+    parser.add_argument("--linux-job-reads", type=int, default=None)
+    parser.add_argument("--max-linux-orphan-cancels", type=int, default=None)
     parser.add_argument("--workflows-dir", type=Path,
                         default=Path(__file__).resolve().parents[2] / ".github" / "workflows")
     parser.add_argument("--branch-workflows", action="append", metavar="BRANCH=DIR",
@@ -4719,6 +4776,19 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     if not 0 <= max_holder_cancels <= MAX_HOLDER_CANCELS_LIMIT:
         print(f"queue-janitor: max holder cancels must be within 0..{MAX_HOLDER_CANCELS_LIMIT}", file=sys.stderr)
         return 2
+    try:
+        linux_job_reads = (args.linux_job_reads if args.linux_job_reads is not None
+                           else env_int("LINUX_JOB_READS", DEFAULT_LINUX_JOB_READS))
+        max_linux_orphan_cancels = (args.max_linux_orphan_cancels if args.max_linux_orphan_cancels is not None
+                                    else env_int("MAX_LINUX_ORPHAN_CANCELS", DEFAULT_MAX_LINUX_ORPHAN_CANCELS))
+    except ValueError:
+        print("queue-janitor: LINUX_JOB_READS and MAX_LINUX_ORPHAN_CANCELS must be integers", file=sys.stderr)
+        return 2
+    if not 0 <= linux_job_reads <= LINUX_JOB_READS_LIMIT \
+            or not 0 <= max_linux_orphan_cancels <= MAX_LINUX_ORPHAN_CANCELS_LIMIT:
+        print(f"queue-janitor: Linux job reads must be within 0..{LINUX_JOB_READS_LIMIT} and max Linux orphan "
+              f"cancels within 0..{MAX_LINUX_ORPHAN_CANCELS_LIMIT}", file=sys.stderr)
+        return 2
 
     github = GitHub(token, args.repo, fallback_token=os.environ.get("GH_FALLBACK_TOKEN") or "")
     clients.append(github)
@@ -4749,6 +4819,20 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         # and then the sweep decides nothing (no cancel, re-run or orphan), since a partial inventory
         # misjudges the others too (a newer run at the same head, the pool's wait p90).
         runs = [run for run in runs if run["id"] not in unread]
+        # The Linux orphan pass (linux_orphan_reads()): its listings join only the orphan and lost-assignment
+        # search (`plan_jobs`), never the pool snapshot, the starved-label alert or category f.
+        linux_reads, linux_left, linux_protected = linux_orphan_reads(
+            runs, jobs_by_run, linux_only, now, min_age=orphan_age, cap=linux_job_reads,
+            branch_linux_only=branch_linux_only)
+        linux_jobs: dict[int, list[dict[str, Any]]] = {}
+        for run in linux_reads:
+            try:
+                linux_jobs[run["id"]] = github.jobs(run["id"])
+            except RateLimited:
+                raise
+            except RuntimeError as error:  # unread: not a candidate this sweep
+                print(f"queue-janitor: jobs of Linux run {run['id']}: {error}", file=sys.stderr)
+        plan_jobs = {**jobs_by_run, **linux_jobs}
         # Category e: a suspect whose evidence the in-flight jobs lack gets a
         # few completed runs of its own workflow listed (evidence_queries()),
         # only when such a suspect exists.
@@ -4763,7 +4847,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
                 raise
             except RuntimeError as error:
                 print(f"queue-janitor: lost-assignment evidence for {workflow}: {error}", file=sys.stderr)
-        lost = find_lost(runs, jobs_by_run, now=now, evidence_jobs=evidence_jobs)
+        lost = find_lost(runs, plan_jobs, now=now, evidence_jobs=evidence_jobs)
         unclaimed = find_unclaimed(runs, jobs_by_run, now=now, lost=lost, evidence_jobs=evidence_jobs,
                                    blacksmith_legs=os.environ.get("PR_POOL_OWNED", "").strip() == "1")
         # The re-runs an earlier sweep left pending, from its pool snapshot.
@@ -4777,7 +4861,9 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
                 print(f"queue-janitor: lost-assignment re-run state: {error!r}", file=sys.stderr)
         # Orphans read only what is already fetched; their PR branches join
         # the one batched GraphQL lookup for the no-janitor label.
-        orphans = find_orphans(runs, jobs_by_run, min_age=orphan_age, now=now)
+        orphans = find_orphans(runs, plan_jobs, min_age=orphan_age, now=now)
+        linux_orphans = [orphan for orphan in orphans if orphan.run["id"] in linux_jobs]
+        orphans = [orphan for orphan in orphans if orphan.run["id"] not in linux_jobs]
         # A delivery run queued past GHOST_QUEUED_RUN_AGE has no listing (needs_jobs()); read a few of them here.
         delivery_jobs = dict(jobs_by_run)
         unlisted = sorted((r for r in runs if r["id"] not in jobs_by_run and r.get("status") in IN_FLIGHT_RUN_STATUSES
@@ -4796,6 +4882,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         holders, holder_errors = (find_concurrency_holders(github, runs, now=now) if max_holder_cancels
                                   else ([], []))
         branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now))
+                          | set(orphan_branches(linux_orphans, now))
                           | {str(h.run["head_branch"]) for h in holders}
                           | {str(run["head_branch"]) for run in superseded if run.get("head_branch")}
                           | set(lost_branches(runs, {**lost, **unclaimed}, pending or [])))
@@ -4822,7 +4909,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
             except RuntimeError as error:
                 print(f"queue-janitor: head of {branch}: {error}", file=sys.stderr)
 
-    read_heads(branch_head_lookups(runs, {*lost, *unclaimed}, prs_by_branch=prs_by_branch, jobs_by_run=jobs_by_run,
+    read_heads(branch_head_lookups(runs, {*lost, *unclaimed}, prs_by_branch=prs_by_branch, jobs_by_run=plan_jobs,
                                    unclaimed=unclaimed))
 
     snapshot: dict[str, Any] | None = None
@@ -4921,7 +5008,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         return 0
 
     plan = build_plan(
-        runs, jobs_by_run, prs_by_branch,
+        runs, plan_jobs, prs_by_branch,
         threshold=threshold, max_cancels=max_cancels, pull_request_policy=args.pull_request_policy,
         now=now, lost=lost, rerun_state=pending is not None, unclaimed=unclaimed, branch_heads=branch_heads,
         app_rerun=github.app_token, cmux_bot_rerun=cmux_bot(),
@@ -4930,7 +5017,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     results: dict[int, str] = {}
     failures = 0
     if not args.dry_run:
-        results, failures = cancel_plan(github, plan.to_cancel(), jobs_by_run)
+        results, failures = cancel_plan(github, plan.to_cancel(), plan_jobs)
 
     carried: list[dict[str, Any]] = []
 
@@ -5003,7 +5090,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         # newer ones of its kind that may have run its job (the in-flight ones are in the inventory), newest
         # first, at most DISPATCH_SUPERSEDE_JOB_READS a sweep.
         dispatch_runs: dict[int, list[Mapping[str, Any]]] = {}
-        dispatch_jobs: dict[int, Sequence[Mapping[str, Any]]] = dict(jobs_by_run)
+        dispatch_jobs: dict[int, Sequence[Mapping[str, Any]]] = dict(plan_jobs)
         job_reads = 0
         for entry in pending:
             run = runs_now.get(entry.get("run_id"))
@@ -5052,15 +5139,22 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         orphans, prs_by_branch, max_cancels=max_orphan_cancels,
         exclude_ids={candidate.run["id"] for candidate in plan.to_cancel()}, now=now,
     )
+    # Category e above already took a Linux run it cancels; the rest wait on their own cap (linux_cancel_cap()).
+    linux_cap = linux_cancel_cap(max_linux_orphan_cancels, github.rate_limits)
+    linux_decisions = build_orphan_plan(
+        linux_orphans, prs_by_branch, max_cancels=linux_cap,
+        exclude_ids={candidate.run["id"] for candidate in plan.to_cancel()}, now=now,
+    )
     orphan_results: dict[int, str] = {}
     orphan_rerun_entries: list[dict[str, Any]] = []
     if not args.dry_run:
-        orphan_results, orphan_failures = cancel_orphans(github, orphan_decisions)
+        orphan_results, orphan_failures = cancel_orphans(github, [*orphan_decisions, *linux_decisions])
         failures += orphan_failures
         # An orphaned dispatch on a long-lived branch comes back: the next sweep re-runs it (plan_lost_reruns()).
         # Without the re-run state (pending is None) it is cancelled with none, as before.
         if pending is not None:
-            orphan_rerun_entries = orphan_reruns(orphan_decisions, orphan_results, jobs_by_run, now=now)
+            orphan_rerun_entries = orphan_reruns([*orphan_decisions, *linux_decisions], orphan_results, plan_jobs,
+                                                 now=now)
             if orphan_rerun_entries:
                 save_lost_reruns([*carried, *orphan_rerun_entries])
 
@@ -5070,7 +5164,7 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     holder_decisions = build_orphan_plan(
         holders, prs_by_branch, max_cancels=max_holder_cancels,
         exclude_ids={candidate.run["id"] for candidate in plan.to_cancel()}
-        | {d.orphan.run["id"] for d in orphan_decisions if d.action == "cancel"}, now=now,
+        | {d.orphan.run["id"] for d in [*orphan_decisions, *linux_decisions] if d.action == "cancel"}, now=now,
     )
     holder_results: dict[int, str] = {}
     if not args.dry_run:
@@ -5099,6 +5193,13 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
     summary += render_lost_reruns(rerun_decisions, dry_run=args.dry_run, results=rerun_results)
     summary += render_orphan_summary(orphan_decisions, dry_run=args.dry_run, now=now, min_age=orphan_age,
                                      results=orphan_results)
+    summary += render_orphan_summary(linux_decisions, dry_run=args.dry_run, now=now, min_age=orphan_age,
+                                     results=orphan_results, title="Linux orphans")
+    summary += (f"\nLinux pass: read the jobs of {len(linux_jobs)} of {len(linux_reads)} linux-only runs past "
+                f"{format_age(orphan_age)}, oldest first ({linux_left} more left for a later sweep, "
+                f"{linux_protected} protected never read); {len(linux_orphans)} orphans, "
+                f"{sum(1 for run_id in lost if run_id in linux_jobs)} lost assignments (category e); "
+                f"cancel cap {linux_cap} of {max_linux_orphan_cancels}.\n")
     if orphan_rerun_entries:
         summary += "\nRe-run by the next sweep unless a newer dispatch of the same kind took the job: " + ", ".join(
             f"run {entry['run_id']} (`{entry['dispatch']['job']}`)" for entry in orphan_rerun_entries) + ".\n"

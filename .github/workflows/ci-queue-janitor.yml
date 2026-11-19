@@ -28,6 +28,12 @@ name: CI queue janitor
 # `cmux-next base tier · <sha>` runs that carry base's daemon tests) is re-run
 # at the same head by the next sweep, through the `lost_reruns` state below,
 # unless a newer dispatch of its kind took the job; the attempt bounds it.
+# Linux-only workflows get the same pass, and category e below too: the
+# jobs of their oldest runs past the orphan age (CI_JANITOR_LINUX_JOB_READS,
+# default 30 a sweep) are read, their lost jobs join category e, and their
+# other orphans are cancelled under CI_JANITOR_MAX_LINUX_ORPHAN_CANCELS
+# (default 40, lowered to keep 2,000 of the token's core budget); nightly,
+# DEV and promote runs are never read or cancelled.
 #
 # Sooner than that, category e takes a push or pull request run (never a
 # protected one) whose job has queued with no runner for 30 minutes while a
@@ -233,6 +239,8 @@ jobs:
           QUEUE_THRESHOLD: ${{ vars.CI_JANITOR_QUEUE_THRESHOLD }}
           CI_PULL_REQUEST_SUITE: ${{ vars.CI_PULL_REQUEST_SUITE || 'compile-only' }}
           ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}
+          LINUX_JOB_READS: ${{ vars.CI_JANITOR_LINUX_JOB_READS }}
+          MAX_LINUX_ORPHAN_CANCELS: ${{ vars.CI_JANITOR_MAX_LINUX_ORPHAN_CANCELS }}
           POOL_LOAD_OUT: ${{ runner.temp }}/macos-pool-load.json
           # Copied into the snapshot for fork pull requests, which get no
           # repository variables of their own (scripts/ci/pr_runner_pool.py).
