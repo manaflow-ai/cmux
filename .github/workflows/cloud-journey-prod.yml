@@ -151,8 +151,12 @@ jobs:
           mkdir -p "$out"
           probe=cloud-chat-replies-production
           [ "$MODEL" = stub ] || probe=cloud-chat-replies-production-real-model
+          # The hourly stub leg also runs the terminal scroll probe on the machine (terminal.scroll.cloud.* rows in
+          # terminal-scroll.json, report only).
+          scroll=()
+          [ "$MODEL" = stub ] && scroll=(--scroll-probe "$CMUX_TUI")
           bun scripts/cmux-next/cloud-journey.ts --backend prod --model "$MODEL" --out "$out" --probe-out "$out/probe.json" --probe "$probe" --skip sync,pause \
-            --preclaim-login "$CMUX_TUI"
+            --preclaim-login "$CMUX_TUI" ${scroll[@]+"${scroll[@]}"}
           code=$?
           { echo "### Production, $MODEL model"; echo; cat "$out/summary.md" 2>/dev/null || echo "(no summary written)"; } >> "$GITHUB_STEP_SUMMARY"
           exit "$code"

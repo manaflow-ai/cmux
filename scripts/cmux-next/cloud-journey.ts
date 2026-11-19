@@ -109,6 +109,12 @@
  * workflow's always() step after a run cut off before its own cleanup. With --kept it also deletes the machine a
  * --keep run with that tag made (`cloud journey jr-…`), for the operator who kept it.
  *
+ * --scroll-probe BIN (a cmux-tui with `__scroll-probe`): after the connect steps, `BIN carrier serve` puts the machine's
+ * session daemon behind a local socket and `BIN __scroll-probe --surface-label cloud` runs on it (goal
+ * terminal-scroll-integrity). The step `terminal scroll (cloud)` gives the counts; --out also gets terminal-scroll.json,
+ * the `terminal.scroll.cloud.*` rows from scripts/measure/terminal-scroll-rows.py. Report only: a probe that does not
+ * run is a skip naming why, never a failed journey.
+ *
  * --probe-out FILE writes the run as one synthetic-probe result row (cmuxterm-hq probes.py: probe, at,
  * outcome ok|fail, ms = send to first reply, error), --probe NAME naming it.
  *
@@ -1975,7 +1981,7 @@ export function carrierTicketProblem(status: number, body: any, nowS = Date.now(
   return null;
 }
 
-/** The carrier dials still running, so a cancelled journey stops them instead of leaving them to their deadline. */
+/** The carrier dials still running (and the scroll step's serve and probe), so a cancelled journey stops them instead of leaving them to their deadline. */
 const carrierDials = new Set<ReturnType<typeof spawn>>();
 /** Their state dirs, which a cancel (SIGTERM skips `finally`) removes too. */
 const carrierStateDirs = new Set<string>();
@@ -2124,6 +2130,120 @@ export async function carrierDial(cmux: string, api: Pick<Api, "origin" | "beare
     child.kill("SIGTERM");
     rmSync(stateDir, { recursive: true, force: true });
     carrierStateDirs.delete(stateDir);
+  }
+}
+
+/** The Cloud scroll step (goal terminal-scroll-integrity), the same probe and rows as terminal-scroll-stress-linux.sh's local and ssh. */
+export const SCROLL_STEP = "terminal scroll (cloud)";
+export const SCROLL_ROWS_PY = fileURLToPath(new URL("../measure/terminal-scroll-rows.py", import.meta.url));
+const SERVE_READY_MS = 30_000;
+const SCROLL_PROBE_MS = 180_000;
+
+/**
+ * `cmux carrier serve`'s first stderr line (cmux-tui carrier/serve.rs): once it listens,
+ * `{"ok":true,"socket":PATH,"route":"carrier"}`; before that, `dial`'s failure line (`{"ok":false,"error_code":…}`).
+ */
+export function serveReady(line: string): { socket: string } | { error: string } {
+  let v: any;
+  try {
+    v = JSON.parse(line);
+  } catch {
+    return { error: `not a status line: ${line.slice(0, 200)}` };
+  }
+  if (v?.ok === true && typeof v.socket === "string" && v.route === "carrier") return { socket: v.socket };
+  if (v?.ok === false) return { error: `${v.error_code ?? "failed"}${v.error_detail ? ` (${String(v.error_detail).slice(0, 200)})` : ""}` };
+  return { error: `not a ready line: ${short(v)}` };
+}
+
+/** The last lines of a process's stderr, for a step's detail. */
+export function stderrTail(text: string, lines = 5): string {
+  return text.trim().split("\n").slice(-lines).join(" | ").slice(-600) || "(no stderr)";
+}
+
+/** A `__scroll-probe --json` report as a step detail: the sum, then each view's three counts. */
+export function scrollProbeDetail(report: any): string {
+  const view = (name: string) => {
+    const v = report?.views?.[name] ?? {};
+    return `${name} blank ${v.blank_rows ?? "?"}, missing ${v.missing_rows ?? "?"}, jumps ${v.jumps ?? "?"}`;
+  };
+  return `bad ${report?.bad ?? "?"} (${view("mirror")}; ${view("daemon")})`;
+}
+
+/**
+ * The scroll probe on a Cloud terminal: `BIN carrier serve` puts the machine's session daemon behind a local socket (the
+ * env and team of carrierDial, a state dir of its own), then `BIN __scroll-probe --surface-label cloud --json` runs
+ * against it. Both processes are this journey's own, stopped by handle (a cancel stops them with the carrier dials).
+ * The rows go to OUT/terminal-scroll.json through terminal-scroll-rows.py, as the local and ssh rows do.
+ */
+export async function cloudScrollProbe(bin: string, api: Pick<Api, "origin" | "bearer" | "team">, machine: string, outDir: string | null): Promise<string> {
+  const dir = mkdtempSync(path.join(tmpdir(), "cmux-scroll-"));
+  carrierStateDirs.add(dir);
+  const socket = path.join(dir, "c.sock");
+  // The team is the journey's own or none: an inherited CMUX_CLOUD_TEAM would send a header its API calls do not.
+  const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+  const env = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, CMUX_TUI_STATE_DIR: path.join(dir, "state") };
+  const args = ["carrier", "serve", "--machine", machine, "--socket", socket, ...(api.team ? ["--team", api.team] : [])];
+  // stdin stays open: the serve exits when it ends.
+  const serve = spawn(bin, args, { env, stdio: ["pipe", "ignore", "pipe"] });
+  carrierDials.add(serve);
+  const exited = new Promise<void>((resolve) => serve.on("exit", () => (carrierDials.delete(serve), resolve())));
+  serve.stdin!.on("error", () => undefined);
+  let serveErr = "";
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`carrier serve: no ready line within ${SERVE_READY_MS} ms: ${stderrTail(serveErr)}`)), SERVE_READY_MS);
+      const settle = (error: Error | null) => (clearTimeout(timer), error ? reject(error) : resolve());
+      serve.on("error", (e) => settle(new Error(`carrier serve: ${e.message}`)));
+      serve.on("exit", (code) => settle(new Error(`carrier serve: exit ${code} before its ready line: ${stderrTail(serveErr)}`)));
+      serve.stderr!.setEncoding("utf8");
+      // Read on after the ready line too (one line per connection), so the pipe never fills.
+      serve.stderr!.on("data", (chunk: string) => {
+        const first = !serveErr.includes("\n");
+        serveErr = (serveErr + chunk).slice(-8_000);
+        const at = serveErr.indexOf("\n");
+        if (!first || at < 0) return;
+        const ready = serveReady(serveErr.slice(0, at));
+        if ("error" in ready) settle(new Error(`carrier serve: ${ready.error}`));
+        else if (ready.socket !== socket) settle(new Error(`carrier serve: listening on ${ready.socket}, not ${socket}`));
+        else settle(null);
+      });
+    });
+    // The probe's own timeout ends it with its report's reasons before this bound kills it.
+    const probeArgs = ["__scroll-probe", "--socket", socket, "--surface-label", "cloud", "--json", "--timeout-seconds", String(SCROLL_PROBE_MS / 1000 - 30)];
+    const probe = await new Promise<{ code: number | null; stdout: string; stderr: string; late: boolean }>((resolve) => {
+      const child = spawn(bin, probeArgs, { env: inherited, stdio: ["ignore", "pipe", "pipe"] });
+      carrierDials.add(child);
+      let stdout = "";
+      let stderr = "";
+      let late = false;
+      const timer = setTimeout(() => ((late = true), child.kill("SIGTERM")), SCROLL_PROBE_MS);
+      child.stdout!.setEncoding("utf8").on("data", (c: string) => (stdout += c));
+      child.stderr!.setEncoding("utf8").on("data", (c: string) => (stderr = (stderr + c).slice(-8_000)));
+      child.on("error", (e) => (clearTimeout(timer), carrierDials.delete(child), resolve({ code: null, stdout, stderr: `${stderr}\n${e.message}`, late })));
+      child.on("close", (code) => (clearTimeout(timer), carrierDials.delete(child), resolve({ code, stdout, stderr, late })));
+    });
+    if (probe.late || probe.code !== 0) {
+      throw new Error(`__scroll-probe ${probe.late ? `ran past ${SCROLL_PROBE_MS} ms` : `exit ${probe.code}`}: ${stderrTail(probe.stderr)}; serve: ${stderrTail(serveErr, 3)}`);
+    }
+    const line = probe.stdout.trim().split("\n").pop() ?? "";
+    let report: any;
+    try {
+      report = JSON.parse(line);
+    } catch {
+      throw new Error(`__scroll-probe: not a JSON report: ${line.slice(0, 200)}`);
+    }
+    const rows = spawnSync("python3", [SCROLL_ROWS_PY], { input: `${line}\n`, encoding: "utf8", timeout: 30_000 });
+    if (rows.status !== 0) throw new Error(`terminal-scroll-rows.py: exit ${rows.status}: ${stderrTail(rows.stderr ?? String(rows.error))}`);
+    const table = rows.stdout.trim().split("\n").pop() ?? "";
+    if (outDir) writeFileSync(path.join(outDir, "terminal-scroll.json"), `${table}\n`);
+    return `${scrollProbeDetail(report)}; ${JSON.parse(table).rows.length} rows`;
+  } finally {
+    serve.stdin!.end();
+    serve.kill("SIGTERM");
+    // The serve removes its socket on the way out; give it a moment before the dir goes.
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5_000))]);
+    rmSync(dir, { recursive: true, force: true });
+    carrierStateDirs.delete(dir);
   }
 }
 
@@ -3522,6 +3642,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;
   const cmux = argValue("--cmux", argv);
+  const scrollProbe = argValue("--scroll-probe", argv);
   const preclaim = argv.includes("--preclaim");
   const preclaimClaims = Number(argValue("--claims", argv) ?? 10);
   // --ensure-bench N (with --preclaim): time acp ensure on one fresh machine instead of the burst (runEnsureBench).
@@ -4655,6 +4776,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         probeExtra.claimed_spare = guestTimelineFacts(r.stdout, createAnsweredAt!, before, after, createSentAt ?? createAnsweredAt!).claimed_spare;
         return { value: null, detail: guestTimeline(r.stdout, createAnsweredAt!, before, after, createSentAt ?? createAnsweredAt!) };
       });
+    }
+
+    // --scroll-probe: the scroll probe on this machine's terminal, after the guest timeline so its own carrier dial is
+    // not in that read. Report only: a probe that does not run is a skip naming why, never a red journey.
+    if (scrollProbe) {
+      const t0 = Date.now();
+      try {
+        const detail = await cloudScrollProbe(scrollProbe, api, created.id, outDir);
+        J.record({ step: SCROLL_STEP, status: "pass", ms: Date.now() - t0, detail });
+      } catch (e) {
+        J.record({ step: SCROLL_STEP, status: "skip", ms: Date.now() - t0, detail: `failed (report only): ${(e as Error).message}` });
+      }
     }
 
     // --chaos: faults injected into this machine's carrier mid-turn, each a step (cloud-chaos.ts).

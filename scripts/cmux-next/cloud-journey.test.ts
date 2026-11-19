@@ -14,6 +14,7 @@ import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, 
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
+import { scrollProbeDetail, serveReady, stderrTail, SCROLL_ROWS_PY } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
@@ -2960,5 +2961,37 @@ describe("the stub step's credential rule (cmux#40159)", () => {
   test("with a login on the machine, every request must carry it", () => {
     expect(judgeStubCredentials([turn(want), title], want, false).error).toBe("a model request did not carry the login the journey passed");
     expect(judgeStubCredentials([turn(want), { ...title, cred_sha256: want }], want, false)).toEqual({ detail: "2 model requests, each with the forwarded login (SHA-256 match)" });
+  });
+});
+
+describe("cloud journey: terminal scroll (cloud)", () => {
+  test("the serve's ready line names its socket; a failure line or any other line is an error", () => {
+    expect(serveReady('{"ok":true,"socket":"/tmp/x/c.sock","route":"carrier"}')).toEqual({ socket: "/tmp/x/c.sock" });
+    expect(serveReady('{"ok":false,"error_code":"ticket","error_detail":"HTTP 403","route":"carrier"}')).toEqual({ error: "ticket (HTTP 403)" });
+    expect(serveReady('{"ok":false,"error_code":"usage","route":"carrier"}')).toEqual({ error: "usage" });
+    expect("error" in serveReady('{"ok":true,"route":"carrier","vmk":"owner"}')).toBe(true);
+    expect(serveReady("usage: cmux carrier serve ...")).toEqual({ error: "not a status line: usage: cmux carrier serve ..." });
+  });
+
+  test("the step detail gives the sum and each view's counts; a stderr tail keeps the last lines", () => {
+    const report = { surface: "cloud", bad: 3, views: { mirror: { blank_rows: 1, missing_rows: 0, jumps: 2 }, daemon: { blank_rows: 0, missing_rows: 0, jumps: 0 } } };
+    expect(scrollProbeDetail(report)).toBe("bad 3 (mirror blank 1, missing 0, jumps 2; daemon blank 0, missing 0, jumps 0)");
+    expect(stderrTail("a\nb\nc\nd\ne\nf\n")).toBe("b | c | d | e | f");
+    expect(stderrTail("")).toBe("(no stderr)");
+  });
+
+  test("terminal-scroll-rows.py turns a cloud report into terminal.scroll.cloud.* rows", () => {
+    const report = { surface: "cloud", bad: 3, views: { mirror: { blank_rows: 1, missing_rows: 0, jumps: 2 }, daemon: { blank_rows: 0, missing_rows: 0, jumps: 0 } } };
+    const r = spawnSync("python3", [SCROLL_ROWS_PY], { input: `${JSON.stringify(report)}\n`, encoding: "utf8" });
+    expect(r.status).toBe(0);
+    const lines = r.stdout.trim().split("\n");
+    expect(lines.filter((l) => l.startsWith("PERF_ROW ")).length).toBe(7);
+    const { rows } = JSON.parse(lines.at(-1)!);
+    expect(rows.map((row: any) => row.name)).toEqual([
+      "terminal.scroll.cloud.mirror.blank_rows", "terminal.scroll.cloud.mirror.missing_rows", "terminal.scroll.cloud.mirror.jumps",
+      "terminal.scroll.cloud.daemon.blank_rows", "terminal.scroll.cloud.daemon.missing_rows", "terminal.scroll.cloud.daemon.jumps",
+      "terminal.scroll.cloud.bad",
+    ]);
+    expect(rows.at(-1)).toEqual({ name: "terminal.scroll.cloud.bad", p50: 3, p95: 3, unit: "rows", target: 0, floor: 0.5, runs: 1 });
   });
 });

@@ -7,7 +7,8 @@
 #          this script starts as the current user on a loopback port (its own host key and authorized key), whose
 #          far side runs `cmux-tui remote-link --stdio` and its own daemon. No /usr/sbin/sshd: the ssh rows are
 #          not printed (never a fake ssh under the ssh name).
-# The Cloud surface runs the same probe from hq's cloud synthetic probe against `cmux carrier serve`'s socket.
+# The Cloud surface runs the same probe against `cmux carrier serve`'s socket in the hourly production Cloud journey
+# (scripts/cmux-next/cloud-journey.ts --scroll-probe). Both turn the probe's reports into rows with terminal-scroll-rows.py.
 # Run at a pushed head:
 #   cmux-ci test --setup rust -- 'scripts/measure/terminal-scroll-stress-linux.sh [surfaces=local,ssh] [runs=1]'
 #   terminal-scroll-stress-linux.sh build-only: only the release build (the perf cron builds under a cap of its own).
@@ -166,23 +167,4 @@ for run in $(seq 1 "$runs"); do
   [[ -n "$ssh_port" ]] && run_ssh "$run" "$ssh_port"
 done
 
-python3 -c '
-import json, sys
-reports = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
-by = {}
-for r in reports:
-    s = r["surface"]
-    for view in ("mirror", "daemon"):
-        for key in ("blank_rows", "missing_rows", "jumps"):
-            by.setdefault(f"terminal.scroll.{s}.{view}.{key}", []).append(r["views"][view][key])
-    by.setdefault(f"terminal.scroll.{s}.bad", []).append(r["bad"])
-rows = []
-for name, values in by.items():
-    ordered = sorted(values)
-    # Integer counts: a regression is one more blank, missing or jumped row (floor 0.5).
-    rows.append({"name": name, "p50": ordered[len(ordered) // 2], "p95": ordered[-1], "unit": "rows",
-                 "target": 0, "floor": 0.5, "runs": len(values)})
-for row in rows:
-    print("PERF_ROW " + json.dumps(row))
-print(json.dumps({"rows": rows}))
-' "$reports"
+python3 "$root/scripts/measure/terminal-scroll-rows.py" "$reports"
