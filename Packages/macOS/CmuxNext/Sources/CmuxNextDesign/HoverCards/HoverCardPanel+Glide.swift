@@ -12,8 +12,13 @@ import CmuxNextDesignTokens
 // the fixed corner and clipped by the card's mask, fades out (`fadeOut`, the shorter fade) while the
 // next card's fades in (`fadeIn`). Reduce Motion: the card is at its tab at once, its content swapped
 // in place. Sidebar cards keep their sweep and their `travel` slide (msg 15501).
+//
+// The glide is now `HoverCardRetarget.glide`, off by default: Leo 2026-11-18, "the hover preview bounces
+// for some reason" (the card sliding and easing from tab to tab). By default a tab or chip card switches in
+// place (`HoverCardRetarget.jump`): it is under the next tab with that tab's content in the same frame.
 extension HoverCardPanel {
-    /// Cards that glide the whole way between targets: the ones that hang from a tab or a chip.
+    /// Cards that hang from their target (a tab, a chip): they glide the whole way between targets under
+    /// `HoverCardRetarget.glide`, and switch in place otherwise.
     static func glidesWholeWay(_ placement: HoverCardPlacement) -> Bool {
         placement == .below || placement == .above
     }
@@ -71,11 +76,11 @@ extension HoverCardPanel {
 /// What the last `present` decided (`debug.hover_cards` `last_present`, live checks of the glide).
 struct HoverCardPresentNote {
     var onScreen = false, glides = false, sweeping = false, fadesBodies = false, sameBody = false
-    var moves = false, liveResize = false, morphed = false
+    var moves = false, liveResize = false, inPlace = false, morphed = false
 
     var text: String {
         [("on_screen", onScreen), ("glides", glides), ("sweeping", sweeping), ("fades_bodies", fadesBodies),
-         ("same_body", sameBody), ("moves", moves), ("live_resize", liveResize), ("morphed", morphed)]
+         ("same_body", sameBody), ("moves", moves), ("live_resize", liveResize), ("in_place", inPlace), ("morphed", morphed)]
             .map { "\($0.0)=\($0.1)" }.joined(separator: " ")
     }
 }
