@@ -7350,6 +7350,56 @@
               "name": "WorkspaceRef"
             }
           }
+        },
+        "created_by": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "kind": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "agent or script."
+              },
+              "session": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "The agent session that made it."
+              },
+              "session_name": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "That session's name."
+              },
+              "host": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "The host it ran on."
+              },
+              "purpose": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                },
+                "description": "One line on what the space is for."
+              }
+            },
+            "extra": false
+          },
+          "description": "Who made the space and why (created-by-detail-v1), when an agent or a script said so; absent for the person's own."
         }
       },
       "extra": false
