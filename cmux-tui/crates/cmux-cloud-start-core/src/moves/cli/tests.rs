@@ -141,6 +141,14 @@ fn a_plan_names_its_machine_keys_and_setup_and_without_keys_is_no_answer() {
     assert_eq!(plan.machine.as_deref(), Some("vm-1"));
     assert_eq!((plan.create_key.as_str(), plan.tab_key.as_str()), ("c", "t"));
     assert!(plan.create_sent);
+    // A ledger that names no routes keeps none: every create of its send is the relay's.
+    assert_eq!((plan.create_route.as_deref(), plan.keeps_create_route), (None, false));
+    let routed = json!({"ok": true, "create_key": "c", "tab_key": "t", "create_sent": true,
+        "create_route": "direct", "create_routes": true})
+    .to_string();
+    let (answer, object) = parse(&output(&routed, "", 0));
+    let routed = start_chat_plan(answer, object.as_ref()).1;
+    assert_eq!((routed.create_route.as_deref(), routed.keeps_create_route), (Some("direct"), true));
     assert_eq!(plan.environment_id.as_deref(), Some("env-1"));
     let setup = plan.setup.unwrap();
     assert_eq!(
@@ -401,6 +409,16 @@ fn each_verb_carries_its_arguments() {
             "{ledger}"
         );
     }
+    // A sent create names its route only when the App gives one; without it the words are as before.
+    let sent = |route: Option<&str>| {
+        let mut verb = json!({"verb": "start-chat-create-sent", "key": "k", "account": "a", "team": "t", "createKey": "c"});
+        if let Some(route) = route {
+            verb["route"] = json!(route);
+        }
+        call(verb).args
+    };
+    assert_eq!(sent(None).last().map(String::as_str), Some("c"));
+    assert_eq!(sent(Some("direct"))[sent(None).len()..], ["--route", "direct"]);
     let strand =
         call(json!({"verb": "start-chat-strand", "key": "k", "account": "a", "machine": "m"}));
     assert_eq!(
@@ -516,5 +534,44 @@ fn a_failure_says_its_result_line_else_the_end_of_stderr() {
     assert_eq!(
         ExecRun { exit_code: 0, stdout: "a\nstarted\n".into(), stderr: String::new() }.last_line(),
         "started"
+    );
+}
+
+/// A seed refusal's copy size reaches the app (its room check reads it), and a first-pass copy says what it left on
+/// this Mac, at the line's top or in its `copy` summary, so the start never reads as a whole copy.
+#[test]
+fn a_copy_answer_carries_its_bytes_and_what_it_left_on_this_mac() {
+    let encoded = |line: &str| serde_json::to_value(parse(&output(line, "", 0)).0).unwrap();
+    let refused = encoded(r#"{"ok":false,"error_code":"seed_refused","copy_bytes":123}"#);
+    assert_eq!(refused["copyBytes"], 123);
+    let nested =
+        encoded(r#"{"ok":true,"mode":"copy","copy":{"skipped_counts":{"left_on_mac":7}}}"#);
+    assert_eq!(nested["leftOnMac"], 7);
+    let top = encoded(r#"{"ok":true,"skipped_counts":{"left_on_mac":2,"heavy":1}}"#);
+    assert_eq!(top["leftOnMac"], 2);
+    let whole = encoded(r#"{"ok":true,"copy":{"skipped_counts":{"heavy":1}}}"#);
+    assert_eq!(whole["leftOnMac"], Value::Null);
+    let locked = serde_json::to_value(
+        parse(&output(
+            r#"{"ok":false,"error_code":"cloud.size.locked","size_locked":{"needed":"xl"}}"#,
+            "",
+            1,
+        ))
+        .0,
+    )
+    .unwrap();
+    assert_eq!(locked["sizeLocked"], json!({"needed": "xl"}));
+    let small = serde_json::to_value(
+        parse(&output(
+            r#"{"ok":false,"error_code":"seed_refused","fallback_code":"machine.too_small","copy_bytes":5,"machine_title":"cloud-chats"}"#,
+            "",
+            1,
+        ))
+        .0,
+    )
+    .unwrap();
+    assert_eq!(
+        (&small["fallbackCode"], &small["copyBytes"], &small["machineTitle"]),
+        (&json!("machine.too_small"), &json!(5), &json!("cloud-chats"))
     );
 }
