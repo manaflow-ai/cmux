@@ -44,6 +44,11 @@ Fills that break this, and were in the chat:
 - States are the colour roles: hover `--ds-color-hover`, pressed `--ds-color-pressed`, selection
   `--ds-color-selection`, the host's own fills. A primary button is the accent or the transient
   action fill: a role, not a surface.
+- A state over a filled rest is a layer, never a swap: a control that rests on a level (a filled
+  button on inset, a row on card) takes `background-image: var(--ds-surface-hover-layer)` (or
+  `-pressed-layer`) over its own fill. Swapped in, the host's hover (ink 4 to 5%) is lighter than an
+  inset rest (8%), so the pointer would lighten the button. `statesReplacingFilledRest()` in the check
+  fails on a swap.
 - Lines are 1 px ink 10% for a card (an inner divider too), ink 16% for a control. appearance.borders
   none clears them; Increase Contrast draws them in the ink itself.
 - Radius: a card is `--grid-cards-radius` (12), code blocks included (they were 16); controls are

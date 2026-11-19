@@ -37,7 +37,7 @@
 .wq-answers{display:flex;flex-wrap:wrap;gap:var(--ds-space-2);opacity:0;visibility:hidden;transition:opacity var(--cmux-motion-settle,180ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1))}
 .wq-answers[data-shown]{opacity:1;visibility:visible}
 .wq-button{display:inline-flex;align-items:center;gap:var(--ds-space-1);height:24px;padding:0 var(--ds-space-2);border-radius:var(--ds-radius-control);border:0;background:var(--ds-surface-inset);color:var(--agent-text);font:inherit;font-size:var(--text-detail)}
-.wq-button:hover{background:var(--ds-color-hover)}
+.wq-button:hover{background-image:var(--ds-surface-hover-layer)}
 .wq-button[data-tone="allow"]{background:var(--agent-accent,var(--agent-text));color:var(--agent-on-accent)}
 .wq-button[data-tone="deny"]{color:var(--danger)}
 .wq-button:disabled{opacity:.5}

@@ -171,6 +171,13 @@ function cssBlock(data) {
   out.push("  --ds-surface-ink: var(--ds-color-fg);");
   for (const level of data.surfaces.levels)
     for (const [name, value] of surfaceVars(level)) out.push(`  ${name}: ${value}; /* ${level.for} */`);
+  // A control that rests on a level (a filled button, a row in a card) takes its hover and press as a
+  // layer over that level (background-image), never in place of it: in place, the host's hover (ink 4
+  // to 5%) is quieter than an inset rest (ink 8%), so the pointer would lighten the control.
+  for (const state of ["hover", "pressed"])
+    out.push(
+      `  --ds-surface-${state}-layer: linear-gradient(var(--ds-color-${state}), var(--ds-color-${state})); /* ${state} over a filled rest */`,
+    );
   out.push("}");
   // appearance.borders none clears every line; Increase Contrast draws them in the ink itself, as the
   // page's other hairlines (desktop.css prefers-contrast).
