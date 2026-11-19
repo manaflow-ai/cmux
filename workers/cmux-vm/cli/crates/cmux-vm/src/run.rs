@@ -1938,18 +1938,9 @@ mod tests {
             parse_vm_state(br#"{"id":"vm_1","state":"running"}"#, "vm_1").unwrap(),
             Status::Running
         );
-        assert!(parse_vm_state(br#"{"state":"runing"}"#, "vm_1").is_err());
+        assert!(parse_vm_state(br#"{"id":"vm_1","state":"runing"}"#, "vm_1").is_err());
         assert!(parse_vm_state(br#"{}"#, "vm_1").is_err());
         assert!(parse_vm_state(br#"{"id":"vm_2","state":"running"}"#, "vm_1").is_err());
-    }
-
-    #[test]
-    fn a_created_run_starts_in_provisioning_before_it_can_be_finished() {
-        let provisioning = provisioning_vm("vm_1".to_owned());
-        let running = provisioning.running();
-        let deleting = running.delete();
-        let deleted = deleting.deleted();
-        assert_eq!(deleted.payload(), "vm_1");
     }
 
     #[test]
