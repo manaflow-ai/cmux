@@ -49,10 +49,10 @@ final class CustomSidebarDataChangeMonitor {
     @ObservationIgnored private weak var tabManager: TabManager?
     @ObservationIgnored private var retainCount = 0
     @ObservationIgnored private let changes = PassthroughSubject<Void, Never>()
-    @ObservationIgnored private var cancellables: [AnyCancellable] = []
-    @ObservationIgnored private var workspaceCancellables: [AnyCancellable] = []
-    @ObservationIgnored private var workspaceTasks: [Task<Void, Never>] = []
-    @ObservationIgnored private var globalTasks: [Task<Void, Never>] = []
+    @ObservationIgnored private(set) var cancellables: [AnyCancellable] = []
+    @ObservationIgnored private(set) var workspaceCancellables: [AnyCancellable] = []
+    @ObservationIgnored private(set) var workspaceTasks: [Task<Void, Never>] = []
+    @ObservationIgnored private(set) var globalTasks: [Task<Void, Never>] = []
     @ObservationIgnored private var observedWorkspaceIds: [UUID] = []
 
     static let coalesceInterval: DispatchQueue.SchedulerTimeType.Stride = .seconds(1)
@@ -80,14 +80,6 @@ final class CustomSidebarDataChangeMonitor {
 
     /// True while at least one sidebar holds the monitor.
     var isObserving: Bool { retainCount > 0 }
-
-    /// True while any subscription or observation task is live. `stop()`
-    /// tears them all down synchronously, so this is false right after the
-    /// last ``release()``.
-    var hasLiveSubscriptions: Bool {
-        !cancellables.isEmpty || !workspaceCancellables.isEmpty
-            || !workspaceTasks.isEmpty || !globalTasks.isEmpty
-    }
 
     private func signal() {
         changes.send()

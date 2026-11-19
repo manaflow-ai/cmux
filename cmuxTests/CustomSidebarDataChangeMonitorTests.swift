@@ -87,15 +87,20 @@ import Testing
         let manager = TabManager()
         let monitor = manager.customSidebarDataChangeMonitor
         monitor.retain()
-        #expect(monitor.hasLiveSubscriptions)
+        #expect(!monitor.cancellables.isEmpty)
+        #expect(!monitor.workspaceCancellables.isEmpty)
+        #expect(!monitor.workspaceTasks.isEmpty)
         monitor.retain()
         monitor.release()
-        #expect(monitor.hasLiveSubscriptions, "one holder remains")
+        #expect(!monitor.cancellables.isEmpty, "one holder remains")
 
         monitor.release()
 
         #expect(!monitor.isObserving)
-        #expect(!monitor.hasLiveSubscriptions)
+        #expect(monitor.cancellables.isEmpty)
+        #expect(monitor.workspaceCancellables.isEmpty)
+        #expect(monitor.workspaceTasks.isEmpty)
+        #expect(monitor.globalTasks.isEmpty)
     }
 
     @Test func monitorIsSharedPerTabManager() {

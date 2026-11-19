@@ -13,8 +13,15 @@ public import Foundation
 /// ``CustomSidebarRefreshPolicy/everySecond`` and isn't cached, so a
 /// transient read failure can't freeze a `clock` sidebar.
 public final class CustomSidebarRefreshPolicyCache {
+    /// One candidate's resolved file (its symlink target) and modification
+    /// date; `nil` date when the candidate doesn't exist.
+    private struct CandidateState: Equatable {
+        let resolvedPath: String
+        let modificationDate: Date?
+    }
+
     private struct Entry {
-        let modificationDates: [Date?]
+        let candidateStates: [CandidateState]
         let policy: CustomSidebarRefreshPolicy
         var checkedAt: Date
     }
@@ -61,17 +68,23 @@ public final class CustomSidebarRefreshPolicyCache {
         let candidates = Self.candidateExtensions.map { base.appendingPathExtension($0) }
         // Stat the symlink target, not the link: a dotfiles-managed sidebar
         // is often a symlink, and editing its target leaves the link's own
-        // date unchanged.
-        let dates = candidates.map { url in
-            (try? fileManager.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)[.modificationDate]) as? Date
+        // date unchanged. The target's path is part of the state, so
+        // pointing the link at another file is noticed even when both files
+        // share a modification date.
+        let states = candidates.map { url in
+            let resolvedPath = url.resolvingSymlinksInPath().path
+            return CandidateState(
+                resolvedPath: resolvedPath,
+                modificationDate: (try? fileManager.attributesOfItem(atPath: resolvedPath)[.modificationDate]) as? Date
+            )
         }
-        if var entry = entries[base], entry.modificationDates == dates {
+        if var entry = entries[base], entry.candidateStates == states {
             entry.checkedAt = now
             entries[base] = entry
             return entry.policy
         }
         var sources: [String] = []
-        for (url, date) in zip(candidates, dates) where date != nil {
+        for (url, state) in zip(candidates, states) where state.modificationDate != nil {
             guard let source = readSource(url) else {
                 entries[base] = nil
                 return .everySecond
@@ -79,7 +92,7 @@ public final class CustomSidebarRefreshPolicyCache {
             sources.append(source)
         }
         let policy = CustomSidebarRefreshPolicy.policy(forSources: sources)
-        entries[base] = Entry(modificationDates: dates, policy: policy, checkedAt: now)
+        entries[base] = Entry(candidateStates: states, policy: policy, checkedAt: now)
         return policy
     }
 }

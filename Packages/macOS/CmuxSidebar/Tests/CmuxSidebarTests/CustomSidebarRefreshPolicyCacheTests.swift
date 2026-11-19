@@ -82,6 +82,23 @@ struct CustomSidebarRefreshPolicyCacheTests {
         #expect(cache.policy(fileURL: link, now: later) == .everySecond)
     }
 
+    /// Re-pointing a symlink at another target with the same modification
+    /// date must be noticed.
+    @Test func retargetingASymlinkIsNoticed() throws {
+        let directory = try Directory()
+        let plain = try directory.write("plain.js", "Text(\"a\")", modified: start)
+        let clock = try directory.write("clock.js", "Text(clock.time)", modified: start)
+        let link = directory.url.appendingPathComponent("side.js")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: plain)
+        let cache = CustomSidebarRefreshPolicyCache()
+        #expect(cache.policy(fileURL: link, now: start) == .onDataChange)
+
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: clock)
+        let later = start.addingTimeInterval(CustomSidebarRefreshPolicyCache.recheckInterval + 1)
+        #expect(cache.policy(fileURL: link, now: later) == .everySecond)
+    }
+
     /// An existing file that can't be read must not freeze a clock sidebar:
     /// tick, and read again on the next lookup.
     @Test func unreadableFileTicksAndIsRetried() throws {
