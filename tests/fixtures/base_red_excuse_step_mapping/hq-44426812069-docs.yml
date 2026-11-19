@@ -1,0 +1,22 @@
+name: Skills tests
+'on': push
+jobs:
+  tests:
+    name: Skill documentation tests
+    runs-on: self-hosted
+    steps:
+    - name: Checkout the summary script
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+    - name: All parallel skill shards passed
+      run: 'python3 scripts/ci/shard_summary.py
+
+        '
+    - name: Every shard's steps stay within 25% of the measured step table
+      run: 'python3 scripts/ci/step_times.py --check tests/fixtures/skills_tests_step_seconds.json
+
+        '
+      if: ${{ !cancelled() }}
+    - name: Upload the step-table drift record
+      uses: ./.github/actions/artifact/upload
+      if: ${{ !cancelled() && hashFiles('step-table-drift.json') != '' }}
+      continue-on-error: true

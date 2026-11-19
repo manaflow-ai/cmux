@@ -1,0 +1,252 @@
+﻿2026-11-19T01:23:08.3112427Z Current runner version: '2.338.2'
+2026-11-19T01:23:08.3116349Z Runner name: 'self-hosted-3'
+2026-11-19T01:23:08.3116928Z Runner group name: 'self-hosted'
+2026-11-19T01:23:08.3117651Z Machine name: 'runner-host'
+2026-11-19T01:23:08.3119373Z ##[group]GITHUB_TOKEN Permissions
+2026-11-19T01:23:08.3120978Z Actions: read
+2026-11-19T01:23:08.3121309Z Contents: read
+2026-11-19T01:23:08.3121641Z Metadata: read
+2026-11-19T01:23:08.3121968Z ##[endgroup]
+2026-11-19T01:23:08.3123354Z Secret source: Actions
+2026-11-19T01:23:08.3123870Z Cache mode: write
+2026-11-19T01:23:08.3124253Z Prepare workflow directory
+2026-11-19T01:23:08.3369820Z Prepare all required actions
+2026-11-19T01:23:08.3402872Z Getting action download info
+2026-11-19T01:23:08.6424925Z Download action repository 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd' (SHA:de0fac2e4500dabe0009e67214ff5f5447ce83dd)
+2026-11-19T01:23:08.9620299Z Complete job name: Skill documentation tests
+2026-11-19T01:23:09.0357358Z A job started hook has been configured by the self-hosted runner administrator
+2026-11-19T01:23:09.0438799Z ##[group]Run '/opt/runner-hooks/job-started.sh'
+2026-11-19T01:23:09.0458489Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-19T01:23:09.0459000Z ##[endgroup]
+2026-11-19T01:23:09.0718209Z job-started hook: reset the workspace /home/runner/_work/cmuxterm-hq/cmuxterm-hq an earlier job left sparse (checkout rebuilds it whole)
+2026-11-19T01:23:09.0892120Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-19T01:23:09.0892571Z with:
+2026-11-19T01:23:09.0892932Z   sparse-checkout: scripts/ci
+tests/fixtures
+.github/actions/artifact
+
+2026-11-19T01:23:09.0893418Z   persist-credentials: false
+2026-11-19T01:23:09.0893734Z   repository: manaflow-ai/cmuxterm-hq
+2026-11-19T01:23:09.0895914Z   token: ***
+2026-11-19T01:23:09.0896170Z   ssh-strict: true
+2026-11-19T01:23:09.0896436Z   ssh-user: git
+2026-11-19T01:23:09.0896708Z   clean: true
+2026-11-19T01:23:09.0896984Z   sparse-checkout-cone-mode: true
+2026-11-19T01:23:09.0897315Z   fetch-depth: 1
+2026-11-19T01:23:09.0897569Z   fetch-tags: false
+2026-11-19T01:23:09.0897827Z   show-progress: true
+2026-11-19T01:23:09.0898092Z   lfs: false
+2026-11-19T01:23:09.0898338Z   submodules: false
+2026-11-19T01:23:09.0898596Z   set-safe-directory: true
+2026-11-19T01:23:09.0898875Z ##[endgroup]
+2026-11-19T01:23:09.1517720Z Syncing repository: manaflow-ai/cmuxterm-hq
+2026-11-19T01:23:09.1519069Z ##[group]Getting Git version info
+2026-11-19T01:23:09.1519643Z Working directory is '/home/runner/_work/cmuxterm-hq/cmuxterm-hq'
+2026-11-19T01:23:09.1520250Z [command]/usr/bin/git version
+2026-11-19T01:23:09.1520545Z git version 2.56.1
+2026-11-19T01:23:09.1521601Z ##[endgroup]
+2026-11-19T01:23:09.1524691Z Copying '/home/runner/.gitconfig' to '/home/runner/_work/_temp/1be97a9c-fa34-43dd-be58-d6ba166560aa/.gitconfig'
+2026-11-19T01:23:09.1525529Z Temporarily overriding HOME='/home/runner/_work/_temp/1be97a9c-fa34-43dd-be58-d6ba166560aa' before making global git config changes
+2026-11-19T01:23:09.1526293Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-19T01:23:09.1527326Z [command]/usr/bin/git config --global --add safe.directory /home/runner/_work/cmuxterm-hq/cmuxterm-hq
+2026-11-19T01:23:09.1538746Z [command]/usr/bin/git config --local --get remote.origin.url
+2026-11-19T01:23:09.1551321Z https://github.com/manaflow-ai/cmuxterm-hq
+2026-11-19T01:23:09.1557393Z ##[group]Removing previously created refs, to avoid conflicts
+2026-11-19T01:23:09.1559419Z [command]/usr/bin/git rev-parse --symbolic-full-name --verify --quiet HEAD
+2026-11-19T01:23:09.1570006Z HEAD
+2026-11-19T01:23:09.1633986Z ##[endgroup]
+2026-11-19T01:23:09.1635724Z [command]/usr/bin/git submodule status
+2026-11-19T01:23:09.1738686Z ##[group]Cleaning the repository
+2026-11-19T01:23:09.1741015Z [command]/usr/bin/git clean -ffdx
+2026-11-19T01:23:09.1756091Z [command]/usr/bin/git reset --hard HEAD
+2026-11-19T01:23:09.3193033Z ##[error]fatal: could not read Username for 'https://github.com': terminal prompts disabled
+2026-11-19T01:23:09.3570110Z ##[error]fatal: could not fetch bc218c71f331d3b693468094e02fb89b9c9aee4b from promisor remote
+2026-11-19T01:23:09.3574330Z ##[endgroup]
+2026-11-19T01:23:09.3584475Z ##[warning]Unable to clean or reset the repository. The repository will be recreated instead.
+2026-11-19T01:23:09.3585930Z Deleting the contents of '/home/runner/_work/cmuxterm-hq/cmuxterm-hq'
+2026-11-19T01:23:09.3603763Z ##[group]Initializing the repository
+2026-11-19T01:23:09.3606449Z [command]/usr/bin/git init /home/runner/_work/cmuxterm-hq/cmuxterm-hq
+2026-11-19T01:23:09.3634764Z Initialized empty Git repository in /home/runner/_work/cmuxterm-hq/cmuxterm-hq/.git/
+2026-11-19T01:23:09.3639008Z [command]/usr/bin/git remote add origin https://github.com/manaflow-ai/cmuxterm-hq
+2026-11-19T01:23:09.3658815Z ##[endgroup]
+2026-11-19T01:23:09.3659321Z ##[group]Disabling automatic garbage collection
+2026-11-19T01:23:09.3661047Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-19T01:23:09.3675462Z ##[endgroup]
+2026-11-19T01:23:09.3676090Z ##[group]Setting up auth
+2026-11-19T01:23:09.3676566Z Removing SSH command configuration
+2026-11-19T01:23:09.3681016Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-19T01:23:09.3697441Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-19T01:23:09.3802521Z Removing HTTP extra header
+2026-11-19T01:23:09.3805463Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-19T01:23:09.3820792Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-19T01:23:09.3920085Z Removing includeIf entries pointing to credentials config files
+2026-11-19T01:23:09.3923929Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-19T01:23:09.3939752Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-19T01:23:09.4046495Z [command]/usr/bin/git config --file /home/runner/_work/_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-19T01:23:09.4069123Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/_work/cmuxterm-hq/cmuxterm-hq/.git.path /home/runner/_work/_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config
+2026-11-19T01:23:09.4084069Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/_work/cmuxterm-hq/cmuxterm-hq/.git/worktrees/*.path /home/runner/_work/_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config
+2026-11-19T01:23:09.4100733Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config
+2026-11-19T01:23:09.4114564Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config
+2026-11-19T01:23:09.4126850Z ##[endgroup]
+2026-11-19T01:23:09.4127280Z ##[group]Fetching the repository
+2026-11-19T01:23:09.4131907Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --filter=blob:none --depth=1 origin +b51efadb4a21bd3b67b76d475499adb9169ad0bd:refs/remotes/origin/main
+2026-11-19T01:23:10.1871597Z From https://github.com/manaflow-ai/cmuxterm-hq
+2026-11-19T01:23:10.1872767Z  * [new ref]         b51efadb4a21bd3b67b76d475499adb9169ad0bd -> origin/main
+2026-11-19T01:23:10.1880039Z [command]/usr/bin/git branch --list --remote origin/main
+2026-11-19T01:23:10.1896324Z   origin/main
+2026-11-19T01:23:10.1901223Z [command]/usr/bin/git rev-parse refs/remotes/origin/main
+2026-11-19T01:23:10.1911255Z b51efadb4a21bd3b67b76d475499adb9169ad0bd
+2026-11-19T01:23:10.1914793Z ##[endgroup]
+2026-11-19T01:23:10.1916191Z ##[group]Determining the checkout info
+2026-11-19T01:23:10.1917767Z ##[endgroup]
+2026-11-19T01:23:10.1919253Z ##[group]Setting up sparse checkout
+2026-11-19T01:23:10.1920894Z [command]/usr/bin/git sparse-checkout set scripts/ci tests/fixtures .github/actions/artifact
+2026-11-19T01:23:10.1932240Z ##[endgroup]
+2026-11-19T01:23:10.1933579Z ##[group]Checking out the ref
+2026-11-19T01:23:10.1935171Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-11-19T01:23:10.8903812Z Reset branch 'main'
+2026-11-19T01:23:10.8904915Z branch 'main' set up to track 'origin/main'.
+2026-11-19T01:23:10.8908493Z ##[endgroup]
+2026-11-19T01:23:10.8931849Z [command]/usr/bin/git log -1 --format=%H
+2026-11-19T01:23:10.8944327Z b51efadb4a21bd3b67b76d475499adb9169ad0bd
+2026-11-19T01:23:10.8949799Z ##[group]Removing auth
+2026-11-19T01:23:10.8950169Z Removing SSH command configuration
+2026-11-19T01:23:10.8951691Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-19T01:23:10.8966127Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-19T01:23:10.9077834Z Removing HTTP extra header
+2026-11-19T01:23:10.9080382Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-19T01:23:10.9095561Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-19T01:23:10.9207329Z Removing includeIf entries pointing to credentials config files
+2026-11-19T01:23:10.9209091Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-19T01:23:10.9222459Z includeif.gitdir:/home/runner/_work/cmuxterm-hq/cmuxterm-hq/.git.path
+2026-11-19T01:23:10.9223048Z includeif.gitdir:/home/runner/_work/cmuxterm-hq/cmuxterm-hq/.git/worktrees/*.path
+2026-11-19T01:23:10.9223531Z includeif.gitdir:/github/workspace/.git.path
+2026-11-19T01:23:10.9223896Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-19T01:23:10.9226922Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/_work/cmuxterm-hq/cmuxterm-hq/.git.path
+2026-11-19T01:23:10.9236590Z /home/runner/_work/_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config
+2026-11-19T01:23:10.9246927Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/_work/cmuxterm-hq/cmuxterm-hq/.git.path /home/runner/_work/_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config
+2026-11-19T01:23:10.9261897Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/_work/cmuxterm-hq/cmuxterm-hq/.git/worktrees/*.path
+2026-11-19T01:23:10.9271318Z /home/runner/_work/_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config
+2026-11-19T01:23:10.9274969Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/_work/cmuxterm-hq/cmuxterm-hq/.git/worktrees/*.path /home/runner/_work/_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config
+2026-11-19T01:23:10.9289542Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-19T01:23:10.9299294Z /github/runner_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config
+2026-11-19T01:23:10.9377376Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config
+2026-11-19T01:23:10.9379271Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-19T01:23:10.9379911Z /github/runner_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config
+2026-11-19T01:23:10.9381380Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config
+2026-11-19T01:23:10.9382738Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-19T01:23:10.9449444Z Removing credentials config '/home/runner/_work/_temp/git-credentials-b7e24838-67f1-4adf-8ab7-18dfd0a841ef.config'
+2026-11-19T01:23:10.9450872Z ##[endgroup]
+2026-11-19T01:23:10.9566047Z ##[group]Run python3 scripts/ci/shard_summary.py
+2026-11-19T01:23:10.9566320Z [36;1mpython3 scripts/ci/shard_summary.py[0m
+2026-11-19T01:23:10.9586009Z shell: /usr/bin/bash -e {0}
+2026-11-19T01:23:10.9586159Z env:
+2026-11-19T01:23:10.9587048Z   NEEDS_JSON: {
+  "scope": {
+    "result": "success",
+    "outputs": {
+      "nx_remote": "false",
+      "skill_shards": "true",
+      "cmux_policy": "true"
+    }
+  },
+  "tests-policy": {
+    "result": "success",
+    "outputs": {}
+  },
+  "tests-fleet": {
+    "result": "failure",
+    "outputs": {}
+  },
+  "tests-fleet-pool": {
+    "result": "success",
+    "outputs": {}
+  },
+  "tests-tooling": {
+    "result": "failure",
+    "outputs": {}
+  },
+  "tests-guards": {
+    "result": "failure",
+    "outputs": {}
+  },
+  "tests-capture-sync": {
+    "result": "success",
+    "outputs": {}
+  }
+}
+2026-11-19T01:23:10.9587972Z   REQUIRED: scope
+2026-11-19T01:23:10.9588115Z   EVENT_NAME: push
+2026-11-19T01:23:10.9588243Z   PR_NUMBER: 
+2026-11-19T01:23:10.9588400Z   PR_HEAD_SHA: 
+2026-11-19T01:23:10.9588541Z   REPOSITORY: manaflow-ai/cmuxterm-hq
+2026-11-19T01:23:10.9590124Z   GH_TOKEN: ***
+2026-11-19T01:23:10.9590255Z ##[endgroup]
+2026-11-19T01:23:10.9785122Z scope: success
+2026-11-19T01:23:10.9785306Z tests-capture-sync: success
+2026-11-19T01:23:10.9785461Z tests-fleet: failure
+2026-11-19T01:23:10.9785605Z tests-fleet-pool: success
+2026-11-19T01:23:10.9785755Z tests-guards: failure
+2026-11-19T01:23:10.9785916Z tests-policy: success
+2026-11-19T01:23:10.9786057Z tests-tooling: failure
+2026-11-19T01:23:10.9786192Z tests-fleet: failure
+2026-11-19T01:23:10.9786325Z tests-guards: failure
+2026-11-19T01:23:10.9786451Z tests-tooling: failure
+2026-11-19T01:23:10.9786582Z verdict: failed
+2026-11-19T01:23:10.9819803Z ##[error]Process completed with exit code 1.
+2026-11-19T01:23:10.9849767Z ##[group]Run python3 scripts/ci/step_times.py --check tests/fixtures/skills_tests_step_seconds.json
+2026-11-19T01:23:10.9850209Z [36;1mpython3 scripts/ci/step_times.py --check tests/fixtures/skills_tests_step_seconds.json[0m
+2026-11-19T01:23:10.9868320Z shell: /usr/bin/bash -e {0}
+2026-11-19T01:23:10.9868474Z env:
+2026-11-19T01:23:10.9868613Z   REPOSITORY: manaflow-ai/cmuxterm-hq
+2026-11-19T01:23:10.9870132Z   GH_TOKEN: ***
+2026-11-19T01:23:10.9870298Z   NOT_AWAITED: Skill documentation tests,nx-remote tests
+2026-11-19T01:23:10.9870502Z   STEP_DRIFT_OUT: step-table-drift.json
+2026-11-19T01:23:10.9870685Z ##[endgroup]
+2026-11-19T01:23:11.6430885Z not judged: Skill documentation tests: not finished when read (the aggregate does not wait for it)
+2026-11-19T01:23:11.6433831Z ##[error]run 44426812069: Skill test scope: 9 steps read, the table names 10; Fleet pool scaler tests: 12 steps read, the table names 13; Capture-host, sync and Cloud probe tests: 7 steps read, the table names 9; Agent guard tests: 7 steps read, the table names 8. This check judged nothing, so it fails
+2026-11-19T01:23:11.6435185Z runner step over its table time (not failed on): Fleet pool scaler tests / Checkout: 298 s, table 163 s
+2026-11-19T01:23:11.6435513Z step times: 3 finished jobs of run 44426812069 judged, 0 steps over the table
+2026-11-19T01:23:11.6521071Z ##[error]Process completed with exit code 1.
+2026-11-19T01:23:11.6949081Z Prepare all required actions
+2026-11-19T01:23:11.6983006Z ##[group]Run ./.github/actions/artifact/upload
+2026-11-19T01:23:11.6983202Z with:
+2026-11-19T01:23:11.6983336Z   name: step-table-drift
+2026-11-19T01:23:11.6983482Z   path: step-table-drift.json
+2026-11-19T01:23:11.6983750Z   retention-days: 3
+2026-11-19T01:23:11.6983880Z   if-no-files-found: ignore
+2026-11-19T01:23:11.6984028Z   include-hidden-files: false
+2026-11-19T01:23:11.6984189Z   overwrite: true
+2026-11-19T01:23:11.6984313Z   compression-level: 6
+2026-11-19T01:23:11.6984447Z ##[endgroup]
+2026-11-19T01:23:11.7022444Z ##[start-action display=Upload to the fleet store;id=__self.__run]
+2026-11-19T01:23:11.7037633Z ##[group]Run if [ "$RUNNER_OS" = Windows ]; then py=python; else py="$(command -v python3 || command -v python)"; fi
+2026-11-19T01:23:11.7038063Z [36;1mif [ "$RUNNER_OS" = Windows ]; then py=python; else py="$(command -v python3 || command -v python)"; fi[0m
+2026-11-19T01:23:11.7038405Z [36;1m"$py" -I "$GITHUB_ACTION_PATH/../artifact.py" upload[0m
+2026-11-19T01:23:11.7058651Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-19T01:23:11.7058850Z env:
+2026-11-19T01:23:11.7058978Z   INPUT_NAME: step-table-drift
+2026-11-19T01:23:11.7059206Z   INPUT_PATH: step-table-drift.json
+2026-11-19T01:23:11.7059381Z   INPUT_RETENTION_DAYS: 3
+2026-11-19T01:23:11.7059524Z   INPUT_IF_NO_FILES_FOUND: ignore
+2026-11-19T01:23:11.7059685Z   INPUT_INCLUDE_HIDDEN_FILES: false
+2026-11-19T01:23:11.7059837Z ##[endgroup]
+2026-11-19T01:23:13.7600601Z uploaded artifact step-table-drift: 1 files, 309 bytes, kept 3 days, run 44426812069 (fleet store actions-artifacts/manaflow-ai/cmuxterm-hq/44426812069/step-table-drift.tar.gz)
+2026-11-19T01:23:14.0059773Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=2303]
+2026-11-19T01:23:14.0135050Z Post job cleanup.
+2026-11-19T01:23:14.0632606Z [command]/usr/bin/git version
+2026-11-19T01:23:14.0654510Z git version 2.56.1
+2026-11-19T01:23:14.0672339Z Copying '/home/runner/.gitconfig' to '/home/runner/_work/_temp/1e2895c9-2334-45dc-bd32-e26247af2812/.gitconfig'
+2026-11-19T01:23:14.0676786Z Temporarily overriding HOME='/home/runner/_work/_temp/1e2895c9-2334-45dc-bd32-e26247af2812' before making global git config changes
+2026-11-19T01:23:14.0677364Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-19T01:23:14.0679353Z [command]/usr/bin/git config --global --add safe.directory /home/runner/_work/cmuxterm-hq/cmuxterm-hq
+2026-11-19T01:23:14.0693903Z Removing SSH command configuration
+2026-11-19T01:23:14.0696579Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-19T01:23:14.0711746Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-19T01:23:14.0825259Z Removing HTTP extra header
+2026-11-19T01:23:14.0827401Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-19T01:23:14.0842302Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-19T01:23:14.0949634Z Removing includeIf entries pointing to credentials config files
+2026-11-19T01:23:14.0953484Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-19T01:23:14.0969396Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-19T01:23:14.1166931Z Cleaning up orphan processes
