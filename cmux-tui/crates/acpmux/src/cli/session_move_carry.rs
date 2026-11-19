@@ -326,10 +326,11 @@ fi
 if [ -s "$s/intent" ]; then
   # Recreate flags against a scratch worktree with the original modes. The safe
   # placeholders also support deleted worktree paths and intent-to-add symlinks.
+  # Restore source modes regardless of target filemode/symlink or sparse settings.
   mkdir "$s/intent-worktree" || exit 2
   tar -xf "$s/intent-placeholders" -C "$s/intent-worktree" || exit 5
   git update-index --force-remove -z --stdin <"$s/intent" || exit 5
-  git -c core.fsmonitor=false --work-tree="$s/intent-worktree" add -N -f --pathspec-from-file="$s/intent" --pathspec-file-nul -- || exit 5
+  git -c core.fsmonitor=false -c core.filemode=true -c core.symlinks=true --work-tree="$s/intent-worktree" add --sparse -N -f --pathspec-from-file="$s/intent" --pathspec-file-nul -- || exit 5
 fi
 # Write the candidate beside the real index before touching the working tree. Publishing
 # is then a rename on the same filesystem, with no allocation after the worktree changes.

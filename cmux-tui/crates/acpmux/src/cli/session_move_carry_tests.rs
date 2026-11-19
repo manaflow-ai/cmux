@@ -309,6 +309,58 @@ fn index_and_worktree_snapshots_match_independently_for_every_change_kind() {
 }
 
 #[test]
+fn intent_modes_survive_target_configuration_and_sparse_cones() {
+    use std::os::unix::fs::PermissionsExt as _;
+    for sparse in [false, true] {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        repo(src.path());
+        sh(
+            src.path(),
+            "mkdir included outside && touch included/base outside/base && git add . && git commit -qm dirs && printf 'echo hi\\n' > outside/run.sh && chmod +x outside/run.sh && ln -s run.sh outside/link && git add -N outside/run.sh outside/link",
+        );
+        let source_index = std::fs::read(src.path().join(".git/index")).unwrap();
+        let source_refs = sh(src.path(), "git show-ref --head");
+        let carry = snapshot(&here, src.path(), true).unwrap();
+        sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+        sh(dst.path(), "git config core.filemode false && git config core.symlinks false");
+        if sparse {
+            sh(dst.path(), "git sparse-checkout set --cone included");
+        }
+        let out = apply(dst.path(), &carry);
+        assert!(out.ok, "sparse={sparse}: {}", out.stderr);
+        for command in [
+            "git ls-files --stage -z",
+            "git diff --cached --binary",
+            "git -c core.filemode=true -c core.symlinks=true diff --binary",
+        ] {
+            assert_eq!(
+                sh(dst.path(), command),
+                sh(src.path(), command),
+                "sparse={sparse}: {command}"
+            );
+        }
+        assert_eq!(std::fs::read(dst.path().join("outside/run.sh")).unwrap(), b"echo hi\n");
+        assert_ne!(
+            std::fs::metadata(dst.path().join("outside/run.sh")).unwrap().permissions().mode()
+                & 0o111,
+            0
+        );
+        assert_eq!(
+            std::fs::read_link(dst.path().join("outside/link")).unwrap(),
+            Path::new("run.sh")
+        );
+        assert_eq!(sh(dst.path(), "git config core.filemode"), "false\n");
+        assert_eq!(sh(dst.path(), "git config core.symlinks"), "false\n");
+        if sparse {
+            assert!(!dst.path().join("outside/base").exists());
+        }
+        assert_eq!(std::fs::read(src.path().join(".git/index")).unwrap(), source_index);
+        assert_eq!(sh(src.path(), "git show-ref --head"), source_refs);
+    }
+}
+
+#[test]
 fn intent_paths_keep_non_utf8_bytes_and_line_breaks() {
     use std::os::unix::ffi::OsStringExt as _;
     let src = tempfile::tempdir().unwrap();

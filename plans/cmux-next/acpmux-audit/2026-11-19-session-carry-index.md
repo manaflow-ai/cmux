@@ -13,7 +13,10 @@ stages. Intent flags come from the index flags rather than differences between
 name lists: a path can already be in HEAD, with identical empty content. Only paths changed in the visible or invisible intent index views send debug
 metadata, so unchanged tracked paths do not grow the transfer. Unknown
 index debug formats refuse instead of silently losing flags. Raw path bytes and
-symlink modes survive through a scratch placeholder archive. Payloads stream through tar; no patch occupies a shell variable.
+symlink modes survive through a scratch placeholder archive. Scratch reconstruction
+uses explicit filemode/symlink semantics and allows out-of-cone intent paths without
+changing target configuration; `intent_modes_survive_target_configuration_and_sparse_cones`
+compares index entries and both diffs with target filemode/symlinks disabled. Payloads stream through tar; no patch occupies a shell variable.
 File counts are the union of both patches' raw paths; byte counts include both and the intent-to-add path list.
 Secrets, ignored files and nested repositories retain their existing exclusions.
 
