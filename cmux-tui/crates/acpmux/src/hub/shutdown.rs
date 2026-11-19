@@ -177,6 +177,7 @@ impl Hub {
         // Cancelling session cleanup may have dropped its metadata task handle. The blocking
         // index read still owns the sessions it will publish; include them before the fence.
         self.wait_store().await;
+        crate::daemon::stop_timeline::mark("persist:wait-store");
         let (metadata_done, metadata_saved) = tokio::sync::oneshot::channel::<()>();
         let store = {
             let hub = self.clone();
@@ -195,15 +196,20 @@ impl Hub {
                         tracing::error!(session = %session.id, "save meta at shutdown: {error}");
                     }
                 }
+                crate::daemon::stop_timeline::mark("persist:sessions");
                 // Saving a changed title/repository also updates its ledger entry. Close
                 // that writer after these updates, while the store seals independently.
                 let _ = metadata_done.send(());
                 hub.store.seal();
+                crate::daemon::stop_timeline::mark("persist:seal");
                 if let Err(error) = hub.store.flush() {
                     tracing::warn!("store flush failed: {error}");
                 }
+                crate::daemon::stop_timeline::mark("persist:store-flush");
                 hub.outbox.compact();
+                crate::daemon::stop_timeline::mark("persist:outbox");
                 hub.peer_snapshots.flush_now();
+                crate::daemon::stop_timeline::mark("persist:peer-snapshots");
             })
         };
         let ledger = {
@@ -219,6 +225,7 @@ impl Hub {
                         );
                         hub.ledger.wait_closed();
                     }
+                    crate::daemon::stop_timeline::mark("persist:ledger");
                 })
                 .await
             }
@@ -232,6 +239,7 @@ impl Hub {
                 );
                 self.audit.wait_closed();
             }
+            crate::daemon::stop_timeline::mark("persist:audit");
         });
         let _ = tokio::join!(store, ledger, audit);
     }
@@ -264,8 +272,16 @@ impl Hub {
         // daemon's restart cutoff, and Quit Everything's ends must not wait behind a peer cache
         // write (Codex review of #42296).
         let ((), kept) = tokio::join!(
-            self.wait_peer_notice_loop(),
-            self.end_sessions(preserve_auto_resume, end_agents, &keep, ends_by),
+            async {
+                self.wait_peer_notice_loop().await;
+                crate::daemon::stop_timeline::mark("sessions:peer-notice");
+            },
+            async {
+                let kept =
+                    self.end_sessions(preserve_auto_resume, end_agents, &keep, ends_by).await;
+                crate::daemon::stop_timeline::mark("sessions:end");
+                kept
+            },
         );
         if flush {
             self.flush();
@@ -323,10 +339,12 @@ impl Hub {
                 tokio::task::yield_now().await;
             }
         }
+        crate::daemon::stop_timeline::mark("sessions:retry-stop");
         // Startup may have been cancelled before adoption reached these hosts. Keep their
         // state and router on an ordinary restart, even when no child link exists yet.
         // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();
+        crate::daemon::stop_timeline::mark("sessions:live-hosts");
         let mut children = Vec::new();
         let mut hosted = Vec::new();
         // Sessions whose agent host must end without its link: no child
@@ -394,6 +412,7 @@ impl Hub {
                 self.set_status(s, SessionStatus::Idle);
             }
         }
+        crate::daemon::stop_timeline::mark("sessions:chat-loop");
         let detach = futures::future::join_all(hosted.iter().map(|c| c.detach(SHUTDOWN_GRACE)));
         let _ = tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, detach).await;
         let stop = futures::future::join_all(children.iter().map(|c| c.terminate(SHUTDOWN_GRACE)));
@@ -405,10 +424,13 @@ impl Hub {
         if tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, fallback).await.is_err() {
             tracing::warn!("agent hosts did not end within {SHUTDOWN_GRACE:?}");
         }
+        crate::daemon::stop_timeline::mark("sessions:agents");
         self.settle_ends(&sessions, end_agents, keep, ends_by).await;
+        crate::daemon::stop_timeline::mark("sessions:settle-ends");
         for s in &sessions {
             let _ = self.store_deferred(s);
         }
+        crate::daemon::stop_timeline::mark("sessions:store-deferred");
         hosted.len() + unreached
     }
 

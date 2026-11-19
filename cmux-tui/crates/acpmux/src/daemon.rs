@@ -76,6 +76,7 @@ pub(crate) mod provision;
 #[cfg(unix)]
 mod socket_rebind;
 mod stop_causes;
+pub(crate) mod stop_timeline;
 pub(crate) mod supervision;
 #[cfg(unix)]
 pub(crate) use crate::term_sender;
@@ -948,7 +949,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let startup = {
         let (hub, fatal) = (hub.clone(), hub.fatal.clone());
         // A startup that panicked can never finish: the daemon stops for a restart.
-        crate::supervise::once("startup", &fatal, async move {
+        let work = async move {
             {
                 let _phase = gauges.phase("wait for store");
                 hub.wait_store().await;
@@ -1039,7 +1040,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             hub.spawn_startup_respawns();
             // Until shutdown aborts this task, on every path (a signal too).
             hub.run_after_startup().await;
-        })
+        };
+        // Measurement only: its polls and its drop are timed against the stop.
+        crate::supervise::once("startup", &fatal, stop_timeline::Polled::new("startup", work))
     };
     {
         let hub = hub.clone();
@@ -1189,6 +1192,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    stop_timeline::begin();
     let shutdown_started = tokio::time::Instant::now();
     // First: the cmux link stops sending peers here before admission closes or the listener is
     // freed, so no process that binds the freed port can be taken for this daemon.
@@ -1214,11 +1218,19 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // A supervisor action under way finishes first, within its own bounds.
     #[cfg(all(unix, feature = "tailnet"))]
     let _ = tokio::time::timeout_at(cleanup_deadline, tailnet.fence()).await;
+    stop_timeline::mark("daemon:fenced");
+    // Measurement only: the startup phases that run now, and when a task spawned now first runs.
+    for phase in crate::gauges::global().running() {
+        stop_timeline::note(format!("running:{phase}"), 1);
+    }
+    let _probe = exit_tasks
+        .spawn_named("stop-probe", async { stop_timeline::mark("probe:spawned-task-ran") });
     // Its home is gone (`daemon/home_watch.rs`): no later daemon can adopt its agents from
     // there, so they end; and this shutdown removes nothing at the old paths, which may be
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
     startup.abort();
     let _ = tokio::time::timeout_at(cleanup_deadline, startup).await;
+    stop_timeline::mark("daemon:startup");
     // Its last heartbeat empties this daemon's rows in the hub's address book. The start's
     // join task ends first, so nothing starts a relay after this stops it.
     let _ = tokio::time::timeout_at(
@@ -1226,6 +1238,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         crate::server::machine_enroll::stop_at_shutdown(&hub),
     )
     .await;
+    stop_timeline::mark("daemon:enroll");
     // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
     // shutdown and interactive interrupt use a normal WebSocket close.
     let restarting = hub.restart_requested.load(std::sync::atomic::Ordering::SeqCst);
@@ -1248,6 +1261,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         let _ = tokio::time::timeout_at(cleanup_deadline, task).await;
         tracing::warn!("websocket clients did not drain before the shutdown deadline");
     }
+    stop_timeline::mark("daemon:ws-drain");
     // The ingress has had the WebSocket drain to close its clients; stop and
     // join whatever remains within the service's own bound.
     #[cfg(all(unix, feature = "tailnet"))]
@@ -1256,6 +1270,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     if let Some(transport) = wireguard {
         transport.shutdown(cleanup_deadline).await;
     }
+    stop_timeline::mark("daemon:wireguard");
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
     // until a start), so a start racing this shutdown is refused either way.
@@ -1265,6 +1280,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         Ok(Err(error)) => tracing::warn!("embedded tailnet close: {error}"),
         Err(_) => tracing::warn!("embedded tailnet did not close within {SHUTDOWN_BUDGET:?}"),
     }
+    stop_timeline::mark("daemon:tailnet");
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon. Only the socket this
     // daemon bound: one replaced since is another daemon's.
@@ -1278,6 +1294,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         home_watch::release_socket();
         let _ = crate::home_fs::remove_file(socket_path());
     }
+    stop_timeline::mark("daemon:socket");
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
     let mut sessions = {
@@ -1286,6 +1303,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             // A signal can arrive while metadata loads. Snapshot every stored session before
             // detaching or ending hosts. A timeout conservatively keeps their router below.
             let _ = metadata.await;
+            stop_timeline::mark("daemon:metadata");
             if restarting {
                 hub.shutdown_for_handoff(true).await
             } else {
@@ -1304,8 +1322,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             usize::MAX
         }
     };
+    stop_timeline::mark("daemon:sessions");
     // The hub's own tasks after its agents: cancelled and joined, any left named (`hub/shutdown.rs`).
     hub.close_owned_tasks_until(cleanup_deadline).await;
+    stop_timeline::mark("daemon:owned-tasks");
     let (cleanup_done, cleanup_finished) = tokio::sync::oneshot::channel::<()>();
     let mut persistence = {
         let hub = hub.clone();
@@ -1335,6 +1355,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         tokio::task::spawn_blocking(move || release_router(kept == 0 && !home_lost)),
     )
     .await;
+    stop_timeline::mark("daemon:router");
     // Cancelled and finished before the removal, so a late retry never puts it back.
     if let Some(retry) = pid_retry {
         retry.abort();
@@ -1348,6 +1369,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             let _ = crate::home_fs::remove_file(file);
         }
     }
+    stop_timeline::mark("daemon:pid-files");
     // The carrier's registration last, as when the start held it to the end.
     crate::server::machine_enroll::stop_carrier(&hub);
     // Usage counts are written some time after they are made, so an idle
@@ -1357,6 +1379,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         tokio::task::spawn_blocking(cmux_usage_patterns::flush),
     )
     .await;
+    stop_timeline::mark("daemon:usage");
     let _ = cleanup_done.send(());
     // The CLI exits the process once this returns, which would end a writer mid-write and lose
     // what it had yet to write (recent transcript, metadata, ledger and audit lines). So the
@@ -1367,6 +1390,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             "persistence still draining at the shutdown deadline; waiting for it with the home locked"
         );
         let _ = persistence.await;
+    }
+    stop_timeline::mark("daemon:persistence");
+    if let Some(line) = stop_timeline::line() {
+        eprintln!("STOP-TIMELINE {line}");
     }
     tracing::info!("stopped");
     Ok(())

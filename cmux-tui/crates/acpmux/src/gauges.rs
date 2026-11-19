@@ -75,6 +75,12 @@ impl Gauges {
         PhaseGuard { gauges: self, index: phases.len() - 1, started }
     }
 
+    /// The startup phases that run now (measurement only, `daemon/stop_timeline.rs`).
+    pub fn running(&self) -> Vec<&'static str> {
+        let phases = self.phases.lock().unwrap_or_else(PoisonError::into_inner);
+        phases.iter().filter(|p| p.ms.is_none()).map(|p| p.name).collect()
+    }
+
     /// A point in startup (`socket ready`, `first list reply`), kept the first time only.
     pub fn mark(&self, name: &'static str) {
         let mut phases = self.phases.lock().unwrap_or_else(PoisonError::into_inner);
