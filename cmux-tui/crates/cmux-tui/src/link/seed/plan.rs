@@ -322,7 +322,7 @@ pub fn plan_recorded(
             url: repo.github.url(),
             repo: repo.github.slug(),
             base,
-            head_ref: repo.head_ref.clone(),
+            head_ref: repo.head_ref,
             head: recorded.head.clone(),
             index: recorded.index.clone(),
             work: recorded.work.clone(),

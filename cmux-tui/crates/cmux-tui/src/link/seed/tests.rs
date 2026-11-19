@@ -412,7 +412,7 @@ fn lfs_attributes_are_noticed() {
     let planned = plan(&f.work, &f.path("seed.bundle")).unwrap();
     assert!(planned.params.lfs);
     // Where they are, for a head-first seed to tell whether one reaches its head.
-    let mut files = planned.lfs_attributes.clone();
+    let mut files = planned.lfs_attributes;
     files.sort();
     assert_eq!(files, [".gitattributes", "art/.gitattributes"]);
 }

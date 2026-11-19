@@ -1306,7 +1306,7 @@ mod tests {
         let sparse = with(SeedParams { sparse: Some("/a\n".into()), ..whole.params.clone() });
         assert!(!asks_head_first(&sparse, "web/app"));
         // LFS whose files are not known (an older plan) lands after the head: no head first.
-        let lfs = with(SeedParams { lfs: true, ..whole.params.clone() });
+        let lfs = with(SeedParams { lfs: true, ..whole.params });
         assert!(!asks_head_first(&lfs, "web/app"), "LFS lands after the head");
     }
 
