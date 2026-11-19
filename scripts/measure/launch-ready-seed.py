@@ -124,6 +124,7 @@ class Seed:
         if self.exact_total is not None and self.front_mode == "home":
             self.action("home.show")  # a newly opened window may need its own Home workspace
         initial = self.topology()
+        prepared_front = (initial.get("focus") or {}).get("window")
         self.keys = {w.get("id"): w.get("key") or w.get("id") for w in initial.get("windows") or []}
         additions = self.total
         counts = {w.get("id"): len(w.get("workspaces") or []) for w in initial.get("windows") or []}
@@ -131,10 +132,16 @@ class Seed:
             additions = self.exact_total - len(initial.get("workspaces") or [])
             if len(counts) != self.count or additions < 0:
                 raise RuntimeError("existing fixture exceeds the requested window or workspace total")
+            if self.front_mode == "home" and prepared_front not in windows:
+                raise RuntimeError("the prepared Home window is missing from the fixture")
         self.row.update(initial_workspaces=len(initial.get("workspaces") or []), workspaces_added=additions)
         ours = {w: set() for w in windows}
         for index in range(additions):
             window = min(windows, key=counts.get) if self.exact_total is not None else windows[index * len(windows) // additions]
+            if self.exact_total is not None and self.front_mode == "home" and index == additions - 1:
+                # Creating/moving with focus=True makes this window key. Finish in the window whose Home already
+                # exists, so the final home.show cannot create an extra workspace after filling to the exact total.
+                window = prepared_front
             created = [c for c in self.action("workspace.newAtBottom").get("created") or [] if str(c).startswith("ws_")]
             if len(created) != 1:
                 raise RuntimeError(f"workspace.newAtBottom (workspace {index + 1}) created {created}, not one workspace")

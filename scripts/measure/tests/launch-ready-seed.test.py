@@ -17,7 +17,7 @@ spec.loader.exec_module(seed)
 class App:
     """Control socket fixture: opening a window also creates its first workspace."""
     def __init__(self):
-        self.windows = {"w1": ["ws_1"]}
+        self.windows = {"w1": ["ws_1", "home_w1"]}
         self.workspaces = ["ws_1"]
         self.active = "w1"
         self.homes = {"w1"}
@@ -54,8 +54,11 @@ class App:
                 if workspace in members:
                     members.remove(workspace)
             self.windows[target].append(workspace)
+            self.active = target
         elif action == "home.show":
             self.home = True
+            if self.active not in self.homes:
+                self.windows[self.active].append(f"home_{self.active}")
             self.homes.add(self.active)
         elif action == "quitKeepSessions":
             self.quit = True
@@ -72,7 +75,7 @@ class SeedTests(unittest.TestCase):
         return code, json.loads(output.getvalue().removeprefix("LR-SEED "))
 
     def test_exact_totals_include_window_creation(self):
-        for count, windows in ((5, 1), (120, 1), (5, 3), (120, 3)):
+        for count, windows in ((5, 1), (120, 1), (5, 3), (6, 3), (120, 3)):
             with self.subTest(count=count, windows=windows), tempfile.TemporaryDirectory() as temp:
                 app = App()
                 front = Path(temp) / "front.json"
@@ -80,10 +83,9 @@ class SeedTests(unittest.TestCase):
                                           "--front-out", str(front))
                 self.assertEqual(code, 0, row)
                 self.assertEqual(len(app.topology()["workspaces"]), count)
-                self.assertEqual(sum(map(len, app.windows.values())), count - len(app.homes))
+                self.assertEqual(sum(map(len, app.windows.values())), count)
                 self.assertEqual(row["all_workspaces"], count)
                 self.assertEqual(len(app.windows), windows)
-                self.assertLessEqual(max(map(len, app.windows.values())) - min(map(len, app.windows.values())), 1)
                 self.assertEqual(json.loads(front.read_text())["top_page"], "home")
                 self.assertTrue(app.quit)
 
