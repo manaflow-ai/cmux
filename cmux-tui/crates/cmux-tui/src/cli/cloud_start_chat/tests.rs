@@ -3486,6 +3486,34 @@ fn a_cloud_start_sets_effort_and_mode_before_the_first_prompt() {
     assert!(fake.ran[3][5].contains("acp send --no-wait sess-1 -"));
 }
 
+/// cmuxterm-hq#13943: a settings exec nothing answered is no refusal. Once: it is asked again and
+/// the prompt is sent. Every time: the start fails as `chat.unreachable`, never
+/// `chat.settings_refused`, and names the send command.
+#[test]
+fn an_unanswered_settings_exec_is_asked_again_and_never_reads_as_a_refusal() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        unanswered(),
+        exec_out("@@set\nok\n@@exit 0\n"),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+    ]);
+    let asked = request(&["--effort", "low", "--no-folder", "-p", "1+1?"]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["sent"], true);
+    assert!(fake.ran[2][5].contains("acp session set sess-1 effort=low"), "{:?}", fake.ran[2]);
+    assert!(fake.ran[3][5].contains("acp session set sess-1 effort=low"), "{:?}", fake.ran[3]);
+    assert!(fake.ran[4][5].contains("acp send --no-wait sess-1 -"), "{:?}", fake.ran[4]);
+
+    let mut fake = Fake::new(vec![signed_in(), started(), unanswered(), unanswered()]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((error["code"].as_str(), exit), (Some("chat.unreachable"), 1), "{error}");
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("cmux chat send sess-1"), "{message}");
+    assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
+    assert_eq!(fake.ran.len(), 4, "asked twice, never sent: {:?}", fake.ran);
+}
+
 /// A refused effort: the chat started, nothing is sent, and the answer says how to go on.
 #[test]
 fn a_refused_effort_sends_nothing_and_names_the_chat() {
