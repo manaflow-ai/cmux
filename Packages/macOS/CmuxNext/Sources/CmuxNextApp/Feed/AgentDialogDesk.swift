@@ -96,7 +96,7 @@ final class AgentDialogDesk {
         if let asks, asks.owns(id) { return try remembering(asks.reply(id, selection: mode, params: params), id) }
         guard mode == "deny" else {
             throw ControlError(code: "person_required", message: Self.text("agentDialogs.allowRefused",
-                "Only a deny can be sent here; a person approves permissions in cmux"), data: ["request_id": .string(id)])
+                "Approve this in the cmux window; from here you can only deny it"), data: ["request_id": .string(id)])
         }
         let (line, prompt) = try await find(id)
         defer { line.close() }
@@ -141,7 +141,7 @@ final class AgentDialogDesk {
         }
         guard line.isPerson else {
             throw ControlError(code: "person_required", message: Self.text("agentDialogs.notPerson",
-                "cmux couldn't confirm the answer came from you; answer the question in the cmux window"), data: ["request_id": .string(id)])
+                "Answer this question in the cmux window"), data: ["request_id": .string(id)])
         }
         guard let data = try? built.params.data(), let reply = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             throw ControlError(code: "internal", message: Self.text("agentDialogs.encodeFailed", "The answer could not be encoded"))

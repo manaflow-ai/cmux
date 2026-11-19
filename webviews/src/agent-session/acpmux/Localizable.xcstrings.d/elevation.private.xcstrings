@@ -7,128 +7,128 @@
       "localizations" : {
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "تذهب كلمة المرور إلى sudo على هذا الجهاز فقط، ولا يراها الوكيل أبدًا. وهي لهذا الأمر وحده."
+            "state" : "needs_review",
+            "value" : "لا يرى الوكيل كلمة مرورك أبدًا."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lozinka ide samo do sudo na ovom računaru; agent je nikad ne vidi. Važi samo za ovu jednu naredbu."
+            "state" : "needs_review",
+            "value" : "Agent nikad ne vidi vašu lozinku."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Din adgangskode går kun til sudo på denne maskine; agenten ser den aldrig. Den gælder kun denne ene kommando."
+            "state" : "needs_review",
+            "value" : "Agenten ser aldrig din adgangskode."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dein Passwort geht nur an sudo auf diesem Rechner; der Agent sieht es nie. Es gilt nur für diesen einen Befehl."
+            "state" : "needs_review",
+            "value" : "Der Agent sieht dein Passwort nie."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your password goes only to sudo on this machine; the agent never sees it. It covers this one command."
+            "value" : "The agent never sees your password."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tu contraseña va solo a sudo en esta máquina; el agente nunca la ve. Sirve solo para este comando."
+            "state" : "needs_review",
+            "value" : "El agente nunca ve tu contraseña."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Votre mot de passe va uniquement à sudo sur cette machine ; l’agent ne le voit jamais. Il ne vaut que pour cette commande."
+            "state" : "needs_review",
+            "value" : "L’agent ne voit jamais votre mot de passe."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "La password va solo a sudo su questa macchina; l’agente non la vede mai. Vale solo per questo comando."
+            "state" : "needs_review",
+            "value" : "L’agente non vede mai la tua password."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "パスワードはこのマシンの sudo にだけ渡され、エージェントには見えません。このコマンド1回だけに使われます。"
+            "state" : "needs_review",
+            "value" : "エージェントにパスワードが見えることはありません。"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "ពាក្យសម្ងាត់របស់អ្នកទៅតែ sudo នៅលើម៉ាស៊ីននេះ ហើយភ្នាក់ងារមិនដែលឃើញវាទេ។ វាសម្រាប់តែពាក្យបញ្ជានេះមួយប៉ុណ្ណោះ។"
+            "state" : "needs_review",
+            "value" : "ភ្នាក់ងារមិនដែលឃើញពាក្យសម្ងាត់របស់អ្នកទេ។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "비밀번호는 이 컴퓨터의 sudo에만 전달되며 에이전트는 볼 수 없습니다. 이 명령 하나에만 쓰입니다."
+            "state" : "needs_review",
+            "value" : "에이전트는 암호를 볼 수 없습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Passordet går bare til sudo på denne maskinen; agenten ser det aldri. Det gjelder bare denne ene kommandoen."
+            "state" : "needs_review",
+            "value" : "Agenten ser aldri passordet ditt."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hasło trafia tylko do sudo na tym komputerze; agent nigdy go nie widzi. Dotyczy tylko tego jednego polecenia."
+            "state" : "needs_review",
+            "value" : "Agent nigdy nie widzi Twojego hasła."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sua senha vai só para o sudo nesta máquina; o agente nunca a vê. Ela vale só para este comando."
+            "state" : "needs_review",
+            "value" : "O agente nunca vê sua senha."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пароль уходит только в sudo на этой машине; агент его не видит. Он действует только для этой команды."
+            "state" : "needs_review",
+            "value" : "Агент никогда не видит ваш пароль."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "รหัสผ่านจะส่งไปยัง sudo บนเครื่องนี้เท่านั้น เอเจนต์จะไม่เห็นเลย และใช้กับคำสั่งนี้คำสั่งเดียว"
+            "state" : "needs_review",
+            "value" : "เอเจนต์ไม่เห็นรหัสผ่านของคุณ"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Parolanız yalnızca bu makinedeki sudo'ya gider; ajan onu asla görmez. Yalnızca bu tek komut için geçerlidir."
+            "state" : "needs_review",
+            "value" : "Ajan parolanızı asla görmez."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пароль іде лише до sudo на цій машині; агент його не бачить. Він діє лише для цієї команди."
+            "state" : "needs_review",
+            "value" : "Агент ніколи не бачить ваш пароль."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mật khẩu chỉ được gửi tới sudo trên máy này; tác tử không bao giờ thấy nó. Nó chỉ dùng cho đúng lệnh này."
+            "state" : "needs_review",
+            "value" : "Tác tử không bao giờ thấy mật khẩu của bạn."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "密码只交给这台机器上的 sudo，代理永远看不到。它只用于这一条命令。"
+            "state" : "needs_review",
+            "value" : "代理永远看不到你的密码。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "密碼只交給這台機器上的 sudo，代理永遠看不到。它只用於這一條指令。"
+            "state" : "needs_review",
+            "value" : "代理程式永遠看不到你的密碼。"
           }
         }
       }

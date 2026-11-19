@@ -8,127 +8,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "غير متاح من هنا: لا يملك هذا الوكيل وضعًا يطلب الإذن قبل كل تغيير"
+            "value" : "أرسل إلى هذه المحادثة من جهاز Mac الذي يشغّلها"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nije dostupno odavde: ovaj agent nema način rada koji pita prije svake promjene"
+            "value" : "Pošaljite u ovaj chat s Maca na kojem radi"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ikke tilgængelig herfra: denne agent har ingen tilstand, der spørger før hver ændring"
+            "value" : "Send til denne chat fra den Mac, der kører den"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Von hier aus nicht verfügbar: Dieser Agent hat keinen Modus, der vor jeder Änderung fragt"
+            "value" : "Sende an diesen Chat von dem Mac, auf dem er läuft"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Not available from here: this agent has no mode that asks before each change"
+            "value" : "Send to this chat from the Mac that runs it"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "No disponible desde aquí: este agente no tiene un modo que pregunte antes de cada cambio"
+            "value" : "Envía a este chat desde el Mac que lo ejecuta"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Indisponible depuis ici : cet agent n’a aucun mode qui demande avant chaque changement"
+            "value" : "Envoyez à cette discussion depuis le Mac qui l’exécute"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Non disponibile da qui: questo agente non ha una modalità che chieda prima di ogni modifica"
+            "value" : "Invia a questa chat dal Mac che la esegue"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ここからは利用できません：このエージェントには、変更のたびに確認するモードがありません"
+            "value" : "このチャットを実行している Mac から送信してください"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "មិនអាចប្រើពីទីនេះបានទេ៖ ភ្នាក់ងារនេះគ្មានរបៀបដែលសួរមុនពេលផ្លាស់ប្ដូរនីមួយៗទេ"
+            "value" : "ផ្ញើទៅការជជែកនេះពី Mac ដែលកំពុងដំណើរការវា"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "여기에서는 사용할 수 없습니다: 이 에이전트에는 변경할 때마다 확인하는 모드가 없습니다"
+            "value" : "이 채팅을 실행하는 Mac에서 보내세요"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ikke tilgjengelig herfra: denne agenten har ingen modus som spør før hver endring"
+            "value" : "Send til denne chatten fra Macen som kjører den"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Niedostępne stąd: ten agent nie ma trybu, który pyta przed każdą zmianą"
+            "value" : "Wysyłaj do tego czatu z Maca, na którym działa"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Indisponível daqui: este agente não tem um modo que pergunte antes de cada alteração"
+            "value" : "Envie para este chat pelo Mac que o executa"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Недоступно отсюда: у этого агента нет режима, который спрашивает перед каждым изменением"
+            "value" : "Отправляйте в этот чат с Mac, на котором он работает"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ใช้จากที่นี่ไม่ได้: เอเจนต์นี้ไม่มีโหมดที่ถามก่อนการเปลี่ยนแปลงทุกครั้ง"
+            "value" : "ส่งถึงแชทนี้จาก Mac ที่รันแชทนี้"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Buradan kullanılamaz: bu ajanın her değişiklikten önce soran bir modu yok"
+            "value" : "Bu sohbete, onu çalıştıran Mac'ten gönderin"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Недоступно звідси: цей агент не має режиму, який питає перед кожною зміною"
+            "value" : "Надсилайте в цей чат з Mac, на якому він працює"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Không dùng được từ đây: tác tử này không có chế độ hỏi trước mỗi thay đổi"
+            "value" : "Gửi tới cuộc trò chuyện này từ máy Mac đang chạy nó"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "无法从这里使用：此代理没有在每次更改前都会询问的模式"
+            "value" : "请从运行此聊天的 Mac 发送"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "無法從這裡使用：此代理沒有在每次變更前都會詢問的模式"
+            "value" : "請從執行此聊天的 Mac 傳送"
           }
         }
       }
