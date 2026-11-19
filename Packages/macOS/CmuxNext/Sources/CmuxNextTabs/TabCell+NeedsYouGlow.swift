@@ -9,9 +9,10 @@ import QuartzCore
 ///
 /// One layer per waiting tab, made on first need and removed when it stops (architecture.md 3): a wash and a
 /// hairline edge in the mark's color, no shadow (a shadow without a path is an offscreen pass per frame, and a
-/// path would not follow a moving width). The breath runs on the render server (`MotionGate.breathAnimation`),
+/// path would not follow a moving width). The breath runs on the render server (`MotionGate.attentionBreathAnimation`:
+/// three breaths, then the halo rests, so a tab that waits for hours costs no frames; again each time it shows),
 /// never per frame on the main thread, and holds still while the window is covered or the strip hidden, and
-/// when loops are off (Reduce Motion, speed off; `TabStripView` passes on each motion change).
+/// when loops are off (Reduce Motion, speed off; the indicator config and its resync reach each cell).
 extension TabCell {
     static let needsYouGlowKey = "tab.needsYouGlow"
     /// The halo's lowest opacity in a breath: it never fully goes, so a glance always finds it.
@@ -69,10 +70,11 @@ extension TabCell {
         }
     }
 
-    /// Breathes while the tab shows on screen and loops run; else the halo holds at full strength.
+    /// Breathes once per showing while the tab is on screen and loops run, then rests at full strength; a covered
+    /// window or hidden strip drops the breath, so the tab breathes again when it shows.
     func updateNeedsYouGlowMotion() {
         guard let glow = needsYouGlowLayer else { return }
-        guard isWindowVisible, isStripShown, let breath = Motion.indicators.breathAnimation(low: Self.needsYouGlowLow) else {
+        guard isWindowVisible, isStripShown, let breath = Motion.indicators.attentionBreathAnimation(low: Self.needsYouGlowLow) else {
             glow.removeAnimation(forKey: Self.needsYouGlowKey)
             return
         }

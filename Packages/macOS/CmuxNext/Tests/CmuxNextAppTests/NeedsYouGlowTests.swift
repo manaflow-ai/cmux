@@ -56,7 +56,10 @@ import Testing
             let glow = try #require(cell.needsYouGlowLayer, "an unseen waiting tab glows")
             #expect(cell.badgeLayer == nil, "the glow replaces the badge")
             #expect(glow.frame == cell.pillFrameInCell)
-            #expect(glow.animation(forKey: TabCell.needsYouGlowKey) != nil, "the glow breathes")
+            let breath = try #require(glow.animation(forKey: TabCell.needsYouGlowKey), "the glow breathes")
+            // An endless breath recomposited the window at full refresh: 24 % WindowServer CPU, 6 % GPU (idle_attention).
+            #expect(breath.repeatCount == 3, "a few breaths, then the halo rests at no frame cost")
+            #expect(breath.preferredFrameRateRange.maximum <= 30)
             cell.isSelected = true
             #expect(cell.needsYouGlowLayer == nil, "a seen tab stops glowing")
             #expect(cell.badgeLayer != nil, "a seen tab that still waits shows its badge")
