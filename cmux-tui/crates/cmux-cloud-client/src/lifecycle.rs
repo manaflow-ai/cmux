@@ -42,7 +42,30 @@ impl Snapshot {
 }
 
 /// A lifecycle capability whose state is enforced by [`cmux_lifeline`].
-pub type Capability<S> = Vm<S, Snapshot>;
+///
+/// This local wrapper is where the transport methods live; the underlying
+/// `Vm` remains owned by the shared lifeline crate and cannot be forged by a
+/// client caller.
+#[derive(Debug)]
+pub struct Capability<S> {
+    vm: Vm<S, Snapshot>,
+}
+
+impl<S> Capability<S> {
+    fn payload(&self) -> &Snapshot {
+        self.vm.payload()
+    }
+
+    /// The scoped machine handle.
+    pub fn machine(&self) -> &Machine {
+        self.payload().machine()
+    }
+
+    /// The last owner revision carried by this capability.
+    pub fn revision(&self) -> &str {
+        self.payload().revision()
+    }
+}
 
 /// The result of strictly binding a provider observation to a scoped handle.
 pub type ObservedMachine = Observed<Snapshot>;
@@ -81,7 +104,7 @@ impl std::error::Error for ObserveError {}
 /// lifecycle capability; parsing through the shared lifeline status rejects
 /// it before any operation is available.
 pub fn observe(scope: &Scope, record: CloudMachine) -> Result<ObservedMachine, ObserveError> {
-    let status = record.status.as_str().parse().map_err(|_| ObserveError::InvalidStatus)?;
+    let status: Status = record.status.as_str().parse().map_err(|_| ObserveError::InvalidStatus)?;
     if let Some(expected) = scope.team() {
         if expected != record.team {
             return Err(ObserveError::TeamMismatch {
@@ -284,7 +307,7 @@ impl LifecycleClient {
             Ok(value) => value,
             Err(source) => return Err(MutationError::Api { pending, source }),
         };
-        let mut vm = S::delete(pending.state.vm).deleted();
+        let mut vm = S::delete(pending.state).vm.deleted();
         vm.payload_mut().revision = revision;
         Ok(Capability { vm })
     }
@@ -300,7 +323,7 @@ where
             None => Err(ApiError::unreadable("a mutation answer omitted its revision")),
         },
         Answer::Refused(error) => {
-            Err(Answer::Refused(error).into_result().expect_err("refused answer"))
+            Err(Answer::<T, E>::Refused(error).into_result().expect_err("refused answer"))
         }
     }
 }
@@ -338,15 +361,15 @@ fn resume_response(
 /// States from which the lifeline permits a delete. `Deleted` is deliberately
 /// absent, so a second delete is rejected by the type checker.
 trait DeleteTransition: Sized {
-    fn delete(vm: Capability<Self>) -> Vm<Deleting, Snapshot>;
+    fn delete(vm: Capability<Self>) -> Capability<Deleting>;
 }
 
 macro_rules! deletable {
     ($($state:ty),+ $(,)?) => {
         $(
         impl DeleteTransition for $state {
-            fn delete(vm: Capability<Self>) -> Vm<Deleting, Snapshot> {
-                vm.delete()
+            fn delete(vm: Capability<Self>) -> Capability<Deleting> {
+                Capability { vm: vm.vm.delete() }
             }
         }
         )+
