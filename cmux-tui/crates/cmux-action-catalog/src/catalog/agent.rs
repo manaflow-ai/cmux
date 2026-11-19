@@ -92,7 +92,7 @@ pub static ACTIONS: &[Action] = &[
         category: "agents",
         symbol: "slider.horizontal.3",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("workspace", "identity", 206).folder("options").label(t("Localizable", "menu.object.subagentLimit", "Subagent Limit…"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("workspaceRow", "identity", 206).folder("options").label(t("Localizable", "menu.object.subagentLimit", "Subagent Limit…"))], ..SurfacePlan::DEFAULT },
         targets: &["workspace"],
         cli_name: "action workspace-subagent-limit",
         is_person_only: true,

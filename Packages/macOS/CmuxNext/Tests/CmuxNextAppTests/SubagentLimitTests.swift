@@ -176,6 +176,6 @@ import Testing
         let workspace = try #require(ActionRegistry.standard().descriptor(for: "workspace.subagentLimit"))
         #expect(workspace.isPersonOnly)
         #expect(workspace.surfacePlan.palette.isOffered)
-        #expect(workspace.surfacePlan.contextMenus.map(\.context) == [.workspace])
+        #expect(workspace.surfacePlan.contextMenus.map(\.context) == [.workspaceRow])
     }
 }

@@ -1452,6 +1452,126 @@
             "state": "translated",
             "value": "Subagents each local chat runs at once. A chat's own limit takes precedence."
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكلاء الفرعيون الذين تشغّلهم كل محادثة محلية في الوقت نفسه. تكون الأولوية للحد الخاص بالمحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podagenti koje svaki lokalni razgovor pokreće istovremeno. Vlastito ograničenje razgovora ima prednost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Underagenter, som hver lokal chat kører samtidigt. En chats egen grænse har forrang."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten, die jeder lokale Chat gleichzeitig ausführt. Das eigene Limit eines Chats hat Vorrang."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagentes que ejecuta cada chat local a la vez. El límite propio de un chat tiene prioridad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-agents exécutés simultanément par chaque discussion locale. La limite propre à une discussion est prioritaire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sottoagenti eseguiti contemporaneamente da ogni chat locale. Il limite specifico della chat ha la precedenza."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各ローカルチャットで同時に実行するサブエージェント数です。チャット固有の上限が優先されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងាររងដែលការជជែកក្នុងម៉ាស៊ីននីមួយៗដំណើរការក្នុងពេលតែមួយ។ កម្រិតផ្ទាល់របស់ការជជែកមានអាទិភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 로컬 채팅이 동시에 실행하는 하위 에이전트 수입니다. 채팅 자체의 한도가 우선 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Underagenter som hver lokal samtale kjører samtidig. Samtalens egen grense har forrang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podagenci uruchamiani jednocześnie przez każdy lokalny czat. Własny limit czatu ma pierwszeństwo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagentes executados simultaneamente por cada conversa local. O limite próprio de uma conversa tem prioridade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Субагенты, которые каждый локальный чат запускает одновременно. Собственный лимит чата имеет приоритет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ย่อยที่แต่ละแชตในเครื่องเรียกใช้พร้อมกัน ขีดจำกัดเฉพาะของแชตจะมีผลก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her yerel sohbetin aynı anda çalıştırdığı alt ajanlar. Sohbetin kendi sınırı önceliklidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Субагенти, яких кожен локальний чат запускає одночасно. Власний ліміт чату має пріоритет."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các tác nhân phụ mà mỗi cuộc trò chuyện cục bộ chạy cùng lúc. Giới hạn riêng của cuộc trò chuyện được ưu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个本地聊天同时运行的子代理数量。聊天自身的上限优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個本機聊天同時執行的子代理數量。聊天本身的上限優先。"
+          }
         }
       }
     },
@@ -1462,6 +1582,126 @@
           "stringUnit": {
             "state": "translated",
             "value": "Choose a workspace on this Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر مساحة عمل على هذا الـ Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberite radni prostor na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg et arbejdsområde på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle einen Arbeitsbereich auf diesem Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige un espacio de trabajo en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez un espace de travail sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli un’area di lavoro su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMac上のワークスペースを選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសរើសកន្លែងធ្វើការនៅលើ Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 작업 공간을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg et arbeidsområde på denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz obszar roboczy na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha um espaço de trabalho neste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите рабочее пространство на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกพื้นที่ทำงานบน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac’te bir çalışma alanı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виберіть робочий простір на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chọn một không gian làm việc trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择此 Mac 上的工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇此 Mac 上的工作區。"
           }
         }
       }

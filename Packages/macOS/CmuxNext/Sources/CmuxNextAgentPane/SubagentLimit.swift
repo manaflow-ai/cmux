@@ -1,4 +1,4 @@
-import CmuxNextDesign
+package import CmuxNextDesign
 import CmuxNextSettings
 import Foundation
 
@@ -130,7 +130,9 @@ package struct SubagentLimit {
     }
 
     /// A field that is not a number the limit takes.
-    package struct InvalidNumber: Error, Equatable {}
+    package struct InvalidNumber: Error, Equatable {
+        package init() {}
+    }
 }
 
 private extension SubagentLimit.Scope {
