@@ -981,6 +981,7 @@
         "current": "Current plan",
         "perMonth": "per month",
         "names": {
+          "next_plus": "cmux NEXT Plus",
           "next_pro": "cmux NEXT Pro",
           "next_max": "cmux NEXT Max"
         },
