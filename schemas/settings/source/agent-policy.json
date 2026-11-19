@@ -253,6 +253,7 @@
         "appearance.liveWallpaperFrameRate",
         "appearance.background",
         "appearance.backgroundRotation",
+        "appearance.videoWallpaperIdlePause",
         "appearance.backgroundLight",
         "appearance.backgroundDark",
         "appearance.backgroundSchedule",

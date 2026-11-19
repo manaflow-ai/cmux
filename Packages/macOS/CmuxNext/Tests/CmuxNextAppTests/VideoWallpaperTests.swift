@@ -57,7 +57,9 @@ import CmuxNextWakeupsTestSupport
         window.isReleasedWhenClosed = false
         let root = NSView(frame: frame)
         window.contentView = root
-        let backdrop = WindowMaterialView(frame: frame, images: images, videos: players)
+        // Someone is at the Mac (a test runner may have had no input for hours).
+        let backdrop = WindowMaterialView(frame: frame, images: images, videos: players,
+                                          idle: BackdropIdle(sinceInput: { 0 }, settings: nil, pauseAfter: { 300 }))
         backdrop.videoView.visibleOverride = true
         backdrop.videoView.reduceMotionOverride = false
         backdrop.videoView.lowPowerOverride = false

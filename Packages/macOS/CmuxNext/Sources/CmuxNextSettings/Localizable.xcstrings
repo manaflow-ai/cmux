@@ -14231,6 +14231,60 @@
         }
       }
     },
+    "settings.appearance.videoWallpaperIdlePause": {
+      "comment": "Settings > Appearance > Window Background: the video wallpaper idle pause (appearance.videoWallpaperIdlePause) row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Pause Video Wallpaper When Idle"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إيقاف خلفية الفيديو مؤقتًا عند الخمول"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Pauziraj video pozadinu kada miruješ"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sæt videobaggrund på pause ved inaktivitet"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Video-Hintergrundbild bei Inaktivität pausieren"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Pausar fondo de vídeo en inactividad"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Mettre en pause le fond vidéo en cas d'inactivité"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Metti in pausa lo sfondo video quando inattivo"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "アイドル時にビデオ壁紙を一時停止"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្អាកផ្ទាំងរូបភាពវីដេអូពេលទំនេរ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "유휴 시 동영상 배경화면 일시 정지"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sett videobakgrunn på pause ved inaktivitet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wstrzymuj tapetę wideo w bezczynności"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Pausar papel de parede de vídeo quando ocioso"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Приостанавливать видеообои при бездействии"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "หยุดวอลเปเปอร์วิดีโอชั่วคราวเมื่อไม่มีการใช้งาน"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Boşta Kalınca Video Duvar Kağıdını Duraklat"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Призупиняти відеошпалери під час бездіяльності"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tạm dừng hình nền video khi không hoạt động"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "空闲时暂停视频壁纸"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "閒置時暫停影片桌布"}}
+      }
+    },
+    "settings.appearance.videoWallpaperIdlePause.help": {
+      "comment": "Settings > Appearance > Window Background: the video wallpaper idle pause (appearance.videoWallpaperIdlePause) row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Seconds without keyboard or mouse input before a video background pauses; the next input resumes it. 0 never pauses."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عدد الثواني دون إدخال من لوحة المفاتيح أو الفأرة قبل إيقاف خلفية الفيديو مؤقتًا؛ ويستأنفها الإدخال التالي. 0 لا يوقفها أبدًا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Sekunde bez unosa tastature ili miša prije nego što se video pozadina pauzira; sljedeći unos je nastavlja. 0 nikad ne pauzira."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sekunder uden tastatur- eller musinput, før en videobaggrund sættes på pause; næste input genoptager den. 0 sætter aldrig på pause."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Sekunden ohne Tastatur- oder Mauseingabe, bevor ein Videohintergrund pausiert; die nächste Eingabe setzt ihn fort. 0 pausiert nie."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Segundos sin entrada de teclado o ratón antes de que un fondo de vídeo se pause; la siguiente entrada lo reanuda. 0 nunca lo pausa."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Secondes sans saisie au clavier ou à la souris avant la mise en pause d'un fond vidéo ; la saisie suivante le relance. 0 ne le met jamais en pause."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Secondi senza input da tastiera o mouse prima che uno sfondo video vada in pausa; l'input successivo lo riprende. 0 non lo mette mai in pausa."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "キーボードやマウスの入力がないまま、ビデオ背景が一時停止するまでの秒数。次の入力で再開します。0 にすると一時停止しません。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ចំនួនវិនាទីដោយគ្មានការបញ្ចូលពីក្ដារចុច ឬកណ្ដុរ មុនពេលផ្ទៃខាងក្រោយវីដេអូផ្អាក; ការបញ្ចូលបន្ទាប់នឹងបន្តវា។ 0 មិនផ្អាកទេ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "키보드나 마우스 입력이 없을 때 동영상 배경이 일시 정지되기까지의 초입니다. 다음 입력 시 다시 재생됩니다. 0이면 일시 정지하지 않습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sekunder uten tastatur- eller musinndata før en videobakgrunn settes på pause; neste inndata fortsetter den. 0 setter aldri på pause."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Liczba sekund bez użycia klawiatury lub myszy, po której tło wideo się wstrzymuje; następne użycie je wznawia. 0 nigdy nie wstrzymuje."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Segundos sem entrada de teclado ou mouse antes de um fundo de vídeo pausar; a próxima entrada o retoma. 0 nunca pausa."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Секунды без ввода с клавиатуры или мыши до паузы видеофона; следующий ввод возобновляет его. 0 — никогда не ставить на паузу."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "จำนวนวินาทีที่ไม่มีการป้อนข้อมูลจากแป้นพิมพ์หรือเมาส์ก่อนพื้นหลังวิดีโอจะหยุดชั่วคราว การป้อนข้อมูลครั้งถัดไปจะเล่นต่อ 0 คือไม่หยุดเลย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir video arka planı duraklamadan önce klavye veya fare girişi olmadan geçen saniye; sonraki giriş onu sürdürür. 0 hiç duraklatmaz."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Секунди без введення з клавіатури чи миші до призупинення відеофону; наступне введення відновлює його. 0 — ніколи не призупиняти."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Số giây không có thao tác bàn phím hoặc chuột trước khi nền video tạm dừng; thao tác tiếp theo sẽ phát lại. 0 là không bao giờ tạm dừng."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无键盘或鼠标输入多少秒后暂停视频背景；下一次输入时恢复。0 表示从不暂停。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "沒有鍵盤或滑鼠輸入多少秒後暫停影片背景；下一次輸入時繼續播放。0 表示永不暫停。"}}
+      }
+    },
     "settings.appearance.wallpaperTint": {
       "extractionState": "manual",
       "localizations": {

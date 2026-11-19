@@ -33,7 +33,8 @@ public nonisolated struct LiveWallpaper: Sendable, Equatable, Identifiable {
 
     /// The ABI the app was written against (`cmux_wallpaper_abi_version`): 2 has the first-party
     /// Metal programs translated at build time and no WGSL compiler in the app.
-    static let abiVersion: UInt32 = 2
+    /// 3 adds the scheduler's per-kind idle time and the exclusive (one window, 200 pt) player.
+    static let abiVersion: UInt32 = 3
 
     /// The first-party set, sorted by id; empty when the linked library speaks another ABI. Read
     /// once per process from static bytes in the library (no file, no network).

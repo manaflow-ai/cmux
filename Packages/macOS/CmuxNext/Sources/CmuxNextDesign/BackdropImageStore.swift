@@ -34,6 +34,9 @@ public final class BackdropImageStore {
     /// The live wallpapers' programs, render queue and stills (``BackdropLiveView``), shared by every
     /// window that draws from this store.
     public nonisolated let livePrograms = LiveWallpaperPrograms()
+    /// Wakes the video wallpapers of every window this store serves when idle time can change
+    /// whether they play (`appearance.videoWallpaperIdlePause`).
+    public let idle = BackdropIdle()
     /// Texture passes run (tests).
     private(set) var renderCount = 0
 

@@ -111,13 +111,15 @@ public final class WindowMaterialView: NSView {
     /// - Parameter frameRect: The initial frame.
     /// - Parameter images: Where decoded backdrop images are shared.
     /// - Parameter videos: Where video wallpapers' players are shared.
+    /// - Parameter idle: Wakes video wallpapers when idle time can change their answer; nil: `images`'.
     /// - Parameter activeLook: The app's ``ActiveLookScope`` (made once by `AppServices`) for a
     ///   window backdrop; nil for one whose glass follows the key state.
     public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared,
+                idle: BackdropIdle? = nil,
                 activeLook: ActiveLookScope? = nil) {
         self.images = images
         self.activeLook = activeLook
-        videoView = BackdropVideoView(frame: frameRect, players: videos)
+        videoView = BackdropVideoView(frame: frameRect, players: videos, idle: idle ?? images.idle)
         liveView = BackdropLiveView(frame: frameRect, programs: images.livePrograms)
         shaderView = BackdropShaderView(frame: frameRect, renderer: images.shaders)
         super.init(frame: frameRect)

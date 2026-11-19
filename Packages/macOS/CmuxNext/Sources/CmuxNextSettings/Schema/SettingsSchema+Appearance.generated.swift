@@ -83,6 +83,23 @@ extension BackdropSelectionSetting {
     public nonisolated static let displayBackgroundRotationsPath = ["appearance", "displayBackgroundRotations"]
 }
 
+extension WindowBackgroundSetting {
+    /// `appearance.videoWallpaperIdlePause`.
+    public nonisolated static let videoWallpaperIdlePausePath = ["appearance", "videoWallpaperIdlePause"]
+    public nonisolated static let videoWallpaperIdlePauseDefault: Double = 300
+    public nonisolated static let videoWallpaperIdlePauseRange: ClosedRange<Double> = 0...86_400
+    /// `appearance.backgroundOpacity`.
+    public nonisolated static let opacityPath = ["appearance", "backgroundOpacity"]
+    public nonisolated static let opacityRange: ClosedRange<Double> = 0...1
+    public nonisolated static let opacityPlaceholder: Double = 1
+    /// `appearance.backgroundBlur`.
+    public nonisolated static let materialPath = ["appearance", "backgroundBlur"]
+    /// `appearance.inactiveWindowDim`.
+    public nonisolated static let inactiveDimPath = ["appearance", "inactiveWindowDim"]
+    public nonisolated static let inactiveDimDefault: Double = 0
+    public nonisolated static let inactiveDimRange: ClosedRange<Double> = 0...1
+}
+
 extension PaneBackgroundsSetting {
     /// `appearance.paneBackgrounds`.
     public nonisolated static let configPath = ["appearance", "paneBackgrounds"]
@@ -99,19 +116,6 @@ extension ExperimentalAppearanceSetting {
     /// `appearance.experimentalControls`.
     public nonisolated static let configPath = ["appearance", "experimentalControls"]
     public nonisolated static let fallback = false
-}
-
-extension WindowBackgroundSetting {
-    /// `appearance.backgroundOpacity`.
-    public nonisolated static let opacityPath = ["appearance", "backgroundOpacity"]
-    public nonisolated static let opacityRange: ClosedRange<Double> = 0...1
-    public nonisolated static let opacityPlaceholder: Double = 1
-    /// `appearance.backgroundBlur`.
-    public nonisolated static let materialPath = ["appearance", "backgroundBlur"]
-    /// `appearance.inactiveWindowDim`.
-    public nonisolated static let inactiveDimPath = ["appearance", "inactiveWindowDim"]
-    public nonisolated static let inactiveDimDefault: Double = 0
-    public nonisolated static let inactiveDimRange: ClosedRange<Double> = 0...1
 }
 
 extension WallpaperTintSetting {
@@ -177,7 +181,7 @@ extension InterfaceSizeSetting {
 }
 
 extension FontSmoothingSetting {
-    /// `appearance.fontSmoothing`: How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Ghostty's font-thicken is not affected.
+    /// `appearance.fontSmoothing`: How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Chrome text cmux draws itself (ChromeLabel, ChromeTextLayer: the sidebar, tabs) follows live too (ProcessFontSmoothing.chrome). Ghostty's font-thicken is not affected.
     public nonisolated static let configPath = ["appearance", "fontSmoothing"]
     public nonisolated static let fallback: FontSmoothing = .auto
 }

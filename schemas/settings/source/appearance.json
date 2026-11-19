@@ -591,6 +591,40 @@
           ]
         },
         {
+          "key": "appearance.videoWallpaperIdlePause",
+          "title": {
+            "key": "settings.appearance.videoWallpaperIdlePause",
+            "text": "Pause Video Wallpaper When Idle"
+          },
+          "help": {
+            "key": "settings.appearance.videoWallpaperIdlePause.help",
+            "text": "Seconds without keyboard or mouse input before a video background pauses; the next input resumes it. 0 never pauses."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "WindowBackgroundSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 86400,
+            "step": 1,
+            "unit": "seconds"
+          },
+          "default": 300,
+          "keywords": [
+            "video",
+            "movie",
+            "youtube",
+            "wallpaper",
+            "background",
+            "idle",
+            "pause",
+            "battery",
+            "seconds"
+          ]
+        },
+        {
           "key": "appearance.backgroundLight",
           "name": "light",
           "note": "The picture of Background's Light and Dark (appearance) in the light appearance: any fixed background id (art, desktop, system:, file:). Unset: the dark side's picture.",

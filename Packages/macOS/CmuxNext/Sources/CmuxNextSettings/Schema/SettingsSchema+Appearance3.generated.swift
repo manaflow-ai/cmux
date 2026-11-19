@@ -4,6 +4,44 @@
 public import CmuxNextDesign
 
 extension AppearanceSettingsSchema {
+    static var tuning: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
+        return [
+            SettingDescriptor(
+                AppearanceTuningSetting.glassTransparencyPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
+                help: SettingsText.keyed("settings.appearance.glassTransparency.help", "How much of the desktop or wallpaper shows through the glass."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction)),
+                default: .number(AppearanceTuningSetting.glassTransparencyDefault),
+                keywords: ["glass", "transparency", "alpha", "clear"]
+            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
+            SettingDescriptor(
+                AppearanceTuningSetting.huePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
+                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.huePlaceholder)),
+                default: .number(AppearanceTuningSetting.hueDefault),
+                keywords: ["tint", "color", "colour"]
+            ),
+            SettingDescriptor(
+                AppearanceTuningSetting.saturationPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
+                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.saturationPlaceholder)),
+                default: .number(AppearanceTuningSetting.saturationDefault),
+                keywords: ["tint", "color", "colour", "intensity"]
+            ),
+        ]
+    }
+}
+
+extension AppearanceSettingsSchema {
     static var look: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
         return [
@@ -286,95 +324,6 @@ extension AppearanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(AnimationKindsSetting.newWorkspaceDefault),
                 keywords: ["motion", "animation", "workspace", "sidebar"]
-            ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var panes: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.panes", "Panes")
-        return [
-            SettingDescriptor(
-                PaneChromeConfigParser.paneSeparationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneSeparation", "Separation"),
-                help: SettingsText.keyed("settings.layout.paneSeparation.help", "How panes are told apart."),
-                summary: SettingsText.keyed("settings.layout.paneSeparation.summary", "How panes are told apart"),
-                kind: .choice([
-                    SettingChoice(PaneSeparation.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                    SettingChoice(PaneSeparation.dividers.rawValue, SettingsText.keyed("settings.choice.dividers", "Dividers")),
-                    SettingChoice(PaneSeparation.borders.rawValue, SettingsText.keyed("settings.choice.borders", "Borders")),
-                    SettingChoice(PaneSeparation.cards.rawValue, SettingsText.keyed("settings.choice.cards", "Cards")),
-                ]),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.choice.default", "Default"),
-                keywords: ["border", "divider", "separator", "gap", "cards", "lines", "seamless", "pane"]
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.panePaddingPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.panePadding", "Padding"),
-                kind: .number(SettingNumber(PaneChromeConfigParser.panePaddingRange, step: 1, unit: .points, placeholder: PaneChromeConfigParser.panePaddingPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneCornerRadiusPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneCornerRadius", "Corner Radius"),
-                help: SettingsText.keyed("settings.layout.paneCornerRadius.help", "One radius for panes, tabs, panels, popovers and cards."),
-                kind: .number(SettingNumber(PaneChromeConfigParser.paneCornerRadiusRange, step: 1, unit: .points, placeholder: PaneChromeConfigParser.paneCornerRadiusPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["rounded", "radius", "tabs", "concentric", "corners"]
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.cornerPaddingPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.cornerPadding", "Corner Padding"),
-                help: SettingsText.keyed("settings.layout.cornerPadding.help", "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this."),
-                kind: .number(SettingNumber(PaneChromeConfigParser.cornerPaddingRange, step: 1, unit: .points, placeholder: PaneChromeConfigParser.cornerPaddingPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["inset", "gap", "tabs", "concentric", "corners", "radius"]
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneBorderPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneBorder", "Border"),
-                kind: .choice([
-                    SettingChoice(PaneBorderStyle.subtle.rawValue, SettingsText.keyed("settings.choice.subtle", "Subtle")),
-                    SettingChoice(PaneBorderStyle.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                ]),
-                default: .string(PaneChromeConfigParser.paneBorderDefault.rawValue),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneBorderColorPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneBorderColor", "Border Color"),
-                kind: .color,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.theme", "Theme"),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneBorderWidthPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneBorderWidth", "Border Width"),
-                kind: .number(SettingNumber(PaneChromeConfigParser.paneBorderWidthRange, step: 0.5, unit: .points)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.onePixel", "One pixel"),
-                keywords: []
             ),
         ]
     }

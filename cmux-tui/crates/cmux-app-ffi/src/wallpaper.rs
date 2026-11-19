@@ -17,7 +17,7 @@ use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type or function in the header.
-const ABI_VERSION: u32 = 2;
+const ABI_VERSION: u32 = 3;
 
 /// The result of `cmux_wallpaper_validate_manifest`; free it with
 /// `cmux_wallpaper_manifest_result_free`. On success `json` is the manifest
@@ -66,13 +66,25 @@ pub struct CmuxWallpaperScheduleInput {
     pub interactive: bool,
     /// The view has drawn at least one frame.
     pub has_frame: bool,
+    /// Seconds of no activity before an idle hold: 0 is the live
+    /// wallpapers' 20 s, infinity never (`appearance.videoWallpaperIdlePause`
+    /// for a video, with the seconds since any input as the activity).
+    pub idle_after_s: f64,
+    /// With `exclusive`: the player's viewport in points (at least 200 a side to run).
+    pub width_pt: f32,
+    pub height_pt: f32,
+    /// A player one window at a time runs app-wide (the YouTube embed).
+    pub exclusive: bool,
+    /// With `exclusive`: this window is the one chosen to run it.
+    pub chosen: bool,
 }
 
 /// The scheduler's answer. `run` false: hold (stop the display link, no
 /// timer), for `hold_reason`: 1 occluded, 2 covered, 3 minimized, 4 app
 /// hidden, 5 screens asleep, 6 session inactive, 7 Low Power Mode, 8 thermal,
 /// 9 Reduce Motion, 10 animations off, 11 too heavy (mark it in the picker),
-/// 12 idle; with `draw_one`, draw one frame at `scale` first (the view has
+/// 12 idle, 13 elsewhere (an exclusive player runs in another window), 14 too
+/// small (an exclusive player under 200 pt a side); with `draw_one`, draw one frame at `scale` first (the view has
 /// none yet). `run` true: draw every `interval_s` seconds (`fps`, the display
 /// link's preferred rate) at backing scale `scale`; `hold_reason` is 0. When
 /// `scale` differs from the input's, set the strikes to 0.
@@ -225,6 +237,11 @@ impl From<&CmuxWallpaperScheduleInput> for ScheduleInput {
             gpu_strikes: i.gpu_strikes,
             scale: i.scale,
             has_frame: i.has_frame,
+            idle_after_s: i.idle_after_s,
+            exclusive: i.exclusive,
+            chosen: i.chosen,
+            width_pt: i.width_pt,
+            height_pt: i.height_pt,
         }
     }
 }
@@ -623,6 +640,11 @@ mod tests {
             animations_off: false,
             interactive: true,
             has_frame: true,
+            idle_after_s: 0.0,
+            width_pt: 0.0,
+            height_pt: 0.0,
+            exclusive: false,
+            chosen: false,
         };
         // SAFETY: `input` is valid.
         let d = unsafe { cmux_wallpaper_schedule(&input) };
@@ -642,6 +664,18 @@ mod tests {
         // SAFETY: `input` is valid.
         let d = unsafe { cmux_wallpaper_schedule(&input) };
         assert_eq!((d.run, d.hold_reason), (false, 11));
+        input.gpu_strikes = 0;
+        input.exclusive = true;
+        // SAFETY: `input` is valid.
+        assert_eq!(unsafe { cmux_wallpaper_schedule(&input) }.hold_reason, 13);
+        input.chosen = true;
+        // SAFETY: `input` is valid.
+        assert_eq!(unsafe { cmux_wallpaper_schedule(&input) }.hold_reason, 14);
+        (input.width_pt, input.height_pt) = (640.0, 360.0);
+        input.idle_after_s = 300.0;
+        input.seconds_since_activity = 100.0;
+        // SAFETY: `input` is valid.
+        assert!(unsafe { cmux_wallpaper_schedule(&input) }.run);
         // SAFETY: null is allowed.
         assert_eq!(unsafe { cmux_wallpaper_schedule(std::ptr::null()) }.hold_reason, 1);
     }

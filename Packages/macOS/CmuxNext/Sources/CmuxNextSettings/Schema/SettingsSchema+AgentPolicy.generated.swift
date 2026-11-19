@@ -79,7 +79,7 @@ extension SettingsSchema {
         "appearance.machineColors",
         "appearance.backdropArt", "appearance.backgroundOpacity", "appearance.backgroundBlur",
         "appearance.inactiveWindowDim", "appearance.wallpaperTint", "appearance.liveWallpaperFrameRate",
-        "appearance.background", "appearance.backgroundRotation", "appearance.backgroundLight",
+        "appearance.background", "appearance.backgroundRotation", "appearance.videoWallpaperIdlePause", "appearance.backgroundLight",
         "appearance.backgroundDark", "appearance.backgroundSchedule", "appearance.backgroundDynamic",
         "appearance.backgroundLocation",
         // Per-display background and cadence (looks only)

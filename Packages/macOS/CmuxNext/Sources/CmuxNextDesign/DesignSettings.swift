@@ -137,6 +137,9 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
         }
     }
+    /// `appearance.videoWallpaperIdlePause`: seconds with no input before a video background pauses
+    /// (0 never). Observed by the idle wake (``BackdropIdle``).
+    public var videoWallpaperIdlePause = 300.0
     /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
     /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
     /// setting reaches it (``SettingsApplier``).

@@ -12,7 +12,12 @@ public import CmuxNextDesignTokens
 ///   (``BackdropCoverage``: AppKit calls a window visible while any pixel of it shows);
 /// - not in Low Power Mode, and the thermal state is below serious;
 /// - looping motion is allowed (`Motion.animatesLoops`: Reduce Motion or animation speed "off"
-///   holds the frame it is on; before the first frame the art view below shows the poster).
+///   holds the frame it is on; before the first frame the art view below shows the poster);
+/// - someone is at the Mac: no input anywhere for `appearance.videoWallpaperIdlePause` seconds
+///   (300 by default, 0 never) holds the frame until the next input (``BackdropIdle``).
+///
+/// The decision is the Rust scheduler's (``BackdropPlayback``, `cmux_wallpaper_schedule`), the
+/// one the live wallpapers ask.
 ///
 /// Every window showing one file shares one decoder (``BackdropVideoPlayers``), as idlesse found
 /// one decoder per display doubled the video decoder's load; a 0.5 s forward buffer keeps 4K
@@ -31,6 +36,8 @@ public final class BackdropVideoView: NSView {
     /// Tests: the windows above this one, in place of the screen's.
     public var windowsAboveOverride: (() -> [BackdropCoverage.Window])?
     private let players: BackdropVideoPlayers
+    /// Wakes the view when idle time could change its answer (`appearance.videoWallpaperIdlePause`).
+    public let idle: BackdropIdle
     private var readyObservation: NSKeyValueObservation?
     /// The window's and the app's events, watched while in a window (Low Power Mode included).
     private lazy var signals = BackdropPlaybackSignals { [weak self] signal in self?.signalled(signal) }
@@ -44,8 +51,11 @@ public final class BackdropVideoView: NSView {
     private var coverage = BackdropCoverage()
     private let coverageTimer = DemandTimer(owner: "backdrop-video-coverage")
 
-    public init(frame frameRect: NSRect, players: BackdropVideoPlayers = .shared) {
+    /// `players` shares one decoder per file; `idle` is the app's idle wake (tests inject theirs).
+    public init(frame frameRect: NSRect, players: BackdropVideoPlayers = .shared,
+                idle: BackdropIdle = BackdropImageStore.shared.idle) {
         self.players = players
+        self.idle = idle
         super.init(frame: frameRect)
         wantsLayer = true
         playerLayer.videoGravity = .resizeAspectFill
@@ -93,6 +103,7 @@ public final class BackdropVideoView: NSView {
     private func detach() {
         readyObservation = nil
         stopCoverage()
+        idle.unwatch(self)
         guard let url, playerLayer.player != nil else { return }
         players.detach(url, viewer: ObjectIdentifier(self))
         playerLayer.player = nil
@@ -102,27 +113,42 @@ public final class BackdropVideoView: NSView {
     /// Whether the shared player runs for this view now.
     public var isPlaying: Bool { (playerLayer.player?.rate ?? 0) > 0 }
 
-    /// Whether this view asks its player to run: shown, seen, and allowed to move.
-    public var wantsPlayback: Bool { seen && !coverage.resting }
+    /// Whether this view asks its player to run: the scheduler's answer (``playback``).
+    public var wantsPlayback: Bool { playback.plays }
 
     /// Whether someone could see the video now: on screen, uncovered, the screens awake. A video
-    /// held for Low Power Mode or Reduce Motion is still seen and keeps its frame and decoder.
-    public var canBeSeen: Bool { onScreen && !coverage.resting }
+    /// held for Low Power Mode, Reduce Motion or idle is still seen and keeps its frame and decoder.
+    public var canBeSeen: Bool { playback.canBeSeen }
 
-    /// Everything ``wantsPlayback`` asks but coverage, which is sampled only while this holds.
-    private var seen: Bool {
-        let lowPower = lowPowerOverride ?? LowPowerMode.system.isEnabled
-        let reduced = reduceMotionOverride ?? !Motion.panes.animatesLoops
-        let hot = ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
-        return onScreen && !lowPower && !hot && !reduced
+    /// The Rust scheduler's answer for this view now (``BackdropPlayback``): the window, power,
+    /// heat, motion, coverage, and `appearance.videoWallpaperIdlePause` against the seconds since
+    /// any input.
+    public var playback: BackdropPlayback {
+        guard let terms else { return BackdropPlayback(Self.offScreen) }
+        return BackdropPlayback(terms)
     }
 
-    /// Shown in a window that is on screen, with the screens awake and the session active.
-    private var onScreen: Bool {
-        guard url != nil, !isHidden, let window else { return false }
-        let visible = visibleOverride ?? (window.occlusionState.contains(.visible) && !window.isMiniaturized && !NSApp.isHidden)
-        return visible && !signals.screensAsleep && !signals.sessionInactive
+    /// What the scheduler is told; nil while the view shows no video in a window.
+    private var terms: BackdropPlayback.Terms? {
+        guard url != nil, !isHidden, let window else { return nil }
+        var terms = BackdropPlayback.terms(window, visibleOverride: visibleOverride, lowPowerOverride: lowPowerOverride,
+                                           reduceMotionOverride: reduceMotionOverride, screensAsleep: signals.screensAsleep,
+                                           sessionInactive: signals.sessionInactive)
+        terms.covered = coverage.resting
+        terms.secondsSinceInput = idle.secondsSinceInput
+        terms.idleAfter = idle.idleAfter
+        return terms
     }
+
+    /// The terms of a view out of sight.
+    private static let offScreen: BackdropPlayback.Terms = {
+        var terms = BackdropPlayback.Terms()
+        terms.visible = false
+        return terms
+    }()
+
+    /// Everything ``wantsPlayback`` asks but coverage and idle: coverage is sampled only while this holds.
+    private var seen: Bool { terms.map(BackdropPlayback.samplesCoverage) ?? false }
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -151,13 +177,24 @@ public final class BackdropVideoView: NSView {
     }
 
     private func update() {
-        guard let url, playerLayer.player != nil else { return stopCoverage() }
+        guard let url, playerLayer.player != nil else {
+            idle.unwatch(self)
+            return stopCoverage()
+        }
         if seen {
             startCoverage()
         } else {
             stopCoverage()
         }
-        players.setPlaying(wantsPlayback, seen: canBeSeen, url, viewer: ObjectIdentifier(self))
+        let answer = playback
+        // Playing: woken when the idle time is reached. Held for idle: woken on the next input.
+        // Held for anything else: no idle wake (the change that ends the hold asks again).
+        if answer.plays || answer.idle {
+            idle.watch(self, idle: answer.idle) { [weak self] in self?.update() }
+        } else {
+            idle.unwatch(self)
+        }
+        players.setPlaying(answer.plays, seen: answer.canBeSeen, url, viewer: ObjectIdentifier(self))
     }
 
     /// Samples how much of the window other windows hide, and rests or resumes the video on it.

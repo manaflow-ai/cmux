@@ -34,7 +34,8 @@ typedef struct {
  timer), for `hold_reason`: 1 occluded, 2 covered, 3 minimized, 4 app
  hidden, 5 screens asleep, 6 session inactive, 7 Low Power Mode, 8 thermal,
  9 Reduce Motion, 10 animations off, 11 too heavy (mark it in the picker),
- 12 idle; with `draw_one`, draw one frame at `scale` first (the view has
+ 12 idle, 13 elsewhere (an exclusive player runs in another window), 14 too
+ small (an exclusive player under 200 pt a side); with `draw_one`, draw one frame at `scale` first (the view has
  none yet). `run` true: draw every `interval_s` seconds (`fps`, the display
  link's preferred rate) at backing scale `scale`; `hold_reason` is 0. When
  `scale` differs from the input's, set the strikes to 0.
@@ -103,6 +104,25 @@ typedef struct {
      The view has drawn at least one frame.
      */
     bool has_frame;
+    /*
+     Seconds of no activity before an idle hold: 0 is the live
+     wallpapers' 20 s, infinity never (`appearance.videoWallpaperIdlePause`
+     for a video, with the seconds since any input as the activity).
+     */
+    double idle_after_s;
+    /*
+     With `exclusive`: the player's viewport in points (at least 200 a side to run).
+     */
+    float width_pt;
+    float height_pt;
+    /*
+     A player one window at a time runs app-wide (the YouTube embed).
+     */
+    bool exclusive;
+    /*
+     With `exclusive`: this window is the one chosen to run it.
+     */
+    bool chosen;
 } CmuxWallpaperScheduleInput;
 
 /*

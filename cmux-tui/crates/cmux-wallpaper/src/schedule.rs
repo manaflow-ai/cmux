@@ -49,6 +49,10 @@ pub enum HoldReason {
     TooHeavy = 11,
     /// Nothing happened for [`IDLE_AFTER_S`].
     Idle = 12,
+    /// An exclusive player runs in another window (one YouTube player plays app-wide).
+    Elsewhere = 13,
+    /// An exclusive player's viewport is under [`EXCLUSIVE_MIN_SIDE_PT`] on a side.
+    TooSmall = 14,
 }
 
 impl HoldReason {
@@ -67,6 +71,8 @@ impl HoldReason {
             Self::AnimationsOff => "animations_off",
             Self::TooHeavy => "too_heavy",
             Self::Idle => "idle",
+            Self::Elsewhere => "elsewhere",
+            Self::TooSmall => "too_small",
         }
     }
 
@@ -117,6 +123,29 @@ pub struct ScheduleInput {
     pub scale: f32,
     /// The view has drawn at least one frame.
     pub has_frame: bool,
+    /// Seconds of no activity before an idle hold: 0 (or NaN, or negative) is
+    /// [`IDLE_AFTER_S`]; infinity never idles. A video wallpaper passes
+    /// `appearance.videoWallpaperIdlePause` with the seconds since any input.
+    pub idle_after_s: f64,
+    /// A player at most one window runs at a time app-wide, and only while
+    /// more than half of it shows (the YouTube embed); the host's coverage
+    /// rests it at half covered.
+    pub exclusive: bool,
+    /// With `exclusive`: this window is the one chosen to run it (the
+    /// frontmost seen one).
+    pub chosen: bool,
+    /// With `exclusive`: the player's viewport in points.
+    pub width_pt: f32,
+    pub height_pt: f32,
+}
+
+/// The smallest side of an exclusive player's viewport that runs (the
+/// embed's own minimum).
+pub const EXCLUSIVE_MIN_SIDE_PT: f32 = 200.0;
+
+/// The idle time in seconds for `idle_after_s` (see [`ScheduleInput::idle_after_s`]).
+pub fn idle_after(idle_after_s: f64) -> f64 {
+    if idle_after_s.is_nan() || idle_after_s <= 0.0 { IDLE_AFTER_S } else { idle_after_s }
 }
 
 impl Default for ScheduleInput {
@@ -140,6 +169,11 @@ impl Default for ScheduleInput {
             gpu_strikes: 0,
             scale: MAX_SCALE,
             has_frame: true,
+            idle_after_s: 0.0,
+            exclusive: false,
+            chosen: true,
+            width_pt: 0.0,
+            height_pt: 0.0,
         }
     }
 }
@@ -198,6 +232,17 @@ pub fn schedule(input: &ScheduleInput) -> Decision {
     if let Some((_, reason)) = reasons.iter().find(|(on, _)| *on) {
         return hold(*reason, scale);
     }
+    // An exclusive player (the YouTube embed): one window app-wide runs it, and only while its
+    // viewport is at least EXCLUSIVE_MIN_SIDE_PT on each side.
+    if input.exclusive {
+        if !input.chosen {
+            return hold(HoldReason::Elsewhere, scale);
+        }
+        let small = |side: f32| !side.is_finite() || side < EXCLUSIVE_MIN_SIDE_PT;
+        if small(input.width_pt) || small(input.height_pt) {
+            return hold(HoldReason::TooSmall, scale);
+        }
+    }
 
     let mut scale = scale;
     if input.gpu_strikes >= STRIKES_TO_HALVE {
@@ -207,7 +252,8 @@ pub fn schedule(input: &ScheduleInput) -> Decision {
         scale = (scale / 2.0).max(MIN_SCALE);
     }
 
-    let quiet = |s: f64| s.is_nan() || s >= IDLE_AFTER_S;
+    let idle_after = idle_after(input.idle_after_s);
+    let quiet = |s: f64| s.is_nan() || s >= idle_after;
     let pointer_quiet = !input.interactive || quiet(input.seconds_since_pointer);
     if quiet(input.seconds_since_activity) && pointer_quiet {
         return hold(HoldReason::Idle, scale);
@@ -330,6 +376,67 @@ mod tests {
     }
 
     #[test]
+    fn idle_after_is_per_kind() {
+        // A video wallpaper: five minutes of no input anywhere, not 20 s.
+        let mut i = ScheduleInput {
+            interactive: false,
+            idle_after_s: 300.0,
+            seconds_since_activity: 299.0,
+            ..Default::default()
+        };
+        run(&i);
+        i.seconds_since_activity = 300.0;
+        assert_eq!(held(&i).0, HoldReason::Idle);
+        // Infinity (the setting's 0) never idles.
+        i.idle_after_s = f64::INFINITY;
+        i.seconds_since_activity = 1e9;
+        run(&i);
+        // 0, NaN or negative: the live wallpapers' 20 s.
+        for unset in [0.0, f64::NAN, -5.0] {
+            i.idle_after_s = unset;
+            i.seconds_since_activity = 20.0;
+            assert_eq!(held(&i).0, HoldReason::Idle, "{unset}");
+        }
+    }
+
+    #[test]
+    fn an_exclusive_player_runs_in_one_large_enough_window() {
+        let base = ScheduleInput {
+            interactive: false,
+            exclusive: true,
+            chosen: true,
+            width_pt: 800.0,
+            height_pt: 500.0,
+            ..Default::default()
+        };
+        run(&base);
+        assert_eq!(held(&ScheduleInput { chosen: false, ..base }), (HoldReason::Elsewhere, false));
+        assert_eq!(held(&ScheduleInput { width_pt: 199.0, ..base }).0, HoldReason::TooSmall);
+        assert_eq!(held(&ScheduleInput { height_pt: 150.0, ..base }).0, HoldReason::TooSmall);
+        assert_eq!(held(&ScheduleInput { width_pt: f32::NAN, ..base }).0, HoldReason::TooSmall);
+        run(&ScheduleInput { width_pt: 200.0, height_pt: 200.0, ..base });
+        // Not exclusive: neither applies.
+        run(&ScheduleInput {
+            exclusive: false,
+            chosen: false,
+            width_pt: 0.0,
+            height_pt: 0.0,
+            ..base
+        });
+        // The window's own holds come first, idle after.
+        assert_eq!(
+            held(&ScheduleInput { low_power: true, chosen: false, ..base }).0,
+            HoldReason::LowPower
+        );
+        assert_eq!(
+            held(&ScheduleInput { chosen: false, seconds_since_activity: 1e9, ..base }).0,
+            HoldReason::Elsewhere
+        );
+        // Neither is "unseen": the poster and the held frame stay, the player is kept.
+        assert!(!HoldReason::Elsewhere.unseen() && !HoldReason::TooSmall.unseen());
+    }
+
+    #[test]
     fn the_cap_is_the_lower_of_manifest_and_settings() {
         for (manifest, settings, want) in [
             (30, 30, 30),
@@ -428,6 +535,8 @@ mod tests {
             HoldReason::AnimationsOff,
             HoldReason::TooHeavy,
             HoldReason::Idle,
+            HoldReason::Elsewhere,
+            HoldReason::TooSmall,
         ];
         let names: std::collections::HashSet<_> = all.iter().map(|r| r.name()).collect();
         assert_eq!(names.len(), all.len());
