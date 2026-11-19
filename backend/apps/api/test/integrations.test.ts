@@ -566,12 +566,14 @@ describe("connections end to end (workerd)", () => {
       const streamed = new Request(`https://api.test${INTEGRATION_HANDOFF_PATH}`, { method: "POST", body: new Blob(["x".repeat(HANDOFF_MAX_BODY_BYTES + 1)]).stream(), duplex: "half" } as RequestInit)
       expect((await handleIntegrationHandoff(streamed, testEnv as any)).status).toBe(413)
       // Over the per-team limit: refused as retryable, and nothing is kept.
-      const limited = Object.assign(Object.create(testEnv), { INTEGRATION_HANDOFF_LIMIT: { limit: async ({ key }: { key: string }) => ({ success: !key.startsWith("team:") }) } })
+      // Defined on the wrapper itself: an assignment would write through to the shared env (a proxy) and limit every later test.
+      const limited = Object.defineProperty(Object.create(testEnv), "INTEGRATION_HANDOFF_LIMIT", { value: { limit: async ({ key }: { key: string }) => ({ success: !key.startsWith("team:") }) } })
       const req = new Request(`https://api.test${INTEGRATION_HANDOFF_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ state, code: "c" }) })
       const answer = await handleIntegrationHandoff(req, limited as any)
       expect(answer.status).toBe(429)
       expect(await answer.json()).toMatchObject({ ok: false, error: { code: "integration.rate_limited", retryable: true } })
-      expect((await handOff({ state, code: "c" })).json.ok).toBe(true)
+      // The real limiter (30 a minute per team) still lets this team through.
+      expect((await handOff({ state, code: "c" })).json).toMatchObject({ ok: true })
     })
 
     it("a network failure at the provider keeps the state and its hand-off for a retry", async () => {
@@ -586,7 +588,9 @@ describe("connections end to end (workerd)", () => {
         }
       })
       const { attempt, state } = await start(token)
-      const handoff = (await handOff({ state, code: "c", installation_id: "55" })).json.value.handoff as string
+      const handed = await handOff({ state, code: "c", installation_id: "55" })
+      expect(handed.json).toMatchObject({ ok: true })
+      const handoff = handed.json.value.handoff as string
       const failed = await op(token, "integration.complete", { state, handoff, attempt })
       expect(failed.json).toMatchObject({ ok: false, error: { code: "provider.error", retryable: true } })
       down = false
