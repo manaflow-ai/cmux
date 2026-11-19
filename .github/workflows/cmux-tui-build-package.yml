@@ -93,6 +93,13 @@ on:
         required: false
         default: ""
         type: string
+      linux_build_runner:
+        # The musl legs alone (not plan-build or packaging): cmux-tui-artifacts.yml's owned GCP
+        # Linux pick (tree-preflight linux-build-placement), else empty for the Blacksmith route.
+        description: "Optional Linux runner label for the musl build legs only"
+        required: false
+        default: ""
+        type: string
       windows_runner:
         description: "Optional Windows runner label override"
         required: false
@@ -159,7 +166,9 @@ env:
 jobs:
   plan-build:
     name: select binary targets
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
+    # Called by cmux-tui-artifacts.yml on the nightly path, attempt 1 takes the owned GCP pool
+    # first (that workflow's jobs: comment explains); package distributions does the same.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-lane-build-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -180,8 +189,10 @@ jobs:
           # 8 (macOS cross) vCPU a leg took 20-46 min (runs 39336743829, 39337840188),
           # on 32 4.6-6.0 min (2026-10-30/31). 32 vCPU held the room of two 16 vCPU legs
           # under Blacksmith's vCPU cap (.github/runners.json linux_sizes).
-          LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
-          LINUX_BUILD_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16)) }}
+          # A nightly-next push or tree request's macOS leg takes the nightly-only runners too: on the shared
+          # build lane (vars.LINUX_RUNNER_DARWIN_CROSS) newer PR legs kept starving it (2026-11-19).
+          LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
+          LINUX_BUILD_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_build_runner != '' && inputs.linux_build_runner || inputs.linux_runner != '' && inputs.linux_runner || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-lane-build-x64' || vars.LINUX_BUILD_RUNNER || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16)) }}
           MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || fromJSON(vars.RUNNER_POOLS).macos_15)) }}
           LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16)) }}
           LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404-arm' || fromJSON(vars.RUNNER_POOLS).linux_arm64)) }}
@@ -352,17 +363,26 @@ jobs:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
 
+      # A persistent self-hosted runner (the owned GCP build lanes) reuses the workspace. After an
+      # earlier job's sparse checkout, actions/checkout's `sparse-checkout disable` leaves stale index
+      # stat data and its `checkout --force` stops at "not uptodate; will not remove from working
+      # tree" with HEAD already at the requested commit but files missing (run 44395720799: no
+      # scripts/ci/init-submodule.sh, no .github/actions/zig-global-cache). Writing every tracked
+      # file of HEAD again repairs it; an ephemeral runner starts clean and skips this.
       - name: Init ghostty submodule
         shell: bash
         run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ "$RUNNER_OS" = Linux ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
           bash scripts/ci/init-submodule.sh ghostty
           bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y binutils clang libclang-dev musl-tools pkg-config
+          bash scripts/ci/apt-ensure.sh binutils clang libclang-dev musl-tools pkg-config
 
       # A GitHub-hosted Linux runner (4 vCPU, 16 GB, about 20 GB free on /) is
       # far smaller than the Blacksmith legs this job was sized on, and it gets
@@ -406,6 +426,13 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
+        with:
+          # One leg per target shares an OS and architecture with another.
+          key: -${{ matrix.target }}
 
       # A transient DNS or mirror failure while build.rs fetches the Ghostty
       # packages failed a macOS build (run 37401272899); fetch them first, retried.
@@ -634,14 +661,14 @@ jobs:
           # then write) when they are missing: each group gets its own copy.
           zb() { echo "CARGO_ZIGBUILD_CACHE_DIR=$RUNNER_TEMP/cargo-zigbuild-$1 cargo zigbuild$profile --release --locked --target $t"; }
           # Start from the mounted warm target (thin: the machine channel's disk; fat: the shipped
-          # legs' disk, mounted on feat-cmux-next pushes only), and record it after the build, also
-          # a failed one (the recorded mtimes only ever describe built content). Without a mounted
-          # disk both calls do nothing.
+          # legs' disk, mounted on feat-cmux-next pushes only). "Record the warm target", after
+          # "Stage binary", prunes and records it, never this step: run on exit here, the prune
+          # removed target/<triple> before staging read it. Without a mounted disk restore does
+          # nothing.
           disk=/home/runner/cmux-tui-fat-warm
           [[ "$LTO" != thin ]] || disk=/home/runner/machine-channel-warm
-          warm() { ../scripts/ci/machine-channel-warm-target.sh "$1" "$disk" "$t"; }
-          warm restore || echo "warning: warm target restore failed; building as is" >&2
-          trap 'warm record || echo "warning: warm target record failed" >&2' EXIT
+          ../scripts/ci/machine-channel-warm-target.sh restore "$disk" "$t" \
+            || echo "warning: warm target restore failed; building as is" >&2
           # The shipping features (hub carrier) for acpmux-standalone, which passes them to acpmux.
           # The script prints one `--features=...` argument or nothing.
           acpmux_features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$t")"
@@ -779,7 +806,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get install -y clang-19 lld-19 llvm-19
+          bash scripts/ci/apt-ensure.sh clang-19 lld-19 llvm-19
           key="$({ clang-19 --version | head -1; ld.lld-19 --version; zig version; echo "sdk $XC_SDK_VERSION"; } | sha256sum | cut -c1-16)"
           { echo "sdk=$XC_SDK_VERSION"; echo "key=$key"; } >> "$GITHUB_OUTPUT"
 
@@ -817,11 +844,11 @@ jobs:
           unset CMUX_GHOSTTY_SRC
           sha="$(git rev-parse HEAD)"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
-          # Start from the shipped legs' warm target (mounted on feat-cmux-next pushes only) and
-          # record it after the build, also a failed one. Without a mounted disk both do nothing.
-          warm() { ./scripts/ci/machine-channel-warm-target.sh "$1" /home/runner/cmux-tui-fat-warm "$WARM_TARGET"; }
-          warm restore || echo "warning: warm target restore failed; building as is" >&2
-          trap 'warm record || echo "warning: warm target record failed" >&2' EXIT
+          # Start from the shipped legs' warm target (mounted on feat-cmux-next pushes only);
+          # "Record the warm target", after "Stage binary", prunes and records it. Without a
+          # mounted disk restore does nothing.
+          ./scripts/ci/machine-channel-warm-target.sh restore /home/runner/cmux-tui-fat-warm "$WARM_TARGET" \
+            || echo "warning: warm target restore failed; building as is" >&2
           ./scripts/ci/macos-cross.sh toolchain "$XC_SDK_VERSION"
           bash tests/test_tailnet_cross_link.sh
           # hosts and bins in one command: every cargo invocation at once.
@@ -945,6 +972,30 @@ jobs:
           fi
           ls -la dist
 
+      # Prune and record the warm target only after "Stage binary" has copied every binary out
+      # of it. The prune removes whole top-level entries of an over-bound disk; run at the end
+      # of the build step it removed target/aarch64-unknown-linux-musl, the leg's own release
+      # output, and staging failed (`cp: cannot stat .../cmux-tui`, runs 44240874997 and
+      # 44243309941, 2026-11-18). Also after a failed build or stage: the recorded mtimes only
+      # describe built content. Without a mounted disk (cmux-tui/target not linked to one) the
+      # script does nothing. tests/test_ci_cmux_tui_fat_warm_target.py checks the order.
+      - name: Record the warm target
+        if: always() && runner.os == 'Linux'
+        env:
+          WARM_TARGET: ${{ matrix.build_target }}
+          LTO: ${{ inputs.lto }}
+          DARWIN_ON_LINUX: ${{ matrix.darwin_on_linux }}
+          # The stamp "Build the macOS binaries on Linux" restored against.
+          DARWIN_TOOLCHAIN: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          disk=/home/runner/cmux-tui-fat-warm
+          [[ "$LTO" != thin || "$DARWIN_ON_LINUX" == true ]] || disk=/home/runner/machine-channel-warm
+          [[ "$DARWIN_ON_LINUX" != true ]] || export MACHINE_CHANNEL_WARM_TOOLCHAIN="$DARWIN_TOOLCHAIN"
+          scripts/ci/machine-channel-warm-target.sh record "$disk" "$WARM_TARGET" \
+            || echo "warning: warm target record failed" >&2
+
       - name: Verify non-npm binaries disable SSH auto-install
         if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-musl' && inputs.package_npm == false
         shell: bash
@@ -1063,6 +1114,10 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+          # Its own cache saves a new entry per run; zig-global-cache keys it stably.
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
 
       # A transient DNS or mirror failure while build.rs fetches the Ghostty
       # packages failed a macOS build (run 37401272899); fetch them first, retried.
@@ -1289,7 +1344,7 @@ jobs:
         needs.build.result == 'success' &&
         (!inputs.include_windows || needs.build-windows.result == 'success')
       }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.linux_runner != '' && !startsWith(inputs.linux_runner, 'blacksmith-') && inputs.linux_runner || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next') && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && github.ref == 'refs/heads/feat-cmux-next' && 'cmux-gcp-lane-build-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -1302,6 +1357,16 @@ jobs:
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
+
+      # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
+      - name: Repair a reused self-hosted checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
 
       - name: Download darwin arm64 binary
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
