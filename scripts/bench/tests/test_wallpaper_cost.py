@@ -33,7 +33,18 @@ class WallpaperCostTest(unittest.TestCase):
                              ("low-power", "blueprint")):
             for metric in ("cpu", "gpu", "footprint", "frames"):
                 find(self.rows, metric, phase=phase, id=ident)
-        self.assertEqual(len(self.rows), 7 * 4)
+        # The seven version-1 lines have 4 rows each; the three version-2 lines 16 each.
+        self.assertEqual(len(self.rows), 7 * 4 + 3 * 16)
+
+    def test_version_two_fields(self):
+        net = find(self.rows, "net_in", phase="youtube", id="youtube-720")
+        self.assertEqual((net["value"], net["unit"]), (1723.5968, "kbps"))  # 210.4 KB/s
+        self.assertEqual(find(self.rows, "tree_cpu", phase="video", id="video-4k60")["value"], 6.3)
+        self.assertEqual(find(self.rows, "decoder_cpu", phase="covered", id="video-4k60")["value"], 0.0)
+        self.assertEqual(find(self.rows, "gpu_util", phase="video", id="video-4k60")["unit"], "%")
+        self.assertEqual(find(self.rows, "tree_footprint", phase="youtube", id="youtube-720")["value"], 900.5)
+        # A version-1 line has none of them.
+        self.assertFalse([r for r in self.rows if r["metric"] == "tree_cpu" and r["labels"]["phase"] == "picture"])
 
     def test_values_and_units(self):
         gpu = find(self.rows, "gpu", phase="live", id="orbits")

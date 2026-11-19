@@ -10,3 +10,9 @@ WALLPAPER-COST occluded id=blueprint cpu_s_per_s=0.003 gpu_s_per_s=0.0 footprint
 WALLPAPER-COST-NOTE reloadConfiguration: nothing
 WALLPAPER-COST minimized id=blueprint cpu_s_per_s=0.003 gpu_s_per_s=0.0 footprint_mb=231.6 frames_per_s=0.0 state=hold:minimized fps=0
 WALLPAPER-COST low-power id=blueprint cpu_s_per_s=0.004 gpu_s_per_s=0.0 footprint_mb=231.7 frames_per_s=0.0 state=hold:low-power fps=0
+WALLPAPER-COST video id=video-4k60 cpu_s_per_s=0.021 gpu_s_per_s=0.0 footprint_mb=260.2 frames_per_s=0.0 state=none fps=0 tree_cpu_s_per_s=0.063 tree_cpu_p95_s_per_s=0.081 webkit_cpu_s_per_s=0.0 decoder_cpu_s_per_s=0.012 windowserver_cpu_s_per_s=0.094 gpu_util_pct=11.5 gpu_util_p95_pct=14.0 tree_footprint_mb=640.3 net_in_kb_per_s=0.0 net_out_kb_per_s=0.0 if_in_kb_per_s=1.2 if_out_kb_per_s=0.9
+WALLPAPER-COST covered id=video-4k60 cpu_s_per_s=0.003 gpu_s_per_s=0.0 footprint_mb=258.0 frames_per_s=0.0 state=none fps=0 tree_cpu_s_per_s=0.031 tree_cpu_p95_s_per_s=0.04 webkit_cpu_s_per_s=0.0 decoder_cpu_s_per_s=0.0 windowserver_cpu_s_per_s=0.02 gpu_util_pct=1.0 gpu_util_p95_pct=2.0 tree_footprint_mb=630.0 net_in_kb_per_s=0.0 net_out_kb_per_s=0.0 if_in_kb_per_s=1.0 if_out_kb_per_s=0.8
+WALLPAPER-COST youtube id=youtube-720 cpu_s_per_s=0.018 gpu_s_per_s=0.0 footprint_mb=270.0 frames_per_s=0.0 state=none fps=0 tree_cpu_s_per_s=0.142 tree_cpu_p95_s_per_s=0.2 webkit_cpu_s_per_s=0.11 decoder_cpu_s_per_s=0.0 windowserver_cpu_s_per_s=0.09 gpu_util_pct=9.0 gpu_util_p95_pct=12.0 tree_footprint_mb=900.5 net_in_kb_per_s=210.4 net_out_kb_per_s=3.1 if_in_kb_per_s=215.0 if_out_kb_per_s=5.0
+WALLPAPER-COST-TABLE-BEGIN
+| phase | subject | state |
+WALLPAPER-COST-TABLE-END
