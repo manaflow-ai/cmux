@@ -36,21 +36,28 @@ import Foundation
     /// places `leaf`.
     static func split(_ screen: ScreenModel, target: PaneID, direction: SplitDirection, ratio: Double, leaf: PaneID,
                       splitID: String, column: ProvisionalColumn?, row: ProvisionalRow?, around: SplitID?, before: Bool,
-                      respondWith: ((Data) -> Data?)? = nil, laps: BenchLaps? = nil) -> Placed? {
+                      targetPane: PaneModel? = nil, respondWith: ((Data) -> Data?)? = nil, laps: BenchLaps? = nil) -> Placed? {
         let layout = screen.layout, columns = screen.columns
         // A plain split looks for the split `around` when it wraps one; New Column and New Row always the target's leaf.
         let wraps = column == nil && row == nil ? around : nil
         laps?.lap("rule_entry")
-        let spots = findSpots(layout, columns, holding: target, match: wraps.map(Match.split) ?? .leaf(target))
+        // The screen tree's spot walk also says whether the tree places `leaf`: one walk, not two.
+        let (spots, leafPlaced) = findSpots(layout, columns, holding: target, match: wraps.map(Match.split) ?? .leaf(target),
+                                            seeing: leaf)
         laps?.lap("find_spots")
         // Each kind sends only the facts its rule reads, so no walk runs that no rule needs.
-        var facts = Facts(leafPlaced: layout.contains(pane: leaf), columns: columns.count, panes: screen.panes.count)
+        let panes = screen.panes
+        var facts = Facts(leafPlaced: leafPlaced, columns: columns.count, panes: panes.count)
         if column == nil {
-            facts.targetIndex = screen.panes.firstIndex { $0.handle == target }
+            // By identity when the caller has the target's model: no observed `handle` read per pane.
+            facts.targetIndex = targetPane.map { model in panes.firstIndex { $0 === model } }
+                ?? panes.firstIndex { $0.handle == target }
         }
         if column != nil || row != nil {
             facts.zoomed = screen.zoomedPane != nil
-            facts.inScreen = layout.contains(pane: target)
+            // A found leaf spot is in the screen's tree; a stack holding the target needs the walk.
+            facts.inScreen = spots.first?.node.map { if case .leaf = $0 { true } else { false } } == true
+                || layout.contains(pane: target)
             facts.column = spots.first { $0.column != nil }?.column
         }
         if column != nil {
@@ -86,7 +93,7 @@ import Foundation
     /// The screen without `pane`; nil when it must stay shown until its close.
     static func removePane(_ screen: ScreenModel, pane: PaneID) -> Shown? {
         let layout = screen.layout, columns = screen.columns
-        let spots = findSpots(layout, columns, holding: pane, match: .holding(pane))
+        let spots = findSpots(layout, columns, holding: pane, match: .holding(pane)).spots
         guard let patch: Patch = call(RemovePaneRequest(pane: pane, spots: spots)) else { return nil }
         return apply(patch, layout: layout, columns: columns, spots: spots)
     }
@@ -122,20 +129,70 @@ import Foundation
 
     /// The node `match` finds in the screen's tree, then in every column whose tree holds `pane`, and in each of
     /// that column's rows that holds it (the contract's spot order).
-    private static func findSpots(_ layout: LayoutNode, _ columns: [ColumnSnapshot], holding pane: PaneID, match: Match) -> [Spot] {
+    /// With `seeing`, `seen` is whether the screen's tree holds that pane (``LayoutNode/contains(pane:)``), from the
+    /// same walk as its spot; false without.
+    private static func findSpots(_ layout: LayoutNode, _ columns: [ColumnSnapshot], holding pane: PaneID, match: Match,
+                                  seeing leaf: PaneID? = nil) -> (spots: [Spot], seen: Bool) {
         func spot(_ tree: LayoutNode, column: Int?, row: Int?) -> Spot {
             var path: [Bool] = []
             let node = tree.find(match, path: &path)
             return Spot(column: column, row: row, path: node == nil ? [] : path, node: node)
         }
-        var spots = [spot(layout, column: nil, row: nil)]
+        var spots: [Spot]
+        var seen = false
+        if let leaf {
+            var walk = SpotWalk(match: match, leaf: leaf)
+            walk.visit(layout)
+            seen = walk.leafSeen
+            spots = [Spot(column: nil, row: nil, path: walk.found == nil ? [] : walk.foundPath, node: walk.found)]
+        } else {
+            spots = [spot(layout, column: nil, row: nil)]
+        }
         for (c, column) in columns.enumerated() where column.layout.contains(pane: pane) {
             spots.append(spot(column.layout, column: c, row: nil))
             for (r, row) in column.rows.enumerated() where row.layout.contains(pane: pane) {
                 spots.append(spot(row.layout, column: c, row: r))
             }
         }
-        return spots
+        return (spots, seen)
+    }
+
+    /// ``LayoutNode/find(_:path:)`` and ``LayoutNode/contains(pane:)`` of `leaf` in one walk of the tree: depth first,
+    /// `a` before `b`, the first node `match` matches (not descended for the match, as `find`), ending once both are known.
+    fileprivate struct SpotWalk {
+        let match: Match
+        let leaf: PaneID
+        private(set) var found: LayoutNode?
+        private(set) var foundPath: [Bool] = []
+        private(set) var leafSeen = false
+        private var path: [Bool] = []
+
+        init(match: Match, leaf: PaneID) {
+            self.match = match
+            self.leaf = leaf
+        }
+
+        private var done: Bool { found != nil && leafSeen }
+
+        mutating func visit(_ node: LayoutNode) {
+            if found == nil, match.matches(node) {
+                found = node
+                foundPath = path
+            }
+            switch node {
+            case .leaf(let pane): if pane == leaf { leafSeen = true }
+            case .stack(let panes, _): if !leafSeen, panes.contains(leaf) { leafSeen = true }
+            case .split(_, _, _, _, let a, let b):
+                path.append(false)
+                visit(a)
+                path.removeLast()
+                guard !done else { return }
+                path.append(true)
+                visit(b)
+                path.removeLast()
+            case .unknown: break
+            }
+        }
     }
 
     /// The first and last index in the screen's panes of a pane `tree` holds; nil when it holds none of them.

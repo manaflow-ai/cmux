@@ -168,7 +168,8 @@ import Foundation
         // nil when cmux-tui would refuse it.
         guard let placed = OptimisticRules.split(screen, target: target, direction: direction, ratio: ratio, leaf: leaf,
                                                  splitID: provisional.splitID, column: provisional.column, row: provisional.row,
-                                                 around: provisional.around, before: provisional.before, respondWith: store.benchOptimisticResponder, laps: store.benchLaps)
+                                                 around: provisional.around, before: provisional.before, targetPane: store.panesByHandle[target],
+                                                 respondWith: store.benchOptimisticResponder, laps: store.benchLaps)
         else { return nil }
         store.benchLaps?.lap("splice")
         // With the daemon's pane already listed, only the layout is the overlay's.
@@ -181,7 +182,7 @@ import Foundation
         guard daemon == nil else { return undo }
         let pane = model(of: provisional, in: store)
         store.benchLaps?.lap("pane_model")
-        screen.panes.insert(pane, at: min(max(placed.paneAt, 0), screen.panes.count))
+        screen.insertPane(pane, at: placed.paneAt)
         store.benchLaps?.lap("panes_insert")
         store.index.insert(pane, in: screen)
         store.benchLaps?.lap("index_insert")
@@ -211,7 +212,7 @@ import Foundation
                 return store.reportMirrorViolation("intent overlay undo found provisional pane \(pane) missing")
             }
             store.index.remove(model)
-            screen.panes.removeAll { $0 === model }
+            screen.removePane(model)
         }
         screen.layout = layout
         if screen.columns != columns { screen.columns = columns }

@@ -192,6 +192,33 @@ public final class ScreenModel: Identifiable {
 
     public func pane(_ handle: PaneID) -> PaneModel? { panes.first { $0.handle == handle } }
 
+    /// Puts `pane` into the panes at `index` (clamped) in place: one mutation, and only `pane` joins the unread
+    /// tally, where the ``panes`` setter copies the list and adopts and recounts every pane (O(panes) per create).
+    func insertPane(_ pane: PaneModel, at index: Int) {
+        let at = min(max(index, 0), paneList.count)
+        editPanes { $0.insert(pane, at: at) }
+        if pane.unreadScreen !== self { pane.unreadScreen = self }
+        guard pane.unread != UnreadTally() else { return }
+        unread.add(pane.unread)
+        unreadWorkspace?.recountUnread()
+    }
+
+    /// Takes `pane` out of the panes in place; recounts the unread tally only when `pane` counted in it.
+    func removePane(_ pane: PaneModel) {
+        guard paneList.contains(where: { $0 === pane }) else { return }
+        editPanes { $0.removeAll { $0 === pane } }
+        if pane.unread != UnreadTally() { recountUnread() }
+    }
+
+    /// The panes edited in place, published as the ``panes`` setter publishes (held while the tree is held).
+    private func editPanes(_ edit: (inout [PaneModel]) -> Void) {
+        if treeBeforeHold == nil {
+            withMutation(keyPath: \.panes) { edit(&paneList) }
+        } else {
+            edit(&paneList)
+        }
+    }
+
     /// Holds the publication of ``layout``, ``columns``, ``panes`` and ``zoomedPane`` until ``publishHeldTree()``
     /// (``DaemonStore/withOverlayLifted(writer:snapshot:_:)``): the writes still change the record at once.
     func holdTree() {
