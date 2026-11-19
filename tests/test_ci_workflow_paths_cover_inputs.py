@@ -42,6 +42,17 @@ EXEMPT: dict[tuple[str, str], str] = {
     ),
 }
 
+# (workflow, input) -> why the "read" is a path the test names as data, not a file it opens. Each needs a reason; an
+# entry with no gap left behind it fails.
+NAMED_NOT_READ: dict[tuple[str, str], str] = {
+    (".github/workflows/ci.yml", "README.md"): (
+        "tests/test_ci_linux_guard_routing.py passes the name to the router as a changed path (docs skip the guards)"
+    ),
+    (".github/workflows/ci.yml", "README.ja.md"): (
+        "tests/test_ci_linux_guard_routing.py passes the name to the router as a changed path (docs skip the guards)"
+    ),
+}
+
 
 def guard_router():
     """covered(test, path, workflow, event, document): whether cmux-next-guards' routed guard run executes `test` for
@@ -91,10 +102,17 @@ class WorkflowPathsCoverInputs(unittest.TestCase):
         cls.gaps, cls.unknown, cls.checked = detector.find_gaps(ROOT, covered=guard_router())
 
     def test_every_input_of_a_filtered_workflows_tests_starts_it(self):
-        open_gaps = [g for g in self.gaps if (g.workflow, g.event) not in EXEMPT]
+        open_gaps = [g for g in self.gaps if (g.workflow, g.event) not in EXEMPT
+                     and (g.workflow, str(g.input)) not in NAMED_NOT_READ]
         lines = [f"{g.workflow} ({g.event}): {g.input}  [{' -> '.join(g.chain)}]" for g in open_gaps]
         self.assertEqual(lines, [], "add each input to the workflow's paths (both lists), or the test misses its "
                                     "changes (docs: scripts/ci/workflow_paths_cover_inputs.py)")
+
+    def test_every_named_not_read_entry_still_has_a_gap_and_a_reason(self):
+        found = {(g.workflow, str(g.input)) for g in self.gaps}
+        for key, reason in NAMED_NOT_READ.items():
+            self.assertTrue(reason.strip(), key)
+            self.assertIn(key, found, f"{key} has no gap left: remove its NAMED_NOT_READ entry")
 
     def test_every_exemption_still_has_a_gap_and_a_reason(self):
         exempted = {(g.workflow, g.event) for g in self.gaps}
