@@ -21,6 +21,13 @@ runs=(
   "diff-2400-pan   diff        LIST_COUNT=3 LIST_PAN=1 LIST_PASSES=4 LIST_SPEED=800"
   "artifacts-40    artifacts   LIST_COUNT=40"
   "feed-ref        feed        FEED_STRESS=320"
+  "subagent-200       subagent    LIST_COUNT=200"
+  "subagent-stream    subagent    LIST_COUNT=40 LIST_STREAM=1"
+  "subagent-2000      subagent    LIST_COUNT=2000"
+  "subagents-list-60  subagents   LIST_COUNT=60 LIST_LIVE_HZ=4"
+  "events-500         inspector   LIST_COUNT=500"
+  "events-burst       inspector   LIST_COUNT=500 LIST_STREAM=1"
+  "events-filter      inspector   LIST_COUNT=500 LIST_LIVE_HZ=20 LIST_FILTER=tool_call"
 )
 for rep in $(seq 1 "$reps"); do
   for line in "${runs[@]}"; do

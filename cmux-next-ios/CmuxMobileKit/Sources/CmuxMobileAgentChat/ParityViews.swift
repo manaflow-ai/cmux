@@ -161,22 +161,11 @@ struct SubagentsScreen: View {
     let store: AgentChatStore
     let surface: AgentChatSurface
     @State private var selected: String?
-
-    private var ordered: [(agent: AgentSubagent, depth: Int)] {
-        var out: [(AgentSubagent, Int)] = []
-        func visit(_ parent: String?, depth: Int) {
-            for agent in store.subagents where agent.parent == parent {
-                out.append((agent, depth))
-                visit(agent.id, depth: depth + 1)
-            }
-        }
-        visit(nil, depth: 0)
-        return out
-    }
+    @State private var order = SubagentOrderMemo()
 
     var body: some View {
         List {
-            ForEach(ordered, id: \.agent.id) { entry in
+            ForEach(order.ordered(store.subagents), id: \.agent.id) { entry in
                 Button { selected = entry.agent.id } label: {
                     HStack(spacing: 12) {
                         SubagentStateGlyph(state: entry.agent.state)
@@ -230,11 +219,11 @@ struct SubagentTranscriptScreen: View {
     let surface: AgentChatSurface
     let subagentID: String
     @State private var nested: String?
+    @State private var memo = SubagentRowsMemo()
 
     var body: some View {
         if let agent = store.subagent(subagentID) {
-            let turn = agent.asTurn
-            let rows = turn.rows
+            let (turn, rows) = memo.rows(for: agent)
             ScrollView {
                 // Lazy: a long subagent run builds the rows on screen only.
                 LazyVStack(alignment: .leading, spacing: 14) {

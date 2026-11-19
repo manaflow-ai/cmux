@@ -33,6 +33,13 @@ import Foundation
 ///   seconds (mock mode has no live refresh), for the pull-to-refresh rig (verify/pull-to-refresh.md).
 /// - `CMUX_MOBILE_LIST_PULL_TRACE=1` (with `LIST_PASSES=0`): log one `PULL` line per frame that changes:
 ///   the list's offset and top inset, the refresh wheel's and the search field's frames in the window.
+/// - `subagent`, `subagents`, `inspector` (`ListStressChatScreens`): a subagent's transcript of
+///   `LIST_COUNT` items (`LIST_STREAM=1`: running, a token every 20 ms and a tool call every 500 ms,
+///   with 5 sibling subagents changing state once a second), the Subagents list of `LIST_COUNT`
+///   subagents nested 3 deep (`LIST_LIVE_HZ`: 10 of them change state and action that often), or
+///   the Event Inspector with `LIST_COUNT` records (`LIST_STREAM=1`: 2000 more in one second once the
+///   scroll starts; `LIST_LIVE_HZ`: records a second; `LIST_FILTER=TEXT`: the filter is typed a
+///   character every 100 ms, then cleared, over and over; `LIST_COUNT=-1`: a chat with no journal).
 /// - `CMUX_MOBILE_LIST_GIANT=1` (chat): every third replayed prompt is a pasted raw log (hundreds of
 ///   lines with emoji, CJK, tabs, ANSI escapes and unbroken tokens), the GUI stress loop's long rows.
 public struct ListStressSettings: Equatable, Sendable {
@@ -74,6 +81,8 @@ public struct ListStressSettings: Equatable, Sendable {
     public var refreshSeconds: Double?
     /// `CMUX_MOBILE_LIST_PULL_TRACE=1`: the per-frame pull-to-refresh trace.
     public var pullTrace: Bool
+    /// `CMUX_MOBILE_LIST_FILTER=TEXT` (inspector): the filter typed while the list scrolls.
+    public var filter: String?
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -100,6 +109,7 @@ public struct ListStressSettings: Equatable, Sendable {
         giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
         refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
         pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
+        filter = environment["CMUX_MOBILE_LIST_FILTER"]
     }
 
     /// Whether a working row logs each redraw of its elapsed time (the rig's running chat).

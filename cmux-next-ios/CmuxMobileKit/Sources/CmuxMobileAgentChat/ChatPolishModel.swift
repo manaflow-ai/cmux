@@ -134,8 +134,30 @@ public final class AgentEventJournal {
     /// Rows dropped for the limit since the last Clear.
     public private(set) var dropped = 0
     @ObservationIgnored private var next = 0
+    /// Waits for the next display frame (records are published together there). nil publishes
+    /// each record at once.
+    @ObservationIgnored var nextFrame: (@MainActor () async -> Void)?
+    /// Changes published to observers (tests: one per frame, not one per record).
+    @ObservationIgnored private(set) var changes = 0
+    /// Kept rows moved to drop older ones (tests: dropping costs the rows dropped, not the rows kept).
+    @ObservationIgnored private(set) var moved = 0
+    /// Bumped by Clear: a memo of the rows starts over.
+    @ObservationIgnored private(set) var generation = 0
 
     public init() {}
+
+    /// The id the next record gets (ids count up by one per record).
+    var nextID: Int { next }
+    /// The oldest kept row's id.
+    var firstID: Int { events.first?.id ?? next }
+    /// The bytes the kept records take.
+    var keptBytes: Int { bytes }
+
+    /// The kept rows with an id from `id` on, oldest first.
+    func events(from id: Int) -> ArraySlice<AgentInspectorEvent> {
+        let index = events.firstIndex { $0.id >= id } ?? events.endIndex
+        return events[index...]
+    }
 
     public func record(_ record: JSONValue) {
         var event = AgentInspectorEvent(id: next, record: record)
@@ -146,6 +168,7 @@ public final class AgentEventJournal {
             event = AgentInspectorEvent(id: next, record: .object(kept))
         }
         events.append(event)
+        changes += 1
         bytes += event.line.utf8.count
         next += 1
         // The oldest go first, past the row limit or the byte budget (the newest always stays).
@@ -157,6 +180,7 @@ public final class AgentEventJournal {
         }
         if over > 0 {
             bytes = kept
+            moved += events.count - over
             events.removeFirst(over)
             dropped += over
         }
@@ -166,11 +190,61 @@ public final class AgentEventJournal {
         events = []
         dropped = 0
         bytes = 0
+        generation += 1
+        changes += 1
     }
 
     /// The rows as JSON Lines (the Mac's Export).
     public func jsonLines(_ rows: [AgentInspectorEvent]) -> String {
         rows.map(\.line).joined(separator: "\n")
+    }
+}
+
+/// The Event Inspector's rows for its filter, oldest first (the screen draws them newest first).
+@MainActor
+@Observable
+final class EventInspectorRows {
+    /// Journals whose kept records take more bytes than this are filtered off the main thread.
+    @ObservationIgnored let offMainAbove: Int
+    private(set) var query = ""
+    /// `matches` calls made (tests: the work a record or a query costs).
+    @ObservationIgnored private(set) var matchCalls = 0
+    /// Whole-journal filters run (one per query).
+    @ObservationIgnored private(set) var builds = 0
+    /// The queries whose results were shown, in order.
+    @ObservationIgnored private(set) var shownQueries: [String] = []
+
+    init(offMainAbove: Int = 64 << 10) {
+        self.offMainAbove = offMainAbove
+    }
+
+    func setQuery(_ text: String, journal: AgentEventJournal) {
+        query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        shownQueries.append(query)
+    }
+
+    /// The rows matching the query.
+    func rows(_ journal: AgentEventJournal) -> ArraySlice<AgentInspectorEvent> {
+        builds += 1
+        return ArraySlice(journal.events.filter { event in
+            matchCalls += 1
+            return event.matches(query)
+        })
+    }
+
+    /// Returns once no filter is running.
+    func settled() async {}
+}
+
+/// A record's pretty JSON for its detail page.
+@MainActor
+final class EventJSONMemo {
+    /// Records encoded (tests: once per record shown, not once per redraw).
+    private(set) var encodes = 0
+
+    func json(for event: AgentInspectorEvent) -> (text: String, total: Int?) {
+        encodes += 1
+        return event.json
     }
 }
 

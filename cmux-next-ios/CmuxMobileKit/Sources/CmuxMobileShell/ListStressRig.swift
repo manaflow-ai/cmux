@@ -174,6 +174,20 @@ final class ListStressRig: NSObject {
         case "home":
             MacHomeFeed.shared.seedStressRows(count: settings.count, macID: "mac-studio")
             shell.tab = .home
+        case "subagent", "subagents", "inspector":
+            // A subagent's transcript, the Subagents list or the Event Inspector (ListStressChatScreens),
+            // presented over the shell with its live load.
+            guard let controller = settings.chatScreen() else { return }
+            let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+            var top = window?.rootViewController
+            while let presented = top?.presentedViewController { top = presented }
+            try? await Task.sleep(for: .seconds(settings.openDelay))
+            FrameIntervalLog.shared.begin("\(screen)-open")
+            top?.present(controller, animated: true)
+            try? await Task.sleep(for: .seconds(2.5))
+            try? await Task.sleep(for: .milliseconds(100))
+            FrameIntervalLog.shared.end()
+            logMemory("\(screen)-opened")
         default:
             log.error("FRAMELOG list-stress unknown screen \(screen, privacy: .public)")
         }

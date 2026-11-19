@@ -242,11 +242,12 @@ struct EventInspectorScreen: View {
     let sessionID: String
     @State private var filter = ""
     @State private var copied = false
+    @State private var memo = EventInspectorRows()
 
     var body: some View {
         Group {
             if let journal {
-                let rows = journal.events.filter { $0.matches(filter) }
+                let rows = memo.rows(journal)
                 List {
                     Section {
                         ForEach(rows.reversed()) { event in
@@ -278,7 +279,7 @@ struct EventInspectorScreen: View {
                             Button("Copy as JSON Lines", systemImage: "doc.on.doc") {
                                 // Raw tool output: kept on this iPhone (no Universal Clipboard) and
                                 // gone from the pasteboard after ten minutes.
-                                UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: journal.jsonLines(rows)]],
+                                UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: journal.jsonLines(Array(rows))]],
                                                               options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(600)])
                                 copied = true
                             }
@@ -291,12 +292,19 @@ struct EventInspectorScreen: View {
                         .accessibilityIdentifier("chat.inspector.more")
                     }
                 }
+                .onChange(of: filter, initial: true) { memo.setQuery(filter, journal: journal) }
             } else {
                 ContentUnavailableView("No events for this chat", systemImage: "list.bullet.rectangle",
                                        description: Text("This chat's records don't come from a Mac."))
             }
         }
         .searchable(text: $filter, prompt: "Filter")
+        #if DEBUG
+        // The list rig types the filter (verify/listperf/, `events-filter`).
+        .onChange(of: DemoDirector.shared.serial) {
+            if case .inspectorFilter(let text)? = DemoDirector.shared.command { filter = text }
+        }
+        #endif
         .sensoryFeedback(.success, trigger: copied)
         .navigationTitle("Event Inspector")
         .navigationBarTitleDisplayMode(.inline)
@@ -311,9 +319,10 @@ struct EventInspectorScreen: View {
 
 struct EventInspectorDetail: View {
     let event: AgentInspectorEvent
+    @State private var memo = EventJSONMemo()
 
     var body: some View {
-        let json = event.json
+        let json = memo.json(for: event)
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if let total = json.total {

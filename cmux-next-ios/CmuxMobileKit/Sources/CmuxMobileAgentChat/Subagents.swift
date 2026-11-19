@@ -56,6 +56,43 @@ public struct AgentSubagent: Identifiable, Hashable, Sendable {
     }
 }
 
+/// A subagent transcript's turn and rows (`asTurn`, `rows`) for the screen that shows it.
+@MainActor
+final class SubagentRowsMemo {
+    /// Times the rows were built (tests: once per change of the subagent, not once per redraw).
+    private(set) var builds = 0
+
+    func rows(for agent: AgentSubagent) -> (turn: AgentTurn, rows: [TurnRow]) {
+        builds += 1
+        let turn = agent.asTurn
+        return (turn, turn.rows)
+    }
+}
+
+/// The Subagents list's order: each subagent under its parent, with its depth.
+@MainActor
+final class SubagentOrderMemo {
+    /// Subagents looked at while ordering (tests: each once per change of the set).
+    private(set) var visits = 0
+    /// Times the order was built.
+    private(set) var builds = 0
+
+    func ordered(_ agents: [AgentSubagent]) -> [(agent: AgentSubagent, depth: Int)] {
+        builds += 1
+        var out: [(AgentSubagent, Int)] = []
+        func visit(_ parent: String?, depth: Int) {
+            for agent in agents {
+                visits += 1
+                guard agent.parent == parent else { continue }
+                out.append((agent, depth))
+                visit(agent.id, depth: depth + 1)
+            }
+        }
+        visit(nil, depth: 0)
+        return out
+    }
+}
+
 /// One `_meta.acpmux.subagents` entry: a subagent started or changed.
 public struct AgentSubagentChange: Hashable, Sendable {
     public var id: String
