@@ -6,7 +6,8 @@
 //! Structure comes from the JSON Schema (`cmux-app-host/schema/v2`); the
 //! semantic rules a schema cannot express (publisher ownership, native code
 //! tiers, interface names and options, scope classes, package paths, the
-//! catalog fragment, CLI names and MCP tool names) live in [`rules`],
+//! catalog fragment, CLI names, MCP tool names and `contributes.wallpapers`,
+//! checked with cmux-wallpaper) live in [`rules`],
 //! [`catalog`], [`cli`] and [`package`].
 
 // The crash ratchet keeps this crate at zero production panics
