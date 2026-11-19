@@ -136,7 +136,10 @@ pub enum Input {
     /// The steers of turn `key` that the deadline found unread were asked
     /// back (`steer.rs` `on_steer_deadline`): whether every one was dropped
     /// unread, so the turn's session holds none of them.
-    SteersWithdrawn { key: String, all: bool },
+    SteersWithdrawn {
+        key: String,
+        all: bool,
+    },
     TurnEnded {
         key: String,
         /// Boxed: the outcome and its stats are the largest input.
