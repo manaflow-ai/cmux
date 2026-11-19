@@ -386,3 +386,37 @@ fn an_unread_message_taken_back_from_the_session_goes_on_in_it() {
     );
     assert!(tb.iter().all(|t| !t.contains("<chat>")), "{tb:?}");
 }
+
+#[test]
+fn a_turn_claude_code_ran_on_its_own_between_turns_never_joins_the_next_reply() {
+    let mut h = harness(default_script());
+    h.connect();
+    h.say("user_local", "one");
+    h.settle_posts();
+    // Between the two Chief turns, a background task of the kept session
+    // ended and Claude Code answered it in a turn of its own.
+    h.agents.append_events(
+        "s1",
+        vec![
+            serde_json::json!({"dir": "mux", "kind": "background_turn", "msg": {"state": "started", "id": "b1", "trigger": "task_notification"}}),
+            update(
+                "agent_message_chunk",
+                serde_json::json!({"content": {"type": "text", "text": "The background build finished."}}),
+            ),
+            serde_json::json!({"dir": "in", "kind": "claude.result", "msg": {"type": "result", "subtype": "success", "result": "The background build finished."}}),
+            serde_json::json!({"dir": "mux", "kind": "background_turn", "msg": {"state": "ended", "id": "b1", "trigger": "task_notification", "quiet": false, "reason": "result"}}),
+        ],
+    );
+    h.say("user_local", "two");
+    h.settle_posts();
+    assert_eq!(
+        h.agents.inner.lock().unwrap().prompt_sessions,
+        vec!["s1", "s1"]
+    );
+    assert_eq!(posted(&h, "answer 1"), 1, "the second turn's reply");
+    assert_eq!(
+        posted(&h, "The background build finished."),
+        0,
+        "a turn Claude Code ran on its own is not the next turn's reply"
+    );
+}
