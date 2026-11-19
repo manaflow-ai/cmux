@@ -67,6 +67,7 @@ import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { NowPlayingPlayer } from "./NowPlayingPlayer";
+import { NewTabWidgets } from "./NewTabWidgets";
 import { type NowPlayingCommand } from "./nowPlayingPlayerModel";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { Spinner } from "../conversation/icons";
@@ -85,13 +86,13 @@ import {
   pairingLinkRefused,
   inlineCompletion,
   needsYouCards,
-  pageChatCards,
   profileRows,
   screenRows,
   searchWords,
   shellEntry,
   shortHost,
   type ScreenRow,
+  pageChatCards,
 } from "./screenModel";
 import { SuggestionGlyph } from "./RowGlyph";
 import { useNoEntryMotion } from "./noEntryMotion";
@@ -711,7 +712,7 @@ export function NewTabScreen(props: Props) {
         // The chip's folder may be a recent project nobody clicked (`recent ?? seeded`): picking
         // Cloud is the person's pick of it too, so the host grants it (workspace.useFolder) and the
         // Cloud start may copy it. Without this the host refused it as outside the tab's folders.
-        if (envFolder) props.onProjectPicked?.(envFolder);
+        if (askFolder) props.onProjectPicked?.(askFolder);
       }
       props.runMode?.onMode(mode);
     },
@@ -830,7 +831,10 @@ export function NewTabScreen(props: Props) {
       // tab's inherited folder the person just said not to work in.
       // The folder the chip names (envFolder), never the raw `cwd` a caller passes: a tab that
       // inherited home with a start folder elsewhere shows and copies the start folder.
-      const started = props.onCloud(agent, sent.text, envFolder, model, sentAttachments);
+      // The folder the chip shows (askFolder): with none shown, none goes. The environment card's
+      // fallback to the tab's inherited folder (envFolder) once went as a Cloud copy of a folder the
+      // chip read as "No folder" (cmux#45946).
+      const started = props.onCloud(agent, sent.text, askFolder, model, sentAttachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
       return started === true;
     }
@@ -2529,8 +2533,11 @@ export function NewTabScreen(props: Props) {
       <SuggestionsCard attention={needsYou} onOpen={openCard} />
     </div>
   );
+  // The person's widgets (cmux.widget/1): nothing at all until a widget app is installed.
+  const widgetGrid = !allChats && <NewTabWidgets />;
   const playerAndLists = (
     <>
+      {widgetGrid}
       {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
       {lists}
     </>
@@ -2569,6 +2576,7 @@ export function NewTabScreen(props: Props) {
           {starters}
           {props.notice}
           {environmentPanel}
+          {widgetGrid}
           {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
           {lists}
         </>

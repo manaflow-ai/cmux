@@ -196,6 +196,7 @@ mod close_tabs_command;
 mod cloud_attachments;
 mod cloud_conversations;
 pub mod cloud_host_replica;
+pub(crate) mod computer_use_command;
 mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
@@ -894,6 +895,20 @@ enum Command {
         app_permissions: Option<crate::remote_host::AppPermissions>,
     },
     RemoteHostApp,
+    /// cmux Computer Use (`computer-use-v1`, server/computer_use_command.rs).
+    ComputerUseEndpoint,
+    ComputerUseConfig {
+        config: Value,
+    },
+    ComputerUseApprovals {
+        action: String,
+        #[serde(default)]
+        app_id: Option<String>,
+        #[serde(default)]
+        id: Option<u64>,
+        #[serde(default)]
+        answer: Option<String>,
+    },
     /// `cmux device setup|start` for the app (server/device_setup_command.rs).
     DeviceSetup {
         device: String,
