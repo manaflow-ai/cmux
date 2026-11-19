@@ -29,6 +29,35 @@ recording can make more than 60 (`openings`: 2 for each New Tab or New Workspace
 recordings in a run has no limit. The key goes to the app's key path through `debug.key`'s sender, not
 through the keyboard's driver: the path from the keyboard to the app is not in a number.
 
+The active app. A person who presses a key has an active app with a key window, and the mode's launch does not make
+the app active. So each run asks ONE time, after the session is made and before its first tab and its first case:
+`debug.window.focus {window, activate: true}` for the first window that the app lists. Then it reads the app's own
+answer (`debug.focus`: `app_active`, and the window's `is_key`), up to `ACTIVE_READS` times 0.2 s apart, because
+an activation is a request. An app that is then not active, a window that is then not the key window, and an app
+that lists no window end the run at once (`stopped`, the exit code `STOPPED_EXIT`): no tab is made and no case is
+recorded. Each row says both facts from one read directly before its recording (`app_active`,
+`shell_window_is_key`), and the tool does not ask a second time: in a `hold` row a fact that is not true is an
+INVALID reason (a hold's keys go to the key window of an active app), in each other row it is the fact only. The
+report's `head` says `the app was active: yes` only when each row says so, and the workspace of the keys. Rows of
+a run in an active app and rows of a run in an app that was not active are 2 states: no table has both.
+
+`--key-tabs 6,84`: the count of tabs in the key's workspace before a case, as counts that rise, in one launch.
+First the tool shows the first workspace that the session's maker made (`action.run goToWorkspace`, then
+`snapshot.get`'s focus says that the app shows it; one that the app does not show in `SHOWN_S` s ends the run): the
+workspace of the launch can be a home workspace, which has no row in the sidebar's list. With no made workspace
+the keys stay in the launch's workspace and the report says so. Then, for each count, the tool makes tabs beside
+the shown tab of the key's pane (so all in one pane) by the app's script actions until the app's own list
+(`debug.focus`: each pane of the shown workspace) has that many tabs: a Chromium page (`openBrowser.chromium`,
+`--page-url`) while the pages are fewer than half of the tabs, else a terminal (`newSurface`). A tab is made when
+the app lists it under an id that is not provisional. Then each case runs one time for that count. The report says
+the count that the app HAD, not the count asked: each size (`key_tabs.sizes`: asked, tabs, kinds, panes, added,
+fault), each case's name and each row's label by the app's list directly before the case, and each row
+`workspace_tabs_before` and `workspace_kinds_before` from the read before its recording (the size and the case's
+own tabs). A count that is not the asked one is an INVALID reason of each row of the case, and a count at which
+the tool could make no tab ends the run (`stopped`): its cases would be the count before's again. The limit: the larger
+count comes second in the same launch, so a difference between the counts is the tabs and also what the first
+count's cases left in the app.
+
 The Close Tab key (`--keys` with `w`; its rows: new_surface_frames.py `close_of`). Its cases are `--close-cases`,
 not `--gaps`, each from a terminal tab that Control-` opened:
   idle  the key alone. The tool first opens the tab to close, a New Tab page, with one New Tab key, and waits
@@ -44,13 +73,12 @@ The recording is frame_strip's with the key `w` alone. The New Tab keys are not 
 call (the recorder sends its key 120 ms after its start, so the tool starts the recording that long before the
 Close Tab key's time): the app gives such a key to its window directly, with no repeat flag, so the key router's
 path for a repeated key is not in these rows. In `hold` the keys are ONE key sequence of `debug.key`
-(`{"sequence", "key_window": "shell"}`): the app makes the shell window its key window, with no activation of the
-app, builds each step as an event with its planned time and posts it to its own event queue (Command down, T
-down, each repeat of T with the repeat flag, T up and Command up before the Close Tab key's time), and plays the
-steps by its own clock from the call. Limits of `hold`: the Close Tab key itself is the recorder's and not a key
-of the queue; the Command key is up again before it; and after the sequence the app has a key window, which it
-does not have in the mode's launch before, so `hold` is the last case of the default order. A sequence that the
-app refused (the window did not become key) is an INVALID row with no recording.
+(`{"sequence", "key_window": "shell"}`): the app makes the shell window its key window (it does not activate the
+app: the run's one ask before its first case did), builds each step as an event with its planned time and posts
+it to its own event queue (Command down, T down, each repeat of T with the repeat flag, T up and Command up before
+the Close Tab key's time), and plays the steps by its own clock from the call. Limits of `hold`: the Close Tab
+key itself is the recorder's and not a key of the queue; and the Command key is up again before it. A sequence
+that the app refused (the window did not become key) is an INVALID row with no recording.
 
 The true time between the last New Tab key and the Close Tab key is the app's (`last_new_tab_key_before_ms`, from
 the `newTab.open` mark), and the asked time is only the tool's plan (`new_tab_keys_sent_ms`: each key-down's time
@@ -115,6 +143,26 @@ NEW_TAB_KEY = {"key": "t", "modifiers": ["command"]}  # one key-down by `debug.k
 LAST_FILE = "strip.png"  # the last file that frame_strip writes into its folder (WindowFrame.writeAll), before its reply
 CALL_END_PAUSES = 240  # of 0.5 s: how long the tool waits for a frame_strip call that went on after its `timeout` reply
 STOPPED_EXIT = 3  # the driver's exit code for a run that stopped before its last case
+ACTIVE_READS = 50  # of the app's answer, 0.2 s apart, after the one ask for the active app (an activation is a request)
+PROVISIONAL = "pending_tab_"  # the id of a new tab before the app's daemon named it: no action can name such a tab
+MADE_TAB_S = 30.0  # how long the tool waits for a made tab in the app's list
+SHOWN_S = 30.0  # how long the tool waits until the app shows the made workspace
+KEY_TABS_MIX = ("a Chromium page (`openBrowser.chromium`, `--page-url`) while the pages are fewer than half of the tabs, else a "
+                "terminal (`newSurface`); each beside the shown tab of the key's pane, so all in one pane")
+KEY_TABS_LIMIT = ("the larger count comes second in the same launch: a difference between the counts is the tabs and also what the "
+                  "first count's cases left in the app (caches, the tabs of a hold that closed). Each case's name and each row "
+                  "say the tabs that the app listed directly before the case")
+
+
+def key_tabs(text):
+    """`--key-tabs`: counts of tabs that rise, comma separated (argparse's type)."""
+    try:
+        counts = [int(part) for part in text.split(",")]
+    except ValueError:
+        counts = []
+    if not counts or counts[0] < 1 or any(later <= earlier for earlier, later in zip(counts, counts[1:])):
+        raise argparse.ArgumentTypeError(f"{text}: --key-tabs takes counts of tabs that rise, from 1 (6,84)")
+    return counts
 
 
 def goes_on(reply):
@@ -183,6 +231,8 @@ def add_arguments(parser):
     parser.add_argument("--hold-keys", type=int, default=6, help="--screen with the key w: the key-downs of the hold of the New Tab key")
     parser.add_argument("--hold-delay-ms", type=float, default=375.0, help="--screen with the key w: ms from a hold's first key-down to its second")
     parser.add_argument("--hold-repeat-ms", type=float, default=90.0, help="--screen with the key w: ms between a hold's later key-downs")
+    parser.add_argument("--key-tabs", type=key_tabs, default=[],
+                        help="--screen: counts of tabs in the key's workspace before a case, rising (6,84): each case runs at each count")
     parser.add_argument("--gaps", default="0,100", help="--screen: ms between two keys of one recording, comma separated (0: one key)")
     parser.add_argument("--workspaces", type=int, default=0, help="--screen: make the session this many workspaces first (0: as launched)")
     parser.add_argument("--live-shells", type=int, default=8, help="--screen: terminals of the made session that keep a shell")
@@ -302,11 +352,19 @@ class Screen:
         self.rows, self.kept, self.kept_in_case = [], 0, 0
         # The driver's word about its launch (run_end_record.py): a text makes each row INVALID. `launch`: its facts.
         self.launch_fault, self.launch = None, None
+        # `made`: the workspaces that the session's maker made. `size`, `tag`: with `--key-tabs`, the count in work
+        # (asked and had) and its part of a row's label. `activation`, `key_workspace`: the report's facts of both.
+        self.made, self.size, self.tag, self.activation, self.key_workspace = [], None, "", None, None
+
+    def topology(self):
+        snap = self.rpc("snapshot.get", None, 180) or {}
+        return (snap.get("topology") or snap) if isinstance(snap, dict) else {}
+
+    def listed(self):
+        return [w for w in self.topology().get("workspaces") or [] if isinstance(w, dict)]
 
     def workspaces(self):
-        snap = self.rpc("snapshot.get", None, 180) or {}
-        topology = (snap.get("topology") or snap) if isinstance(snap, dict) else {}
-        return len([w for w in topology.get("workspaces") or [] if isinstance(w, dict)])
+        return len(self.listed())
 
     def count(self, key):
         """What one more opening adds one to: the focused pane's tabs (Cmd-T), the workspaces (Cmd-N)."""
@@ -318,11 +376,14 @@ class Screen:
         return (self.rpc("debug.new_tab", {"action": "state"}, 30) or {}).get("openings") or []
 
     def session(self):
-        opts, have = self.opts, self.workspaces()
+        opts, before = self.opts, self.listed()
+        have = len(before)
         fact = {"asked": opts.workspaces, "at_launch": have, "chats": 0}
         if opts.workspaces > have:
             fact.update(self.make_session(opts.socket, opts.workspaces - have, opts.live_shells, opts.page_url, opts.seed_deadline, opts.out))
-        fact["listed_by_the_app"] = self.workspaces()
+        after, known = self.listed(), {w.get("id") for w in before}
+        self.made = [w for w in after if w.get("id") and w.get("id") not in known]
+        fact["listed_by_the_app"] = len(after)
         fact["as_asked"] = not opts.workspaces or fact["listed_by_the_app"] == opts.workspaces
         print(f"{MARK}-SESSION {json.dumps(fact)}", flush=True)
         return fact
@@ -343,7 +404,7 @@ class Screen:
             self.sleep(0.033)  # tool pacing: no page is in the pane yet
 
     def one(self, key, gap, run, session_fault):
-        opts, label = self.opts, f"cmd-{key}-{'idle' if not gap else f'gap{gap:g}'}-{run}"
+        opts, label = self.opts, f"cmd-{key}-{'idle' if not gap else f'gap{gap:g}'}{self.tag}-{run}"
         keys_sent = 2 if gap else 1
         row = {"label": label, "key": key, "gap_ms": gap, "run": run, "invalid": []}
         # Cmd-T from a terminal tab (Control-`), as the driver's openings: the new page then changes the content area.
@@ -359,6 +420,7 @@ class Screen:
             self.sleep(0.2)  # tool pacing, as the driver's own wait for a ready spare
         before_count, before_opened = self.count(key), self.opened()
         row["tabs_before" if key == "t" else "workspaces_before"] = before_count
+        self.before(row)
         self.sleep(0.5)  # the window settles (caret, hover) before the recording, as the driver's warm openings
         folder = os.path.join(opts.out, label)
         # `capture`: the screen's frames also where the app has the Screen Recording grant (frame_strip then takes
@@ -418,18 +480,128 @@ class Screen:
         self.close(keys_sent, own_tabs)
         return row
 
-    def pane(self):
-        """The focused pane's tabs in order (`{id, kind}`) and its shown tab, as the app's focus model lists them
-        (`debug.focus`: the first window's pane that the model names, or its only pane); None when it lists none."""
+    def listing(self):
+        """One read of the app's focus model (`debug.focus`), for its first window: `window` (its id) and `is_key`,
+        `app_active`, the shown workspace's `panes`, `tabs` and `kinds` (counts over each pane; None when the app
+        lists no pane), and `pane`: the tabs in order (`{id, kind}`) and the shown tab of the pane that the model
+        names, or of the only pane (None when the app lists none)."""
         reply = self.rpc("debug.focus", None, 30)
-        for window in ((reply if isinstance(reply, dict) else {}).get("windows") or [])[:1]:
+        reply = reply if isinstance(reply, dict) else {}
+        fact = {"window": None, "is_key": None, "app_active": reply.get("app_active"), "panes": None, "tabs": None, "kinds": None,
+                "pane": None, "error": reply.get("error")}
+
+        def tabs_of(pane):
+            return [dict(zip(("id", "kind"), str(tab).rsplit(":", 1) + [None])) for tab in pane.get("tabs") or []]
+        for window in [window for window in reply.get("windows") or [] if isinstance(window, dict)][:1]:
             panes = [pane for pane in window.get("topology") or [] if isinstance(pane, dict)]
             named = (window.get("model") or {}).get("pane")
             found = next((pane for pane in panes if pane.get("pane") == named), panes[0] if len(panes) == 1 else None)
+            fact.update({"window": window.get("id"), "is_key": window.get("is_key")})
+            if panes:
+                kinds = {}
+                for tab in [tab for pane in panes for tab in tabs_of(pane)]:
+                    kinds[tab["kind"]] = kinds.get(tab["kind"], 0) + 1
+                fact.update({"panes": len(panes), "tabs": sum(kinds.values()), "kinds": kinds})
             if found and found.get("tabs"):
-                tabs = [dict(zip(("id", "kind"), str(tab).rsplit(":", 1) + [None])) for tab in found["tabs"]]
-                return {"tabs": tabs, "selected": found.get("selected")}
+                fact["pane"] = {"tabs": tabs_of(found), "selected": found.get("selected")}
+        return fact
+
+    def pane(self):
+        """The focused pane's tabs in order and its shown tab (`listing`); None when the app lists none."""
+        return self.listing()["pane"]
+
+    def before(self, row, hold=None):
+        """The app's own answer directly before a recording, from one read, into `row`: whether the app is active and
+        its window the key window, and with `--key-tabs` the shown workspace's tabs. `hold`: a hold's list of INVALID
+        reasons, which gets one when a fact is not true. Returns the focused pane (`pane`)."""
+        fact = self.listing()
+        row.update({"app_active": fact["app_active"], "shell_window_is_key": fact["is_key"]})
+        if self.size is not None:
+            row.update({"workspace_tabs_before": fact["tabs"], "workspace_kinds_before": fact["kinds"]})
+        if hold is not None and not (fact["app_active"] is True and fact["is_key"] is True):
+            hold.append(f"active: directly before the recording the app says app_active={json.dumps(fact['app_active'])} and its window "
+                        f"says is_key={json.dumps(fact['is_key'])}: a hold's keys go to the key window of an active app")
+        return fact["pane"]
+
+    def shown(self):
+        """The id of the workspace that the app shows (`snapshot.get`'s focus)."""
+        return (self.topology().get("focus") or {}).get("workspace")
+
+    def place(self):
+        """With `--key-tabs`: shows the first workspace that the session's maker made, and waits until the app says
+        that it shows it. Returns the reason that ends the run (the app does not show it), or None."""
+        if not self.opts.key_tabs or not self.made:
+            why = "the tool asked for no other" if not self.opts.key_tabs else "no workspace was made"
+            self.key_workspace = {"is": f"the workspace that the app showed at its launch ({why})"}
+            return None
+        made = self.made[0]
+        name = made.get("name") or made.get("title") or made["id"]
+        reply = self.rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": made["id"]}, "focus": True, "origin": "script"}, 120)
+        deadline = self.clock() + SHOWN_S
+        while (shown := self.shown()) != made["id"] and self.clock() < deadline:
+            self.sleep(0.5)  # tool pacing: the app shows the workspace
+        self.key_workspace = {"is": "a workspace of the made session", "id": made["id"], "name": name, "shown_by_the_app": shown == made["id"],
+                              "by": "action.run goToWorkspace, then snapshot.get's focus"}
+        if shown != made["id"]:
+            return (f"the key's workspace: the app does not show the made workspace `{name}` {SHOWN_S:g} s after action.run goToWorkspace "
+                    f"(it shows {shown}; the action's reply: {json.dumps(reply, default=str)[:200]}): no tab made, no case recorded")
+        self.sleep(2.0)  # tool pacing: the shown workspace's tabs mount before the ask and the first made tab
         return None
+
+    def activate(self):
+        """The run's one ask for the active app (the module doc). Returns the reason that ends the run (no window,
+        an app that is not active, a window that is not the key window), or None."""
+        fact = self.listing()
+        self.activation = {"by": "debug.window.focus", "asked": None, "reply": None, "app_active": fact["app_active"],
+                           "shell_window_is_key": fact["is_key"], "reads": 0}
+        if not fact["window"]:
+            said = f"the app's debug.focus said {json.dumps(fact['error'], default=str)[:200]}" if fact["error"] else "the app lists no window (debug.focus)"
+            return f"active: {said}: no tab made, no case recorded"
+        asked = {"window": fact["window"], "activate": True}
+        reply = self.rpc("debug.window.focus", asked, 30)
+        for reads in range(1, ACTIVE_READS + 1):
+            fact = self.listing()
+            if (fact["app_active"] is True and fact["is_key"] is True) or reads == ACTIVE_READS:
+                break
+            self.sleep(0.2)  # tool pacing: an activation is a request, the app's answer can come later
+        self.activation.update({"asked": asked, "reply": reply, "app_active": fact["app_active"], "shell_window_is_key": fact["is_key"], "reads": reads})
+        if fact["app_active"] is True and fact["is_key"] is True:
+            return None
+        return (f"active: after debug.window.focus {json.dumps(asked)} the app says app_active={json.dumps(fact['app_active'])} and its "
+                f"window says is_key={json.dumps(fact['is_key'])} (the call's reply: {json.dumps(reply, default=str)[:300]}): no tab made, "
+                "no case recorded")
+
+    def fill(self, asked):
+        """`--key-tabs`: makes tabs beside the shown tab of the key's pane until the app lists `asked` tabs in the
+        shown workspace (the module doc). Returns the size as the app lists it, with the fault that ended the making."""
+        added, fault, fact = {"page": 0, "terminal": 0}, None, self.listing()
+        while not fault and fact["tabs"] is not None and fact["tabs"] < asked:
+            pane = fact["pane"] or {}
+            beside = str(pane.get("selected") or "")
+            if not beside or beside.startswith(PROVISIONAL):
+                fault = "the app names no shown tab of the key's pane to make a tab beside"
+                break
+            page = fact["kinds"].get("browser", 0) < (fact["tabs"] + 1) // 2
+            name, args = ("openBrowser.chromium", {"url": self.opts.page_url}) if page else ("newSurface", {})
+            reply = self.rpc("action.run", {"action": name, "args": args, "focus": True, "origin": "script", "target": f"tab:{beside}"}, 120)
+            if isinstance(reply, dict) and reply.get("error"):
+                fault = f"the app refused {name}: {json.dumps(reply['error'], default=str)[:200]}"
+                break
+            had, deadline = {tab["id"] for tab in pane["tabs"]}, self.clock() + MADE_TAB_S
+            while True:
+                fact = self.listing()
+                if any(tab["id"] not in had and not tab["id"].startswith(PROVISIONAL) for tab in (fact["pane"] or {}).get("tabs") or []):
+                    added["page" if page else "terminal"] += 1
+                    break
+                if self.clock() > deadline:
+                    fault = f"no new tab in the app's list {MADE_TAB_S:g} s after {name}"
+                    break
+                self.sleep(0.1)  # tool pacing: the app lists the made tab
+        if fact["tabs"] is None:
+            fault = fault or "the app lists no pane of the shown workspace (debug.focus)"
+        size = {"asked": asked, "tabs": fact["tabs"], "kinds": fact["kinds"], "panes": fact["panes"], "added": added, "fault": fault}
+        print(f"{MARK}-KEY-TABS {json.dumps(size)}", flush=True)
+        return size
 
     def until(self, at):
         """Tool pacing: waits until the clock says `at`, in steps of 2 ms at most."""
@@ -445,7 +617,7 @@ class Screen:
     def close_one(self, kind, run, session_fault):
         """One recording of the Close Tab key (the module doc): `kind` is its case."""
         opts, plan = self.opts, close_plan(kind, self.opts)
-        label = f"cmd-w-{'idle' if kind == 'idle' else f'{kind}{opts.close_gap_ms:g}'}-{run}"
+        label = f"cmd-w-{'idle' if kind == 'idle' else f'{kind}{opts.close_gap_ms:g}'}{self.tag}-{run}"
         row = {"label": label, "key": "w", "gap_ms": 0, "case": kind, "run": run, "invalid": []}
         own_tabs, early = self.count("t"), []
         self.tools["terminal_tab"]()
@@ -466,7 +638,8 @@ class Screen:
             engine = bench_page_engine.page_engine(self.rpc("debug.agent_pane", {"action": "engine"}, 20))
             if opts.page_engine != "any" and bench_page_engine.family(engine) != opts.page_engine:
                 early.append(f"engine: the closed tab's page ran in {engine}, {opts.page_engine} was asked")
-        before, before_opened = self.pane(), self.opened()
+        # In a hold's row an app that is not active, or a window that is not the key window, is an INVALID reason.
+        before, before_opened = self.before(row, early if kind == "hold" else None), self.opened()
         row["tabs_before"] = len(before["tabs"]) if before else self.count("t")
         self.sleep(0.5)  # the window settles (caret, hover) before the recording, as before an opening's
         folder = os.path.join(opts.out, label)
@@ -496,7 +669,7 @@ class Screen:
             reply = self.rpc("debug.key", {"sequence": hold_steps(plan, opts.close_gap_ms), "key_window": "shell"}, 30)
             if not isinstance(reply, dict) or reply.get("error"):
                 error = reply.get("error") if isinstance(reply, dict) else reply
-                row["invalid"].append(f"input: the app refused the hold's key sequence: {json.dumps(error, default=str)[:300]}")
+                row["invalid"] += early + [f"input: the app refused the hold's key sequence: {json.dumps(error, default=str)[:300]}"]
                 self.close_own(own_tabs, 1)
                 return row
             sequence = {"scheduled": reply.get("scheduled"), "key_window": reply.get("key_window"), "sent_ms": round((at - due) * 1000, 1)}
@@ -508,7 +681,7 @@ class Screen:
         ended()
         mine = 1 + (kind == "idle") + len(sent)  # the tabs that the tool opened: Control-`'s, the idle case's, the keys'
         if "error" in reply:
-            row["invalid"].append(f"frame_strip: {json.dumps(reply.get('error'), default=str)[:300]}")
+            row["invalid"] += [f"frame_strip: {json.dumps(reply.get('error'), default=str)[:300]}"] + early
             if goes_on(reply):
                 row["call_went_on"] = self.call_end(folder)
             shutil.rmtree(folder, ignore_errors=True)
@@ -583,9 +756,55 @@ class Screen:
         self.kept, self.kept_in_case = self.kept + len(kept), self.kept_in_case + len(kept)
         row["kept_pictures"] = kept
 
+    def sized(self, cases, report):
+        """Each case of the run in order, by name and call. With `--key-tabs`: each case one time for each count, after
+        that count's tabs are made (`fill`); the name and the rows' label say the tabs that the app lists directly
+        before the case, and `size` has the reason of each row when that count is not the asked one."""
+        if not self.opts.key_tabs:
+            yield from cases
+            return
+        for asked in self.opts.key_tabs:
+            made = self.fill(asked)
+            report["key_tabs"]["sizes"].append(made)
+            if made["fault"] and not sum(made["added"].values()):
+                # No tab made at this count: its cases would be the count before's again (or the launch's own tabs').
+                lists = "no tab" if made["tabs"] is None else f"{made['tabs']} tabs"
+                report["stopped"] = (f"key-tabs: {asked} tabs asked and the tool made no tab ({made['fault']}; the app lists {lists}): "
+                                     "no case recorded at this count")
+                print(f"{MARK} STOPPED {report['stopped']}", flush=True)
+                return
+            for name, take in cases:
+                had, why = self.listing()["tabs"], made["fault"] or "the count changed after the tabs were made"
+                if had is None:
+                    said, self.tag = f"no list of tabs in the key's workspace before the case ({asked} asked)", f"-tabsnolistof{asked}"
+                    fault = f"key-tabs: {asked} tabs asked, the app lists no tab of the shown workspace ({why})"
+                elif had == asked:
+                    said, self.tag, fault = f"{had} tabs in the key's workspace before the case", f"-tabs{had}", None
+                else:
+                    said, self.tag = f"{had} tabs in the key's workspace before the case ({asked} asked)", f"-tabs{had}of{asked}"
+                    fault = f"key-tabs: {asked} tabs asked, the app lists {had} ({why})"
+                self.size = {"asked": asked, "had": had, "fault": fault}
+                yield f"{name}, {said}", take
+
+    def head(self):
+        """The report's first 2 sentences: whether the app was active (by each row's own read; with no row, by the
+        answer after the run's ask), and the workspace of the keys."""
+        read, place = [row for row in self.rows if "app_active" in row], self.key_workspace or {}
+        yes = sum(1 for row in read if row["app_active"] is True)
+        if not read:
+            active = {True: "yes", False: "no"}.get((self.activation or {}).get("app_active"), "not known")
+        else:
+            active = "yes" if yes == len(read) else f"NOT IN EACH ROW ({yes} of {len(read)} rows, by the app's answer before each recording)"
+        where = place.get("is", "not known")
+        if place.get("shown_by_the_app") is False:
+            where = f"NOT the made workspace `{place['name']}` (the app does not show it)"
+        elif place.get("name"):
+            where += f" ({place['name']})"
+        return [f"the app was active: {active}", f"the key's workspace: {where}"]
+
     def run(self):
         opts = self.opts
-        report = {"mode": "screen", "keys": opts.keys.split(","), "gaps_ms": [float(g) for g in opts.gaps.split(",") if g],
+        report = {"head": [], "mode": "screen", "keys": opts.keys.split(","), "gaps_ms": [float(g) for g in opts.gaps.split(",") if g],
                   "runs": opts.runs, "duration_ms": opts.duration_ms, "scale": opts.scale, "tolerance": opts.tolerance,
                   "display": opts.display or "as the host has it", "display_hz_asked": opts.display_hz or None, "build": None,
                   "key_path": "debug.key's sender: the app's own key path, not the keyboard's driver",
@@ -599,6 +818,14 @@ class Screen:
         report["session"] = self.session()
         session_fault = None if report["session"]["as_asked"] else (
             f"session: {opts.workspaces} workspaces asked, the app lists {report['session']['listed_by_the_app']}")
+        if opts.key_tabs:
+            report["key_tabs"] = {"mix": KEY_TABS_MIX, "limit": KEY_TABS_LIMIT, "sizes": []}
+        # The keys' workspace, then the one ask for the active app: a reason of either ends the run before a tab or a case.
+        ended = self.place() or self.activate()
+        report["key_workspace"], report["activation"] = self.key_workspace, self.activation
+        if ended:
+            report["stopped"] = ended
+            print(f"{MARK} STOPPED {ended}", flush=True)
         # Each case: its name, and the call that makes one row of it. The Close Tab key's cases are its own (the module doc).
         cases = []
         for key in report["keys"]:
@@ -612,20 +839,32 @@ class Screen:
             else:
                 cases += [(f"cmd-{key}/{'idle' if not gap else f'{gap:g} ms after a key'}",
                            lambda run, key=key, gap=gap: self.one(key, gap, run, session_fault)) for gap in report["gaps_ms"]]
-        for case, take in cases:
+        for case, take in [] if ended else self.sized(cases, report):
             rows, self.kept_in_case = [], 0
             for run in range(opts.runs):
                 row = take(run)
+                if self.size:
+                    row["key_tabs"] = {"asked": self.size["asked"], "had": self.size["had"]}
+                    if self.size["fault"]:
+                        row["invalid"].append(self.size["fault"])
                 rows.append(row)
                 self.rows.append(row)
                 said = {name: row.get(name) and [row[name]["frame"], row[name]["ms"]] for name in ("tab", "content_first", "content_final", "final")}
+                tabs = f" workspace_tabs_before={row['workspace_tabs_before']}" if "workspace_tabs_before" in row else ""
                 print(f"{MARK}-ROW {row['label']}: {'INVALID ' + '; '.join(row['invalid']) if row['invalid'] else 'valid'} "
                       f"{json.dumps(said)} first_is_final={row.get('first_is_final')} whole_window={row.get('whole_window')} "
                       f"changes_after_content={row.get('changes_after_content')} "
-                      f"refresh_ms={row.get('refresh_ms')} capture={row.get('capture')}{holes(row)}", flush=True)
+                      f"refresh_ms={row.get('refresh_ms')} capture={row.get('capture')}{holes(row)}{tabs} "
+                      f"app_active={row.get('app_active')} shell_window_is_key={row.get('shell_window_is_key')}", flush=True)
                 if row.get("call_went_on"):
                     break
             report["cases"][case] = frames_of.summarize(rows)
+            report["cases"][case]["active"] = {name: {"yes": sum(1 for row in rows if row.get(name) is True), "of": len(rows)}
+                                               for name in ("app_active", "shell_window_is_key")}
+            if self.size:
+                counts = [row["workspace_tabs_before"] for row in rows if isinstance(row.get("workspace_tabs_before"), int)]
+                report["cases"][case]["key_tabs"] = {"asked": self.size["asked"], "had": self.size["had"],
+                                                     "workspace_tabs_before": {"min": min(counts), "max": max(counts)} if counts else None}
             close = ""
             if rows and rows[0].get("key") == "w":
                 report["cases"][case]["close"] = frames_of.close_summary(rows)
@@ -641,6 +880,8 @@ class Screen:
             if report.get("stopped"):
                 print(f"{MARK} STOPPED {report['stopped']}", flush=True)
                 break
+        report["head"] = self.head()
+        print(f"{MARK}-HEAD {'; '.join(report['head'])}", flush=True)
         # A stopped run is not a whole run: the driver ends with this code (0: each case ran).
         report["exit_code"] = STOPPED_EXIT if report.get("stopped") else 0
         if opts.json:

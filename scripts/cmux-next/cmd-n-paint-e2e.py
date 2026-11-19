@@ -51,6 +51,7 @@ Usage: cmd-n-paint-e2e.py (--socket <path> | --app PATH --tag TAG) [--runs 3] [-
        cmd-n-paint-e2e.py (--socket <path> | --app PATH --tag TAG) --screen [--runs 3] [--keys n,t[,w]] [--gaps 0,100]
        [--workspaces N] [--live-shells 8] [--duration-ms 2000] [--page-watch 3] [--json FILE] [--screen-tgz FILE]
        [--close-cases idle,key,downs,hold] [--close-gap-ms 100] [--hold-keys 6] [--hold-delay-ms 375] [--hold-repeat-ms 90]
+       [--key-tabs 6,84]
 """
 import argparse, atexit, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
