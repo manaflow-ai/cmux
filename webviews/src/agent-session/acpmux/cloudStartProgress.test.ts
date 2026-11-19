@@ -17,7 +17,13 @@ import {
 const begun = () => cloudStartBegun("k-1", "fix the build", "/Users/me/src/paint/");
 
 test("a start shows the message and the folder by its name", () => {
-  expect(begun()).toEqual({ key: "k-1", task: "fix the build", state: "starting", folder: "paint" });
+  expect(begun()).toEqual({
+    key: "k-1",
+    task: "fix the build",
+    state: "starting",
+    folder: "paint",
+    cwd: "/Users/me/src/paint",
+  });
   expect(cloudStartBegun("k", "t", undefined)).toEqual({ key: "k", task: "t", state: "starting" });
 });
 
@@ -53,6 +59,8 @@ test("the host's push fills the card, field by field, each checked", () => {
     task: "fix the build",
     state: "starting",
     folder: "paint-app",
+    // The host renames the card's folder; the folder the start copies (the composer's chip) stays.
+    cwd: "/Users/me/src/paint",
     step: "folder",
     machine: "paint machine",
     size: "4 CPU, 16 GB",

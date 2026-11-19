@@ -67,7 +67,7 @@ nonisolated final class MacScreenHelper: Sendable {
     }
 
     /// Starts `arguments` (`serve`) with responsibility disclaimed, its stdio on these pipes.
-    func spawn(_ executable: URL, _ arguments: [String], stdin: Pipe, stdout: Pipe, stderr: Pipe) throws -> pid_t {
+    static func spawn(_ executable: URL, _ arguments: [String], stdin: Pipe, stdout: Pipe, stderr: Pipe) throws -> pid_t {
         let pid = try SignedHelperLaunch.spawn(executable: executable, arguments: arguments,
                                                stdin: stdin.fileHandleForReading.fileDescriptor,
                                                stdout: stdout.fileHandleForWriting.fileDescriptor,
