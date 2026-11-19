@@ -50,9 +50,9 @@ jobs:
       # job needs only the measured commit's sha. The bench mini checks the tree out itself.
       - name: xbench on a fleet mini
         env:
-          # A manual dispatch measures its selected branch at the run's immutable commit, including a PR branch.
-          # Only main's cron resolves the NEXT tip. git ls-remote from the mini timed out (run 42187585623).
-          RUN_SHA: ${{ (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') && github.sha || '' }}
+          # Manual PR-branch dispatches measure that branch's immutable commit, as NEXT dispatches already do.
+          # Main keeps its NEXT-tip default. git ls-remote from the mini timed out (run 42187585623).
+          RUN_SHA: ${{ (github.ref == 'refs/heads/feat-cmux-next' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) && github.sha || '' }}
           GH_TOKEN: ${{ github.token }}
           ROUNDS: ${{ inputs.rounds || '3' }}
           BROWSERS: ${{ inputs.browsers || 'cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari' }}

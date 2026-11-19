@@ -30,7 +30,7 @@ class WorkflowRef(unittest.TestCase):
         cases = (
             ("workflow_dispatch", "refs/heads/lane/bench-fix", selected),
             ("workflow_dispatch", "refs/heads/feat-cmux-next", selected),
-            ("workflow_dispatch", "refs/heads/main", selected),
+            ("workflow_dispatch", "refs/heads/main", tip),
             ("schedule", "refs/heads/main", tip),
             ("schedule", "refs/heads/feat-cmux-next", selected),
         )
