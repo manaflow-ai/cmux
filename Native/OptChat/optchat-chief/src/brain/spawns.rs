@@ -1092,6 +1092,10 @@ impl Brain {
         match session.status {
             SessionStatus::Idle | SessionStatus::Ready => self.finish_sub(&id, &session.session_id),
             SessionStatus::Closed | SessionStatus::Disconnected => {
+                let (reopens, with_last_host) = self.how_closed(&id, &session.session_id);
+                if reopens || (with_last_host && self.resume_closed(&id)) {
+                    return true;
+                }
                 let report = format!(
                     "(stopped without a report: its session is {:?})",
                     session.status
@@ -1101,6 +1105,80 @@ impl Brain {
             _ => {}
         }
         true
+    }
+
+    /// How running subagent `id`'s session closed: whether a newer prompt is
+    /// queued behind the close (acpmux logged it after the `exited`: it
+    /// reopens, so the close is not its end, and a stale close that reaches
+    /// the host after the prompt that resumes it reports nothing), and
+    /// whether it closed before this host started (it ended with the last
+    /// host: `cmux chief shutdown` stops the daemon and its agents).
+    fn how_closed(&mut self, id: &str, session_id: &str) -> (bool, bool) {
+        let floor = self.state.sub(id).map_or(0, |(_, s)| s.floor);
+        let Ok(events) = self.agents.events(session_id, floor) else {
+            return (false, false);
+        };
+        let closed = events.iter().rev().find(|e| {
+            e.dir == "mux"
+                && (e.kind == "exited"
+                    || (e.kind == "status"
+                        && e.msg.get("status").and_then(Value::as_str) == Some("closed")))
+        });
+        let Some(closed) = closed else {
+            return (false, false);
+        };
+        (
+            super::children::prompt_after(&events, closed.seq),
+            closed.at.is_some_and(|at| at < self.born_ms),
+        )
+    }
+
+    /// Running subagent `id`'s session closed with the last host and no
+    /// report (live: `cmux chief shutdown` mid-turn ends its harness with the
+    /// daemon): this host resumes the run with one prompt, once per run, so
+    /// neither a "stopped without a report" nor a second subagent for the
+    /// same task follows. A session that closes while this host runs ends
+    /// the run as before (its daemon's word).
+    fn resume_closed(&mut self, id: &str) -> bool {
+        let Some((session, ok)) = self.state.sub(id).map(|(_, s)| {
+            (
+                s.session_id.clone(),
+                !(s.paused || s.cancelled || s.closed_resumed),
+            )
+        }) else {
+            return false;
+        };
+        let (Some(session), true) = (session, ok) else {
+            return false;
+        };
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.closed_resumed = true;
+        }
+        self.save();
+        let prompt_id = format!("{PROMPT_PREFIX}tell:{id}:{}", now_ms());
+        let blocks = vec![json!({"type": "text", "text": CLOSED_RESUME})];
+        match tell_prompt(
+            &*self.agents,
+            &session,
+            blocks,
+            &prompt_id,
+            self.tx.clone(),
+            id.to_owned(),
+        ) {
+            Ok(()) => {
+                (self.log)(&format!(
+                    "subagent {id}: its session closed mid-run; resumed it"
+                ));
+                self.trace.emit("subagent.closed_resume", json!({"id": id}));
+                true
+            }
+            Err(e) => {
+                (self.log)(&format!(
+                    "subagent {id}: its session closed and could not be resumed: {e}"
+                ));
+                false
+            }
+        }
     }
 
     /// Reads a subagent's turn ends since its floor; when one ended, its
@@ -1281,6 +1359,7 @@ impl Brain {
             sub.fleet_wait = fleet_wait;
             sub.status = SubStatus::Done;
             sub.reopened = false;
+            sub.closed_resumed = false;
             sub.awaiting_task = false;
             sub.auto_continues = 0;
             sub.continued_ms = 0;
@@ -1912,7 +1991,10 @@ impl Brain {
                     }
                 }
                 None => {
-                    (self.log)(&format!("subagent {id}: queued its report"));
+                    (self.log)(&format!(
+                        "subagent {id}: queued its report{}",
+                        if quiet { " (quiet)" } else { "" }
+                    ));
                     self.queue(text, source);
                 }
             }
@@ -3467,6 +3549,9 @@ impl Brain {
 }
 
 /// A tell as the subagent's next prompt; its answer goes to the brain.
+/// The prompt that resumes a subagent whose session closed mid-run (`resume_closed`).
+const CLOSED_RESUME: &str = "Your session closed before you reported (the Chief or its daemon restarted). Go on with your task where it stopped: run again any command that was cut off, then report.";
+
 fn tell_prompt(
     agents: &dyn crate::acpmux::AgentPort,
     session: &str,
