@@ -1,4 +1,5 @@
 #if os(iOS) && DEBUG
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
@@ -13,6 +14,15 @@ public struct TerminalDemoRoot: View {
     @State private var host: TerminalTabHost
 
     public init() {
+        // `-CmuxMobileTerminalDemoLight`: a light terminal theme (the Mac's
+        // Solarized Light), set before the terminal engine reads its colors,
+        // for this launch only: the next test's launch keeps its own theme.
+        if CommandLine.arguments.contains("-CmuxMobileTerminalDemoLight") {
+            CmuxMobileMacTheme.shared.apply(CmuxMobileMacAppearance(theme: .init(
+                background: "#fdf6e3", foreground: "#657b83",
+                palette: ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"],
+                accent: "blue")), keep: false)
+        }
         let session: any TerminalSession
         var altMac: MacPaneMockSession?
         let phases = TerminalDemoDriver.requestedPhases ?? []
@@ -36,7 +46,7 @@ public struct TerminalDemoRoot: View {
             session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh")
         } else {
             session = TerminalHostGridDemoSession.requestedSpec
-                .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession()
+                .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession(macResize: Self.macResize)
         }
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
         if let altMac {
@@ -48,6 +58,15 @@ public struct TerminalDemoRoot: View {
     }
 
     public static var isRequested: Bool { CommandLine.arguments.contains("-CmuxMobileTerminalDemo") }
+
+    /// `-CmuxMobileTerminalDemoMac`: the mock answers a resize as the Mac does
+    /// (its grid, a mirror reset and a replay, a round trip later:
+    /// `-CmuxMobileTerminalDemoMacMs`, default 60).
+    private static var macResize: Duration? {
+        guard CommandLine.arguments.contains("-CmuxMobileTerminalDemoMac") else { return nil }
+        let ms = UserDefaults.standard.integer(forKey: "CmuxMobileTerminalDemoMacMs")
+        return .milliseconds(ms > 0 ? ms : 60)
+    }
 
     /// `-CmuxMobileTerminalDemoEmbedded`: the workspace tab page (TabsKit chrome
     /// insets, UIKit-presented Files and Links) instead of the standalone screen.
@@ -87,8 +106,12 @@ public struct TerminalDemoRoot: View {
 }
 
 @MainActor
-struct TerminalDemoDriver {
+final class TerminalDemoDriver {
     let model: TerminalModel
+    private var stepLog: [String] = []
+    private var stepResizes = 0
+
+    init(model: TerminalModel) { self.model = model }
     let clock = ContinuousClock()
 
     static var requestedPhases: [String]? {
@@ -157,6 +180,7 @@ struct TerminalDemoDriver {
         // Opt-in only (not in `all`): the keyboard reversed mid-animation.
         if selected.contains("kbinterrupt") { await keyboardInterrupt() }
         if selected.contains("kbtui") { await keyboardOverTUI() }
+        if selected.contains("kbshell") { await keyboardOverShell() }
         if selected.contains("projection") { await projection() }
         if selected.contains("altproj") { await alternateProjection() }
         mark("end")
@@ -255,8 +279,11 @@ struct TerminalDemoDriver {
     /// `kbtui` (opt-in): vim, then the keyboard key pressed to show and hide
     /// the keyboard five times. `demoNote` (the `debug.terminal-demo` label) ends
     /// at `done.rz<before>-<after>`: the PTY resizes sent before and after.
+    /// `-CmuxMobileTerminalDemoTUI htop` runs htop (it reports the mouse)
+    /// instead of vim.
     private func keyboardOverTUI() async {
-        model.controller?.surface.sendText("vim README.md", pressReturn: true)
+        let program = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoTUI") == "htop" ? "htop" : "vim README.md"
+        model.controller?.surface.sendText(program, pressReturn: true)
         // Past the resize settle (250 ms), so every size before the toggles is counted.
         await wait(2.5)
         guard model.isTUI else {
@@ -270,6 +297,90 @@ struct TerminalDemoDriver {
         // the UI test's screenshot on a slow simulator host: a toggle before
         // the last one settled reverses it and sends no resize.
         await wait(2.5)
+        // `-CmuxMobileTerminalDemoToggle` picks how the keyboard moves:
+        // `key` (the keyboard key, the default), `tap` (a tap on the
+        // terminal shows it; the key hides it), `system` (shown by the key,
+        // hidden from outside our code: the terminal resigns, as a swipe or
+        // the system does, so only will-hide claims the rows), `reverse`
+        // (shown, then hidden 80 ms later, before the Mac answers) and
+        // `double` (shown, hidden and shown again 100 ms apart).
+        let mode = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoToggle") ?? "key"
+        for round in 0..<5 {
+            switch mode {
+            case "tap":
+                note("show\(round)")
+                model.controller?.debugTapTerminal()
+                await wait(2.5)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            case "system":
+                note("show\(round)")
+                model.toggleKeyboard()
+                await wait(2.5)
+                note("hide\(round)")
+                _ = model.controller?.surface.resignFirstResponder()
+            case "reverse":
+                note("show\(round)")
+                model.toggleKeyboard()
+                await wait(0.08)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            case "double":
+                note("show\(round)")
+                model.toggleKeyboard()
+                await wait(0.1)
+                model.toggleKeyboard()
+                await wait(0.1)
+                model.toggleKeyboard()
+                await wait(2.5)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            default:
+                note("show\(round)")
+                model.toggleKeyboard()
+                await wait(2.5)
+                note("hide\(round)")
+                model.toggleKeyboard()
+            }
+            await wait(2.5)
+        }
+        await wait(0.5)
+        note("done.rz\(before)-\(model.ptyResizesSent)")
+    }
+
+    /// `kbshell` (opt-in): the primary screen, then the keyboard key pressed
+    /// to show and hide the keyboard five times. A shell never resizes for
+    /// the keyboard (R1-1); `demoNote` ends at `done.rz<before>-<after>`.
+    /// `-CmuxMobileTerminalDemoShell` picks what the screen shows:
+    /// `prompt` (the default), `follow` (a long build log, at its end),
+    /// `reading` (the same log, scrolled up), `stream` (numbered rows
+    /// streaming through the toggles) or `inline` (an inline agent's box on
+    /// the primary screen, like Codex CLI).
+    private func keyboardOverShell() async {
+        let scenario = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoShell") ?? "prompt"
+        switch scenario {
+        case "follow", "reading":
+            model.composerText = "cargo build"
+            model.send()
+            await wait(6)
+            if scenario == "reading" {
+                model.controller?.fling(velocity: -3500)
+                await wait(2.5)
+            }
+        case "stream":
+            model.composerText = "stream 3000 30"
+            model.send()
+            await wait(1.5)
+        case "inline":
+            model.composerText = "codex 14"
+            model.send()
+            await wait(2)
+        default:
+            await wait(1)
+        }
+        let before = model.ptyResizesSent
+        note("shell.rz\(before)")
+        await wait(1.6)
         for round in 0..<5 {
             note("show\(round)")
             model.toggleKeyboard()
@@ -377,7 +488,17 @@ struct TerminalDemoDriver {
 
     private func note(_ label: String) {
         mark(label)
-        model.demoNote = label
+        // Each toggle step's PTY resizes, kept as a cumulative log: a UI test
+        // that misses a label (its probe reads the latest one) still reads
+        // every step at the end (`done...steps=show0:1,hide0:1,...`).
+        if let last = stepLog.last, last.hasSuffix(":") {
+            stepLog[stepLog.count - 1] += "\(model.ptyResizesSent - stepResizes)"
+        }
+        if label.range(of: #"^(show|hide)\d+$"#, options: .regularExpression) != nil {
+            stepLog.append(label + ":")
+            stepResizes = model.ptyResizesSent
+        }
+        model.demoNote = label.hasPrefix("done.") ? label + ".steps=" + stepLog.joined(separator: ",") : label
     }
 
     private func keyboardInterrupt() async {
