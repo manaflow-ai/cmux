@@ -100,6 +100,9 @@ struct CloudChatsScreen: View {
                 let kept = attention == nil ? CloudChatsMemory.shared.machines(on: macID) : nil
                 locations = kept.map { CloudChatDirectory.scopedMachines($0, attention: nil).map { CloudChatLocation(macID: macID, machine: $0) } } ?? []
                 loading = kept == nil
+                // A sign-out while the Mac answers bumps the memory's generation: this read's
+                // answer is then not kept (`keep` refuses it), so the next account never sees it.
+                let generation = CloudChatsMemory.shared.generation
                 do {
                     let found: [CloudChatLocation]
                     if let attention {
@@ -111,7 +114,8 @@ struct CloudChatsScreen: View {
                         found = match.map { [$0] } ?? []
                     } else {
                         let listed = try await live.cloudMachines(on: macID)
-                        CloudChatsMemory.shared.keep(machines: listed, on: macID)
+                        try Task.checkCancellation()
+                        CloudChatsMemory.shared.keep(machines: listed, on: macID, readIn: generation)
                         found = CloudChatDirectory.scopedMachines(listed, attention: nil)
                             .map { CloudChatLocation(macID: macID, machine: $0) }
                     }
@@ -222,6 +226,9 @@ struct CloudMachineChatsScreen: View {
     let macName: String
     let preferredSession: String?
     @State private var relay: CloudChatRelay?
+    /// ``CloudChatsMemory/generation`` when `relay`'s connect began: its lists are kept only while
+    /// no sign-out has come since.
+    @State private var relayGeneration: Int?
     @State private var selectedSession: String?
     @State private var error: String?
     @State private var refresh = 0
@@ -312,7 +319,11 @@ struct CloudMachineChatsScreen: View {
             error = nil
             do {
                 guard let connect else { error = "Connect your Mac."; return }
-                relay = try await connect()
+                let generation = CloudChatsMemory.shared.generation
+                let opened = try await connect()
+                try Task.checkCancellation()
+                relayGeneration = generation
+                relay = opened
             } catch {
                 guard !Task.isCancelled else { return }
                 self.error = "Couldn't connect. Try again."
@@ -321,8 +332,9 @@ struct CloudMachineChatsScreen: View {
         .overlay { if starting { CmuxSpinner(label: Text("Starting chat…")) } }
         // The machine's list as it reads now, for the next open (``CloudChatsMemory``).
         .onChange(of: relay?.hub.isReady == true ? relay?.hub.sessions : nil, initial: true) { _, sessions in
-            guard let sessions else { return }
-            CloudChatsMemory.shared.keep(chats: sessions.values, at: location)
+            // A channel opened before a sign-out never stores into the memory after it.
+            guard let sessions, let relayGeneration else { return }
+            CloudChatsMemory.shared.keep(chats: sessions.values, at: location, readIn: relayGeneration)
         }
         // The preferred chat opens once it is listed: with the first page, or with a later one.
         .onChange(of: relay?.hub.isReady == true && preferredSession.flatMap { relay?.hub.sessions[$0] } != nil, initial: true) { _, ready in

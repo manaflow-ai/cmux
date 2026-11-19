@@ -20,6 +20,9 @@ public final class CloudChatsMemory {
     private var machineOrder: [String] = []
     private var chats: [String: [AcpmuxSession]] = [:]
     private var chatOrder: [String] = []
+    /// Bumps on ``removeAll()``. A store names the generation its read began in, so a read that
+    /// began before a sign-out never lands after it (the next account never sees this one's list).
+    public private(set) var generation = 0
 
     public init(limit: Int = 8, chatLimit: Int = CloudChatList.pageSize) {
         self.limit = limit
@@ -29,21 +32,30 @@ public final class CloudChatsMemory {
     /// The Cloud machines last listed through `macID` (nil: none read this run).
     public func machines(on macID: String) -> [CloudChatMachine]? { machines[macID] }
 
-    /// Keeps the Cloud machines just listed through `macID`.
-    public func keep(machines list: [CloudChatMachine], on macID: String) {
+    /// Keeps the Cloud machines just listed through `macID` by a read begun in `generation`
+    /// (``generation`` read before the request). False, and nothing kept, when a sign-out came between.
+    @discardableResult
+    public func keep(machines list: [CloudChatMachine], on macID: String, readIn generation: Int) -> Bool {
+        guard generation == self.generation else { return false }
         machines[macID] = list
         Self.touch(macID, in: &machineOrder)
         while machineOrder.count > limit { machines[machineOrder.removeFirst()] = nil }
+        return true
     }
 
     /// The chats last listed on the Cloud machine at `location` (nil: none read this run).
     public func chats(at location: CloudChatLocation) -> [AcpmuxSession]? { chats[location.id] }
 
-    /// Keeps the newest ``chatLimit`` of the chats the Cloud machine at `location` lists now.
-    public func keep(chats sessions: some Collection<AcpmuxSession>, at location: CloudChatLocation) {
+    /// Keeps the newest ``chatLimit`` of the chats the Cloud machine at `location` lists now, read
+    /// through a channel opened in `generation`. False, and nothing kept, when a sign-out came between.
+    @discardableResult
+    public func keep(chats sessions: some Collection<AcpmuxSession>, at location: CloudChatLocation,
+                     readIn generation: Int) -> Bool {
+        guard generation == self.generation else { return false }
         chats[location.id] = CloudChatList.newest(sessions, shown: chatLimit).rows
         Self.touch(location.id, in: &chatOrder)
         while chatOrder.count > limit { chats[chatOrder.removeFirst()] = nil }
+        return true
     }
 
     /// Sign-out: no Cloud machine or chat of the account stays.
@@ -52,6 +64,7 @@ public final class CloudChatsMemory {
         machineOrder = []
         chats = [:]
         chatOrder = []
+        generation += 1
     }
 
     private static func touch(_ key: String, in order: inout [String]) {
@@ -77,7 +90,7 @@ extension CloudChatsMemory {
                 "lastPrompt": .string(chat.prompt), "updatedAt": .number(now - Double(index) * 60_000),
             ]))
         }
-        keep(chats: sessions, at: location)
+        keep(chats: sessions, at: location, readIn: generation)
     }
 }
 #endif
