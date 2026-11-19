@@ -1315,6 +1315,9 @@ extension MockWorkspaceCreationBackend: WorkspacePaneBackend {
     public func moveTab(_ tab: WorkspaceTab, toNewSplit edge: TabSplitEdge, in workspace: Workspace) async throws { throw Self.noLayout }
     public func moveTabToNewColumn(_ tab: WorkspaceTab, in workspace: Workspace) async throws { throw Self.noLayout }
     public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws { try await settle() }
+    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, before anchor: WorkspaceTab?, in workspace: Workspace) async throws {
+        try await settle()
+    }
     public func forkAgentChat(_ tab: WorkspaceTab, to destination: ChatForkDestination, in workspace: Workspace) async throws -> WorkspaceTab {
         throw Self.noLayout
     }
