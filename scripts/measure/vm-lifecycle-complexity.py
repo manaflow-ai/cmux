@@ -21,7 +21,7 @@ FILES = {
     "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat/internal/link_wait.rs":
         ("observe", "ask", "connect", "identify", "attach", "follow"),
     "workers/cmux-vm/cli/crates/cmux-vm/src/run.rs":
-        ("run", "create", "wait_running", "work", "finish"),
+        ("run", "create", "wait_running", "work", "finish", "parse_vm_state", "pause_kept", "provisioning_vm"),
     "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat.rs":
         ("run_once", "steps", "await_created", "new_machine", "start_stage"),
 }
@@ -80,7 +80,8 @@ def main():
             for row in measure(parser, ref, path, names)]
     for ref in refs:
         for path, names in FILES.items():
-            required = names[:1] if path.endswith("link_wait.rs") else names
+            required = names[:1] if path.endswith("link_wait.rs") else (
+                names[:5] if path.endswith("/run.rs") else names)
             found = {row["function"] for row in rows if row["ref"] == ref and row["path"] == path}
             if set(required) - found:
                 raise ValueError(f"missing functions in {ref}:{path}: {set(required) - found}")
