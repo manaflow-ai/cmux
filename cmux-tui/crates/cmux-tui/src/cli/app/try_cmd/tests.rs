@@ -7,6 +7,7 @@ use base64::Engine as _;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
+use super::commit_build;
 use super::copy::{self, Action as CopyAction};
 use super::live::{self, Daemon, Phases, Store};
 use super::resolve::{self, Spec, Unresolved};
@@ -841,4 +842,151 @@ fn app_try_nearest_says_why_when_no_build_contains_the_commit() {
     assert!(why[0].contains("rate limited"), "{why:?}");
     // The newest build compared with is the highest number, whatever order the feed lists.
     assert_eq!(super::newest_built(&listing), Some(&old[..10]));
+}
+
+// ------------------------------------------------------------------ commit builds
+
+/// `build.json` for `commit` and its `.signature.json` by `key()` (the app's SUPublicEDKey).
+fn commit_build_files(commit: &str, number: &str) -> (Vec<u8>, Vec<u8>) {
+    let body = serde_json::to_vec(&json!({
+        "schema": 1, "purpose": commit_build::PURPOSE, "commit": commit, "build": number,
+        "arch": "arm64", "dmg": commit_build::dmg_name(number), "length": 10, "sha256": sha(b"dmg"),
+        "source_run": 44_477_474_332_u64, "published_at": 1_000,
+    }))
+    .unwrap();
+    (body.clone(), commit_build_sidecar(&body))
+}
+
+fn commit_build_sidecar(body: &[u8]) -> Vec<u8> {
+    let b64 = base64::engine::general_purpose::STANDARD;
+    serde_json::to_vec(
+        &json!({"edSignature": b64.encode(key().sign(body).as_ref()), "length": body.len()}),
+    )
+    .unwrap()
+}
+
+fn app_key() -> String {
+    base64::engine::general_purpose::STANDARD.encode(keys()[0].1)
+}
+
+#[test]
+fn commit_build_is_read_only_when_the_apps_own_key_signed_it_for_this_commit() {
+    let (body, sidecar) = commit_build_files(COMMIT, "4447747433201");
+    let build = commit_build::verify(&body, &sidecar, &app_key(), COMMIT).unwrap();
+    assert_eq!((build.build.as_str(), build.arch.as_str()), ("4447747433201", "arm64"));
+
+    // Another key (another feed's, or none of ours).
+    let other = ring::signature::Ed25519KeyPair::from_seed_unchecked(&[7u8; 32]).unwrap();
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let forged = serde_json::to_vec(
+        &json!({"edSignature": b64.encode(other.sign(&body).as_ref()), "length": body.len()}),
+    )
+    .unwrap();
+    assert!(commit_build::verify(&body, &forged, &app_key(), COMMIT).is_err());
+    // Another commit's genuine file put in this commit's folder.
+    let (other_body, other_sidecar) = commit_build_files(&"a".repeat(40), "4447747433201");
+    let error = commit_build::verify(&other_body, &other_sidecar, &app_key(), COMMIT).unwrap_err();
+    assert!(error.contains("not"), "{error}");
+    // Bytes changed after signing, or a signature naming another length.
+    let mut changed = body.clone();
+    changed.push(b' ');
+    assert!(commit_build::verify(&changed, &sidecar, &app_key(), COMMIT).is_err());
+    // Not a build number, or a disk image name the app would not derive.
+    for (field, value) in [
+        ("build", json!("12a")),
+        ("dmg", json!("other.dmg")),
+        ("arch", json!("x86_64")),
+        ("purpose", json!("cmux-mac-live-update")),
+        ("schema", json!(2)),
+    ] {
+        let mut payload: Value = serde_json::from_slice(&body).unwrap();
+        payload[field] = value;
+        let bytes = serde_json::to_vec(&payload).unwrap();
+        let sidecar = commit_build_sidecar(&bytes);
+        assert!(commit_build::verify(&bytes, &sidecar, &app_key(), COMMIT).is_err(), "{field}");
+    }
+}
+
+#[test]
+fn commit_build_reads_the_commit_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = format!("file://{}/", dir.path().display());
+    // Nothing published: missing, not refused.
+    assert!(matches!(
+        commit_build::read(COMMIT, &base, Some(&app_key())),
+        commit_build::Found::Missing
+    ));
+    let folder = dir.path().join(COMMIT);
+    fs::create_dir_all(&folder).unwrap();
+    let (body, sidecar) = commit_build_files(COMMIT, "4447747433201");
+    fs::write(folder.join("build.json"), &body).unwrap();
+    // build.json without its signature is refused.
+    assert!(matches!(
+        commit_build::read(COMMIT, &base, Some(&app_key())),
+        commit_build::Found::Refused(_)
+    ));
+    fs::write(folder.join("build.json.signature.json"), &sidecar).unwrap();
+    let commit_build::Found::Build(build) = commit_build::read(COMMIT, &base, Some(&app_key()))
+    else {
+        panic!("expected the commit build")
+    };
+    assert_eq!(build.build, "4447747433201");
+    // An app with no update key (a DEV build) has no commit build.
+    assert!(matches!(commit_build::read(COMMIT, &base, None), commit_build::Found::Missing));
+}
+
+#[test]
+fn app_try_prefers_the_commits_own_build_to_a_later_nightly() {
+    let (body, sidecar) = commit_build_files(COMMIT, "4447747433201");
+    let found = || {
+        commit_build::Found::Build(
+            commit_build::verify(&body, &sidecar, &app_key(), COMMIT).unwrap(),
+        )
+    };
+    // A later nightly that contains it gives way to the commit's own build.
+    let later =
+        Plan::Full { build: json!({"build": "700"}), from: "400".to_owned(), nearest: true };
+    assert!(super::wants_commit_build(&later));
+    let plan = super::with_commit_build(later, found(), COMMIT, "400");
+    let Plan::Full { build, from, nearest: false } = &plan else {
+        panic!("expected full, got {plan:?}")
+    };
+    assert_eq!(
+        (build["build"].as_str(), build["commit"].as_str(), from.as_str()),
+        (Some("4447747433201"), Some(COMMIT), "400")
+    );
+    assert!(super::is_commit_build(build));
+    let text = super::plan_human(&plan, COMMIT, Path::new("/A.app"), None);
+    assert!(text.contains("4447747433201") && text.contains("NIGHTLY"), "{text}");
+    // No build at all: the commit build too.
+    let none = Plan::None { why: vec!["no feed build".to_owned()] };
+    assert!(matches!(super::with_commit_build(none, found(), COMMIT, ""), Plan::Full { .. }));
+
+    // An exact feed build, the app's own build, or a live swap are never replaced.
+    let exact =
+        Plan::Full { build: json!({"build": "500"}), from: "400".to_owned(), nearest: false };
+    assert!(!super::wants_commit_build(&exact));
+    assert!(!super::wants_commit_build(&Plan::Have { build: json!({"build": "600"}) }));
+
+    // Missing or refused: the reason joins the others, and a later nightly stays the plan.
+    let plan = super::with_commit_build(
+        Plan::None { why: vec![] },
+        commit_build::Found::Missing,
+        COMMIT,
+        "",
+    );
+    let Plan::None { why } = plan else { panic!("expected none") };
+    assert!(why[0].contains("build.json"), "{why:?}");
+    let plan = super::with_commit_build(
+        Plan::None { why: vec![] },
+        commit_build::Found::Refused("bad".to_owned()),
+        COMMIT,
+        "",
+    );
+    let Plan::None { why } = plan else { panic!("expected none") };
+    assert!(why[0].contains("bad"), "{why:?}");
+    let later =
+        Plan::Full { build: json!({"build": "700"}), from: "400".to_owned(), nearest: true };
+    let kept = super::with_commit_build(later, commit_build::Found::Missing, COMMIT, "400");
+    assert!(matches!(kept, Plan::Full { nearest: true, .. }));
 }

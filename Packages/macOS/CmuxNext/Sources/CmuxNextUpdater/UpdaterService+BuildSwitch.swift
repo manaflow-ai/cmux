@@ -17,8 +17,11 @@ extension UpdaterService {
     }
 
     /// The Channels card's Switch: restarts into `build`. Nil when it runs (the app quits), else
-    /// what the person reads.
-    public func switchToBuild(_ build: String) async -> String? {
+    /// what the person reads. With `commit` (`cmux app try`), `build` is that commit's own build,
+    /// published outside the feed under `commits/<commit>/` beside it
+    /// (cmuxterm-hq docs/design/nightly-per-commit-builds.md), and the app it holds must name that
+    /// commit too.
+    public func switchToBuild(_ build: String, commit: String? = nil) async -> String? {
         guard switchesBuilds else { return UpdaterStrings.channelsSwitchUnavailable }
         guard build != identity.build else { return UpdaterStrings.channelsSwitchAlreadyHere }
         guard !switchRunning else { return RollbackRefusal.busy.message }
@@ -33,7 +36,7 @@ extension UpdaterService {
         let kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list().contains { $0.build == build } }) ?? false
         if !kept {
             buildSwitchProgress = BuildSwitchProgress(build: build, stage: .download)
-            if let failure = await downloadForSwitch(build) {
+            if let failure = await downloadForSwitch(build, commit: commit) {
                 buildSwitchProgress = nil
                 return failure
             }
@@ -44,8 +47,10 @@ extension UpdaterService {
 
     /// Downloads, checks and keeps `build` for ``switchToBuild(_:)``, moving
     /// ``buildSwitchProgress`` along; nil once kept, else what the person reads.
-    private func downloadForSwitch(_ build: String) async -> String? {
-        guard let source = await switchDownload(for: build) else { return UpdaterStrings.channelsSwitchGone }
+    private func downloadForSwitch(_ build: String, commit: String?) async -> String? {
+        let found: (url: URL, signature: ArchiveSignature?)?
+        if let commit { found = commitDownload(for: build, commit: commit) } else { found = await switchDownload(for: build) }
+        guard let source = found else { return UpdaterStrings.channelsSwitchGone }
         // The EdDSA check Sparkle makes of every update: the feed item's signature, else the one
         // published beside the DMG. A build published before that file has neither and is refused.
         var published = source.signature
@@ -73,7 +78,7 @@ extension UpdaterService {
         if let failure = await BuildSwitchDownload(store: keptVersions, bundleIdentifier: identity.bundleIdentifier,
                                                    teamID: team ?? nil,
                                                    publicEDKey: Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
-                                                   progress: progress)
+                                                   commit: commit, progress: progress)
             .keep(build: build, from: source.url, signature: signature) {
             // The reason names the step and its error: the log keeps it, the person reads plain words.
             log.append("switch: \(build) not kept: \(failure)")
@@ -105,6 +110,26 @@ extension UpdaterService {
         return Self.nightlyDiskImageURL(build: build, in: feedFolder).map { ($0, nil) }
     }
 
+    /// Where a commit's own build downloads from: `commits/<commit>/` beside this app's nightly-next
+    /// feed, the folder main's DEV tip publisher writes it to, never on the feed. Its signature is
+    /// the one published beside the DMG, by this app's own feed key. Nil off the nightly-next
+    /// track, in the tip app, or for a name that is not a full commit and a build number.
+    func commitDownload(for build: String, commit: String) -> (url: URL, signature: ArchiveSignature?)? {
+        let feed = identity.feed()
+        guard feed.channel == .nightlyNext, !identity.isTipBuild,
+              let folder = URL(string: feed.url)?.deletingLastPathComponent() else { return nil }
+        return Self.nightlyCommitDiskImageURL(build: build, commit: commit, in: folder).map { ($0, nil) }
+    }
+
+    /// The DMG main's DEV tip publisher writes for `commit`'s own NIGHTLY build: Apple silicon
+    /// only, as the publisher builds. Nil for anything but a full lowercase commit and a build number.
+    nonisolated static func nightlyCommitDiskImageURL(build: String, commit: String, in folder: URL,
+                                                      architecture: UpdateHostArchitecture = .current) -> URL? {
+        guard architecture == .arm64, !build.isEmpty, build.allSatisfy(\.isNumber), folder.scheme == "https",
+              commit.count == 40, commit.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) else { return nil }
+        return folder.appending(path: "commits/\(commit)/cmux-nightly-commit-macos-arm64-\(build).dmg")
+    }
+
     /// The DMG cmux NEXT's nightly publisher writes for `build` beside its feed; nil for a name
     /// that is not a build number.
     nonisolated static func nightlyDiskImageURL(build: String, in folder: URL,
@@ -124,6 +149,10 @@ nonisolated struct BuildSwitchDownload: Sendable {
     var teamID: String?
     /// The running app's `SUPublicEDKey`; nil refuses every download.
     var publicEDKey: String?
+    /// A commit build's commit (``UpdaterService/commitDownload(for:commit:)``): the app in the
+    /// disk image must name it (`CMUXCommit`, which a build may stamp short), so no commit's
+    /// folder can hand over another commit's build. Nil for a feed build.
+    var commit: String?
     var downloader: any AppChannelDownloading = URLSessionAppChannelDownloader()
     var mounter: any DiskImageMounting = HdiutilDiskImageMounter()
     var inspector: any AppSignatureInspecting = SecurityAppSignatureInspector()
@@ -168,6 +197,12 @@ nonisolated struct BuildSwitchDownload: Sendable {
         else { return "the disk image holds no \(bundleIdentifier)" }
         let version = Bundle(url: app)?.infoDictionary?["CFBundleVersion"] as? String
         guard version == build else { return "the disk image holds build \(version ?? "?"), not \(build)" }
+        if let commit {
+            let stamped = (Bundle(url: app)?.infoDictionary?["CMUXCommit"] as? String)?.lowercased() ?? ""
+            guard stamped.count >= 7, commit.hasPrefix(stamped) else {
+                return "the disk image holds commit \(stamped.isEmpty ? "?" : stamped), not \(commit)"
+            }
+        }
         do {
             let report = try inspector.inspect(appURL: app, teamIdentifier: teamID)
             try AppSignatureVerifier(teamIdentifier: teamID).verify(report, bundleIdentifier: bundleIdentifier)

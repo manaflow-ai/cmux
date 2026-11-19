@@ -55,13 +55,15 @@ public struct UpdateBuildControl {
             // `{build}`: installs that build, older or newer (`cmux nightly install`), the way the
             // Channels card's Switch does: download, signature and team check, keep, swap, and the build
             // left behind is no longer offered. The app quits and reopens into it; the answer may not
-            // arrive. A refusal is `switch_refused` with what the person reads.
+            // arrive. A refusal is `switch_refused` with what the person reads. `{build, commit}`
+            // (`cmux app try`) installs that commit's own build from beside the feed instead.
             .mainActor("updates.switch_build") { call in
                 guard let build = call.params["build"]?.stringValue, !build.isEmpty else {
                     throw ControlError.invalidParams("updates.switch_build needs build")
                 }
+                let commit = call.params["commit"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
                 return .followUp {
-                    if let failure = await updater.switchToBuild(build) {
+                    if let failure = await updater.switchToBuild(build, commit: commit) {
                         throw ControlError(code: "switch_refused", message: failure)
                     }
                     return .object(["switching_to": .string(build)])
