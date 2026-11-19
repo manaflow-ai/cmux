@@ -15,7 +15,7 @@ public enum AgentToolsChoice: String, Sendable, CaseIterable {
 
 /// One coding agent on this Mac and whether it gets cmux's tools when cmux starts it, as `cmux
 /// setup mcp` reports it.
-public struct AgentToolsAgent: Sendable, Equatable {
+public nonisolated struct AgentToolsAgent: Sendable, Equatable {
     public enum State: String, Sendable {
         /// Installed; it gets no cmux tools in cmux yet (the answer is not `on`).
         case ready
@@ -46,7 +46,7 @@ public struct AgentToolsAgent: Sendable, Equatable {
     }
 }
 
-public extension AgentToolsAgent {
+public nonisolated extension AgentToolsAgent {
     /// The installed agents of a `cmux --json setup mcp` report (stdout, also of a failed run):
     /// `terminals` gets cmux's tools in cmux, `failed` could not be read, any other state is
     /// ready. An agent not installed is left out. Nil for no report.
@@ -101,14 +101,14 @@ public protocol AgentToolsSource: AnyObject {
 /// What Remove did: the entry is gone (or there was none), cmux kept it because it holds settings it
 /// could not put back (the CLI's `user_action.text`, which names them, never their values), or the
 /// run failed.
-public enum AgentToolsRemoval: Sendable, Equatable {
+public nonisolated enum AgentToolsRemoval: Sendable, Equatable {
     case removed
     case kept(String)
     case failed
 }
 
 /// One `cmux setup mcp` report: the installed agents and the manual lines.
-public struct AgentToolsReport: Sendable, Equatable {
+public nonisolated struct AgentToolsReport: Sendable, Equatable {
     public let agents: [AgentToolsAgent]
     public let manual: [String]
 
@@ -118,7 +118,7 @@ public struct AgentToolsReport: Sendable, Equatable {
     }
 }
 
-extension AgentToolsRemoval {
+nonisolated extension AgentToolsRemoval {
     /// From `cmux setup mcp --remove ID`'s report: `changed` or `ok` removed it (or there was
     /// none); `needs_user` kept it, with the text that says why.
     public init(removeReport data: Data) {

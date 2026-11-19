@@ -103,7 +103,7 @@ struct ComputerUsePolicyWake: Sendable {
 
 /// The policy the app sends cmux Remote's Computer Use worker: the person's `computerUse.*`
 /// (`ComputerUseSettings.policyConfigJSON()`) and the agent cursor's animation switches.
-public struct CmuxRemoteComputerUsePolicy: Equatable, Sendable {
+public nonisolated struct CmuxRemoteComputerUsePolicy: Equatable, Sendable {
     public var policy: Data
     /// `ui.animations.enabled`, `ui.animations.cursor` and `ui.animationSpeed` not "off".
     public var cursorAnimates: Bool
@@ -117,8 +117,8 @@ public struct CmuxRemoteComputerUsePolicy: Equatable, Sendable {
     }
 
     /// The `computer-use-config` object: the PolicyConfig plus `cursorMotion` (the engine ignores
-    /// keys it does not know; cmux Remote's worker reads it for the cursor).
-    var config: CmuxNextDaemon.JSONValue? {
+    /// keys it does not know; cmux Remote's worker reads it for the cursor). Decoded off the main actor.
+    @concurrent func config() async -> CmuxNextDaemon.JSONValue? {
         guard let object = try? JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: policy),
               case .object(var fields) = object else { return nil }
         fields["cursorMotion"] = .object(["enabled": .bool(cursorAnimates), "speed": .number(cursorSpeed)])
@@ -131,7 +131,7 @@ extension CmuxRemoteService {
     /// Returns whether the daemon took it.
     @discardableResult
     public func applyComputerUse(_ policy: CmuxRemoteComputerUsePolicy) async -> Bool {
-        guard let config = policy.config else { return false }
+        guard let config = await policy.config() else { return false }
         do {
             // The daemon checks the policy and hands it to cmux Remote (the verified app's only).
             let answer = try await daemonRequest(ComputerUseConfigRequest(config: config))
@@ -241,8 +241,20 @@ extension CmuxRemoteService {
         _ = try? await call("request", .object(["permission": .string(permission)]))
     }
 
-    static func object(_ value: CmuxNextDaemon.JSONValue) -> [String: Any]? {
-        guard let data = try? JSONEncoder().encode(value) else { return nil }
-        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    /// An answer as the Foundation object JSONSerialization would give (NSNumber, NSNull), read straight from
+    /// the value: no encode and decode again on the main actor.
+    nonisolated static func object(_ value: CmuxNextDaemon.JSONValue) -> [String: Any]? {
+        foundation(value) as? [String: Any]
+    }
+
+    nonisolated static func foundation(_ value: CmuxNextDaemon.JSONValue) -> Any {
+        switch value {
+        case .null: NSNull()
+        case .bool(let flag): NSNumber(value: flag)
+        case .number(let number): NSNumber(value: number)
+        case .string(let text): text
+        case .array(let items): items.map(foundation)
+        case .object(let fields): fields.mapValues(foundation)
+        }
     }
 }
