@@ -15482,7 +15482,11 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             # React Doctor (da29cd0a): a ratchet over the React projects' own code.
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
-            "cmux-next-tab-switch.yml"),
+            "cmux-next-tab-switch.yml",
+            # Calls ci.yml, cmux-next-guards.yml and the other docs-only-filtered workflows when their filter can
+            # be wrong (scripts/ci/docs_only_paths.py FALLBACK); a called guard job's check name carries the
+            # caller's prefix, so no guard job declaration matches it and its red is judged as any job's.
+            "docs-only-fallback.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",

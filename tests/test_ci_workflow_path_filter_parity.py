@@ -190,10 +190,19 @@ def unapproved(path, name=None):
                 push_patterns = events["push"].get(filter_name) or []
                 pull_request_patterns = events["pull_request"].get(filter_name) or []
                 # With a negated pattern the order matters, so the push list
-                # without the allowed patterns must equal the pull_request list.
+                # without its allowed patterns must equal the pull_request list
+                # without its own (PULL_REQUEST_ONLY_PATTERNS).
                 if not any(pattern.startswith("!") for pattern in (*push_patterns, *pull_request_patterns)):
                     continue
-                if [pattern for pattern in push_patterns if pattern not in allowed] == pull_request_patterns:
+                pr_allowed = PULL_REQUEST_ONLY_PATTERNS.get(name, ("", frozenset(), ""))
+                pr_allowed = pr_allowed[1] if pr_allowed[0] == filter_name else frozenset()
+                push_rest = [pattern for pattern in push_patterns if pattern not in allowed]
+                pull_request_rest = [pattern for pattern in pull_request_patterns if pattern not in pr_allowed]
+                if push_rest == pull_request_rest:
+                    continue
+                # Every negation is an allowed pull-request-only pattern: what is left orders nothing.
+                if not any(p.startswith("!") for p in (*push_rest, *pull_request_rest)) \
+                        and set(push_rest) == set(pull_request_rest):
                     continue
                 narrowed = []
             push_only = narrowed
