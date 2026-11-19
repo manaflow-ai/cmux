@@ -73,3 +73,18 @@ jobs:
           gh workflow run ios-internal-nightly.yml --repo "$GITHUB_REPOSITORY" --ref rc/cnx-ios-builder \
             -f sha="$HEAD_SHA" -f base="$BASE_SHA"
           echo "dispatched cmux-next-ios INTERNAL $HEAD_SHA (base ${BASE_SHA:-none})" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Every INTERNAL build also gets the PagedList stress run on the same commit
+      # (cmux-next-ios-pagedlist-stress.yml: red on layout shift, hitches reported).
+      # Its own run: a failed dispatch or a red there never holds the build.
+      - name: Dispatch the PagedList stress run
+        if: steps.plan.outputs.build == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.plan.outputs.head }}
+        run: |
+          set -euo pipefail
+          gh workflow run cmux-next-ios-pagedlist-stress.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
+            -f ref="$HEAD_SHA"
+          echo "dispatched the PagedList stress run for $HEAD_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
