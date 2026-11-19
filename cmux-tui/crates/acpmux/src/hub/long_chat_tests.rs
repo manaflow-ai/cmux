@@ -252,6 +252,10 @@ async fn a_sub_sessions_turn_ends_read_its_parents_log_once() {
     let hub = hub_over(&sessions);
     let child = hub.resolve("child").unwrap();
     // Done: nothing is due, and no later turn end of the chat looks again.
-    assert!(hub.offer_result(&child, "parent").await, "a side chat's turn end looks again");
+    let first = read_bytes();
+    let done = hub.offer_result(&child, "parent").await;
+    let first = read_bytes() - first;
+    eprintln!("a side chat's turn end read {first} bytes of its parent; done: {done}");
+    assert!(done, "a side chat's turn end looks again");
     let _ = std::fs::remove_dir_all(&root);
 }
