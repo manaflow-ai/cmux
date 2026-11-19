@@ -353,27 +353,29 @@ export function NewTabPage({
     return true;
   });
   const composing = useRef(false);
-  const recent = useMemo(() => recentSessions(snapshot.sessions), [snapshot.sessions]);
   // The suggestions float over the page under the field (cx-6k6cg), so they show only while the
   // field has the keyboard and something is typed: at rest nothing covers the page below.
   const [focused, setFocused] = useState(false);
   const queryRef = useRef(query);
   queryRef.current = query;
   const open = focused && query.trim() !== "" && query !== dismissed;
-  const suggestions = useMemo(
+  // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
+  const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
+  const rows = useMemo(
     () =>
-      omnibarRows(query, kind, {
-        ...omnibar,
-        sessions: recent.map((session) => ({
-          sessionId: session.sessionId,
-          title: session.displayTitle ?? session.sessionId,
-          ...(session.harness ? { harness: session.harness } : {}),
-          detail: projectLabel(session.cwd),
-        })),
-      }),
-    [query, kind, omnibar, recent],
+      open
+        ? omnibarRows(query, kind, {
+            ...omnibar,
+            sessions: recent.map((session) => ({
+              sessionId: session.sessionId,
+              title: session.displayTitle ?? session.sessionId,
+              ...(session.harness ? { harness: session.harness } : {}),
+              detail: projectLabel(session.cwd),
+            })),
+          })
+        : [],
+    [open, query, kind, omnibar, recent],
   );
-  const rows = useMemo(() => (open ? suggestions : []), [open, suggestions]);
   useEffect(() => setSelected(defaultRow(rows, kind, query)), [rows, kind, query]);
   useEffect(() => {
     // Rows past the window's edge draw in the host; the invisible list never scrolls the page.

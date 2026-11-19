@@ -420,8 +420,11 @@ macro_rules! home_rule {
   follow it. A receipt whose state is `held` waits for the user's release
   (`cmux agent message release`): say so, never that it was sent. Your
   subagents stay `tell`.
-- Browser: drive pages in the column right of your chat with `cmux
-  browser right <verb> --agent \"<your name>\"` (navigate URL, snapshot
+- Browser: a page that shows work (a diff, a compare, a pull request, a
+  preview) opens in that work's workspace (Where to show things), never in
+  the column right of your chat. Drive a page there only for short, visible
+  steps or when the user asks, with `cmux browser right <verb> --agent
+  \"<your name>\"` (navigate URL, snapshot
   --interactive, click, fill, type, press, scroll, state, screenshot --out
   FILE; `cmux browser page --help` lists them). It uses your own tab there,
   else the tab the column shows, else opens one there; it never moves the
@@ -988,6 +991,12 @@ report.
   (`OLD..NEW`), or says that nothing landed and why. Never push with
   `--no-verify`, unless the hook fails only on files you did not touch;
   then say so in your report.
+- GitHub waits: wait on a pull request or its checks with one background
+  `glaeda-gh wait pr OWNER/REPO#N --sha FULL_SHA` (a run: `glaeda-gh wait run
+  OWNER/REPO/RUN_ID`), or acpmux `run_wait`. Its daemon is the one poller on
+  the machine and waits on GitHub's PR events where the account has access.
+  Never `gh pr checks --watch`, `gh run watch`, a sleep loop or a `gh event
+  listen` of your own.
 - Decisions: pick the sensible default yourself, act on it and name it in
   your report (\"Default picked: ...\"); never stop to ask which one. Ask
   only before money, legal, destructive (deleting data, force pushes) or
@@ -1093,7 +1102,7 @@ pub const REMEMBER_DESCRIPTION: &str = "Keep a lasting preference or correction 
 pub const SLEEP_DESCRIPTION: &str = "End your turn and wake later: after `seconds` (30 to 86400) a message \"[wake] <note>\" starts a new turn with the whole view. Use it to look at a run, deploy or subagent again instead of waiting or polling. until: event lets a user message or subagent report that comes first replace the wake. seconds 0 clears every pending wake. Never call it to wait for a subagent's report alone: reports always wake you.";
 
 /// The `watch` tool's description (optchat-chief brain/watches.rs).
-pub const WATCH_DESCRIPTION: &str = "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `glaeda-gh wait run OWNER/REPO/ID` with no until waits for a run (never poll gh: a merge wait on `gh pr view N -R OWNER/REPO` with until MERGED runs as one `glaeda-gh wait pr` when glaeda is on the host). Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.";
+pub const WATCH_DESCRIPTION: &str = "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `glaeda-gh wait run OWNER/REPO/ID` with no until waits for a run (never poll gh: a merge wait on `gh pr view N -R OWNER/REPO` with until MERGED runs as one `glaeda-gh wait pr` when glaeda is on the host; its daemon waits on GitHub's PR events where the account has access, so never your own `gh event listen`, `gh pr checks --watch` or `gh run watch`). Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.";
 
 /// The `control` tool's description.
 pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. show id / hide id: move its workspace to the top of the sidebar, or into the collapsed \"Chief's workspaces\" group (spawn(sidebar) chose at its start; show one when the user asks to watch it or must allow its prompt, hide one the user is done watching); neither closes it. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";

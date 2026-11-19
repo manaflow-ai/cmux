@@ -157,6 +157,14 @@ describe("overrides", () => {
     expect(projected.models["anthropic/claude-opus-5-5"]?.contextWindow).toBeUndefined();
   });
 
+  test("a model the live catalog's kill switch turned off is valid as disabled, with its reason", () => {
+    const projected = JSON.parse(JSON.stringify(projectCatalog(feed, NOW))) as ModelCatalog;
+    Object.assign(projected.harnesses[0]!.models[0]!, { status: "disabled", statusReason: "provider outage" });
+    expect(() => validateCatalog(projected)).not.toThrow();
+    Object.assign(projected.harnesses[0]!.models[0]!, { status: "off" });
+    expect(() => validateCatalog(projected)).toThrow();
+  });
+
   test("every harness docs URL is on the allowlist", () => {
     for (const entry of catalog.harnesses) {
       if (entry.docsUrl) expect(allowedDocsUrl(entry.docsUrl)).toBe(true);

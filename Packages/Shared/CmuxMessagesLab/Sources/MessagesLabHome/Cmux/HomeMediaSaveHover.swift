@@ -13,6 +13,8 @@ final class HomeMediaSaveHover {
     static let side: CGFloat = 28
     static let inset: CGFloat = 6
     static let radius: CGFloat = Fixture.bubbleRadius - inset
+    /// The download glyph's box: 16 pt in the 28 pt button (it read too small at 13, user 2026-11-17), 6 pt each side.
+    static let glyphSide: CGFloat = 16
 
     /// What the button is over: the message, the attachment, and the button's frame in the transcript's coordinates.
     struct Target: Equatable, Sendable {
@@ -63,7 +65,7 @@ final class HomeMediaSaveHover {
             layer.contentsScale = scale
             glyph.contentsScale = scale
             glyph.contents = glyphImage(scale: scale)
-            let g: CGFloat = 13
+            let g = Self.glyphSide
             glyph.frame = CGRect(x: (Self.side - g) / 2, y: (Self.side - g) / 2 - 0.5, width: g, height: g)
         }
         layer.backgroundColor = NSColor(white: 0, alpha: pressed ? 0.68 : 0.5).cgColor
@@ -103,11 +105,11 @@ final class HomeMediaSaveHover {
     private var glyphCache: (scale: CGFloat, image: CGImage?)?
     private func glyphImage(scale: CGFloat) -> CGImage? {
         if let cached = glyphCache, cached.scale == scale { return cached.image }
-        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
         guard let symbol = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: nil)?
             .withSymbolConfiguration(config) else { return nil }
-        let size = NSSize(width: 13, height: 13)
-        let pixels = CrashGuard.int((13 * scale).rounded(.up), in: 13...64) // no trap on a NaN scale
+        let size = NSSize(width: Self.glyphSide, height: Self.glyphSide)
+        let pixels = CrashGuard.int((Self.glyphSide * scale).rounded(.up), in: 16...96) // no trap on a NaN scale
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
                                          samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                          bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
