@@ -144,6 +144,17 @@ body {
   --ds-material-neutral-dark: rgb(28 28 28); /* the neutral veil's gray on the dark side */
   --ds-material-rim-lit: rgb(255 255 255); /* the lit rim: a top edge, and a dark side's bottom edge */
   --ds-material-rim-shade: rgb(0 0 0); /* the shaded rim: a light side's bottom edge */
+  --ds-transient-dark-veil-alpha: 0.42;
+  --ds-transient-light-veil-alpha: 0.55;
+  --ds-transient-dark-rim-top: 0.3;
+  --ds-transient-dark-rim-bottom: 0.06;
+  --ds-transient-light-rim-top: 0.85;
+  --ds-transient-light-rim-bottom: 0.1;
+  --ds-transient-host-veil: 0.4;
+  --ds-transient-native-tint-strength: 1.25;
+  --ds-transient-web-tint: 78%;
+  --ds-transient-web-blur: 32px;
+  --ds-transient-web-saturation: 1.6;
   --elevation-1: 0 1px 2px color-mix(in srgb, black 7%, transparent); /* rows, cards and inline surfaces */
   --elevation-2: 0 2px 6px color-mix(in srgb, black 11%, transparent); /* popovers, menus, the palette, hover cards, the composer, sheets and find bars */
   --ds-color-surface: var(--cmux-surface-solid, var(--cmux-app-content, Canvas)); /* the page and pane surface, opaque */
@@ -162,6 +173,22 @@ body {
   --ds-color-attention: var(--cmux-app-warning, light-dark(#a15c00, #f0c674)); /* warnings and needs-you marks */
   --ds-color-danger: var(--cmux-app-danger, light-dark(#c0392b, #ff6b6b)); /* errors and destructive actions */
   --ds-color-success: var(--cmux-app-success, light-dark(#2e7d32, #8ad48a)); /* success and healthy states */
+  /* content surfaces: the page's ink over clear; a page whose ink is another variable sets --ds-surface-ink */
+  --ds-surface-ink: var(--ds-color-fg);
+  --ds-surface-card: color-mix(in srgb, var(--ds-surface-ink) 4%, transparent); /* a container of content in the page: the transcript's tool, edit, error and permission cards, plans, code blocks, tool output, the subagent card */
+  --ds-surface-card-line: color-mix(in srgb, var(--ds-surface-ink) 10%, transparent); /* a container of content in the page: the transcript's tool, edit, error and permission cards, plans, code blocks, tool output, the subagent card */
+  --ds-surface-inset: color-mix(in srgb, var(--ds-surface-ink) 8%, transparent); /* a piece inside a card or inline in text: an icon tile, inline code, a chip, a key cap, a filled secondary control */
+  --ds-surface-control-line: color-mix(in srgb, var(--ds-surface-ink) 16%, transparent); /* the outline of a secondary button at rest; its hover and press take the hover and pressed roles */
+}
+:root[data-borders="none"] {
+  --ds-surface-card-line: transparent;
+  --ds-surface-control-line: transparent;
+}
+@media (prefers-contrast: more) {
+  :root:not([data-borders="none"]) {
+    --ds-surface-card-line: var(--ds-surface-ink);
+    --ds-surface-control-line: var(--ds-surface-ink);
+  }
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -887,6 +914,23 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
     [role="option"],
     [role="menuitem"]
   ):is(:hover, [data-highlighted]) {
+  transition-duration: 0s !important;
+}
+/* MENU-ROW-SNAP (Lawrence 2026-11-17, "fix these hover bugs"): a menu's highlight moves as an
+   NSMenu's does, in one frame both ways. The row the pointer or the arrows leave clears in the
+   frame the next one lights, so two rows are never lit at once and none stays lit after the pointer
+   leaves the menu (the row's own 80 ms fade-out did both). Only the rows of a popup (every menu,
+   combobox and popover list is a .ui-popup); a list on a page keeps its cross-fade. A row's
+   keyframe motion (rowPresence.ts) is an animation, not a transition, so it still runs. */
+.ui-popup
+  :is(
+    .ui-menu-item,
+    .ui-combobox-item,
+    [role="option"],
+    [role="menuitem"],
+    [role="menuitemradio"],
+    [role="menuitemcheckbox"]
+  ) {
   transition-duration: 0s !important;
 }
 

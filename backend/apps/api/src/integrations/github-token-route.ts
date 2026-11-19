@@ -13,10 +13,13 @@ import { platformCloud } from "../platform-cloud.ts"
 /**
  * The GitHub token routes (gh-app-product contract; the work is in github-tokens.ts): POST /token
  * {team, repo, permissions, label?}, POST /token/revoke {team, install?}, GET /status?team=,
- * GET /repos?team=&query?&cursor? -> {repos: [{full_name, private, default_branch}], truncated, cursor}. Callers:
+ * GET /repos?team=&query?&cursor? -> {repos: [{full_name, private, default_branch}], truncated, cursor}. /status's
+ * connection carries `configure_url`, the installation's GitHub page for adding repositories, or null. Callers:
  * a `vm` install for its own live machine (vmGate's checks, through CloudDO's cloud.vm.self.get), a
  * `daemon`, `cli` or `mac` install, or a member's session; chief tokens (`agent`), team VMs, phone
- * and web installs are refused. Errors are `{error: {code, message}}` and never carry a token.
+ * and web installs are refused. Errors are `{error: {code, message, configure_url?, reason?}}` (configure_url only on a
+ * policy.denied for a repository the owner's installation lacks; reason, github-tokens.ts DenyReason, on a
+ * policy.denied about the repository or its access) and never carry a token.
  */
 export const GITHUB_TOKEN_PATH = /^\/v1\/integrations\/github\/(token|machine-token|token\/revoke|status|repos)$/
 
@@ -26,8 +29,10 @@ const NO_STORE = { "cache-control": "no-store" }
 const REPO_PAGES_PER_ANSWER = 10
 const REPOS_PER_ANSWER = 100
 
-type Fail = { status: number; code: string; message: string; retry_after?: number }
-const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.message }, ...(f.retry_after === undefined ? {} : { retry_after: f.retry_after }) }, { status: f.status, headers: NO_STORE })
+type Fail = { status: number; code: string; message: string; retry_after?: number; configure_url?: string; reason?: string }
+// `configure_url` and a policy.denied's `reason` (github-tokens.ts DenyReason) ride in `error`, where the machine's
+// git and gh read them (cmux-host github.rs reply_for).
+const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.message, ...(f.configure_url === undefined ? {} : { configure_url: f.configure_url }), ...(f.reason === undefined ? {} : { reason: f.reason }) }, ...(f.retry_after === undefined ? {} : { retry_after: f.retry_after }) }, { status: f.status, headers: NO_STORE })
 const no = (status: number, code: string, message: string): Fail => ({ status, code, message })
 const unreachable = (what: string) => no(503, "integration.unavailable", `${what} could not be checked; retry`)
 
@@ -77,8 +82,11 @@ const teamAdmin = async (env: Env, p: Principal, team: string): Promise<boolean 
 
 export const handleGithubToken = async (request: Request, env: Env, sub: string): Promise<Response> => {
   // The machine-only seam is a development surface until the hosted connector rollout. Repository
-  // enumeration answers a signed-in person (a session or their own install) in every environment; a
-  // machine's listing stays on development as before.
+  // enumeration answers in every environment: a signed-in person (a session or their own install), and a
+  // `vm` install for its own team under exactly the gate POST /token applies to it (caller: its machine's
+  // team only, the SSO gate, a live grant, vmGate's own live machine). The listing is no wider than the
+  // tokens that VM could mint: githubRepos keeps only the connections it may use and the repositories
+  // their scope and the team's allowlist cover (githubRepoAllowed, as authorize's githubCovers).
   if (sub === "machine-token" && env.ENVIRONMENT !== "development") return new Response("not found", { status: 404 })
   if (sub === "repos") {
     if (request.method !== "GET") return failed(no(405, "request.invalid", "GET"))
@@ -90,7 +98,6 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     if (asked !== null && (asked.length > 256 || /\p{Cc}/u.test(asked))) return failed(no(400, "request.invalid", "query is at most 256 characters of text"))
     const who = await caller(request, env, team)
     if (isFail(who)) return failed(who)
-    if (who.p.kind === "install" && who.p.install_kind === "vm" && env.ENVIRONMENT !== "development") return new Response("not found", { status: 404 })
     // One answer walks a few upstream pages, so a filter finds a repository past the first hundred;
     // `truncated` says more remain, and `cursor` continues from there.
     const repos: Array<{ full_name: string; private: boolean; default_branch: string | null }> = []

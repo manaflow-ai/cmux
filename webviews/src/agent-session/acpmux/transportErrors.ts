@@ -69,11 +69,11 @@ const INTENT_INVALID_TEXT: Record<string, StringKey> = {
   "session/set_model": "transport.intentInvalidSetting",
 };
 
-function intentInvalidKey(error: unknown): StringKey {
+function intentInvalidKey(error: unknown, fallback: StringKey): StringKey {
   const method = typeof error === "object" && error !== null ? (error as { method?: unknown }).method : undefined;
   return typeof method === "string" && Object.hasOwn(INTENT_INVALID_TEXT, method)
     ? INTENT_INVALID_TEXT[method]!
-    : "transport.intentInvalid";
+    : fallback;
 }
 
 /// The text to show for `error`: a transport refusal's own text (a code without one reads as the
@@ -86,7 +86,10 @@ export function errorMessage(error: unknown): string {
 /// The pane's own words for a refusal it knows (a transport code, an acpmux reason it words), else
 /// undefined: the text a notice may say after "Couldn't …". Any other failure's message is the
 /// daemon's, the bridge's or the browser's ("Failed to fetch"), for the log or Details, never the line.
-export function knownRefusalText(error: unknown): string | undefined {
+export function knownRefusalText(
+  error: unknown,
+  intentInvalid: StringKey = "transport.intentInvalid",
+): string | undefined {
   const reason = typeof error === "object" && error !== null ? (error as { reason?: unknown }).reason : undefined;
   const reasonKey = typeof reason === "string" ? DAEMON_REASON_TEXT[reason] : undefined;
   if (reasonKey) return translate(reasonKey);
@@ -99,11 +102,21 @@ export function knownRefusalText(error: unknown): string | undefined {
     // A malformed request is the pane's bug, not the user's: log it, show the generic text.
     if (code === "transport.intent_invalid") {
       console.error("agent pane: the host refused a request", error);
-      return translate(intentInvalidKey(error));
+      return translate(intentInvalidKey(error, intentInvalid));
     }
     return translate(key);
   }
   return undefined;
+}
+
+/// The text for a failed chat start (harnessSwitch.ts): as `errorMessage`, but a malformed-request
+/// refusal of a method the line does not name (a gesture ticket, a request with no `method`) still
+/// says the start was blocked, never "Something went wrong, so that didn't go through." (#44964).
+export function startErrorMessage(error: unknown): string {
+  return (
+    knownRefusalText(error, "transport.intentInvalidStart") ??
+    (error instanceof Error ? error.message : typeof error === "string" ? error : "")
+  );
 }
 
 /// "Couldn't switch to {mode}." (or model) for a pick the agent or acpmux refused, with the pane's

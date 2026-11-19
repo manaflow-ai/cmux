@@ -32,6 +32,7 @@ public final class DensityPlaygroundModel {
 
     @ObservationIgnored private let design: DesignSettings
     @ObservationIgnored private let persist: @MainActor (_ customs: [DensityTokens], _ active: DensityTokens) -> Void
+    @ObservationIgnored private let isManaged: @MainActor () -> Bool
     @ObservationIgnored private let saveTimer = DemandTimer(owner: "densityPlayground.save")
     /// How long after the last change the playground writes cmux.json.
     @ObservationIgnored public var saveDelay: Duration = .milliseconds(600)
@@ -39,14 +40,26 @@ public final class DensityPlaygroundModel {
     /// - Parameters:
     ///   - entries: The values to list (``DensityTokenCatalog/entries(fallbacks:)``).
     ///   - design: The app's design settings (`DesignSettings.shared`).
+    ///   - isManaged: Whether a policy manages the density keys (then changes apply but never save).
     ///   - persist: Writes the custom densities and the density in use to cmux.json.
-    public init(entries: [DensityTokenCatalog.Entry], design: DesignSettings,
+    public init(entries: [DensityTokenCatalog.Entry], design: DesignSettings, isManaged: @escaping @MainActor () -> Bool = { false },
                 persist: @escaping @MainActor (_ customs: [DensityTokens], _ active: DensityTokens) -> Void) {
         self.entries = entries
         self.design = design
+        self.isManaged = isManaged
         self.persist = persist
         draft = design.densityTokens
         customs = design.customDensities
+    }
+
+    /// Whether a policy manages the density keys: changes still apply live, but none is saved, and the window says so.
+    /// So is a density the active theme file carries: the file would put it back on the next load.
+    public var savesBlocked: Bool { isManaged() || design.densityFromThemeFile }
+
+    /// What the window says under its header about saving: why nothing saves, or nil.
+    public var statusNotice: String? {
+        if isManaged() { return DensityPlaygroundStrings.managedNotice }
+        return design.densityFromThemeFile ? DensityPlaygroundStrings.themeFileNotice : nil
     }
 
     /// Picks up the app's density and list again (the window reopening after a Settings change).
@@ -77,7 +90,7 @@ public final class DensityPlaygroundModel {
         draft = density
         notice = nil
         applyNow()
-        persist(customs, draft)
+        save()
     }
 
     /// A new custom density made from the draft, named `name` (default: "<draft> Custom"), selected.
@@ -89,7 +102,7 @@ public final class DensityPlaygroundModel {
         draft = made
         notice = nil
         applyNow()
-        persist(customs, draft)
+        save()
         return made
     }
 
@@ -116,7 +129,7 @@ public final class DensityPlaygroundModel {
         draft = DensityTokenCatalog.base(of: draft)
         notice = nil
         applyNow()
-        persist(customs, draft)
+        save()
     }
 
     // MARK: Values
@@ -210,7 +223,7 @@ public final class DensityPlaygroundModel {
         draft = first
         notice = nil
         applyNow()
-        persist(customs, draft)
+        save()
         return added.count
     }
 
@@ -221,6 +234,12 @@ public final class DensityPlaygroundModel {
         saveTimer.cancel()
         guard hasUnsavedChanges else { return }
         hasUnsavedChanges = false
+        save()
+    }
+
+    /// Writes the list and the draft, unless a policy manages the density keys (``savesBlocked``).
+    private func save() {
+        guard !savesBlocked else { return }
         persist(customs, draft)
     }
 
@@ -248,6 +267,7 @@ public final class DensityPlaygroundModel {
     }
 
     private func scheduleSave() {
+        guard !savesBlocked else { return }
         hasUnsavedChanges = true
         saveTimer.schedule(after: saveDelay) { @MainActor [weak self] in self?.flush() }
     }
@@ -256,12 +276,28 @@ public final class DensityPlaygroundModel {
         DensityPlaygroundStrings.copyName(name(density))
     }
 
+    /// `name` when no density (nor one of `extra`) is called that, else "`name` N" with the smallest free N from 2,
+    /// compared without case. One pass reads each taken name once: `name` itself, or "`name` N" with N written
+    /// plainly (no sign or leading zero), which uses N. The smallest free N is at most the count of used ones + 2.
     private func uniqueName(_ name: String, extra: [DensityTokens] = []) -> String {
-        let taken = Set((densities + extra).map { self.name($0).lowercased() })
-        guard taken.contains(name.lowercased()) else { return name }
-        var index = 2
-        while taken.contains("\(name) \(index)".lowercased()) { index += 1 }
-        return "\(name) \(index)"
+        let base = name.lowercased()
+        let prefix = base + " "
+        var baseTaken = false
+        var used: [Int] = []
+        for density in densities + extra {
+            let taken = self.name(density).lowercased()
+            if taken == base {
+                baseTaken = true
+            } else if taken.hasPrefix(prefix) {
+                let suffix = String(taken.dropFirst(prefix.count))
+                if let number = Int(suffix), number >= 2, String(number) == suffix { used.append(number) }
+            }
+        }
+        guard baseTaken else { return name }
+        // free[i] says whether N = i + 2 is free; `used.count + 1` slots always leave one free.
+        var free = [Bool](repeating: true, count: used.count + 1)
+        for number in used where number - 2 < free.count { free[number - 2] = false }
+        return "\(name) \((free.firstIndex(of: true) ?? free.count) + 2)"
     }
 
     /// `value` with at most `digits` decimals and no trailing zeros (the fields show 2; Copy as Swift keeps 3).
