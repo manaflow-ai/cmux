@@ -1,0 +1,35 @@
+name: CI runner canary
+
+# HQ dispatches one run per Linux pool label every five minutes.  The job is
+# intentionally empty: its start time is the signal, and the runner label is
+# the only variable under test.
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Approved Linux pool label
+        required: true
+        type: choice
+        options:
+          - cmux-fleet-linux-x64
+          - cmux-freestyle-linux-x64
+          - cmux-gcp-lane-build-x64
+      nonce:
+        description: Reconciler receipt id
+        required: true
+        type: string
+
+permissions: {}
+
+run-name: runner canary / ${{ inputs.runner }} / ${{ inputs.nonce }}
+
+jobs:
+  canary:
+    name: canary (${{ inputs.runner }})
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 3
+    steps:
+      - name: Start receipt
+        run: |
+          set -euo pipefail
+          printf 'runner canary started on %s at %s\n' "$RUNNER_NAME" "$(date -u +%FT%TZ)"
