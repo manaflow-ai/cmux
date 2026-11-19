@@ -711,7 +711,8 @@ public final class StreamedBrowserModel: BrowserTabState {
         Self.coversWithSnapshot(showsPicture: showsPicture, hasSnapshot: snapshot != nil, phase: phase)
     }
 
-    static func coversWithSnapshot(showsPicture: Bool, hasSnapshot: Bool, phase: Phase) -> Bool {
+    /// A pure rule of its inputs, callable off the main actor (tests).
+    nonisolated static func coversWithSnapshot(showsPicture: Bool, hasSnapshot: Bool, phase: Phase) -> Bool {
         guard hasSnapshot, !showsPicture else { return false }
         switch phase {
         case .connecting, .live: return true
