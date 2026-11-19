@@ -209,6 +209,71 @@ class PlanRefusesWhatItCannotRun(unittest.TestCase):
         ])
         self.assertTrue(run_ci_guards.is_stateful(unit))
 
+    def test_only_a_stateful_groups_head_runs_in_order(self) -> None:
+        """release-notary initializes ghostty-next first and hands nothing on after it; its other 123
+        steps ran one by one, the CI guard group's longest chain. They wait for the head, then run in
+        parallel. A group passing GITHUB_ENV keeps every step in order (each task has its own sandbox)."""
+        Step, Unit = run_ci_guards.Step, run_ci_guards.Unit
+        unit = Unit("j", "g", [
+            Step("init", "bash scripts/ci/init-submodule.sh ghostty", {}, None),
+            Step("use a", "python3 a.py", {}, None),
+            Step("use b", "python3 b.py", {}, None),
+        ])
+        self.assertEqual(run_ci_guards.ordered_split(unit), 1)
+        env_unit = Unit("j", "g", [
+            Step("bind", 'echo X=1 >> "$GITHUB_ENV"', {}, None),
+            Step("init", "git submodule update --init vendor/x", {}, None),
+            Step("use", "python3 a.py", {}, None),
+        ])
+        self.assertEqual(run_ci_guards.ordered_split(env_unit), 3)
+        planned = run_ci_guards.plan(run_ci_guards.load_yaml(run_ci_guards.WORKFLOW), "base", "head")
+        by_group = {u.group or u.job: u for u in planned}
+        self.assertEqual(run_ci_guards.ordered_split(by_group["release-notary"]), 1)
+        self.assertEqual(run_ci_guards.ordered_split(by_group["preflight-agent-chat"]), 2)
+
+    def test_a_stateful_groups_tail_waits_for_its_head_then_runs_together(self) -> None:
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+        import threading  # noqa: PLC0415
+        import time  # noqa: PLC0415
+
+        Step, Unit = run_ci_guards.Step, run_ci_guards.Unit
+        tail = [Step(f"use {n}", f"python3 {n}.py", {}, None) for n in "abcd"]
+        units = [Unit("workflow-guard-tests", "ci", [
+            Step("Initialize ghostty-next", "git submodule update --init ghostty-next", {}, None), *tail,
+        ])]
+        events: list[tuple[str, str]] = []
+        lock = threading.Lock()
+
+        def fake_run_steps(unit, steps, base_env, base_sha, keep_going, on_result=None):
+            results = []
+            for step in steps:
+                with lock:
+                    events.append(("start", step.name))
+                time.sleep(0.2)
+                with lock:
+                    events.append(("end", step.name))
+                results.append(run_ci_guards.StepResult(unit, step, True, 0.2, ""))
+            return results
+
+        saved = run_ci_guards.plan, run_ci_guards.run_steps
+        run_ci_guards.plan = lambda workflow, base_sha, head_sha: units
+        run_ci_guards.run_steps = fake_run_steps
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code = run_ci_guards.main(["--group", "ci", "--jobs", "4", "--no-stamp"])
+        finally:
+            run_ci_guards.plan, run_ci_guards.run_steps = saved
+
+        self.assertEqual(code, 0)
+        head_end = events.index(("end", "Initialize ghostty-next"))
+        self.assertEqual([n for k, n in events[:head_end] if k == "start"], ["Initialize ghostty-next"])
+        starts = [n for k, n in events[head_end:] if k == "start"]
+        self.assertEqual(sorted(starts), sorted(s.name for s in tail))
+        first_tail_end = next(i for i, (k, n) in enumerate(events) if k == "end" and i > head_end)
+        started_together = [n for k, n in events[head_end:first_tail_end] if k == "start"]
+        self.assertEqual(len(started_together), 4, f"the tail ran one by one: {events}")
+
     def test_the_zig_installer_test_keeps_its_github_env_to_itself(self) -> None:
         """Run in order, release-tooling's Zig download test published its fake zig through the job's
         GITHUB_ENV, and the next step (the Zig package fetch test) ran that deleted zig (#23534)."""
@@ -561,6 +626,137 @@ class DeterminismGateReportsEachFinding(unittest.TestCase):
             self.assertEqual(results.read_text().splitlines(), ["0\ttests/test_timing.py: assert-on-duration"])
             self.assertEqual(run_ci_guards.read_check_results(results),
                              {"tests/test_timing.py: assert-on-duration": False})
+
+
+class CheckoutSetupRunsFirst(unittest.TestCase):
+    """release-notary ran as one ordered task because its first step initializes ghostty-next: 124 steps one after
+    another, 915 s on 4 vCPU, past nightly-guards' 15-minute job on every push (run 44110521024). Through main(),
+    the init runs alone first and every other step then shares the pool (ordered_split)."""
+
+    def run_main(self, units, jobs="4"):
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+        import threading  # noqa: PLC0415
+        import time  # noqa: PLC0415
+
+        events: list[tuple[str, str]] = []
+        lock = threading.Lock()
+        running = [0, 0]  # now, most at once
+
+        def fake_run_steps(unit, steps, base_env, base_sha, keep_going, on_result=None):
+            results = []
+            for step in steps:
+                with lock:
+                    events.append(("start", step.name))
+                    running[0] += 1
+                    running[1] = max(running)
+                time.sleep(0.2)
+                with lock:
+                    events.append(("end", step.name))
+                    running[0] -= 1
+                result = run_ci_guards.StepResult(unit, step, True, 0.0, "")
+                results.append(result)
+                if on_result is not None:
+                    on_result(result)
+            return results
+
+        saved = run_ci_guards.plan, run_ci_guards.run_steps
+        run_ci_guards.plan = lambda workflow, base_sha, head_sha: units
+        run_ci_guards.run_steps = fake_run_steps
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code = run_ci_guards.main(["--group", "release-notary", "--jobs", jobs, "--no-stamp"])
+        finally:
+            run_ci_guards.plan, run_ci_guards.run_steps = saved
+        return code, events, running[1]
+
+    def test_the_init_finishes_first_and_every_other_step_runs_in_parallel(self) -> None:
+        Step, Unit = run_ci_guards.Step, run_ci_guards.Unit
+        steps = [Step("Initialize ghostty-next", "git submodule update --init --depth 1 ghostty-next", {}, None)]
+        steps += [Step(f"guard {n}", f"python3 tests/t{n}.py", {}, None) for n in range(8)]
+        code, events, most = self.run_main([Unit("workflow-guard-tests", "release-notary", steps)])
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted(name for kind, name in events if kind == "start"), sorted(s.name for s in steps))
+        self.assertEqual(events[:2], [("start", "Initialize ghostty-next"), ("end", "Initialize ghostty-next")])
+        self.assertEqual(most, 4, "the group's steps did not share the pool")
+
+
+class ATimedOutRunStopsItsSteps(unittest.TestCase):
+    """Steps run in their own sessions. A run its caller's `timeout` stopped (SIGTERM) left them running: the guard
+    group's base re-run is bounded that way."""
+
+    def test_sigterm_ends_every_running_step(self) -> None:
+        import signal  # noqa: PLC0415
+        import time  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory(prefix="guard-term-") as temp:
+            pid_file = Path(temp) / "pid"
+            driver = Path(temp) / "driver.py"
+            driver.write_text(
+                "import sys\n"
+                f"sys.path.insert(0, {str(ROOT / 'scripts/ci')!r})\n"
+                "import run_ci_guards as r\n"
+                f"step = r.Step('sleeps', 'sleep 300 & echo $! > {pid_file}; wait', {{}}, None)\n"
+                "r.plan = lambda w, b, h: [r.Unit('workflow-guard-tests', 'g', [step])]\n"
+                "sys.exit(r.main(['--group', 'g', '--jobs', '1', '--no-stamp']))\n",
+                encoding="utf-8")
+            proc = subprocess.Popen([sys.executable, str(driver)], cwd=ROOT, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True)
+            deadline = time.monotonic() + 60
+            while not (pid_file.is_file() and pid_file.read_text().strip()) and time.monotonic() < deadline:
+                time.sleep(0.1)
+            child = int(pid_file.read_text())
+            proc.send_signal(signal.SIGTERM)
+            output, _ = proc.communicate(timeout=60)
+            self.assertEqual(proc.returncode, 130, output)
+            self.assertIn("interrupted", output)
+            time.sleep(0.5)
+            with self.assertRaises(ProcessLookupError, msg="the step's child outlived the run"):
+                os.kill(child, 0)
+
+
+class TheDeadlineStopsTheRun(unittest.TestCase):
+    def test_a_step_past_the_deadline_is_stopped_and_has_no_result(self) -> None:
+        import json  # noqa: PLC0415
+        import time  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory(prefix="guard-deadline-") as temp:
+            pid_file, results = Path(temp) / "pid", Path(temp) / "results.json"
+            driver = Path(temp) / "driver.py"
+            driver.write_text(
+                "import sys\n"
+                f"sys.path.insert(0, {str(ROOT / 'scripts/ci')!r})\n"
+                "import run_ci_guards as r\n"
+                "steps = [r.Step('quick', 'true', {}, None),\n"
+                f"         r.Step('sleeps', 'sleep 300 & echo $! > {pid_file}; wait', {{}}, None)]\n"
+                "r.plan = lambda w, b, h: [r.Unit('workflow-guard-tests', 'g', steps)]\n"
+                "sys.exit(r.main(['--group', 'g', '--jobs', '2', '--no-stamp', '--deadline', '3',\n"
+                f"                '--results', {str(results)!r}]))\n",
+                encoding="utf-8")
+            run = subprocess.run([sys.executable, str(driver)], cwd=ROOT, capture_output=True, text=True, timeout=120)
+            self.assertEqual(run.returncode, 124, run.stdout + run.stderr)
+            self.assertIn("timed out after 3s", run.stdout)
+            self.assertNotIn("FAIL", run.stdout)
+            found = json.loads(results.read_text(encoding="utf-8"))
+            self.assertEqual(found, {"_cmux_complete": False, "quick": True})
+            time.sleep(0.5)
+            with self.assertRaises(ProcessLookupError, msg="the stopped step's child outlived the run"):
+                os.kill(int(pid_file.read_text()), 0)
+
+
+class ACutShortTipRunIsNoVerdict(unittest.TestCase):
+    def test_an_incomplete_results_file_fails_and_says_it_timed_out(self) -> None:
+        import json  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as temp:
+            results = Path(temp) / "r.json"
+            for complete, code in ((True, 0), (False, 1)):
+                with self.subTest(complete=complete):
+                    results.write_text(json.dumps({"_cmux_complete": complete, "a step": True}), encoding="utf-8")
+                    run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/guards_new_reds.py"), "--tip",
+                                          str(results)], capture_output=True, text=True, timeout=60)
+                    self.assertEqual(run.returncode, code, run.stdout + run.stderr)
+                    self.assertEqual("timed out" in run.stdout, not complete)
 
 
 if __name__ == "__main__":

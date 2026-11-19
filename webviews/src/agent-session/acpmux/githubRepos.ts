@@ -33,9 +33,9 @@ export type GitHubStatus = {
 };
 export type GitHubRepo = { fullName: string; private: boolean; defaultBranch: string | null };
 
-/// What the folder menu draws. `status` undefined: not read yet (nothing shows); `not_connected` or
-/// `unavailable`: one Connect to GitHub row whose click connects (the host opens the install page, or
-/// sign-in), its failure on that row.
+/// What the folder menu draws. `status` undefined: not read yet (nothing shows); `not_connected`, or
+/// `unavailable` because signed out: one Connect to GitHub row whose click connects (the host opens the
+/// install page, or sign-in), its failure on that row. Any other `unavailable` shows no row.
 export type GitHubPickerState = {
   status?: GitHubStatus;
   /// The repositories read for `query` (undefined: none read yet).
@@ -45,7 +45,8 @@ export type GitHubPickerState = {
   loading: boolean;
   /// `github.repos.list` failed with anything but `github.not_connected`: one line with Retry.
   error?: string;
-  /// Connect to GitHub opened GitHub: the row waits until the status says ready.
+  /// Connect to GitHub opened GitHub: the status is read again each time the page is back, until it
+  /// says ready. Not drawn: GitHub's own page is the one wait (#46018).
   waiting: boolean;
   /// `github.connect` was refused: the host's words, the Connect to GitHub row's second line.
   connectError?: string;
@@ -129,11 +130,24 @@ const INITIAL: GitHubPickerState = { query: null, truncated: false, loading: fal
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
+/// The host's word that GitHub changed under this page (the app finished an install GitHub handed back to it, #46018):
+/// `cmux-github-changed` on the window. Returns the unwatch. With no window (a store a module builds when it loads, read
+/// by bun with no DOM: the gallery's manifest and a server render) there is no host to hear, and nothing to watch.
+export function watchGitHubChanged(
+  run: () => void,
+  view: Window | undefined = typeof window === "undefined" ? undefined : window,
+): () => void {
+  if (!view) return () => undefined;
+  view.addEventListener("cmux-github-changed", run);
+  return () => view.removeEventListener("cmux-github-changed", run);
+}
+
 /// The store: `call` is the host (postNative), `watchKey`/`isKey` the page's key state (pageKey.ts).
 export function createGitHubPicker(
   call: Call = postNative,
   watchKey: (run: () => void) => () => void = watchPageKey,
   isKey: () => boolean = pageIsKey,
+  watchChanged: (run: () => void) => () => void = watchGitHubChanged,
 ) {
   let state = INITIAL;
   const listeners = new Set<() => void>();
@@ -170,7 +184,8 @@ export function createGitHubPicker(
       },
     );
   };
-  const readStatus = () => {
+  // `relist`: list the repositories again even when some are shown (the installation's repositories changed).
+  const readStatus = (relist = false) => {
     const turn = ++statusTurn;
     call("github.status", {}).then(
       (reply) => {
@@ -186,7 +201,7 @@ export function createGitHubPicker(
           (status.state === "not_connected" || status.reason === "signed_out");
         if (!stays) stopWaiting();
         set({ status, ...(stays ? {} : { waiting: false }) });
-        if (ready && (state.repos === undefined || state.error !== undefined)) listRepos(state.query);
+        if (ready && (relist || state.repos === undefined || state.error !== undefined)) listRepos(state.query);
       },
       () => {
         // A host that does not serve it (an older app) or refused it: GitHub can't be reached.
@@ -196,6 +211,11 @@ export function createGitHubPicker(
       },
     );
   };
+  // The app finished a connection (or a Reconfigure changed it): a menu that read the status reads it again, and its
+  // repositories with it, with no restart and no click.
+  watchChanged(() => {
+    if (state.status !== undefined) readStatus(true);
+  });
   const picker = {
     snapshot: () => state,
     subscribe(listener: () => void): () => void {

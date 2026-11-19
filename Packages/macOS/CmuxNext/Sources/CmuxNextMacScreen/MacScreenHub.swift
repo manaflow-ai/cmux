@@ -143,12 +143,22 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
         case "viewer_disconnected", "tab_closed": self = .viewerDisconnected
         case let text where text.hasPrefix("signed_out"): self = .signedOut
         case let text where text.hasPrefix("peer_offline"): self = .peerOffline
-        case "failed": self = .failed
+        case let text where Self.failureDetail(text) != nil: self = .failed
         case "expired": self = .expired
         case "approve_failed": self = .approveFailed
         case "consent_required": self = .consentRequired
         default: self = .other
         }
+    }
+
+    /// A `failed` end's detail: `""` for a bare `failed`, the host's reason for `failed: <reason>`
+    /// (cmux-hub-host `failed_reason`, which the acpmux share host and the Linux host send, and
+    /// this app's ``MacScreenHubReason/failure(_:)``); nil for every other reason.
+    public static func failureDetail(_ reason: String?) -> String? {
+        guard let reason else { return nil }
+        if reason == "failed" { return "" }
+        guard reason.hasPrefix("failed:") else { return nil }
+        return reason.dropFirst("failed:".count).trimmingCharacters(in: .whitespaces)
     }
 
     /// Whether Connect Again makes sense: not for a device that left the user's devices.
@@ -202,6 +212,26 @@ public nonisolated enum MacScreenHubReason: String, Sendable {
     case failed
     /// This Mac's join consent does not allow the session (a device the hub did not admit as the person's own).
     case consentRequired = "consent_required"
+
+    /// The hub keeps an `/end` reason up to this many UTF-16 units (it cuts a longer one).
+    static let hubReasonLimit = 100
+
+    /// `failed: <why>` for a session this Mac could not serve as the host, so the viewer's card
+    /// says why (``MacScreenEndReason/failureDetail(_:)``); the same text cmux-hub-host's
+    /// `failed_reason` sends: one line, a leading `failed:` not doubled, cut to the hub's limit.
+    static func failure(_ why: String) -> String {
+        var why = why.components(separatedBy: .newlines).joined(separator: " ")
+            .filter { !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) }
+            .trimmingCharacters(in: .whitespaces)
+        while why.hasPrefix("failed:") { why = why.dropFirst("failed:".count).trimmingCharacters(in: .whitespaces) }
+        guard !why.isEmpty else { return failed.rawValue }
+        var out = "\(failed.rawValue): "
+        for character in why {
+            guard out.utf16.count + String(character).utf16.count <= hubReasonLimit else { break }
+            out.append(character)
+        }
+        return out.trimmingCharacters(in: .whitespaces)
+    }
 }
 
 /// The host's answers to a request (the approval prompt's buttons).
