@@ -93,7 +93,6 @@ describe("props as CSS", () => {
     });
     expect(loopStyle({ effect: "teleport" })).toBeUndefined();
   });
-
 });
 
 describe("particles", () => {

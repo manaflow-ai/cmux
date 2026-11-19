@@ -162,7 +162,11 @@ const newMotionState = (): MotionState => ({
  * (`smooth`, `snappy`, `none`, which scene.css runs as transitions), a spring or a timed curve.
  * Entering and leaving (`transition`) are sceneMotion.tsx's, in CSS.
  */
-export function useSceneMotion(ref: RefObject<HTMLElement | null>, node: SceneNode | undefined, part?: MotionPart): void {
+export function useSceneMotion(
+  ref: RefObject<HTMLElement | null>,
+  node: SceneNode | undefined,
+  part?: MotionPart,
+): void {
   // One mutable record per mounted node, made in its first effect (nothing reads or writes it in render).
   const state = useRef<MotionState | null>(null);
 
