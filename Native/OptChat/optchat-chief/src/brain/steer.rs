@@ -69,6 +69,11 @@ impl Brain {
             return false;
         };
         let (key, session) = (turn.key.clone(), turn.session_id.clone());
+        // Unread steers of this turn are being taken back; the turn is cut
+        // when they are, and the next turn takes the queue.
+        if self.withdrawing.as_deref() == Some(key.as_str()) {
+            return false;
+        }
         // Any harness: acpmux steers when the session's harness says it can
         // (Claude Code through its adapter, codex-acp), else refuses.
         let Some(session) = session else {
@@ -232,8 +237,6 @@ impl Brain {
             self.steering.extend(unread);
             return;
         }
-        // Written to the harness and unread: the session may still hold them.
-        self.steer_left = Some(key.clone());
         // Take them back from the harness first (Claude Code drops a line it
         // has not read), then cut the turn: a session that holds no unread
         // message is kept, and the next turn goes on in it with the messages
@@ -249,7 +252,11 @@ impl Brain {
                 self.queue.push_front(item);
             }
         }
+        // Written to the harness and unread: the session may still hold them
+        // until the withdraw says otherwise. No new steer goes in meanwhile
+        // (`withdrawing`): it would take the requeued messages again.
         self.steer_left = Some(key.clone());
+        self.withdrawing = Some(key.clone());
         let session = self.state.turn.as_ref().and_then(|t| t.session_id.clone());
         let (Some(session), true) = (session, !prompts.is_empty()) else {
             self.interrupt_for_person("steer unread past the deadline");
@@ -280,6 +287,10 @@ impl Brain {
     pub(super) fn steers_withdrawn(&mut self, key: &str, all: bool) {
         let current =
             self.phase == Phase::Running && self.state.turn.as_ref().is_some_and(|t| t.key == key);
+        if self.withdrawing.as_deref() != Some(key) {
+            return;
+        }
+        self.withdrawing = None;
         if all && self.steer_left.as_deref() == Some(key) {
             self.steer_left = None;
         }
