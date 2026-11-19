@@ -4,8 +4,8 @@ Each script installs its pinned tool (sha256-checked release binary), runs it ov
 repository, writes the full report to `${FAST_CHECKS_OUT:-${TMPDIR:-/tmp}/static-analysis-out}/`
 and ends with one line, `SA_SUMMARY tool=<tool> findings=<N> seconds=<S>`. A script exits 0
 whenever its tool ran, whatever it found; nonzero only when the tool could not be installed or
-crashed. Nothing here is a CI job or a gate: run them yourself on the fleet, never on a
-person's Mac.
+crashed. None of them is a gate or a pull request check: run them yourself on the fleet, never on a
+person's Mac. The one scheduled run, [Daily run](#daily-run), only files issues.
 
 ```bash
 cmux-ci test --setup webviews -- bash scripts/static-analysis/run-all.sh  # every tool, one table (knip needs bun)
@@ -24,3 +24,33 @@ SA_ONLY="zizmor gitleaks" bash scripts/static-analysis/run-all.sh  # a subset
 | `osv-scanner.sh` | osv-scanner | Known vulnerabilities in every lockfile (Cargo, bun, npm, Go, SwiftPM). |
 
 A finding becomes a gate only by a later, separate decision.
+
+## Daily run
+
+`daily.sh` runs osv-scanner, cargo-deny, cargo-machete and knip, then `daily_findings.py` gives each
+finding a stable key and files ONE issue per key that is new since `daily-baseline.txt` (the tree's
+findings when the baseline was written). The key sits in the issue body
+(`<!-- static-analysis-key: ... -->`), so a finding with an open issue, or one closed as not planned,
+is never filed again; one closed as completed that comes back is filed again, naming the old issue.
+At most 10 issues per run (`SA_MAX_NEW`). Issues carry `static-analysis-daily`, `needs-triage`,
+`follow-up` and `area: build-and-ci`.
+
+`.github/workflows/static-analysis-daily.yml` runs it on feat-cmux-next (main's
+`static-analysis-daily-dispatch.yml` starts it once a day, since schedules run only from the default
+branch). It is never a pull request check and nothing requires it: a new advisory or license reaches
+the repo as an issue, never as a red on an unrelated pull request.
+
+| Script | Tool | What it reports |
+| --- | --- | --- |
+| `cargo-deny.sh` | cargo-deny | Licenses and advisories in every Cargo workspace with a Cargo.lock, against the repo-root `deny.toml`. |
+
+`deny.toml` is cargo-deny's baseline: every license in use and every advisory known when it was
+written, so only new ones are findings. Rewrite both baselines after a deliberate cleanup:
+
+```bash
+cmux-ci test --setup webviews -- bash scripts/static-analysis/daily.sh   # what would be filed
+SA_CARGO_DENY_CONFIG=scripts/static-analysis/cargo-deny/deny-seed.toml bash scripts/static-analysis/cargo-deny.sh
+python3 scripts/static-analysis/daily_findings.py "$FAST_CHECKS_OUT" --write-deny-toml deny.toml
+bash scripts/static-analysis/daily.sh && python3 scripts/static-analysis/daily_findings.py "$FAST_CHECKS_OUT" \
+  --write-baseline scripts/static-analysis/daily-baseline.txt
+```

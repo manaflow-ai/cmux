@@ -1,0 +1,16 @@
+# An empty cargo-deny config: every license in use and every known advisory is a finding.
+# Writing a new deny.toml baseline (scripts/static-analysis/README.md, "Daily run"):
+#   SA_CARGO_DENY_CONFIG=scripts/static-analysis/cargo-deny/deny-seed.toml bash scripts/static-analysis/cargo-deny.sh
+#   python3 scripts/static-analysis/daily_findings.py "$FAST_CHECKS_OUT" --write-deny-toml deny.toml
+# Keep [graph] the same as deny.toml's, so the seed sees the graph the baseline checks.
+[graph]
+all-features = true
+
+[advisories]
+yanked = "warn"
+
+[licenses]
+allow = []
+
+[licenses.private]
+ignore = true
