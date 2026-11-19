@@ -77,6 +77,11 @@ pub struct Line {
     /// About how long is left of the whole move; none once a step runs past what it usually takes
     /// and no copy progress says how far it is.
     pub eta_ms: Option<u64>,
+    /// How far the whole move is, 0 to 1: the sidebar's moving chat row fills its bar with it. Each
+    /// step weighs what it usually takes (a measured copy, what it measured); a step that runs past
+    /// its estimate stops just short of the next step's end share. A step that overran can make the
+    /// next start a little lower; the app keeps the highest it showed, so the bar never runs back.
+    pub fraction: f64,
     /// How long from now until this text changes on its own (the countdown reaches its next
     /// value, or the step runs past its usual time, or a measured copy past its estimate); none
     /// when only a new fact changes it (a new step, the copy's next progress line, which the app
@@ -183,9 +188,42 @@ pub fn line(facts: &Facts) -> Line {
         (None, Some(None)) => "taking longer than its progress said".to_owned(),
         (None, _) => format!("taking longer than usual (usually {})", about(typical)),
     };
+    let fraction = fraction(facts, step, later, current.map(|(left, _)| left));
     let steps = STAGES.len();
     let step = step.saturating_add(1);
-    Line { text: format!("{step} of {steps} · {what} · {when}"), step, steps, eta_ms, next_ms }
+    Line {
+        text: format!("{step} of {steps} · {what} · {when}"),
+        step,
+        steps,
+        eta_ms,
+        fraction,
+        next_ms,
+    }
+}
+
+/// [`Line::fraction`]: the steps before `step` at what they usually take, this one at how long it
+/// has run of what it takes (`left`: what is left of it; none once it overran), then `later`.
+fn fraction(facts: &Facts, step: usize, later: u64, left: Option<u64>) -> f64 {
+    let earlier: u64 = STAGES
+        .iter()
+        .take(step)
+        .map(|stage| typical_ms(facts, *stage))
+        .fold(0, u64::saturating_add);
+    let (done, whole) = match left {
+        Some(left) => (facts.stage_ms, facts.stage_ms.saturating_add(left)),
+        // Past its estimate: the step reads all but done until the next one starts.
+        None => (facts.stage_ms, facts.stage_ms),
+    };
+    let total = earlier.saturating_add(whole).saturating_add(later);
+    if total == 0 {
+        return 0.0;
+    }
+    #[allow(clippy::cast_precision_loss)] // milliseconds of a move: far below 2^52
+    let (reached, end, total) =
+        (earlier.saturating_add(done) as f64, earlier.saturating_add(whole) as f64, total as f64);
+    // Never the next step's start before it starts: at most 99 % of the way to this step's end.
+    let ceiling = (end / total) * 0.99;
+    (reached / total).min(ceiling).clamp(0.0, 1.0)
 }
 
 /// How long until the text for `eta` left reads differently as it counts down: the time to the
@@ -322,6 +360,25 @@ mod tests {
         let mut paused = facts(Stage::Machine, 10_000);
         paused.machine = Machine::Paused;
         assert_eq!(line(&paused).text, "1 of 4 · Resuming dev · about 50 s left");
+    }
+
+    #[test]
+    fn the_fraction_fills_step_by_step() {
+        let start = line(&facts(Stage::Machine, 0)).fraction;
+        let copying = line(&facts(Stage::Copy, 0)).fraction;
+        let half_agent = line(&facts(Stage::Agent, 5_000)).fraction;
+        let tab = line(&facts(Stage::Tab, 0)).fraction;
+        assert!(start.abs() < f64::EPSILON, "{start}");
+        assert!(
+            start < copying && copying < half_agent && half_agent < tab && tab < 1.0,
+            "{copying} {half_agent} {tab}"
+        );
+        // Live machine 5 s, copy 15 s, agent 10 s, tab 3 s: the copy starts 5 of 33 s in.
+        assert!((copying - 5.0 / 33.0).abs() < 1e-9, "{copying}");
+        // A step past its estimate holds just under its end, never past it.
+        let overrun = line(&facts(Stage::Agent, 60_000)).fraction;
+        let end = line(&facts(Stage::Tab, 0)).fraction;
+        assert!(overrun < 1.0 && overrun > half_agent, "{overrun} {end}");
     }
 
     #[test]

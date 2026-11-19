@@ -109,7 +109,10 @@ struct CloudBringBack {
         let progress = CloudMoveProgress(toMachine ? .move : .bringBack) { [services] in
             CloudMove.toast(services, toastID, headline + "\n" + $0, duration: CloudMove.working, working: true)
         }
-        let work: ActionWork = Task { @MainActor in
+        // Back here, the row goes to this Mac at once; to another machine, once the run picks it.
+        cloud.chatMoves.begin(tab, of: services.machines.daemon(forTab: tab).store, to: toMachine ? nil : services.machines.local.machineID, progress: progress)
+        let work: ActionWork = Task { @MainActor [services] in
+            defer { cloud.chatMoves.end(tab: tabID) }
             defer { cloud.movingBack.remove(tabID) }
             defer { progress.end() }
             do {
@@ -236,6 +239,7 @@ struct CloudBringBack {
         if let target {
             again = .move(machineID: target.machineID)
             services.cloud.bringBackRetries[tab.id] = again
+            services.cloud.chatMoves.reach(tab: tab.id, machine: target.machineID) // its sidebar row goes there now
         }
         // To another machine the move's relay fills its folder, then hands the agent over, in one call.
         if let target { progress.enter(.copy, name: target.machine.title) } else { progress.enter(.agent, name: name) }

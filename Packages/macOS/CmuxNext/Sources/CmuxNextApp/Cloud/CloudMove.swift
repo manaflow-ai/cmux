@@ -136,7 +136,9 @@ struct CloudMove {
         if carded { CmuxToastCenter.shared.close(id: toastID) } else { toast(toastID, CloudMoveStrings.moving, duration: Self.working, working: true) }
         asks.moveStarted(tabID, services: services)
         let progress = CloudMoveProgress(.move) { [services] in if !carded { Self.toast(services, toastID, CloudMoveStrings.moving + "\n" + $0, duration: Self.working, working: true) } }
-        let work: ActionWork = Task { @MainActor in
+        services.cloud.chatMoves.begin(tab, of: services.machines.daemon(forTab: tab).store, to: invocation["machine"]?.stringValue, progress: progress)
+        let work: ActionWork = Task { @MainActor [services] in
+            defer { services.cloud.chatMoves.end(tab: tabID) }
             defer { progress.end() }
             do {
                 let machine = try await body(progress)
@@ -191,6 +193,7 @@ struct CloudMove {
         guard !folder.isTooBroad else { throw Failure(message: CloudMoveStrings.homeFolder) }
         _ = await cli.startChatPreflight(local: folder.root) // the copy's estimate and decision (whole, first pass, seed) before any machine is picked or made; never refuses (cmux-tui sync_cli/estimate.rs)
         let machine = try await self.machine(invocation, progress: progress) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
+        services.cloud.chatMoves.reach(tab: tab.id, machine: machine.machineID) // its sidebar row goes there now
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         // From here the chat may move to this machine: a quit or a crash before the move ends
         // leaves Retry pinned to it, and the relaunched app finishes the move there.

@@ -147,7 +147,10 @@ extension SidebarListViewComponents {
         let sections = listSections
         let o = options(includeGap: false)
         let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: o)
-        let rules = DropResolver.DragRules(payload: drag.payload, base: layout, sections: sections, ungroupedFirst: model.ungroupedFirst)
+        // One dragged row that is a chat may drop on the machines it can move to.
+        var moveTo: [MachineID] = []
+        if case let .workspaces(ids) = drag.payload, ids.count == 1, let id = ids.first { moveTo = model.chatMoveTargets?(id) ?? [] }
+        let rules = DropResolver.DragRules(payload: drag.payload, base: layout, sections: sections, ungroupedFirst: model.ungroupedFirst, moveTo: moveTo)
         var look: SidebarDragLook?
         if case let .workspaces(ids) = drag.payload {
             look = SidebarDragLook(base: layout, sections: sections, options: SidebarDragLook.shown(o, leaving: leaving), moving: ids)
