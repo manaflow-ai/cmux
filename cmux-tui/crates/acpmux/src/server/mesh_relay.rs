@@ -35,6 +35,7 @@ use crate::mesh_http::MeshControlFrom;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Weak;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch};
 
@@ -57,7 +58,9 @@ pub struct RelayOptions {
     pub min_poll_gap: Duration,
     pub backoff_first: Duration,
     pub backoff_cap: Duration,
-    /// The wait before a call the hub refused this daemon's credential for is tried again.
+    /// The wait before a call the hub refused this daemon's credential for (401, 403) is tried
+    /// again. A refusal can pass (a hub deploy, a proxy, a rotated token), so it never ends the
+    /// relay: nothing would start it again before the daemon restarts.
     pub refused_retry: Duration,
     /// Deliveries running at once; the inbox waits for one to end past it.
     pub max_in_flight: usize,
@@ -83,7 +86,6 @@ impl Default for RelayOptions {
 
 /// The running relay. Dropping it stops it as [`MeshRelay::stop`] does, without waiting.
 pub struct MeshRelay {
-    /// Shared with both loops: a refusal one of them meets stops the other too.
     stop: Arc<watch::Sender<bool>>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
 }
@@ -101,7 +103,7 @@ impl MeshRelay {
         // This daemon's id at the hub, from its heartbeat reply: a message naming it is ours, and
         // the inbox waits for it, so no message meets a daemon that does not know its own id yet.
         let (daemon, own) = watch::channel(None);
-        let halt = Halt(stop.clone());
+        let refusals = Arc::new(Refusals::default());
         let beat = Arc::new(Beat::new());
         let beats = heartbeats(
             Arc::downgrade(hub),
@@ -109,15 +111,17 @@ impl MeshRelay {
             options.clone(),
             daemon,
             beat.clone(),
-            halt.clone(),
+            refusals.clone(),
             stopped.clone(),
         );
-        let inbox = inbox(Arc::downgrade(hub), client, control, options, own, beat, halt, stopped);
+        let inbox =
+            inbox(Arc::downgrade(hub), client, control, options, own, beat, refusals, stopped);
         let tasks = vec![tokio::spawn(beats), tokio::spawn(inbox)];
         Self { stop, tasks }
     }
 
-    /// Whether its loops have ended: stopped, the daemon stopping, or refused by the mesh hub.
+    /// Whether its loops have ended: stopped or the daemon stopping. A refusal from the mesh hub
+    /// only pauses them.
     pub fn is_finished(&self) -> bool {
         self.tasks.iter().all(tokio::task::JoinHandle::is_finished)
     }
@@ -299,15 +303,23 @@ impl Beat {
     }
 }
 
-/// Stops both loops: what one loop does when the mesh hub refuses it for good, so the other
-/// neither waits nor heartbeats on for a daemon that takes nothing.
-#[derive(Clone)]
-struct Halt(Arc<watch::Sender<bool>>);
+/// What the mesh hub refuses this daemon now. A refused heartbeat pauses the inbox, which the
+/// hub would refuse too; a refused inbox empties the heartbeat's sessions, so the address book
+/// lists none no message can reach. Each loop tries again after `refused_retry`.
+#[derive(Default)]
+struct Refusals {
+    heartbeat: AtomicBool,
+    inbox: AtomicBool,
+}
 
-impl Halt {
-    fn all(&self) {
-        let _ = self.0.send(true);
-    }
+/// Logs a refusal when it starts, and says how the loop goes on.
+fn log_refused(what: &str, e: &HubError, retry: Duration) {
+    let revoked = matches!(e.code.as_deref(), Some("machine.revoked" | "mesh.unauthorized"));
+    let hint = if revoked { "; if this machine was revoked, run machine add again" } else { "" };
+    tracing::error!(
+        "mesh relay: the hub refused this daemon's {what} ({e}){hint}; trying again every {}s",
+        retry.as_secs()
+    );
 }
 
 async fn heartbeats(
@@ -316,7 +328,7 @@ async fn heartbeats(
     options: Arc<RelayOptions>,
     daemon: watch::Sender<Option<String>>,
     beat: Arc<Beat>,
-    halt: Halt,
+    refusals: Arc<Refusals>,
     mut stop: watch::Receiver<bool>,
 ) {
     if !started(&hub, &mut stop).await {
@@ -332,6 +344,7 @@ async fn heartbeats(
         let began = tokio::time::Instant::now();
         let covered = beat.covers();
         let sessions = match hub.upgrade() {
+            Some(_) if refusals.inbox.load(Ordering::SeqCst) => Vec::new(),
             Some(hub) => hub.mesh_rows().await,
             None => break,
         };
@@ -342,7 +355,8 @@ async fn heartbeats(
                 Ok(reply) => {
                     beat.taken(covered);
                     taken = true;
-                    if std::mem::take(&mut failing) {
+                    // Both read: a refused heartbeat ends as a failed one does.
+                    if std::mem::take(&mut failing) | refusals.heartbeat.swap(false, Ordering::SeqCst) {
                         tracing::info!("mesh relay: the hub takes heartbeats again");
                         if let Some(on_reconnect) = options.on_reconnect {
                             on_reconnect();
@@ -361,20 +375,16 @@ async fn heartbeats(
                     heartbeat_wait(&options, reply.ttl_seconds)
                 }
                 Err(e) if e.ends_relay() => {
-                    if matches!(e.code.as_deref(), Some("machine.revoked" | "mesh.unauthorized")) {
-                        tracing::error!("revoked: run machine add again");
-                    } else {
-                        tracing::error!(
-                            "mesh relay: the hub refused this daemon's heartbeat ({e}); the relay is off until the daemon restarts"
-                        );
+                    if !refusals.heartbeat.swap(true, Ordering::SeqCst) {
+                        log_refused("heartbeat", &e, options.refused_retry);
+                        if let Some(hub) = hub.upgrade() {
+                            #[cfg(feature = "hub-carrier")]
+                            hub.set_mesh_book_machines(Default::default());
+                            hub.set_mesh_book(Default::default(), Vec::new());
+                        }
                     }
-                    halt.all();
-                    if let Some(hub) = hub.upgrade() {
-                        #[cfg(feature = "hub-carrier")]
-                        hub.set_mesh_book_machines(Default::default());
-                        hub.set_mesh_book(Default::default(), Vec::new());
-                    }
-                    return;
+                    backoff.reset();
+                    options.refused_retry
                 }
                 Err(e) => {
                     if !std::mem::replace(&mut failing, true) {
@@ -442,7 +452,7 @@ async fn inbox(
     options: Arc<RelayOptions>,
     mut own: watch::Receiver<Option<String>>,
     beat: Arc<Beat>,
-    halt: Halt,
+    refusals: Arc<Refusals>,
     mut stop: watch::Receiver<bool>,
 ) {
     let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
@@ -469,6 +479,14 @@ async fn inbox(
         if hub_ended(&hub) {
             break;
         }
+        // The hub refuses this daemon's heartbeats, so its inbox too: polled again once it takes
+        // them.
+        if refusals.heartbeat.load(Ordering::SeqCst) {
+            tokio::select! {
+                () = tokio::time::sleep(options.refused_retry) => continue,
+                () = ended(&mut stop, &hub) => break,
+            }
+        }
         let started = Instant::now();
         // Only as many as it can deliver now: a leased message waits for its ack.
         let room = options.max_in_flight.max(1) - deliveries.len();
@@ -478,7 +496,12 @@ async fn inbox(
         };
         let wait = match polled {
             Ok(messages) => {
-                if std::mem::take(&mut failing) {
+                if refusals.inbox.swap(false, Ordering::SeqCst) {
+                    tracing::info!("mesh relay: the hub takes this daemon's inbox again");
+                    failing = false;
+                    // The sessions here are listed again now, not at the next heartbeat.
+                    beat.nudge.notify_one();
+                } else if std::mem::take(&mut failing) {
                     tracing::info!("mesh relay: the hub's inbox answers again");
                 }
                 backoff.reset();
@@ -523,15 +546,13 @@ async fn inbox(
                 options.min_poll_gap.saturating_sub(started.elapsed())
             }
             Err(e) if e.ends_relay() => {
-                if matches!(e.code.as_deref(), Some("machine.revoked" | "mesh.unauthorized")) {
-                    tracing::error!("revoked: run machine add again");
-                } else {
-                    tracing::error!(
-                        "mesh relay: the hub refused this daemon's inbox ({e}); the relay is off until the daemon restarts"
-                    );
+                if !refusals.inbox.swap(true, Ordering::SeqCst) {
+                    log_refused("inbox", &e, options.refused_retry);
+                    // The address book drops the sessions here now.
+                    beat.nudge.notify_one();
                 }
-                halt.all();
-                break;
+                backoff.reset();
+                options.refused_retry
             }
             Err(e) => {
                 if !std::mem::replace(&mut failing, true) {
