@@ -588,6 +588,28 @@ import Testing
         #expect(reply["beside"]?["pane"] == "pane-web")
         #expect(reply["beside"]?["placement"] == "existing_column")
         #expect(reply["beside"]?["panes"] == [["id": "pane-web", "kinds": ["browser"]]])
+        // `caller.docked`: the cmux CLI splits right of a caller that is not in a dock, and never splits a dock.
+        #expect(reply["caller"]?["docked"] == false, "\(String(describing: reply["caller"]))")
+    }
+
+    @Test func identifyReportsADockedCaller() async throws {
+        var snapshot = Self.snapshot(own: Self.chat("tab-agent", session: "agent-1"), right: [Self.pane("pane-web", [Self.browser("tab-web")])])
+        snapshot.topology.workspaces = snapshot.topology.workspaces.map { workspace in
+            var workspace = workspace
+            workspace.screens = workspace.screens.map { screen in
+                var screen = screen
+                screen.panes = screen.panes.map { pane in
+                    var pane = pane
+                    if pane.id == "pane-agent" { pane.dock = "left" }
+                    return pane
+                }
+                return screen
+            }
+            return workspace
+        }
+        let reply = try await identify(snapshot, caller: ["agent_session": "agent-1"])
+        #expect(reply["caller"]?["docked"] == true, "\(String(describing: reply["caller"]))")
+        #expect(reply["beside"]?["pane"] == "pane-web", "the strip beside the dock: \(String(describing: reply["beside"]))")
     }
 
     @Test func identifyReportsANewColumnWhenTheRightColumnIsAnotherAgents() async throws {
