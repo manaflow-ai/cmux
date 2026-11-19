@@ -28,6 +28,10 @@ test("the mascot's float ends and holds no layer", () => {
   expect(last("animation-fill-mode")).toBeGreaterThan(shorthand);
   expect(declarations[last("animation-fill-mode")]).toBe("animation-fill-mode:forwards");
   expect(mascot).not.toContain("will-change");
+  // The held pose is 2D: a 3D transform would keep the picture on a layer of its own after the float.
+  const keyframes = /@keyframes acpmux-chief-mascot-float\{(.*?\})\}/.exec(css)?.[1] ?? "";
+  expect(keyframes).toContain("rotate(-1deg)");
+  expect(keyframes).not.toContain("3d");
 });
 
 test("the float waits while the page is not the key one", () => {

@@ -36,7 +36,8 @@ const webviews = path.resolve(import.meta.dir, "..");
 
 type TraceEvent = { name: string; ph: string; pid: number; tid: number; args?: { data?: Record<string, unknown> } };
 
-/// Counts the trace's frame events of the renderer `pid` over a window: drawn frames and main-thread frames.
+/// Counts the frame events of a browser-wide trace over a window (the page is the browser's only one): drawn frames and
+/// main-thread frames.
 async function traceFrames(cdp: CDPSession, run: () => Promise<unknown>): Promise<Map<string, number>> {
   const events: TraceEvent[] = [];
   const collect = (payload: { value: object[] }) => {

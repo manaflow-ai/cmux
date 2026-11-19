@@ -158,7 +158,7 @@ test("a record at rest arms no timer: its batch goes out at the end of its task,
 /// A page that counts the display frames asked of it. Hidden, so the first-load watch (firstLoadWatch.ts,
 /// bounded by the load) asks for none and every frame counted is the frame watch's (it asks for frames
 /// hidden or not, and times only visible ones).
-function countingPage(): { win: Window; frames: () => number } {
+function countingPage(): { win: Window; frames: () => number; watching: () => number } {
   const win = page();
   Object.defineProperty(win.document, "visibilityState", { value: "hidden", configurable: true });
   let frames = 0;
@@ -166,7 +166,20 @@ function countingPage(): { win: Window; frames: () => number } {
     frames += 1;
     return frames;
   };
-  return { win, frames: () => frames };
+  // The frame watch's observers that are connected: the only ones that take text changes and no attributes.
+  const connected = new Set<MutationObserver>();
+  const Base = (win as Window & typeof globalThis).MutationObserver;
+  (win as Window & typeof globalThis).MutationObserver = class extends Base {
+    override observe(target: Node, options?: MutationObserverInit): void {
+      if (options?.characterData && !options.attributes) connected.add(this);
+      super.observe(target, options);
+    }
+    override disconnect(): void {
+      connected.delete(this);
+      super.disconnect();
+    }
+  };
+  return { win, frames: () => frames, watching: () => connected.size };
 }
 
 function mutate(win: Window): void {
@@ -174,44 +187,63 @@ function mutate(win: Window): void {
 }
 
 test("CMUX-672: a DOM change asks for no frame unless the frame watch's debug flag is on", async () => {
-  const { win, frames } = countingPage();
-  startFlickerLog(win, () => undefined);
-  mutate(win);
-  await settle();
-  // Before, every change on every page armed a second of frames (the shared renderer at 96 to 157% CPU).
-  expect(frames()).toBe(0);
+  const { win, frames, watching } = countingPage();
+  try {
+    startFlickerLog(win, () => undefined);
+    mutate(win);
+    await settle();
+    // Before, every change on every page armed a second of frames (the shared renderer at 96 to 157% CPU).
+    expect(frames()).toBe(0);
+    expect(watching()).toBe(0);
 
-  setFrameWatch(true, win);
-  expect(win.localStorage.getItem(FRAME_WATCH_KEY)).toBe("on");
-  mutate(win);
-  await settle();
-  expect(frames()).toBeGreaterThan(0);
+    setFrameWatch(true, win);
+    expect(win.localStorage.getItem(FRAME_WATCH_KEY)).toBe("on");
+    expect(watching()).toBe(1);
+    mutate(win);
+    await settle();
+    expect(frames()).toBeGreaterThan(0);
 
-  // Off again: the observer is gone, so a change asks for nothing more.
-  setFrameWatch(false, win);
-  const before = frames();
-  mutate(win);
-  await settle();
-  expect(frames()).toBe(before);
-  expect(frameWatchFlag(win)).toBe(false);
+    // Off again: the observer is disconnected (stop condition), and turning it on twice made only one.
+    setFrameWatch(true, win);
+    expect(watching()).toBe(1);
+    setFrameWatch(false, win);
+    expect(watching()).toBe(0);
+    expect(frameWatchFlag(win)).toBe(false);
+  } finally {
+    win.localStorage.removeItem(FRAME_WATCH_KEY);
+  }
 });
 
 test("the frame watch follows the flag set in another page, and a page loaded with it on watches", async () => {
-  const { win, frames } = countingPage();
-  startFlickerLog(win, () => undefined);
-  // Another page of the origin turned it on: this page hears the storage event.
-  win.localStorage.setItem(FRAME_WATCH_KEY, "on");
-  win.dispatchEvent(new (win as Window & typeof globalThis).StorageEvent("storage", { key: FRAME_WATCH_KEY }));
-  mutate(win);
-  await settle();
-  expect(frames()).toBeGreaterThan(0);
-  resetFlickerLogForTests();
-
+  const first = countingPage();
   const later = countingPage();
-  later.win.localStorage.setItem(FRAME_WATCH_KEY, "on");
-  startFlickerLog(later.win, () => undefined);
-  mutate(later.win);
-  await settle();
-  expect(later.frames()).toBeGreaterThan(0);
-  later.win.localStorage.removeItem(FRAME_WATCH_KEY);
+  try {
+    startFlickerLog(first.win, () => undefined);
+    // Another page of the origin turned it on: this page hears the storage event.
+    first.win.localStorage.setItem(FRAME_WATCH_KEY, "on");
+    first.win.dispatchEvent(
+      new (first.win as Window & typeof globalThis).StorageEvent("storage", { key: FRAME_WATCH_KEY }),
+    );
+    expect(first.watching()).toBe(1);
+    mutate(first.win);
+    await settle();
+    expect(first.frames()).toBeGreaterThan(0);
+    // And off the same way.
+    first.win.localStorage.removeItem(FRAME_WATCH_KEY);
+    first.win.dispatchEvent(
+      new (first.win as Window & typeof globalThis).StorageEvent("storage", { key: FRAME_WATCH_KEY }),
+    );
+    expect(first.watching()).toBe(0);
+    resetFlickerLogForTests();
+
+    later.win.localStorage.setItem(FRAME_WATCH_KEY, "on");
+    startFlickerLog(later.win, () => undefined);
+    expect(later.watching()).toBe(1);
+    mutate(later.win);
+    await settle();
+    expect(later.frames()).toBeGreaterThan(0);
+  } finally {
+    first.win.localStorage.removeItem(FRAME_WATCH_KEY);
+    later.win.localStorage.removeItem(FRAME_WATCH_KEY);
+  }
 });
