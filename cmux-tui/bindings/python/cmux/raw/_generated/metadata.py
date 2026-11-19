@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '61fb1070c4d1b1a47f223c0498b0dca44b600e91824661a2f9ff4b06871b5901'
+IR_SHA256 = '45a840fe1f46b3835b3bba18fad351b9eb7fe01358d933dd640612aa9d589732'
 
 
 @dataclass(frozen=True)
@@ -892,6 +892,41 @@ COMMANDS = {
         'local-admin',
         12,
         'cloud-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'computer-use-approvals': CommandMetadata(
+        'computer-use-approvals',
+        'local-admin',
+        12,
+        'computer-use-v1',
+        ('local-admin',),
+        None,
+        {
+            'action': CommandFieldMetadata(None, None),
+            'answer': CommandFieldMetadata(None, None),
+            'app_id': CommandFieldMetadata(None, None),
+            'id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'computer-use-config': CommandMetadata(
+        'computer-use-config',
+        'local-admin',
+        12,
+        'computer-use-v1',
+        ('local-admin',),
+        None,
+        {
+            'config': CommandFieldMetadata(None, None),
+        },
+    ),
+    'computer-use-endpoint': CommandMetadata(
+        'computer-use-endpoint',
+        'local-admin',
+        12,
+        'computer-use-v1',
         ('local-admin',),
         None,
         {

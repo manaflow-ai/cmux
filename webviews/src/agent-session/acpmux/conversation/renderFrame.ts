@@ -10,9 +10,10 @@ const EXPANDED_MAX_HEIGHT = 4000;
 export const ranRenders = new Set<string>();
 
 /// Feeds `html` to a render frame once it asks for it, and follows the height the frame reports.
+/// `reported` is false until the frame first reports one (`height` is the floor until then).
 export function useRenderFrame(html: string) {
   const frame = useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = useState(RENDER_FRAME_MIN_HEIGHT);
+  const [reportedHeight, setHeight] = useState<number>();
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       const target = frame.current?.contentWindow;
@@ -32,5 +33,5 @@ export function useRenderFrame(html: string) {
     addEventListener("message", onMessage);
     return () => removeEventListener("message", onMessage);
   }, [html]);
-  return { frame, height };
+  return { frame, height: reportedHeight ?? RENDER_FRAME_MIN_HEIGHT, reported: reportedHeight !== undefined };
 }

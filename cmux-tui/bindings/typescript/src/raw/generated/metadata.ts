@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 61fb1070c4d1b1a47f223c0498b0dca44b600e91824661a2f9ff4b06871b5901. */
+/* cmux-tui mux protocol 12, IR 45a840fe1f46b3835b3bba18fad351b9eb7fe01358d933dd640612aa9d589732. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "61fb1070c4d1b1a47f223c0498b0dca44b600e91824661a2f9ff4b06871b5901" as const;
+export const SDK_IR_SHA256 = "45a840fe1f46b3835b3bba18fad351b9eb7fe01358d933dd640612aa9d589732" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -872,6 +872,42 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections, and with ws-cloud-conversations-v1 paired WebSocket connections. Returns state signed_out, active or expired, and participant for the person's own clients; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "computer-use-approvals": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "computer-use-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+      "action: list, forget, always, never, revoke_sessions, or answer (id, answer: allow_once, allow_session, always, deny, never).",
+      "Lowering trust (forget, never, revoke_sessions, a deny answer) is open to any local Unix connection; always and allowing answers are the verified app's only. Pending questions are listed only to the verified app."
+    ]
+  },
+  "computer-use-config": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "computer-use-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+      "config is a Computer Use PolicyConfig (camelCase: mode, deniedApps, allowOwnMachines, pauseOnTakeover, allowForeground, showCursor, cloudVm).",
+      "The verified app connection only (origin.forbidden otherwise); the machine owner's computer-use.json still wins."
+    ]
+  },
+  "computer-use-endpoint": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "computer-use-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Computer Use (docs/computer-use): the Computer Use worker (Linux and Windows: supervised by this daemon; macOS: the cmux Remote host).",
+      "Answers {state: ready, socket, secret, pid} or {state: starting|off|unavailable, reason}; starts the worker when needed and waits up to 10 s.",
+      "Local Unix connections of this user only (never a page, WebSocket or remote peer); the secret is never logged or journaled."
     ]
   },
   "conversation-agent-token": {
@@ -19263,6 +19299,81 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     }
   },
   "cloud-session-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "computer-use-approvals": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "action": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "answer": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "app_id": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "id": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "computer-use-config": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "config": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "computer-use-endpoint": {
     "request": {
       "additional_properties": false,
       "fields": {},

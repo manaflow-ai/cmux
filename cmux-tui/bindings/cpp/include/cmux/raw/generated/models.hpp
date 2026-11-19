@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "61fb1070c4d1b1a47f223c0498b0dca44b600e91824661a2f9ff4b06871b5901";
+inline constexpr std::string_view kProtocolIrSha256 = "45a840fe1f46b3835b3bba18fad351b9eb7fe01358d933dd640612aa9d589732";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -346,6 +346,9 @@ struct CloudSelfhostInfoRequest;
 struct CloudSessionClearRequest;
 struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
+struct ComputerUseApprovalsRequest;
+struct ComputerUseConfigRequest;
+struct ComputerUseEndpointRequest;
 struct ConversationAgentTokenRequest;
 struct ConversationAgentTokenResult;
 struct ConversationAttachmentLinkRequest;
@@ -2114,6 +2117,23 @@ struct ColumnPin {
 enum class ColumnSide {
     left,
     right,
+};
+
+struct ComputerUseApprovalsRequest {
+    std::string action{};
+    Field<std::string> answer{};
+    Field<std::string> app_id{};
+    Field<std::uint64_t> id{};
+    friend bool operator==(const ComputerUseApprovalsRequest&, const ComputerUseApprovalsRequest&) = default;
+};
+
+struct ComputerUseConfigRequest {
+    std::optional<JsonValue> config{};
+    friend bool operator==(const ComputerUseConfigRequest&, const ComputerUseConfigRequest&) = default;
+};
+
+struct ComputerUseEndpointRequest {
+    friend bool operator==(const ComputerUseEndpointRequest&, const ComputerUseEndpointRequest&) = default;
 };
 
 struct ConfigReloadRequestedEvent {
@@ -8672,6 +8692,24 @@ template <>
 struct Codec<CloudSessionStatusRequest> {
     static Result<Json> encode(const CloudSessionStatusRequest& value);
     static Result<CloudSessionStatusRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ComputerUseApprovalsRequest> {
+    static Result<Json> encode(const ComputerUseApprovalsRequest& value);
+    static Result<ComputerUseApprovalsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ComputerUseConfigRequest> {
+    static Result<Json> encode(const ComputerUseConfigRequest& value);
+    static Result<ComputerUseConfigRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ComputerUseEndpointRequest> {
+    static Result<Json> encode(const ComputerUseEndpointRequest& value);
+    static Result<ComputerUseEndpointRequest> decode(const Json& value);
 };
 
 template <>

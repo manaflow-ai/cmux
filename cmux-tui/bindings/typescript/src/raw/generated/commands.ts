@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 61fb1070c4d1b1a47f223c0498b0dca44b600e91824661a2f9ff4b06871b5901. */
+/* cmux-tui mux protocol 12, IR 45a840fe1f46b3835b3bba18fad351b9eb7fe01358d933dd640612aa9d589732. */
 
 
 import type * as T from "./types.js";
@@ -673,6 +673,28 @@ export interface CloudSessionStatusRequest extends CmuxRequestBase {
   cmd: "cloud-session-status";
 }
 export type CloudSessionStatusResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ComputerUseApprovalsRequest extends CmuxRequestBase {
+  cmd: "computer-use-approvals";
+  "action": string;
+  "answer"?: (string) | null;
+  "app_id"?: (string) | null;
+}
+export type ComputerUseApprovalsResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ComputerUseConfigRequest extends CmuxRequestBase {
+  cmd: "computer-use-config";
+  "config": (T.JsonValue) | null;
+}
+export type ComputerUseConfigResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ComputerUseEndpointRequest extends CmuxRequestBase {
+  cmd: "computer-use-endpoint";
+}
+export type ComputerUseEndpointResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationAgentTokenRequest extends CmuxRequestBase {
@@ -3162,6 +3184,9 @@ export type CmuxRequest =
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
+  | ComputerUseApprovalsRequest
+  | ComputerUseConfigRequest
+  | ComputerUseEndpointRequest
   | ConversationAgentTokenRequest
   | ConversationAttachmentLinkRequest
   | ConversationAttachmentReadRequest
@@ -3930,6 +3955,30 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "computer-use-approvals": {
+    request: ComputerUseApprovalsRequest;
+    result: ComputerUseApprovalsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "computer-use-v1";
+    stream: null;
+  };
+  "computer-use-config": {
+    request: ComputerUseConfigRequest;
+    result: ComputerUseConfigResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "computer-use-v1";
+    stream: null;
+  };
+  "computer-use-endpoint": {
+    request: ComputerUseEndpointRequest;
+    result: ComputerUseEndpointResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "computer-use-v1";
     stream: null;
   };
   "conversation-agent-token": {
