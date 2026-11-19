@@ -70,6 +70,7 @@ impl UsageStatsCache {
     }
 
     /// The chat's stats only while no tag of theirs was invalidated since they were read.
+    #[cfg(test)]
     pub(crate) fn fresh(&self, id: &str) -> Option<&UsageStats> {
         self.cache.get(id).fresh()
     }
