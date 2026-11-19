@@ -10,10 +10,11 @@ import Testing
 /// their defaults the panel is today's.
 @MainActor
 struct SidebarPriorityFiltersTests {
-    final class Keys {
+    @MainActor final class Keys {
         var filters = false
         var showIdle = true
         var statusWords = false
+        var actions: [SidebarPriorityAction] = []
     }
 
     private static func lane(_ id: String, _ state: String, unread: Bool = false, ago: TimeInterval) throws -> AgentActivityLane {
@@ -24,7 +25,7 @@ struct SidebarPriorityFiltersTests {
     }
 
     /// Two waiting, two unread (one failed), two running and one idle chat.
-    private static func feed(_ keys: Keys, marked: @escaping (SidebarPriorityAction) -> Void = { _ in })
+    private static func feed(_ keys: Keys, marked: @escaping @MainActor (SidebarPriorityAction) -> Void = { _ in })
         throws -> (SidebarPriorityFeed, AgentPriorityChats) {
         let store = AgentLaneStore()
         store.lanes = [
@@ -59,12 +60,13 @@ struct SidebarPriorityFiltersTests {
         #expect(panel.statusWords)
         #expect(panel.entries.map(\.id) == ["ask-1", "ask-2", "done-1", "fail-1", "run-1", "run-2"], "idle chats leave the list")
         #expect(bar.selected == .all)
-        #expect([bar.count(.all), bar.count(.waiting), bar.count(.unread), bar.count(.running)] == [6, 2, 2, 2])
+        let counts: [Int] = SidebarPriorityFilter.allCases.map { bar.count($0) }
+        #expect(counts == [6, 2, 2, 2])
         #expect(bar.markable == 2)
         feed.perform(.setFilter(.unread))
         panel = try #require(feed.panel())
         #expect(panel.entries.map(\.id) == ["done-1", "fail-1"])
-        #expect(panel.filters?.count(.all) == 6, "counts stay over every row")
+        #expect(panel.filters?.count(SidebarPriorityFilter.all) == 6, "counts stay over every row")
         #expect(panel.attentionCount == 4, "the bell and the folded count include the rows the filter hides")
         feed.perform(.setFilter(.running))
         #expect(feed.panel()?.entries.map(\.id) == ["run-1", "run-2"])
@@ -84,12 +86,12 @@ struct SidebarPriorityFiltersTests {
     @Test func markAllReadMarksEveryUnseenResultTheFilterHidesToo() throws {
         let keys = Keys()
         keys.filters = true
-        var marked: [SidebarPriorityAction] = []
-        let (feed, _) = try Self.feed(keys) { marked.append($0) }
+        let marked = Keys()
+        let (feed, _) = try Self.feed(keys) { marked.actions.append($0) }
         feed.perform(.setFilter(.running))
         _ = feed.panel()
         feed.perform(.markAllRead)
-        #expect(marked == [.markRead("done-1"), .markRead("fail-1")])
+        #expect(marked.actions == [.markRead("done-1"), .markRead("fail-1")])
     }
 
     @Test func aDragUnderAFilterKeepsTheHiddenRowsPlaces() {
