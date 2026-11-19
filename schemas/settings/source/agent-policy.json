@@ -272,6 +272,7 @@
       "keys": [
         "appearance.paneBackgrounds",
         "ui.reducedBackgrounds",
+        "appearance.agentGlow",
         "appearance.experimentalControls",
         "app.uiScale",
         "appearance.glassTransparency",

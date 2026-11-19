@@ -266,6 +266,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["background", "plain", "reduce", "reduced", "painting", "wallpaper", "glass", "transparency", "backdrop", "art", "simple", "performance"]
             ),
             SettingDescriptor(
+                AgentGlowSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.agentGlow", "React to Agents"),
+                help: SettingsText.keyed("settings.appearance.agentGlow.help", "Calm while agents are idle; a soft glow in the machine's color when an agent needs you."),
+                kind: .toggle,
+                default: .bool(AgentGlowSetting.fallback),
+                keywords: ["agent", "agents", "glow", "react", "reactive", "background", "attention", "needs you", "idle", "calm", "machine color"]
+            ),
+            SettingDescriptor(
                 ExperimentalAppearanceSetting.configPath,
                 section: .appearance,
                 group: group,

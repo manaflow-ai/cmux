@@ -45,6 +45,9 @@ public final class WindowMaterialView: NSView {
     private var keyFamily: WindowKeyFamily?
     /// Posted when `appearance.inactiveWindowDim` changes (``DesignSettings/inactiveWindowDim``).
     public static let inactiveDimDidChange = Notification.Name("WindowMaterialView.inactiveDimDidChange")
+    /// The agents' glow over the backdrop (`appearance.agentGlow`); it follows the agents only in a
+    /// window's own backdrop (one made with an ``activeLook``), never a pane's.
+    let agentGlowView = BackdropAgentGlowView()
     /// The keyboard left the window's family: another app, or a window that is not this one, its
     /// child (a Chromium page window, popup, palette) or its sheet. Only then does the window look
     /// inactive (Leo 2026-10-21: "on itself? that should never happen"); a window whose family
@@ -140,6 +143,9 @@ public final class WindowMaterialView: NSView {
         tintView.autoresizingMask = [.width, .height]
         tintView.isHidden = true
         addSubview(tintView)
+        agentGlowView.frame = bounds
+        addSubview(agentGlowView)
+        if activeLook != nil { agentGlowView.follow() }
         inactiveTintView.wantsLayer = true
         inactiveTintView.frame = bounds
         inactiveTintView.autoresizingMask = [.width, .height]

@@ -199,6 +199,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `ui.reducedBackgrounds`: off when unset or invalid. On, windows draw the plain theme
     /// background; ``backdropSelection`` and ``windowBackground`` keep the person's values.
     public var reducedBackgrounds: Bool = ReducedBackgroundsSetting.fallback
+    /// `appearance.agentGlow`: off when unset or invalid. On, the window background stays calm while
+    /// agents are idle and glows softly in the machine's color when an agent needs you.
+    public var agentGlow: Bool = AgentGlowSetting.fallback
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
     /// `appearance.glassTransparency`, `appearance.hue` and
@@ -421,6 +424,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
         snapshot.take(ReducedBackgroundsSetting.parse(root), \.reducedBackgrounds)
+        snapshot.take(AgentGlowSetting.parse(root), \.agentGlow)
         snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
