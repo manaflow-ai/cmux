@@ -296,7 +296,15 @@ class Lint:
             self.add("metadata.support-url", "1.5", "blocker", "no supportUrl in the version metadata", METADATA_DIR)
         if not has_privacy:
             self.add("metadata.privacy-url", "5.1.1", "blocker", "no privacyPolicyUrl in the app-info metadata", METADATA_DIR)
-        for family in ("iphone", "ipad"):
+        # App Store Connect asks for iPad screenshots only when the app runs
+        # natively on iPad ("Required if app runs on iPad"). An iPhone-only app
+        # (TARGETED_DEVICE_FAMILY "1") runs on iPad in compatibility mode with
+        # no iPad screenshots listed, so the ipad folder is required only when
+        # the app target's device families include 2 (iPad).
+        families = ["iphone"]
+        if "2" in app_device_families(self.root):
+            families.append("ipad")
+        for family in families:
             shots = self.root / SCREENSHOTS_DIR / family
             count = len([p for p in shots.glob("*") if p.suffix.lower() in (".png", ".jpg", ".jpeg")]) if shots.is_dir() else 0
             if count == 0:
@@ -911,6 +919,48 @@ def fetch(url: str) -> dict:
         "looks_like_error": bool(re.search(r"\b(404|not found|page not found|500|error)\b", title, re.I)),
         "has_contact": bool(re.search(r"[\w.+-]+@[\w-]+\.[\w.]+", text) or "<form" in body.lower() or "mailto:" in body.lower()),
     }
+
+
+# xcodegen's iOS preset (and Xcode's) is TARGETED_DEVICE_FAMILY "1,2": an app
+# that never sets it runs natively on iPhone and iPad.
+DEFAULT_DEVICE_FAMILIES = frozenset({"1", "2"})
+DEVICE_FAMILY_RE = re.compile(r'^\s*"?TARGETED_DEVICE_FAMILY"?:\s*"?([0-9 ,]*)"?\s*(?:#.*)?$', re.M)
+APP_TARGET = "CmuxMobileApp"
+
+
+def app_device_families(root: Path, target: str = APP_TARGET) -> frozenset[str]:
+    """The device families (1 iPhone, 2 iPad) project.yml builds the app
+    target for: every TARGETED_DEVICE_FAMILY in that target's block, else the
+    project's own settings, else xcodegen's iOS default "1,2"."""
+    project = root / PROJECT_YML
+    if not project.is_file():
+        return DEFAULT_DEVICE_FAMILIES
+    lines = project.read_text(errors="ignore").splitlines()
+    in_target: list[str] = []
+    outside: list[str] = []
+    in_targets = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip() and not line[0].isspace():
+            in_targets = line.rstrip() == "targets:"
+        if in_targets and line.rstrip() == f"  {target}:":
+            i += 1
+            while i < len(lines) and (not lines[i].strip() or lines[i].startswith("   ")):
+                in_target.append(lines[i])
+                i += 1
+            continue
+        if not in_targets:
+            outside.append(line)
+        i += 1
+
+    def families(block: list[str]) -> set[str]:
+        found: set[str] = set()
+        for value in DEVICE_FAMILY_RE.findall("\n".join(block)):
+            found |= {part.strip() for part in value.split(",") if part.strip()}
+        return found
+
+    return frozenset(families(in_target) or families(outside) or DEFAULT_DEVICE_FAMILIES)
 
 
 def entitlement_files(text: str, value: str) -> list[str]:

@@ -71,9 +71,9 @@
 .nt-chats-all:hover{color:var(--agent-text)}
 .nt-chats-empty{margin:var(--ds-space-2) 0 0;color:var(--acpmux-composer-dim);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
 .nt-chats-failed{display:block}
-.nt-chats-retry{margin-left:var(--ds-space-2);border:0;padding:2px 8px;border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit}
+.nt-chats-retry{margin-left:var(--ds-space-2);border:0;padding:2px 8px;border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--agent-text);font:inherit}
 .nt-chats-retry:disabled{opacity:.5;cursor:default}
-.nt-chats-retry:not(:disabled):hover{background:color-mix(in srgb,var(--agent-text) 12%,transparent)}
+.nt-chats-retry:not(:disabled):hover{background:var(--ds-color-hover)}
 .nt-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
 @container (max-width:520px){.nt-cards{grid-template-columns:minmax(0,1fr)}.nt-hint{display:none}}
 .nt-card{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-space-1);min-width:0;min-height:84px;padding:var(--ds-space-3) var(--ds-space-4);box-sizing:border-box;border:0;border-radius:16px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-soft);font:inherit;text-align:left}
@@ -84,7 +84,7 @@
 .nt-card[data-state=error] .nt-card-message,.nt-card[data-state=failed] .nt-card-message{color:var(--agent-danger)}
 .nt-card-age{font-variant-numeric:tabular-nums}
 /* An archived chat (acpmux's cold archive): a muted badge beside its age, and its preview as quiet as the age; nothing else on the card moves. */
-.nt-card-badge{flex:none;padding:0 var(--ds-space-1);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--acpmux-composer-dim);font-size:var(--text-caption);line-height:1.6;white-space:nowrap}
+.nt-card-badge{flex:none;padding:0 var(--ds-space-1);border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--acpmux-composer-dim);font-size:var(--text-caption);line-height:1.6;white-space:nowrap}
 .nt-cards[data-variant="list"] .nt-card-badge{order:-1}
 .nt-card[data-state=input] .nt-card-message{color:var(--agent-warning,var(--agent-text))}
 /* Hover as Edge draws it (cx-f6i7): the fill eases in fast and clears at once (--agent-motion-hover-out, 0 by default). */
@@ -284,7 +284,7 @@
   box-shadow: none;
 }
 .nt-cards[data-variant="list"] .nt-card:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-color-hover);
 }
 .nt-cards[data-variant="list"] .nt-card-title {
   flex: 0 1 auto;
@@ -358,7 +358,7 @@
 .nt-chats-filter-chevron{width:var(--grid-glyph);height:var(--grid-glyph);opacity:.7}
 .nt-chats-filter-list{min-width:150px}
 .nt-all-search{margin-left:auto;display:flex;align-items:center;gap:var(--ds-space-2);width:min(200px,45%);height:26px;padding:0 var(--ds-space-2);box-sizing:border-box;border-radius:var(--ds-radius-popup);color:var(--acpmux-composer-dim)}
-.nt-all-search:hover,.nt-all-search:focus-within{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
+.nt-all-search:hover,.nt-all-search:focus-within{background:var(--ds-color-hover)}
 .nt-all-search svg{flex:none}
 .nt-all-search input{flex:1;min-width:0;height:100%;padding:0;border:0;outline:0;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-detail);-webkit-appearance:none;appearance:none;letter-spacing:var(--text-detail--letter-spacing)}
 .nt-all-search input::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
@@ -734,7 +734,7 @@
   border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);
   box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge),var(--elevation-1,none)}
 .nt-player-art{position:relative;flex:none;width:72px;height:72px;border-radius:var(--ds-radius-popup);overflow:hidden;
-  background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
+  background:var(--ds-surface-inset)}
 .nt-player-art::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
   box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) color-mix(in srgb,var(--agent-text) 12%,transparent)}
 .nt-player-art img{display:block;width:100%;height:100%;object-fit:cover}
@@ -755,7 +755,7 @@
 .nt-player[data-playing="true"] .nt-player-levels i:nth-child(2){animation-duration:1.3s}
 .nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){animation-duration:1.9s}
 @keyframes nt-player-level{0%,100%{transform:scaleY(.4)}25%{transform:scaleY(.95)}50%{transform:scaleY(.55)}75%{transform:scaleY(.85)}}
-.nt-player-track{height:3px;border-radius:0;background:color-mix(in srgb,var(--agent-text) 12%,transparent);overflow:hidden}
+.nt-player-track{height:3px;border-radius:0;background:var(--ds-surface-inset);overflow:hidden}
 .nt-player-played{height:100%;width:100%;background:var(--agent-soft,var(--acpmux-composer-dim));transform-origin:left center;transition:transform 1s linear} /* motion-allow: playback progress */
 /* The bar fills from the inline start: right to left under RTL. */
 .nt-player-played:dir(rtl){transform-origin:right center}
@@ -948,7 +948,7 @@
 .nt-stage-row:focus-visible,
 .nt-env-choose .acpmux-project-button:hover,
 .nt-env-choose .acpmux-project-button[aria-expanded="true"] {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-color-hover);
   color: var(--agent-text);
 }
 .nt-stage-row:focus-visible {
@@ -1226,7 +1226,7 @@
 }
 .nt-starter:hover,
 .nt-starter:focus-visible {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-color-hover);
   color: var(--agent-text);
 }
 .nt-starter:focus-visible {
