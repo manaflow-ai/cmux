@@ -230,7 +230,7 @@ fn trying_on_an_entry_that_was_off_and_reverting_leaves_it_off_where_it_was() {
     home.write("cmux-next.json", "{\n  \"appearance\": { \"density\": \"comfortable\" }\n}\n");
     let roomy = customize.apply(None, "cli", 21).unwrap().library.expect("saved");
     customize.library_set_on("night", false, "cli", 30).unwrap();
-    assert_eq!(library_on(&customize), [roomy.clone()]);
+    assert_eq!(library_on(&customize), std::slice::from_ref(&roomy));
     assert_eq!(library_names(&customize), [roomy.clone(), "night".to_owned()]);
 
     // Trying it again turns that entry on, on top; reverting puts it back
@@ -238,7 +238,7 @@ fn trying_on_an_entry_that_was_off_and_reverting_leaves_it_off_where_it_was() {
     customize.try_on(Some(&night()), MINUTE, "cli", 100).unwrap();
     assert_eq!(library_on(&customize)[0], "night");
     customize.revert_try_on("user", 200).unwrap();
-    assert_eq!(library_on(&customize), [roomy.clone()]);
+    assert_eq!(library_on(&customize), std::slice::from_ref(&roomy));
     assert_eq!(library_names(&customize), [roomy, "night".to_owned()]);
 }
 
