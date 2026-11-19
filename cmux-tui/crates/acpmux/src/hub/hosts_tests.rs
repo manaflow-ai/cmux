@@ -168,6 +168,10 @@ async fn hub_with_meta(sessions: usize, log: &Log, extra: Value) -> (Arc<Hub>, s
             hub.store.append(&id, record).unwrap();
         }
         hub.store.close_log(&id);
+        // These direct store appends stand in for the previous daemon's append path. The
+        // already-loaded session must know their settled end before recovery snapshots it.
+        let session = hub.resolve(&id).unwrap();
+        session.seq.store(log.records.last().map_or(0, |record| record.seq), Ordering::SeqCst);
     }
     (hub, root)
 }
