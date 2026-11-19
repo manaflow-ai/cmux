@@ -1,10 +1,11 @@
 /* The agent dot grid (AgentDotGrid.tsx). State reads from fill plus outline, never color alone:
    running and done are solid (running pulses), needs approval is a thick ring, idle a thin ring,
-   error solid with a halo. */
+   error a solid bullseye. */
 .acpmux-dot-grid {
   --dot: 10px;
   --dot-gap: 6px;
-  --dot-running: var(--agent-accent);
+  /* The link blue, not the accent: the accent is neutral in some themes and would read as idle. */
+  --dot-running: var(--agent-link, var(--agent-accent));
   --dot-approval: var(--agent-warning, #d9a23a);
   --dot-done: var(--agent-success, var(--acpmux-add, #3fb950));
   --dot-error: var(--agent-danger, #d35c5c);
@@ -69,9 +70,8 @@ span.acpmux-dot-grid__dot {
 .acpmux-dot-grid__dot[data-state="error"] {
   border-color: var(--dot-error);
   background: var(--dot-error);
-  box-shadow:
-    0 0 0 1px var(--agent-page-bg, transparent),
-    0 0 0 2px var(--dot-error);
+  /* A bullseye inside the dot's own box, so an error dot is the size of every other. */
+  box-shadow: inset 0 0 0 max(1px, calc(var(--dot) * 0.12)) var(--agent-page-bg, transparent);
 }
 .acpmux-dot-grid__dot[data-current] {
   outline: 1px solid var(--agent-text);
