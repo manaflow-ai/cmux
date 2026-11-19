@@ -659,28 +659,26 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             restore(entry)
             return
         }
-        // The newest kept turns from the head file in this turn, so the reopened chat's first
-        // frame draws them; the whole kept copy is read off the main thread only to keep saving
-        // it whole (its older turns come from the Mac as the reader scrolls up, as for any page).
-        if let head = cache.firstScreen(key) {
-            restore(head)
-            guard head.earlier, keptRestored else { return }
-            let headSeq = head.lastSeq
-            Task { [weak self] in
-                guard let whole = await cache.load(key), let self, self.keptRestored, whole.sessionID == self.sessionID,
-                      whole.lastSeq == headSeq, whole.records.count > head.records.count else { return }
-                let newer = self.kept.filter { Int($0["seq"]?.numberValue ?? 0) > headSeq }
-                self.kept = whole.records + newer
-                self.keptEarlier = whole.earlier
-            }
-            return
-        }
+        // Read and decode the bounded head off the main actor. The restore is still applied before
+        // the attach can replace it, so the composer sees the kept transcript without paying the
+        // file read or JSON parse on the launch thread.
         restoring = true
         Task { [weak self] in
-            let entry = await cache.load(key)
+            let head = await cache.firstScreenOffMain(key)
             guard let self else { return }
             self.restoring = false
-            if let entry { self.restore(entry) }
+            if let head {
+                self.restore(head)
+                if head.earlier, self.keptRestored {
+                    let headSeq = head.lastSeq
+                    if let whole = await cache.load(key), self.keptRestored, whole.sessionID == self.sessionID,
+                       whole.lastSeq == headSeq, whole.records.count > head.records.count {
+                        let newer = self.kept.filter { Int($0["seq"]?.numberValue ?? 0) > headSeq }
+                        self.kept = whole.records + newer
+                        self.keptEarlier = whole.earlier
+                    }
+                }
+            }
             if self.hub?.isReady == true { self.linkUp() }
         }
     }
