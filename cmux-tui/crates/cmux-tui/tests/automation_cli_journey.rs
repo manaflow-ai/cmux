@@ -154,7 +154,7 @@ fn automation_journey_create_run_history_logs_pause_edit_delete() {
 /// A prompt run is an agent chat: history names it, and a launcher that cannot
 /// start fails the run with a reason the runner retries (not a body failure).
 #[test]
-fn a_prompt_run_names_its_chat_and_a_launcher_that_cannot_start_is_retryable() {
+fn automation_prompt_run_names_its_chat_and_a_launcher_that_cannot_start_is_retryable() {
     let env = Env::new("prompt");
     let created = env.json(&["automation", "create", "Brief", "--prompt", "Say hi", "--manual"]);
     let id = created["id"].as_str().unwrap().to_string();
