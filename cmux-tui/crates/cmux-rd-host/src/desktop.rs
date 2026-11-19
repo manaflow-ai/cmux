@@ -78,11 +78,12 @@ pub fn reports_cursor() -> bool {
 
 /// Whether this OS's frame source encodes the resolution ladder's smaller picture
 /// (`FrameSource::set_picture`), so a host offers the `video.scaled` cap: the macOS capture
-/// scales on the GPU; the Linux, Windows and synthetic sources always encode the full stream.
+/// and synthetic sources scale on the GPU; the Linux and Windows sources always encode the
+/// full stream.
 pub fn scales_pictures() -> bool {
     #[cfg(target_os = "macos")]
     {
-        synthetic_size().is_none()
+        true
     }
     #[cfg(not(target_os = "macos"))]
     {

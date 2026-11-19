@@ -406,6 +406,13 @@ impl FrameSource for SyntheticFrames {
     fn encoder_name(&self) -> String {
         self.name.clone()
     }
+
+    /// The resolution ladder's picture, scaled on the GPU and capped by its QP ceiling the way
+    /// the captured display's is (`MacFrames::set_picture`), so a synthetic run measures it.
+    fn set_picture(&mut self, picture: Option<cmux_rd_core::resolution::Picture>) {
+        self.encoder.set_picture_size(picture.map(|p| (p.width, p.height)));
+        self.encoder.set_max_qp(picture.and_then(|p| p.max_qp));
+    }
 }
 
 #[cfg(test)]
