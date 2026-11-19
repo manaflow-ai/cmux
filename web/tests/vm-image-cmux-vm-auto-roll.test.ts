@@ -192,12 +192,16 @@ describe("auto-roll approve", () => {
     expect(approve(wrangler, entry("21")).large).toBe(false);
   });
 
-  test("only staging's newest entry keeps a large image: a newer roll takes it off the older ones", () => {
+  test("an entry that stays listed keeps its large image across later rolls, so a create journaled on it can retry", () => {
     const first = approve(wrangler, withLarge("30")).text;
+    const id30 = locate(first, "staging").images.at(-1)!.id;
+    // A default roll (no large image baked) must not take the older entry's away.
     const second = approve(first, entry("31")).text;
-    expect(locate(second, "staging").images.some((i) => "large" in i)).toBe(false);
+    expect(locate(second, "staging").images.find((i) => i.id === id30)?.large).toEqual(LARGE);
     const third = locate(approve(second, withLarge("32")).text, "staging").images;
-    expect(third.filter((i) => "large" in i).map((i) => i.id)).toEqual([third.at(-1)!.id]);
+    expect(third.at(-1)!.large).toEqual(LARGE);
+    expect(third.find((i) => i.id === id30)?.large).toEqual(LARGE);
+    expect(locate(approve(second, withLarge("32")).text, "production").images.some((i) => "large" in i)).toBe(false);
   });
 
   test("a large image that would put staging over the text binding limit is left out, and the roll goes on", () => {

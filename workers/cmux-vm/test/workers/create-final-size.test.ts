@@ -165,6 +165,23 @@ describe("reads before a create", () => {
   });
 });
 
+describe("a failed create whose read after it fails too", () => {
+  it("still forgets the image's verdict: the next create reads the image first and sends nothing", async () => {
+    const t = await harness();
+    const key = await service(t);
+    expect((await create(t, key, { resources: LARGE })).status).toBe(201);
+    t.upstream.snapshots.delete(LARGE_SNAPSHOT);
+    // The create is refused and the exact-slug read after it gets no clean answer.
+    t.upstream.fail("get", 500);
+    expect((await create(t, key, { resources: LARGE })).status).toBeGreaterThanOrEqual(500);
+    expect(creates(t)).toHaveLength(2);
+    expect(imageReads(t)).toHaveLength(1);
+    expect((await create(t, key, { resources: LARGE })).status).toBe(503);
+    expect(creates(t)).toHaveLength(2);
+    expect(imageReads(t)).toHaveLength(2);
+  });
+});
+
 describe("a retry across a change of the image list", () => {
   it("recovers a create journaled before the image had a variant: it booted the image's own snapshot", async () => {
     const t = await harness({ bootImages: JSON.stringify([BASE_ENTRY]) });
