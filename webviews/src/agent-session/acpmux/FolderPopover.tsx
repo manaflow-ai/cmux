@@ -18,6 +18,31 @@ import { folderRepo, groupByRepo, isMainCheckout, shownRepoRows, worktreeName, t
 export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 const NO_FOLDERS: FolderChoice[] = [];
 
+/// The folders the menu lists: never the filesystem root, and while adding one more folder, not the
+/// chat's own or the ones already added.
+function offeredFolders(
+  folders: readonly FolderChoice[],
+  current: string | undefined,
+  extraFolders: readonly string[] | undefined,
+  addingExtra: boolean,
+): FolderChoice[] {
+  return folders.filter(
+    (folder) =>
+      !/^\/+$/.test(folder.id) && !(addingExtra && (folder.id === current || extraFolders?.includes(folder.id))),
+  );
+}
+
+/// The folder rows the menu lists when it opens, one per repository (no words typed, no worktrees
+/// open): its side is chosen from them before it lists any (`folderMenuShortest`).
+export function folderMenuRows(
+  folders: readonly FolderChoice[],
+  current: string | undefined,
+  extraFolders: readonly string[] | undefined,
+  addingExtra: boolean,
+): number {
+  return groupByRepo(offeredFolders(folders, current, extraFolders, addingExtra), current).length;
+}
+
 /// The new chat's folder popover (hq#1957 composer location strip): a search field over the
 /// projects, one row per repository (projectRepos.ts: a repository's worktrees are its branches, not
 /// projects of their own), named by the repository and, dimmed, the worktree's branch or, only when
@@ -120,8 +145,12 @@ export function FolderPopover({
     }
     // The side fits the rows and actions the menu has now (they are counted below, before any press),
     // the GitHub row its status may still add, and the chat's extra folders listed under the actions.
+    // A closed menu lists no folders (`offered`), so opening counts the rows it will list.
     const below = pinned.length + (github && !githubAction && !addingExtra ? 1 : 0) + (extra?.folders.length ?? 0);
-    setPopoverOpen(next, folderMenuShortest(suggestions.length - pinned.length, below));
+    const listRows = open
+      ? suggestions.length - pinned.length
+      : githubRows.length + folderMenuRows(folders, current, extra?.folders, addingExtra);
+    setPopoverOpen(next, folderMenuShortest(listRows, below));
   };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
@@ -147,14 +176,7 @@ export function FolderPopover({
   // newest chat's), and grouping thousands of them by repository on each change of a menu nobody
   // opened cost each page about 7 ms a second at 10K chats (bench/session-scale-typing.bench.ts).
   const offered = useMemo(
-    () =>
-      !open
-        ? NO_FOLDERS
-        : folders.filter(
-            (folder) =>
-              !/^\/+$/.test(folder.id) &&
-              !(addingExtra && (folder.id === current || extraFolders?.includes(folder.id))),
-          ),
+    () => (!open ? NO_FOLDERS : offeredFolders(folders, current, extraFolders, addingExtra)),
     [open, addingExtra, folders, current, extraFolders],
   );
   const groups = useMemo(() => groupByRepo(offered, current), [offered, current]);

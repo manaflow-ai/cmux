@@ -85,3 +85,21 @@ test("a New Tab folder menu with a few rows still opens up, away from the chats 
 test("no control gives no side", () => {
   expect(locationMenuSide(null, VIEWPORT)).toBeUndefined();
 });
+
+test("a closed folder menu counts the folder rows it will list when it opens (review F1 of #46807)", async () => {
+  // A closed menu lists no folders (FolderPopover `offered`), so its side was chosen as for none:
+  // three repositories and six actions measured 222 px, not 312, and the menu opened on a side too short.
+  const { folderMenuRows } = await import("../src/agent-session/acpmux/FolderPopover");
+  const folder = (id: string, repo?: string) => ({
+    id,
+    label: id.split("/").pop() ?? id,
+    ...(repo ? { repo: { root: id, name: repo } } : {}),
+  });
+  const folders = [folder("/w/a", "a"), folder("/w/b", "b"), folder("/w/c", "c"), folder("/")];
+  // The filesystem root is never listed.
+  expect(folderMenuRows(folders, "/w/a", undefined, false)).toBe(3);
+  expect(folderMenuShortest(folderMenuRows(folders, "/w/a", undefined, false), 6)).toBe(312);
+  expect(locationMenuSide(control(600, 600, 700), 900, FOLDER_MENU_LIST_CAP, folderMenuShortest(3, 6))).toBe("top");
+  // Adding one more folder: not the chat's own nor the ones added.
+  expect(folderMenuRows(folders, "/w/a", ["/w/b"], true)).toBe(1);
+});
