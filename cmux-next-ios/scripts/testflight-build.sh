@@ -7,10 +7,12 @@
 # (.github/workflows/ios-internal-nightly.yml). `--config AppStore` with the
 # production identity (--app-id, --bundle-id com.cmux.app, --app-name and the
 # App Store profile names, or the CMUX_MOBILE_* variables below) builds the
-# public App Store app, the record the classic ios/ app used. No workflow runs
-# that lane yet: the App Store lane for com.cmux.app is not wired
-# (.github/workflows/ios-app-store.yml still builds the classic ios/ app), so
-# `--config AppStore` runs only by hand. The bundle id must be the one
+# public App Store app, the record the classic ios/ app used, at the AppStore
+# configuration's own MARKETING_VERSION (1.0.0; the INTERNAL lane keeps the base
+# one). main's .github/workflows/ios-app-store.yml still builds the classic ios/
+# app; `--config AppStore` runs by hand or from the one-off rc/ upload workflow
+# (ios-appstore-next-review.yml on rc/cnx-ios-appstore-review), which archives
+# with --unsigned --no-asc and signs with --from-archive. The bundle id must be the one
 # project.yml gives the configuration, and the App Store Connect record must
 # have exactly that name and bundle id, or nothing is built.
 #
