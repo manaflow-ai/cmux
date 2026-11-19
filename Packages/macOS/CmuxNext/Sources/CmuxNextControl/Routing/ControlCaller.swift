@@ -6,12 +6,13 @@ import Foundation
 /// own terminal (`CMUX_TUI_TERMINAL_ID`). The app finds an agent session's
 /// chat tab by the topology's `agent_session` (ControlTopology+Tabs).
 ///
-/// One placement rule (beside_caller, hq-6d right-column design): a tab an
-/// agent opens without naming a pane or workspace goes to the column right
-/// of its chat's pane, on the same screen; with no such column the app makes
-/// one right of the chat. Keyboard focus stays in the chat. `snapshot.get`
-/// and `system.identify` report the caller and that column (`caller`,
-/// `beside`), so an agent knows where it is and where its tabs open.
+/// One placement rule (``ControlCallerPlacement``; beside_caller, hq-6d
+/// right-column design): what a caller runs without naming a place stays in
+/// its own workspace. A tab an agent opens goes to the column right of its
+/// pane, on the same screen; with no such column the app makes one right of
+/// it. Keyboard focus stays where it is. `snapshot.get` and `system.identify`
+/// report the caller and that column (`caller`, `beside`), so an agent knows
+/// where it is and where its tabs open.
 struct ControlCaller: Sendable, Equatable {
     var agentSession: String?
     var terminalID: String?
@@ -27,6 +28,18 @@ struct ControlCaller: Sendable, Equatable {
         self.terminalID = terminalID
         self.homeChat = homeChat
         self.workspaceKey = workspaceKey
+    }
+
+    /// The caller of a method that also takes the caller's terminal as its own param (`terminal_id`):
+    /// `caller` when it is there, else that terminal.
+    init?(_ params: [String: JSONValue], terminalID: String?) throws {
+        if let caller = try ControlCaller(params) {
+            self = caller
+        } else if let terminalID {
+            self = ControlCaller(terminalID: terminalID)
+        } else {
+            return nil
+        }
     }
 
     /// The request's `caller`, nil when it names none. A malformed one is
@@ -57,6 +70,25 @@ struct ControlCaller: Sendable, Equatable {
             throw ControlError.invalidParams("caller must name agent_session, terminal_id, or home_chat")
         }
     }
+
+    /// The `caller` param that names this caller again (a method that hands its run to `action.run`).
+    var json: JSONValue {
+        var members: [String: JSONValue] = [:]
+        if let agentSession { members["agent_session"] = .string(agentSession) }
+        if let terminalID { members["terminal_id"] = .string(terminalID) }
+        if homeChat { members["home_chat"] = true }
+        if let workspaceKey { members["workspace"] = .string(workspaceKey) }
+        return .object(members)
+    }
+}
+
+extension ControlActionRequest {
+    /// The caller the request carries, nil when it named none.
+    var caller: ControlCaller? {
+        guard callerAgentSession != nil || callerTerminal != nil || callerHomeChat else { return nil }
+        return ControlCaller(agentSession: callerAgentSession, terminalID: callerTerminal, homeChat: callerHomeChat,
+                             workspaceKey: callerWorkspace)
+    }
 }
 
 /// Where a caller is in the topology, and the column right of it.
@@ -71,6 +103,10 @@ struct ControlCallerLocation: Sendable, Equatable {
     var beside: ControlPaneInfo?
     /// Every pane of that column, in the screen's order (top to bottom); empty when there is none.
     var column: [ControlPaneInfo] = []
+    /// Whether `tab` is the caller's own chat or terminal. False for a stand-in place: the Home chat of
+    /// a Chief turn, or a pane of the workspace an agent's session runs in when no tab shows its chat.
+    /// What the caller opens is placed from a stand-in; a run on "its own" tab or pane has none there.
+    var isOwnTab = true
 
     /// Where the caller is: its chat tab (agent session) or terminal tab; else, for a Chief turn,
     /// the Home chat; else, for an agent whose chat no tab shows (its tab was closed, or a Chief
@@ -100,7 +136,7 @@ struct ControlCallerLocation: Sendable, Equatable {
         for (screen, pane) in candidates {
             guard let tab = pane.tabs.first(where: { $0.id == pane.selectedTabID }) ?? pane.tabs.first else { continue }
             return Self(caller: caller, workspace: workspace, screen: screen, pane: pane, tab: tab,
-                        beside: besidePane(of: pane, on: screen), column: besideColumn(of: pane, on: screen))
+                        beside: besidePane(of: pane, on: screen), column: besideColumn(of: pane, on: screen), isOwnTab: false)
         }
         return nil
     }
@@ -113,7 +149,7 @@ struct ControlCallerLocation: Sendable, Equatable {
                 for pane in screen.panes {
                     guard let tab = pane.tabs.first(where: { $0.page == "home-dock" }) else { continue }
                     return Self(caller: caller, workspace: workspace, screen: screen, pane: pane, tab: tab,
-                                beside: besidePane(of: pane, on: screen), column: besideColumn(of: pane, on: screen))
+                                beside: besidePane(of: pane, on: screen), column: besideColumn(of: pane, on: screen), isOwnTab: false)
                 }
             }
         }
@@ -169,36 +205,10 @@ struct ControlCallerLocation: Sendable, Equatable {
         topology.windows.contains { $0.isVisible && !$0.isHidden && $0.workspaceID == workspace.id }
     }
 
-    /// A tab of the beside pane to aim an `openBrowser` at: its selected tab, else its first.
-    var besideTab: String? {
-        guard let beside else { return nil }
-        if let selected = beside.selectedTabID, beside.tabs.contains(where: { $0.id == selected }) { return selected }
-        return beside.tabs.first?.id
-    }
-
     var callerJSON: JSONValue {
         ["is_caller": true, "agent_session": .optional(caller.agentSession), "terminal_id": .optional(caller.terminalID),
          "workspace": .string(workspace.publicID), "screen": .string(screen.id), "pane": .string(pane.id), "tab": .string(tab.id),
          "column": pane.column.map { JSONValue($0) } ?? .null]
-    }
-
-    /// `beside`: the column the caller's new tabs open in, or `null` pane with
-    /// `new_column` when the app would make one.
-    var besideJSON: JSONValue {
-        guard let beside else { return ["pane": .null, "placement": "new_column"] }
-        // `panes`: the whole column, top to bottom, with the kinds each holds, so a terminal the CLI
-        // or MCP server opens goes to the pane that already holds a terminal, or splits below a lone
-        // pane of another kind (cmux-tui cli/beside.rs).
-        let panes: [JSONValue] = (column.isEmpty ? [beside] : column).map { pane in
-            ["id": .string(pane.id), "kinds": .array(Self.kinds(of: pane).sorted().map(JSONValue.string))]
-        }
-        return ["pane": .string(beside.id), "column": beside.column.map { JSONValue($0) } ?? .null, "placement": "existing_column",
-                "panes": .array(panes),
-                "selected_tab": .optional(beside.selectedTabID),
-                "tabs": .array(beside.tabs.map { tab in
-                    ["id": .string(tab.id), "kind": .string(tab.page == nil ? tab.kind : "page"), "title": .string(tab.title),
-                     "url": .optional(tab.url)]
-                })]
     }
 
     /// `members` with `caller`, `beside` and `browser` (the browser nearest
@@ -212,93 +222,11 @@ struct ControlCallerLocation: Sendable, Equatable {
             return
         }
         members["caller"] = location.callerJSON
-        members["beside"] = location.besideJSON
+        // Where its tabs open: the decision the app makes for its runs (the CLI and the MCP server place terminals from it).
+        members["beside"] = ControlCallerPlacement(location).besideJSON
         // The browser its `current` browser commands drive (#26648), in its own session: the
         // daemon the CLI and MCP address.
         members["browser"] = BrowserCallerTarget.resolve(near: location, in: topology)?.json ?? .null
-    }
-}
-
-extension ControlRouter {
-    /// The actions `beside_caller` places in the column right of the caller's chat: the browser
-    /// (``opensBrowser(_:)``, any engine) and the diff viewer.
-    static let besideCallerActions: Set<String> = ["openBrowser", "openDiffViewer"]
-
-    /// `openBrowser` and its engine variants (`openBrowser.webkit`, `openBrowser.chromium`).
-    static func opensBrowser(_ id: String) -> Bool { id == "openBrowser" || id.hasPrefix("openBrowser.") }
-
-    /// The other actions that open a new tab or page where their target is: run by an agent with
-    /// no target they open in the agent's own place, never in the focused pane. A new workspace or
-    /// window (`newTab`, `newWindow`) is not one: it opens no tab in an existing workspace.
-    static func opensSurface(_ id: String) -> Bool {
-        ["new.", "newSurface", "tabGroup.newTab", "file.open", "macScreen.open", "reopenClosedBrowserPanel"].contains { id.hasPrefix($0) }
-    }
-
-    /// Aims an agent's surface-opening run that names no target at the agent's own place: the
-    /// browser and the diff viewer in the column right of its chat (beside_caller), any other
-    /// opening action at its chat's pane or tab. An explicit target wins; a caller the topology
-    /// does not show is placed in its session's workspace, else refused: an agent's tab never
-    /// lands in the focused workspace, Home (user, 2026-11-18).
-    static func placeBesideCaller(_ request: inout ControlActionRequest, action: ControlActionInfo, topology: ControlTopology) throws {
-        let beside = besideCallerActions.contains(action.id) || opensBrowser(action.id)
-        let agent = request.callerAgentSession != nil && !request.callerHomeChat
-        guard request.target == nil, request.callerAgentSession != nil || request.callerHomeChat,
-              beside || (agent && opensSurface(action.id) && !action.targets.isEmpty) else { return }
-        let caller = ControlCaller(agentSession: request.callerAgentSession, homeChat: request.callerHomeChat,
-                                   workspaceKey: request.callerWorkspace)
-        guard let location = ControlCallerLocation.resolve(caller, in: topology) else {
-            throw BrowserCallerTarget.missingCaller(caller)
-        }
-        guard beside else {
-            request.target = action.targets.contains("pane") ? ControlTargetRef(kind: "pane", id: location.pane.id)
-                : action.targets.contains("tab") ? ControlTargetRef(kind: "tab", id: location.tab.id)
-                : ControlTargetRef(kind: "workspace", id: location.workspace.publicID)
-            return
-        }
-        let paneTarget = action.targets.contains("pane")
-        // An agent's browser beside a column that is already there: the app measures that column and
-        // places it as the chat header's Preview is placed (AgentBesidePlacement, RightColumnPlacement):
-        // a tab in the pane that already holds a browser, else a split below a lone pane, else a tab
-        // in the lowest pane; never a third column. Leo 2026-10-31: "imo in this case, just open it
-        // on the existing. you only need the rightmost botom auto split when there's a terminal that
-        // gets opened when there's already a browser, and vice versa".
-        if opensBrowser(action.id), !paneTarget, location.beside != nil, request.callerAgentSession != nil,
-           !location.caller.homeChat, location.isShown(in: topology) {
-            request.target = ControlTargetRef(kind: "tab", id: location.tab.id)
-            request.newColumnBeside = true
-            request.besideCaller = true
-            return
-        }
-        // A workspace no window shows: no measure, so the topology's column picks the pane.
-        if opensBrowser(action.id), !paneTarget, let pane = sameKindOrLowest(location, kind: "browser"),
-           let tab = pane.selectedTabID.flatMap({ id in pane.tabs.contains { $0.id == id } ? id : nil }) ?? pane.tabs.first?.id {
-            request.target = ControlTargetRef(kind: "tab", id: tab)
-            request.besideCaller = true
-            return
-        }
-        if let beside = location.beside, paneTarget {
-            request.target = ControlTargetRef(kind: "pane", id: beside.id)
-        } else if location.beside != nil, let tab = location.besideTab {
-            request.target = ControlTargetRef(kind: "tab", id: tab)
-        } else {
-            // No column right of the chat (or an empty one a tab target cannot name): a new column.
-            request.target = paneTarget ? ControlTargetRef(kind: "pane", id: location.pane.id)
-                : ControlTargetRef(kind: "tab", id: location.tab.id)
-            request.newColumnBeside = true
-        }
-        request.besideCaller = true
-        // The diff of the folder the agent works in, not the beside pane's.
-        if action.id == "openDiffViewer", request.arguments["path"] == nil, let cwd = location.tab.cwd, !cwd.isEmpty {
-            request.arguments["path"] = .string(cwd)
-        }
-    }
-
-    /// With no window to measure: the column's lowest pane holding `kind`, else its lowest pane when it
-    /// has two or more (RightColumnPlacement: never another split); nil leaves the column's first pane.
-    static func sameKindOrLowest(_ location: ControlCallerLocation, kind: String) -> ControlPaneInfo? {
-        let column = location.column.filter { !$0.tabs.isEmpty }
-        if let same = column.last(where: { ControlCallerLocation.kinds(of: $0).contains(kind) }) { return same }
-        return column.count > 1 ? column.last : nil
     }
 }
 

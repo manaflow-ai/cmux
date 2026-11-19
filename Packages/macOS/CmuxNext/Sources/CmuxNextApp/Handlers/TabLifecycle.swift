@@ -26,6 +26,7 @@ enum TabLifecycle {
         let cwd = invocation["cwd"]?.stringValue
         // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
         let keep = invocation["keep"]?.boolValue == true ? true : nil
+        if let agent = invocation.besideAgent, ctx.services.daemon(for: focused).store.pinnedDock(holding: focused.handle) == nil, let beside = ctx.services.paneController(for: focused) { return beside.newTerminalTab(cwd: cwd, keep: keep, placementOwner: true, then: AgentBesidePlacement.placed(agent, in: beside, then: nil)) } // an agent's terminal beside it (ControlCallerPlacement): selected in its column or moved into a new one, focus kept; Home's dock places its own (below)
         let opensWorkspace = NewTerminalWorkspaceSetting.resolves(
             setting: ctx.services.settings?.snapshot.newTerminalOpensWorkspace ?? NewTerminalWorkspaceSetting.fallback,
             toggled: invocation["toggleWorkspace"]?.boolValue == true
@@ -73,7 +74,7 @@ enum TabLifecycle {
         }
         let handle = pane.handle, options = SpawnOptions(cwd: tabCwd ?? pane.tabs.first?.cwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
         // Home's dock that no window shows opens nothing in itself either: the tab moves beside it, the focus kept; a dock taking no tab: a column right of it (as above).
-        let beside = HomeDockOpens.opensBeside(pane, services: ctx.services), width = ctx.services.newColumnWidth(nextTo: pane)
+        let beside = HomeDockOpens.opensBeside(pane, services: ctx.services) || invocation.besideAgent?.newColumnBeside == true, width = ctx.services.newColumnWidth(nextTo: pane)
         let closed = ctx.services.daemon(for: pane).store.pinnedDock(holding: pane.handle)?.takesTabs == false
         ctx.send("new-tab") { connection in
             if closed { _ = try await connection.newColumn(beside: handle, left: false, width: width, options: options); return }
@@ -252,8 +253,10 @@ enum TabLifecycle {
                   invoked.tabs.contains(where: { $0.id == invocation.target?.id && [$0.terminalID?.rawValue, $0.terminalResourceID?.rawValue].contains(caller) }) {
             // A CLI or MCP browser at its own terminal's tab goes where a Cmd-click's would (LinkOpenPlacement, Lawrence 2026-11-15): the pane on its right, else a new pane beside it (AgentBesidePlacement).
             let target = ctx.services.linkOpener.target(from: from, kind: .browser), id = from.layoutPaneID
-            if case .pane(let right) = target, right != id, let shown = from.workspace?.panes[right] { pane = shown.pane } else { pane = invoked }
-            if case .splitRight = target { invocation.newColumnBeside = true } else if case .newColumn = target { invocation.newColumnBeside = true }
+            // Never a column that holds another agent's pane (`besideAgentHomes`, ControlCallerPlacement): then a new pane beside the caller.
+            let taken = !invocation.besideAgentHomes.isEmpty && LinkOpener.rightColumn(beside: from).panes.contains { invocation.besideAgentHomes.contains($0) }
+            if case .pane(let right) = target, right != id, !taken, let shown = from.workspace?.panes[right] { pane = shown.pane } else { pane = invoked }
+            if taken { invocation.newColumnBeside = true } else if case .splitRight = target { invocation.newColumnBeside = true } else if case .newColumn = target { invocation.newColumnBeside = true }
             invocation.besideCaller = invocation.newColumnBeside
         } else {
             pane = invoked

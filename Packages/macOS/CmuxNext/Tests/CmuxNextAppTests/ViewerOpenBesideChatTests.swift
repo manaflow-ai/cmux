@@ -68,7 +68,7 @@ struct ViewerOpenBesideChatTests {
     }
 
     /// A fresh app whose one pane holds only an agent chat, focused, and a repository with a commit and an unstaged change.
-    private static func withLoneChat(_ body: (AppServices, URL, TabModel) async throws -> Void) async throws {
+    static func withLoneChat(_ body: (AppServices, URL, TabModel) async throws -> Void) async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "viewer-beside-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }

@@ -504,6 +504,12 @@ enum AgentHandlers {
         let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
         // A pane no window shows (an agent's workspace off screen): a tab there, the view unchanged (user, 2026-11-18).
         if !paneless, target == .tab, let parked = context.parkedPane(invocation) {
+            // An agent's page or preview (HTML, an image, a PDF) is a browser tab there, beside the agent, as its browser opens (TabLifecycle).
+            if var agent = invocation.besideAgent, context.services.daemon(for: parked).isLocal, let url = AgentPaneFileOpen.resolve(path), FilePageOpener.opensInBrowserTab(url, asText: asText) {
+                agent.arguments = ["url": .string(url.absoluteString)]
+                if let engine = FilePageOpener.tabEngine(for: url) { agent.arguments["engine"] = .string(engine) }
+                return TabLifecycle.newBrowser(context, agent)
+            }
             if let reason = context.services.viewers.openFile(URL(fileURLWithPath: path), parkedIn: parked, userChose: invocation.origin == .user,
                                                               asText: asText) { throw ActionFailure(message: reason) }
             return
@@ -517,7 +523,7 @@ enum AgentHandlers {
             case .some(.remotePreview?): throw ActionFailure(message: RemoteFilePageFiles.remotePreview(url.lastPathComponent))
             case .some(.notAbsolute?), nil: throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
             }
-            if let reason = context.services.viewers.openFile(url, on: pane.daemon, from: pane, userChose: invocation.origin == .user, asText: asText) {
+            if let reason = context.services.viewers.openFile(url, on: pane.daemon, from: pane, userChose: invocation.origin == .user, asText: asText, beside: invocation.besideAgent) {
                 throw ActionFailure(message: reason)
             }
             return
@@ -533,7 +539,7 @@ enum AgentHandlers {
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
                 context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
             }
-            if let reason = context.services.viewers.openFile(url, on: nil, from: pane, userChose: invocation.origin == .user, asText: asText) { throw ActionFailure(message: reason) }
+            if let reason = context.services.viewers.openFile(url, on: nil, from: pane, userChose: invocation.origin == .user, asText: asText, beside: invocation.besideAgent) { throw ActionFailure(message: reason) }
             return
         }
         let opening: AgentPaneFileOpening
