@@ -56,7 +56,11 @@ def one_round(side: str, chief: Path, samples: list[dict]) -> None:
         home = Path(tmp)
         mux = home / "mux"
         mux.mkdir()
-        env = {**os.environ, "HOME": str(home), "MUX_HOME": str(mux), "XDG_STATE_HOME": str(home / "state")}
+        # The host refuses to start without the agent token the app hands it (host.rs conversation_source).
+        token = home / "agent.token"
+        token.write_text("fold-chief-measurement\n")
+        env = {**os.environ, "HOME": str(home), "MUX_HOME": str(mux), "XDG_STATE_HOME": str(home / "state"),
+               "MUX_AGENT_TOKEN_FILE": str(token)}
         args = [str(chief), "settings", "show", "--mux-home", str(mux)]
         t0 = time.perf_counter()
         done = subprocess.run(args, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)

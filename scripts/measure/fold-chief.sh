@@ -68,3 +68,9 @@ done
   || { echo "FOLD-ERROR expected base to keep bin/optchat-chief and head to link it"; exit 1; }
 python3 "$root/scripts/measure/fold-chief.py" --bin "base=$scratch/bin-base" --bin "head=$scratch/bin-head" \
   --rounds "$rounds" || exit 1
+# The bytes again at the end, where a log's tail keeps them.
+for label in base head; do
+  for file in "$scratch/bin-$label"/*; do
+    if [[ -L "$file" ]]; then echo "FOLD-SIZE $label $(basename "$file") link"; else echo "FOLD-SIZE $label $(basename "$file") $(stat -c %s "$file")"; fi
+  done
+done
