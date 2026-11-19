@@ -106,4 +106,18 @@
   "appearance.colorTransition.springDamping": 1,
   "appearance.colorTransition.colorSpace": "oklab",
   "appearance.colorTransition.reduceMotion": "crossfade"
+
+  // Pending cmux#46861 (layout and proportions): macOS: 28 pt toolbar buttons with a 6 pt rounded-rect fill, no toolbar hairline (Tahoe), 10 pt source-list insets. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 44,
+  // "appearance.metrics.sidebarRowInset": 10,
+  // "appearance.metrics.sidebarRowPadding": 8,
+  // "appearance.metrics.sidebarRowGap": 0,
+  // "appearance.metrics.toolbarButtonSize": 28,
+  // "appearance.metrics.toolbarButtonGap": 8,
+  // "appearance.metrics.toolbarButtonCornerRadius": 6,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.1,
+  // "appearance.metrics.headerDivider": 0,
+  // "appearance.metrics.composerPadding": 10,
+  // "appearance.metrics.composerMinHeight": 36,
+  // "appearance.metrics.spacingScale": 1,
 }

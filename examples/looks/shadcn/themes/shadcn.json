@@ -110,4 +110,18 @@
   "appearance.colorTransition.bezierX2": 0.2,
   "appearance.colorTransition.bezierY2": 1,
   "appearance.colorTransition.colorSpace": "oklab"
+
+  // Pending cmux#46861 (layout and proportions): shadcn: h-7 icon buttons, rounded-md, a border-b header, the sidebar's 4 px gap and px-2 rows, a min-h-16 textarea. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 48,
+  // "appearance.metrics.sidebarRowInset": 8,
+  // "appearance.metrics.sidebarRowPadding": 8,
+  // "appearance.metrics.sidebarRowGap": 4,
+  // "appearance.metrics.toolbarButtonSize": 28,
+  // "appearance.metrics.toolbarButtonGap": 4,
+  // "appearance.metrics.toolbarButtonCornerRadius": 6,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.06,
+  // "appearance.metrics.headerDivider": 1,
+  // "appearance.metrics.composerPadding": 12,
+  // "appearance.metrics.composerMinHeight": 64,
+  // "appearance.metrics.spacingScale": 1,
 }

@@ -107,4 +107,18 @@
   "appearance.colorTransition.bezierY1": 0,
   "appearance.colorTransition.bezierX2": 0,
   "appearance.colorTransition.bezierY2": 1
+
+  // Pending cmux#46861 (layout and proportions): M3: 40 dp icon buttons with a full-round state layer, no header divider, 16 dp drawer padding, a 56 dp text field. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowHeightWithSubtitle": 64,
+  // "appearance.metrics.sidebarRowInset": 12,
+  // "appearance.metrics.sidebarRowPadding": 16,
+  // "appearance.metrics.sidebarRowGap": 0,
+  // "appearance.metrics.toolbarButtonSize": 40,
+  // "appearance.metrics.toolbarButtonGap": 8,
+  // "appearance.metrics.toolbarButtonCornerRadius": 20,
+  // "appearance.metrics.toolbarButtonActiveFill": 0.12,
+  // "appearance.metrics.headerDivider": 0,
+  // "appearance.metrics.composerPadding": 16,
+  // "appearance.metrics.composerMinHeight": 56,
+  // "appearance.metrics.spacingScale": 1,
 }
