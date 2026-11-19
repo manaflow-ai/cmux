@@ -454,8 +454,11 @@ try {
         await pages[0]!.page.evaluate(() => (globalThis as { gc?: () => void }).gc?.());
       // PRESSURE=1: a critical memory-pressure notice before each new chat, as the app sends every hidden chat page
       // 10 s after a hide (CEFHiddenPageTrim), so whatever it drops is gone when the next chat opens.
-      if (process.env.PRESSURE === "1" && pages.length)
+      // V8 takes the notice at its next interrupt, so the next chat opens after it has run.
+      if (process.env.PRESSURE === "1" && pages.length) {
         await pages[0]!.cdp.send("Memory.simulatePressureNotification", { level: "critical" });
+        await pages[0]!.page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 2000)));
+      }
       const page = await context.newPage();
       await page.goto(urlFor(index));
       const shown = await page.waitForFunction(
