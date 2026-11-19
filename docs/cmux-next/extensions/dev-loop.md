@@ -100,7 +100,11 @@ and repeat until both look right.
 1. A change in the folder (dot files, `node_modules` and editor backups ignored) wakes the
    watch; 120 ms of quiet later one reload starts. A save that leaves the folder's contents as
    they were reloads nothing.
-2. The manifest is validated by the validator cmux itself runs (`cmux-app-manifest`).
+2. The manifest is validated by the validator cmux itself runs (`cmux-app-manifest`). When step 3
+   will build, the main script it writes (`runtime.main`, `dist/main.js`) need not exist yet, so a
+   fresh clone (examples gitignore `dist/`) builds; the full check, the main script included,
+   runs again after the build. With nothing to build, a missing main script ends the reload at
+   phase manifest.
 3. Build: `--build CMD` when given; else, with `src/main.ts` and `bun` on PATH, the packer every
    sample uses (`cmux-app-host/tools/pack.ts`, built into the CLI) writes `dist/main.js`; a plain
    `dist/main.js` needs no build. `cmux-extension-sdk` resolves to the folder's own copy
@@ -172,3 +176,40 @@ real app host).
 `tsconfig.json` points `import … from "cmux-extension-sdk"` there and `package.json` names it as
 `file:./sdk`, so a new extension builds with no npm account, no registry and no network, and its
 `API_VERSION` is that cmux's. `cmux ext new` in a newer cmux gives a newer copy.
+
+## Share it from a git repository
+
+An extension folder is a git repository with the manifest and `README.md` at its root.
+`cmux ext new NAME --repo OWNER/REPO` (or `cmux ext new NAME --dir .` in a clone of a new,
+empty GitHub repository, whose `origin` names it) writes:
+
+- the id `owner/NAME` (the GitHub owner, lowercased) and `"repository": "https://github.com/OWNER/REPO"`;
+- a README with the badge and the install line:
+
+  ```markdown
+  [![Get it on cmux](https://cmux.com/extensions/badge.svg)](https://cmux.com/extensions/OWNER/REPO)
+  ```
+
+  ```sh
+  cmux apps install github.com/OWNER/REPO
+  ```
+
+- a `.gitignore`, and `git init` (branch `main`) when the folder is in no repository.
+
+With no repository, the id stays `local/NAME` and the README carries a marked `OWNER/REPO`
+placeholder. `cmux ext dev` loads an `owner/NAME` folder as `local/NAME` (its copy in the local
+apps folder says `local/`; the folder keeps its own id).
+
+`cmux ext publish [DIR] [--repo OWNER/REPO] [--write-badge] [--json]` writes nothing to the
+network. It checks the manifest validates, the id starts with the owner, the `repository` field,
+the README badge (`--write-badge` adds it or fills the placeholder), and an image `icon` or
+`screenshots`; then prints the steps: push to GitHub; a release whose tag is the manifest's
+`version`, with the assets `cmux ext pack` writes (the exact `gh release create` line); and a pull
+request to manaflow-ai/cmux-extensions adding the printed entry to `extensions.json`, the list of
+record. Exit 0 when ready, 1 when something is left (each `todo` line says what), 2 for a bad
+`--repo` or folder. Commit `dist/main.js` too, so the source tree loads as it is.
+
+`cmux ext pack [DIR] [--out DIR] [--json]` validates the folder as `ext dev` does and writes
+`release/cmux-extension.tar.gz` (the manifest and the files it names, sorted, with no times or
+owners, so the same files give the same bytes) and `release/cmux-app.v2.json`, and prints the
+archive's sha256. Exit 4 when the folder does not validate.

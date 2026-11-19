@@ -1,8 +1,9 @@
 // Fresh-home discovery uses the real New Tab and chat composer, with Labs left off: the composer's
 // environment picker is not behind Labs (Leo, 2026-10-30), and with only this Mac listed it offers
-// Cloud (New Cloud Machine) in its list and Add Machine… and New Cloud Machine… in the control's
-// right-click menu, from a started chat too (#27083). The list is This Mac and Cloud, one line each,
-// with the setup actions on the right-click menu (#28999).
+// Cloud in its list and Add Machine… and New Cloud Machine… in the control's right-click menu, from
+// a started chat too (#27083). The list is This Mac and one Cloud row, one line each, with the setup
+// actions on the right-click menu (#28999). This fresh home is signed out, so its one Cloud row is
+// Sign in for Cloud, in Cloud's place, and it signs in (#36050).
 // The host-call assertions prove the menu dispatch; native card/sign-in integration is separate.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync } from "node:fs";
@@ -83,17 +84,17 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
           // thing becomes just one state instead of rapidly switching to another").
           if (!(await computer.getAttribute("aria-expanded"))?.includes("true")) await computer.click();
           const menu = page.locator(".acpmux-env-popover");
-          const cloud = menu.getByRole("option", { name: /^Sign in for Cloud/ });
-          await cloud.waitFor();
+          const signIn = menu.getByRole("option", { name: /^Sign in for Cloud/ });
+          await signIn.waitFor();
           const names = await menu.getByRole("option").allTextContents();
-          expect(await cloud.count(), names.join(" | ")).toBe(1);
+          expect(await signIn.count(), names.join(" | ")).toBe(1);
           expect(
             names.filter((name) => name.startsWith("Cloud")),
             names.join(" | "),
           ).toEqual([]);
-          expect(await cloud.isVisible(), names.join(" | ")).toBe(true);
+          expect(await signIn.isVisible(), names.join(" | ")).toBe(true);
           if (artifacts) await page.screenshot({ path: path.join(artifacts, `${entry}-${colorScheme}.png`) });
-          await cloud.click();
+          await signIn.click();
           await page
             .waitForFunction(
               () =>

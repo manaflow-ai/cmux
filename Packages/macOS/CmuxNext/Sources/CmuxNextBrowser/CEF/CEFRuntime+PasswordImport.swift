@@ -8,7 +8,7 @@ extension CEFRuntime {
 
     /// Whether the running fork can write passwords, under cmux's own Keychain key.
     var canImportPasswords: Bool {
-        guard let shim, state == .ready, !PasswordImportKey.storesUnderMockKey() else { return false }
+        guard let shim, state == .ready, !PasswordImportKey.storesUnderMockKey(chromiumUsesMockKeychain: chromiumUsesMockKeychain) else { return false }
         return shim.passwordImportAvailable() == 1 && Int(shim.passwordEntrySize()) == ChromiumPasswordRows.stride
     }
 
@@ -28,13 +28,16 @@ extension CEFRuntime {
 
 /// Whether imported passwords would be stored under a key anyone knows.
 enum PasswordImportKey {
-    /// Development bundles (and CMUX_MOCK_KEYCHAIN=1) run Chromium with its
-    /// mock Keychain, whose key is a public constant: passwords stored there
-    /// are as good as plaintext on disk, so the import is off. Debug builds may
-    /// allow it for throwaway test data only (CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY=throwaway).
-    static func storesUnderMockKey(bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+    /// Chromium on the mock keychain keeps its key as a public constant: passwords stored there are as good as
+    /// plaintext on disk, so the import is off. That is what the running Chromium uses (`chromiumUsesMockKeychain`,
+    /// set when it starts), not what the bundle suggests: a Release build falls back to the mock keychain when the
+    /// fork does not take cmux's own item, and a development bundle may run on the real one (CMUX_NEXT_REAL_KEYCHAIN=1).
+    /// Before Chromium starts (nil) nothing is imported. Debug builds may allow the mock key for throwaway test data
+    /// only (CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY=throwaway).
+    static func storesUnderMockKey(chromiumUsesMockKeychain: Bool?,
                                    environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
-        guard CEFSwitches.current(forkAPIVersion: 0, bundleIdentifier: bundleIdentifier, environment: environment).useMockKeychain else { return false }
+        guard let mock = chromiumUsesMockKeychain else { return true }
+        guard mock else { return false }
         #if DEBUG
         return environment["CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY"] != "throwaway"
         #else
