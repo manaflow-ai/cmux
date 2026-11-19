@@ -42,6 +42,7 @@ mod generated {
 pub mod backend;
 pub mod connect_retry;
 mod error;
+pub mod lifecycle;
 pub mod machine;
 pub mod ops;
 pub mod transcript;

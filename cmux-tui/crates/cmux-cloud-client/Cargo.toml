@@ -17,6 +17,7 @@ bytes.workspace = true
 cmux-cloud-environment.workspace = true
 cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
+cmux-lifeline.workspace = true
 futures = "0.3"
 getrandom.workspace = true
 # Pinned exactly like the generator (workers/cmux-vm/cli/Cargo.toml): the

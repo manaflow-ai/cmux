@@ -39,6 +39,20 @@ pub async fn call<O: Op>(
     key: Option<&str>,
     origin: Option<Origin>,
 ) -> Result<Answer<O::Result, O::Error>, ApiError> {
+    call_with_options(http, base_url, params, key, origin, None).await
+}
+
+/// Sends an op with an optimistic-concurrency precondition. Mutations should
+/// pass the revision carried by their scoped machine capability; the server
+/// then refuses a stale handle before doing provider work.
+pub async fn call_with_options<O: Op>(
+    http: &reqwest::Client,
+    base_url: &str,
+    params: O::Params,
+    key: Option<&str>,
+    origin: Option<Origin>,
+    expected_revision: Option<&str>,
+) -> Result<Answer<O::Result, O::Error>, ApiError> {
     let mut request = OpRequest::new::<O>(params);
     match (O::IDEMPOTENCY, key) {
         (WireIdempotency::Required, None) => {
@@ -54,6 +68,9 @@ pub async fn call<O: Op>(
     }
     if let Some(origin) = origin {
         request = request.with_origin(origin);
+    }
+    if let Some(revision) = expected_revision {
+        request = request.with_expected_revision(revision);
     }
     let url = format!("{}{}", base_url.trim_end_matches('/'), O::CLASS.http_path());
     let response =
