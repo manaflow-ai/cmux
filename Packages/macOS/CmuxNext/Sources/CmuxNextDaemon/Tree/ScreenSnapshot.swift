@@ -70,6 +70,8 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
     /// The panes shown above the tiled layout, back to front (`floating-panes-v1`), as the daemon sent it; not
     /// checked against the layout, the range or repeats. The daemon keeps each one a leaf of `layout`.
     public var floating: [FloatingPaneSnapshot]
+    /// The workspace Quick Terminal mark, present only on the screen that owns it.
+    public var quickTerminal: QuickTerminalSnapshot?
 
     public init(
         id: ScreenID,
@@ -89,7 +91,7 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         pinned: Bool = false,
         group: ScreenGroupID? = nil,
         hiddenDividers: Set<SplitID> = [],
-        floating: [FloatingPaneSnapshot] = []
+        floating: [FloatingPaneSnapshot] = [], quickTerminal: QuickTerminalSnapshot? = nil
     ) {
         self.id = id
         self.resourceID = resourceID
@@ -109,10 +111,12 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         self.group = group
         self.hiddenDividers = hiddenDividers
         self.floating = floating
+        self.quickTerminal = quickTerminal
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, active, layout, columns, panes, color, icon, pinned, group, floating
+        case quickTerminal = "quick_terminal"
         case resourceID = "resource_id"
         case shortID = "short_id"
         case activePane = "active_pane"
@@ -142,5 +146,6 @@ public struct ScreenSnapshot: Sendable, Hashable, Decodable {
         group = try c.decodeIfPresent(ScreenGroupID.self, forKey: .group)
         hiddenDividers = Set(((try? c.decodeIfPresent([SplitID].self, forKey: .hiddenDividers)) ?? nil) ?? [])
         floating = FloatingPaneSnapshot.list(in: c, forKey: .floating)
+        quickTerminal = try c.decodeIfPresent(QuickTerminalSnapshot.self, forKey: .quickTerminal)
     }
 }

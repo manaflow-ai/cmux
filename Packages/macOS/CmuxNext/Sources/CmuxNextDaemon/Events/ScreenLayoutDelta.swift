@@ -16,10 +16,12 @@ public struct ScreenLayoutDelta: Sendable, Hashable, Decodable {
     public var hiddenDividers: Set<SplitID>
     /// The panes shown above the tiled layout, back to front (`floating-panes-v1`).
     public var floating: [FloatingPaneSnapshot]
+    /// The workspace Quick Terminal mark, if this screen owns it (`quick-terminal-v1`).
+    public var quickTerminal: QuickTerminalSnapshot?
 
     public init(activePane: PaneID? = nil, zoomedPane: PaneID? = nil, layout: LayoutNode,
                 viewportBaseWidth: Double? = nil, columns: [ColumnSnapshot] = [], hiddenDividers: Set<SplitID> = [],
-                floating: [FloatingPaneSnapshot] = []) {
+                floating: [FloatingPaneSnapshot] = [], quickTerminal: QuickTerminalSnapshot? = nil) {
         self.activePane = activePane
         self.zoomedPane = zoomedPane
         self.layout = layout
@@ -27,10 +29,12 @@ public struct ScreenLayoutDelta: Sendable, Hashable, Decodable {
         self.columns = columns
         self.hiddenDividers = hiddenDividers
         self.floating = floating
+        self.quickTerminal = quickTerminal
     }
 
     enum CodingKeys: String, CodingKey {
         case layout, columns, floating
+        case quickTerminal = "quick_terminal"
         case activePane = "active_pane"
         case zoomedPane = "zoomed_pane"
         case viewportBaseWidth = "viewport_base_width"
@@ -46,5 +50,6 @@ public struct ScreenLayoutDelta: Sendable, Hashable, Decodable {
         columns = try c.decodeIfPresent([ColumnSnapshot].self, forKey: .columns) ?? []
         hiddenDividers = Set(((try? c.decodeIfPresent([SplitID].self, forKey: .hiddenDividers)) ?? nil) ?? [])
         floating = FloatingPaneSnapshot.list(in: c, forKey: .floating)
+        quickTerminal = try c.decodeIfPresent(QuickTerminalSnapshot.self, forKey: .quickTerminal)
     }
 }
