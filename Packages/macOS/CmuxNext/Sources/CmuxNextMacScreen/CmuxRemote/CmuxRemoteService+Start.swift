@@ -1,5 +1,5 @@
 public import CmuxNextCompat
-public import CmuxNextComputerUse
+import CmuxNextComputerUse
 public import CmuxNextDevices
 public import CmuxNextSettings
 import Foundation
@@ -9,25 +9,19 @@ private let startLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "
 
 extension CmuxRemoteService {
     /// cmux Remote's app side (docs/cmux-remote.md), when this build embeds it: Computer Use
-    /// runs as its worker; the hub is made with the Screen Sharing worker's device identity and
+    /// runs as its worker (``followComputerUse(_:)`` sends the policy); the hub is made with the Screen Sharing worker's device identity and
     /// reads the worker's one User DO socket, and the worker is anchored while signed in. The app
     /// serves Mac Screen and shows approvals while attached. Nil (and nothing changes) in
     /// a build without the bundle.
-    public func start(bundleID: String, loginKeychain: LoginKeychain, deviceHub: DeviceHubService, pages: MacScreenPages, computerUse: ComputerUseHelperV2,
+    public func start(bundleID: String, loginKeychain: LoginKeychain, deviceHub: DeviceHubService, pages: MacScreenPages,
                       tokens: @escaping @Sendable () async throws -> String) -> CmuxRemoteDevices? {
-        guard !started, let executable = ComputerUseRemoteSource.executable() else { return nil }
+        // In every build: without cmux Remote (Release, NIGHTLY) the app's own grants are the ones that count.
+        followAppPermissions(activation: pages.systemShortcuts)
+        guard !started, ComputerUseRemoteBundle.embedded() != nil else { return nil }
         markStarted()
         let devices = CmuxRemoteDevices(open: { [weak self] in
             guard let self else { throw CmuxRemoteError.unavailable }
             return try await openChannel("screen-sharing").socket
-        })
-        computerUse.remote = ComputerUseRemoteSource(available: { [weak self] in
-            await self?.waitAvailable() ?? false
-        }, open: { [weak self] in
-            guard let self else { throw CmuxRemoteError.unavailable }
-            // A tagged DEV app may be driven (the legacy dogfood scope); only this app opens a channel.
-            let opened = try await openChannel("computer-use", extra: ["allowed_target_bundle_id": bundleID])
-            return ComputerUseRemoteChannel(pid: opened.pid, socket: opened.socket, executable: executable)
         })
         deviceHub.makeRemoteHub = { [weak self] url, _ in
             guard let self else { return nil }
@@ -81,7 +75,7 @@ extension CmuxRemoteService {
             await settings.waitForLoad(atLeast: 1)
             let config = { @MainActor in
                 let state = appState(), computerUse = settings.snapshot.computerUse
-                return (computerUse: computerUse.enabled && ComputerUseHelperDaemon.shared.effectiveDriver(computerUse.driver) == .upstream && state.computerUseAllowed,
+                return (computerUse: computerUse.mode != .off && state.computerUseAllowed,
                         screenSharing: state.signedIn, headless: !settings.snapshot.remote.endSharingOnQuit)
             }
             self?.currentConfig = config
