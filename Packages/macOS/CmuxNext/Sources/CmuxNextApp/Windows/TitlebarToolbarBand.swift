@@ -150,11 +150,11 @@ final class TitlebarToolbarBand: NSView {
     }
 
     private let ink = GlyphInkMeasure()
-    /// The buttons' slots: one ink gap between glyphs (`TopRowSpacing`); each item and gap is `presence` of it.
-    var slots: TopRowSpacing.Slots { ink.slots(for: [sidebarToggle, backButton, forwardButton].map(\.image), gap: TopRowSpacing.glyphGap) }
+    /// The buttons' slots: one ink gap between this density's glyphs (`TopRowSpacing`); each item and gap is `presence` of it.
+    func slots() -> TopRowSpacing.Slots { ink.slots(for: [sidebarToggle, backButton, forwardButton], gap: TopRowSpacing.glyphGap) }
     override func layout() {
         super.layout()
-        for (button, frame) in zip([sidebarToggle, backButton, forwardButton], slots.frames(presence: presence, height: bounds.height)) { button.frame = frame }
+        for (button, frame) in zip([sidebarToggle, backButton, forwardButton], slots().frames(presence: presence, height: bounds.height)) { button.frame = frame }
     }
 
     /// Names the toggle with its action title and bound key.

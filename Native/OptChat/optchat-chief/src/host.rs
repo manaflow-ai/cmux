@@ -748,6 +748,18 @@ fn start(
     daemon_socket: &str,
     source: Source,
 ) -> Result<String, String> {
+    // The memory files (memory_files.rs): notes, standing rules and open
+    // loops beside the chat. A store that cannot open is kept in memory for
+    // this start, so the tools still answer.
+    let memory_files = Arc::new(
+        crate::memory_files::MemoryFiles::open_in(&paths.root).unwrap_or_else(|e| {
+            log(format!(
+                "{e}; memory files kept in memory until the next start"
+            ));
+            crate::memory_files::MemoryFiles::open(Path::new(":memory:"))
+                .expect("an in-memory SQLite database")
+        }),
+    );
     let exe = std::env::current_exe()
         .and_then(|p| p.canonicalize())
         .map_err(|e| format!("finding this executable: {e}"))?;
@@ -1518,6 +1530,15 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::Redescribe(notes) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Redescribe { notes, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::StopAll => {
                 let (reply, answer) = channel();
                 tx.send(Input::StopAll { reply }).map_err(stopping)?;
@@ -1652,6 +1673,7 @@ fn start(
         )
         .with_trace(trace.clone())
         .with_person(paths.person.clone())
+        .with_memory_files(memory_files.clone())
         .with_pinned_harness(sub_set.is_some())
         // goal.rs: Claude subagents work under /goal on Opus 5.5 until done.
         .with_goal(true)
@@ -1722,8 +1744,11 @@ fn start(
     let memory_editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
     // The MCP hub (mcp_hub): servers the Chief adds itself; a task's result
     // and a subscribed event reach the brain as a note, as a peer Chief's do.
-    let mcp_hub = crate::mcp_hub::McpHub::new(
+    let mcp_hub = crate::mcp_hub::McpHub::new_for(
         paths.root.join("mcp"),
+        // One store of connections for the machine: every Chief home and
+        // acpmux's connect card (mcp_hub::store).
+        crate::mcp_hub::store::shared_dir(),
         Some(crate::skills::chief_dir(home)),
         {
             let tx = Mutex::new(tx.clone());
@@ -1734,6 +1759,8 @@ fn start(
                     .send(Input::PeerChiefNote { text });
             })
         },
+        // It sees the servers the person's scope on the connect card gives this Chief.
+        crate::mcp_hub::Viewer::Chief(crate::paths::home_id(home)),
     );
     mcp_hub.start();
     crate::tools::serve_all(
@@ -1977,6 +2004,34 @@ fn start(
     brain.set_auto_resume(crate::auto_resume::ResumePolicy::from_env(env), None);
     if let Some(describer) = describer {
         brain.set_describer(describer);
+    }
+    brain.set_memory_files(memory_files.clone());
+    // Check-ins (check_in.rs): auto by default, OPTCHAT_CHECK_INS=mornings|off.
+    brain.set_check_ins(crate::check_in::Mode::parse(
+        env("OPTCHAT_CHECK_INS").as_deref(),
+    ));
+    // The nightly memory review (dream.rs) on the same deny-all sessions as
+    // the reaction classifier; the Messages API route has none.
+    // Opus 5.5 on a Claude compactor; another family needs the model named.
+    let review_model = env("OPTCHAT_MEMORY_REVIEW_MODEL")
+        .or_else(|| (compactor_family == Family::Claude).then(|| "claude-opus-5-5".to_owned()));
+    match (&judge, review_model) {
+        (Some(judge), Some(model)) if env("OPTCHAT_MEMORY_REVIEW").as_deref() != Some("0") => {
+            crate::dream::spawn_nightly(
+                Arc::new(crate::dream::JudgeDream {
+                    judge: judge.clone(),
+                    model: model.clone(),
+                }),
+                model,
+                memory_files.clone(),
+                paths.memory_db.clone(),
+                paths.person.clone(),
+                Arc::new(|line: &str| log(line)),
+            );
+        }
+        _ => log(
+            "memory review: off (no deny-all model route, a compactor family with no OPTCHAT_MEMORY_REVIEW_MODEL, or OPTCHAT_MEMORY_REVIEW=0)",
+        ),
     }
     if let Some(judge) = judge {
         brain.set_reaction_judge(judge);

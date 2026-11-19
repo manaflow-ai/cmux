@@ -31,7 +31,6 @@ colour	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarFaviconRendi
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceStatusView.swift	1
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabHoverCardGallery.swift	2
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime.swift	2
-colour	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalHostView.swift	1
 colour	Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSurfaceView+Actions.swift	1
 colour	webviews/src/agent-session/acpmux/QuickModelColumns.tsx	1
 colour	webviews/src/agent-session/acpmux/composer/imageWork.ts	1

@@ -54,7 +54,7 @@ STATEs:
   midturn    a chat whose turn streams "before-gate" and waits on a FIFO, in front
   queued     midturn plus a second message sent while the turn runs (queued in acpmux)
   tool       a turn with a plan step and a tool call in progress, waiting on a FIFO
-  long       a chat of --long-turns answered turns of about 1 KB each, in front
+  long       a chat of --long-turns answered turns of about 4 KB each, in front
   many       --many workspaces with a terminal each (made once), a midturn chat in another workspace, the newest
              terminal in front
 
@@ -180,14 +180,18 @@ def quit_app(app: App, path: str) -> tuple[str | None, int | None]:
         why = press_cmd_q(app)
         if why:
             return why, None
-    elif path == "scripted":
-        reply = l5.call(app.sock, "action.run", {"action": "quit"}, timeout=10)
+    elif path == "scripted" or path in KEEP_SESSIONS:
+        action = "quit" if path == "scripted" else "quitKeepSessions"
+        reply = l5.call(app.sock, "action.run", {"action": action}, timeout=10)
+        # A quit may end the app before its answer (the update run: "did not finish within 1999 ms", not_run), so
+        # an error is the round's only when the app is still running 20 s later.
         if reply.get("error"):
-            return f"action.run quit: {reply['error']}", None
-    elif path in KEEP_SESSIONS:
-        reply = l5.call(app.sock, "action.run", {"action": "quitKeepSessions"}, timeout=10)
-        if reply.get("error"):
-            return f"action.run quitKeepSessions: {reply['error']}", None
+            try:
+                process.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                return f"action.run {action}: {reply['error']}", None
+            app.close_marks()
+            return None, round((time.monotonic() - asked) * 1000)
     elif path == "kill":
         os.kill(process.pid, signal.SIGKILL)
     elif path == "term":
@@ -287,8 +291,18 @@ def count(value) -> int:
 
 
 def send(app: App, chat: str, text: str) -> str | None:
-    sent = app.inst.cmux("agents", "chat", "send", chat, "--", text, timeout=30)
-    return sent.get("error") if isinstance(sent, dict) and sent.get("error") else None
+    """None, or why the send failed. The mailbox limits every sender, the person too (agent_message_policy.rs: 5
+    sends in 10 s, 20 a minute to one chat): a rate-limited send waits and goes again, for at most 75 s."""
+    deadline = time.monotonic() + 75
+    while True:
+        sent = app.inst.cmux("agents", "chat", "send", chat, "--", text, timeout=30)
+        error = sent.get("error") if isinstance(sent, dict) and sent.get("error") else None
+        reason = ((error or {}).get("details") or {}).get("reason") if isinstance(error, dict) else None
+        if reason != "rate_limited" and "rate_limited" not in str(error or ""):
+            return error
+        if time.monotonic() > deadline:
+            return error
+        time.sleep(2)
 
 
 def release(fifo: str) -> str | None:
@@ -325,8 +339,11 @@ class Gamut:
         (agents / "scripts" / "cmux-next").mkdir(parents=True)
         (agents / "cmux-tui" / "crates" / "acpmux" / "tests").mkdir(parents=True)
         shutil.copyfile(args.fake_agent, agents / "cmux-tui" / "crates" / "acpmux" / "tests" / "fake_agent.py")
-        self.fake = agents / "scripts" / "cmux-next" / "idle_cost_agent.py"
-        shutil.copyfile(HERE.parent / "cmux-next" / "idle_cost_agent.py", self.fake)
+        shutil.copyfile(HERE.parent / "cmux-next" / "idle_cost_agent.py",
+                        agents / "scripts" / "cmux-next" / "idle_cost_agent.py")
+        # quit_gamut_agent.py wraps it: it finds the fixture command in a delivery the mailbox framed.
+        self.fake = agents / "scripts" / "cmux-next" / "quit_gamut_agent.py"
+        shutil.copyfile(HERE / "quit_gamut_agent.py", self.fake)
         self.app: App | None = None
         self.many_made = False
         self.rounds: list[dict] = []
@@ -361,7 +378,7 @@ class Gamut:
         chat, pid = new_chat(app, ws, f"g{n}-{state}", str(self.work))
         case.update(chat=chat, agent_pid=pid)
         if state == "long":
-            filler = "x" * 1000
+            filler = "x" * 4000
             def quiet():
                 st = chat_state(app, chat)
                 return not st.get("running") and not count(st.get("queued"))
@@ -563,6 +580,8 @@ class Gamut:
         elif path == "loaded":
             load = startup.SyntheticLoad(self.root)
             row["load"] = load.start()
+        # The domain the reopen reads (this gamut's own, inside main's DefaultsAside): key names and snapshot paths.
+        row["defaults_before"] = smoke.defaults_before(smoke.bundle_info(self.app.bundle)[0])
         started = self.app.start()
         row["timeline"] = []
         settled_at = front_ms = None
@@ -584,6 +603,12 @@ class Gamut:
         if load is not None:
             row["load"].update(load.stop())  # the load lasts until the reopen settled (or REOPEN_S)
         marks = self.app.drain()
+        # The chat draws from the launch snapshot before its stream connects (first fleet runs: painted at 1664 ms,
+        # no transport_open_start yet), so live waits on past settled, for the transport mark.
+        while (chat_front and "agent_pane.transport_open" not in marks and time.monotonic() - started < REOPEN_S
+               and self.app.process.poll() is None):
+            time.sleep(0.05)
+            marks = self.app.drain()
         if chat_front:
             # The chat back and live: in front, its page drawn and its stream transport open (agent_pane marks).
             parts = [front_ms, marks.get("agent_pane.painted"), marks.get("agent_pane.transport_open")]
@@ -602,6 +627,7 @@ class Gamut:
                 recorder.kill()
         row["first_window_ms"] = marks.get("first_window_frame_committed")
         row["settled_ms"] = settled_at
+        row["launch_snapshot_applied"] = "launch_snapshot_applied" in marks
         row["pop_in"] = sorted(k[:-len(".by_deadline")] for k in marks if k.endswith(".by_deadline"))
         row["marks"] = {k: v for k, v in marks.items() if k.startswith(("first_", "reveal.", "agent_pane.", "daemon.",
                                                                        "launch_", "main_start", "connecting_"))}
@@ -827,7 +853,14 @@ def table(rows: list[dict]) -> str:
                      + (f", first/second {json.dumps(ratio)}" if ratio else "") + (f"; {notes}" if notes else ""))
         lines.append(f"| {r['path']} | {r['state']} | {ok} | {r.get('first_window_ms')} | {r.get('settled_ms')} | "
                      f"{r.get('prior_chat_live_ms')} | {r.get('warm_switch_ms')} | {r.get('quit_ms')} | {notes[:300]} |")
+    lines += ["", DEFAULTS_NOTE]
     return "\n".join(lines) + "\n"
+
+
+# A new HOME is not enough: cfprefsd keeps the bundle's defaults in the account's real preferences.
+DEFAULTS_NOTE = ("Defaults: each row's `defaults_before` is the bundle's domain just before its launch (key names, and "
+                 "each cmuxNext.launchSnapshotPath.* value) and `launch_snapshot_applied` says whether the launch marked "
+                 "it; a fresh-install row fails when its domain held any key or the mark is there.")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -837,7 +870,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--paths", default="dock,cmdq,scripted,kill,term,update")
     parser.add_argument("--states", default=",".join(STATES))
     parser.add_argument("--many", type=int, default=32)
-    parser.add_argument("--long-turns", type=int, default=150)
+    parser.add_argument("--long-turns", type=int, default=40)  # the mailbox takes 20 a minute to one chat
     parser.add_argument("--video", default="")
     parser.add_argument("--fake-agent", default=str(l5.DEFAULT_FAKE_AGENT))
     parser.add_argument("--fresh-rounds", type=int, default=3, help="fresh-install: installs and first launches")
