@@ -22,6 +22,8 @@
 //! Every run writes a receipt (`last.json`, `history.jsonl`) with its phases
 //! and steps; `undo` puts back what the last try replaced, `status` prints it.
 //!
+//! `cmux app try <link>` opens a build someone shared with `cmux app share` (try_cmd/share.rs).
+//!
 //! `cmux app try .` (or `dir:PATH`) is the working-tree form (try_cmd/copy.rs): a fresh clone of the
 //! installed NIGHTLY (`--from APP`) beside the running app, the checkout swapped in; `--extract` keeps
 //! the code that went in, `--stop` deletes the clone. The running app is never changed.
@@ -41,6 +43,10 @@ use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 mod copy;
 mod live;
 mod resolve;
+mod share;
+
+pub(crate) use share::Command as ShareCommand;
+pub(super) use share::{parse as parse_share, run as run_share};
 
 /// `updates.builds` reads the feed's notes, verdicts and pulled list.
 const LIST_TIMEOUT: Duration = Duration::from_secs(35);
@@ -49,9 +55,25 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(35);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Command {
     Help,
-    Try { target: String, dry_run: bool, app: Option<PathBuf> },
-    Copy { tree: PathBuf, from: Option<PathBuf>, action: copy::Action, dry_run: bool },
-    Undo { dry_run: bool },
+    Try {
+        target: String,
+        dry_run: bool,
+        app: Option<PathBuf>,
+    },
+    Copy {
+        tree: PathBuf,
+        from: Option<PathBuf>,
+        action: copy::Action,
+        dry_run: bool,
+    },
+    /// A `cmux app share` link (try_cmd/share.rs): the shared build, beside this cmux.
+    Link {
+        link: share::Link,
+        dry_run: bool,
+    },
+    Undo {
+        dry_run: bool,
+    },
     Status,
 }
 
@@ -142,6 +164,12 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             Ok(Command::Undo { dry_run })
         }
         [target] => {
+            if let Some(link) = share::parse_link(target) {
+                if app.is_some() {
+                    return Err(unexpected("--app"));
+                }
+                return Ok(Command::Link { link, dry_run });
+            }
             if resolve::classify(target).is_none() {
                 return Err(UsageError::new(messages().not_found.replace("{target}", target)));
             }
@@ -165,6 +193,9 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     if let Command::Copy { tree, from, action, dry_run } = command {
         return copy::run(global, tree, from.as_deref(), *action, *dry_run);
     }
+    if let Command::Link { link, dry_run } = command {
+        return share::open_link(global, link, *dry_run);
+    }
     // `status` and `undo` read the store of the app this CLI belongs to.
     let (app, _) = find_app(global, None);
     let Some(store) = store_for(app.as_deref()) else {
@@ -172,9 +203,11 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     };
     match command {
         Command::Undo { dry_run } => undo(global, &store, *dry_run),
-        Command::Help | Command::Try { .. } | Command::Copy { .. } | Command::Status => {
-            status(global, &store)
-        }
+        Command::Help
+        | Command::Try { .. }
+        | Command::Copy { .. }
+        | Command::Link { .. }
+        | Command::Status => status(global, &store),
     }
 }
 
