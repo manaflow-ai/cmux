@@ -102,6 +102,7 @@ NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app\.outputs\.light_mini_run
 NIGHTLY_LINUX = ("needs.build-nightly-app.outputs.light_linux_runner", "needs.decide.outputs.early_linux_runner")
 NIGHTLY_SLOT = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER$")
 BLACKSMITH_LINUX = re.compile(r"^'blacksmith-\d+vcpu-ubuntu-2404'$")
+FLEET_LINUX_LABEL = "'cmux-fleet-linux-x64'"
 POOL_REFERENCE = re.compile(r"^fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)$")
 
 
@@ -227,9 +228,13 @@ def portable_order(runs_on: str, nightly: bool = False, pools: dict[str, list[st
         return "it takes the mini before fleet Linux"
     if nightly:
         return "" if nightly_overflow_term(terms[-1]) else "it does not end on an overflow that is never Blacksmith"
+    # The last rung is Blacksmith Linux or our own one-job fleet Linux VMs, which a reconciler makes per queued job, so
+    # nothing has to depend on Blacksmith (Leo, 2026-11-19: "stop relying on it").
+    if terms[-1].strip() == FLEET_LINUX_LABEL:
+        return ""
     if not blacksmith_linux_term(terms[-1], pools) or not any(
             blacksmith_linux_term(term, pools) for term in terms[mini + 1:]):
-        return "it does not end on a Blacksmith Linux label after the mini"
+        return "it does not end on a Blacksmith or fleet Linux label after the mini"
     return ""
 
 OWNED_LABEL_VARIABLE = re.compile(r"vars\.CI_(SIDE|LIGHT)_LANE_RUNNER")
