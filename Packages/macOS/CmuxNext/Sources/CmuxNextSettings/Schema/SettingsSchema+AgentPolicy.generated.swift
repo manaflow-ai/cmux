@@ -118,9 +118,9 @@ extension SettingsSchema {
         "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "media.pictureInPicture.enabled", "sidebar.showProjects",
         "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton",
         "sidebar.showNewWorkspaceChooser", "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide",
-        "sidebar.groupBy", "sidebar.priorityView.enabled", "sidebar.priorityView.shown", "browser.defaultEngine",
-        "browser.siteEngines", "browser.newTabPage", "browser.showBookmarksBar", "browser.vimKeys",
-        "browser.showLoadingBar",
+        "sidebar.groupBy", "sidebar.nav", "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
+        "browser.defaultEngine", "browser.siteEngines", "browser.newTabPage", "browser.showBookmarksBar",
+        "browser.vimKeys", "browser.showLoadingBar",
         // Whether browser tabs offer to import cookies: the card reads nothing until the person clicks Import.
         "browser.import.cookieBanner",
         "browser.toolbarButtons", "browser.hibernation", "browser.hibernationExclusions", "browser.hibernatePinnedTabs",

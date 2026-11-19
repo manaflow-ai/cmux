@@ -188,6 +188,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var sessionTree = false
     /// `sidebar.style`: the standard sidebar (default) or the thin rail.
     public var style: SidebarLayoutStyle = .standard
+    /// `sidebar.nav`: the nav block a look puts at the top of the sidebar, one plain row per cmux action
+    /// (Codex's New chat, Search, Pull requests). Empty by default: no block, today's sidebar.
+    public var nav: [SidebarNavRow] = []
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true) {

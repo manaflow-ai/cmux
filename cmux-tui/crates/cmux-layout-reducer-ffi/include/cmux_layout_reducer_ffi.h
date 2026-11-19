@@ -107,6 +107,11 @@ uint8_t cmux_pane_edge_split_axis(uint8_t edge);
  * the home owner serves, rows keep the order drawn at launch.
  *   {hold, lists:[{key, reference?, next}]} -> {lists:[{key, order, reference, moved}]}
  * Called once per structural sidebar pass while the hold is on, once at its end. */
+/* The sidebar's nav block, operation "sidebar_nav" of cmux_layout_reducer_json
+ * (cmux-layout-reducer sidebar_nav.rs): the sidebar.nav setting as written.
+ *   {nav} -> {rows:[{action, title?, symbol?}], problems:[{path, why}]}
+ * action is a canonical catalog id; an unknown, debug-only or destructive action, a
+ * duplicate or a row past 12 is a problem. Called once per settings change. */
 /* A workspace row's own layout, operation "sidebar_row_layout" of
  * cmux_layout_reducer_json (cmux-layout-reducer sidebar_row_layout.rs): the
  * sidebar.workspaceRow.lines / linesByKind / linesByAgent settings as written.
