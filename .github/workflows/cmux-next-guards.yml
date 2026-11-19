@@ -63,7 +63,7 @@ on:
       - "docs/mdm/managed-preferences.md"
       - "docs/ci/health-report.md"
       - "docs/privacy.md"
-      - "scripts/cmux-next/notices/hand-written.md"
+      - "**/notices/**"
       - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
       - "cmux-tui/README.md"
       - "docs/remote-agents-and-cloud.md"
