@@ -433,6 +433,32 @@ fn tailnet_acl_hint(host: &str) -> Option<String> {
     ))
 }
 
+/// The reach failure's class, and the stderr that shows it. Under OpenSSH's default policy
+/// (`StrictHostKeyChecking ask`) with `BatchMode`, a never-seen host prints only "Host key
+/// verification failed.", which a CheckHostIP conflict or another verification error also
+/// prints, so that line alone is never taken as an unknown key. Without the opt-in, that bare
+/// failure is asked again under strict checking (records and updates nothing), which names an
+/// unknown key outright; only then does the fix offer first-contact acceptance. With the opt-in,
+/// OpenSSH would have recorded an unknown key, so a bare failure there is something else.
+fn with_unknown_key_evidence(
+    r: &dyn Remote,
+    accept_new_host_key: bool,
+    stderr: String,
+) -> (SshFailure, String) {
+    let class = SshFailure::of(&stderr);
+    if class != SshFailure::HostKeyUntrusted || accept_new_host_key {
+        return (class, stderr);
+    }
+    match r.strict_host_key_check() {
+        Ok(strict)
+            if !strict.ok && SshFailure::of(&strict.stderr) == SshFailure::HostKeyUnknown =>
+        {
+            (SshFailure::HostKeyUnknown, strict.stderr)
+        }
+        _ => (class, stderr),
+    }
+}
+
 fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
     let host = r.host();
     match r.first_contact(accept_new_host_key) {
@@ -440,8 +466,8 @@ fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
             StepResult::new(Step::Reach, StepState::Ok, format!("ssh {host} works"))
         }
         Ok(out) => {
-            let class = SshFailure::of(&out.stderr);
-            let last = out.stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+            let (class, stderr) = with_unknown_key_evidence(r, accept_new_host_key, out.stderr);
+            let last = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
             let detail = format!("{}: {}", class.label(), last.trim());
             if class != SshFailure::KeyRejected {
                 return fail(Step::Reach, detail, class.fix(host));

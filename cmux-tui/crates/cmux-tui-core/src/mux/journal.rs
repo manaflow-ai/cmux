@@ -262,13 +262,6 @@ impl Mux {
         stats.commit_finished(lock_wait, commit_from.elapsed());
         stats.set_phase(crate::diagnostics::WriterPhase::Idle);
         let commits = commits?;
-        let (committed, failed) =
-            commits.iter().fold((0, 0), |(ok, failed), commit| match commit {
-                crate::journal_ingress::JournalBatchReceipt::Effect(Ok(_)) => (ok + 1, failed),
-                crate::journal_ingress::JournalBatchReceipt::Effect(Err(_)) => (ok, failed + 1),
-                _ => (ok, failed),
-            });
-        self.registry_connection.write_path_stats().writer_batch_committed(committed, failed);
         // A batch of retry-row clears only (`AgentHookCleared`) wrote no journal row and changed no
         // resource: publishing it woke every session stream and journal waiter for nothing, twice
         // per projected hook. The delete published nothing when the request committed it itself.
@@ -677,7 +670,7 @@ impl Mux {
         if ingress.producer_id != crate::AGENT_HOOK_PRODUCER_ID {
             return Ok(());
         }
-        if self.journal_ingress.accepts_effects()
+        if self.journal_ingress.accepts_durable()
             && self
                 .journal_ingress
                 .send_durable(crate::journal_ingress::JournalIngressEvent::AgentHookCleared {

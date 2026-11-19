@@ -78,7 +78,7 @@ else
       fi
       base="$(pick_base)"
     fi
-    if [ -z "$base" ]; then echo "gitleaks.sh: no base branch found; set SA_BASE or GITLEAKS_RANGE" >&2; exit 2; fi
+    if [ -z "$base" ]; then echo "gitleaks.sh: no base branch found and origin could not be fetched (a private repo's CI checkout has no credential); set SA_BASE or GITLEAKS_RANGE, or run it in a checkout that has origin/<base>" >&2; exit 2; fi
     range="$base..HEAD"
   fi
   scope="$range"

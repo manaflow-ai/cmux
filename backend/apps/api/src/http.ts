@@ -13,6 +13,7 @@ import {
   googleReadOpNames,
   isConnectReturnTo,
   isDevReturnTo,
+  isIntegrationCompleteReturnTo,
   OwnerUnreachable,
   providerOpNames,
   providerReadOpNames,
@@ -23,7 +24,7 @@ import {
 import { Effect, Layer, Redacted } from "effect"
 import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http"
 import { HttpApiBuilder } from "effect/http-api"
-import { authenticateOrUnreachable, mintAccessToken, publicJwks } from "./auth.ts"
+import { mintAccessToken, publicJwks, authenticateOrUnreachable } from "./auth.ts";
 import type { Env } from "./env.ts"
 import type { DomainReply } from "./team-domain-external.ts"
 import type { ExternalReply } from "./connection-do.ts"
@@ -32,7 +33,7 @@ import { codeRefOf } from "./code-check.ts"
 import { chiefJobGate, isChiefJobCreate } from "./chief-job-gate.ts"
 import type { CodeStorageError } from "./code-storage.ts"
 import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
-import { signState, verifyState, type ConnectState } from "./integrations/state.ts"
+import { integrationCallbackUrl, signState, verifyState, type ConnectState } from "./integrations/state.ts"
 import { configureAfterLink, githubConnectUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
@@ -145,7 +146,7 @@ const submitTo = (owner: string, principalIn: Principal, frame: { op: string; pa
     catch: unreachable
   }))
 
-const callbackUrl = () => `${(env.DASHBOARD_ORIGIN ?? "").replace(/\/$/, "")}/integrations/callback`
+const callbackUrl = () => integrationCallbackUrl(env)
 
 /** integration.complete and provider ops: verified state (complete), then the ConnectionDO's external path. */
 const externalOp = (principalIn: Principal, frameIn: { op: string; params: unknown; idempotency_key: string }) =>
@@ -172,7 +173,8 @@ const externalOp = (principalIn: Principal, frameIn: { op: string; params: unkno
         }
         frame = { ...frame, params: { ...(frame.params as Record<string, unknown>), installation_id: String(st.installation) } }
       }
-      returnTo = st.return_to && !(env.ENVIRONMENT === "production" && isDevReturnTo(st.return_to)) ? st.return_to : undefined
+      // The app's completion link is how this completion arrived (the app itself): nothing to return to.
+      returnTo = st.return_to && !isIntegrationCompleteReturnTo(st.return_to) && !(env.ENVIRONMENT === "production" && isDevReturnTo(st.return_to)) ? st.return_to : undefined
       verified = st
     }
     const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(principal.team!))
@@ -190,8 +192,9 @@ const connectAsk = (params: unknown): { repo?: string; return_to?: string } => {
   const p = (params ?? {}) as { repo?: unknown; return_to?: unknown }
   return {
     ...(typeof p.repo === "string" ? { repo: p.repo } : {}),
-    // cmux-dev links are for development builds: dropped on production.
-    ...(isConnectReturnTo(p.return_to) && !(env.ENVIRONMENT === "production" && isDevReturnTo(p.return_to)) ? { return_to: p.return_to } : {})
+    // cmux-dev links are for development builds: dropped on production, except the app's own completion link, which
+    // shows nothing and only hands the redirect to the app holding the person's session (the state still binds it).
+    ...(isConnectReturnTo(p.return_to) && !(env.ENVIRONMENT === "production" && isDevReturnTo(p.return_to) && !isIntegrationCompleteReturnTo(p.return_to)) ? { return_to: p.return_to } : {})
   }
 }
 
@@ -319,6 +322,16 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (payload.op === "sso.connection.set_secret" || payload.op === "sso.connection.activate") {
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).ssoOp(p.team!, p, frame)), catch: unreachable })
+        }
+        // Team shared agent keys (team-agent-keys.ts): the key travels only in this request, sealed in TeamDO.
+        if (payload.op === "team.agent_key.set" || payload.op === "team.agent_key.remove") {
+          const p = yield* principalFor("cloud:TeamDO", principal)
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).agentKeyOp(p.team!, p, frame)), catch: unreachable })
+        }
+        // The members policy for model connections (team-models-policy.ts): a TeamDO side table, outside the reducer like the agent keys.
+        if (payload.op === "team.models_policy.set") {
+          const p = yield* principalFor("cloud:TeamDO", principal)
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).modelsPolicyOp(p.team!, p, frame)), catch: unreachable })
         }
         // TeamDO, outside its reducer: the SSH CA (team-ssh-ca.ts; keys never enter params), a tainted team VM's owner actions (cx-q4f3), member removal via Stack (cx-3bi.4).
         if (["team_vm.ssh_cert", "team_vm.ssh_cert.challenge", "team_vm.ssh_cert.revoke", "team_vm.ssh_ca.rotate", "team_vm.taint.accept", "team_vm.rebuild", "team_vm.retired.delete", "team_vm.retired.export", "team.members.remove"].includes(payload.op)) {

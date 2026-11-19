@@ -978,10 +978,11 @@ const liveLineClear = async (ctx: PlayContext) => {
   const live = doc.querySelector<HTMLElement>(".cv-worked.is-below")!.getBoundingClientRect();
   // Resolve through a box so both Interface Size and document zoom enter the same geometry.
   const probe = doc.createElement("span");
-  // Resolve the same run-gap token the transcript grid uses, including Interface Size.
-  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-run)";
-  doc.body.append(probe);
-  const runGap = probe.getBoundingClientRect().height;
+  // The gap over the live line in a run, from its one source (transcriptGrid.ts transcriptLiveVars, set on the
+  // scroller), including Interface Size.
+  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--cv-live-step-gap)";
+  (doc.querySelector<HTMLElement>(".acpmux-scroll") ?? doc.body).append(probe);
+  const stepGap = probe.getBoundingClientRect().height;
   probe.style.height = "var(--grid-gap-footer)";
   const footerGap = probe.getBoundingClientRect().height;
   probe.remove();
@@ -995,8 +996,8 @@ const liveLineClear = async (ctx: PlayContext) => {
   if (!over.length) throw new Error("no tool row or reply draws over the live line");
   const nearest = over.reduce((a, b) => (b.bottom > a.bottom ? b : a));
   const gap = live.top - nearest.bottom;
-  if (nearest.step && Math.abs(gap - runGap) > 0.5)
-    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not the scaled ${runGap}px run gap`);
+  if (nearest.step && Math.abs(gap - stepGap) > 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not its ${stepGap}px gap`);
   if (!nearest.step && gap < footerGap - 0.5)
     throw new Error(`the live line sits ${gap.toFixed(1)}px under the reply over it, not ${footerGap}px or more`);
   const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
@@ -2723,7 +2724,7 @@ export default agentPaneEntry({
     "codex-turn-raw-commands": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, flush under the run over it as one more 22px line of it (#31497); ⌃B to run in background shows on hover. Play: hover the line.",
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, under the run over it in the 32px slot it has under a reply, the run gap over it, so it holds still when a run or a reply lands (#31497, cmux#47098; Leo chose 32/16 on #43627); ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
           user("What did the lanes decide? Relay it and answer.", 2),

@@ -141,13 +141,14 @@ fn install_panic_log() {
     }
 }
 
-/// Debug builds only: the one panic the test triggers below raise.
+/// Debug builds only: the one panic the test triggers raise (below, and the agent host's
+/// translator seam, `agent_host/host.rs` `test_translator_panic`).
 #[cfg(debug_assertions)]
 #[allow(
     clippy::panic,
     reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
 )]
-fn test_panic(message: &str) -> ! {
+pub(crate) fn test_panic(message: &str) -> ! {
     // crash-allow: debug-only test trigger for the acpmux panic log
     panic!("{message}");
 }
@@ -365,6 +366,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     crate::config::refuse_lost_home(&home())?;
+    // `machine-auth` reads the env its agents start with from this record, never from /proc.
+    if let Err(e) = crate::cli::machine_auth::record_daemon_env(&home()) {
+        tracing::warn!("could not record the daemon's agent env: {e}");
+    }
     // Bind before durable startup work, so clients can connect independently of journal replay.
     // Requests wait for the hub and launch tokens; agent spawns wait for `finish_startup`.
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
@@ -675,6 +680,12 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // A joined Mac's daemon serves screen shares with no app running (`share_host/`).
     #[cfg(target_os = "macos")]
     crate::share_host::start(&hub.scope);
+    // A joined Linux machine's is cmux-rd's, which the daemon sets up here in the background
+    // (`share_host/linux.rs`): its join needs no step on the machine.
+    #[cfg(target_os = "linux")]
+    if !clone_unsettled {
+        crate::share_host::linux::start(&hub.scope);
+    }
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
@@ -688,12 +699,16 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             tracing::warn!("--person-key-fd: {e}");
         }
     }
-    // The curated model catalog (`catalog/`): the last good copy now, then a fetch at
-    // once and every 6 h. `ACPMUX_CATALOG_FETCH=0` keeps the stored or bundled copy.
+    // The curated model catalog (`catalog/`): the last good copy now, then a fetch of it and
+    // of the public model feed at once and every hour. `ACPMUX_CATALOG_FETCH=0` keeps the
+    // stored or bundled copy and reads no feed.
     let fetch_catalog = !std::env::var("ACPMUX_CATALOG_FETCH").is_ok_and(|v| v == "0");
     let fetcher: Option<std::sync::Arc<dyn crate::catalog::Fetcher>> =
         fetch_catalog.then(|| std::sync::Arc::new(crate::catalog::HttpsFetcher::current()) as _);
     hub.catalog.attach(home().join("catalog"), fetcher);
+    if fetch_catalog {
+        hub.catalog.attach_feed(std::sync::Arc::new(crate::catalog::feed::FeedFetcher::default()));
+    }
     if fetch_catalog {
         let catalog = hub.catalog.clone();
         crate::supervise::restarting("catalog", &hub.fatal, move || catalog.clone().run());
