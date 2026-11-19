@@ -128,7 +128,7 @@ struct AccountPage: View {
         // the App Store. This alert stands in for the confirmation above, so
         // its Delete Account deletes.
         .alert(
-            Text(String(localized: "mobile.account.deleteAppStore.title", defaultValue: "Your App Store subscription will keep renewing", bundle: .module)),
+            Text(String(localized: "mobile.account.deleteAppStore.title", defaultValue: "Your subscription keeps renewing", bundle: .module)),
             isPresented: Binding(get: { renewingSubscription != nil }, set: { if !$0 { renewingSubscription = nil } }),
             presenting: renewingSubscription
         ) { manageURL in
@@ -138,7 +138,7 @@ struct AccountPage: View {
             Button("Delete Account", role: .destructive) { Task { await delete() } }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text(String(localized: "mobile.account.deleteAppStore.message", defaultValue: "Deleting your cmux account doesn't cancel your App Store subscription. Apple keeps charging you until you cancel it in the App Store. Deleting your account also signs you out everywhere and can't be undone.", bundle: .module))
+            Text(String(localized: "mobile.account.deleteAppStore.message", defaultValue: "Deleting your account doesn't cancel the App Store subscription: Apple keeps charging until you cancel it there. Deletion is permanent and signs you out everywhere.", bundle: .module))
         }
         .alert("Account not deleted", isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } })) {
             Button("OK", role: .cancel) {}

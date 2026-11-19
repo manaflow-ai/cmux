@@ -111499,127 +111499,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "None yet. Approve one when an agent asks in a chat."
+            "value": "None yet. Approve one when an agent asks."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا شيء بعد. وافق على خدمة عندما يطلبها وكيل في محادثة."
+            "value": "لا شيء بعد. وافق على واحد عندما يطلب وكيل."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Još ništa. Odobrite uslugu kada je agent zatraži u chatu."
+            "value": "Još nijedan. Odobrite jedan kada agent zatraži."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen endnu. Godkend en, når en agent beder om den."
+            "value": "Ingen endnu. Godkend en, når en agent spørger."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noch keine. Bestätige einen, wenn ein Agent fragt."
+            "value": "Noch keine. Genehmige einen, wenn ein Agent fragt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ninguno aún. Apruébalo cuando un agente lo pida."
+            "value": "Ninguno todavía. Aprueba uno cuando un agente lo pida."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucun. Approuvez-en un quand un agent le demande."
+            "value": "Aucun pour l'instant. Approuvez-en un quand un agent le demande."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessuno. Approvalo quando un agente lo chiede in chat."
+            "value": "Ancora nessuno. Approvane uno quando un agente lo chiede."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "まだありません。チャットで求められたら承認してください。"
+            "value": "まだありません。エージェントに求められたら承認してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនទាន់មានទេ។ យល់ព្រមនៅពេលភ្នាក់ងារស្នើក្នុងការជជែក។"
+            "value": "មិនទាន់មានទេ។ អនុម័តមួយ នៅពេលភ្នាក់ងារស្នើសុំ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "아직 없습니다. 에이전트가 채팅에서 요청하면 승인하세요."
+            "value": "아직 없습니다. 에이전트가 요청하면 승인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen ennå. Godkjenn en når en agent ber om den."
+            "value": "Ingen ennå. Godkjenn en når en agent spør."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak. Zatwierdź usługę, gdy agent o nią poprosi."
+            "value": "Jeszcze żadnego. Zatwierdź, gdy agent poprosi."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum ainda. Aprove quando um agente pedir em um chat."
+            "value": "Nenhum ainda. Aprove um quando um agente pedir."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Пока нет. Одобрите, когда агент попросит в чате."
+            "value": "Пока нет. Одобрите, когда агент попросит."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยังไม่มี อนุมัติเมื่อเอเจนต์ขอในแชท"
+            "value": "ยังไม่มี อนุมัติเมื่อเอเจนต์ขอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Henüz yok. Bir ajan sohbette isteyince onaylayın."
+            "value": "Henüz yok. Bir ajan istediğinde onaylayın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Поки немає. Схваліть, коли агент попросить у чаті."
+            "value": "Поки немає. Схваліть, коли агент попросить."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa có. Hãy chấp thuận khi agent yêu cầu trong chat."
+            "value": "Chưa có. Hãy duyệt khi một agent yêu cầu."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "暂无。代理在聊天中请求时请批准。"
+            "value": "暂无。代理请求时批准即可。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚無。代理在聊天中提出要求時請核准。"
+            "value": "尚無。代理程式請求時核准即可。"
           }
         }
       }

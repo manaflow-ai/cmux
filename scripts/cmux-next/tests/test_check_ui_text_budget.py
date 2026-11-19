@@ -8,6 +8,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -272,6 +273,56 @@ class BaseTests(unittest.TestCase):
         code, out = self.fx.run("--base", "no-such-ref")
         self.assertEqual(code, 2)
         self.assertIn("does not resolve", out)
+
+
+WORKFLOW = HERE.parents[2] / ".github/workflows/cmux-next.yml"
+
+
+def trigger_paths(text: str, event: str) -> list[str]:
+    """The `paths:` patterns of EVENT in the workflow's `on:` block (two-space event keys, six-space items)."""
+    patterns, in_event, in_paths = [], False, False
+    for line in text.split("\n"):
+        if line.startswith("  ") and not line.startswith("   ") and line.strip().endswith(":"):
+            in_event, in_paths = line.strip() == f"{event}:", False
+        elif in_event and line.strip() == "paths:":
+            in_paths = True
+        elif in_paths and line.startswith("      - "):
+            patterns.append(line.strip()[2:].split(" #")[0].strip().strip("'\""))
+        elif line and not line.startswith(" "):
+            if patterns:
+                break
+            in_event = in_paths = False
+    return patterns
+
+
+def glob_matches(pattern: str, path: str) -> bool:
+    """GitHub's path filter: `**` crosses folders, `*` stays in one."""
+    regex = "".join(".*" if part == "**" else "[^/]*" if part == "*" else re.escape(part)
+                    for part in re.split(r"(\*\*|\*)", pattern))
+    return re.fullmatch(regex, path) is not None
+
+
+class WorkflowRunsOnEveryTable(unittest.TestCase):
+    """The checks job runs only when the workflow triggers. A table root the triggers miss lets a pull request add an
+    over-budget string with no check at all: #42820 changed only cmux-next-ios string tables, ran no cmux-next
+    checks, and two of its strings turned feat-cmux-next's checks red for every pull request after it."""
+
+    def test_every_root_the_check_reads_triggers_the_workflow(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        read = [f"{root}/Some/Module/Resources/Localizable.xcstrings" for root in lint.TABLE_ROOTS]
+        read.append(lint.SCHEMA_GLOB.replace("*", "settings"))
+        for event in ("pull_request", "push"):
+            patterns = trigger_paths(text, event)
+            self.assertTrue(patterns, f"no {event} paths read from {WORKFLOW}")
+            missed = [path for path in read if not any(glob_matches(p, path) for p in patterns)]
+            self.assertEqual(missed, [], f"cmux-next.yml {event} paths miss what check-ui-text-budget.py reads: "
+                                         "add each root's tables to both trigger lists")
+
+    def test_the_trigger_reader_sees_a_missing_root(self):
+        text = "on:\n  pull_request:\n    paths:\n      - Packages/iOS/**\n  push:\n    paths:\n      - a/**\njobs:\n"
+        self.assertEqual(trigger_paths(text, "pull_request"), ["Packages/iOS/**"])
+        self.assertTrue(glob_matches("cmux-next-ios/**/*.xcstrings", "cmux-next-ios/A/B/Localizable.xcstrings"))
+        self.assertFalse(glob_matches("Packages/iOS/**", "cmux-next-ios/A/Localizable.xcstrings"))
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ public import Observation
 @Observable
 public final class SettingsMcpServers: PageProvider {
     /// One saved server as `integrations --json list` reports it (optchat-chief `settings_row`).
-    struct Row: Equatable {
+    nonisolated struct Row: Equatable, Sendable {
         var name: String
         /// `remote` (a URL) or `local` (a command on this Mac).
         var kind: String
@@ -120,7 +120,7 @@ public final class SettingsMcpServers: PageProvider {
                 // No answer at all is a refusal with no words of its own.
                 let refusal: String?
                 if let reply = try? await runCLI(chief, ["integrations", "--json", "remove", name], await environment()) {
-                    refusal = Self.refusal(reply)
+                    refusal = await Self.refusal(reply)
                 } else {
                     refusal = ""
                 }
@@ -207,9 +207,11 @@ public final class SettingsMcpServers: PageProvider {
         let mine = generation
         loading = true
         let reply = try? await runCLI(chief, ["integrations", "--json", "list"], await environment())
+        var parsed: [Row]?
+        if let reply, reply.0 == 0 { parsed = await Self.rows(reply.1) }
         guard mine == generation else { return }
         loading = false
-        guard let reply, reply.0 == 0, var read = Self.rows(reply.1) else {
+        guard var read = parsed else {
             problem = "failed"
             return
         }
@@ -222,9 +224,9 @@ public final class SettingsMcpServers: PageProvider {
     }
 
     /// The `servers` of a list answer: the whole output, or its last line when something printed before it.
-    static func rows(_ data: Data) -> [Row]? {
-        let last = String(data: data, encoding: .utf8)?.split(separator: "\n").last.map { Data($0.utf8) } ?? Data()
-        guard let value = (try? JSONValue.parse(data)) ?? (try? JSONValue.parse(last)),
+    /// Parsed off the main actor: the list grows with every saved server.
+    @concurrent static func rows(_ data: Data) async -> [Row]? {
+        guard let value = (try? JSONValue.parse(data)) ?? (try? JSONValue.parse(lastLine(data))),
               let servers = value["servers"]?.arrayValue else { return nil }
         return servers.compactMap { item in
             guard let name = item["name"]?.stringValue else { return nil }
@@ -235,10 +237,18 @@ public final class SettingsMcpServers: PageProvider {
         }
     }
 
-    /// The CLI's refusal from a failed run's last line; nil when it succeeded.
-    static func refusal(_ reply: (Int32, Data, Data)) -> String? {
+    /// The CLI's refusal from a failed run's last line; nil when it succeeded. Parsed off the main actor.
+    @concurrent static func refusal(_ reply: (Int32, Data, Data)) async -> String? {
         guard reply.0 != 0 else { return nil }
-        let last = String(data: reply.1, encoding: .utf8)?.split(separator: "\n").last.map(String.init) ?? ""
-        return (try? JSONValue.parse(Data(last.utf8)))?["why"]?.stringValue ?? ""
+        return (try? JSONValue.parse(lastLine(reply.1)))?["why"]?.stringValue ?? ""
+    }
+
+    /// The last non-empty line of a CLI's output, found from its end: only the tail is read, never a split of
+    /// the whole output.
+    nonisolated static func lastLine(_ data: Data) -> Data {
+        var end = data.endIndex
+        while end > data.startIndex, data[data.index(before: end)] == UInt8(ascii: "\n") { end = data.index(before: end) }
+        let start = data[data.startIndex..<end].lastIndex(of: UInt8(ascii: "\n")).map { data.index(after: $0) } ?? data.startIndex
+        return Data(data[start..<end])
     }
 }

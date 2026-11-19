@@ -147,4 +147,18 @@ import Testing
         #expect(await SettingsMcpServers.chief(besideCLI: cli) == helper)
         #expect(await SettingsMcpServers.chief(besideCLI: nil) == nil)
     }
+
+    /// The answer is read off the main actor from its last line, found from the end: a warning printed
+    /// before the JSON and a trailing newline still give the rows and the refusal's own words.
+    @Test func readsTheLastLineAfterOtherOutputOffTheMainActor() async throws {
+        let compact = Self.list.replacingOccurrences(of: "\n", with: "")
+        let rows = try #require(await SettingsMcpServers.rows(Data("warning: slow disk\n\(compact)\n\n".utf8)))
+        #expect(rows.map(\.name) == ["linear", "slack"])
+        #expect(SettingsMcpServers.lastLine(Data("a\nb\n".utf8)) == Data("b".utf8))
+        #expect(SettingsMcpServers.lastLine(Data("only".utf8)) == Data("only".utf8))
+        #expect(SettingsMcpServers.lastLine(Data("\n\n".utf8)).isEmpty)
+        let refused = Data("note\n{\"status\":\"failed\",\"why\":\"not saved\"}\n".utf8)
+        #expect(await SettingsMcpServers.refusal((1, refused, Data())) == "not saved")
+        #expect(await SettingsMcpServers.refusal((0, refused, Data())) == nil)
+    }
 }

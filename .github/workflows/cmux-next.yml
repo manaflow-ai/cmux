@@ -57,6 +57,10 @@ on:
       - Packages/Shared/**
       - Packages/macOS/CmuxUpdater/**
       - Packages/iOS/**
+      # The iPhone app's string tables: the checks job's UI text budget reads them (check-ui-text-budget.py
+      # TABLE_ROOTS; test_check_ui_text_budget.py keeps this list covering every root). #42820 changed only
+      # these, ran no checks and put two strings over budget on the base.
+      - cmux-next-ios/**/*.xcstrings
       - vendor/stack-auth-swift-sdk-prerelease/**
       - scripts/cmux-next/build-layout-reducer-ffi.sh
       - scripts/ghostty-zig-version.sh
@@ -416,6 +420,10 @@ on:
       - Packages/Shared/**
       - Packages/macOS/CmuxUpdater/**
       - Packages/iOS/**
+      # The iPhone app's string tables: the checks job's UI text budget reads them (check-ui-text-budget.py
+      # TABLE_ROOTS; test_check_ui_text_budget.py keeps this list covering every root). #42820 changed only
+      # these, ran no checks and put two strings over budget on the base.
+      - cmux-next-ios/**/*.xcstrings
       - vendor/stack-auth-swift-sdk-prerelease/**
       - scripts/cmux-next/build-layout-reducer-ffi.sh
       - scripts/cmux-next/build-app-ffi.sh
