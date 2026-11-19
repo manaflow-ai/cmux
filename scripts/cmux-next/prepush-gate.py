@@ -683,6 +683,8 @@ def side_workers(environ=os.environ, cpus: int | None = None) -> int:
     """How many scanners the gate runs at once: a core each, at most 16, and no more than the cores a CI mini's runner
     hook granted the job (CMUX_CI_CPU_BUDGET). The checks job runs the gate's own suite beside its other checks, each
     gate spawning one scanner per core of the whole mini on a grant of 5 (job 131984422217)."""
+    if PERSON_MAC:
+        return 1  # a person's Mac: one scanner at a time (person_mac)
     workers = min(16, cpus or os.cpu_count() or 4)
     budget = environ.get("CMUX_CI_CPU_BUDGET", "")
     if budget.isdigit() and int(budget) > 0:
@@ -1444,10 +1446,10 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str
     taken: list[str] = []
     for name, (keys, count) in RATCHET_BASELINES.items():
         path = scripts_dir / name
-        own = git_batch.run(repo, ["show", f"{rev}:{SCRIPTS}/{name}"])
-        if not path.is_file() or own.returncode != 0:
+        own = blob_at(repo, rev, f"{SCRIPTS}/{name}")
+        if not path.is_file() or own is None:
             continue
-        pushed = _ratchet_rows(own.stdout.decode(errors="replace"), keys, count)
+        pushed = _ratchet_rows(own.decode(errors="replace"), keys, count)
         lines, changed = [], False
         for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
             row = _ratchet_rows(line, keys, count)
@@ -1471,10 +1473,10 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str
             path.write_text("".join(lines), encoding="utf-8")
     for name in LINE_BASELINES:
         path = scripts_dir / name
-        own = git_batch.run(repo, ["show", f"{rev}:{SCRIPTS}/{name}"])
-        if not path.is_file() or own.returncode != 0:
+        own = blob_at(repo, rev, f"{SCRIPTS}/{name}")
+        if not path.is_file() or own is None:
             continue
-        listed = set(own.stdout.decode(errors="replace").splitlines())
+        listed = set(own.decode(errors="replace").splitlines())
         installed = path.read_text(encoding="utf-8").splitlines(keepends=True)
         # A comment or blank line stays; a site line stays only while the pushed copy still lists it.
         kept = [line for line in installed if not line.strip() or line.startswith("#") or line.rstrip("\n") in listed]
@@ -1666,10 +1668,22 @@ def crash_ratchet_findings(repo: Path, base: str, head: str, base_tree: Path, he
     return findings
 
 
+COMMIT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+_BLOBS: dict[tuple[str, str, str], bytes | None] = {}
+
+
 def blob_at(repo: Path, rev: str, path: str) -> bytes | None:
-    """PATH's content in commit REV, or None when REV has no such file."""
+    """PATH's content in commit REV, or None when REV has no such file. Remembered for this run when REV is a full
+    commit id (its content cannot change): one push read each ratchet baseline about six times, once per tree the
+    gate builds and once per rev for its changed rows, each a `git show` of its own."""
+    key = (str(repo), rev, path)
+    if key in _BLOBS:
+        return _BLOBS[key]
     result = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True)
-    return result.stdout if result.returncode == 0 else None
+    blob = result.stdout if result.returncode == 0 else None
+    if COMMIT_ID.fullmatch(rev):
+        _BLOBS[key] = blob
+    return blob
 
 
 def tree_mode(repo: Path, rev: str, path: str) -> str | None:
@@ -3974,6 +3988,8 @@ def gate_limit() -> float:
             return float(raw)
     except ValueError:
         pass
+    if PERSON_MAC:
+        return PERSON_GATE_LIMIT_SECONDS  # never scaled up: a gate on a person's Mac is not held for an hour
     try:
         load = os.getloadavg()[0]
     except OSError:
@@ -3981,6 +3997,142 @@ def gate_limit() -> float:
     return loaded_limit(GATE_LIMIT_SECONDS, load, os.cpu_count() or 1)
 
 
-if __name__ == "__main__":
+# ---------------------------------------------------------------- a person's Mac
+#
+# 2026-11-19 13:2xZ, cosmic-gray (Leo's interactive Mac, in the fleet registry's reconcilers.never_on): load 58 on 15
+# cores, swap 22.9 of 24.7 GB, this gate at 87% CPU among ten gits. Each gate ran up to one scanner per core
+# (side_workers), the hook let two gates run at once, and the limit grew with the load to an hour. On a person's Mac
+# the gate now runs bounded instead:
+#   - one gate at a time on the whole Mac (an flock in CMUX_PREPUSH_QUEUE_DIR [/tmp], beside the hook's queue);
+#   - at background priority, which its children inherit (`taskpolicy -b` on macOS, `nice -n 19` elsewhere);
+#   - one scanner at a time (side_workers);
+#   - a fixed time cap, PERSON_GATE_LIMIT_SECONDS (CMUX_NEXT_GATE_LIMIT_SECONDS still sets it), not scaled by load.
+# Every check still runs, here: the gate has no build or test to send to the fleet, and sending its lints there
+# (cmux-ci test) means a snapshot push of this clone first, which is the same kind of git work, plus minutes of
+# queue, and the fleet would judge the push with the pushed copy of the gate instead of the installed reviewed one.
+# So what the gate refuses is unchanged; only how hard it presses on the Mac is.
+
+PERSON_GATE_LIMIT_SECONDS = 900.0
+PERSON_TURN_WAIT_SECONDS = 1800.0  # how long a gate waits for this Mac's turn before it refuses (retry, or another Mac)
+PERSON_ENV = "CMUX_PREPUSH_PERSON_MAC"  # 1 or 0 overrides the registry (tests, and a person who wants it either way)
+BACKGROUND_ENV = "CMUX_PREPUSH_GATE_BACKGROUND"  # set once the gate runs under background_prefix()
+PERSON_ROLES = frozenset({"leo-mac", "leo-apps"})
+PERSON_MAC = False  # set by entry() for this run
+
+
+def fleet_registries(environ=os.environ) -> list[Path]:
+    """Where a fleet registry may be, in order: CMUX_FLEET_REGISTRY, the copy enrollment installs, leo-workspace's."""
+    home = Path(environ.get("HOME") or Path.home())
+    named = environ.get("CMUX_FLEET_REGISTRY", "").strip()
+    return ([Path(named).expanduser()] if named else []) + [home / ".ssh/config.d/fleet-registry.json",
+                                                            home / "Projects/leo-workspace/machines/fleet-registry.json"]
+
+
+def registry_person(registry: dict, hostname: str) -> bool | None:
+    """Whether REGISTRY lists HOSTNAME as a person's machine: in reconcilers.never_on, marked personal, or with a
+    person role (leo-mac, leo-apps); None when it does not list the host at all."""
+    machines = registry.get("machines")
+    origins = registry.get("origins") if isinstance(registry.get("origins"), dict) else {}
+    if not isinstance(machines, dict):
+        return None
+    mine = {hostname.lower(), hostname.lower().split(".")[0]}
+    for key, machine in machines.items():
+        if not isinstance(machine, dict):
+            continue
+        origin = origins.get(key) if isinstance(origins.get(key), dict) else {}
+        names = [key, machine.get("hostname") or "", *(machine.get("hostnames") or []), *(machine.get("aliases") or []),
+                 *(origin.get("hostnames") or [])]
+        if not mine & {str(n).lower() for n in names if n}:
+            continue
+        reconcilers = registry.get("reconcilers") if isinstance(registry.get("reconcilers"), dict) else {}
+        never_on = reconcilers.get("never_on") if isinstance(reconcilers.get("never_on"), list) else []
+        lanes = machine.get("lanes") if isinstance(machine.get("lanes"), dict) else {}
+        return (key in never_on or bool(machine.get("personal")) or bool(lanes.get("personal"))
+                or bool(PERSON_ROLES & set(machine.get("roles") or [])))
+    return None
+
+
+def person_mac(environ=os.environ, hostname: str | None = None) -> bool:
+    """Whether this host is a person's machine (registry_person, from the first registry that lists it). CMUX_PREPUSH_
+    PERSON_MAC=1 or 0 decides instead. No readable registry, or none that lists the host, is not one: the gate runs as
+    it always has."""
+    forced = environ.get(PERSON_ENV, "").strip()
+    if forced in ("0", "1"):
+        return forced == "1"
+    hostname = hostname or os.uname().nodename
+    for path in fleet_registries(environ):
+        try:
+            registry = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(registry, dict):
+            verdict = registry_person(registry, hostname)
+            if verdict is not None:
+                return verdict
+    return False
+
+
+def background_prefix() -> list[str]:
+    """The command prefix for background priority: taskpolicy -b on macOS, nice -n 19 elsewhere; [] with neither."""
+    taskpolicy = shutil.which("taskpolicy") or ("/usr/sbin/taskpolicy" if os.path.exists("/usr/sbin/taskpolicy") else None)
+    if taskpolicy:
+        return [taskpolicy, "-b"]
+    nice = shutil.which("nice")
+    return [nice, "-n", "19"] if nice else []
+
+
+def take_host_turn(directory: str, wait: float, poll: float = 0.2) -> int | None:
+    """An fd holding this Mac's one gate turn (an exclusive flock, released when the gate exits), or None when another
+    gate still held it after WAIT seconds. The fd is not inherited (PEP 446), so no check the gate starts keeps it."""
+    path = os.path.join(directory, f"cmux-prepush-gate.{os.getuid()}.lock")
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    started = time.monotonic()
+    told = False
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except OSError:
+            pass
+        waited = time.monotonic() - started
+        if waited >= wait:
+            os.close(fd)
+            return None
+        if not told:
+            told = True
+            log(f"prepush-gate: another push's gate is running on this Mac (a person's Mac: one at a time); waiting "
+                f"for its turn (up to {wait:g}s, CMUX_PREPUSH_GATE_TURN_WAIT_SECONDS). Nothing is wrong with this push.")
+        time.sleep(poll)
+
+
+def entry(argv: list[str] | None = None, environ=os.environ) -> int:
+    """The gate as the hook runs it: on a person's Mac first under background priority (a re-exec), then in this Mac's
+    one turn; then the watchdog and main()."""
+    global PERSON_MAC
+    argv = sys.argv[1:] if argv is None else argv
+    PERSON_MAC = person_mac(environ)
+    if PERSON_MAC:
+        prefix = background_prefix()
+        if prefix and not environ.get(BACKGROUND_ENV):
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os.execve(prefix[0], [*prefix, sys.executable, "-I", os.path.abspath(__file__), *argv],
+                      {**environ, BACKGROUND_ENV: "1"})
+        try:
+            wait = float(environ.get("CMUX_PREPUSH_GATE_TURN_WAIT_SECONDS") or PERSON_TURN_WAIT_SECONDS)
+        except ValueError:
+            wait = PERSON_TURN_WAIT_SECONDS
+        turn = take_host_turn(environ.get("CMUX_PREPUSH_QUEUE_DIR") or "/tmp", wait)
+        if turn is None:
+            print(f"prepush-gate: another push's gate held this Mac's turn for {wait:g}s; push refused, nothing was "
+                  "checked. Retry as AGENTS.md says (\"Retry a failed push\"), or push through an idle Mac: "
+                  "scripts/cmux-next/push-from-host.sh <branch>.")
+            return 1
+        log(f"prepush-gate: a person's Mac: one gate at a time, background priority ({' '.join(prefix) or 'none'}), "
+            f"one scanner at a time, a {gate_limit():g}s limit.")
     start_watchdog(gate_limit())
-    sys.exit(main())
+    return main(argv)
+
+
+if __name__ == "__main__":
+    sys.exit(entry())

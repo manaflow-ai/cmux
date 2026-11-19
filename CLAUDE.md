@@ -202,6 +202,9 @@ all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. Th
   report the hook-times line and the last error.
 - The hook takes a turn: 2 pushes are checked at once on a Mac (`CMUX_PREPUSH_SLOTS`), and the rest
   wait (`pre-push: ... waiting for a turn`; `queue Ns` in the hook-times line). A wait is not a hang.
+  On a person's Mac (the fleet registry's `reconcilers.never_on`, or a person role) the gate also runs
+  one at a time, at background priority, one scanner at a time, with a fixed 900 s limit
+  (`prepush-gate: ... waiting for its turn`); it checks everything it checks elsewhere.
 - On a Mac too loaded to finish the hook (load average far above its core count), push through an
   idle Mac: `scripts/cmux-next/push-from-host.sh --rebase <branch>` pushes `HEAD` to `origin/<branch>`
   from `cmux-lawrence-2` (`--host`, more than once for a fallback; `--sha`), where the same hook runs
