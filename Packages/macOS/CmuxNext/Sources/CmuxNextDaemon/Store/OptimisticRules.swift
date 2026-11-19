@@ -20,6 +20,8 @@ import Foundation
         let columns: [ColumnSnapshot]
         /// False when `columns` are the screen's as they were (the patch edited none).
         let columnsEdited: Bool
+        /// How `layout` differs from the screen's tree, for the screen's index.
+        let change: LayoutIndex.Change
         let paneAt: Int
     }
 
@@ -29,6 +31,8 @@ import Foundation
         let columns: [ColumnSnapshot]
         /// False when `columns` are the screen's as they were (the patch edited none).
         let columnsEdited: Bool
+        /// How `layout` differs from the screen's tree, for the screen's index.
+        var change: LayoutIndex.Change = .other
     }
 
     /// A split of `target` showing `leaf` (New Column with `column`, New Row with `row`, wrapping split `around` whole,
@@ -40,22 +44,29 @@ import Foundation
         let layout = screen.layout, columns = screen.columns
         // A plain split looks for the split `around` when it wraps one; New Column and New Row always the target's leaf.
         let wraps = column == nil && row == nil ? around : nil
-        let spots = findSpots(layout, columns, holding: target, match: wraps.map(Match.split) ?? .leaf(target))
+        // The screen keeps its tree's index, so the lookups below cost the target's depth, not the screen.
+        let index = screen.layoutIndex()
+        let spots = findSpots(layout, columns, holding: target, match: wraps.map(Match.split) ?? .leaf(target), index: index)
         // Each kind sends only the facts its rule reads, so no walk runs that no rule needs.
-        var facts = Facts(leafPlaced: layout.contains(pane: leaf), columns: columns.count, panes: screen.panes.count)
+        let panes = screen.panes
+        var facts = Facts(leafPlaced: index?.contains(pane: leaf) ?? layout.contains(pane: leaf), columns: columns.count,
+                          panes: panes.count)
         if column == nil {
-            // By identity when the caller has the target's model: no observed `handle` read per pane.
-            let panes = screen.panes
-            facts.targetIndex = targetPane.map { model in panes.firstIndex { $0 === model } } ?? panes.firstIndex { $0.handle == target }
+            // The target's model's slot, by identity: no observed `handle` read per pane.
+            facts.targetIndex = targetPane.flatMap(screen.slot(of:)) ?? panes.firstIndex { $0.handle == target }
         }
         if column != nil || row != nil {
             facts.zoomed = screen.zoomedPane != nil
-            facts.inScreen = layout.contains(pane: target)
+            facts.inScreen = index?.contains(pane: target) ?? layout.contains(pane: target)
             facts.column = spots.first { $0.column != nil }?.column
         }
         if column != nil {
-            let tree = columns.isEmpty ? layout : facts.column.flatMap { columns[checked: $0]?.layout }
-            facts.span = tree.flatMap { span(of: $0, in: screen) }
+            if columns.isEmpty, let index {
+                facts.span = span(ofScreen: index, panes)
+            } else {
+                let tree = columns.isEmpty ? layout : facts.column.flatMap { columns[checked: $0]?.layout }
+                facts.span = tree.flatMap { span(of: $0, in: screen) }
+            }
         }
         if row != nil, let index = facts.column, let held = columns[checked: index] {
             facts.rows = held.rows.count
@@ -66,8 +77,8 @@ import Foundation
                                    row: row.map { WireRowSpec(handle: $0.handle.rawValue, height: $0.height) },
                                    around: around, before: before ? true : nil, facts: facts, spots: spots)
         guard let patch: Patch = call(request), let shown = apply(patch, layout: layout, columns: columns, spots: spots) else { return nil }
-        return Placed(layout: shown.layout, columns: shown.columns, columnsEdited: shown.columnsEdited,
-                      paneAt: patch.paneAt ?? screen.panes.count)
+        return Placed(layout: shown.layout, columns: shown.columns, columnsEdited: shown.columnsEdited, change: shown.change,
+                      paneAt: patch.paneAt ?? panes.count)
     }
 
     /// A lone tab docked into a leading column holding `leaf`; nil while the daemon's layout must place it.
@@ -84,7 +95,7 @@ import Foundation
     /// The screen without `pane`; nil when it must stay shown until its close.
     static func removePane(_ screen: ScreenModel, pane: PaneID) -> Shown? {
         let layout = screen.layout, columns = screen.columns
-        let spots = findSpots(layout, columns, holding: pane, match: .holding(pane))
+        let spots = findSpots(layout, columns, holding: pane, match: .holding(pane), index: screen.layoutIndex())
         guard let patch: Patch = call(RemovePaneRequest(pane: pane, spots: spots)) else { return nil }
         return apply(patch, layout: layout, columns: columns, spots: spots)
     }
@@ -120,13 +131,15 @@ import Foundation
 
     /// The node `match` finds in the screen's tree, then in every column whose tree holds `pane`, and in each of
     /// that column's rows that holds it (the contract's spot order).
-    private static func findSpots(_ layout: LayoutNode, _ columns: [ColumnSnapshot], holding pane: PaneID, match: Match) -> [Spot] {
+    /// `index` (the screen's ``LayoutIndex``) finds the screen tree's node without the walk.
+    private static func findSpots(_ layout: LayoutNode, _ columns: [ColumnSnapshot], holding pane: PaneID, match: Match,
+                                  index: LayoutIndex?) -> [Spot] {
         func spot(_ tree: LayoutNode, column: Int?, row: Int?) -> Spot {
             var path: [Bool] = []
             let node = tree.find(match, path: &path)
             return Spot(column: column, row: row, path: node == nil ? [] : path, node: node)
         }
-        var spots = [spot(layout, column: nil, row: nil)]
+        var spots = [index.map { indexedSpot(layout, $0, match: match) } ?? spot(layout, column: nil, row: nil)]
         for (c, column) in columns.enumerated() where column.layout.contains(pane: pane) {
             spots.append(spot(column.layout, column: c, row: nil))
             for (r, row) in column.rows.enumerated() where row.layout.contains(pane: pane) {
@@ -134,6 +147,27 @@ import Foundation
             }
         }
         return spots
+    }
+
+    /// ``LayoutNode/find(_:path:)`` of `match` in the screen's tree, read from its exact index: the first node in the
+    /// walk's order that matches is the only one, so the indexed place is it, or no node matches.
+    private static func indexedSpot(_ layout: LayoutNode, _ index: LayoutIndex, match: Match) -> Spot {
+        let path: [Bool]? = switch match {
+        case .leaf(let pane), .holding(let pane): index.path(of: pane)
+        case .split(let handle): index.path(of: handle)
+        }
+        guard let path, let node = layout.node(at: ArraySlice(path)), match.matches(node) else {
+            return Spot(column: nil, row: nil, path: [], node: nil)
+        }
+        return Spot(column: nil, row: nil, path: path, node: node)
+    }
+
+    /// ``span(of:in:)`` of the screen's whole tree from its index: the scan stops at the first and last listed pane
+    /// the tree shows, the ends of the list when it shows them all.
+    private static func span(ofScreen index: LayoutIndex, _ panes: [PaneModel]) -> [Int]? {
+        guard let first = panes.firstIndex(where: { index.contains(pane: $0.handle) }),
+              let last = panes.lastIndex(where: { index.contains(pane: $0.handle) }) else { return nil }
+        return [first, last]
     }
 
     /// The first and last index in the screen's panes of a pane `tree` holds; nil when it holds none of them.
@@ -153,6 +187,7 @@ import Foundation
     /// which shows nothing.
     private static func apply(_ patch: Patch, layout before: LayoutNode, columns original: [ColumnSnapshot], spots: [Spot]) -> Shown? {
         var layout = before, columns = original, columnsEdited = !patch.columns.isEmpty
+        var change = LayoutIndex.Change.unchanged
         for edit in patch.spots {
             guard let spot = spots[checked: edit.spot], let held = spot.node else { return nil }
             var new: LayoutNode?
@@ -167,6 +202,8 @@ import Foundation
                 if let tree = layout.splicing(at: path, with: new) {
                     layout = tree
                     spliced = true
+                    // One node replaced in place is an index edit; a removal (its parent collapses) or a second edit is not.
+                    if case .unchanged = change, let new { change = .splice(path: spot.path, old: held, new: new) } else { change = .other }
                 }
             case (let c?, nil):
                 columns.modify(checked: c) { column in
@@ -189,6 +226,7 @@ import Foundation
         if let part = patch.layout {
             guard let tree = part.node(held: nil, screen: before, column: nil) else { return nil }
             layout = tree
+            change = .other
         }
         for edit in patch.columns {
             switch edit {
@@ -219,7 +257,7 @@ import Foundation
                 columns.modify(checked: at) { $0 = column }
             }
         }
-        return Shown(layout: layout, columns: columns, columnsEdited: columnsEdited)
+        return Shown(layout: layout, columns: columns, columnsEdited: columnsEdited, change: change)
     }
 
     // MARK: The call

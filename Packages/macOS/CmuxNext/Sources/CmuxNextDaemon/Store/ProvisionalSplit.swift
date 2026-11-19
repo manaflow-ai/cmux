@@ -172,12 +172,10 @@ import Foundation
         // With the daemon's pane already listed, only the layout is the overlay's.
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
                                         pane: daemon == nil ? provisional.handle : nil)
-        screen.layout = placed.layout
-        if placed.columnsEdited, placed.columns != screen.columns { screen.columns = placed.columns }
-        guard daemon == nil else { return undo }
-        let pane = model(of: provisional, in: store)
-        screen.insertPane(pane, at: placed.paneAt)
-        store.index.insert(pane, in: screen)
+        let pane = daemon == nil ? model(of: provisional, in: store) : nil
+        screen.showSplit(layout: placed.layout, change: placed.change, columns: placed.columnsEdited ? placed.columns : nil,
+                         pane: pane, at: placed.paneAt)
+        if let pane { store.index.insert(pane, in: screen) }
         return undo
     }
 
@@ -199,14 +197,14 @@ import Foundation
         guard let screen = store.screensByHandle[handle] else {
             return store.reportMirrorViolation("intent overlay undo found split screen \(handle) missing")
         }
+        var model: PaneModel?
         if let pane {
-            guard let model = store.panesByHandle[pane] else {
+            guard let found = store.panesByHandle[pane] else {
                 return store.reportMirrorViolation("intent overlay undo found provisional pane \(pane) missing")
             }
-            store.index.remove(model)
-            screen.removePane(model)
+            store.index.remove(found)
+            model = found
         }
-        screen.layout = layout
-        if screen.columns != columns { screen.columns = columns }
+        screen.undoSplit(layout: layout, columns: columns, pane: model)
     }
 }
