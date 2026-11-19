@@ -11,6 +11,10 @@ on:
   # jobs skipped. The only path filter is the docs-only block: a pull request of
   # Markdown that nothing reads starts no run (ci-status is not a required check;
   # tests/test_ci_docs_only_prs.py keeps it that way and checks what is put back).
+  # GitHub reads only a pull request's first 300 changed files for the filter, and
+  # the filter applies to label events too: docs-only-fallback.yml calls this
+  # workflow when it was skipped with more than 300 files, or when full-ci or
+  # dev-build is added to a docs-only pull request.
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
     # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
@@ -60,6 +64,9 @@ on:
       - "cmux-tui/vendor/terminput-crossterm/README.md"
       - "mux/packages/brain/conformance/README.md"
     # docs-only paths: END
+  # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
+  # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
+  workflow_call:
   merge_group:
   workflow_dispatch:
     inputs:

@@ -10,7 +10,11 @@ CI, skip it ... when it's unnecessary ... We need to skip more often." scripts/c
   - a required check's workflow gets a path filter (a required check that never starts blocks the merge forever);
   - a copy of the block drifted from DOCS_ONLY_PATHS (`python3 scripts/ci/docs_only_paths.py --sync`);
   - a Rust `include_str!` / `include_bytes!` compiles in a file the block leaves out;
-  - a test ci-guards.yml's groups run (ci.yml and cmux-next-guards.yml run them) reads a file the block leaves out.
+  - a test ci-guards.yml's groups run (ci.yml and cmux-next-guards.yml run them) reads a file the block leaves out;
+  - docs-only-fallback.yml stops covering what the block gets wrong: GitHub matches `paths:` against only the first
+    300 changed files (300 prose files and one code file started none of the filtered workflows), and the block
+    filters label events too (`full-ci`/`dev-build` on a docs-only pull request started no CI). Its gate must call
+    each filtered workflow that should have started and did not, fail open, and take no runner otherwise.
 
 The tests a filtered workflow's own steps run are checked by tests/test_ci_workflow_paths_cover_inputs.py, as for
 any path filter.
@@ -60,6 +64,9 @@ ALLOWED: dict[str, str] = {
     "thunderdome-label.yml": "labels by title; one job that skips unless the title asks",
     "contributor-welcome.yml": "greets a first-time contributor on main; one job",
     "cmux-next-batch.yml": "batches every open pull request; one job, off unless CMUX_NEXT_BATCH_ENABLED",
+    "docs-only-fallback.yml": "covers what the docs-only block can get wrong (GitHub reads only the first 300 changed "
+                              "files; label events are filtered too); its gate skips with no runner for a pull request "
+                              "of 300 files or fewer and no full-ci/dev-build label",
     "ios-e2e.yml": "already routes a prose-only diff past its Mac job (route + status only), and its status is on "
                    "the way to being required (docs/ci/ios-e2e.md): a filter would then block docs pull requests",
 }
@@ -326,6 +333,139 @@ class DocsOnlyPullRequests(unittest.TestCase):
                             reads.append(f"{found}  [{' -> '.join(chain)}]")
         self.assertTrue(units, "ci-guards.yml has groups")
         self.assertEqual(sorted(set(reads)), [], "put each back in scripts/ci/docs_only_paths.py DOCS_ONLY_PATHS")
+
+
+CODE = "Sources/App.swift"
+PROSE = [f"plans/cmux-next/note-{i:03}.md" for i in range(300)]
+
+
+def pull_request_event(action: str, base: str = "feat-cmux-next", label: str | None = None,
+                       changed: int = 1) -> dict:
+    event = {"action": action, "pull_request": {"base": {"ref": base}, "changed_files": changed}}
+    if label is not None:
+        event["label"] = {"name": label}
+    return event
+
+
+def gate_runs(event: dict) -> bool:
+    """Evaluates the fallback gate's `if` for a pull_request event (its operators only)."""
+    text = docs.gate_condition().strip()[3:-2]
+    text = re.sub(r"fromJSON\('([^']*)'\)", lambda m: repr(__import__("json").loads(m.group(1))), text)
+    text = re.sub(r"contains\((\[[^\]]*\]), ([^)]+)\)", r"(\2 in \1)", text)
+    values = {
+        "github.event.pull_request.changed_files": repr(event["pull_request"]["changed_files"]),
+        "github.event.pull_request.base.ref": repr(event["pull_request"]["base"]["ref"]),
+        "github.event_name": repr("pull_request"),
+        "github.event.action": repr(event["action"]),
+        "github.event.label.name": repr((event.get("label") or {}).get("name")),
+    }
+    for name, value in values.items():
+        text = text.replace(name, value)
+    text = text.replace("&&", " and ").replace("||", " or ").replace("!=", " __NE__ ")
+    text = text.replace("!", " not ").replace(" __NE__ ", " != ")
+    return bool(eval(text, {"__builtins__": {}}, {}))  # noqa: S307 - our own generated expression
+
+
+class Fallback(unittest.TestCase):
+    """GitHub matches `paths:` against only a pull request's first 300 changed files, and filters label events too.
+    docs-only-fallback.yml calls, in the pull request's own context, each workflow of WORKFLOWS that should have
+    started and shows no run; anything it cannot read, it calls."""
+
+    calls = {Path(name).name: docs.pull_request_config(ROOT, name) for name in docs.WORKFLOWS}
+    feat_only = sorted(n for n, c in calls.items() if c["branches"] == ["feat-cmux-next"])
+
+    def plan(self, event, files, runs=(), since=1000.0):
+        return docs.plan_fallback(event, self.calls, files, None if runs is None else list(runs), since)
+
+    def test_301_files_with_code_last_call_every_workflow_that_did_not_start(self):
+        files = PROSE + [CODE]
+        self.assertFalse(docs.docs_only(files))
+        self.assertTrue(docs.docs_only(files[:docs.PATHS_FILTER_LIMIT]), "GitHub's first 300 are prose")
+        event = pull_request_event("synchronize", changed=len(files))
+        self.assertTrue(gate_runs(event))
+        due = sorted(n for n, c in self.calls.items() if "synchronize" in c["types"])
+        self.assertEqual(sorted(self.plan(event, files)), due)
+        self.assertEqual(set(due), set(self.calls), "every filtered workflow runs on a push")
+        # A workflow GitHub did start (it saw a code file in its first 300) is not called again.
+        started = [{"path": ".github/workflows/ci.yml", "created": 0.0}]
+        self.assertEqual(sorted(self.plan(event, files, started)), [n for n in due if n != "ci.yml"])
+        # Into main only the workflows without a feat-cmux-next branch filter are due.
+        main = pull_request_event("synchronize", base="main", changed=len(files))
+        self.assertEqual(sorted(self.plan(main, files)), sorted(set(due) - set(self.feat_only)))
+
+    def test_unread_files_or_runs_fail_open(self):
+        event = pull_request_event("opened", changed=5000)
+        self.assertTrue(gate_runs(event))
+        due = sorted(n for n, c in self.calls.items() if "opened" in c["types"])
+        self.assertEqual(sorted(self.plan(event, None, None)), due)
+        self.assertEqual(sorted(self.plan(event, None)), due, "no run seen: call each")
+        self.assertEqual(sorted(self.plan(event, PROSE + [CODE], None)), due)
+
+    def test_a_large_docs_only_pull_request_calls_nothing(self):
+        files = PROSE + ["docs/one-more.md"]
+        self.assertEqual(self.plan(pull_request_event("synchronize", changed=len(files)), files, None), [])
+
+    def test_300_files_or_fewer_take_no_runner_and_call_nothing(self):
+        for action in ("opened", "synchronize", "reopened", "edited", "ready_for_review", "closed", "unlabeled"):
+            self.assertFalse(gate_runs(pull_request_event(action, changed=300)), action)
+            self.assertFalse(gate_runs(pull_request_event(action, base="main", changed=12)), action)
+        self.assertEqual(self.plan(pull_request_event("synchronize", changed=2), ["docs/a.md", CODE], None), [])
+        self.assertEqual(self.plan(pull_request_event("synchronize", changed=1), ["docs/a.md"], None), [])
+
+    def test_a_ci_label_on_a_docs_only_pull_request_calls_what_listens_for_it(self):
+        listens = sorted(n for n, c in self.calls.items() if "labeled" in c["types"])
+        self.assertEqual(listens, ["ci.yml"])
+        for label in docs.LABEL_OPT_INS:
+            for base in BASES:
+                event = pull_request_event("labeled", base=base, label=label)
+                self.assertTrue(gate_runs(event), (label, base))
+                self.assertEqual(self.plan(event, ["docs/a.md"], None), listens, (label, base))
+        # Any other label: no runner into feat-cmux-next (or main, under 300 files), nothing called.
+        for base in BASES:
+            self.assertFalse(gate_runs(pull_request_event("labeled", base=base, label="risk:high")), base)
+        self.assertEqual(self.plan(pull_request_event("labeled", label="risk:high"), ["docs/a.md"], None), [])
+        # A code pull request of 300 files or fewer: ci.yml's own filter started it.
+        self.assertEqual(self.plan(pull_request_event("labeled", label="full-ci"), [CODE], None), [])
+
+    def test_a_ci_label_on_a_large_pull_request_needs_a_run_of_this_event(self):
+        files = PROSE + [CODE]
+        event = pull_request_event("labeled", label="full-ci", changed=len(files))
+        earlier = [{"path": ".github/workflows/ci.yml", "created": 0.0}]
+        self.assertEqual(self.plan(event, files, earlier, since=10_000.0), ["ci.yml"], "a run before the label")
+        this_event = [{"path": ".github/workflows/ci.yml", "created": 9_999.0}]
+        self.assertEqual(self.plan(event, files, this_event, since=10_000.0), [])
+
+    def test_every_filtered_workflow_is_callable_and_called(self):
+        fallback = load(Path(docs.FALLBACK).name)
+        jobs = fallback["jobs"]
+        for name in docs.WORKFLOWS:
+            events = filters.triggers(filters.load_yaml(ROOT / name))
+            self.assertIn("workflow_call", events, f"{name}: the fallback calls it (add `workflow_call:`)")
+            calls = [j for j in jobs.values() if j.get("uses") == f"./{name}"]
+            self.assertEqual(len(calls), 1, name)
+            self.assertEqual(calls[0].get("needs"), "gate", name)
+            self.assertIn(f"'{Path(name).name}')", calls[0]["if"], name)
+            self.assertNotIn("secrets", calls[0], f"{name}: a call passes no secrets (they stay in their "
+                                                  "protected environments), as for a fork's pull request")
+        config = filters.triggers(fallback)["pull_request"]
+        self.assertFalse({"paths", "paths-ignore", "branches", "branches-ignore"} & set(config),
+                         "the fallback must start for every pull request")
+        types = {t for name in docs.WORKFLOWS for t in self.calls[Path(name).name]["types"]}
+        self.assertEqual(set(config["types"]), types - set(docs.UNCOVERED_TYPES),
+                         "the fallback listens for every event a filtered one does but a description edit")
+        self.assertTrue({"synchronize", "labeled"} <= set(config["types"]))
+        gate = jobs["gate"]
+        self.assertNotIn("needs", gate)
+        self.assertIn("--fallback-plan", gate["steps"][-1]["run"])
+        self.assertEqual(__import__("json").loads(gate["steps"][-1]["env"]["CALLS"]), self.calls)
+        group = fallback["concurrency"]["group"]
+        self.assertIn("format('-{0}-{1}', github.event.action, github.run_id)", group,
+                      "only a push supersedes a run: a label or close event must not cancel a push's calls")
+        self.assertIs(fallback["concurrency"]["cancel-in-progress"], True)
+
+    def test_the_labels_are_ci_yml_s(self):
+        ci = (WORKFLOWS / "ci.yml").read_text()
+        self.assertIn(docs.label_guard(), ci, "ci.yml's label guard and the fallback's name the same labels")
 
 
 class Units(unittest.TestCase):

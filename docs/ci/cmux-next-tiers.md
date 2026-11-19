@@ -286,6 +286,20 @@ one-job policy and merge-contract checks. Before 2026-11-19 each one started
   checks. `cmux-next.yml` leaves `plans/cmux-next/**/*.md` out of its pull
   request list and puts back by name the plan docs a Swift target reads; the
   detector routes every doc it leaves out and fails on one that reaches a tier.
+- **Over 300 files, and labels.** GitHub matches `paths:` against only a
+  pull request's first 300 changed files, so 300 prose files and one code
+  file would start none of the filtered workflows; and the filter applies to
+  label events too, so `full-ci` or `dev-build` on a docs-only pull request
+  started nothing. `.github/workflows/docs-only-fallback.yml` (written by
+  `docs_only_paths.py --sync`) covers both. It has no filter, and its gate job
+  skips with no runner unless the pull request has more than 300 changed files
+  or gets one of those labels. When the gate runs, it lists the changed files
+  and the head's runs through the API. It then calls each filtered workflow
+  that should have started and shows no run, as a reusable workflow (each has
+  `workflow_call:`) in the pull request's own context. Anything it cannot
+  read, it calls. A call passes no secrets, so the called workflow runs as it
+  does for a fork's pull request. The fallback does not listen for
+  description edits.
 - **The detector.** `tests/test_ci_docs_only_prs.py` (ci-guards `ci` group)
   fails when a docs-only pull request would start a workflow outside its
   `ALLOWED` table (each with its reason), when a required check gets a filter,

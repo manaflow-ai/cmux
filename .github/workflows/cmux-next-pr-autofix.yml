@@ -97,6 +97,9 @@ on:
       - "cmux-tui/vendor/terminput-crossterm/README.md"
       - "mux/packages/brain/conformance/README.md"
     # docs-only paths: END
+  # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
+  # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
+  workflow_call:
 
 permissions: {}
 

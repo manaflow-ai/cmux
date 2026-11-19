@@ -38,6 +38,9 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # Its capture step reads the media-tour labels and its perf section step the perf labels
     # (tests/test_pr_body_checks.py pins which step runs on which label).
     "pr-body-checks.yml": ("media-tour", "media-tour-mac", "perf", "performance"),
+    # Calls ci.yml for a docs-only pull request that gets one of ci.yml's labels (its `paths:` filters label events
+    # too); its gate takes no runner for any other label (scripts/ci/docs_only_paths.py FALLBACK).
+    "docs-only-fallback.yml": ("full-ci", "dev-build"),
 }
 
 # GUARDED workflows whose label events arrive as pull_request_target.
