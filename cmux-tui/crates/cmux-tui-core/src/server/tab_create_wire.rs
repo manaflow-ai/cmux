@@ -61,6 +61,18 @@ pub(super) struct NewTabParams {
     hole: Option<u64>,
 }
 
+impl NewTabParams {
+    /// A plain shell that may wait for its first need
+    /// (mux/terminal_respawn/lazy.rs): no shell of the app's, environment,
+    /// shell arguments or caller-chosen terminal id.
+    pub(super) fn may_start_lazily(&self, frontend_shell: bool) -> bool {
+        !frontend_shell
+            && self.env.as_ref().is_none_or(BTreeMap::is_empty)
+            && self.shell_args.is_none()
+            && self.terminal_id.is_none()
+    }
+}
+
 impl Command {
     /// A `new-tab` with a `place` or a `transaction` takes its slot in the
     /// list of its pane now, when the request arrives. Its terminal launches
@@ -97,6 +109,8 @@ pub(super) fn create(
     actor: Actor,
     params: NewTabParams,
 ) -> anyhow::Result<Value> {
+    let frontend_shell = frontend_shell(mux, client);
+    let may_start_lazily = params.may_start_lazily(frontend_shell);
     let NewTabParams {
         pane,
         cwd,
@@ -118,14 +132,10 @@ pub(super) fn create(
     let placing = mux.place_tab_creation(request, hole, true)?;
     // A plain shell from a creator not showing it may wait for its first
     // need (mux/terminal_respawn/lazy.rs).
-    let frontend_shell = frontend_shell(mux, client);
     let _lazy = crate::mux::terminal_respawn::lazy::lazy_create_scope(
         mux,
-        !crate::mux::terminal_respawn::lazy::actor_shows_what_it_creates(&actor)
-            && !frontend_shell
-            && env.as_ref().is_none_or(BTreeMap::is_empty)
-            && shell_args.is_none()
-            && terminal_id.is_none(),
+        may_start_lazily
+            && !crate::mux::terminal_respawn::lazy::actor_shows_what_it_creates(&actor),
     );
     let spawn =
         placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args, frontend_shell)?;

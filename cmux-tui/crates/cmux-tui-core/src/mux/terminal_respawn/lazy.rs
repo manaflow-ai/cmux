@@ -382,6 +382,25 @@ pub(crate) fn actor_shows_what_it_creates(actor: &Actor) -> bool {
 }
 
 impl Mux {
+    /// Whether a `new-tab` in `pane` may start lazily, so its creation
+    /// launches no host ahead of its commit (`server/terminal_create.rs`):
+    /// lazy start is on and no client shows the pane's workspace. The
+    /// create decides again ([`Self::lazy_create_allowed`]); a tab this
+    /// skips that then starts at once only loses the head start.
+    pub(crate) fn lazy_tab_skips_prelaunch(&self, pane: Option<PaneId>) -> bool {
+        if !self.lazy_start() {
+            return false;
+        }
+        let Some(pane) = pane else { return true };
+        let key = self.with_state(|state| {
+            state
+                .screen_of(pane)
+                .and_then(|(workspace, _)| state.workspaces.get(workspace))
+                .map(|workspace| workspace.key.to_string())
+        });
+        key.is_none_or(|key| !self.workspace_key_shown(&key))
+    }
+
     /// Whether a client shows the workspace `workspace_key`: one is
     /// attached to a tab of it.
     fn workspace_key_shown(&self, workspace_key: &str) -> bool {
