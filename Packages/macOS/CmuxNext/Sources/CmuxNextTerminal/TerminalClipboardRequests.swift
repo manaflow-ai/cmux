@@ -112,6 +112,8 @@ final class TerminalClipboardRequests {
     /// it asks for confirmation only when the user set `ask` (and drops the
     /// write for `deny`), so an unconfirmed write is committed silently.
     func write(items: [TerminalClipboardItem], location: TerminalPasteboardLocation, requiresConfirmation: Bool) {
+        // Nothing to copy: no write, and no dialog asking to copy nothing.
+        guard !TerminalPasteboard.isBlank(items) else { return }
         switch Self.writeDecision(userInitiated: userClipboardWriteInProgress,
                                   requiresConfirmation: requiresConfirmation) {
         case .write:
@@ -129,7 +131,7 @@ final class TerminalClipboardRequests {
     }
 
     private func confirmProgramWrite(contents: String, contentBytes: Int, state: UncheckedPointer) {
-        guard contentBytes <= Self.maxProgramWriteBytes,
+        guard !contents.isEmpty, contentBytes <= Self.maxProgramWriteBytes,
               beginWritePrompt(state: state), let scope = writePromptScope() else {
             deny(state: state)
             return
