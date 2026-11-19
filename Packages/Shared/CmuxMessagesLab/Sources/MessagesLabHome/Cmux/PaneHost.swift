@@ -619,7 +619,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
-        if intents?.canReply == true { swipe.install(); thread.install() }
+        // The thread view's outside-click and Esc close work in a chat that takes no replies too (a permalink opens
+        // a thread there); only the reply gestures need a host that takes replies.
+        if intents?.canReply == true { swipe.install() }
+        thread.install()
         host.needsLayout = true
         onInstalled.forEach { $0(self) }
         return store

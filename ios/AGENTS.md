@@ -1,5 +1,10 @@
 # ios/ agent instructions
 
+> **Retired.** `ios/` is the classic cmux iPhone app and is no longer developed or installed. The
+> iPhone app is `cmux-next-ios/` ([cmux-next-iOS notes](../cmux-next-ios/CLAUDE.md)); its hand-off
+> is `cmux-next-ios/scripts/review.sh` (root [CLAUDE.md](../CLAUDE.md#finishing-a-task)). Don't
+> change code here, build it, or install it on a phone. The text below is kept only as history.
+
 iOS app-target work in this directory follows `Packages/iOS/AGENTS.md`,
 including its Apple Human Interface Guidelines rule. Read it before changing
 UI.
