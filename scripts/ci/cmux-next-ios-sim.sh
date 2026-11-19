@@ -32,7 +32,10 @@
 #               to ui-video.mp4 in the artifact: before/after videos of a change;
 #               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
 #               540 wide, H.264 CRF 30, no audio, small enough for PR media
-#               (lane-gh media takes at most 25 MiB)
+#               (lane-gh media takes at most 25 MiB). ui-video-start.txt holds the
+#               recording's start on the wall clock; a suite that prints MOBILEBENCH
+#               lines (MobileBenchFlowsUITests) also gets mobilebench-markers.txt,
+#               the input of scripts/mobile-bench/cut.py
 #             profile record a CPU stack-sampling profile of the UI test run:
 #               `xctrace record --instrument 'Time Profiler' --all-processes`
 #               on the host (a simulator app is a host process, so every launch
@@ -1078,6 +1081,24 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   if [[ $ui_video -eq 1 ]]; then
     xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
     recorder=$!
+    # When the recording starts, on the host's wall clock (a UI test's Date() reads the same
+    # clock): a test's timed MOBILEBENCH lines then place on the video (scripts/mobile-bench/cut.py).
+    python3 - "$work/ui-video.log" "$out/ui-video-start.txt" <<'PY' || true
+import sys, time
+log, dest = sys.argv[1:3]
+launched = time.time()
+deadline = launched + 30
+while time.time() < deadline:
+    try:
+        if "Recording started" in open(log, errors="replace").read():
+            break
+    except OSError:
+        pass
+    time.sleep(0.005)
+else:
+    print("MOBILEBENCH video-start-unconfirmed launched=%.3f" % launched, file=sys.stderr)
+open(dest, "w").write("MOBILEBENCH video-start t=%.3f\n" % time.time())
+PY
   fi
   set +e
   ui_t0=$SECONDS
@@ -1114,6 +1135,12 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   xcrun simctl delete "$ui_udid" >/dev/null 2>&1 || true
   ui_udid=""
   keep_test_logs "$work/ui-test.log" "$work/ui.xcresult" ui
+  if grep -q 'MOBILEBENCH ' "$out/ui-console.txt" 2>/dev/null; then
+    # The benchmark's markers with the recording's start, the input cut.py takes.
+    cat "$out/ui-video-start.txt" 2>/dev/null > "$out/mobilebench-markers.txt" || true
+    grep -h 'MOBILEBENCH ' "$out/ui-console.txt" >> "$out/mobilebench-markers.txt" || true
+    note "- MOBILEBENCH markers: mobilebench-markers.txt ($(grep -c 'event=stimulus' "$out/mobilebench-markers.txt") flows with a stimulus)"
+  fi
   grep -h "^FAILED:" -A3 "$out/ui-tests-failures.txt" 2>/dev/null || true
   note "- UI tests ${ui_suites[*]}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), xcodebuild $ui_action $ui_seconds s, $((SECONDS - t0)) s in all"
 fi
