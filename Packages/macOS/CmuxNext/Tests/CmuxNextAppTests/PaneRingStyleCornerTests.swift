@@ -75,7 +75,7 @@ import Testing
     /// A pane inset from the card's corner by less than its radius rounds concentrically: the card's radius less the inset.
     @Test func anInsetCornerIsConcentric() {
         let card = Self.roundedCard()
-        let host = Self.host(StripContent(header: 0), at: CGRect(x: 4, y: 4, width: 392, height: 492), in: card)
+        let host = Self.host(StripContent(header: 0), at: Self.card.insetBy(dx: 4, dy: 4), in: card)
         #expect(host.chrome.ringCornerRadius == Self.cardRadius - 4)
         #expect(host.chrome.ringCorners == Self.allCorners)
     }
