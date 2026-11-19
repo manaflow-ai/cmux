@@ -82,5 +82,42 @@
         }
       }
     }
+  },
+  "pull_request_skip": {
+    "//": [
+      "Tier A of the replay of the last merged pull requests into feat-cmux-next (cmux PR body: the table): jobs whose",
+      "reds there were never the pull request's own change (base reds, flakes, runner and queue failures), in workflows",
+      "a feat-cmux-next push runs. A pull request skips them unless it carries the full-ci label; the push that lands",
+      "it runs them, and a red there names the pull requests in its range. Each value is that job's replay record.",
+      "affected_jobs.py check: the job's if: carries PR_SKIP_IF, a push starts its workflow on every path a pull",
+      "request does, and nothing that needs it is skipped with it."
+    ],
+    "workflows": {
+      ".github/workflows/cmux-next-guards.yml": {
+        "tooling-tests": "27 runs on 52 merged pull requests, 17 with a red, 0 of them the pull request's own; 300 job-minutes; every red was the base's tests/test_ci_macos_stubs.py and scripts/measure tests, on unrelated PRs",
+        "static-checks": "45 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 95 job-minutes",
+        "rust-notices-tree": "47 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 79 job-minutes"
+      },
+      ".github/workflows/gallery-health.yml": {
+        "health": "11 runs on 52 merged pull requests, 6 with a red, 0 of them the pull request's own; 1141 job-minutes; every red was the base's virtual:cmux-gallery/looks resolve error (fixed on base by 7275d2b)",
+        "base-gallery": "12 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 48 job-minutes"
+      },
+      ".github/workflows/cmux-tui-spec.yml": {
+        "acpmux-sim": "9 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 98 job-minutes",
+        "carrier-sim": "6 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 83 job-minutes",
+        "acpmux-protocol-ir": "8 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 63 job-minutes"
+      },
+      ".github/workflows/cmux-tui-sdks.yml": {
+        "conformance": "9 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 181 job-minutes"
+      },
+      ".github/workflows/swift-linux-packages.yml": {
+        "swift-linux-packages": "10 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 178 job-minutes"
+      },
+      ".github/workflows/ios-reliability-matrix.yml": {
+        "protocol": "2 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 56 job-minutes",
+        "ios": "2 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 49 job-minutes",
+        "report": "2 runs on 52 merged pull requests, 2 with a red, 0 of them the pull request's own; 0 job-minutes; the summary of protocol and ios; skipped with them"
+      }
+    }
   }
 }

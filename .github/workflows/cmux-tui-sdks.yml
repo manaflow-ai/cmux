@@ -928,7 +928,9 @@ jobs:
     name: seven-language live conformance
     needs: contract
     # By the crate graph (the contract job's graph step); a failed or skipped router never skips it.
-    if: ${{ !cancelled() && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false') }}
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (!cancelled() && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 45
     steps:

@@ -27,6 +27,12 @@ It never trades a test for speed. Every job runs when:
   - a changed path under cmux-tui/ is in no Cargo package, is no job's input, and is not a Markdown file: a path
     the graph cannot place (unknown) is never skipped.
 
+A second list in the map, pull_request_skip, is Tier A of the replay of the last merged pull requests (job reds read
+against base reds, re-runs and later heads of the same pull request): the jobs that never went red for a pull
+request's own change. A pull request skips them unless it carries the full-ci label; a push to feat-cmux-next runs
+them, so a red the skip would have hidden still shows on the push that lands it. Their `if:` reads the event and the
+label (PR_SKIP_IF), not this router's outputs; `check` holds each to that and to its push trigger.
+
 Replay: scripts/ci/affected_jobs_replay.py replays recent merged pull requests through it. Test:
 tests/test_ci_affected_jobs.py.
 """
@@ -78,12 +84,33 @@ class Route:
     why: dict[tuple[str, str], str] = field(default_factory=dict)
     everything: str = ""  # why every job runs, when it does
     router_changed: bool = False
+    # The pull_request_skip jobs: whether each runs (their `if:` reads the event and the label, not this router).
+    pr_skip: dict[tuple[str, str], bool] = field(default_factory=dict)
 
     def lines(self) -> list[str]:
         out = [f"every job runs: {self.everything}"] if self.everything else []
         for key in sorted(self.run):
             out.append(f"{key[0]} {key[1]}={'true' if self.run[key] else 'false'}  {self.why[key]}")
+        for key in sorted(self.pr_skip):
+            out.append(f"{key[0]} {key[1]}={'true' if self.pr_skip[key] else 'false'}  "
+                       + ("a push or the full-ci label runs it" if self.pr_skip[key] else
+                          "skipped on a pull request (pull_request_skip: no red of its own in the replay; "
+                          "the feat-cmux-next push runs it)"))
         return out
+
+
+# Tier A of the merged pull request replay: jobs whose reds on the last merged pull requests were never the pull
+# request's own (base reds, flakes, infrastructure), and which a push to feat-cmux-next runs anyway. A pull request
+# skips them, unless it carries the full-ci label; the push that lands it runs them (the safety net), and a red
+# there names the pull requests in its range. `check` holds each one to that: the job's `if:` carries PR_SKIP_IF,
+# its workflow starts on a feat-cmux-next push, and no job that needs it would be skipped with it.
+PR_SKIP_IF = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
+
+
+def load_pr_skip(text: str) -> list[tuple[str, str]]:
+    """The (workflow, job id) pairs MAP's pull_request_skip lists."""
+    data = json.loads(text).get("pull_request_skip", {})
+    return [(workflow, job_id) for workflow, entry in data.get("workflows", {}).items() for job_id in entry]
 
 
 def load_map(text: str) -> tuple[list[str], list[Job]]:
@@ -169,13 +196,16 @@ def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: st
     if map_text is None:
         map_text = (ROOT / MAP).read_text(encoding="utf-8")
     workspace_inputs, jobs = load_map(map_text)
+    skipped_here = [key for key in load_pr_skip(map_text) if not workflow or key[0] == workflow]
     if workflow:
         jobs_here = [job for job in jobs if job.workflow == workflow]
-        if not jobs_here:
+        if not jobs_here and not skipped_here:
             raise SystemExit(f"affected_jobs: {MAP} lists no job of {workflow}")
     else:
         jobs_here = jobs
     result = Route()
+    for key in skipped_here:
+        result.pr_skip[key] = event != "pull_request" or FULL_LABEL in (labels or [])
 
     def everything(why: str) -> Route:
         result.everything = why
@@ -326,7 +356,76 @@ def check(root: Path, tree: git_tree.GitTree) -> list[str]:
             if not any(under(named, entry) for entry in inputs):
                 problems.append(f"{job.workflow}: job {job.id} runs {named}, which is not among its inputs: add it to "
                                 f"the job's inputs in {MAP}")
+    problems += check_pr_skip(root, load_pr_skip((root / MAP).read_text(encoding="utf-8")),
+                              {(job.workflow, job.id) for job in jobs})
     return sorted(set(problems))
+
+
+def pushes_feat(text: str) -> bool:
+    """Whether a push to feat-cmux-next starts the workflow: an `on: push:` whose branches name it (or list none)."""
+    on = re.search(r"(?ms)^on:[ \t]*\n(.*?)(?=^\S)", text + "\nend:\n")
+    push = on and re.search(r"(?ms)^  push:[ \t]*\n((?:    .*\n|[ \t]*\n)*)", on.group(1))
+    if not push:
+        return False
+    branches = re.search(r"(?ms)^    branches:(.*?)(?=^    \S|\Z)", push.group(1))
+    return branches is None or "feat-cmux-next" in branches.group(1)
+
+
+def job_ids(text: str) -> list[str]:
+    jobs = re.search(r"(?ms)^jobs:\n(.*)", text)
+    return re.findall(r"(?m)^  ([A-Za-z0-9_-]+):\s*$", jobs.group(1)) if jobs else []
+
+
+def job_needs(block: str) -> list[str]:
+    """The ids a job block's `needs:` names (inline `[a, b]`, a bare id, or a list)."""
+    match = re.search(r"(?m)^    needs:[ \t]*(.*)$((?:\n      - .*)*)", block)
+    if match is None:
+        return []
+    inline = match.group(1).strip().strip("[]")
+    listed = re.findall(r"- *([A-Za-z0-9_-]+)", match.group(2))
+    return [n.strip() for n in inline.split(",") if n.strip()] + listed
+
+
+def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[str, str]] = frozenset()) -> list[str]:
+    """Each pull_request_skip job: its `if:` carries PR_SKIP_IF; its workflow starts on a feat-cmux-next push, on every
+    path its pull_request trigger starts on (the push is the safety net that runs it), or, for a job the crate graph
+    routes too (ROUTED), on every input of the job, which `check` already holds the push paths to; and every job of
+    the workflow that needs it still decides for itself when it is skipped (an `if:` with !cancelled(), always() or
+    failure(): the default success() would skip it too), or is skipped with it."""
+    problems = []
+    names = set(skipped)
+    for workflow, job_id in skipped:
+        path = root / workflow
+        if not path.exists():
+            problems.append(f"{MAP} pull_request_skip names {workflow}, which does not exist")
+            continue
+        text = path.read_text(encoding="utf-8")
+        block = job_block(text, job_id)
+        if block is None:
+            problems.append(f"{workflow} has no job {job_id} ({MAP} pull_request_skip lists it)")
+            continue
+        if_line = next((line for line in block.splitlines() if line.startswith("    if:")), "")
+        if PR_SKIP_IF not in if_line:
+            problems.append(f"{workflow}: job {job_id}'s `if:` does not carry {PR_SKIP_IF}, so a pull request still "
+                            f"runs it ({MAP} pull_request_skip)")
+        if not pushes_feat(text):
+            problems.append(f"{workflow}: no push to feat-cmux-next starts it, so nothing would run {job_id} once "
+                            f"a pull request skips it ({MAP} pull_request_skip)")
+        else:
+            pushed, pulled = workflow_paths(text, "push"), workflow_paths(text, "pull_request")
+            narrower = pushed is not None and (pulled is None or bool(set(pulled) - set(pushed)))
+            if narrower and (workflow, job_id) not in routed:
+                problems.append(f"{workflow}: its push paths start on fewer paths than its pull_request paths, so a "
+                                f"change the push skips would run {job_id} nowhere ({MAP} pull_request_skip)")
+        for other in job_ids(text):
+            other_block = job_block(text, other) or ""
+            if job_id not in job_needs(other_block) or (workflow, other) in names:
+                continue
+            other_if = next((line for line in other_block.splitlines() if line.startswith("    if:")), "")
+            if not any(status in other_if for status in ("!cancelled()", "always()", "failure()")):
+                problems.append(f"{workflow}: job {other} needs {job_id}, which a pull request skips, and its `if:` "
+                                f"has no !cancelled(), always() or failure(), so it would be skipped too")
+    return problems
 
 
 def main(argv: list[str] | None = None) -> int:
