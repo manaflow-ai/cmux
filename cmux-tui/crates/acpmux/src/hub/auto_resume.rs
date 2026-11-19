@@ -616,7 +616,13 @@ impl Hub {
         // Off the turn's path: the turn lock is still held here.
         tokio::spawn(async move {
             let configured = hub.config.read().await.auto_resume_delays_ms.clone();
-            let delays = effective_delays(configured);
+            // A rate limit waits on its own capped ladder and never gives up (`rate_hold.rs`).
+            let rate = reason == RetryReason::RateLimit;
+            let delays = if rate {
+                super::rate_hold::rate_waits_of(configured)
+            } else {
+                effective_delays(configured)
+            };
             // A chat past its context window goes on only once compacted, and at once.
             let context = reason == RetryReason::Context;
             if context && !hub.can_compact(&session).await {
@@ -626,7 +632,15 @@ impl Hub {
                 return;
             }
             let delays = if context { compact_first::waits(&delays) } else { delays };
-            let Some(&delay) = delays.get(done) else {
+            // A rate limit backs off across the session, not per prompt (`rate_hold.rs`): a
+            // queued turn that took a continuation's place waits the session's next step, past
+            // the last step the last one again, for as long as the 429 lasts.
+            let delay = if rate {
+                super::rate_hold::step_delay(&delays, done.max(session.rate_hold.step()))
+            } else {
+                delays.get(done).copied()
+            };
+            let Some(delay) = delay else {
                 let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {
                     let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()});
@@ -637,19 +651,10 @@ impl Hub {
                 return;
             };
             let attempt = done + 1;
-            // A rate limit backs off across the session, not per prompt (`rate_hold.rs`): a
-            // queued turn that took a continuation's place waits the session's next step, and
-            // never less than the hold its failure set.
-            let rate = reason == RetryReason::RateLimit;
-            let delay = if rate {
-                super::rate_hold::step_delay(&delays, done.max(session.rate_hold.step()))
-                    .unwrap_or(delay)
-            } else {
-                delay
-            };
             let now = super::now_ms();
             let limits = session.meta().usage_limits;
             let reset = reset_hint::reset_at(&error, limits.as_ref(), now).max(not_before);
+            // Never sooner than the hold the failure set.
             let held = session.rate_hold.until().filter(|_| rate);
             let next_at = now
                 .saturating_add(staggered(delay, &session.id))
@@ -658,7 +663,8 @@ impl Hub {
             let delay = next_at.saturating_sub(now);
             let retry = RetrySummary {
                 attempt: attempt as u64,
-                of: delays.len() as u64,
+                // A rate limit's attempts have no last one: this one is the last so far.
+                of: (if rate { delays.len().max(attempt) } else { delays.len() }) as u64,
                 reason,
                 next_at,
                 prompt_id: root.clone(),

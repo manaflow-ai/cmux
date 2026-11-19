@@ -15,10 +15,13 @@
 //!   (`claude_stdio/usage_limits.rs`), else the session's backoff step. One timer per chat,
 //!   whatever comes in meanwhile; a later 429 moves the same hold's deadline, never earlier.
 //! - The backoff is the session's, not the turn's ([`RateHold::fail`]): each 429 since the chat's
-//!   last completed turn waits the next configured step, whichever turn hit it. A queued turn
+//!   last completed turn waits the next step, whichever turn hit it. A queued turn
 //!   that took a continuation's place and hit the limit again does not start over at the first
 //!   step (the 2026-11-19 NIGHTLY storm, cmux#47337: it did, and sent 46 full-context requests in
 //!   600 s where the per-prompt chain sent 38).
+//! - The steps are [`RATE_LIMIT_WAITS_MS`] (10 s, 30 s, then every 60 s), not the transport
+//!   ladder's 5 and 20 minutes, and they never run out: while the 429 lasts the chat probes once
+//!   a minute, so the first turn after the lift starts within a minute of it.
 //! - While held no turn starts (`queue.rs`): another agent's message, a background notice and
 //!   the person's own prompt all queue. Only acpmux's own continuation of the cut turn runs, once
 //!   the hold is due.
@@ -52,10 +55,40 @@ pub(crate) struct RateHold {
     due: Notify,
 }
 
-/// The configured wait `delays` gives the session's `step`th 429 in a row: past the last one,
-/// the last one again. None when the waits are off.
-pub(super) fn step_delay(delays: &[u64], step: usize) -> Option<u64> {
-    delays.get(step.min(delays.len().checked_sub(1)?)).copied()
+/// How long a held chat waits before each probe while the 429 lasts, by default: 10 s, 30 s, then
+/// every 60 s, never giving up. The transport ladder's 5 and 20 minute steps
+/// (`auto_resume::DEFAULT_DELAYS_MS`) kept a chat silent up to 20 minutes after its limit lifted,
+/// then gave up with every queued message still waiting (gui-429-finish's live storm,
+/// 2026-11-19: 279 of 280 messages not in within 20 minutes).
+pub(super) const RATE_LIMIT_WAITS_MS: [u64; 3] = [10_000, 30_000, 60_000];
+
+/// The waits of a rate-limit hold: `autoResumeDelaysMs` when the config sets it, none when the
+/// person's Settings turn automatic retries off (`off`), else [`RATE_LIMIT_WAITS_MS`].
+pub(super) fn rate_waits(configured: Option<Vec<u64>>, off: bool) -> Vec<u64> {
+    match configured {
+        Some(waits) => waits,
+        None if off => Vec::new(),
+        None => RATE_LIMIT_WAITS_MS.to_vec(),
+    }
+}
+
+/// The waits a rate-limit hold of this hub uses now ([`rate_waits`]). The config is read without
+/// waiting; while it is being written this instant, the Settings' or the default's.
+fn current_rate_waits(hub: &Hub) -> Vec<u64> {
+    let configured = hub.config.try_read().ok().and_then(|c| c.auto_resume_delays_ms.clone());
+    rate_waits_of(configured)
+}
+
+/// [`rate_waits`] for `configured`, reading the person's Settings when it is `None`.
+pub(super) fn rate_waits_of(configured: Option<Vec<u64>>) -> Vec<u64> {
+    let off = configured.is_none() && super::auto_resume::effective_delays(None).is_empty();
+    rate_waits(configured, off)
+}
+
+/// The wait `waits` gives the session's `step`th 429 in a row: past the last one, the last one
+/// again, for as long as the 429 lasts. None when the waits are off.
+pub(super) fn step_delay(waits: &[u64], step: usize) -> Option<u64> {
+    waits.get(step.min(waits.len().checked_sub(1)?)).copied()
 }
 
 #[derive(Default)]
@@ -228,11 +261,9 @@ impl Hub {
         let limits = session.meta().usage_limits;
         let reset = super::auto_resume::reset_hint::reset_at(error, limits.as_ref(), now);
         let step = session.rate_hold.fail();
-        // The waits the continuation reads (`schedule_auto_resume`); while the config is being
-        // written this instant, the Settings' or the default's.
-        let configured = self.config.try_read().ok().and_then(|c| c.auto_resume_delays_ms.clone());
-        let delays = super::auto_resume::effective_delays(configured);
-        let backoff = step_delay(&delays, step)
+        // The waits the continuation reads (`schedule_auto_resume`).
+        let waits = current_rate_waits(self);
+        let backoff = step_delay(&waits, step)
             .map_or(MIN_HOLD_MS, |d| super::auto_resume::staggered(d, &session.id));
         let until = reset.max(not_before).unwrap_or(now.saturating_add(backoff));
         self.hold_for_rate_limit(session, turn, until, false);
@@ -351,5 +382,23 @@ pub(crate) fn until_line(until: u64) -> String {
     match at {
         Some(at) => format!("rate-limited until {}", at.format("%H:%MZ")),
         None => "rate-limited".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_rate_limit_probes_at_10_then_30_then_every_60_seconds_and_never_gives_up() {
+        let waits = rate_waits(None, false);
+        let steps: Vec<Option<u64>> = (0..6).map(|n| step_delay(&waits, n)).collect();
+        let s = |ms| Some(ms);
+        assert_eq!(steps, [s(10_000), s(30_000), s(60_000), s(60_000), s(60_000), s(60_000)]);
+        assert_eq!(step_delay(&waits, 10_000), Some(60_000), "no step past the ladder is missing");
+        // The person's Settings turn it off; a configured `autoResumeDelaysMs` replaces it.
+        assert_eq!(step_delay(&rate_waits(None, true), 0), None);
+        assert_eq!(rate_waits(Some(vec![200, 400]), true), vec![200, 400]);
+        assert_eq!(step_delay(&[200, 400], 7), Some(400));
     }
 }
