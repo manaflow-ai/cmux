@@ -33,7 +33,7 @@ public final class AutomationsPage {
     /// The New or Edit form the detail shows in place of the automation, nil when none.
     public var draft: AutomationDraft?
     /// Why the last button's command failed (the CLI's words), shown beside the buttons.
-    public private(set) var actionError: String?
+    public var actionError: String?
     /// The form's save is running (its button shows it and does not fire twice).
     public private(set) var saving = false
     /// The run whose log shows under it, and the log's text.
