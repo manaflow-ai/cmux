@@ -23,6 +23,11 @@ public final class DeviceHub {
     public private(set) var connection: DeviceHubSocket.State = .disconnected
     public private(set) var me: HubMe?
     public private(set) var devices: [HubDevice] = []
+    /// A device-list read succeeded since sign-in. `ready` only means this device is registered: the list
+    /// comes after the socket connects, so an empty `devices` before it says nothing (ask-6a79af928f).
+    public private(set) var devicesListed = false
+    /// Why the last device-list read failed; nil once a read succeeds.
+    public private(set) var devicesListError: DeviceHubError?
     /// Verified Mac destinations for native screen actions, observed with the device list.
     public var macScreenAvailability: [String: Bool] { HubDevice.macScreenAvailability(in: devices) }
     /// Permissions by host id (`GET /v1/permissions?host=`); this device's are fetched on every refresh.
@@ -138,6 +143,7 @@ public final class DeviceHub {
         generation += 1
         let run = generation
         status = .starting
+        devicesListError = nil
         do {
             do {
                 if ownsDevice { _ = try await client.registerDevice(name: deviceName, platform: platform) }
@@ -200,6 +206,8 @@ public final class DeviceHub {
         connection = .disconnected
         me = nil
         devices = []
+        devicesListed = false
+        devicesListError = nil
         permissions = [:]
         relays = []
         openedSecrets = [:]
@@ -284,9 +292,18 @@ public final class DeviceHub {
     }
 
     public func refreshDevices() async {
-        await load { try await $0.devices() } into: { hub, value in
-            hub.devices = value
-            hub.forgetPermissions(notListedIn: Set(value.map(\.id)))
+        let run = generation
+        do {
+            let value = try await client.devices()
+            guard run == generation else { return }
+            devices = value
+            devicesListed = true
+            devicesListError = nil
+            forgetPermissions(notListedIn: Set(value.map(\.id)))
+        } catch {
+            guard run == generation else { return }
+            fail(error)
+            devicesListError = lastError
         }
     }
 
@@ -438,6 +455,8 @@ public final class DeviceHub {
         let current = try await perform { try await $0.devices() }
         guard run == generation else { throw DeviceHubError.transport("device hub stopped") }
         devices = current
+        devicesListed = true
+        devicesListError = nil
         let sealed: [String: String]
         do { sealed = try RelaySealing.seal(secret, relayID: id, for: current) } catch {
             throw DeviceHubError.identity("sealing the relay secret: \(error)")

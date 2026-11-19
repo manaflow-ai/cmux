@@ -219,6 +219,12 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!(device_list::listing(&request.this, &request.devices))
         }
+        // What Your Devices says while it lists nothing (`device_list::discovery`): "none" only after
+        // a device-list read succeeded, else finding or the reason it failed.
+        b"cloud_identity_device_discovery" => {
+            let request: cmux_cloud_config::device_list::DiscoveryInput = read(request)?;
+            json!(cmux_cloud_config::device_list::discovery(&request))
+        }
         b"cloud_identity_install_key" => {
             #[derive(Deserialize)]
             struct Request {
