@@ -35,7 +35,7 @@ LINE = re.compile(r"SIDEBAR-SCALE(-RATIO)? (\{.*\})\s*$")
 class SidebarScale(Bench):
     name = "sidebar-scale"
     summary = "Sidebar work for one peer session change at 50/200/2000 sessions (counted, not timed)"
-    units = "count, ratio"
+    units = "count, x"
     owner = "sidebar at scale (goal sessions-2000-attached)"
     hosts = ("fleet",)
     harness = HARNESS
@@ -74,7 +74,7 @@ class SidebarScale(Bench):
             if isinstance(obj.get("rows"), (int, float)):
                 ctx.row("rows", float(obj["rows"]), "count", better="none", labels=labels)
         for op, ratio in sorted(ratios.items()):
-            ctx.row("ratio", ratio, "ratio", labels={"op": op})
+            ctx.row("ratio", ratio, "x", labels={"op": op})
 
 
 BENCH = SidebarScale()

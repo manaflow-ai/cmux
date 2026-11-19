@@ -1,0 +1,12 @@
+SIDEBAR-SCALE {"band_rows":33,"lanes_walked":14,"list_reloads":0,"n":50,"op":"change","probes":18,"rebuilds":0,"sets_built":0,"total":47}
+SIDEBAR-SCALE {"band_rows":33,"lanes_walked":16,"list_reloads":0,"n":50,"op":"follow","probes":18,"rebuilds":0,"sets_built":0,"total":49}
+SIDEBAR-SCALE {"band_rows":41,"lanes_walked":14,"list_reloads":0,"n":200,"op":"change","probes":26,"rebuilds":0,"sets_built":0,"total":55}
+SIDEBAR-SCALE {"band_rows":41,"lanes_walked":16,"list_reloads":0,"n":200,"op":"follow","probes":26,"rebuilds":0,"sets_built":0,"total":57}
+SIDEBAR-SCALE {"band_rows":41,"lanes_walked":14,"list_reloads":0,"n":2000,"op":"change","probes":38,"rebuilds":0,"sets_built":0,"total":55}
+SIDEBAR-SCALE {"band_rows":41,"lanes_walked":16,"list_reloads":0,"n":2000,"op":"follow","probes":38,"rebuilds":0,"sets_built":0,"total":57}
+SIDEBAR-SCALE-RATIO {"op":"change","ratio":1.1702127659574468}
+SIDEBAR-SCALE-RATIO {"op":"follow","ratio":1.163265306122449}
+SIDEBAR-SCALE {"band_rows":119,"lanes_walked":0,"list_reloads":0,"n":50,"op":"band","probes":0,"rebuilds":0,"rows":59,"sets_built":0,"total":119}
+SIDEBAR-SCALE {"band_rows":419,"lanes_walked":0,"list_reloads":0,"n":200,"op":"band","probes":0,"rebuilds":0,"rows":209,"sets_built":0,"total":419}
+SIDEBAR-SCALE {"band_rows":4019,"lanes_walked":0,"list_reloads":0,"n":2000,"op":"band","probes":0,"rebuilds":0,"rows":2009,"sets_built":0,"total":4019}
+SIDEBAR-SCALE-RATIO {"op":"band","ratio":0.991843427266377}
