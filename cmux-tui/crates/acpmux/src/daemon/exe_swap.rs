@@ -166,12 +166,13 @@ impl Swap for ExeSwap {
                 Err(format!("{} exited {status}", restart.join(" ")))
             };
         }
+        let (stdout, stderr) = successor_output(&crate::config::home().join("daemon.log"));
         // Its own session, so this daemon's stop does not end it.
         let mut child = cmux_process::Command::new(&self.installed)
             .args(handover_args(&self.args))
             .stdin(cmux_process::Stdio::null())
-            .stdout(cmux_process::Stdio::null())
-            .stderr(cmux_process::Stdio::null())
+            .stdout(stdout)
+            .stderr(stderr)
             .new_session()
             .spawn()
             .map_err(|e| format!("{}: {e}", self.installed.display()))?;
@@ -197,6 +198,13 @@ impl Swap for ExeSwap {
         // Dropped, it ends and is reaped (`cmux_process::Child`).
         drop(new);
     }
+}
+
+/// Where the take-over daemon writes: this home's daemon log, as a daemon a command starts does
+/// (`spawn_detached`). It wrote nowhere before, so after the first update a daemon's log stopped
+/// for good, and a disconnect after it left no line. A log that cannot be opened leaves it none.
+fn successor_output(_log: &Path) -> (cmux_process::Stdio, cmux_process::Stdio) {
+    (cmux_process::Stdio::null(), cmux_process::Stdio::null())
 }
 
 /// This daemon's arguments (after its executable: `daemon run ...`, or `acp daemon run ...` as
@@ -255,6 +263,23 @@ fn service_restart() -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_take_over_daemon_writes_to_the_daemon_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("daemon.log");
+        std::fs::write(&log, "before the update\n").unwrap();
+        let (stdout, stderr) = successor_output(&log);
+        let status = cmux_process::Command::new("sh")
+            .args(["-c", "echo out; echo err >&2"])
+            .stdin(cmux_process::Stdio::null())
+            .stdout(stdout)
+            .stderr(stderr)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), "before the update\nout\nerr\n");
+    }
 
     #[test]
     fn the_successor_gets_this_daemons_flags_but_not_its_fds() {
