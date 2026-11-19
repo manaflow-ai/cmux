@@ -57,8 +57,9 @@ extension LiveCoordinator {
         guard registeredTeamID == invite.team, store.activeTeam?.macs.contains(where: { $0.id == invite.mac }) == true,
               canLink(macID: invite.mac) else { return }
         if focusedMacID != invite.mac { retarget() }
-        // Another build on a listed computer (MacRoster lists one per computer) is not focused:
-        // the held code pins it (MacLinkPolicy `pinned`), so it is dialed whatever else is shown.
+        // The code's Mac is the picked build of its computer (MacRoster lists it while online), so
+        // retarget focused it. Offline, another build of its computer keeps the focus: the held code
+        // pins it (MacLinkPolicy `pinned`), so it is dialed whatever else is shown.
         if focusedMacID != invite.mac { applyLinks() }
         guard let session = sessions[invite.mac] else { return }
         switch session.pairingState {

@@ -165,6 +165,7 @@ extension AppStore {
         macLinkDiagnostics = [:]
         macData = [:]
         macConnection = [:]
+        pickedMacs = [:]
         accountMacCount = nil
         teamDataState = .loading
         for key in defaults.dictionaryRepresentation().keys where Self.isAccountPreference(key) {

@@ -349,6 +349,9 @@ import Testing
         for _ in 0..<3000 where dialer.dialCount("m1b") == 0 { try? await Task.sleep(for: .milliseconds(1)) }
         #expect(dialer.dialCount("m1b") > 0)
         #expect(live.focusedMacID == "m1b")
+        // Every screen lists the code's build for that computer, as the focus does.
+        #expect(store.pickedMacIDs.contains("m1b"))
+        #expect(MacRoster(store.activeTeam?.macs ?? [], picked: store.pickedMacIDs).visible.map(\.id) == ["m1b", "m2", "m3", "m4", "m5"])
         // The code used (paired, or dropped): the phone stays on that build, now as the team's pick.
         live.pairing?.invites.drop()
         live.retarget()
