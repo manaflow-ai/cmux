@@ -119,6 +119,11 @@ async fn running_subagents_reach_the_summary_and_each_change_is_recorded() {
 async fn the_latest_subagents_reach_the_summary_and_a_list_change_is_recorded() {
     let (hub, session) = chat().await;
     session.meta.lock().unwrap().agent_session_id = Some("acp-root".to_owned());
+    let summary = hub.session_summary(&session);
+    assert!(
+        summary.get("recentSubagents").is_none() && summary.get("subagentsSeen").is_none(),
+        "a chat that started none carries neither key, so its row costs what it did: {summary}"
+    );
     let tap = hub.session_tap(&session);
     tap(
         Direction::In,
