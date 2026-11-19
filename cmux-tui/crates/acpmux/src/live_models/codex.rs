@@ -36,17 +36,19 @@ async fn request(child: &mut Probe, id: u64, method: &str, params: Value) -> Res
     }
 }
 
-/// `initialize` (request 1), then the `initialized` notification.
-async fn initialize(child: &mut Probe) -> Result<()> {
+/// `initialize` (request 1), then the `initialized` notification; the Codex version its
+/// `userAgent` names (`account_models::client_version`).
+async fn initialize(child: &mut Probe) -> Result<Option<String>> {
     let client = json!({"name": "acpmux", "title": "acpmux", "version": env!("CARGO_PKG_VERSION")});
-    request(
+    let result = request(
         child,
         1,
         "initialize",
         json!({"clientInfo": client, "capabilities": {"experimentalApi": true}}),
     )
     .await?;
-    child.send(&json!({"method": "initialized"})).await
+    child.send(&json!({"method": "initialized"})).await?;
+    Ok(text(&result, "userAgent").and_then(super::account_models::client_version))
 }
 
 /// The account's plan usage limits at rest: `account/rateLimits/read`'s result
@@ -56,8 +58,9 @@ pub(super) async fn rate_limits(child: &mut Probe) -> Result<Value> {
     request(child, 2, "account/rateLimits/read", Value::Null).await
 }
 
-pub(super) async fn list(child: &mut Probe) -> Result<Vec<LiveModel>> {
-    initialize(child).await?;
+/// The visible models and the Codex version (`initialize`).
+pub(super) async fn list(child: &mut Probe) -> Result<(Vec<LiveModel>, Option<String>)> {
+    let version = initialize(child).await?;
     let mut rows = Vec::new();
     let mut cursor: Option<String> = None;
     for page in 0..MAX_PAGES {
@@ -73,7 +76,7 @@ pub(super) async fn list(child: &mut Probe) -> Result<Vec<LiveModel>> {
     if models.is_empty() {
         return Err(anyhow!("codex app-server listed no models"));
     }
-    Ok(models)
+    Ok((models, version))
 }
 
 /// The visible models in `model/list` rows, each id once, the default first.
@@ -124,6 +127,7 @@ fn row_model(row: &Value) -> Option<LiveModel> {
             .unwrap_or_default(),
         is_default: row.get("isDefault").and_then(Value::as_bool) == Some(true),
         upgrade: upgrade(row, id),
+        unavailable: None,
     })
 }
 

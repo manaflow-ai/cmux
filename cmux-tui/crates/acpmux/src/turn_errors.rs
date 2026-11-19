@@ -146,6 +146,17 @@ pub fn is_refused_request(message: &str) -> bool {
         || m.contains("tool use was rejected")
 }
 
+/// Does an agent error say the account cannot use the chat's model: the ChatGPT Codex backend's
+/// HTTP 400 `model_not_found`, "The 'gpt-6.1-sol' model is not supported when using Codex with a
+/// ChatGPT account." (OpenAI's API names a model the key cannot use with the same code.) Sending
+/// it again fails the same way; another model on the same sign-in goes on
+/// (`hub/model_availability.rs`).
+pub fn is_model_unavailable(message: &str) -> bool {
+    let m = message.to_lowercase();
+    m.contains("model_not_found")
+        || (m.contains("model") && m.contains("not supported when using codex with a chatgpt"))
+}
+
 /// Does an agent error say the chat outgrew its model's context window: Claude Code's "Prompt is
 /// too long" (`400 invalid_request_error: prompt is too long: N tokens > M maximum`), "input
 /// length and `max_tokens` exceed context limit", OpenAI's `context_length_exceeded` ("maximum

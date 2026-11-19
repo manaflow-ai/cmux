@@ -22,6 +22,7 @@
 //! Portions adapted from MonoCode, Copyright (c) 2026 Nick, MIT License
 //! (see THIRD_PARTY_LICENSES.md).
 
+pub mod account_models;
 pub mod claude;
 pub mod codex;
 
@@ -63,6 +64,11 @@ pub struct LiveModel {
     /// a legacy one, listed but not among the harness's current models (`topModels`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upgrade: Option<String>,
+    /// Why the backend refuses the model for this sign-in (`account_models::mark`: a ChatGPT
+    /// sign-in whose Codex lists a catalog of its own): set, pickers leave it out and no new
+    /// chat starts on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<String>,
 }
 
 /// Which CLI a harness's live list comes from.
@@ -85,13 +91,24 @@ pub async fn probe(
     let mut child = Probe::spawn(cli, argv, env, cwd).await?;
     let listed = tokio::time::timeout(timeout, async {
         match cli {
-            Cli::Claude => claude::list(&mut child).await,
+            Cli::Claude => claude::list(&mut child).await.map(|models| (models, None)),
             Cli::Codex => codex::list(&mut child).await,
         }
     })
     .await;
     child.kill().await;
-    listed.map_err(|_| anyhow!("the model list did not arrive within {} s", timeout.as_secs()))?
+    let (mut models, version) = listed
+        .map_err(|_| anyhow!("the model list did not arrive within {} s", timeout.as_secs()))??;
+    // A ChatGPT sign-in whose Codex lists a catalog of its own: the models its backend refuses
+    // are marked (`account_models.rs`).
+    if cli == Cli::Codex
+        && let Some(home) = crate::harness_config::config_dir("CODEX_HOME", ".codex", &[env])
+        && let Some(served) = account_models::served_for(home, version).await
+    {
+        let marked = account_models::mark(&mut models, &served);
+        tracing::info!(marked, "Codex lists models its ChatGPT sign-in is not served");
+    }
+    Ok(models)
 }
 
 /// Codex's plan usage limits at rest (`account/rateLimits/read`) from one
@@ -431,8 +448,12 @@ pub fn overlay(models: &mut [Value], live: &[LiveModel]) {
         if !model.service_tiers.is_empty() {
             entry["serviceTiers"] = json!(model.service_tiers);
         }
+        if let Some(reason) = &model.unavailable {
+            entry["unavailable"] = json!(reason);
+        }
     }
-    if let Some(default) = live.iter().find(|m| m.is_default)
+    // A default the sign-in cannot run does not lead the list.
+    if let Some(default) = live.iter().find(|m| m.is_default && m.unavailable.is_none())
         && let Some(at) = models.iter().position(|m| m["id"] == default.id.as_str())
     {
         let first = usize::from(models.first().is_some_and(|m| m["id"] == "default"));

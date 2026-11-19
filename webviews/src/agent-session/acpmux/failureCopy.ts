@@ -20,6 +20,7 @@ export type FailureKind =
   | "auth"
   | "disk-full"
   | "context-full"
+  | "model-unavailable"
   | "codex-config"
   | "tailscale"
   | "agent-exited"
@@ -104,6 +105,15 @@ const ADC_WORDS = /application[ _-]default|aiplatform\.googleapis|\bvertex\b|CLA
 /// (Leo's sustained chats hit it by definition). Not "too many tokens", which is a per-minute limit.
 const CONTEXT_FULL =
   /prompt is too long|input is too long|context[ _-]?length[ _-]?exceeded|maximum context length|exceeds? (?:the )?(?:model's )?(?:maximum )?context(?: window| length| limit)?|context (?:window|limit) (?:is )?(?:full|exceeded)/i;
+/// The sign-in or key cannot use the chat's model: the ChatGPT Codex backend's 400 `model_not_found`
+/// ("The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account."), OpenAI's
+/// "The model `x` does not exist or you do not have access to it". Retry on the same model fails the
+/// same way; acpmux moves the chat to a model the sign-in can use where it knows one
+/// (hub/model_availability.rs: the turn's `modelFallback`, typed `model_unavailable`).
+const MODEL_UNAVAILABLE =
+  /\bmodel_not_found\b|not supported when using codex with a chatgpt account|\bmodel\b.{0,80}\bdoes not exist or you do not have access\b/i;
+/// A refusal that names the ChatGPT sign-in: its card says so.
+const CHATGPT_SIGN_IN = /chatgpt account/i;
 const RATE =
   /\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|quota|\b503\b|service unavailable/i;
 const UNREACHABLE =
@@ -156,6 +166,8 @@ const SPAWN_FAILED =
 /// acpmux's typed reasons (`errorCode`), by the words in them: the kind its text would give, when
 /// the text says less.
 const TYPED: readonly [RegExp, FailureKind][] = [
+  // acpmux's own type for a model the sign-in cannot use (hub/model_availability.rs).
+  [/^model_unavailable$/i, "model-unavailable"],
   // The cmux model router's own codes, when they reach the turn typed.
   [/inference\.plan_required|credits\.insufficient/i, "needs-credits"],
   [/insufficient[_.-]?quota|billing|credit/i, "no-credit"],
@@ -237,6 +249,9 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   )
     return "no-credit";
   if (cloudSignIn(message)) return "cloud-auth-expired";
+  // Before capacity and sign-in: its JSON body can name the account, and neither waiting nor a
+  // sign-in helps; another model does.
+  if (MODEL_UNAVAILABLE.test(message)) return "model-unavailable";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
   // Connection words count only outside addresses: a URL's path or query (`…/oauth/token`,
@@ -332,8 +347,15 @@ export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "
 
 /// The footer's sentence for a failed turn: the cause in plain words with the route and status when known.
 /// The agent's raw message stays available as the detail, never as the sentence ("we need to have
-/// prettier errors", Leo 2026-10-22): an unknown failure still reads human.
-export function failureCopy(t: Translate, message: string | undefined, route?: FailureRoute, code?: string): string {
+/// prettier errors", Leo 2026-10-22): an unknown failure still reads human. `fallback`: the name of
+/// the model acpmux moved the chat to when its sign-in could not use the turn's (`modelFallback`).
+export function failureCopy(
+  t: Translate,
+  message: string | undefined,
+  route?: FailureRoute,
+  code?: string,
+  fallback?: string,
+): string {
   const kind = failureKind(message, route, code);
   if (!message && kind === "other") return t("turn.failed");
   const harness = route?.name || route?.harness || t("turn.failure.theAgent");
@@ -381,6 +403,11 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("turn.failure.diskFull", { harness });
     case "context-full":
       return t("turn.failure.contextFull", { harness });
+    case "model-unavailable":
+      if (!fallback) return t("turn.failure.modelUnavailable", { harness });
+      return CHATGPT_SIGN_IN.test(message ?? "")
+        ? t("turn.failure.modelSwitchedChatgpt", { model: fallback })
+        : t("turn.failure.modelSwitched", { harness, model: fallback });
     case "codex-config": {
       const path = message ? CODEX_CONFIG_AT.exec(message)?.[1] : undefined;
       return path ? t("turn.failure.codexConfigAt", { harness, path }) : t("turn.failure.codexConfig", { harness });

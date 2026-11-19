@@ -21,6 +21,10 @@
 //!    medium). acpmux sets the start value on every new chat, so what a cmux
 //!    chat runs never depends on a harness default it cannot show.
 //!
+//! A start model the harness's sign-in cannot use (its backend refused it, or its live list
+//! marks it: a ChatGPT sign-in whose Codex lists a catalog of its own) gives way to one it can
+//! (`model_availability.rs`), whichever step named it.
+//!
 //! An explicit value in the request, a preset, a folder profile, a
 //! profile's own `model`/`effort` (or a model in its argv or env) and an
 //! adopted conversation keep today's chain (`new_session`). A start value
@@ -313,6 +317,18 @@ impl Hub {
                         })
                         .map(|value| StartValue { value, source: StartSource::Catalog })
                 }),
+        };
+        // A start model the sign-in cannot use (a saved pick, or the config.toml model, that its
+        // ChatGPT backend refuses: `model_availability.rs`) gives way to one it can. Skipping it
+        // would not do: the harness would then run its own default, which is that same model.
+        let start_model = match start_model {
+            Some(start) if self.model_refused(agent, &start.value).is_some() => {
+                match self.usable_model(agent, &start.value) {
+                    Some(to) => Some(StartValue { value: to.id, source: StartSource::Harness }),
+                    None => Some(start),
+                }
+            }
+            other => other,
         };
         let runs = model.or(start_model.as_ref().map(|m| m.value.as_str()));
         // A saved effort the running model lacks (a pick made on another

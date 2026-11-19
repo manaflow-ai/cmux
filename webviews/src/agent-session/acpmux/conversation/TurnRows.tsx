@@ -469,6 +469,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         <TurnFailure
           message={row.error}
           code={row.errorCode}
+          fallback={row.modelFallback}
           route={route}
           switchModel={switchModel}
           compact={compact}
@@ -566,6 +567,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
 function TurnFailure({
   message,
   code,
+  fallback,
   route,
   switchModel,
   compact,
@@ -585,6 +587,8 @@ function TurnFailure({
 }: {
   message: string | undefined;
   code?: string;
+  /// The model acpmux moved the chat to (`modelFallback`), for the card's sentence.
+  fallback?: string;
   route?: FailureRoute;
   switchModel?: () => void;
   compact?: () => Promise<void>;
@@ -624,9 +628,11 @@ function TurnFailure({
   // One click sends one /compact: the button stays disabled until that send settles.
   const [compacting, setCompacting] = useState(false);
   const kind = failureKind(message, route, code);
-  const sentence = failureCopy(t, message, route, code);
+  const sentence = failureCopy(t, message, route, code, fallback);
   const arm = experimentArm(turnErrorCard);
-  const recovery = failureRecovery(kind);
+  // A model the sign-in cannot use, where acpmux found no other to move the chat to: Retry would
+  // fail the same way, so Switch model leads (with a fallback, Retry sends the prompt there).
+  const recovery = kind === "model-unavailable" && !fallback ? "switch-model" : failureRecovery(kind);
   // A sign-in failure offers it too: the picker moves the chat to a route that is signed in (cx-gz0dz).
   const offersSwitch =
     switchModel &&
@@ -641,6 +647,7 @@ function TurnFailure({
       "team-cap",
       "no-credit",
       "cloud-auth-expired",
+      "model-unavailable",
     ].includes(kind);
   // The cmux model router refused the turn: no paid plan and no credits, or credits that do not cover
   // the call (accessOffer.ts; Leo 2026-10-26: "we offer them to add credits or add their own api key").
