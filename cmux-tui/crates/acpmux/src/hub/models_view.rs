@@ -246,7 +246,6 @@ impl Hub {
     /// Every configured harness with the models known for it, and the catalog in use.
     pub async fn models_catalog(&self) -> Value {
         let cfg = self.config.read().await;
-        let known = self.known_models.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let refused = self.refused_models.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let probe_errors = self.probe_errors.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let catalog = self.catalog.current();
@@ -265,7 +264,7 @@ impl Hub {
             let live = self.live_models_for(name).filter(|l| !l.is_empty());
             let reported: Vec<(String, String)> = match &live {
                 Some(live) => live.iter().map(|m| (m.id.clone(), m.name.clone())).collect(),
-                None => known.get(name).cloned().unwrap_or_default(),
+                None => self.model_lists.acp(name).unwrap_or_default(),
             };
             for entry in
                 offered(&profile.kind, curated.as_ref(), &catalog, &reported, live.is_some())
