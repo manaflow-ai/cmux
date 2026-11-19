@@ -460,6 +460,8 @@ struct Mirror {
     last_rows: Vec<String>,
     /// The first row's stream index when the probe last placed the viewport.
     top: Option<u64>,
+    /// The last check found the viewport scrolled back.
+    was_back: bool,
     done_tail: Vec<u8>,
 }
 
@@ -483,15 +485,15 @@ impl Mirror {
             alive: true,
             last_rows: Vec::new(),
             top: None,
+            was_back: false,
             done_tail: Vec::new(),
         })
     }
 
-    fn rows(&mut self) -> Vec<String> {
-        if self.render.update(&mut self.term).is_err() {
-            return Vec::new();
-        }
-        self.render.text_lines().unwrap_or_default()
+    /// The viewport's rows, or None when they can't be read (counted, never a clean sample).
+    fn rows(&mut self) -> Option<Vec<String>> {
+        self.render.update(&mut self.term).ok()?;
+        self.render.text_lines().ok()
     }
 
     fn at_bottom(&self) -> bool {
@@ -533,6 +535,8 @@ struct DaemonView {
     expect_snap: bool,
     top: Option<u64>,
     last_checked: Vec<String>,
+    /// The last checked frame was scrolled back.
+    was_back: bool,
 }
 
 impl DaemonView {
@@ -573,6 +577,10 @@ struct ViewCounts {
     jumps: u64,
     pruned_moves: u64,
     samples: u64,
+    /// Samples taken while scrolled back: the ones the goal is about.
+    scrolled_samples: u64,
+    /// Viewports that could not be read.
+    read_errors: u64,
     notes: Vec<String>,
 }
 
@@ -585,6 +593,8 @@ impl ViewCounts {
             "bad": self.blank_rows + self.missing_rows + self.jumps,
             "pruned_moves": self.pruned_moves,
             "samples": self.samples,
+            "scrolled_samples": self.scrolled_samples,
+            "read_errors": self.read_errors,
             "notes": self.notes.iter().take(40).collect::<Vec<_>>(),
         })
     }
@@ -697,6 +707,7 @@ impl<'s, 'e> Probe<'s, 'e> {
             created.get("surface").and_then(Value::as_u64).ok_or("create-terminal: no surface")?;
         let terminal_id = created.get("terminal_id").cloned().unwrap_or(Value::Null);
         let result = probe.drive(started);
+        let unvouched = probe.unvouched();
         if !o.keep_terminal {
             let _ = probe.request(
                 Conn::Control,
@@ -705,6 +716,11 @@ impl<'s, 'e> Probe<'s, 'e> {
             let _ = probe.request(Conn::Control, json!({"cmd": "close-workspace", "key": key}));
         }
         result?;
+        if !unvouched.is_empty() {
+            // A view that never looked while scrolled back, or could not look,
+            // measured nothing: no rows, so the surface reads unknown, never 0.
+            return Err(format!("the run cannot vouch for its counts: {}", unvouched.join("; ")));
+        }
         Ok(probe.report(protocol, identity.get("version").cloned().unwrap_or(Value::Null), started))
     }
 
@@ -924,8 +940,23 @@ impl<'s, 'e> Probe<'s, 'e> {
                 let rows =
                     message.get("rows").and_then(Value::as_u64).unwrap_or(u64::from(self.o.rows))
                         as u16;
+                // A fresh state on the live attach (a resync, not the probe's
+                // reattach) that drops a scrolled-back viewport is a jump; the
+                // anchor is restored so the run goes on scrolled back.
+                let resync_anchor = self
+                    .mirror
+                    .as_ref()
+                    .filter(|m| m.attach == n && m.was_back)
+                    .and_then(Mirror::anchor);
                 match Mirror::from_replay(cols, rows, &replay, &decode("pending"), n) {
-                    Ok(mirror) => self.mirror = Some(mirror),
+                    Ok(mut mirror) => {
+                        if let Some(anchor) = resync_anchor {
+                            self.m.jumps += 1;
+                            self.m.note(format!("mirror rebuilt by {event} while scrolled back"));
+                            mirror.restore_anchor(anchor);
+                        }
+                        self.mirror = Some(mirror);
+                    }
                     Err(error) => self.m.note(format!("replay: {error}")),
                 }
             }
@@ -973,6 +1004,8 @@ impl<'s, 'e> Probe<'s, 'e> {
                     self.daemon.solicited -= 1;
                 } else if self.daemon.expect_snap && at_bottom {
                     self.snap_on_input = Some(true);
+                    // The documented snap: not a jump even if its frame comes later.
+                    self.daemon.was_back = false;
                 } else {
                     self.unsolicited_scroll_changed += 1;
                     self.d.note(format!(
@@ -991,7 +1024,7 @@ impl<'s, 'e> Probe<'s, 'e> {
     // ----- the two views -----
 
     fn mirror_rows(&mut self) -> Vec<String> {
-        self.mirror.as_mut().map(Mirror::rows).unwrap_or_default()
+        self.mirror.as_mut().and_then(Mirror::rows).unwrap_or_default()
     }
 
     /// The newest numbered line the byte stream has carried.
@@ -1005,7 +1038,11 @@ impl<'s, 'e> Probe<'s, 'e> {
     fn check_mirror(&mut self, moved_by_probe: bool) -> Option<u64> {
         let cols = u64::from(self.o.cols);
         let m = self.mirror.as_mut()?;
-        let rows = m.rows();
+        let Some(rows) = m.rows() else {
+            self.m.read_errors += 1;
+            self.m.note("mirror viewport could not be read".into());
+            return m.top;
+        };
         if rows == m.last_rows && !moved_by_probe {
             return m.top;
         }
@@ -1022,7 +1059,15 @@ impl<'s, 'e> Probe<'s, 'e> {
                 rows.iter().map(|r| r.chars().take(14).collect::<String>()).collect::<Vec<_>>()
             ));
         }
-        if !moved_by_probe && !at_bottom && m.top.is_some() && top != m.top {
+        if !at_bottom {
+            self.m.scrolled_samples += 1;
+        }
+        if !moved_by_probe && m.was_back && at_bottom {
+            // Scrolled back, not moved by the probe, now at the bottom: the
+            // jump to the bottom of cmux#37222.
+            self.m.jumps += 1;
+            self.m.note(format!("mirror snapped to the bottom from top {:?}", m.top));
+        } else if !moved_by_probe && !at_bottom && m.top.is_some() && top != m.top {
             // Not moved by the probe: the viewport jumped, unless its rows
             // were pruned and Ghostty moved it to the oldest retained row.
             if m.term.scrollbar().is_some_and(|s| s.offset == 0) {
@@ -1033,6 +1078,7 @@ impl<'s, 'e> Probe<'s, 'e> {
             }
         }
         m.last_rows = rows;
+        m.was_back = !at_bottom;
         if !moved_by_probe && !at_bottom {
             m.top = top.or(m.top);
         }
@@ -1073,6 +1119,23 @@ impl<'s, 'e> Probe<'s, 'e> {
             ));
         }
         self.daemon.last_checked = rows;
+        if !at_bottom {
+            self.d.scrolled_samples += 1;
+        }
+        let snapped = at_bottom
+            && self.daemon.was_back
+            && !self.daemon.expect_snap
+            && self.daemon.expect_top.is_none();
+        self.daemon.was_back = !at_bottom;
+        if snapped {
+            self.d.jumps += 1;
+            self.d.note(format!(
+                "daemon snapped to the bottom from top {:?} with no input",
+                self.daemon.top
+            ));
+            self.daemon.top = top;
+            return;
+        }
         if top == self.daemon.top {
             return;
         }
@@ -1212,6 +1275,23 @@ impl<'s, 'e> Probe<'s, 'e> {
             self.detach_and_reattach("after-stall", Duration::ZERO)?;
         }
         Ok(())
+    }
+
+    /// Why the counts can't stand for the run, if they can't.
+    fn unvouched(&self) -> Vec<String> {
+        let mut why = Vec::new();
+        for (name, view) in [("mirror", &self.m), ("daemon", &self.d)] {
+            if view.scrolled_samples == 0 {
+                why.push(format!("{name}: no sample while scrolled back"));
+            }
+            if view.read_errors > 0 {
+                why.push(format!("{name}: {} viewports could not be read", view.read_errors));
+            }
+        }
+        if !self.daemon.alive {
+            why.push("daemon: the render attach ended mid-run".into());
+        }
+        why
     }
 
     fn report(&self, protocol: u64, version: Value, started: Instant) -> Value {
