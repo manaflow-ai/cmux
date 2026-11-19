@@ -623,9 +623,17 @@ where
         answer.set("reply", session.get("reply").cloned().unwrap_or(Value::Null));
         if let Some(error) = session.get("error").filter(|error| !error.is_null()) {
             answer.set("error", error.clone());
+            // The agent's own reason (a usage limit, a crash), as `cmux chat --wait` names it.
+            let said = error.as_str().or_else(|| error.get("message").and_then(Value::as_str));
+            let message = match said.map(str::trim).filter(|said| !said.is_empty()) {
+                Some(said) => format!(
+                    "the turn on {target} ended with an error: {}",
+                    super::super::wire::sanitize_remote_text(said)
+                ),
+                None => format!("the turn on {target} ended with an error"),
+            };
             return Outcome::Failed {
-                error: json!({"code": "chat.turn_failed",
-                              "message": format!("the turn on {target} ended with an error"),
+                error: json!({"code": "chat.turn_failed", "message": message,
                               "details": answer, "retryable": false}),
                 exit: 1,
             };

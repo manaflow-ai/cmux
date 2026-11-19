@@ -587,7 +587,8 @@ fn visible_text(text: &str, partial: bool) -> String {
 /// prompts (`user`), the agent's text (`assistant`, its chunks joined), each
 /// tool call as one summary (`tool`: kind and status only; never its
 /// title, which harnesses fill with the input, such as a command or a path,
-/// nor its input or output) and each turn's end (`turn_end`). Thoughts,
+/// nor its input or output) and each turn's end (`turn_end`, with a failed
+/// turn's `error`). Thoughts,
 /// plans and acpmux bookkeeping are left out.
 #[derive(Default)]
 struct Transcript {
@@ -644,6 +645,14 @@ impl Transcript {
                     let status = msg["status"].as_str().unwrap_or("completed");
                     let mut extra = Map::new();
                     extra.insert("status".into(), json!(status));
+                    // A failed turn's own reason (acpmux `hub/turns.rs`: the agent's error, such as
+                    // a usage limit), masked as the chat's text is.
+                    let error = msg["error"].as_str().or_else(|| msg["errorText"].as_str());
+                    if status != "completed"
+                        && let Some(error) = error.map(str::trim).filter(|e| !e.is_empty())
+                    {
+                        extra.insert("error".into(), json!(acpmux::secret_scan::mask(error)));
+                    }
                     self.push(seq, "turn_end", String::new(), extra);
                 }
                 _ => {}

@@ -294,7 +294,12 @@ fn the_reply_is_the_last_answer_of_the_last_turn() {
     ];
     assert_eq!(
         last_turn(&items, 0),
-        Some(Ended { seq: 8, status: "completed".into(), reply: Some("two, steered".into()) })
+        Some(Ended {
+            seq: 8,
+            status: "completed".into(),
+            reply: Some("two, steered".into()),
+            error: None,
+        })
     );
     // A turn that ended at or before the baseline is not the one waited on, and neither is one
     // whose prompt came before it (the prompt sent was still held when that turn ended).

@@ -77,12 +77,13 @@ pub(in crate::cli) trait Port {
 
 /// The turn that ended last in `items` (a read from the turn's prompt on), when its prompt came
 /// after event `baseline` (a send's: the turn before it, or one its prompt was still held for,
-/// is not its turn): its end's seq and status, and its last answer.
+/// is not its turn): its end's seq and status, its last answer, and a failed end's own error.
 #[derive(Debug, PartialEq, Eq)]
 pub(in crate::cli) struct Ended {
     pub seq: u64,
     pub status: String,
     pub reply: Option<String>,
+    pub error: Option<String>,
 }
 
 pub(in crate::cli) fn last_turn(items: &[Value], baseline: u64) -> Option<Ended> {
@@ -113,6 +114,7 @@ pub(in crate::cli) fn last_turn(items: &[Value], baseline: u64) -> Option<Ended>
         seq,
         status: turn_end.get("status").and_then(Value::as_str).unwrap_or("completed").to_owned(),
         reply: answer.and_then(|item| item.get("text")).and_then(Value::as_str).map(str::to_owned),
+        error: turn_end.get("error").and_then(Value::as_str).map(str::to_owned),
     })
 }
 
@@ -313,9 +315,15 @@ pub(in crate::cli) fn run_turn(port: &mut dyn Port, begin: &Begin, timeout: Dura
                 answer.set("turn", json!({"seq": ended.seq, "status": ended.status}));
                 answer.set("reply", ended.reply.map_or(Value::Null, Value::String));
                 if FAILED.contains(&ended.status.as_str()) {
+                    // The agent's own reason (a usage limit, a crash), as Cloud's wait names it.
+                    let mut message = format!("the turn ended {}", ended.status);
+                    if let Some(said) = ended.error {
+                        let said = super::super::wire::sanitize_remote_text(&said);
+                        message = format!("{message}: {said}");
+                        answer.set("error", json!(said));
+                    }
                     return Outcome::Failed {
-                        error: json!({"code": "chat.turn_failed",
-                                      "message": format!("the turn ended {}", ended.status),
+                        error: json!({"code": "chat.turn_failed", "message": message,
                                       "details": answer, "retryable": false}),
                         exit: 1,
                     };
