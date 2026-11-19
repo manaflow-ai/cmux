@@ -35,7 +35,7 @@ BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_appli
                                                     "layout_spans", "windows_behind", "marker_color", "marker_command", "stills_facts",
                                                     "stills_clock", "stills_cost", "docked_state", "cli_settings", "theme_facts",
                                                     "move_facts", "animated_row", "proof_round_row", "proof_mark",
-                                                    "measure"})
+                                                    "pane_in_a_move", "move_ticks", "ticks_said", "measure"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -526,7 +526,10 @@ class AProofRound(unittest.TestCase):
         self.assertEqual([call for call in calls.made if call[1] in ("trace_start", "trace_stop")],
                          [("debug.motion", "trace_start", ("panes",)), ("debug.motion", "trace_stop", ())])
         self.assertEqual((run["samples_in_a_move"], run["proof"]), (4, True))
-        self.assertIn("proof round (not timed, not in the numbers): 4 of 5 samples of the pane trace in a move", self.printed[-1])
+        self.assertIn("proof round (not timed, not in the numbers): 4 of 5 samples of the pane trace in a move; "
+                      "4 ticks in the move, median interval 8.3 ms, largest 8.3 ms; the trace does not say the display's rate; moved",
+                      self.printed[-1])
+        self.assertEqual(run["ticks"], {"ticks": 4, "median_ms": 8.3, "largest_ms": 8.3, "refresh_ms": None, "half_rate": False})
         self.assertNotIn("p95", self.printed[-1])
 
     def test_an_act_that_moves_no_pane_has_no_trace_in_a_proof_round(self):
@@ -545,13 +548,15 @@ class AProofRound(unittest.TestCase):
         made, _ = self.bench(self.move)
         facts, row, mark = made["move_facts"], made["proof_round_row"], made["proof_mark"]
         limit = "the move is proved for this arm's settings in one round, not in each timed round"
-        run = {"moving_frames": 0, "commit_frames": 0, "move": facts(self.move), "commit_notes": []}
+        ticks = made["move_ticks"]
+        run = {"moving_frames": 0, "commit_frames": 0, "move": facts(self.move), "ticks": ticks(self.move), "commit_notes": []}
         name, expected, seen, ok = row("on", run)
         self.assertEqual((name, ok), ("proof round: animated (a pane's rect moves in the pane trace, or a layout spring, the strip camera "
                                       "or a commit motion moved)", True))
         self.assertEqual(expected, f"2 samples in a move or more, or above 0 frames ({limit})")
-        self.assertEqual(seen, "4 of 5 samples of the pane trace in a move; 0 spring frames, 0 commit frames")
-        once = {"moving_frames": 0, "commit_frames": 0, "move": facts(self.one_frame), "commit_notes": ["a note"]}
+        self.assertEqual(seen, "4 of 5 samples of the pane trace in a move; 0 spring frames, 0 commit frames; "
+                               "4 ticks in the move, median interval 8.3 ms, largest 8.3 ms; the trace does not say the display's rate")
+        once = {"moving_frames": 0, "commit_frames": 0, "move": facts(self.one_frame), "ticks": ticks(self.one_frame), "commit_notes": ["a note"]}
         self.assertFalse(row("on", once)[3])
         self.assertEqual(row("off", once)[:2], ("proof round: still (the pane motion is off)", f"1 sample in a move at the most, 0 frames ({limit})"))
         self.assertTrue(row("off", once)[3])
@@ -560,6 +565,71 @@ class AProofRound(unittest.TestCase):
         self.assertEqual([mark("on", True), mark("off", True), mark(None, True)], ["", "", ""])
         self.assertEqual([mark("on", False), mark(None, False), mark("off", False)], ["NO MOVE PROVED", "NO MOVE PROVED", "MOTION OFF NOT PROVED"])
         self.assertEqual(mark("on", None), "NO MOVE PROVED")  # the arm's proof round did not run this act
+
+    def test_a_move_at_half_the_displays_rate_is_a_print_in_the_row_and_no_fail(self):
+        made, _ = self.bench(self.move)
+        kept = [100, 6, 200, 190]
+        slow = {"refresh_ms": 8.33, "samples": [{"t": 0, "panes": [pane("a", kept)]}]
+                + [{"t": 16.7 * at, "panes": [pane("a", kept, [100, 6, width, 190])]} for at, width in enumerate((100, 130, 160, 190), 1)]}
+        run = made["measure"]("30p zoom proof on", "zoom", proof=True) | {"move": made["move_facts"](slow), "ticks": made["move_ticks"](slow)}
+        name, expected, seen, ok = made["proof_round_row"]("on", run)
+        self.assertTrue(ok)
+        self.assertTrue(seen.endswith("4 ticks in the move, median interval 16.7 ms, largest 16.7 ms; the window's display link says "
+                                      "8.33 ms a refresh (120 Hz)  MOVE AT HALF RATE"), seen)
+
+
+class TheTicksOfAMove(unittest.TestCase):
+    """A proof round's pane trace has one sample for each tick of the window's display link. The ticks in which a pane
+    is in a move say the rate of the move: their count, and the median and the largest of the intervals that end at
+    such a tick, beside the link's own refresh. A median above 9 ms on a 120 Hz display is MOVE AT HALF RATE."""
+
+    def setUp(self):
+        self.bench = loaded()
+        self.ticks, self.said = self.bench["move_ticks"], self.bench["ticks_said"]
+
+    def trace(self, times, refresh=8.33, rest=2):
+        """A pane at rest for `rest` samples, then in a move at each of `times` (ms), then at rest."""
+        kept, last = [100, 6, 200, 190], (times[-1] if times else 0) + 8.33
+        before = [{"t": round(8.33 * at, 2), "panes": [pane("a", kept)]} for at in range(rest)]
+        return {"refresh_ms": refresh, "samples": before
+                + [{"t": at, "panes": [pane("a", kept, [100, 6, 150, 190])]} for at in times] + [{"t": last, "panes": [pane("a", kept)]}]}
+
+    def test_a_move_at_each_refresh_of_a_120_hz_display(self):
+        facts = self.ticks(self.trace([16.66, 24.99, 33.32, 41.65, 49.98]))
+        self.assertEqual(facts, {"ticks": 5, "median_ms": 8.33, "largest_ms": 8.33, "refresh_ms": 8.33, "half_rate": False})
+        self.assertEqual(self.said(facts), "5 ticks in the move, median interval 8.33 ms, largest 8.33 ms; the window's display link says "
+                                           "8.33 ms a refresh (120 Hz)")
+
+    def test_a_move_at_each_second_refresh_of_a_120_hz_display_is_at_half_rate(self):
+        facts = self.ticks(self.trace([25.0, 41.66, 58.32, 74.98, 108.3]))
+        self.assertEqual(facts, {"ticks": 5, "median_ms": 16.66, "largest_ms": 33.32, "refresh_ms": 8.33, "half_rate": True})
+        self.assertTrue(self.said(facts).endswith("(120 Hz)  MOVE AT HALF RATE"), self.said(facts))
+
+    def test_one_late_tick_is_in_the_largest_and_is_not_half_rate(self):
+        facts = self.ticks(self.trace([16.66, 24.99, 58.33, 66.66, 74.99]))
+        self.assertEqual((facts["median_ms"], facts["largest_ms"], facts["half_rate"]), (8.33, 33.34, False))
+
+    def test_the_same_intervals_on_a_60_hz_display_are_its_own_rate(self):
+        facts = self.ticks(self.trace([25.0, 41.66, 58.32, 74.98], refresh=16.67))
+        self.assertEqual((facts["median_ms"], facts["refresh_ms"], facts["half_rate"]), (16.66, 16.67, False))
+        self.assertTrue(self.said(facts).endswith("the window's display link says 16.67 ms a refresh (60 Hz)"), self.said(facts))
+
+    def test_a_trace_with_no_refresh_says_so_and_has_no_mark(self):
+        for refresh in (None, 0, "8.33", True):
+            facts = self.ticks(self.trace([25.0, 41.66, 58.32], refresh=refresh))
+            self.assertEqual((facts["refresh_ms"], facts["half_rate"]), (None, False), refresh)
+            self.assertTrue(self.said(facts).endswith("the trace does not say the display's rate"), self.said(facts))
+
+    def test_a_change_in_one_frame_or_no_trace_has_no_rate(self):
+        once = self.ticks(self.trace([50.0]))
+        self.assertEqual(once, {"ticks": 1, "median_ms": None, "largest_ms": None, "refresh_ms": 8.33, "half_rate": False})
+        self.assertEqual(self.said(once), "1 tick in the move: below 2, no rate of a move")
+        for trace in (None, {"error": "no such window"}, {"samples": []}, self.trace([])):
+            self.assertEqual(self.said(self.ticks(trace)), "0 ticks in the move: below 2, no rate of a move", trace)
+
+    def test_a_move_from_the_traces_first_sample_has_one_interval_fewer(self):
+        facts = self.ticks(self.trace([0, 8.33, 16.66], rest=0))
+        self.assertEqual((facts["ticks"], facts["median_ms"], facts["largest_ms"]), (3, 8.33, 8.33))
 
 
 def dock(mode="docked", shown=True, panes=("p7",), edge="left"):
