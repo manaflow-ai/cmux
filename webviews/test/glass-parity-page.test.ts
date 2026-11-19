@@ -34,6 +34,7 @@ test("a cell is the web UI's surface for its kind, at its box, marked for host g
     expect(host.style.width).toBe(`${cell.width}px`);
     expect(host.style.borderRadius).toBe(`${cell.radius}px`);
     expect(host.textContent).toBe(`${cell.title}${cell.detail}`);
+    expect(host.querySelector(".ui-menu-item")).toBeNull();
     const css = paritySurface(doc, cell, "css");
     expect(css.hasAttribute("data-host-glass")).toBe(false);
   }
@@ -53,4 +54,33 @@ test("host mode asks for the App's glass in either engine and reports through th
   const plain = renderParity(doc, root, PARITY_FIXTURE, client);
   expect(root.querySelectorAll("[data-host-glass]").length).toBe(0);
   plain();
+});
+
+test("a hovered or pressed menu holds the web menu's own highlighted row at the native row's box", async () => {
+  const { PARITY_FIXTURE, paritySurface } = await load();
+  const doc = dom!.window.document;
+  const menu = PARITY_FIXTURE.cells.find((cell) => cell.kind === "menu")!;
+  const box = { left: 5, top: 47, width: 230, height: 20, radius: 6 };
+  const hover = paritySurface(doc, { ...menu, row: "hover" }, "host", box).querySelector<HTMLElement>(".ui-menu-item")!;
+  expect(hover.hasAttribute("data-highlighted")).toBe(true);
+  expect(hover.hasAttribute("data-pressed")).toBe(false);
+  expect([hover.style.left, hover.style.top, hover.style.width, hover.style.height, hover.style.borderRadius]).toEqual([
+    "5px",
+    "47px",
+    "230px",
+    "20px",
+    "6px",
+  ]);
+  const pressed = paritySurface(doc, { ...menu, row: "pressed" }, "host", box).querySelector(".ui-menu-item")!;
+  expect(pressed.hasAttribute("data-pressed")).toBe(true);
+  // Only a menu holds a row.
+  const toast = PARITY_FIXTURE.cells.find((cell) => cell.kind === "toast")!;
+  expect(paritySurface(doc, { ...toast, row: "hover" }, "host", box).querySelector(".ui-menu-item")).toBeNull();
+});
+
+test("docked chrome glass asks for the App's chrome level", async () => {
+  const { PARITY_FIXTURE, PARITY_LEVEL, paritySurface } = await load();
+  const chrome = PARITY_FIXTURE.cells.find((cell) => cell.kind === "chrome")!;
+  expect(PARITY_LEVEL.chrome).toBe("chrome");
+  expect(paritySurface(dom!.window.document, chrome, "host").getAttribute("data-host-glass")).toBe("chrome");
 });

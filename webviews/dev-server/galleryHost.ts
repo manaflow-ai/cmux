@@ -375,6 +375,47 @@ export function galleryEntrySubset(entries = process.env.CMUX_GALLERY_ENTRIES): 
   };
 }
 
+/** Each `virtual:cmux-gallery/*` data module (every one but the pane sheet) and what it exports, read when
+ * it is first imported. One table for both kinds of runner: Vite's (galleryModules: `bun run dev`,
+ * gallery:dev, gallery:build) and bun's own (installGalleryModulesForBun: manifest.ts, touched.ts, notes.ts and
+ * the tests, which import gallery files without Vite). A module only one of them knew broke the other:
+ * cmux#46783 added `looks` to Vite's list only, and every gallery health shard then failed in manifest.ts
+ * with "Cannot find module 'virtual:cmux-gallery/looks'". test/gallery-virtual-modules.test.ts checks every
+ * id src/gallery/virtual.d.ts declares against both runners and every gallery Vite config. */
+export const GALLERY_DATA_MODULES: Record<string, () => unknown> = {
+  [THEMES_ID]: () => readShippedThemes(),
+  [WEB_THEME_ID]: () => readWebThemeBootstrap(),
+  [FIXTURES_ID]: () => readSharedFixtures(),
+  [METRICS_ID]: () => readChromeMetrics(),
+  [REVISION_ID]: () => readRevision(),
+  [ENTRY_INDEX_ID]: () => readEntryIndex(),
+  [LOOKS_ID]: () => readGoldenLooks(),
+};
+/** The pane's combined stylesheet: a CSS module under Vite, an empty module under bun. */
+export const GALLERY_CSS_MODULE_ID = PANE_CSS_ID;
+
+export function galleryDataModuleSource(id: string): string {
+  const read = GALLERY_DATA_MODULES[id];
+  if (!read) throw new Error(`${id} is not a gallery data module`);
+  return `export default ${JSON.stringify(read())};`;
+}
+
+/** Bun's resolver for the same modules, so a gallery file a bun script or test imports (not through Vite)
+ * gets the data Vite serves. Each is read on its first import. Safe to call more than once. */
+export function installGalleryModulesForBun(): void {
+  const scope = globalThis as { __cmuxGalleryModulesForBun?: boolean };
+  if (scope.__cmuxGalleryModulesForBun) return;
+  scope.__cmuxGalleryModulesForBun = true;
+  Bun.plugin({
+    name: "cmux-gallery-modules-bun",
+    setup(build) {
+      for (const id of Object.keys(GALLERY_DATA_MODULES))
+        build.module(id, () => ({ contents: galleryDataModuleSource(id), loader: "js" }));
+      build.module(GALLERY_CSS_MODULE_ID, () => ({ contents: "export {};", loader: "js" }));
+    },
+  });
+}
+
 export function galleryModules(): Plugin {
   return {
     name: "cmux-gallery-modules",
@@ -382,19 +423,13 @@ export function galleryModules(): Plugin {
       this.emitFile({ type: "asset", fileName: "__lib/vega.js", source: readVegaLibrary() });
     },
     resolveId(source) {
-      if ([THEMES_ID, WEB_THEME_ID, FIXTURES_ID, METRICS_ID, REVISION_ID, ENTRY_INDEX_ID, LOOKS_ID].includes(source))
-        return `\0${source}`;
+      if (Object.hasOwn(GALLERY_DATA_MODULES, source)) return `\0${source}`;
       if (source === PANE_CSS_ID) return PANE_CSS_PATH;
       return null;
     },
     load(id) {
-      if (id === `\0${THEMES_ID}`) return `export default ${JSON.stringify(readShippedThemes())};`;
-      if (id === `\0${METRICS_ID}`) return `export default ${JSON.stringify(readChromeMetrics())};`;
-      if (id === `\0${FIXTURES_ID}`) return `export default ${JSON.stringify(readSharedFixtures())};`;
-      if (id === `\0${WEB_THEME_ID}`) return `export default ${JSON.stringify(readWebThemeBootstrap())};`;
-      if (id === `\0${ENTRY_INDEX_ID}`) return `export default ${JSON.stringify(readEntryIndex())};`;
-      if (id === `\0${REVISION_ID}`) return `export default ${JSON.stringify(readRevision())};`;
-      if (id === `\0${LOOKS_ID}`) return `export default ${JSON.stringify(readGoldenLooks())};`;
+      if (id.startsWith("\0") && Object.hasOwn(GALLERY_DATA_MODULES, id.slice(1)))
+        return galleryDataModuleSource(id.slice(1));
       if (id.split("?")[0] === PANE_CSS_PATH) return agentPaneCSS();
       return null;
     },
