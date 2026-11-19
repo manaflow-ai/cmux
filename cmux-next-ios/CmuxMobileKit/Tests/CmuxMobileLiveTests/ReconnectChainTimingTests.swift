@@ -94,10 +94,21 @@ private final class Lockstep: @unchecked Sendable {
         for work in lock.withLock({ defer { down = [] }; return down }) { work() }
     }
 
-    /// Back to free delivery, after the round trips still owed.
+    /// Back to free delivery, after the round trips still owed. The queues go empty and delivery
+    /// goes free under one lock, so no message sent meanwhile is left behind later ones.
     func release() {
-        while lock.withLock({ !up.isEmpty || !down.isEmpty }) { roundTrip() }
-        lock.withLock { held = false }
+        while let owed = lock.withLock({ () -> (ups: [Work], downs: [Work])? in
+            if up.isEmpty, down.isEmpty {
+                held = false
+                return nil
+            }
+            defer { up = []; down = [] }
+            return (ups: up, downs: down)
+        }) {
+            // The Mac's answers to `ups` queue behind `downs` and go in the next pass.
+            for work in owed.ups { work() }
+            for work in owed.downs { work() }
+        }
     }
 }
 
@@ -277,9 +288,16 @@ private final class ChainLink: MacLink, @unchecked Sendable {
         return channel
     }
 
-    /// The pong: the probe's bound is on the coordinator's test clock, which the test never
-    /// moves, so its timing cannot change the chain.
-    func ping() async throws -> UInt32 { rttMillis }
+    /// The pong, one round trip later like every other answer: a chain that waits on the probe
+    /// pays that round trip. The probe's bound is on the coordinator's test clock, which the test
+    /// never moves, so the probe never times out.
+    func ping() async throws -> UInt32 {
+        let lockstep = mac.lockstep
+        await withCheckedContinuation { (pong: CheckedContinuation<Void, Never>) in
+            lockstep.send(up: true) { lockstep.send(up: false) { pong.resume() } }
+        }
+        return rttMillis
+    }
 
     func probe(timeout: Duration) async throws -> UInt32? { try await ping() }
 

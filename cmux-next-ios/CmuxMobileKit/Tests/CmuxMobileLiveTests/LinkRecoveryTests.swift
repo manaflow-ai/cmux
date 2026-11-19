@@ -95,13 +95,10 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         controller.send(.background)
         dialer.first.dropSilently()
         let oldGeneration = controller.dialGeneration
-        let start = clock.now
         controller.send(.resume)
         #expect(controller.phase == .connecting(.wireGuard, attempt: 1))
         #expect(controller.dialGeneration > oldGeneration)
         try await eventually { dialer.dials == 2 && dialer.first.isClosed }
-        // No timer stands between the resume and the redial: the redial needs no clock time.
-        print("LINK_RECOVERY foreground_redial_ms=\(milliseconds(start.duration(to: clock.now)))")
         #expect(dialer.first.probeCount == 1, "No probe of the stale link before redial")
     }
 

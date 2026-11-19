@@ -86,6 +86,11 @@ final class LinkClockDriver {
         guard expected.isEmpty else { return false }
         // A dial in flight: its link's first probe and heartbeat start when it is adopted.
         if case .connecting = controller.phase { return false }
+        // The retry timer is not followed here: a test that waits out a retry must not drift.
+        if case .waiting = controller.phase {
+            Issue.record("LinkClockDriver does not follow the retry timer (phase \(controller.phase))")
+            return true
+        }
         // The heartbeat woke and has not slept again yet (it ends instead once the link is down).
         if let due = heartbeatDue, due <= now, controller.phase.isConnected { return false }
         if controller.isProbing {

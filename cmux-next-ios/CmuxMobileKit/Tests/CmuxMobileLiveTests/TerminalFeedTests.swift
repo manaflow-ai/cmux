@@ -295,7 +295,9 @@ import Testing
         daemon.down = false
         feed.treeChanged(Self.tree(), macID: "mac", connection: 2)
         // Each spacing ends when the test says; the read goes once the new connection read the ledger.
-        for _ in 0..<20 where daemon.acks.isEmpty {
+        await Self.settle { daemon.lists >= 2 }
+        var watchdog = AwakeDeadline(.seconds(30))
+        while daemon.acks.isEmpty, watchdog.hasTimeLeft() {
             gate.release()
             await Self.settle { gate.isHolding || !daemon.acks.isEmpty }
         }
