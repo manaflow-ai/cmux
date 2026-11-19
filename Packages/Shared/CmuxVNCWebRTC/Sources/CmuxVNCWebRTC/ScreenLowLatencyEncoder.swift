@@ -30,6 +30,26 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
     // @unchecked: mutable state is behind `lock`.
     static let implementation = "VideoToolbox low-latency"
 
+    /// How VideoToolbox paces the bits.
+    enum RateControl: String, CaseIterable, Sendable {
+        /// `EnableLowLatencyRateControl`: each frame sized to the target as it encodes.
+        /// It drops a frame that would overshoot its share (`kVTEncodeInfo_FrameDropped`).
+        case lowLatency = "low-latency"
+        /// The same, with the frame QP ceiling at 51 so it lowers quality before dropping.
+        case lowLatencyQP51 = "low-latency-qp51"
+        /// The ordinary real-time session (libwebrtc's settings) with this encoder's GPU
+        /// scaling and speed priority; it overshoots instead of dropping.
+        case realTime = "real-time"
+    }
+
+    static let defaultRateControl = RateControl.lowLatency
+    let rateControl: RateControl
+
+    init(rateControl: RateControl = ScreenLowLatencyEncoder.defaultRateControl) {
+        self.rateControl = rateControl
+        super.init()
+    }
+
     private let lock = NSLock()
     private var callback: RTCVideoEncoderCallback?
     private var session: VTCompressionSession?
@@ -128,10 +148,11 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
     // MARK: Session
 
     /// The session's specification and properties (``ScreenLowLatencyEncoder`` above).
-    static var specification: [CFString: Any] { [
-        kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true,
-        kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true,
-    ] }
+    static func specification(_ rateControl: RateControl) -> [CFString: Any] {
+        var specification: [CFString: Any] = [kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true]
+        if rateControl != .realTime { specification[kVTVideoEncoderSpecification_EnableLowLatencyRateControl] = true }
+        return specification
+    }
 
     private func makeSession() -> Bool {
         _ = release()
@@ -143,7 +164,7 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
             kCVPixelBufferIOSurfacePropertiesKey: [String: Any](),
         ]
         let status = VTCompressionSessionCreate(allocator: nil, width: width, height: height, codecType: kCMVideoCodecType_H264,
-                                                encoderSpecification: Self.specification as CFDictionary,
+                                                encoderSpecification: Self.specification(rateControl) as CFDictionary,
                                                 imageBufferAttributes: attributes as CFDictionary, compressedDataAllocator: nil,
                                                 outputCallback: nil, refcon: nil, compressionSessionOut: &made)
         guard status == noErr, let made else { return false }
@@ -152,6 +173,7 @@ final class ScreenLowLatencyEncoder: NSObject, RTCVideoEncoder, @unchecked Senda
         set(kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, kCFBooleanTrue)
         set(kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse)
         set(kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_ConstrainedHigh_AutoLevel)
+        if rateControl == .lowLatencyQP51 { set(kVTCompressionPropertyKey_MaxAllowedFrameQP, 51 as CFNumber) }
         // Keyframes only when libwebrtc asks (a new viewer, a lost picture).
         set(kVTCompressionPropertyKey_MaxKeyFrameInterval, 7200 as CFNumber)
         set(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, 240 as CFNumber)

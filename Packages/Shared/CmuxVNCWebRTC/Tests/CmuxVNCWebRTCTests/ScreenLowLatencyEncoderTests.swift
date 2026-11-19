@@ -40,6 +40,24 @@ struct ScreenLowLatencyEncoderTests {
         #expect(result.implementation == ScreenLowLatencyEncoder.implementation)
     }
 
+    /// Every rate control against libwebrtc's encoder at the bitrates a stream runs at:
+    /// scrolling text, 3456x2234 scaled to Auto's 120 fps size, 2 s each. Prints
+    /// SCREEN-ENCODER-MODES lines: frames out of 240 (the rest were dropped), the
+    /// output rate, encode-to-output latency and frame sizes.
+    @Test(.timeLimit(.minutes(3)), arguments: EncoderBench.Kind.allCases)
+    func theRateControlsAtStreamBitrates(kind: EncoderBench.Kind) throws {
+        for kbps: UInt32 in [2000, 5000, 12000] {
+            let bench = EncoderBench(kind: kind, sourceWidth: 3456, sourceHeight: 2234, width: 2154, height: 1392, fps: 120)
+            let result = try bench.run(frames: 240, bitrateKbps: kbps)
+            let steady = result.outputs.filter { !$0.keyframe }
+            let latency = StreamLatencySummary(steady.map(\.latencyMs), unreadable: 0)
+            let sizes = result.outputs.map(\.bytes).sorted()
+            let kb = { (q: Double) -> Double in sizes.isEmpty ? .nan : Double(sizes[min(sizes.count - 1, Int(q * Double(sizes.count)))]) / 1024 }
+            let kbit = Double(result.outputs.map(\.bytes).reduce(0, +)) * 8 / 1000 / max(result.seconds, 0.001)
+            print("SCREEN-ENCODER-MODES encoder=\(kind.rawValue) kbps=\(kbps) frames_out=\(result.outputs.count)/240 dropped=\(240 - result.outputs.count) out_kbps=\(Int(kbit)) encode \(latency) frame_kb_p50=\(String(format: "%.1f", kb(0.5))) frame_kb_p95=\(String(format: "%.1f", kb(0.95)))")
+        }
+    }
+
     /// What VideoToolbox's low-latency mode does with a burst of frames at full size, by
     /// bitrate and content. Prints SCREEN-ENCODER-PROBE lines; a frame its rate control
     /// drops never reaches libwebrtc, so a screen that then stops changing would keep
@@ -47,8 +65,8 @@ struct ScreenLowLatencyEncoderTests {
     @Test(.timeLimit(.minutes(1)), arguments: [(3456, 2234, 120), (1920, 1080, 60), (2154, 1392, 120)])
     func aBurstAtFullSize(width: Int, height: Int, fps: Int) async throws {
         for bitrate: UInt32 in [12000, 48000] {
-            for content in ["flat", "text"] {
-                let encoder = ScreenLowLatencyEncoder()
+            for (mode, content) in ScreenLowLatencyEncoder.RateControl.allCases.flatMap({ m in ["flat", "text"].map { (m, $0) } }) {
+                let encoder = ScreenLowLatencyEncoder(rateControl: mode)
                 encoder.setCallback { _, _ in true }
                 let settings = RTCVideoEncoderSettings()
                 settings.name = kRTCVideoCodecH264Name
@@ -78,7 +96,7 @@ struct ScreenLowLatencyEncoderTests {
                     try await Task.sleep(for: .milliseconds(100))
                 }
                 let o = encoder.frameOutcomes
-                print("SCREEN-ENCODER-PROBE size=\(width)x\(height) fps=\(fps) kbps=\(bitrate) content=\(content) frames=\(frames) encoded=\(o.encoded) dropped=\(o.dropped) failed=\(o.failed) unpackable=\(o.unpackable) status=\(o.lastStatus)")
+                print("SCREEN-ENCODER-PROBE mode=\(mode.rawValue) size=\(width)x\(height) fps=\(fps) kbps=\(bitrate) content=\(content) frames=\(frames) encoded=\(o.encoded) dropped=\(o.dropped) failed=\(o.failed) unpackable=\(o.unpackable) status=\(o.lastStatus)")
                 _ = encoder.release()
             }
         }
@@ -89,7 +107,7 @@ struct ScreenLowLatencyEncoderTests {
 /// times each frame from `encode` to the encoder's output callback.
 final class EncoderBench: @unchecked Sendable {
     // @unchecked: outputs are behind `lock`.
-    enum Kind: String { case webrtc, lowLatency = "low-latency" }
+    enum Kind: String, CaseIterable { case webrtc, lowLatency = "low-latency", lowLatencyQP51 = "low-latency-qp51", realTime = "real-time" }
 
     struct Output {
         var rtp: UInt32
@@ -127,7 +145,9 @@ final class EncoderBench: @unchecked Sendable {
     func makeEncoder() -> (any RTCVideoEncoder)? {
         let info = ScreenLowLatencyEncoderTests.info("640c34")
         switch kind {
-        case .lowLatency: return ScreenLowLatencyEncoder()
+        case .lowLatency: return ScreenLowLatencyEncoder(rateControl: .lowLatency)
+        case .lowLatencyQP51: return ScreenLowLatencyEncoder(rateControl: .lowLatencyQP51)
+        case .realTime: return ScreenLowLatencyEncoder(rateControl: .realTime)
         // The encoder the stream used before: libwebrtc's, opened at AutoLevel.
         case .webrtc: return RTCDefaultVideoEncoderFactory().createEncoder(ScreenEncoderFactory.encoderInfo(info))
         }
