@@ -695,8 +695,9 @@ fn attach_once(socket: &Path, surface: u64, history: Option<u32>) -> (f64, f64, 
 }
 
 /// Every terminal attached at once, one connection each, as a client
-/// coming back to a session does: ms until the last screen is usable.
-fn attach_all(socket: &Path, surfaces: &[u64], history: Option<u32>) -> f64 {
+/// coming back to a session does: ms until the last screen is usable, and
+/// how many of those attaches the daemon dropped instead of answering.
+fn attach_all(socket: &Path, surfaces: &[u64], history: Option<u32>) -> (f64, usize) {
     let start = Instant::now();
     let handles: Vec<_> = surfaces
         .iter()
@@ -710,10 +711,9 @@ fn attach_all(socket: &Path, surfaces: &[u64], history: Option<u32>) -> f64 {
             })
         })
         .collect();
-    for handle in handles {
-        handle.join().unwrap();
-    }
-    ms(start, Instant::now())
+    let dropped =
+        handles.into_iter().map(std::thread::JoinHandle::join).filter(Result::is_err).count();
+    (ms(start, Instant::now()), dropped)
 }
 
 fn env_list(name: &str, default: &[u64]) -> Vec<u64> {
@@ -822,8 +822,16 @@ fn measure_count(count: u64, rtts: &[u64], keys: usize, run: &mut Run) {
                 stats(usable),
                 json!({"replay_kb": kb, "replay_p50_ms": replay.p50}),
             );
-            let all: Vec<f64> = (0..3).map(|_| attach_all(socket, &surfaces, history)).collect();
-            run.add(count, *rtt, &format!("attach-all-{mode}"), stats(all), json!({}));
+            let all: Vec<(f64, usize)> =
+                (0..3).map(|_| attach_all(socket, &surfaces, history)).collect();
+            let dropped: usize = all.iter().map(|(_, dropped)| dropped).sum();
+            run.add(
+                count,
+                *rtt,
+                &format!("attach-all-{mode}"),
+                stats(all.into_iter().map(|(ms, _)| ms).collect()),
+                json!({"dropped_attaches": dropped, "attaches": 3 * surfaces.len()}),
+            );
         }
 
         // (c) Scroll back through the history: read-scrollback pages of one
