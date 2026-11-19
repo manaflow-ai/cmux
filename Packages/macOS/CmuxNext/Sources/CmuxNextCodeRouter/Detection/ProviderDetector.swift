@@ -52,11 +52,15 @@ public struct ProviderDetector: Sendable {
         // first prompt. Mark it unknown so Accounts can offer a replacement key
         // before the user starts a chat. Only the key Connect would send is
         // judged, by Connect's own format rule (`CredentialResolver`).
-        // Connect chooses the first non-empty environment key. If all configured
-        // aliases are empty, retain the first explicit value so the user sees a
-        // malformed credential instead of a misleading missing state.
-        let selectedEnvironmentKey = environmentKeys.first(where: { !$0.1.isEmpty }) ?? environmentKeys.first
-        let malformed = selectedEnvironmentKey.map { !CredentialResolver.isWellFormedKey($0.1, for: provider) } ?? false
+        // Connect chooses the first non-empty environment key, then Keychain. If
+        // every configured alias is empty and no saved key exists, surface that
+        // explicit value as malformed instead of reporting a missing credential.
+        let selectedEnvironmentKey = environmentKeys.first(where: { !$0.1.isEmpty })
+        let malformed = if let selectedEnvironmentKey {
+            !CredentialResolver.isWellFormedKey(selectedEnvironmentKey.1, for: provider)
+        } else {
+            !environmentKeys.isEmpty && !environment.savedKeys.contains(provider)
+        }
         let status: LocalAuthStatus = malformed ? .unknown : (sources.isEmpty ? .missing : .signedIn)
         return ProviderDetection(provider: provider, status: status, sources: sources)
     }

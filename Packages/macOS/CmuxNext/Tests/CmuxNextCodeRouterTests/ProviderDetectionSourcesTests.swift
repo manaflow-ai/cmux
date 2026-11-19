@@ -32,10 +32,11 @@ struct ProviderDetectionSourcesTests {
         func delete(for provider: AIProvider) throws {}
     }
 
-    static func detector(files: [String: String] = [:], env: [String: String] = [:], keychain: Set<String> = []) -> ProviderDetector {
+    static func detector(files: [String: String] = [:], env: [String: String] = [:], keychain: Set<String> = [],
+                         savedKeys: Set<AIProvider> = []) -> ProviderDetector {
         ProviderDetector(environment: DetectionEnvironment(
             home: home, environment: env, files: Files(files: files), keychain: Keychain(services: keychain),
-            servers: NoServers(), labeler: AccountLabeler(salt: Data(repeating: 7, count: 32))))
+            servers: NoServers(), labeler: AccountLabeler(salt: Data(repeating: 7, count: 32)), savedKeys: savedKeys))
     }
 
     static let codexConfig = "/fixture/home/.codex/config.toml"
@@ -137,6 +138,12 @@ struct ProviderDetectionSourcesTests {
         let detection = Self.detector(env: ["OPENAI_API_KEY": key]).detectLocal(.openAI)
         #expect(detection.status == .unknown)
         #expect(detection.sources == [.environment("OPENAI_API_KEY")])
+    }
+
+    @Test func emptyEnvironmentKeyFallsBackToSavedKey() {
+        let detection = Self.detector(env: ["OPENAI_API_KEY": ""], savedKeys: [.openAI]).detectLocal(.openAI)
+        #expect(detection.status == .signedIn)
+        #expect(detection.sources == [.environment("OPENAI_API_KEY"), .cmuxKeychain])
     }
 
     /// Gemini reads `GEMINI_API_KEY` before `GOOGLE_API_KEY`: only the key that would be sent is judged.
