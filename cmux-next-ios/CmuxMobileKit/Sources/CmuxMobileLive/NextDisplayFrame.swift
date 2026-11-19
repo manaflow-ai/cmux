@@ -1,6 +1,7 @@
 import Foundation
 #if os(iOS)
 import QuartzCore
+import UIKit
 #endif
 
 /// Runs work at the next display frame: live input that arrives between two frames is applied
@@ -13,6 +14,12 @@ final class NextDisplayFrame: NSObject {
     /// what arrives until it runs.
     static func schedule(_ work: @escaping @MainActor () -> Void) {
         #if os(iOS)
+        // A display link does not tick in the background or on a locked screen; a link to the
+        // Mac stays up there, so its updates go on at the next main-actor turn.
+        guard UIApplication.shared.applicationState != .background else {
+            Task { @MainActor in work() }
+            return
+        }
         let frame = NextDisplayFrame(work)
         let link = CADisplayLink(target: frame, selector: #selector(tick(_:)))
         link.add(to: .main, forMode: .common)

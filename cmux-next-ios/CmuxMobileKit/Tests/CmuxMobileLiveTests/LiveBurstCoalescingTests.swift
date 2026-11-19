@@ -45,6 +45,30 @@ import Testing
         await sync.bind(nil, macID: "mac")
     }
 
+    /// A caller that lists right after a change (create, duplicate) reads the change, even when
+    /// it still waits for the frame and the Mac answers the list with `unchanged`.
+    @Test(.timeLimit(.minutes(1))) func aListReadsWhatWaitsForTheFrame() async throws {
+        let daemon = FloodDaemon(load: LiveFloodRig.Load(workspaces: 5))
+        let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
+        await sync.bind(daemon, macID: "mac")
+        await sync.refresh()
+        await sync.waitForUpdates()
+        var frames: [@MainActor () -> Void] = []
+        sync.nextFrame = { frames.append($0) }
+        var rows = 0
+        sync.onRows = { _, _, _ in rows += 1 }
+        sync.handle(.titleChanged(surface: 2, title: "fresh"))
+        await sync.waitForUpdates()
+        #expect(frames.count == 1)
+        let tree = try await sync.listNow()
+        #expect(tree.workspaces.first { $0.id == "rig-ws-2" }?.tabs.first?.title == "fresh")
+        #expect(rows == 1, "published once, by the list")
+        for frame in frames { frame() }
+        #expect(rows == 1, "the frame finds nothing left to publish")
+        await sync.daemon?.close()
+        await sync.bind(nil, macID: "mac")
+    }
+
     // MARK: Feed (FEED-6)
 
     static func ledger(_ range: ClosedRange<Int>) -> [String: Any] {

@@ -85,6 +85,7 @@ final class ListStressRig: NSObject {
     // MARK: Seeding and navigation
 
     private func open(_ screen: String) async {
+        ListApplyProbe.shared.codeDrivenScroll = true
         let store = shell.store
         if let agents = settings.flood { await startFlood(agents) }
         switch screen {

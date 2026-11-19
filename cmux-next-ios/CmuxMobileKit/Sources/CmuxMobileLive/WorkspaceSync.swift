@@ -330,7 +330,11 @@ public final class WorkspaceSync {
 
     /// Returns once every queued event has been applied to the projection (tests).
     func waitForUpdates() async {
-        while let task = updateTask ?? refreshTask { await task.value }
+        var awaited: Task<Void, Never>?
+        while let task = updateTask ?? refreshTask, task != awaited {
+            awaited = task
+            await task.value
+        }
     }
 
     /// An event at a wire position, as the daemon's stream delivers it (tests).
@@ -579,11 +583,15 @@ public final class WorkspaceSync {
                             dropPendingPublication()
                             tree = next
                             onTree?(next)
+                        } else {
+                            // The phone's projection is current: publish what the frame
+                            // gathered now, so a caller of `listNow` reads it in `tree`.
+                            flushPublication()
                         }
                         continue
                     }
                     let next = try await projection.reset(snapshot: reply.data, macID: macID,
-                                                          previous: tree?.workspaces ?? [], agents: agents,
+                                                          previous: pendingPublication?.tree.workspaces ?? tree?.workspaces ?? [], agents: agents,
                                                           activity: activity, arrangement: arrangement)
                     guard self.client === client, !Task.isCancelled else { return }
                     snapshotSequence = coveredThrough
@@ -611,6 +619,8 @@ public final class WorkspaceSync {
     public func listNow() async throws -> DaemonTree {
         guard let client else { throw DaemonReplyError(message: "Not connected") }
         await refresh()
+        // Events applied before the list may still wait for the frame; the caller reads them now.
+        flushPublication()
         guard self.client === client, let tree else { throw DaemonReplyError(message: "Not connected") }
         if let lastError { throw DaemonReplyError(message: lastError) }
         return tree

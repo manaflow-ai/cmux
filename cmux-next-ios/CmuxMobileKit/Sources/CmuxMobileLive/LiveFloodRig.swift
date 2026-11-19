@@ -89,7 +89,7 @@ public final class LiveFloodRig {
             let revision = self.store.workspacesRevision
             self.store.replaceWorkspaces(macID: self.macID, with: tree.workspaces)
             if self.list == "workspaces", self.store.workspacesRevision != revision { self.noteWrite() }
-            terminalFeed.treeChanged(tree, macID: self.macID, connection: sync.connectionSerial)
+            terminalFeed.treeChanged(tree, macID: self.macID, connection: self.sync.connectionSerial)
         }
         sync.onRows = { [weak self] tree, ids, agentChanged in
             guard let self else { return }
@@ -98,7 +98,7 @@ public final class LiveFloodRig {
             self.store.updateWorkspaces(macID: self.macID, rows: tree.workspaces.filter { ids.contains($0.id) })
             if self.list == "workspaces", self.store.workspacesRevision != revision { self.noteWrite() }
             if agentChanged {
-                terminalFeed.treeChanged(tree, macID: self.macID, connection: sync.connectionSerial, changedWorkspaceIDs: ids)
+                terminalFeed.treeChanged(tree, macID: self.macID, connection: self.sync.connectionSerial, changedWorkspaceIDs: ids)
             } else {
                 terminalFeed.updateTreeMetadata(tree)
             }

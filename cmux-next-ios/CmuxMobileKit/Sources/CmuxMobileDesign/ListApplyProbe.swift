@@ -11,6 +11,10 @@ public final class ListApplyProbe {
     /// Set by the rig; nil (no cost but the check) otherwise.
     public var onApply: (@MainActor (_ list: String) -> Void)?
 
+    /// The rig scrolls the lists from code, which sets no dragging flag: while it runs, a list
+    /// that moved in the last few frames counts as scrolling.
+    public var codeDrivenScroll = false
+
     public init() {}
 
     public func applied(_ list: String) {

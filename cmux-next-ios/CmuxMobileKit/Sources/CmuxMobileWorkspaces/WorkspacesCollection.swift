@@ -558,11 +558,16 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         pullToRefresh?.scrolled()
     }
 
-    /// The list is moving: a finger on it, coasting, or scrolled within the last few frames
-    /// (a scroll driven from code, as the rig's, sets no dragging flag).
+    /// The list is moving under the person: a finger on it, or coasting. An offset change the
+    /// list makes itself (an inset, a content-size change) is not scrolling.
     func isScrolling(now: CFTimeInterval) -> Bool {
         guard let view = collectionView else { return false }
-        return view.isTracking || view.isDragging || view.isDecelerating || now - lastScrolled < Self.movingWindow
+        if view.isTracking || view.isDragging || view.isDecelerating { return true }
+        #if DEBUG
+        // The rig scrolls from code, which sets no dragging flag.
+        if ListApplyProbe.shared.codeDrivenScroll { return now - lastScrolled < Self.movingWindow }
+        #endif
+        return false
     }
 
     /// How long after the last offset change the list still counts as moving.
