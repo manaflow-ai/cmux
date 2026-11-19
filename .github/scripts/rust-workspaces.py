@@ -426,9 +426,13 @@ def clippy(repo: Path, base: str) -> int:
         command = ["cargo", "clippy", *locked, "--workspace", "--all-targets", *args, "--", "-D", "warnings"]
         print(f"::group::{root}: {' '.join(command)}", flush=True)
         if own_toolchain(repo, root):
-            # rustup's cargo reads the pin from the working directory: install it, with clippy, first.
+            # rustup's cargo reads the pin from the working directory: install it, with clippy, first. rustup checks
+            # that it lives in CARGO_HOME, which a job may point at its own directory (runner-cargo-home), so rustup
+            # runs with the home it was installed in; toolchains live in RUSTUP_HOME either way.
+            home = Path.home() / ".cargo"
+            setup_env = {**os.environ, "CARGO_HOME": str(home)} if (home / "bin" / "rustup").is_file() else None
             for setup in (["rustup", "toolchain", "install"], ["rustup", "component", "add", "clippy"]):
-                subprocess.run(setup, cwd=repo / root)
+                subprocess.run(setup, cwd=repo / root, env=setup_env)
         rc, refusals = run_cargo(command, repo / root, dict(os.environ))
         print("::endgroup::", flush=True)
         if rc:
