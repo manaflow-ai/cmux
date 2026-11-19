@@ -25,7 +25,7 @@ Each attempt is one fresh session (new keys, new link). Per attempt it records:
                   true when a marker arrived after the selected full-drop interval
 An attempt that does not connect, or ends before its samples, counts as a failed connect.
 """
-import argparse, json, os, select, subprocess, sys, time
+import argparse, json, os, select, shutil, subprocess, sys, time
 
 HOST_NS, VIEW_NS = "rdshare-h", "rdshare-v"
 HOST_IP, VIEW_IP = "10.77.0.1", "10.77.0.2"
@@ -54,15 +54,34 @@ def setup(args):
         sh(f"ip netns exec {ns} ethtool -K {dev} gso off tso off gro off", check=False)
     netem(args.rtt, args.loss)
     disp = args.display
+    if not shutil.which("Xvfb"):
+        sys.exit("screen-share-netem: Xvfb is not installed; the host has no display to capture")
     xvfb = subprocess.Popen(["ip", "netns", "exec", HOST_NS, "Xvfb", disp, "-screen", "0",
                              "1920x1080x24", "-nolisten", "tcp"],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     time.sleep(1.0)
+    started(xvfb, "Xvfb " + disp)
     app = subprocess.Popen(["ip", "netns", "exec", HOST_NS, args.bin, "testapp", "--display", disp,
                             "--workload", args.workload],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     time.sleep(1.0)
+    started(app, "testapp")
     return [app, xvfb]
+
+
+def started(proc, what):
+    """Stops the run when a helper exited during start-up: every attempt after it would fail
+    with the host's "Connection refused" and say nothing of why."""
+    if proc.poll() is None:
+        return
+    err = (proc.stderr.read() if proc.stderr else "").strip()
+    teardown()
+    sys.exit(f"screen-share-netem: {what} exited {proc.returncode} at start: {err[-400:]}")
+
+
+def run_status(records):
+    """The run's exit status: 1 when no attempt reached a first frame (it measured nothing)."""
+    return 0 if any(r.get("ok") for r in records) else 1
 
 
 def teardown():
@@ -329,12 +348,14 @@ def main():
     procs = setup(args)
     out = open(args.out, "a") if args.out else None
     samples = []
+    records = []
     try:
         n = 0
         for drop_s in drop_seconds:
             for _ in range(args.attempts):
                 n += 1
                 rec = attempt(args, n, drop_s)
+                records.append(rec)
                 samples += rec.get("sample_times") or []
                 line = json.dumps(rec)
                 print(line, flush=True)
@@ -356,6 +377,8 @@ def main():
             except subprocess.TimeoutExpired:
                 p.kill()
         teardown()
+    if run_status(records):
+        sys.exit(f"screen-share-netem: none of {len(records)} attempts reached a first frame")
 
 
 if __name__ == "__main__":

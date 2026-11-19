@@ -29,6 +29,27 @@ class ScreenShareNetemCliTests(unittest.TestCase):
         self.assertEqual(netem.sample_budget(20, 10, 5), 80)
         self.assertEqual(netem.sample_budget(20, 60, 5), 130)
 
+    def test_a_run_with_no_first_frame_fails(self):
+        self.assertEqual(netem.run_status([]), 1)
+        self.assertEqual(netem.run_status([{"ok": False}, {"ok": False}]), 1)
+        self.assertEqual(netem.run_status([{"ok": False}, {"ok": True}]), 0)
+
+    def test_a_helper_that_died_at_start_stops_the_run(self):
+        dead = types.SimpleNamespace(poll=lambda: 1, returncode=1,
+                                     stderr=types.SimpleNamespace(read=lambda: "cannot open display"))
+        torn = []
+        old = netem.teardown
+        netem.teardown = lambda: torn.append(True)
+        try:
+            with self.assertRaises(SystemExit) as stop:
+                netem.started(dead, "Xvfb :99")
+        finally:
+            netem.teardown = old
+        self.assertIn("Xvfb :99 exited 1 at start: cannot open display", str(stop.exception))
+        self.assertEqual(torn, [True])
+        alive = types.SimpleNamespace(poll=lambda: None)
+        self.assertIsNone(netem.started(alive, "testapp"))
+
     def test_recovery_requires_restoration_and_a_live_host(self):
         self.assertFalse(netem.recovered_after_drop(10, False, [50], None))
         self.assertFalse(netem.recovered_after_drop(10, True, [50], "viewer silent for 3 s"))
