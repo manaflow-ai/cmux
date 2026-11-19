@@ -4,6 +4,17 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteCreateParams {
+    pub conversation: ConversationId,
+    pub address: InviteCreateParamsAddress,
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy_variant: Option<String>,
+}
+
 wire_errors! {
     /// The error codes invite.create declares.
     InviteCreateError {
@@ -883,24 +894,4 @@ pub struct ParticipantsSetRoleParams {
     pub conversation: ConversationId,
     pub participant: ParticipantId,
     pub role: HomeGrantableRole,
-}
-
-wire_errors! {
-    /// The error codes participants.set_role declares.
-    ParticipantsSetRoleError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParticipant = "invalid_participant",
-        InvalidRole = "invalid_role",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        ReadOnly = "read_only",
-        UnknownConversation = "unknown_conversation",
-        UnknownParticipant = "unknown_participant",
-        ValidationInvalid = "validation.invalid",
-    }
 }

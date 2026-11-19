@@ -60022,6 +60022,22 @@
               "max_length": 40
             }
           },
+          "handoff": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            }
+          },
+          "attempt": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -60229,7 +60245,7 @@
         "expose": "never",
         "group": "integration"
       },
-      "docs": "Finish a connection from the provider's redirect (the signed-in user must be the one who started it).",
+      "docs": "Finish a connection from the provider's redirect (the signed-in user must be the one who started it; an app-started connect also needs its handoff and secret).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -60251,6 +60267,14 @@
           "setup_action": {
             "type": "string",
             "maxLength": 40
+          },
+          "handoff": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "attempt": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
           }
         },
         "required": [
@@ -60471,7 +60495,15 @@
               "kind": "primitive",
               "name": "string",
               "max_length": 512,
-              "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?)$"
+              "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
+            }
+          },
+          "attempt_hash": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
             }
           },
           "expected_revision": {
@@ -60582,7 +60614,11 @@
           "return_to": {
             "type": "string",
             "maxLength": 512,
-            "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?)$"
+            "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
+          },
+          "attempt_hash": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
           }
         },
         "required": [

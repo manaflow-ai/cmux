@@ -443,7 +443,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Finish a connection from the provider's redirect (the signed-in user must be the one who started it).
+    /// Finish a connection from the provider's redirect (the signed-in user must be the one who started it; an app-started connect also needs its handoff and secret).
     IntegrationCompleteOp {
         name: "integration.complete",
         class: Mutation,
@@ -466,6 +466,10 @@ pub struct IntegrationCompleteParams {
     pub installation_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup_action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -558,6 +562,8 @@ pub struct IntegrationConnectParams {
     pub repo: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub return_to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -888,15 +894,4 @@ pub enum InviteCreateParamsAddress {
     Variant2(InviteCreateParamsAddressVariant2),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InviteCreateParams {
-    pub conversation: ConversationId,
-    pub address: InviteCreateParamsAddress,
-    pub display_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub locale: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub copy_variant: Option<String>,
 }

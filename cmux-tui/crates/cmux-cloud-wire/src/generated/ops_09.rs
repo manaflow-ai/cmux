@@ -4,6 +4,26 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes participants.set_role declares.
+    ParticipantsSetRoleError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParticipant = "invalid_participant",
+        InvalidRole = "invalid_role",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        ReadOnly = "read_only",
+        UnknownConversation = "unknown_conversation",
+        UnknownParticipant = "unknown_participant",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Lift a ban (admins and the owner), so the person may be added or invited again.
     ParticipantsUnbanOp {
@@ -874,25 +894,4 @@ wire_errors! {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
     }
-}
-
-wire_op! {
-    /// Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount.
-    TeamAiLimitGetOp {
-        name: "team.ai_limit.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamAiLimitGetParams,
-        result: TeamAiLimitGetResult,
-        error: TeamAiLimitGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitGetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
 }

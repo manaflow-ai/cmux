@@ -5,6 +5,18 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamMembersListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<TeamRole>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamMembersListResult {
     pub team: TeamId,
     pub members: Vec<TeamMember>,
@@ -884,22 +896,4 @@ wire_op! {
         result: TeamVmSshCertRevokeResult,
         error: TeamVmSshCertRevokeError,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCertRevokeParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub serial: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub user: Option<UserId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub install: Option<InstallId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCertRevokeResult {
-    pub revoked: Vec<i64>,
-    pub krl_version: i64,
 }

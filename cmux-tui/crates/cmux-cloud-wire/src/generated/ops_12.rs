@@ -4,6 +4,24 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertRevokeParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<UserId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install: Option<InstallId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertRevokeResult {
+    pub revoked: Vec<i64>,
+    pub krl_version: i64,
+}
+
 wire_errors! {
     /// The error codes team_vm.ssh_cert.revoke declares.
     TeamVmSshCertRevokeError {

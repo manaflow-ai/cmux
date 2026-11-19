@@ -3180,13 +3180,15 @@ export interface CloudOps {
       readonly expires_at: number | "Infinity" | "-Infinity" | "NaN"
     }
   }
-  /** Finish a connection from the provider's redirect (the signed-in user must be the one who started it). */
+  /** Finish a connection from the provider's redirect (the signed-in user must be the one who started it; an app-started connect also needs its handoff and secret). */
   readonly "integration.complete": {
     readonly params: {
       readonly state: string
       readonly code?: string
       readonly installation_id?: string
       readonly setup_action?: string
+      readonly handoff?: string
+      readonly attempt?: string
     }
     readonly result: {
       readonly id: ConnectionId
@@ -3220,6 +3222,7 @@ export interface CloudOps {
       readonly sharing?: "private" | "team"
       readonly repo?: string
       readonly return_to?: string
+      readonly attempt_hash?: string
     }
     readonly result: {
       readonly connection: Connection
