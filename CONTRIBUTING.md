@@ -22,8 +22,8 @@ Only needed for the native app. Docs, translations, Python tooling, `cmux-tui` a
   ```
 
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
-- [Rust](https://rustup.rs). Every app build compiles the bundled `cmux-cua` engine
-  with `cargo`, and `scripts/setup.sh` looks for `rustup` in `~/.cargo/bin`, where
+- [Rust](https://rustup.rs). Every app build compiles the bundled Rust helpers
+  (acpmux, the cmux-tui client) with `cargo`, and `scripts/setup.sh` looks for `rustup` in `~/.cargo/bin`, where
   the official installer puts it:
 
   ```bash

@@ -18,6 +18,7 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
+  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
@@ -43,6 +44,8 @@ import {
   type HarnessesState,
   type ProviderAccount,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
   type McpServersRun,
   type McpServersState,
@@ -670,6 +673,32 @@ export class MockSettingsProvider {
         this.harnessRuns.push(run);
         return {};
       },
+      "cmux.settings.agentTools.state": () => this.agentTools,
+      "cmux.settings.agentTools.run": (params) => {
+        const run = params as AgentToolsCardRun;
+        if (run.action === "refresh") return this.agentTools;
+        this.agentToolsRuns.push(run);
+        // Like the host: Remove takes out that agent's old cmux entry.
+        if (run.action === "removeLeftover" && this.agentToolsKeeps) {
+          this.agentTools = { ...this.agentTools, note: this.agentToolsKeeps };
+          return this.agentTools;
+        }
+        if (run.action === "removeLeftover") {
+          this.agentTools = {
+            ...this.agentTools,
+            rows: this.agentTools.rows.map((row) => (row.id === run.id ? { ...row, leftover: null } : row)),
+          };
+          return this.agentTools;
+        }
+        // Like the host: Turn On sets the choice to on; every agent found then gets cmux's tools in cmux.
+        this.values.set("agents.cmuxMcp", "on");
+        this.agentTools = {
+          ...this.agentTools,
+          choice: "on",
+          rows: this.agentTools.rows.map((row) => (row.state === "ready" ? { ...row, state: "terminals" } : row)),
+        };
+        return this.agentTools;
+      },
       "cmux.settings.integrations.state": () => this.integrations,
       "cmux.settings.integrations.run": (params) => {
         const run = params as IntegrationsRun;
@@ -785,6 +814,8 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.logout",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
+      "cmux.settings.agentTools.state",
+      "cmux.settings.agentTools.run",
       "cmux.settings.mcp.state",
       "cmux.settings.mcp.run",
       "cmux.settings.theme.set",
@@ -1389,6 +1420,27 @@ export class MockSettingsProvider {
       { id: "gemini", path: "~/.gemini/settings.json", state: "absent", reason: null, detail: null, error: null },
     ],
   };
+  /** `cmux setup mcp` as the app serves it (`SettingsAgentTools.state`). */
+  agentTools: AgentToolsCardState = {
+    loaded: true,
+    applying: false,
+    failed: false,
+    choice: "ask",
+    rows: [
+      { id: "claude", name: "Claude Code", state: "ready" },
+      { id: "codex", name: "Codex", state: "ready" },
+    ],
+    manual: [
+      "claude mcp add --scope user cmux -- '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux' mcp serve",
+      "codex mcp add cmux -- '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux' mcp serve",
+    ],
+  };
+  /** Agents on This Mac gestures the page sent (turnOn). */
+  readonly agentToolsRuns: AgentToolsCardRun[] = [];
+  /** When set, Remove keeps the entry and the host says why (`note`), as for an entry with
+   * settings cmux could not put back. */
+  agentToolsKeeps: string | null = null;
+
   /** The person's saved MCP servers as the app serves them (`SettingsMcpServers.state`). */
   mcpServers: McpServersState = {
     loading: false,
@@ -1602,7 +1654,23 @@ export class MockSettingsProvider {
     },
     terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: "zsh" },
     ghostty_diagnostics: [],
-    computer_use: { phase: "ready", accessibility: true, screen_recording: false, helper: "cmux Computer Use" },
+    computer_use: {
+      phase: "ready",
+      accessibility: true,
+      screen_recording: false,
+      helper: "cmux Computer Use",
+      engine: "cmux Computer Use 1.0",
+      worker: { state: "running", pid: 4242 },
+      approvals: [
+        { app_id: "com.apple.Safari", name: "Safari", decision: "always" },
+        { app_id: "com.apple.MobileSMS", name: "Messages", decision: "never" },
+      ],
+      running_apps: [
+        { id: "com.apple.Safari", name: "Safari" },
+        { id: "com.apple.Notes", name: "Notes" },
+        { id: "com.figma.Desktop", name: "Figma" },
+      ],
+    },
     settings_file: "/Users/me/.config/cmux/cmux-next.json",
     backdrops: [
       { id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" },
@@ -1778,6 +1846,22 @@ export class MockSettingsProvider {
     return { name: theme.name };
   }
 
+  /** What the app's `computerUse.approval.*` actions do to the saved approvals. */
+  private runApprovalAction(action: string, args: Params): void {
+    const computerUse = this.host.computer_use;
+    if (!computerUse) return;
+    const approvals = computerUse.approvals ?? [];
+    const next: ComputerUseApproval[] =
+      action === "computerUse.approval.forget"
+        ? approvals.filter((approval) => approval.app_id !== args.app_id)
+        : approvals.map((approval) =>
+            approval.app_id === args.app_id && (args.decision === "always" || args.decision === "never")
+              ? { ...approval, decision: args.decision }
+              : approval,
+          );
+    this.setHost({ ...this.host, computer_use: { ...computerUse, approvals: next } });
+  }
+
   setHost(host: HostLists): void {
     this.host = host;
     for (const ctx of this.hostChanged) ctx.emit(host);
@@ -1785,6 +1869,10 @@ export class MockSettingsProvider {
 
   /** What the app's `browserProfile.*` actions do to the lists (enough for the page's tests). */
   private runProfileAction(action: string, args: Params, target: string | undefined): void {
+    if (action === "computerUse.approval.forget" || action === "computerUse.approval.set") {
+      this.runApprovalAction(action, args);
+      return;
+    }
     const id = target?.startsWith("browser-profile:") ? target.slice("browser-profile:".length) : null;
     const profiles = this.host.browser_profiles;
     const edit = (patch: Partial<BrowserProfile>) =>

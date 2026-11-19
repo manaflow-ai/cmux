@@ -112,8 +112,9 @@ use it before the build is done. The agent itself runs it there only when asked;
   survive a relaunch, and checks the build in a fleet simulator signed in with the agent account,
   whose session comes from this Mac (`cmux-ci run --sign-in agent`; no credential lives on a
   worker). Never install with raw `devicectl`, and nothing boots in a simulator on the person's
-  Mac. Rerunning the same command resumes the saved fleet jobs. Its phone leg has not yet had a
-  green end-to-end run; report a failure as the phone's blocker. Details:
+  Mac. Rerunning the same command resumes the saved fleet jobs. Its phone leg passed end to end on
+  2026-11-18 (real iPhone, tag `phone-e2e-1118`, #46718, all three modes); report a failure as the
+  phone's blocker. Details:
   [cmux-next-ios/CLAUDE.md](cmux-next-ios/CLAUDE.md).
   The Tag Opener link opens the Mac app and, on every connected phone, the same-tag iPhone app it
   has installed (hq `tools/cmux-hq/Sources/CmuxHQ/TagOpener.swift`, `iosLauncher.launch`).

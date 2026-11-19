@@ -1,5 +1,15 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
+  header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
+  from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset
+  (3.5 pt) became half points. The header (a stack view) snapped them to whole points; the frame-laid tab list stood
+  its scroll view on a half point, and the rows landed 1.5 pt right of the header's icon and 2 pt right of its text
+  at 1x. The card's grid is whole points now: the padding rounds (`SidebarRowTokens.hoverCard`), and one gap,
+  `HoverCardRowView.iconGap` (`space2` rounded), sets the header's and the activity row's spacing, the fact rows' gap,
+  `WorkspaceHoverCardView.textInset` and `WorkspaceTabHoverCardRow.fillOutset`. At Default: 8 pt padding, 4 pt gap.
+  Regression: `WorkspaceHoverCardGridTests.everyIconSharesOneColumnAndEveryTextOneEdge` (red on base since d8917c9).
+
 - 2026-11-18 (lane/sidebar-customize-stress, ask-2b329124aa): Sidebar-Look: no visual change. Sidebar customization
   (`sidebar.sections`, `sidebar.workspaces`) under stress. A selection change re-projects the sidebar only when it shows
   or hides a row (the old selection was kept only for being selected, Rust's `selection_spared`, or the new one is a
