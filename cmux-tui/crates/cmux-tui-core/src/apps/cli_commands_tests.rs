@@ -46,6 +46,7 @@ fn demo(dir: &str) -> (Package, Dir) {
         source: Source::User,
         dir: root.clone(),
         manifest,
+        fragment: Some(std::sync::Arc::new(catalog)),
     };
     (package, Dir(root))
 }
