@@ -1063,6 +1063,30 @@ class RePinPublication(unittest.TestCase):
                     self.assertEqual(state["published"], [])
                     self.assertEqual(state["writes"], 0)
 
+    def test_a_head_past_the_hold_whose_ci_still_runs_is_kept_up_to_the_cap(self):
+        # 2026-11-19: the re-pin PR's CI took over 2 h under load and FFI releases came about hourly, so a head moved
+        # for age alone never finished its CI. Past the hold, a head with a check still running and none of its own
+        # failed is kept; past REPIN_HOLD_MAX_MIN (360), or with nothing still running, it is moved.
+        cases = {
+            "past the hold, CI running": ({"head_age_min": 200, "checks": ("success", None)}, True),
+            "past the hold, CI done and green": ({"head_age_min": 200, "checks": ("success",)}, False),
+            "past the hold, CI running, a failure of its own": ({"head_age_min": 200,
+                                                               "checks": ("failure", None)}, False),
+            "past the cap, CI running": ({"head_age_min": 361, "checks": ("success", None)}, False),
+        }
+        for name, (options, kept) in cases.items():
+            with self.subTest(name):
+                result, state = self.run_repin(**options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                if kept:
+                    self.assertIn("kept #1 at cccccccccccc", result.stdout)
+                    self.assertIn("still running", result.stdout)
+                    self.assertEqual(state["refs"], {"app-ffi-repin": "c" * 40})
+                    self.assertEqual(state["writes"], 0)
+                else:
+                    self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+                    self.assertIn("verified open", result.stdout)
+
     # Merge of feat into #40150 (lead decision, ffi-pin-rev-5): the steps run in this order, each one before the pin on
     # the base (#40097): the same-inputs skip, the pending-newer hold, the keep-the-branch's-release swap. Moving the pin
     # on the base above the skip or the hold would pin a release with nothing to change, or one a newer run is about to
