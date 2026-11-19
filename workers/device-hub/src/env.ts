@@ -26,6 +26,16 @@ export interface Env {
   CLOSE_GRACE_MS?: string;
   TURN_KEY_API_TOKEN?: string;
   /**
+   * Where the cmux relay ICE comes from: `local` (the hub's own mint),
+   * `platform-first` (cmux-platform's minter, the local mint on failure) or
+   * `platform` (cmux-platform only). Unknown or missing: `local`. src/turn.ts.
+   */
+  TURN_SOURCE?: string;
+  /** cmux-platform origin that mints the relay ICE (`POST /v1/relay/ice-servers`). */
+  PLATFORM_TURN_ORIGIN?: string;
+  /** Bearer token for that route; missing: the hub mints locally. */
+  DEVICE_HUB_TURN_TOKEN?: string;
+  /**
    * cmux-platform per Stack project, asked who a joined machine's credential belongs to
    * (`POST /v1/auth/machine`): comma list of `<stackProjectId>=<https origin>`. Empty: the
    * route answers 503. src/machine.ts.

@@ -1,7 +1,9 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
-// The transcript's edges fade instead of cutting rows (Leo 2026-10-14, as New Tab's list did in
-// #19791): a soft edge under the header once the view has left the start, and above the composer while
-// more lies below. Neither moves anything, and Reduce Transparency keeps plain edges.
+// The transcript's top edge fades instead of cutting rows (Leo 2026-10-14, as New Tab's list did in
+// #19791): a soft edge under the header once the view has left the start. Above the composer rows keep
+// full ink down to the stack and stop there, as the Codex app's do (Lucas, 2026-11-17: "remove the
+// fade and just make it white like how codex does it"). Nothing moves, and Reduce Transparency keeps
+// plain edges.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -224,13 +226,13 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
     const start = await edges(page);
     expect({ latest, middle, start }).toEqual({
       latest: { top: true, bottom: false, box: latest.box },
-      middle: { top: true, bottom: true, box: latest.box },
-      start: { top: false, bottom: true, box: latest.box },
+      middle: { top: true, bottom: false, box: latest.box },
+      start: { top: false, bottom: false, box: latest.box },
     });
 
-    // A floating jump button must not erase several extra text lines above the composer.
-    // Paint a solid probe through the real scroller's alpha mask: 30px above the dock stays fully
-    // legible, while the short edge still softens and everything below the dock stays hidden.
+    // A floating jump button must not erase text lines above the composer. Paint a solid probe through
+    // the real scroller's alpha mask: right up to the dock stays fully legible, and under the card
+    // (its middle, clear of the corners, where rows beside the stack stay in sight) stays hidden.
     await scrollTo(page, "middle");
     await page.locator(JUMP_LATEST_SHOWN).waitFor();
     const probe = await page.evaluate(() => {
@@ -239,20 +241,23 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
       const box = node.getBoundingClientRect();
       document.querySelector<HTMLElement>(".acpmux-main")!.style.background = "black";
       node.style.background = "red";
+      // The stack itself out of the picture: the probe reads the scroller's mask alone.
+      document.querySelector<HTMLElement>(".acpmux-dock")!.style.visibility = "hidden";
       const foot = box.bottom - parseFloat(style.getPropertyValue("--acpmux-dock-space"));
       // In the right-hand gutter, past the rows' column and short of the scrollbar's lane: the rail's
       // lane on the left keeps full ink by design (conversation.css), so it is no probe for the mask.
       const lane = parseFloat(style.getPropertyValue("--acpmux-scrollbar-lane")) || 16;
-      return { x: box.right - lane - 1, foot };
+      return { x: box.right - lane - 1, middle: box.left + box.width / 2, foot };
     });
     const pixels = PNG.sync.read(await page.screenshot());
-    const redAt = (y: number) => pixels.data[(Math.floor(y) * pixels.width + Math.floor(probe.x)) * 4]!;
+    const redAt = (y: number, x = probe.x) => pixels.data[(Math.floor(y) * pixels.width + Math.floor(x)) * 4]!;
     expect(redAt(probe.foot - 30), "text more than one line above the dock stays opaque").toBeGreaterThan(240);
-    expect(redAt(probe.foot - 2), "the short transition remains soft").toBeLessThan(100);
-    expect(redAt(probe.foot + 4), "rows stay hidden beneath the dock").toBeLessThan(10);
+    expect(redAt(probe.foot - 2), "text just above the dock stays opaque").toBeGreaterThan(240);
+    expect(redAt(probe.foot + 4, probe.middle), "rows stay hidden beneath the dock").toBeLessThan(10);
     await page.evaluate(() => {
       document.querySelector<HTMLElement>(".acpmux-main")!.style.removeProperty("background");
       document.querySelector<HTMLElement>(".acpmux-scroll")!.style.removeProperty("background");
+      document.querySelector<HTMLElement>(".acpmux-dock")!.style.removeProperty("visibility");
     });
 
     // Reduce Transparency: plain edges.

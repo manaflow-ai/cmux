@@ -63,13 +63,13 @@ extension KeyRouter {
         let focus = controller.focus.state
         guard focus.resolved.mayQueueTyping, let pane = focus.resolved.pane, let readiness = controller.content?.paneController(key: pane)?.currentContent?.inputReadiness else { return false }
         let surface = String(describing: ObjectIdentifier(readiness))
-        let waiting = typeAhead.pending(for: surface) || deliveringTypeAhead == surface || typeAheadTail.holds(surface)
+        let waiting = typeAhead.pending(for: surface) || deliveringTypeAhead == surface || typeAheadTail.holds(surface) || parkedTyping.holds(readiness)
         let otherPage = keyInOtherPage(window, controller: controller)
         let facts = Facts(pageInputPending: !readiness.isReady || waiting, keyInOtherPage: otherPage)
         // Return follows the text typed before it, and the keys after it follow Return: they run once that text landed.
         if !otherPage, typeAheadTail.takes(keyCode: event.keyCode, chord: Self.isChord(event.modifierFlags), surface: surface, behindText: waiting) {
             decided.add(event)
-            typeAheadTail.hold(HeldTypeAheadKey(event: event, window: window), surface: surface, delivering: deliveringTypeAhead == surface)
+            typeAheadTail.hold(HeldTypeAheadKey(event: event, window: window), surface: surface, delivering: deliveringTypeAhead == surface || parkedTyping.park.isOnItsWay(to: readiness))
             if typeAheadFocus == nil { typeAheadFocus = TypeAheadWait(focus: focus.resolved, page: surface) }
             readiness.whenReady { [weak self, weak readiness] in readiness.map { self?.flushTypeAhead(surface, into: $0) } }
             return true
@@ -113,7 +113,7 @@ extension KeyRouter {
     /// one is delivered follow it. Deletes typed while it was on its way go
     /// right after it, before any text queued later.
     func flushTypeAhead(_ surface: String, into readiness: PageInputReadiness) {
-        guard deliveringTypeAhead == nil else { return }
+        guard !parkedTyping.types(surface, into: readiness), deliveringTypeAhead == nil else { return } // a parked text goes first
         // Nothing more is on its way: the keys held behind the text run now, as typed (out of the tail first, so none is held again).
         guard let text = typeAhead.take(surface: surface, now: .now) else { return typeAheadTail.settle(surface: surface).forEach { key in if let window = key.window { heldKeyReplay(key.event, window, self) } } }
         typeAheadTail.textWasTaken(surface: surface)
@@ -166,3 +166,5 @@ extension KeyRouter {
         dropTypeAhead()
     }
 }
+
+extension PageInputReadiness: ParkedTypingPage {} // the page that the key router's parked text is typed into
