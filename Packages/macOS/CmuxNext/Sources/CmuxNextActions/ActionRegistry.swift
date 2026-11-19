@@ -134,15 +134,10 @@ public final class ActionRegistry {
     /// Whether free text is a valid value of a suggested argument (a theme
     /// Ghostty accepts); nil accepts any non-empty text.
     @ObservationIgnored public var argumentValidation: (@MainActor (String, String) -> Bool)?
-    /// The current value of a choices submenu's argument for a target, shown
-    /// with a checkmark.
+    /// The current value of a choices submenu's argument for a target, shown with a checkmark.
     @ObservationIgnored public var choiceState: (@MainActor (ActionID, ActionTargetRef?) -> String?)?
     @ObservationIgnored public var targetChoices: (@MainActor (_ action: ActionID, _ kind: ActionTargetKind, _ target: ActionTargetRef?) -> ActionTargetChoices?)?
-    /// A submenu a menu row of an action opens, built when the menu opens, by its owner: Screen Sharing ▸
-    /// lists the machines to view (Leo, 2026-11-18: "you should be able to click the chevron next to teh +
-    /// of new tab and just go there"). It gets the row's target and machine; nil keeps the row a plain one,
-    /// which runs the action. The row keeps its run (``menuRun(of:)``), so the submenu adds, never replaces.
-    @ObservationIgnored public var rowSubmenus: [ActionID: @MainActor (_ target: ActionTargetRef?, _ machineID: String?) -> NSMenu?] = [:]
+    @ObservationIgnored public let rowSubmenus = ActionRowSubmenus() // Screen Sharing ▸ (ActionRowSubmenus.swift)
 
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]

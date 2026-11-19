@@ -120,10 +120,7 @@ extension ActionRegistry {
                 if let label = labels[id] { item.title = label }
                 // Built per click: names the target's change (Pin or Unpin, over the label), says why it is disabled.
                 ActionTargetTitles.decorate(item, id: descriptor.id, invocation: invocation, in: self)
-                if item.isEnabled, let submenu = rowSubmenus[descriptor.id]?(target, machineID) {
-                    item.title = item.title.droppingEllipsis
-                    item.submenu = submenu
-                }
+                if item.isEnabled { rowSubmenus.attach(to: item, id: descriptor.id, target: target, machineID: machineID) }
                 items.append(item)
             case .submenu(let id, let children):
                 let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels,
