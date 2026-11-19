@@ -255,6 +255,9 @@ public final class GlassParityPlayground {
         window.isReleasedWhenClosed = false
         window.setAccessibilityIdentifier("cmux.glassParity")
         let root = GlassParityFlippedView(frame: CGRect(origin: .zero, size: size))
+        // Layer-backed, so every column's backdrop draws into its own layer: in window-backing drawing
+        // AppKit skipped the backdrops under the web views (opaque to it), and the glass sampled nothing.
+        root.wantsLayer = true
         window.contentView = root
         for (index, column) in Column.allCases.enumerated() {
             let frame = CGRect(x: CGFloat(index) * Self.columnWidth, y: 0, width: Self.columnWidth, height: size.height)
