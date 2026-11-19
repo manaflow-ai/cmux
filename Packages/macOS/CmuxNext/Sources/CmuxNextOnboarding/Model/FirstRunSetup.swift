@@ -79,4 +79,12 @@ public final class FirstRunSetup {
         defaults.set("ended", forKey: Self.stateKey)
         shows = false
     }
+
+    /// Reopens the checklist from Home after first-run setup has ended. Row completion flags stay intact,
+    /// so the person can review unfinished work without being asked to repeat completed steps.
+    public func reopen() {
+        guard !skipsOnboarding else { return }
+        defaults.set("pending", forKey: Self.stateKey)
+        shows = true
+    }
 }

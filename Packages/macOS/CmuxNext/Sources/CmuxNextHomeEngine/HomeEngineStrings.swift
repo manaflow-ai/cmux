@@ -10,6 +10,10 @@ public nonisolated enum HomeEngineStrings {
     static var allChiefSettings: String {
         String(localized: "home.engine.allChiefSettings", defaultValue: "All Chief Settings…", table: "Home", bundle: .module)
     }
+    /// The Home Chief settings link that reopens the first-run checklist after it was dismissed.
+    static var reviewSetup: String {
+        String(localized: "home.engine.reviewSetup", defaultValue: "Review Set Up cmux", table: "Home", bundle: .module)
+    }
     static var brainFormat: String {
         String(localized: "home.engine.brain", defaultValue: "Runs on this Mac (%@). Tools: zoom, date, spawn, tell and the harness's own.", table: "Home", bundle: .module)
     }
