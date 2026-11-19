@@ -50,5 +50,18 @@ class TerminalReadingTests(unittest.TestCase):
         self.assertEqual({"premain_ms": None, "ours_ms": None}, tti.split(1070.0, None))
 
 
+class InputMarkTests(unittest.TestCase):
+    def test_the_mark_is_decided_from_the_bundles_page_scripts(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / "cmux.app"
+            pages = app / "Contents" / "Resources" / "webviews" / "assets"
+            pages.mkdir(parents=True)
+            (pages / "pane.js").write_bytes(b"post('pane.painted', {})")
+            self.assertFalse(tti.bundle_has_input_mark(app))
+            (pages / "composer-chunk.js").write_bytes(b"x.post(\"pane.inputEchoed\")")
+            self.assertTrue(tti.bundle_has_input_mark(app))
+
+
 if __name__ == "__main__":
     unittest.main()

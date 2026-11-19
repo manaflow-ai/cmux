@@ -25,8 +25,9 @@ harness posts a key (`x`) to the process every KEY_EVERY_S (CGEventPostToPid) un
 terminal key that reached the pty holds further keys for up to a second, so its echo closes the probe sample):
 
   chat       the app's launch mark `agent_pane.input_echoed`: the composer drew a key the person typed (the page's
-             pane.inputEchoed). A build without that mark reads no chat number (`no_mark`, NO_MARK_S after the chat
-             drew), never a harness time, and the round fails nothing.
+             pane.inputEchoed). A build without that mark reads no chat number (`no_mark`: no page in its bundle posts
+             pane.inputEchoed, decided once per run), never a harness time; the round fails nothing. A build that
+             has the mark and does not post it within --settle fails the round.
   terminal   the typing probe's first complete row: a key that went through the app's terminal, reached the pty and
              whose echo the app presented (`contents_ms`); its `event_uptime_ns` and the process start in the same
              clock (CLOCK_UPTIME_RAW) put it on the launch marks' clock.
@@ -67,7 +68,7 @@ FRONTS = ("chat", "terminal")
 DEFAULT_PLAN = ("cold:chat,cold:terminal,warm:chat,warm:terminal,warm60:chat,warm60:terminal,"
                 "cold:chat,cold:terminal,warm:chat,warm:terminal")
 PRERUN_S = 60.0
-NO_MARK_S = 5.0  # a drawn chat with no input mark this long after: a build without the mark
+INPUT_MARK_MESSAGE = b"pane.inputEchoed"  # what a page posts when its composer drew a typed key (the mark's source)
 CHAT_MARK = "agent_pane.input_echoed"
 KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reveal.home", "agent_pane.painted",
               CHAT_MARK, "first_terminal_surface_created", "terminal_input_accepted", "terminal_echo")
@@ -175,6 +176,19 @@ def terminal_reading(rows: list[dict], start_ns: int | None) -> dict:
             out["input_ms"] = round(at + shown, 1)
             break
     return out
+
+
+def bundle_has_input_mark(app: Path) -> bool:
+    """Whether any page script the app ships posts the composer's input mark (INPUT_MARK_MESSAGE): read once per run,
+    so a chat round on a build without it is `no_mark` and a slow composer on a build with it is a failure."""
+    resources = app / "Contents" / "Resources"
+    for path in resources.rglob("*.js"):
+        try:
+            if INPUT_MARK_MESSAGE in path.read_bytes():
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def split(input_ms, main_ms) -> dict:
@@ -302,18 +316,15 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     marks: dict = {}
     buf = bytearray()
     posted, activated, last_post = 0, 0.0, 0.0
-    painted_at = None
     term: dict = {"accepted_ms": None, "input_ms": None}
     end = time.monotonic() + args.settle
     while time.monotonic() < end and process.poll() is None:
         read_marks(fd, buf, marks)
         if which == "chat" and CHAT_MARK in marks:
             break
-        # A build without the composer's input mark: the chat drew and NO_MARK_S of keys later still no mark. Stop
-        # typing into its draft; the round reads `no_mark`, not a failure of the app.
-        if which == "chat" and "agent_pane.painted" in marks and painted_at is None:
-            painted_at = time.monotonic()
-        if painted_at is not None and time.monotonic() - painted_at > NO_MARK_S:
+        # A build whose pages never post the composer's input mark (bundle_has_input_mark, decided once per run): the
+        # round ends when the chat drew and types nothing into its draft; it reads `no_mark`, not a failure of the app.
+        if which == "chat" and not args.has_input_mark and "agent_pane.painted" in marks:
             break
         if which == "terminal":
             term = terminal_reading(probe_rows(probe), start_ns)
@@ -340,8 +351,8 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     row["first_frame_ms"] = marks.get("first_window_frame_committed")
     if which == "chat":
         row["input_ms"] = marks.get(CHAT_MARK)
-        if row["input_ms"] is None and "agent_pane.painted" in marks:
-            row["no_mark"] = True  # the chat drew, but this build reports no composer echo
+        if not args.has_input_mark:
+            row["no_mark"] = True  # this build's pages never post the composer's input mark
     else:
         row.update(term)
     row.update(split(row.get("input_ms"), row["main_ms"]))
@@ -376,6 +387,8 @@ def check(args) -> int:
             result["seed_error"] = str(error)
             return [f"seed: {error}"]
         result["seed"] = {**made["list"], "seed_s": round(time.monotonic() - started, 1)}
+        args.has_input_mark = bundle_has_input_mark(app)
+        result["has_input_mark"] = args.has_input_mark
         # Under the smoke's own root, never the evidence folder: the smoke's cleanup removes it whatever happens.
         pristine = Path(env["HOME"]).parent / "pristine.noindex" / app.name
         pristine.parent.mkdir(parents=True, exist_ok=True)
