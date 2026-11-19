@@ -296,7 +296,8 @@
 .hm-suggestion-row[data-kind="header"] {
   height: var(--hm-suggestion-header);
 }
-.hm-suggestion-row[data-highlighted] {
+/* The highlighted suggestion (ListboxRow marks it aria-selected). */
+.hm-suggestion-row[aria-selected="true"] {
   background: var(--page-hover);
 }
 .hm-suggestions-empty {
