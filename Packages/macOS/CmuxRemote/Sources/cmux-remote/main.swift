@@ -4,7 +4,7 @@
 // Accessibility and Screen Recording belong to cmux Remote, never to cmux or
 // its shells. Modes:
 //   cmux-remote host --layout-dir D --state-dir S --scope ID   (bootstrap line on fd 3)
-//   cmux-remote worker computer-use|screen-sharing --layout-dir D ...
+//   cmux-remote worker computer-use|screen-sharing --layout-dir D ...  (Computer Use: configured on stdin)
 //   cmux-remote probe       (prints this process's grants and exits)
 import AppKit
 import CmuxRemoteComputerUse
@@ -37,7 +37,8 @@ case "worker":
     let layout = RemoteHostLayout(directory: layoutDirectory)
     switch arguments.dropFirst().first.flatMap(RemoteWorkerKind.init(rawValue:)) {
     case .computerUse:
-        ComputerUseWorker().run(bundleIdentifier: bundleID)
+        // Configured over its stdin by the host (the worker contract); hosts libcmux_computer_use.
+        MainActor.assumeIsolated { ComputerUseWorker().run() }
     case .screenSharing:
         guard let state = option("--state-dir"), let scope = option("--scope") else { fail("screen-sharing needs --state-dir and --scope") }
         let headless = ProcessInfo.processInfo.environment["CMUX_REMOTE_HEADLESS"] != "0"
