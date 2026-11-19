@@ -41,9 +41,9 @@ struct AppWindowImage {
     /// or Leave site) shows the not-captured stripes there, never the window server's blank pixels (a black page,
     /// while the screen shows the page behind the dialog). A page asking Leave site is not asked: no image comes.
     /// - Returns: The layers, how many pages there are, and how many gave no image.
-    static func pageLayers(in window: NSWindow, services: AppServices) async -> (layers: [WindowImageLayer], pages: Int, failed: Int) {
+    static func pageLayers(in window: NSWindow, services: AppServices, skip: Bool = false) async -> (layers: [WindowImageLayer], pages: Int, failed: Int) {
         var layers: [WindowImageLayer] = [], pages = 0, failed = 0
-        for (page, rect) in DebugWindowSnapshot.chromiumPages(in: window, services: services) {
+        for (page, rect) in skip ? [] : DebugWindowSnapshot.chromiumPages(in: window, services: services) {
             let image = page.pendingPrompts.contains { $0.kind.isBeforeUnload } ? nil : try? await page.snapshot()
             pages += 1; if image == nil { failed += 1 }
             let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }

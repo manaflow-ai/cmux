@@ -44,6 +44,10 @@
 #   late=MS      a third side, late: its own copy of the head's DMG and its own home, interleaved after head, whose measured
 #                launches wait MS ms (0 to 10000) between the previous launch's quit and their open request. It tells a
 #                head cost that comes from overlapping the quit before it from one the head pays anyway. Default 0.
+#   layout=1     with dmg=build: both sides built with --config bench (Release optimization with the debug.* commands)
+#                and every launch samples its layout from the first on-screen frame (launch-ready.swift `layout`): the
+#                window's frame and the sidebar's edge until neither changed for 1 s or 3 s passed. Each LR-RUN row gets
+#                `layout`; LR-FRAMES per side: the median and highest move (points) and change count after the first frame.
 
 #   preflight=1  just before the first launch, ~10 s of top: a system indexer (launch-ready-preflight.sh's INDEXERS)
 #                above preflight_cpu=N % CPU (default 30), or cmux-ci's CMUX_CI_HOST_NOISY=1, fails the step with
@@ -86,11 +90,11 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 late=0 engines="" arg rc=0 i side
+  local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small prerun=0 copy=same machines=0 late=0 engines="" config=release arg rc=0 i side
 
   local preflight=1 preflight_cpu=30
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-  LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT=""
+  LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_LAYOUT=0
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
   LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
@@ -118,10 +122,13 @@ main() {
       engines=*) engines="${arg#engines=}" ;;
       preflight=0|preflight=1) preflight="${arg#preflight=}" ;;
       preflight_cpu=*) preflight_cpu="${arg#preflight_cpu=}" ;;
+      layout=0|layout=1) LR_LAYOUT="${arg#layout=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
+  [[ "$LR_LAYOUT" == 0 || "$dmg" == build ]] || { echo "layout=1 takes dmg=build (the sidebar edge needs a bench build)" >&2; exit 2; }
+  [[ "$LR_LAYOUT" == 1 ]] && config=bench
   [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
   [[ "$preflight_cpu" =~ ^[1-9][0-9]*$ ]] || { echo "preflight_cpu= takes a whole percent >= 1" >&2; exit 2; }
   [[ "$LR_STATE" == kept || ( "$session" == small && "$machines" == 0 ) ]] \
@@ -171,8 +178,11 @@ main() {
     sed '/^main "\$@"; exit \$?$/d' scripts/measure/nightly-fresh-launch.sh >"$out/nightly-fresh-launch-lib.sh"
     source "$out/nightly-fresh-launch-lib.sh"
     declare -F build_dmg >/dev/null || { echo "LR build_dmg missing from nightly-fresh-launch.sh"; exit 3; }
-    # build_dmg resolves each side's acpmux with this copy: a base commit may predate resolve-acpmux.sh.
+    # build_dmg resolves each side's acpmux with this copy: a base commit may predate resolve-acpmux.sh. Each side's
+    # Screen Sharing helper phase runs this copy too (NFL_SCREEN_HELPER_PHASE).
     cp scripts/cmux-next/resolve-acpmux.sh "$out/resolve-acpmux.sh" && export NFL_RESOLVE_ACPMUX="$out/resolve-acpmux.sh"
+    cp scripts/cmux-next/bundle-screen-sharing-helper.sh "$out/bundle-screen-sharing-helper.sh" \
+      && export NFL_SCREEN_HELPER_PHASE="$out/bundle-screen-sharing-helper.sh"
     local here; here="$(git rev-parse HEAD)"
     local head="${headsha:-$here}" want
     for want in $base $head; do
@@ -181,12 +191,12 @@ main() {
     done
     if [[ -n "$base" ]]; then
       git -c advice.detachedHead=false checkout --quiet --detach "$base" || exit 3
-      build_dmg "$out" base release; rc=$?
+      build_dmg "$out" base "$config"; rc=$?
       [[ $rc == 0 ]] || { git -c advice.detachedHead=false checkout --quiet --detach "$here"; exit "$rc"; }
       sides=(base head)
     fi
     git -c advice.detachedHead=false checkout --quiet --detach "$head" || exit 3
-    build_dmg "$out" head release; rc=$?
+    build_dmg "$out" head "$config"; rc=$?
     git -c advice.detachedHead=false checkout --quiet --detach "$here" || exit 3
     [[ $rc == 0 ]] || exit "$rc"
   else
@@ -221,6 +231,7 @@ main() {
     local info="$out/$side/$(basename "$found")/Contents/Info.plist"
     [[ -f "$info" ]] || { echo "LR-FAIL $side $(basename "$found") has no Contents/Info.plist"; exit 3; }
     echo "LR app $side $(basename "$found") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$info" 2>/dev/null)"
+    sign_line "$side" "$out/$side/$(basename "$found")"
     defaults_aside "$out" "$out/$side/$(basename "$found")" || { echo "LR-FAIL $side defaults not set aside"; exit 3; }
     if [[ "$LR_CASE" == update && "$side" == base ]]; then continue; fi # the old copy: launched at head's path below
     if [[ "$LR_CASE" == update ]]; then old_copy "$out" "$side" || rc=1; fi
@@ -249,10 +260,41 @@ main() {
   exit "$rc"
 }
 
+# sign_line SIDE APP: LR-SIGN, how SIDE's copy is signed (codesign: signature, flags, team, first authority) and what
+# Gatekeeper says of it (spctl's source), the checks a launch before main may wait on.
+sign_line() {
+  local cs gk
+  cs="$(codesign -dv --verbose=2 "$2" 2>&1 | awk -F= '/^Signature=|^CodeDirectory|^TeamIdentifier=|^Authority=/ {
+    if ($1 == "Authority" && seen++) next; sub(/^CodeDirectory v=[^ ]* size=[^ ]* /, "", $0); printf "%s; ", $0 }')"
+  gk="$(spctl -a -vv -t exec "$2" 2>&1 | awk '/source=/ { sub(/.*source=/, ""); print; exit } /rejected/ { print "rejected"; exit }')"
+  echo "LR-SIGN $1 ${cs:-no codesign output}gatekeeper=${gk:-unknown}"
+}
+
+# checker_cpu: the CPU ms so far of the processes that check code before it runs; checker_delta BEFORE AFTER: each
+# one's ms between the two readings (a launch's checks, plus whatever else they did in those seconds).
+checker_cpu() {
+  ps -axo time=,comm= | awk '{ n = $NF; sub(".*/", "", n); k = split($1, t, ":"); s = 0
+    for (i = 1; i <= k; i++) s = s * 60 + t[i]
+    if (n == "syspolicyd" || n == "XprotectService" || n == "amfid" || n == "trustd" || n == "taskgated") c[n] += s * 1000 }
+    END { printf "%d %d %d %d %d", c["syspolicyd"], c["XprotectService"], c["amfid"], c["trustd"], c["taskgated"] }'
+}
+checker_delta() {
+  awk -v b="$1" -v a="$2" 'BEGIN { split(b, x, " "); split(a, y, " ")
+    printf "syspolicyd_ms=%d xprotect_ms=%d amfid_ms=%d trustd_ms=%d taskgated_ms=%d", y[1]-x[1], y[2]-x[2], y[3]-x[3], y[4]-x[4], y[5]-x[5] }'
+}
+
+# exe_stat APP: the main executable's hard-link count and ctime ("links:ctime"); a launch that changes either
+# (a code-sign clone that hard-links it) is what makes the checkers scan it again before the next launch.
+exe_stat() {
+  local name
+  name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$1/Contents/Info.plist" 2>/dev/null)"
+  stat -f '%l:%c' "$1/Contents/MacOS/$name" 2>/dev/null || echo unknown
+}
+
 # probe OUT SIDE LABEL SETTLE_S PROFILE: one launch of SIDE's copy with SIDE's home, in the console session; with
 # PROFILE 1 under an all-processes Time Profiler recording.
 probe() {
-  local out="$1" side="$2" label="$3" settle="$4" profile="$5" app line load recorder="" trace cross
+  local out="$1" side="$2" label="$3" settle="$4" profile="$5" app line load recorder="" trace cross checkers exe
   trace="$out/$side-$label.trace" # its own line: bash 3.2 expands a `local` line's words before it assigns any
   app="$(find "$out/$side" -maxdepth 1 -name '*.app' | head -1)"
   mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
@@ -288,8 +330,10 @@ probe() {
   if [[ "$side" == late && "$label" == run* ]]; then
     sleep "$(awk -v ms="${LR_LATE:-0}" 'BEGIN { printf "%.3f", ms / 1000 }')" # late=MS, just before the open request
   fi
+  checkers="$(checker_cpu)" exe="$(exe_stat "$app")"
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
-    $([[ "$LR_STATE" == bare ]] && echo shell) 2>>"$out/probe.log" | grep '^LR-RUN ')"
+    $([[ "$LR_STATE" == bare ]] && echo shell) $([[ "$LR_LAYOUT" == 1 ]] && echo layout) 2>>"$out/probe.log" | grep '^LR-RUN ')"
+  checkers="$(checker_delta "$checkers" "$(checker_cpu)") exe=$exe->$(exe_stat "$app")"
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
   # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.
   if side_defaults "$out" save "$app" "$out/home-$side/defaults.plist"; then
@@ -309,6 +353,7 @@ probe() {
   fi
   echo "$line" | sed "s/^LR-RUN /LR-RUN $side /"
   echo "LR-LOAD $side $label load_1m=$load"
+  echo "LR-CHECKERS $side $label $checkers"
   echo "${line#LR-RUN }" | python3 -I -c 'import json,sys; r=json.load(sys.stdin); r["side"]=sys.argv[1]; r["load_1m"]=float(sys.argv[2]) if sys.argv[2] else None; r.update({"cross_arm": json.loads(sys.argv[3])} if sys.argv[3] else {}); print(json.dumps(r))' "$side" "$load" "$cross" >>"$out/runs.jsonl"
   if [[ -n "$recorder" && -d "$trace" ]]; then
     python3 -I "$out/profile.py" "$trace" "${line#LR-RUN }" "$side" 2>>"$out/xctrace.log" || echo "LR-PROFILE $side no profile (xctrace.log)"
