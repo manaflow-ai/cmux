@@ -1,6 +1,6 @@
 // tsc-fixits: the TypeScript language service's own fix for each type error, when it has exactly one safe fix.
 //
-//   bun webviews/scripts/ci/tsc-fixits.ts --project DIR < errors.json
+//   bun scripts/ci/oops/tsc-fixits.ts --project DIR < errors.json
 //
 // scripts/ci/oops/fixit_compile.py (ci-oops part 0a, fixer `fixit-compile`) runs this after a failed typecheck.
 // stdin is the errors it read from the log: [{file, line, col, code, message}], file relative to DIR, line and col

@@ -15,7 +15,7 @@ the compiler for each one's fix:
          message's rendered text is still printed): a suggestion counts only when every span of it is
          `MachineApplicable`, the applicability `cargo fix` and `clippy --fix` apply, and an error counts as fixable
          only when exactly one such suggestion answers it.
-  tsc    the `error TSnnnn` lines of the log, then webviews/scripts/ci/tsc-fixits.ts asks the TypeScript language
+  tsc    the `error TSnnnn` lines of the log, then tsc-fixits.ts (beside this file) asks the TypeScript language
          service (getCodeFixesAtPosition) for each: fixable only when it offers exactly one fix, the fix is on the
          safe list there (no spelling guess, no @ts-ignore), and it carries no command.
 Only when EVERY error is fixable (never a part, never a guess) are the edits applied and COMMAND run again. A green
@@ -264,9 +264,7 @@ def tsc_errors(log: str) -> list[dict]:
 
 def tsc_plan(errors: list[dict], cwd: Path, repo: Path) -> dict:
     """Ask tsc-fixits.ts (the TypeScript language service of the project in CWD) for each error's one safe fix."""
-    script = repo / "webviews" / "scripts" / "ci" / "tsc-fixits.ts"
-    if not script.is_file():
-        script = HERE.parent.parent.parent / "webviews" / "scripts" / "ci" / "tsc-fixits.ts"
+    script = HERE / "tsc-fixits.ts"
     runner = os.environ.get("FIXIT_COMPILE_TS_RUNNER") or "bun"
     try:
         proc = subprocess.run([runner, str(script), "--project", str(cwd)], input=json.dumps(errors), cwd=cwd,
