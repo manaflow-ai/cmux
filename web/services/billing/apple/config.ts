@@ -12,7 +12,15 @@ export const APPLE_MANAGE_SUBSCRIPTIONS_URL = "https://apps.apple.com/account/su
 
 /** The App Store app; App Review purchases arrive from it in the Sandbox. */
 export const APP_STORE_BUNDLE_ID = "com.cmux.app";
-const DEFAULT_BUNDLE_IDS = [APP_STORE_BUNDLE_ID, "dev.cmux.app.beta"] as const;
+/**
+ * The App Store app first (the default for a request without a bundle header),
+ * then the classic TestFlight beta and cmux INTERNAL (`dev.cmux.app.internal`,
+ * App Store Connect 6791408425), the cmux-next TestFlight build. TestFlight
+ * buys only in the Sandbox, which production grants solely for the App Store
+ * bundle, so INTERNAL is answered `purchases_unavailable` there unless
+ * `APPLE_IAP_SANDBOX_ENTITLEMENTS` names it.
+ */
+const DEFAULT_BUNDLE_IDS = [APP_STORE_BUNDLE_ID, "dev.cmux.app.beta", "dev.cmux.app.internal"] as const;
 const DEFAULT_APP_APPLE_ID = 6783338052;
 
 /** Environments whose payloads carry an App Store signature. */
