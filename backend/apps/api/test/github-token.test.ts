@@ -680,7 +680,13 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     const seam = await worker.fetch("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${a.installToken}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) })
     expect(seam.status).toBe(404)
     // Staging answers the seam as development does (cmux-platform's environment builds mint through it); production stays 404.
-    const seamIn = async (environment: string) => (await handleGithubToken(new Request("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${a.installToken}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) }), { ...testEnv, ENVIRONMENT: environment } as any, "machine-token"))
+    // A token's issuer names its environment, so the same install's bearer is minted for each one asked.
+    const claims = JSON.parse(atob(a.installToken.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as { sub: string; team: string; inst: string; grant: string }
+    const seamIn = async (environment: string) => {
+      const envIn = { ...testEnv, ENVIRONMENT: environment } as any
+      const bearer = (await mintAccessToken(envIn, { user: claims.sub, team: claims.team, install: claims.inst, grant: claims.grant })).token
+      return handleGithubToken(new Request("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${bearer}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) }), envIn, "machine-token")
+    }
     for (const environment of ["development", "staging"]) {
       const answer = await seamIn(environment)
       // The person's cli install reaches the route's own gate, which wants a machine install.
@@ -723,7 +729,12 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     const mint = (repo: string) => handleGithubToken(new Request("https://api.test/v1/integrations/github/token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${vm.bearer}` }, body: JSON.stringify({ team: a.team, repo, permissions: { contents: "read" } }) }), env as any, "token").then((r) => r.status)
     expect([await mint("acme/web"), await mint("acme/api"), await mint("acme/unlinked")]).toEqual([200, 200, 403])
     // The machine-only seam mints for the same VM on staging (cmux-platform's environment build); production answers 404.
-    const seam = (environment: string) => handleGithubToken(new Request("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${vm.bearer}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) }), { ...env, ENVIRONMENT: environment } as any, "machine-token")
+    // A token's issuer names its environment: the VM's bearer is minted for the environment asked.
+    const seam = async (environment: string) => {
+      const envIn = { ...env, ENVIRONMENT: environment } as any
+      const bearer = (await mintAccessToken(envIn, { user: a.user, team: a.team, install: vm.id, grant: vm.grant, vm: true })).token
+      return handleGithubToken(new Request("https://api.test/v1/integrations/github/machine-token", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${bearer}` }, body: JSON.stringify({ team: a.team, repo: "acme/web", permissions: { contents: "read" } }) }), envIn, "machine-token")
+    }
     const staged = await seam("staging")
     expect([staged.status, typeof ((await staged.json()) as any).token]).toEqual([200, "string"])
     expect((await seam("production")).status).toBe(404)
