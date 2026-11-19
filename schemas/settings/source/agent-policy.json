@@ -224,7 +224,8 @@
       "agent": "settable",
       "why": "The theme file whose look applies (looks only)",
       "keys": [
-        "appearance.themeFile"
+        "appearance.themeFile",
+        "appearance.themeFileExceptions"
       ]
     },
     {

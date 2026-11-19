@@ -103,7 +103,21 @@ const notFound = () => Response.json({ code: "NOT_FOUND", message: "no such VM" 
 const conflict = (message: string) => Response.json({ code: "CONFLICT", message }, { status: 409 });
 
 export function makeFakeUpstream(apiKey: string) {
-  const faults = { lostCreateResponses: 0, lostSnapshotResponses: 0 };
+  const faults: {
+    lostCreateResponses: number;
+    lostSnapshotResponses: number;
+    /** A create still joins the network it names, but its answer does not list the VM's networks. */
+    hideCreateNetworks: boolean;
+    /** The create answer lists the joined network under `vpcs` and a second, different list under `networks`. */
+    splitCreateNetworks: boolean;
+    /** The create answer's `debug` object (the provider's own phase timings), when set. */
+    createDebug: unknown;
+  } = { lostCreateResponses: 0, lostSnapshotResponses: 0, hideCreateNetworks: false, splitCreateNetworks: false, createDebug: undefined };
+  /**
+   * Private networks belong to mesh-fakes.ts, which sets this: a create that names a network joins it here. Answers the
+   * VM's attachments, or null when the account has no such network (the create is then refused, as the provider's).
+   */
+  const hooks: { attachOnCreate: ((vmId: string, vpc: string) => NonNullable<FakeVm["vpcs"]> | null) | null } = { attachOnCreate: null };
   const vms = new Map<string, FakeVm>();
   const snapshots = new Map<string, FakeSnapshot>();
   const tlsRules = new Map<string, Record<string, unknown>>();
@@ -192,6 +206,14 @@ export function makeFakeUpstream(apiKey: string) {
               : {},
           snapshotId: typeof snapshotId === "string" ? snapshotId : null,
         };
+        const wanted = read("networks");
+        const first: unknown = Array.isArray(wanted) ? wanted[0] : undefined;
+        const vpc: unknown = typeof first === "object" && first !== null ? Reflect.get(first, "vpc") : undefined;
+        if (typeof vpc === "string") {
+          const attachments = hooks.attachOnCreate?.(created.id, vpc) ?? null;
+          if (attachments === null) return Response.json({ code: "NOT_FOUND", message: "no such network" }, { status: 404 });
+          created.vpcs = attachments;
+        }
         vms.set(created.id, created);
         const tls = read("tls");
         const inline = typeof tls === "object" && tls !== null && "rules" in tls && Array.isArray(tls.rules) ? tls.rules : [];
@@ -208,7 +230,12 @@ export function makeFakeUpstream(apiKey: string) {
           firewallRules.set(id, { vmId: created.id, rule: { ...value, id, createdAt: "2026-11-03T00:00:00Z", updatedAt: "2026-11-03T00:00:00Z" } });
         }
         if (faults.lostCreateResponses > 0) { faults.lostCreateResponses--; throw new TypeError("lost provider create response"); }
-        return Response.json(vmBody(created), { status: 201 });
+        const { vpcs: joined, ...answer } = vmBody(created);
+        return Response.json({
+          ...answer,
+          ...(joined === undefined || faults.hideCreateNetworks ? {} : { vpcs: joined, networks: faults.splitCreateNetworks ? [...joined, { vpc: "vpc-some-other-network", ipv4: "10.99.0.2" }] : joined }),
+          ...(faults.createDebug === undefined ? {} : { debug: faults.createDebug }),
+        }, { status: 201 });
       }
       case "get":
         return vm === undefined ? notFound() : Response.json(vmBody(vm));
@@ -457,6 +484,7 @@ export function makeFakeUpstream(apiKey: string) {
 
   return {
     faults,
+    hooks,
     fetch,
     vms,
     snapshots,
