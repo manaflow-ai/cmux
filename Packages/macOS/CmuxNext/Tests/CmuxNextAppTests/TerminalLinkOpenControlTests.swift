@@ -78,4 +78,68 @@ import Testing
         #expect(opened.first?.0.absoluteString == "https://login.example.test/")
         #expect(opened.first?.1 == nil)
     }
+
+    /// The agent's chat (`agent-a`) in its own workspace, while the person looks at Home.
+    private func agentTopology() -> ControlSnapshot {
+        var snapshot = ControlSnapshot()
+        var topology = ControlTopology()
+        topology.isLoaded = true
+        topology.daemonState = "connected"
+        let right = ControlPaneInfo(id: "pane-right", handle: "9", selectedTabID: "tab-right",
+                                    tabs: [ControlTabInfo(id: "tab-right", surface: "32", kind: "browser", title: "Docs")])
+        var home = ControlWorkspaceInfo(id: "home-key", handle: "10", name: "Home", screens: [ControlScreenInfo(id: "screen-home", handle: "11", panes: [right])])
+        home.kind = "home"
+        var chat = ControlTabInfo(id: "tab-chat", surface: "41", kind: "conversation", title: "Agent")
+        chat.agentSessionID = "agent-a"
+        let pane = ControlPaneInfo(id: "pane-agent", handle: "12", selectedTabID: "tab-chat", tabs: [chat])
+        let agent = ControlWorkspaceInfo(id: "2487aed7-ede0-435b-85be-ea666881e9ad", handle: "14", name: "Agent work",
+                                         screens: [ControlScreenInfo(id: "screen-agent", handle: "13", panes: [pane])])
+        topology.workspaces = [home, agent]
+        topology.focus = ControlFocus(windowID: "win-1", workspaceID: "home-key", paneID: "pane-right", tabID: "tab-right")
+        snapshot.topology = topology
+        return snapshot
+    }
+
+    /// An agent's `BROWSER` / `open https://…` (no terminal: it runs in an agent chat) opens beside
+    /// its own chat, never beside the focused pane in Home (user, 2026-11-18).
+    @Test func anAgentsLinkOpensBesideItsOwnChatNotTheFocusedPane() async throws {
+        let snapshot = agentTopology()
+        let opened = try await recordingOpens { router in
+            router.snapshots.publish { $0 = snapshot }
+            let reply = try await openLink(router, ["url": "https://github.com/manaflow-ai/cmux/pull/1", "target": "cmux",
+                                                    "caller": ["agent_session": "agent-a"]]).get()
+            #expect(reply["opened_in"]?.stringValue == "cmux", "\(reply)")
+        }
+        #expect(opened.count == 1)
+        #expect(opened.first?.1 == "tab-chat", "beside the agent's chat: \(String(describing: opened.first?.1))")
+    }
+
+    /// An agent whose chat tab is closed opens its link in the workspace its session runs in.
+    @Test func anAgentWithAClosedChatOpensItsLinkInItsOwnWorkspace() async throws {
+        let snapshot = agentTopology()
+        let opened = try await recordingOpens { router in
+            router.snapshots.publish { $0 = snapshot }
+            _ = try await openLink(router, ["url": "https://github.com/manaflow-ai/cmux/pull/1", "target": "cmux",
+                                            "caller": ["agent_session": "agent-gone", "workspace": "2487AED7-EDE0-435B-85BE-EA666881E9AD"]]).get()
+        }
+        #expect(opened.first?.1 == "tab-chat", "\(String(describing: opened.first?.1))")
+    }
+
+    /// An agent cmux cannot place is refused (its shim then uses the default browser); the link
+    /// never opens beside the focused pane.
+    @Test func anAgentCmuxCannotPlaceIsRefused() async throws {
+        let snapshot = agentTopology()
+        let opened = try await recordingOpens { router in
+            router.snapshots.publish { $0 = snapshot }
+            let result = await openLink(router, ["url": "https://login.example.test/", "target": "cmux",
+                                                 "caller": ["agent_session": "agent-gone"]])
+            guard case .failure(let error) = result else {
+                Issue.record("expected caller_unavailable, got \(result)")
+                return
+            }
+            #expect(error.code == "caller_unavailable", "\(error)")
+            #expect(!error.message.contains("example.test"), "the URL never goes in an error")
+        }
+        #expect(opened.isEmpty)
+    }
 }
