@@ -67,6 +67,7 @@ on:
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
       - scripts/ci/cargo-groups.sh
+      - scripts/ci/cmux-tui-mac-cargo-builds.sh
       - scripts/ci/acpmux-build-features.sh
       - scripts/ci/tailnet-go.sh
       - scripts/ci/macos-stubs/**
@@ -424,6 +425,7 @@ on:
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
       - scripts/ci/cargo-groups.sh
+      - scripts/ci/cmux-tui-mac-cargo-builds.sh
       - scripts/ci/acpmux-build-features.sh
       - scripts/ci/tailnet-go.sh
       - scripts/ci/macos-stubs/**

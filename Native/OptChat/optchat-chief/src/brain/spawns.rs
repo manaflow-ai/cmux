@@ -1233,23 +1233,66 @@ impl Brain {
         }
         self.trace_sub_events(id, &events, floor);
         let report = report_of(&replies, cancelled);
+        // Its background work still pending now: each such task wakes it
+        // again with a notice when it ends.
+        let background = self.state.sub(id).map_or_else(Vec::new, |(_, s)| {
+            super::children::background_after(&s.background, &events)
+        });
         // Under the goal it ended its last run only with its task done, so a
         // run that only acpmux notices started (its own background command
         // finished) after that report wakes no Chief turn: its words go in
         // quietly (live on build 108: a2 reported again what it had reported).
+        // Not after a report that only waited: this run is where its result
+        // comes (tests/subagent_waiting.rs).
         let after_report = self
             .state
             .sub(id)
-            .is_some_and(|(_, s)| s.goal && s.reopened);
+            .is_some_and(|(_, s)| s.goal && s.reopened && s.waiting_ms == 0);
         if !cancelled && after_report && super::children::notice_only(&events) {
             (self.log)(&format!(
                 "subagent {id}: a notice turn after its report, passed on quietly"
             ));
             self.trace.emit("subagent.notice_quiet", json!({"id": id}));
             self.sub_done(id, report, true, Some(last_end), Some(&events));
+            if let Some(sub) = self.state.sub_mut(id) {
+                sub.background = background;
+            }
+            self.save();
             return;
         }
-        self.sub_done(id, report, cancelled, Some(last_end), Some(&events));
+        // It ended this run only to wait on work it started (a fleet step, a
+        // CI wait, a monitor), which wakes it again: its words reach the
+        // Chief quietly, with no turn and no outcome owed (Nov 12-18: 51% of
+        // Chief turns had nothing else to wake them). Its next run reports.
+        let waits = !cancelled && !background.is_empty() && crate::sub_watch::waits(&report);
+        if waits {
+            (self.log)(&format!(
+                "subagent {id}: waits on {} background task(s), its report goes in quietly",
+                background.len()
+            ));
+            self.trace.emit(
+                "subagent.waiting",
+                json!({"id": id, "background": background.len()}),
+            );
+        }
+        self.sub_done(
+            id,
+            report,
+            cancelled || waits,
+            Some(last_end),
+            Some(&events),
+        );
+        let now = self.now();
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.background = background;
+            if waits {
+                if sub.waiting_ms == 0 {
+                    sub.waiting_ms = now;
+                }
+                sub.waiting_checked_ms = now;
+            }
+        }
+        self.save();
     }
 
     pub(super) fn sub_done(
@@ -1267,6 +1310,11 @@ impl Brain {
         else {
             return;
         };
+        // Every run end starts as no wait; `finish_sub` marks a wait after.
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.waiting_ms = 0;
+            sub.waiting_checked_ms = 0;
+        }
         // A cancelled subagent's sign-ins wait on nobody now (every stop path ends here).
         if self.state.sub(id).is_some_and(|(_, s)| s.cancelled) {
             self.sign_ins.abandoned(id);
@@ -1355,7 +1403,10 @@ impl Brain {
         if land_followup {
             stopped = true;
         }
+        let reported_at = self.now();
         let run_ms = if let Some(sub) = self.state.sub_mut(id) {
+            sub.reported_ms = reported_at;
+            sub.last_report = report.chars().take(300).collect();
             sub.fleet_wait = fleet_wait;
             sub.status = SubStatus::Done;
             sub.reopened = false;
@@ -1981,6 +2032,14 @@ impl Brain {
                 matches!(&q.source, Source::Spawn(r) if r.spawn == spawn && r.subs.iter().any(|(s, _)| *s == id))
             });
             match queued {
+                // A quiet report still queued (it waited, or only acked)
+                // and now one that wakes: queued anew, so it starts a turn
+                // (replacing it in place woke nothing: tests/subagent_waiting.rs).
+                Some(k) if !quiet && !self.queue[k].wakes() => {
+                    self.queue.remove(k);
+                    (self.log)(&format!("subagent {id}: queued its report"));
+                    self.queue(text, source);
+                }
                 Some(k) => {
                     self.queue[k] = Queued {
                         text,
@@ -3394,7 +3453,89 @@ mod security_tests {
 /// What the at-work line adds: their tasks are not finished yet.
 const AT_WORK_NOT_DONE: &str = "Their tasks are not done until each reports: never say they are finished, and keep any reply about them to what is under way.";
 
+/// A subagent's name in `<open-items>`: its workspace title, else its task.
+fn name_of(s: &SubRecord) -> &str {
+    if s.title.trim().is_empty() {
+        s.task.as_str()
+    } else {
+        s.title.as_str()
+    }
+}
+
+/// The most rows `<open-items>` shows (the newest first); the rest are counted.
+const OPEN_ITEMS_MAX: usize = 30;
+
 impl Brain {
+    /// `<open-items>`: what the host knows is still open, so the Chief's
+    /// sleep notes need not carry it as prose (tests/open_items.rs). One row
+    /// per subagent at work or waiting: its title, state and for how long,
+    /// its last report's first words, and whether a Chief post named it
+    /// since that report; then the finished subagents no post told yet.
+    /// None when nothing is open. After the delta, never logged.
+    pub(super) fn open_items_block(&self) -> Option<String> {
+        use super::control::{minutes, one_line, state_name};
+        let now = self.now();
+        let mut open: Vec<&SubRecord> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| s.at_work() || s.waiting())
+            .collect();
+        open.sort_by_key(|s| std::cmp::Reverse(s.reported_ms.max(s.run_ms)));
+        let untold: Vec<String> = self
+            .state
+            .untold
+            .iter()
+            .filter_map(|u| {
+                let (_, s) = self.state.sub(&u.id)?;
+                (!s.at_work() && !s.waiting())
+                    .then(|| format!("{} ({})", s.id, one_line(name_of(s), 50)))
+            })
+            .collect();
+        if open.is_empty() && untold.is_empty() {
+            return None;
+        }
+        let mut lines = vec![
+            "<open-items>".to_owned(),
+            "What is still open, kept by the host (no need to repeat it in a sleep note):"
+                .to_owned(),
+        ];
+        for s in open.iter().take(OPEN_ITEMS_MAX) {
+            let since = if s.waiting() { s.waiting_ms } else { s.run_ms };
+            let state = state_name(s, now);
+            let mut row = format!("- {} · {} · {state}", s.id, one_line(name_of(s), 50));
+            if since > 0 {
+                row.push_str(&format!(" {}", minutes(now.saturating_sub(since))));
+            }
+            let report = s.last_report.as_str();
+            if s.reported_ms > 0 && !report.is_empty() {
+                let told = if s.told_ms >= s.reported_ms {
+                    "told"
+                } else {
+                    "not told yet"
+                };
+                row.push_str(&format!(
+                    " · last report {} ago, {told}: \"{}\"",
+                    minutes(now.saturating_sub(s.reported_ms)),
+                    one_line(report, 90)
+                ));
+            }
+            lines.push(row);
+        }
+        if open.len() > OPEN_ITEMS_MAX {
+            lines.push(format!(
+                "- and {} more at work",
+                open.len() - OPEN_ITEMS_MAX
+            ));
+        }
+        if !untold.is_empty() {
+            lines.push(format!("Finished, not told yet: {}.", untold.join(", ")));
+        }
+        lines.push("</open-items>".to_owned());
+        Some(lines.join("\n"))
+    }
+
     /// `Subagents at work now: a1, a3. ...` when any runs (a turn's line
     /// after the view); None when none does. It also says their work is not
     /// done yet, so a turn never reports a task finished while the subagent
@@ -3405,7 +3546,7 @@ impl Brain {
             .spawns
             .values()
             .flat_map(|r| r.subs.iter())
-            .filter(|s| s.at_work())
+            .filter(|s| s.at_work() || s.waiting())
             .map(|s| s.id.as_str())
             .collect();
         (!ids.is_empty()).then(|| {
