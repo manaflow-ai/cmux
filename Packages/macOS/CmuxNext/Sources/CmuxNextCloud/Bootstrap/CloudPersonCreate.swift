@@ -56,7 +56,8 @@ extension CloudMachineRequest {
 /// (``CloudCreateRoute/direct``), through the same session call that answers an approval
 /// (`CloudApprovalAnswer.Call`), in the team the relay would pin (`x-cmux-team`). The person's
 /// session never goes to the daemon, and nothing here logs it.
-public nonisolated enum CloudPersonCreate {
+public nonisolated struct CloudPersonCreate {
+    public nonisolated init() {}
     /// One POST of a JSON body to the API Worker as the signed-in person; returns the reply body.
     /// The same shape as `CloudApprovalAnswer.Call`.
     public typealias Call = @Sendable (_ path: String, _ body: Data) async throws -> Data

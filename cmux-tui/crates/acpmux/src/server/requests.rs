@@ -1808,6 +1808,7 @@ async fn dispatch_request_with_identity(
             }
             let disallowed_tools = disallowed_tools(meta)?;
             let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
+            let stop_condition = crate::hub::stop_condition::requested(meta)?;
             // Its parent is the session this connection proved it runs in (`hub/lineage.rs`):
             // an agent's `acpmux new`. An adopted chat or an ephemeral run is nobody's child.
             let parent_ask = crate::hub::lineage::parent_ask(meta)?;
@@ -1875,6 +1876,7 @@ async fn dispatch_request_with_identity(
                 disallowed_tools,
                 checked_cwd: None,
                 additional_directories,
+                stop_condition,
                 person: person_asks(conn),
                 wait_start: asks_to_wait_on_its_harness(conn, &params),
                 // Purged by its creator right after its work (the Chief compactor's nodes): its
@@ -1944,6 +1946,11 @@ async fn dispatch_request_with_identity(
                 summary.set("admission", w);
             }
             successor::warn(hub, succ.as_ref(), &s, &mut summary).await;
+            // The stop condition it keeps (`hub/stop_condition.rs`): a caller that asked for one
+            // and does not see it here knows its agent can stop at any turn end.
+            if meta.stop_condition.is_some() {
+                summary.set(crate::hub::stop_condition::FIELD, Value::Bool(true));
+            }
             Ok(json!({
                 "sessionId": s.id,
                 "modes": meta.modes,
@@ -2622,6 +2629,17 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_PREWARM => {
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
+            // A Cloud chat's coming start (cmux#45953): its owner credential, from this machine's
+            // own socket only, as `session/new` takes one; never from an agent's connection.
+            let credential = crate::agent_credentials::requested(Some(&params))?;
+            if credential.is_some() {
+                crate::agent_credentials::admit(conn.origin == Origin::Local, conn.caller())?;
+            }
+            let shape = crate::hub::PrewarmShape {
+                model: s("model").filter(|m| (1..=200).contains(&m.len())),
+                workspace_id: s("workspaceId").filter(|w| (1..=128).contains(&w.len())),
+                credential,
+            };
             let request = crate::hub::PrewarmRequest {
                 harness: s("harness"),
                 preset: s("preset"),
@@ -2632,6 +2650,7 @@ async fn dispatch_request_with_identity(
                 remote: conn.origin.web_class(),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 trust_web: super::trust_gate::for_web(conn.origin, &params),
+                shape,
             };
             heap(|| hub.prewarm(request)).await
         }

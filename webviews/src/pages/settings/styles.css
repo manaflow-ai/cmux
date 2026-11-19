@@ -15,6 +15,8 @@
   --border-strong: var(--app-border-strong, var(--ds-color-focus));
   --input-bg: var(--ds-color-hover);
   --accent-soft: var(--ds-color-selection);
+  /* Status colors (a Connected dot, a done mark): the shared design tokens, light and dark. */
+  --success: var(--ds-color-success);
   --danger: var(--ds-color-danger);
   --warning: var(--ds-color-attention);
   --motion-hover: var(--cmux-motion-quick);
@@ -1200,7 +1202,7 @@ mark {
 }
 
 .accounts-status[data-status="success"] .accounts-dot {
-  border-color: var(--success, var(--text));
+  border-color: var(--success);
 }
 
 .accounts-status[data-status="attention"] .accounts-dot {
@@ -1292,7 +1294,7 @@ mark {
 }
 
 .devices-status[data-tone="success"] .accounts-dot {
-  border-color: var(--success, var(--text));
+  border-color: var(--success);
 }
 
 .devices-status[data-tone="attention"] .accounts-dot {
@@ -1474,7 +1476,7 @@ mark {
 }
 
 .devices-pill[data-tone="success"] {
-  color: var(--success, var(--text));
+  color: var(--success);
 }
 
 .devices-pill[data-tone="attention"] {

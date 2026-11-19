@@ -95,13 +95,25 @@
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('cmux-join-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Force -Path $tmp -ErrorAction Stop | Out-Null
 
+    # A transport failure (a reset, a timeout, DNS: no response) is retried, 4 tries with waits
+    # of 2, 8 and 20 s: a 23 s network blip failed a whole join (run 44192875334). An HTTP status
+    # the server sent is an answer, not a blip: no retry.
     function Get-File([string]$Url, [string]$Path) {
-      try {
-        Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $Path -TimeoutSec 120 -ErrorAction Stop
-        return $true
-      } catch {
-        return $false
+      foreach ($wait in @(2, 8, 20, 0)) {
+        try {
+          Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $Path -TimeoutSec 120 -ErrorAction Stop
+          return $true
+        } catch {
+          # Windows PowerShell's WebException and PowerShell 7's HttpResponseException both carry
+          # the server's response; a transport failure has none.
+          $e = $_.Exception
+          $response = $e.PSObject.Properties['Response']
+          if (($response -and $response.Value) -or $wait -eq 0) { return $false }
+          Say "the network dropped $Url ($($e.Message)); retrying in $wait s"
+          Start-Sleep -Seconds $wait
+        }
       }
+      return $false
     }
     function Get-Sha256([string]$Path) { (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant() }
     function Test-Capability([string]$Name) {
