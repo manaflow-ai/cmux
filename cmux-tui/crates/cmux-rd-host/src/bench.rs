@@ -447,7 +447,19 @@ impl Viewer {
             self.reassembler.next_nack_us(5_000, 50_000).map_or(timeout_ns, |deadline| {
                 timeout_ns.min(deadline.saturating_mul(1000).saturating_sub(now_ns()))
             });
-        wait_readable(&self.io.fds(), Some(timeout_ns))?;
+        #[allow(unused_mut)]
+        let mut fds = self.io.fds();
+        // A key typed into the `--present` window wakes the wait, so it leaves at once. Keys the
+        // connection already read (during a frame's put) wake nothing, so they go first.
+        #[cfg(target_os = "linux")]
+        if let Some(p) = &self.presenter {
+            fds.push(p.fd());
+        }
+        #[cfg(target_os = "linux")]
+        self.forward_present_keys()?;
+        wait_readable(&fds, Some(timeout_ns))?;
+        #[cfg(target_os = "linux")]
+        self.forward_present_keys()?;
         let mut arrived = Vec::new();
         self.io.receive(&mut arrived)?;
         for item in arrived {
@@ -487,6 +499,25 @@ impl Viewer {
         self.reassembler.tick(now_ns() / 1000);
         self.maybe_feedback()?;
         self.send_input()?;
+        Ok(())
+    }
+
+    /// Sends the keys typed into the `--present` window to the host, as the app's viewer does.
+    #[cfg(target_os = "linux")]
+    fn forward_present_keys(&mut self) -> Res<()> {
+        let Some(p) = self.presenter.as_mut() else {
+            return Ok(());
+        };
+        let mut any = false;
+        for (code, down) in p.take_keys()? {
+            if let Some(usage) = crate::keymap::x_to_hid(code) {
+                self.sender.push(InputEvent::Key { usage, down });
+                any = true;
+            }
+        }
+        if any {
+            self.send_input()?;
+        }
         Ok(())
     }
 
