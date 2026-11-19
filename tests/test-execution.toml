@@ -579,7 +579,7 @@ path = "tests/test_cmux_capture_skill.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_skill_frontmatter.py"
+path = "tests/test_skill_descriptions.py"
 lane = "linux-guard"
 
 [[test]]
