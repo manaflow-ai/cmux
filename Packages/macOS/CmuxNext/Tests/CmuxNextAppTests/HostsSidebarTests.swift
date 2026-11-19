@@ -17,7 +17,7 @@ struct HostsSidebarTests {
     @Test func foldedAndExpandedRowsUseStableTransientIds() throws {
         let machines = [Self.machine("local", "This Mac", kind: .local), Self.machine("cloud", "Build VM", connected: false, state: .paused, kind: .cloud)]
         let hosts = HostsSidebar()
-        hosts.bind(host: .init(rows: { machines }, add: {}, open: { _ in }))
+        hosts.bind(host: .init(rows: { machines }, add: {}, openConnected: { _ in }, openJoined: { _ in }))
 
         let expanded = hosts.rows()
         #expect(expanded.map { $0.item.id.rawValue } == ["client.hosts:header", "client.hosts:add", "client.hosts:row:local", "client.hosts:row:cloud"])
@@ -45,11 +45,26 @@ struct HostsSidebarTests {
         var added = false
         var opened: String?
         let hosts = HostsSidebar()
-        hosts.bind(host: .init(rows: { [machine] }, add: { added = true }, open: { opened = $0.id }))
+        hosts.bind(host: .init(rows: { [machine] }, add: { added = true }, openConnected: { opened = $0 }, openJoined: { _ in }))
         let expanded = hosts.rows()
         _ = try #require(expanded.first)
         #expect(hosts.activate(expanded[1].item.id) && added)
         #expect(hosts.activate(expanded[2].item.id) && opened == "m1")
         #expect(!hosts.activate(LayoutItemID("client.other")))
+    }
+
+    @Test func meshOnlyJoinedMacsUseDialAndDisconnectedRowsStayClosed() {
+        let joined = JoinedMachine(id: "m1", name: "Desk", state: .online, platform: "macos")
+        let row = MachineSectionRow.joined(joined, health: nil)
+        var connected: String?
+        var dialed: String?
+        let host = HostsSidebar.Host(rows: { [row] }, add: {}, openConnected: { connected = $0 }, openJoined: { dialed = $0.id })
+
+        host.open(row)
+        #expect(dialed == "m1")
+        #expect(connected == nil)
+
+        host.open(Self.machine("offline", "Offline", connected: false))
+        #expect(dialed == "m1" && connected == nil)
     }
 }
