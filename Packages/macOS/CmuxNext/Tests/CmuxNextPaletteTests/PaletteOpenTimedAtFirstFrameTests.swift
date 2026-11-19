@@ -41,9 +41,10 @@ struct PaletteOpenTimedAtFirstFrameTests {
         layer.removeAnimation(forKey: "test.spinner")
     }
 
-    /// One pass of the main run loop: the frame commit and the work after it run at its before-waiting point.
+    /// One pass of the main run loop through its before-waiting point, where the frame commit and the work after it
+    /// run. A zero timeout only polls, and a polling pass skips the before-waiting observers, so the pass may wait
+    /// (at most 50 ms, nothing else wakes it) once it has run them.
     private static func runMainRunLoopPass() {
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {}
-        _ = CFRunLoopRunInMode(.defaultMode, 0, false)
+        _ = CFRunLoopRunInMode(.defaultMode, 0.05, true)
     }
 }
