@@ -19,6 +19,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import time
@@ -63,7 +64,7 @@ def _valid_tree(value: object) -> bool:
 def _payload(receipt: dict) -> bytes:
     signed = {k: receipt[k] for k in (
         "schema", "tree_sha", "job", "command", "command_sha256", "result",
-        "exit_code", "execution_id", "runner", "started_at", "finished_at",
+        "exit_code", "execution_id", "runner", "started_at", "finished_at", "signer",
     )}
     return json.dumps(signed, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
@@ -134,6 +135,29 @@ def verify(receipt: dict, *, tree: str, job: str, command: str, key: bytes) -> N
         raise ReceiptError("receipt signature is invalid")
 
 
+def filter_jobs(items: list[dict], *, tree: str, job_template: str,
+                command_template: str, key: bytes | None) -> tuple[list[dict], int]:
+    """Drop only jobs covered by a verified receipt before a matrix is allocated."""
+    kept: list[dict] = []
+    reused = 0
+    for item in items:
+        try:
+            values = {field: item[field] for field in ("root",)}
+            job = job_template.format(**values)
+            command = command_template.format(**values)
+            if key is None:
+                raise ReceiptError("trusted receipt key is unavailable")
+            path = next((candidate for candidate in candidates(tree, job) if candidate.is_file()), None)
+            if path is None:
+                raise ReceiptError("no receipt")
+            verify(read_receipt(path), tree=tree, job=job, command=command, key=key)
+        except (KeyError, ReceiptError):
+            kept.append(item)
+        else:
+            reused += 1
+    return kept, reused
+
+
 def candidates(tree: str, job: str) -> list[Path]:
     paths: list[Path] = []
     explicit = os.environ.get("CMUX_CI_RECEIPT_PATH") or os.environ.get("CMUX_LOCAL_TEST_RECEIPT")
@@ -192,6 +216,10 @@ def run(args: argparse.Namespace) -> int:
     except ReceiptError as error:
         print(f"same-tree-receipt: {error}", file=sys.stderr)
         return 2
+    actual_command = shlex.join(args.command_argv)
+    if args.command.strip() != actual_command:
+        print("same-tree-receipt: command identity does not match the executed argv", file=sys.stderr)
+        return 2
     started = str(time.time_ns())
     command_env = os.environ.copy()
     # The command is the untrusted part of a local/fleet run.  It may inspect
@@ -239,6 +267,11 @@ def main() -> int:
     runner.add_argument("--job", required=True)
     runner.add_argument("--command", required=True)
     runner.add_argument("command_argv", nargs=argparse.REMAINDER)
+    filter_parser = sub.add_parser("filter")
+    filter_parser.add_argument("--tree", required=True)
+    filter_parser.add_argument("--job-template", required=True)
+    filter_parser.add_argument("--command-template", required=True)
+    filter_parser.add_argument("--key-env", default="CMUX_CI_RECEIPT_VERIFY_KEY")
     args = parser.parse_args()
     if args.mode == "run":
         if args.command_argv[:1] == ["--"]:
@@ -246,6 +279,26 @@ def main() -> int:
         if not args.command_argv:
             parser.error("run requires a command after --")
         return run(args)
+    if args.mode == "filter":
+        if not _valid_tree(args.tree):
+            parser.error("filter requires a full lowercase tree SHA")
+        try:
+            items = json.load(sys.stdin)
+            if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+                raise ValueError("jobs JSON must be a list of objects")
+            key_value = os.environ.get(args.key_env)
+            try:
+                key = _key(key_value) if key_value else None
+            except ReceiptError:
+                key = None
+            kept, reused = filter_jobs(items, tree=args.tree, job_template=args.job_template,
+                                       command_template=args.command_template, key=key)
+        except (ValueError, json.JSONDecodeError) as error:
+            print(f"same-tree-receipt: invalid jobs JSON: {error}", file=sys.stderr)
+            return 2
+        print(json.dumps(kept, separators=(",", ":")))
+        print(f"same-tree-receipt: reused {reused}/{len(items)} jobs", file=sys.stderr)
+        return 0
     path = args.receipt
     if not _valid_tree(args.tree):
         print("same-tree-receipt: unknown (requested tree is not a full lowercase tree SHA)", file=sys.stderr)

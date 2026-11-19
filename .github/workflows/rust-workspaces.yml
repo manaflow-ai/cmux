@@ -97,8 +97,14 @@ jobs:
         id: plan
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
+          CMUX_CI_RECEIPT_VERIFY_KEY: ${{ secrets.CMUX_CI_RECEIPT_VERIFY_KEY }}
         run: |
           jobs=$(python3 .github/scripts/rust-workspaces.py plan --base "$BASE_SHA")
+          tree="$(git rev-parse HEAD^{tree})"
+          jobs="$(printf '%s' "$jobs" | python3 scripts/ci/same_tree_receipt.py filter \
+            --tree "$tree" \
+            --job-template 'rust-workspaces:{root}:v1' \
+            --command-template 'python3 .github/scripts/rust-workspaces.py run {root}')"
           echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
           python3 -c 'import json, sys; jobs = json.loads(sys.argv[1]); print("\n".join(j["root"] for j in jobs) or "no Cargo workspace reached")' "$jobs"
 
@@ -122,32 +128,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check signed local same-tree receipt
-        id: local-receipt
-        env:
-          CMUX_CI_RECEIPT_VERIFY_KEY: ${{ secrets.CMUX_CI_RECEIPT_VERIFY_KEY }}
-          JOB: rust-workspaces:${{ matrix.root }}:v1
-          COMMAND: python3 .github/scripts/rust-workspaces.py run ${{ matrix.root }}
-        run: |
-          set -euo pipefail
-          tree="$(git rev-parse HEAD^{tree})"
-          set +e
-          python3 scripts/ci/same_tree_receipt.py verify --discover --tree "$tree" --job "$JOB" --command "$COMMAND"
-          status=$?
-          set -e
-          if [[ "$status" == 0 ]]; then
-            echo "reused=true" >> "$GITHUB_OUTPUT"
-            echo "same-tree receipt verified for $JOB ($tree)"
-          elif [[ "$status" == 2 ]]; then
-            echo "reused=false" >> "$GITHUB_OUTPUT"
-            echo "same-tree receipt unavailable or mismatched; running the workspace"
-          else
-            echo "::error::same-tree receipt verifier failed with exit $status"
-            exit "$status"
-          fi
-
       - name: Install Linux build dependencies
-        if: steps.local-receipt.outputs.reused != 'true'
         env:
           EXTRA_APT: ${{ matrix.apt }}
         run: |
@@ -156,22 +137,20 @@ jobs:
           sudo apt-get install -y clang libclang-dev pkg-config $EXTRA_APT
 
       - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
-        if: ${{ steps.local-receipt.outputs.reused != 'true' && matrix.ghostty }}
+        if: ${{ matrix.ghostty }}
         run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install zig
-        if: ${{ steps.local-receipt.outputs.reused != 'true' && matrix.ghostty }}
+        if: ${{ matrix.ghostty }}
         run: ./scripts/install-zig-ci.sh
 
       - name: Set up pinned Rust
-        if: steps.local-receipt.outputs.reused != 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
       # A workspace with its own rust-toolchain.toml builds with that pin. The setup
       # action puts cmux-tui's toolchain first on PATH, so this and the run step go
       # through rustup's cargo, which reads the pin from the working directory.
       - name: Install the workspace's own toolchain pin
-        if: steps.local-receipt.outputs.reused != 'true'
         working-directory: ${{ matrix.root }}
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
@@ -181,7 +160,6 @@ jobs:
 
       # Only a feat-cmux-next push saves the build cache; a pull request reads the base branch's.
       - name: Cache cargo build
-        if: steps.local-receipt.outputs.reused != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -190,7 +168,6 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: cargo clippy --all-targets and cargo test
-        if: steps.local-receipt.outputs.reused != 'true'
         env:
           ROOT: ${{ matrix.root }}
         run: PATH="$HOME/.cargo/bin:$PATH" python3 .github/scripts/rust-workspaces.py run "$ROOT"

@@ -333,8 +333,11 @@ jobs:
         id: local-receipt
         env:
           CMUX_CI_RECEIPT_VERIFY_KEY: ${{ secrets.CMUX_CI_RECEIPT_VERIFY_KEY }}
-          JOB: cmux-next-fast-gates:v1
-          COMMAND: cmux-next-fast-gates:v1
+          BASE: ${{ needs.resolve.outputs.base }}
+          WEB: ${{ steps.prepare.outputs.web }}
+          CHECKS: ${{ steps.prepare.outputs.checks }}
+          JOB: cmux-next-fast-gates:v2
+          COMMAND: python3 scripts/ci/cmux_next_fast_gates.py run --base ${{ needs.resolve.outputs.base }} --web ${{ steps.prepare.outputs.web }} --checks ${{ steps.prepare.outputs.checks }} --budget-seconds 1260
         run: |
           set -euo pipefail
           # A receipt is optional; an absent key or receipt is unknown and keeps the normal gate.
