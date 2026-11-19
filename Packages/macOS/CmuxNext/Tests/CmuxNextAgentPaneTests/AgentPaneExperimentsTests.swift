@@ -8,19 +8,11 @@ import Testing
 @MainActor
 struct AgentPaneExperimentsTests {
     @Test func theSwitchesGoToThePageAsOneObject() {
-        let switches = ["glassToolbarGroups": true, "other": false]
-        let event = AgentPaneExperiments.event(switches)
+        let event = AgentPageEvent.experiments(["glassToolbarGroups": true, "other": false])
         #expect(event.kind == "experiments")
         #expect(event.value == ["glassToolbarGroups": .bool(true), "other": .bool(false)])
-        #expect(AgentPaneExperiments.script(["glassToolbarGroups": true])
+        #expect(AgentPageEvent.experiments(["glassToolbarGroups": true]).experimentsScript
             == #"window.cmuxAcpmuxBridge?.applyExperiments?.({"glassToolbarGroups":true});"#)
-    }
-
-    @Test func settingTheSameSwitchesIsNoChange() {
-        let experiments = AgentPaneExperiments()
-        #expect(experiments.set(["glassToolbarGroups": false]))
-        #expect(!experiments.set(["glassToolbarGroups": false]))
-        #expect(experiments.set(["glassToolbarGroups": true]))
     }
 
     @Test func theHeaderStateCarriesTheWorkspace() {

@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 public import CmuxNextSettings
 
 /// What the chat header shows from the chat's tab, read with `pane.tabState` and pushed as the
@@ -69,6 +70,12 @@ public struct AgentPaneHeaderWorkspace: Equatable, Sendable {
     public init(title: String, chats: Int) {
         self.title = title
         self.chats = chats
+    }
+
+    /// `workspace`'s shown name and its agent chat tabs (a walk of that workspace's tabs only).
+    @MainActor public init(_ workspace: WorkspaceModel) {
+        let tabs = workspace.screens.flatMap { $0.panes.flatMap(\.tabs) }
+        self.init(title: workspace.displayName, chats: tabs.count(where: { $0.agentSession != nil }))
     }
 
     var json: JSONValue { ["title": .string(title), "chats": JSONValue(chats)] }

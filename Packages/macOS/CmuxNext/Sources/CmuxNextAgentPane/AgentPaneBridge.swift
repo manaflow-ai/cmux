@@ -133,7 +133,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.applyPreviewFeatures()
             AgentPaneSessionStatus.push(to: view)
             AgentPaneSuggestedTasks.shared.push(to: view)
-            AgentPaneExperiments.shared.push(to: view, again: true)
+            view.replayExperiments()
             view.model.remoteControl?.push(to: view)
             view.applyEditedFiles()
             if view.pageEvents == nil { view.model.sidebarPreviewVariant.replay(to: view) }
