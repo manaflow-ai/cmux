@@ -292,8 +292,9 @@ that held the answer is gone is back to `ask`.
    requests are ended the same way.
 8. Offline devices: when a device's last User DO socket closes, errors or
    goes silent (75 s with no frame) while it has open sessions, the server
-   waits 30 s from when it was last heard (so a silent device's sessions end
-   when it is found silent). If it has not reconnected by
+   waits 120 s from when it was last heard: a drop can start up to one ping
+   (30 s) after the last frame, and a screen share comes back by itself after
+   a 60 s drop with time to reconnect. If it has not reconnected by
    then, every session where it is viewer or host ends: audit `ended` with
    reason `peer_offline`, push `session.ended` (reason `peer_offline`) to both
    devices, and the Session DO closes its sockets. A socket replaced by a new
