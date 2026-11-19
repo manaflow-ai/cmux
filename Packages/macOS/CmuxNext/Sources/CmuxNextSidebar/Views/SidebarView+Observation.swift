@@ -73,6 +73,9 @@ extension SidebarViewComponents {
         /// its window out again on a change, with or without a top-row tab strip; moves reach the strips through
         /// `TabStripView.updateWindowControlsAvoidance`.
         var topRow: [String]
+        /// `experiments.sidebarRowStyle`: on, the "+ New workspace" row shows, the titlebar's + hides and the list starts
+        /// one row lower; any change lays the sidebar out and repaints every row.
+        var rowStyle: SidebarRowStyle
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -113,6 +116,7 @@ extension SidebarViewComponents {
             topRow = [TopRowLineLook.tunable.value.rawValue, "\(DesignSettings.shared.titlebar)", "\(DesignSettings.shared.tabBarPosition)",
                       "\(Metrics.mainPaneGutter)", "\(Metrics.panePadding)", "\(Metrics.floatingPanes)", "\(Metrics.tabStripHeight)",
                       "\(Metrics.tabHeight)"]
+            rowStyle = design.sidebarRowStyle
         }
     }
     func observe() {
@@ -162,6 +166,8 @@ extension SidebarViewComponents {
             || lastState?.titlebarHeight != state.titlebarHeight || lastState?.leadingColumn != state.leadingColumn
             || lastState?.pinnedRowLeading != state.pinnedRowLeading
             || lastState?.rowTuning != state.rowTuning
+            // The row restyle moves group members in and widens the indent step (`SidebarListView+RowRestyle`).
+            || lastState?.rowStyle != state.rowStyle
         if lastState?.titlebarRow != state.titlebarRow {
             // The window root sets the reserve from the toolbar band, whose width follows the same tokens.
             window?.contentView?.needsLayout = true
@@ -240,6 +246,7 @@ extension SidebarViewComponents {
         if lastState?.onScreen != state.onScreen { list.syncRowStates() }
         if listChanged || lastState?.tree != state.tree { refreshNeedsYou() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
+        if let last = lastState, last.rowStyle != state.rowStyle { needsLayout = true; list.restyleChanged() }
         if chromeChanged || profilesChanged || lastState?.switcherTokens != state.switcherTokens { bandsDirty = true; needsLayout = true }
         lastState = state
     }

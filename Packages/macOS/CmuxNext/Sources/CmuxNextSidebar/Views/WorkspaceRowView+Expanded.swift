@@ -51,6 +51,7 @@ extension WorkspaceRowView {
     /// hover; Pin Workspace stays in its ⋮ menu (Leo 2026-10-21: "no empty pin
     /// symbol by default").
     func layoutPin(rowWidth: CGFloat, showMore: Bool, moreFrame: NSRect, control: CGFloat, fades: Bool) -> CGFloat? {
+        if rowStyle.isOn { return SidebarRowRestyle.layoutPin(self, rowWidth: rowWidth, control: control, fades: fades) }
         let pinned = isExpanded && isPinned?() == true
         setHoverShown(pinSlot, showMore && pinned, fades: fades)
         guard pinned else { return nil }

@@ -305,6 +305,8 @@ public final class DesignSettings {
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same
+    /// `experiments.sidebarRowStyle`: the off-by-default sidebar row restyle (``SidebarRowStyle``).
+    public var sidebarRowStyle: SidebarRowStyle = .off
     /// `appearance.chromeStyle`: the window look whose defaults the finer
     /// keys refine (`ChromeStyle`).
     public var chromeStyle: ChromeStyle = .default

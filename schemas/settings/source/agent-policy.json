@@ -286,6 +286,7 @@
         "appearance.interfaceScale",
         "appearance.borders",
         "appearance.sidebarSurface",
+        "experiments.sidebarRowStyle",
         "appearance.chromeStyle",
         "appearance.titleAreaTone",
         "appearance.titleAreaContrast",

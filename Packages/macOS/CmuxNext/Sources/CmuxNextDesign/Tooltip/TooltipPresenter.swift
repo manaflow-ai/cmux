@@ -41,6 +41,8 @@ public final class TooltipPresenter {
     /// Trackers the pointer is inside (entered, not exited); the deepest one with text shows.
     private var inside: [TooltipTracker] = []
     private weak var current: TooltipTracker?
+    /// The tooltip a keyboard focus showed (`showFocused`): it stays with no pointer over its view.
+    private weak var focused: TooltipTracker?
     private var monitor: Any?
 
     /// The text and shortcut on screen, nil while hidden (tests and debug).
@@ -73,6 +75,7 @@ public final class TooltipPresenter {
     /// A tooltip's text changed: the shown one shows the new text, or hides when it has none.
     func changed(_ tracker: TooltipTracker) {
         guard tracker === current else { return }
+        if tracker === focused, tracker.text == nil { return hide() }
         if tracker.text == nil {
             exit(tracker)
         } else if shown != nil {
@@ -84,9 +87,31 @@ public final class TooltipPresenter {
     /// next one waits the full delay (a click or a key ends the warm group, as in AppKit).
     public func dismiss() {
         inside.removeAll()
+        focused = nil
         candidate = nil
         run(intent.dismiss())
         hide(immediately: true)
+    }
+
+    /// Shows `view`'s themed tooltip now, with no pointer over it: the view took keyboard focus (a sidebar row the
+    /// arrow keys reached shows its clipped name, as a hover does). It stays while the view stays on screen in an
+    /// active app, until `hideFocused`, another tooltip, or a click, key or scroll puts it away. No text: nothing.
+    public func showFocused(_ view: NSView) {
+        guard let tracker = TooltipTracker.whole(of: view), tracker.text != nil else { return }
+        hide(immediately: true)
+        candidate = nil
+        _ = intent.dismiss()
+        current = tracker
+        focused = tracker
+        watch()
+        show(fade: true)
+        if shown == nil { focused = nil }
+    }
+
+    /// Puts away the tooltip `showFocused` showed for `view`, if it still shows.
+    public func hideFocused(_ view: NSView) {
+        guard let focused, focused.view === view, current === focused else { return }
+        hide()
     }
 
     /// A scroll-wheel event: the tooltip goes, and the rows that pass under the pointer show none
@@ -182,6 +207,7 @@ public final class TooltipPresenter {
         }
         shown = nil
         current = nil
+        focused = nil
         if inside.isEmpty, !scrolling, candidate == nil, !intent.isWarm { unwatch() }
     }
 
@@ -190,7 +216,9 @@ public final class TooltipPresenter {
     private func scheduleCheck() {
         checker.schedule(after: Self.recheck) { @MainActor [weak self] in
             guard let self, let tracker = current, shown != nil else { return }
-            if Self.stillShows(tracker) { scheduleCheck() } else { exit(tracker) }
+            if tracker === focused {
+                if Self.stillShowsFocused(tracker) { scheduleCheck() } else { hide() }
+            } else if Self.stillShows(tracker) { scheduleCheck() } else { exit(tracker) }
         }
     }
 
@@ -230,6 +258,13 @@ public final class TooltipPresenter {
               let pointer = PointerHover.pointer(in: window) else { return false }
         // `PointerHover`: the real pointer, or DEBUG's synthesized one (a recording on a headless host).
         return anchor.insetBy(dx: -1, dy: -1).contains(window.convertPoint(toScreen: pointer))
+    }
+
+    /// A focused tooltip (`showFocused`) needs no pointer: its view still in a visible window, drawn, the app active.
+    static func stillShowsFocused(_ tracker: TooltipTracker) -> Bool {
+        guard let view = tracker.view, let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor,
+              !isClear(view), tracker.text != nil else { return false }
+        return (WindowPlacement.noActivate || NSApp.isActive) && tracker.screenRect != nil
     }
 
     /// Below the view and centered, above it when there is no room below, shifted to stay on screen

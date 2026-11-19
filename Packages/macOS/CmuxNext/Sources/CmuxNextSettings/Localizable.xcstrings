@@ -227700,6 +227700,798 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "代理聊天"}}
       }
     },
+    "settings.experiments.sidebarRowStyle": {
+      "comment": "Settings > Experimental: choice title for the sidebar row restyle",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نمط صفوف الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil redova bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil for rækker i sidepanelet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil der Seitenleistenzeilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar row style"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo de filas de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Style des lignes de la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stile delle righe della barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの行スタイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រចនាប័ទ្មជួរដេករបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 행 스타일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stil for rader i sidepanelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Styl wierszy paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilo das linhas da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль строк боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รูปแบบแถวของแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğu satır stili"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стиль рядків бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểu hàng thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏行样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄列樣式"
+          }
+        }
+      }
+    },
+    "settings.experiments.sidebarRowStyle.help": {
+      "comment": "Settings > Experimental: help under Sidebar row style",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جرّب شريطًا جانبيًا بتصميم جديد: شريط صف بعرض كامل، وعناوين مشاريع بخط عريض، والتثبيت والإغلاق عند التمرير، وصف واحد لمساحة عمل جديدة في الأعلى. يُبقي خيار «إيقاف» الشريط الجانبي الحالي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isprobajte preuređenu bočnu traku: traka reda pune širine, podebljana zaglavlja projekata, prikvačivanje i zatvaranje pri prelasku mišem i jedan red Novi radni prostor na vrhu. Isključeno zadržava današnju bočnu traku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv et nyt sidepanel: et rækkebånd i fuld bredde, fede projektoverskrifter, fastgør og luk ved hover og én række til Nyt arbejdsområde øverst. Fra beholder det nuværende sidepanel."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Probieren Sie eine neu gestaltete Seitenleiste aus: ein Zeilenband über die volle Breite, fette Projektüberschriften, Anheften und Schließen beim Überfahren und eine Zeile „Neuer Arbeitsbereich“ ganz oben. Aus behält die heutige Seitenleiste."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try a restyled sidebar: a full-width row band, bold project headers, pin and close on hover and one New workspace row at the top. Off keeps today's sidebar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prueba una barra lateral renovada: una banda de fila de ancho completo, encabezados de proyecto en negrita, fijar y cerrar al pasar el cursor y una fila de Nuevo espacio de trabajo arriba. Desactivado mantiene la barra lateral actual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essayez une barre latérale redessinée : une bande de ligne pleine largeur, des en-têtes de projet en gras, épingler et fermer au survol et une ligne Nouvel espace de travail en haut. Désactivé conserve la barre latérale actuelle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prova una barra laterale rinnovata: una fascia di riga a tutta larghezza, intestazioni dei progetti in grassetto, fissa e chiudi al passaggio del puntatore e una riga Nuovo spazio di lavoro in alto. Disattivato mantiene la barra laterale attuale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいスタイルのサイドバーを試せます：行全体に広がる帯、太字のプロジェクト見出し、ホバー時のピン留めと閉じるボタン、上部に1つの「新しいワークスペース」行。オフにすると現在のサイドバーのままです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សាកល្បងរបារចំហៀងដែលបានរចនាថ្មី៖ បន្ទះជួរដេកពេញទទឹង ក្បាលគម្រោងដិត ខ្ទាស់ និងបិទនៅពេលដាក់ទស្សន៍ទ្រនិចលើ និងជួរដេក កន្លែងធ្វើការថ្មី មួយនៅខាងលើ។ បិទ រក្សារបារចំហៀងបច្ចុប្បន្ន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새롭게 디자인된 사이드바를 사용해 보세요. 전체 너비 행 띠, 굵은 프로젝트 머리글, 마우스를 올리면 나타나는 고정 및 닫기, 맨 위의 새 워크스페이스 행 하나가 있습니다. 끔은 현재 사이드바를 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv et nytt sidepanel: et radbånd i full bredde, fete prosjektoverskrifter, fest og lukk ved peking og én rad for Nytt arbeidsområde øverst. Av beholder dagens sidepanel."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wypróbuj odświeżony pasek boczny: pas wiersza na całą szerokość, pogrubione nagłówki projektów, przypinanie i zamykanie po najechaniu oraz jeden wiersz Nowy obszar roboczy u góry. Wyłączone zachowuje obecny pasek boczny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimente uma barra lateral renovada: uma faixa de linha de largura total, cabeçalhos de projeto em negrito, fixar e fechar ao passar o cursor e uma linha de Novo espaço de trabalho no topo. Desativado mantém a barra lateral atual."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попробуйте обновлённую боковую панель: полоса строки во всю ширину, жирные заголовки проектов, закрепление и закрытие при наведении и одна строка «Новое рабочее пространство» вверху. «Выкл.» оставляет текущую боковую панель."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลองใช้แถบด้านข้างแบบใหม่: แถบแถวเต็มความกว้าง หัวข้อโปรเจกต์ตัวหนา ปักหมุดและปิดเมื่อชี้เมาส์ และแถว พื้นที่ทำงานใหม่ หนึ่งแถวที่ด้านบน ปิด จะคงแถบด้านข้างแบบปัจจุบันไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden tasarlanmış bir kenar çubuğunu deneyin: tam genişlikte satır bandı, kalın proje başlıkları, üzerine gelince sabitle ve kapat, en üstte tek bir Yeni çalışma alanı satırı. Kapalı, bugünkü kenar çubuğunu korur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спробуйте оновлену бічну панель: смуга рядка на всю ширину, жирні заголовки проєктів, закріплення й закриття під час наведення та один рядок «Новий робочий простір» угорі. «Вимк.» залишає поточну бічну панель."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng thử thanh bên với kiểu mới: dải hàng toàn chiều rộng, tiêu đề dự án in đậm, ghim và đóng khi di chuột và một hàng Không gian làm việc mới ở trên cùng. Tắt giữ nguyên thanh bên hiện tại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "试用重新设计的侧边栏：整行宽度的行带、粗体项目标题、悬停时显示固定和关闭，以及顶部的一行“新建工作区”。关闭则保留当前的侧边栏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "試用重新設計的側邊欄：整列寬度的列帶、粗體專案標題、懸停時顯示釘選和關閉，以及頂端的一列「新增工作區」。關閉則保留目前的側邊欄。"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarRowStyle.off": {
+      "comment": "Settings > Experimental > Sidebar row style: choice that keeps today's sidebar",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выкл."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимк."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarRowStyle.capsule": {
+      "comment": "Settings > Experimental > Sidebar row style: the selected row is an accent-colored capsule",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كبسولة بلون التمييز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akcentna kapsula"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accentkapsel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akzentkapsel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accent capsule"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cápsula de acento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capsule d'accent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capsula d'accento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセントカプセル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្សោមពណ៌សង្កត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "강조 캡슐"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aksentkapsel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapsuła akcentu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cápsula de destaque"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Акцентная капсула"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แคปซูลสีเน้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vurgu kapsülü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Акцентна капсула"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viên nang màu nhấn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强调色胶囊"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強調色膠囊"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarRowStyle.bar": {
+      "comment": "Settings > Experimental > Sidebar row style: the selected row has a leading accent-colored bar",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط بلون التمييز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akcentna traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accentbjælke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akzentbalken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accent bar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de acento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre d'accent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra d'accento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセントバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារពណ៌សង្កត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "강조 막대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aksentlinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek akcentu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de destaque"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Акцентная полоса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบสีเน้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vurgu çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Акцентна смуга"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh màu nhấn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强调色竖条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強調色豎條"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarRowStyle.soft": {
+      "comment": "Settings > Experimental > Sidebar row style: the selected row has a quiet soft fill",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعبئة ناعمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blaga ispuna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blød udfyldning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sanfte Füllung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soft fill"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relleno suave"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplissage doux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riempimento tenue"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソフトな塗り"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបំពេញស្រាល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "부드러운 채우기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Myk fyll"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delikatne wypełnienie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preenchimento suave"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мягкая заливка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เติมสีแบบนุ่มนวล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yumuşak dolgu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "М'яке заповнення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tô màu nhẹ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "柔和填充"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "柔和填色"
+          }
+        }
+      }
+    },
     "settings.labs.customizeFromTheApp": {
       "extractionState": "manual",
       "localizations": {

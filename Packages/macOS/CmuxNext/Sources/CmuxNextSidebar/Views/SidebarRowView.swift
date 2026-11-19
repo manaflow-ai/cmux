@@ -47,7 +47,11 @@ class SidebarRowView: NSView {
         super.layout()
         let radius = fillCornerRadius
         if layer?.cornerRadius != radius { layer?.cornerRadius = radius }
+        SidebarRowRestyle.layout(self) // the row restyle's band, focus and title weight; nothing while it is off
     }
+
+    /// The row restyle's state (`SidebarRowRestyle`, `experiments.sidebarRowStyle`); empty while it is off.
+    var restyle = SidebarRowRestyleState()
 
     /// The fill's corner: the tab's at the density now. A row that draws no rounded fill (a section block) answers 0.
     var fillCornerRadius: CGFloat { SidebarStyle.rowCornerRadius }
@@ -130,6 +134,7 @@ class SidebarRowView: NSView {
         alphaValue = 1
         setTitleHidden(false)
         themedToolTip = nil
+        SidebarRowRestyle.reuse(self)
         // A view that kept its content skips configure: it still paints once more, for a theme that
         // changed while it was out of the window (a lift). Labels redraw only on a changed value.
         needsDisplay = true
@@ -182,6 +187,8 @@ class SidebarRowView: NSView {
     func paintFill(_ color: NSColor?) {
         paintsFill = color != nil
         guard let layer else { return }
+        // The row restyle paints a full-width band instead (`SidebarRowRestyle.paint`); off, the row's own layer as before.
+        if SidebarRowRestyle.paint(self, color) { return fadesNextFill = false }
         ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hoverOut)
         fadesNextFill = false
     }

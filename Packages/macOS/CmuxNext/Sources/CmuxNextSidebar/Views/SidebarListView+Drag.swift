@@ -289,7 +289,7 @@ extension SidebarListViewComponents {
         if rest, case let .position(position)? = drag.target, let group = position.group,
            let header = dropHeader(group, in: displayed) {
             // Into a group: where its members sit, by the one indent rule (`SidebarIndent`).
-            let stepIn = indent.offset(level: header.depth + 1, width: indentWidth)
+            let stepIn = indent.offset(level: header.depth + 1, width: indentWidth) + restyleMembersStep
             shape.origin.x = inset + stepIn
             shape.size.width = max(0, shape.size.width - stepIn)
         }
@@ -587,7 +587,7 @@ extension SidebarListViewComponents {
     func dropStepIn(_ layout: SidebarLayout) -> CGFloat {
         guard case let .position(position)? = shownDrag?.target, let group = position.group,
               let header = dropHeader(group, in: layout) else { return 0 }
-        return indent.offset(level: header.depth + 1, width: indentWidth)
+        return indent.offset(level: header.depth + 1, width: indentWidth) + restyleMembersStep
     }
 
     /// An adopting apply's motion: kept rows spring from where they are,

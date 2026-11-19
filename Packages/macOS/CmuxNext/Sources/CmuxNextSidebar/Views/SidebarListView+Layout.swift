@@ -177,12 +177,12 @@ extension SidebarListViewComponents {
         return false
     }
     /// The indent rule every row, rail, lifted card and drop line of this list uses.
-    var indent: SidebarIndent { SidebarIndent(step: SidebarStyle.groupGutter) }
+    var indent: SidebarIndent { SidebarIndent(step: restyleIndentStep) }
     /// The width a level-0 row has: the indent cap is computed from it.
     var indentWidth: CGFloat { max(0, bounds.width - inset * 2 - SidebarStyle.rowTrailingTrim) }
     /// How far `row` moves in from the list's inset.
     func indentOffset(for row: SidebarRow) -> CGFloat {
-        indent.offset(level: row.indentLevel, width: indentWidth)
+        indent.offset(level: row.indentLevel, width: indentWidth) + restyleMemberStep(for: row)
     }
     func realizationRect() -> NSRect {
         // A space page never scrolls: the rows in its frame, no overscan.
