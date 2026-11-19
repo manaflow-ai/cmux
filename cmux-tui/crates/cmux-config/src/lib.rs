@@ -18,6 +18,7 @@ pub mod domains;
 pub mod effective;
 pub mod fsio;
 pub mod guard;
+pub mod hosts;
 pub mod jsonc;
 pub mod keybindings;
 pub mod keypath;

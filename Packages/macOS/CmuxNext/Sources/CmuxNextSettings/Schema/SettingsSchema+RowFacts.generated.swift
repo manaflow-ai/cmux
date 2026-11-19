@@ -25,6 +25,7 @@ extension SettingsSchema {
         "agentPane.display.commandLabels": "domain:command_labels",
         "browser.customSearchEngine.search": "domain:search_template",
         "browser.customSearchEngine.suggest": "domain:search_template", "tabs.newTabApp": "domain:app_id",
+        "machines.hosts": "domain:hosts",
     ]
     static let validationByKind: [String: String] = [
         "theme": "domain:theme", "font_family": "domain:font_family", "sound": "domain:sound",

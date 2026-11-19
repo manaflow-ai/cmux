@@ -262,6 +262,26 @@
         [1]
       ]
     },
+    "domain:hosts": {
+      "accept": [
+        [],
+        [{"label": "studio", "endpoints": ["studio.local", "ssh://leo@100.64.0.7:2222"], "icon": "desktopcomputer"}],
+        [{"label": "a", "endpoint": "leo@a"}, {"label": "b", "endpoint": "b", "id": "b1"}]
+      ],
+      "refuse": [
+        "studio",
+        [{"endpoints": ["a"]}],
+        [{"label": " ", "endpoints": ["a"]}],
+        [{"label": "a", "endpoints": []}],
+        [{"label": "a", "endpoint": "a", "endpoints": ["a"]}],
+        [{"label": "a", "endpoints": ["http://a"]}],
+        [{"label": "a", "endpoints": ["-oProxyCommand=x"]}],
+        [{"label": "a", "endpoints": ["a b"]}],
+        [{"label": "a", "endpoints": ["a"], "icon": 1}],
+        [{"label": "a", "endpoint": "a"}, {"label": "A", "endpoint": "b"}],
+        [1]
+      ]
+    },
     "domain:backdrop_selection": {
       "accept": [
         "none",

@@ -6,6 +6,7 @@
     "computerUse": ["computerUse", "ComputerUseSettings"],
     "freeModel": ["freeModel", "FreeModelSettings"],
     "sshLinks": ["sshLinks", "SSHLinkHostsSetting"],
+    "hosts": ["hosts", "HostsSetting"],
     "cloud": ["cloud", "CloudNewWorkspaceSetting"],
     "mobile": ["mobile", "MobileSettings"],
     "macScreen": ["macScreen", "MacScreenSettings"],

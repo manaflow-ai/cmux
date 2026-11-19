@@ -46,6 +46,12 @@ extension SSHLinkHostsSetting {
     public nonisolated static let fallback: [String] = []
 }
 
+extension HostsSetting {
+    /// `machines.hosts`: A list of {label, endpoints | endpoint, icon?, id?}; labels are unique ignoring case. Edited in cmux-next.json, so it stays off the Settings page.
+    public nonisolated static let configPath = ["machines", "hosts"]
+    public nonisolated static let fallback: [String] = []
+}
+
 extension CloudNewWorkspaceSetting {
     /// `cloud.newWorkspacesInCloud`.
     public nonisolated static let inCloudPath = ["cloud", "newWorkspacesInCloud"]
@@ -287,6 +293,25 @@ extension MachineSettingsSchema {
 }
 
 extension MachineSettingsSchema {
+    /// Hosts declared by hand (CMUX-673): a label and the ssh endpoints tried in order, with an optional icon and id. cmux-config hosts.rs owns the rule; `cmux hosts list|check` reads them.
+    static var hosts: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.sshLinks", "SSH Links")
+        return [
+            SettingDescriptor(
+                HostsSetting.configPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.machines.hosts", "Hosts"),
+                help: SettingsText.keyed("settings.machines.hosts.help", "Computers you reach over ssh, each a label and the addresses tried in order. cmux hosts check says which ones answer."),
+                kind: .text,
+                default: .array(HostsSetting.fallback.map { .string($0) }),
+                keywords: ["hosts", "machines", "computers", "ssh", "remote", "endpoints"]
+            ).hiddenFromSettingsPage("a list of host objects, edited in cmux-next.json"),
+        ]
+    }
+}
+
+extension MachineSettingsSchema {
     static var cloud: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.cloudWorkspaces", "Cloud Workspaces")
         return [
@@ -333,50 +358,6 @@ extension MachineSettingsSchema {
                 default: .bool(CloudNewWorkspaceSetting.turnCheckpointsDefault),
                 keywords: ["cloud", "checkpoint", "snapshot", "undo", "rewind", "restore", "turn", "back", "machine"]
             ),
-        ]
-    }
-}
-
-extension MachineSettingsSchema {
-    static var mobile: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.mobile", "iPhone")
-        return [
-            SettingDescriptor(
-                MobileSettings.allowIPhoneConnectionsPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.mobile.allowIPhoneConnections", "Allow iPhone Connections"),
-                help: SettingsText.keyed("settings.mobile.allowIPhoneConnections.help", "The cmux app on your iPhone can open this Mac's workspaces, on the same account."),
-                summary: SettingsText.keyed("settings.mobile.allowIPhoneConnections.summary", "Lets your iPhone reach this Mac"),
-                kind: .toggle,
-                default: .bool(MobileSettings.allowIPhoneConnectionsDefault),
-                keywords: ["iphone", "phone", "mobile", "remote", "connect"]
-            ),
-            SettingDescriptor(
-                MobileSettings.terminalSizingPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.mobile.terminalSizing", "Terminal Size When Shared"),
-                help: SettingsText.keyed("settings.mobile.terminalSizing.help", "The size of a terminal shown on this Mac and a phone at once."),
-                kind: .choice([
-                    SettingChoice(MobileTerminalSizing.smallest.rawValue, SettingsText.keyed("settings.choice.terminalSizing.smallest", "Fit the Smallest Viewer")),
-                    SettingChoice(MobileTerminalSizing.mac.rawValue, SettingsText.keyed("settings.choice.terminalSizing.mac", "Prefer This Mac")),
-                    SettingChoice(MobileTerminalSizing.latest.rawValue, SettingsText.keyed("settings.choice.terminalSizing.latest", "Prefer the Active Device")),
-                    SettingChoice(MobileTerminalSizing.priority.rawValue, SettingsText.keyed("settings.choice.terminalSizing.priority", "Priority Order")),
-                ]),
-                default: .string(MobileSettings.terminalSizingDefault.rawValue),
-                keywords: ["iphone", "phone", "mobile", "terminal", "size", "sizing", "shared", "priority", "columns"]
-            ),
-            SettingDescriptor(
-                MobileSettings.terminalSizingOrderPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.mobile.terminalSizingOrder", "Terminal Size Priority"),
-                help: SettingsText.keyed("settings.mobile.terminalSizingOrder.help", "The devices a shared terminal sizes to first, highest first."),
-                kind: .stringList,
-                default: .array(MobileSettings.terminalSizingOrderDefault.map { .string($0) }),
-                keywords: ["iphone", "phone", "terminal", "size", "priority", "order"]
-            ).hiddenFromSettingsPage("device ids, set in the cmux app on the iPhone"),
         ]
     }
 }
