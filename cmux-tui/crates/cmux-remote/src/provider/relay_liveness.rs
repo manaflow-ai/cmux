@@ -314,6 +314,31 @@ mod tests {
         assert_eq!(live.check(m, w), Check::Resumed);
     }
 
+    /// A pause past the relay's 45 s on a VM provider that keeps every guest
+    /// clock running through it: the monotonic clock moves as far as the wall
+    /// clock, so the wall clock never steps past it. The loop still did not
+    /// look for ten minutes, so the registration is dead at once, with no
+    /// ping into the dead socket and no 3 s pong timeout.
+    #[test]
+    fn a_resume_whose_clocks_all_kept_running_is_a_dead_registration_at_once() {
+        let (mono, wall) = start();
+        let mut live = Liveness::with_young(HEARTBEAT, Duration::ZERO, mono, wall);
+        let (m, w) = (mono + CHECK_INTERVAL, wall + CHECK_INTERVAL);
+        assert_eq!(live.check(m, w), Check::Idle);
+        let paused = Duration::from_secs(600);
+        assert_eq!(live.check(m + paused, w + paused), Check::Resumed);
+    }
+
+    /// A stall inside the relay's 45 s with both clocks moving together is no
+    /// resume: the registration may have survived, so it is pinged as before.
+    #[test]
+    fn a_monotonic_gap_inside_the_relays_retirement_pings_instead() {
+        let (mono, wall) = start();
+        let mut live = Liveness::with_young(HEARTBEAT, Duration::ZERO, mono, wall);
+        let gap = RELAY_RETIRES_SILENT - CHECK_INTERVAL;
+        assert_eq!(live.check(mono + gap, wall + gap), Check::Ping);
+    }
+
     /// A credential source failed three times before a pause (its backoff
     /// is up to 8 s); the resume registers at once and starts the backoff over.
     #[test]
