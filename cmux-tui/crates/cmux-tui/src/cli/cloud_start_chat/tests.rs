@@ -23,6 +23,10 @@ mod clone_wait;
 mod drill_start;
 #[path = "folder_tests.rs"]
 mod folder;
+#[path = "fresh_tests.rs"]
+mod fresh;
+#[path = "send_wait_tests.rs"]
+mod send_wait;
 
 /// Leo, 2026-11-10: a Cloud chat runs the Claude model the person asked for. `--model`, or
 /// `--agent claude/MODEL` as `acp ensure -m` reads it, is the run's model, asked again with it.
@@ -251,9 +255,25 @@ struct Fake {
     called: Vec<(String, Value)>,
     /// [`Runner::until`].
     until: Option<Instant>,
+    /// Each copy estimate asked: how many steps had run then, and the folder.
+    estimated: Vec<(usize, String)>,
+    /// The progress lines the run said ([`Runner::say`]).
+    said: Vec<String>,
 }
 
 impl Fake {
+    /// How long the next step (`args`, at `ran`'s length) takes: a few seconds, or what `slow` says for it, or
+    /// `costs` for its verb.
+    fn cost(&self, args: &[String]) -> Duration {
+        let index = self.ran.len();
+        let verb = args.get(1).map(String::as_str);
+        let cost = self.slow.iter().find(|(at, _)| *at == index).map(|(_, cost)| *cost);
+        let cost = cost.or_else(|| {
+            self.costs.iter().find(|(name, _)| Some(*name) == verb).map(|(_, cost)| *cost)
+        });
+        cost.unwrap_or(Duration::from_secs(5))
+    }
+
     fn new(answers: Vec<Ran>) -> Self {
         Self {
             answers: answers.into(),
@@ -266,22 +286,35 @@ impl Fake {
             pushes: VecDeque::new(),
             called: Vec::new(),
             until: None,
+            estimated: Vec::new(),
+            said: Vec::new(),
         }
     }
 }
 
 impl Runner for Fake {
     fn cmux(&mut self, args: &[String]) -> Ran {
-        let index = self.ran.len();
+        self.clock += self.cost(args);
         self.ran.push(args.to_vec());
-        // Each step takes a few seconds of the wait, or what `slow` says for it, or `costs` for its verb.
-        let verb = args.get(1).map(String::as_str);
-        let cost = self.slow.iter().find(|(at, _)| *at == index).map(|(_, cost)| *cost);
-        let cost = cost.or_else(|| {
-            self.costs.iter().find(|(name, _)| Some(*name) == verb).map(|(_, cost)| *cost)
-        });
-        self.clock += cost.unwrap_or(Duration::from_secs(5));
         self.answers.pop_front().expect("an answer for every step")
+    }
+    /// A step that would run past `until` is killed there, as `internal::bounded::output_by` kills it: its answer
+    /// is used up and never seen.
+    fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
+        if self.clock + self.cost(args) <= until {
+            return self.cmux(args);
+        }
+        self.ran.push(args.to_vec());
+        self.answers.pop_front().expect("an answer for every step");
+        self.clock = self.clock.max(until);
+        Ran {
+            code: internal::bounded::PAST_DEADLINE,
+            stdout: String::new(),
+            stderr: internal::bounded::past_deadline().to_string(),
+        }
+    }
+    fn say(&mut self, line: &str) {
+        self.said.push(line.to_owned());
     }
     fn pause(&mut self, duration: Duration) {
         self.paused += duration;
@@ -319,6 +352,10 @@ impl Runner for Fake {
         ));
         self.clock += Duration::from_millis(400);
         self.pushes.pop_front().unwrap_or_else(|| Err(link_wait::Failure::Link("no link".into())))
+    }
+    fn estimate(&mut self, folder: &str) -> Value {
+        self.estimated.push((self.ran.len(), folder.to_owned()));
+        json!({"mode": "first_pass", "files": 3, "bytes": 30, "seconds": 1})
     }
 }
 
@@ -2752,6 +2789,58 @@ fn from_folder_goes_to_start_session_as_its_own_argument() {
             shell_quote(&folder)
         )
     );
+}
+
+/// The folder's copy is estimated and decided before any machine is made or taken for it, on every
+/// machine a start can name (Leo's 2026-11-10 start at ~/Projects began a 20 GB copy after a machine
+/// was already leased): right after the sign-in check, before `cloud new-machine` and `cloud
+/// start-session`, and the answer carries it.
+#[test]
+fn a_folder_start_estimates_its_copy_before_any_machine() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let cwd = || exec_out("@@cwd\n[]\n");
+    for (words, answers, lease) in [
+        (vec![], vec![signed_in(), started(), cwd()], "start-session"),
+        (vec!["--name", "dev"], vec![signed_in(), started(), cwd()], "start-session"),
+        (vec!["--target", "machine:vm-1"], vec![signed_in(), started(), cwd()], "start-session"),
+        (
+            vec!["--environment", "env_1"],
+            vec![signed_in(), made(), started(), cwd()],
+            "new-machine",
+        ),
+    ] {
+        let mut fake = Fake::new(answers);
+        let mut asked = vec!["--from-folder", folder.as_str()];
+        asked.extend(words.iter().copied());
+        let Outcome::Done(answer) = run(&mut fake, &request(&asked)) else {
+            panic!("{words:?}: {:?}", fake.ran)
+        };
+        assert_eq!(fake.estimated, vec![(1, folder.clone())], "{words:?}: {:?}", fake.ran);
+        assert_eq!(fake.ran[0], strings(&["cloud", "list-machines", "--json"]), "{words:?}");
+        assert_eq!(fake.ran[1][1], lease, "{words:?}: the first step after the estimate");
+        assert_eq!(answer["estimate"]["mode"], "first_pass", "{words:?}: {answer}");
+    }
+    // No folder: nothing to estimate, and the answer says nothing of one.
+    let mut fake = Fake::new(vec![signed_in(), started(), cwd()]);
+    let Outcome::Done(answer) = run(&mut fake, &request(&[])) else { panic!("{:?}", fake.ran) };
+    assert!(fake.estimated.is_empty());
+    assert!(answer.get("estimate").is_none(), "{answer}");
+}
+
+/// A start signed out stops before the estimate: nothing is listed for a start that cannot run.
+#[test]
+fn a_signed_out_folder_start_lists_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let mut fake = Fake::new(vec![ok(json!({"account": {"signed_in": false}, "machines": []}))]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--from-folder", folder.as_str()]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "cloud.signed_out");
+    assert!(fake.estimated.is_empty());
 }
 
 #[test]

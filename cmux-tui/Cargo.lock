@@ -266,7 +266,7 @@ dependencies = [
  "once_cell",
  "serde",
  "version_check",
- "zerocopy",
+ "zerocopy 0.8.62",
 ]
 
 [[package]]
@@ -329,7 +329,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -340,7 +340,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1399,20 +1399,15 @@ dependencies = [
  "anyhow",
  "axum",
  "base64",
- "bytes",
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
  "cmux-unix-socket",
  "fs4",
- "futures-util",
  "getrandom 0.3.4",
  "hex",
  "hmac",
  "http",
- "http-body-util",
- "hyper",
- "hyper-util",
  "libc",
  "reqwest",
  "rustls",
@@ -1421,7 +1416,6 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
- "tokio-util",
  "tower-http",
  "tracing",
  "url",
@@ -1506,6 +1500,18 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
+]
+
+[[package]]
+name = "cmux-customize-recipes"
+version = "0.1.0"
+dependencies = [
+ "cmux-action-catalog",
+ "cmux-config",
+ "cmux-customize",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 
@@ -1703,6 +1709,7 @@ dependencies = [
 name = "cmux-hub-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "cmux-process",
  "hpke",
  "libc",
@@ -1905,6 +1912,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-projection"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "fuser",
+ "libc",
+ "serde",
+ "tempfile",
+ "zstd",
+]
+
+[[package]]
 name = "cmux-pty"
 version = "1.0.0"
 dependencies = [
@@ -1932,10 +1952,11 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "cc",
  "cmux-encode",
+ "cmux-file-lock",
  "cmux-hub-host",
  "cmux-process",
  "cmux-rd-core",
@@ -2089,7 +2110,6 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-environment",
- "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
  "cmux-server-core",
@@ -2157,6 +2177,22 @@ dependencies = [
  "regex",
  "syn 2.0.119",
  "toml",
+]
+
+[[package]]
+name = "cmux-stack-auth"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "getrandom 0.3.4",
+ "httpdate",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -2303,6 +2339,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-customize",
+ "cmux-customize-recipes",
  "cmux-device-kind",
  "cmux-file-lock",
  "cmux-focus-core",
@@ -2314,6 +2351,7 @@ dependencies = [
  "cmux-link",
  "cmux-panic-log",
  "cmux-process",
+ "cmux-projection",
  "cmux-pty",
  "cmux-rd-host",
  "cmux-rd-link",
@@ -2450,10 +2488,12 @@ dependencies = [
  "cmux-local-url",
  "cmux-palette-ranker",
  "cmux-process",
+ "cmux-projection",
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-sdk",
  "cmux-signed-bundle",
+ "cmux-supervise-core",
  "cmux-tasks",
  "cmux-tasks-core",
  "cmux-terminal-iface",
@@ -3287,7 +3327,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 3.0.6",
 ]
 
 [[package]]
@@ -3475,7 +3515,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3657,7 +3697,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3857,6 +3897,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76ee7a02da4d231650c7cea31349b889be2f45ddb3ef3032d2ec8185f6313fd2"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "fuser"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e697f6f62c20b6fad1ba0f84ae909f25971cf16e735273524e3977c94604cf8"
+dependencies = [
+ "libc",
+ "log",
+ "memchr",
+ "page_size",
+ "smallvec",
+ "zerocopy 0.7.35",
 ]
 
 [[package]]
@@ -5750,7 +5804,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6198,6 +6252,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "page_size"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30d5b2194ed13191c1999ae0704b7839fb18384fa22e49b57eeaa97d79ce40da"
+dependencies = [
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "palette"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6633,7 +6697,7 @@ version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
- "zerocopy",
+ "zerocopy 0.8.62",
 ]
 
 [[package]]
@@ -7315,7 +7379,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7373,7 +7437,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7556,7 +7620,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b55fb86dfd3a2f5f76ea78310a88f96c4ea21a3031f8d212443d56123fd0521"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7935,7 +7999,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8190,10 +8254,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8215,7 +8279,7 @@ dependencies = [
  "parking_lot",
  "rustix",
  "signal-hook",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8802,7 +8866,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9601,7 +9665,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10180,11 +10244,32 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
+version = "0.7.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b9b4fd18abc82b8136838da5d50bae7bdea537c574d8dc1a34ed098d6c166f0"
+dependencies = [
+ "byteorder",
+ "zerocopy-derive 0.7.35",
+]
+
+[[package]]
+name = "zerocopy"
 version = "0.8.62"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86502bf56ac7c77571a32e2647bb2a15894565e981fb2a48d7bde2d91c965a9d"
 dependencies = [
- "zerocopy-derive",
+ "zerocopy-derive 0.8.62",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.7.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

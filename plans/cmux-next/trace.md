@@ -165,7 +165,9 @@ the kernel: off, it is one load of an unset `OnceLock` (test `cmux-flow-trace/te
 clock (commpage) and its thread id and pushes a plain record (the terminal id as at most 32 bytes) into a fixed
 ring of 8192 slots (test `tests/records.rs` counts the caller's allocations). The marks in the terminal host and
 in the daemon's local-PTY path run before the writer and runtime locks. The writer drains the ring every 50 ms
-while tracing is on, or when a hop finds it half full (the only wake a hop sends). A full ring drops records and
+while hops come in, or when a hop finds it half full; a drain that pops nothing parks (a claimed slot not yet
+published never spins it), and after 1 s with nothing to write it sleeps with no timer until the next hop wakes it
+(one unpark per idle spell: tracing on but idle costs no wakeups). A full ring drops records and
 counts them (`flow records dropped` in the summary). The app's hops are `key.flow` signpost events.
 
 | Hop | Process, thread | Carries |
@@ -176,7 +178,7 @@ counts them (`flow records dropped` in the summary). The app's hops are `key.flo
 | `app.send` | the same thread (`TerminalAttachment.enqueueInput`; the `send` request gets `flow`) | flow id |
 | `daemon.send.read` (optional: drawn when emitted) | daemon `mux-conn` reader, right after the `send` line is parsed | flow id |
 | `daemon.send.write`, `daemon.send.written` | daemon `mux-control-dispatch` (`cmd_terminal_io::send`) | flow id |
-| `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself) | `terminal-host-client-input` / `mux-control-dispatch` | terminal |
+| `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself); marked after the write, only for bytes that reached the PTY | `terminal-host-client-input` / `mux-control-dispatch` | terminal |
 | `host.pty.read` or `holder.pty.read` | `terminal-host-pty` / the holder's poll loop | terminal |
 | `daemon.output.host` or `daemon.output.holder` | `surface-<id>-host` / `surface-<id>-reader` | terminal |
 | `daemon.output.attach` | the same thread (`broadcast_attach_output`) | terminal |
