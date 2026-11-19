@@ -75,9 +75,7 @@ use std::time::Duration;
 
 use cmux_remote::crypto::StaticIdentity;
 use cmux_remote::unix_socket::OwnedUnixListener;
-use tokio::io::{
-    AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, ReadBuf,
-};
+use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, AsyncWrite, ReadBuf};
 use tokio::net::UnixStream;
 use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
