@@ -188,51 +188,91 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
 
 /// The old words roll out as they were drawn (review of cmux#41078): cut at the width the words had
 /// (ellipsis and all), their time and counts from where they sat, never the full words running their
-/// tail on past it. The width as last committed, one read of the line's own box a commit, set on the
-/// roll's copies in the commit that makes them, before paint; refs only in the effect.
-function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) {
-  const drawn = useRef<{ turns: number; width?: number }>({ turns });
-  useLayoutEffect(() => {
-    const node = line.current;
-    if (!node) return;
-    const last = drawn.current;
-    if (turns !== last.turns && last.width !== undefined) {
-      const px = `${last.width}px`;
-      const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
-      const tail = node.querySelector<HTMLElement>(":scope .cv-roll-out__tail");
-      if (words) words.style.width = px;
-      if (tail) tail.style.left = px;
-    }
-    const width = node.querySelector<HTMLElement>("output.cv-thinking")?.getBoundingClientRect().width;
-    drawn.current = { turns, width: width && width > 0 ? width : undefined };
-  });
-}
-
+/// tail on past it. The width as last drawn (observed below), set on the
+/// roll's copies in the commit that makes them, before paint; refs only in the effects.
+///
 /// The line's counts glide to where their words leave them (Leo, 2026-11-11: "the animation system
 /// is so borked and unintegrated"): a count that moves sideways while the line does not roll (its
 /// time grows a digit, its words change width under one key) slides from where it was drawn on the
 /// arrival step, transform only, so it never jumps a frame. A roll moves it with the words instead
 /// (`useRoll`), and the gates that stop the roll stop this too.
-function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number) {
-  const drawn = useRef<{ turns: number; lefts: number[] }>({ turns, lefts: [] });
+///
+/// Both read the line's geometry only where the browser has it laid out already: in a ResizeObserver's
+/// callback, which runs after a frame's layout and before its paint, when the words or a count change
+/// size (a count moves only when something before it in the line changes size). A read in the commit's
+/// layout effect forced the page's whole layout once per streamed token, before the transcript's own
+/// placement wrote and laid it out again (CMUX-571 paired profile: 3.1 ms per token in the god chat
+/// against 1.8 in the small one). The commit itself only writes: the roll's copies take the width last
+/// observed, which is the width the words were drawn at.
+function useLineGeometry(line: RefObject<HTMLDivElement | null>, turns: number) {
+  const state = useRef<{
+    turns: number;
+    width?: number;
+    /// The turns the lefts were read under: lefts read before a roll never glide after it.
+    leftsTurns: number;
+    lefts: number[];
+    observer?: ResizeObserver;
+    watched: Element[];
+  }>({ turns, leftsTurns: turns, lefts: [], watched: [] });
   useLayoutEffect(() => {
     const node = line.current;
+    const now = state.current;
     if (!node) return;
-    const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
-    const lefts = counts.map((count) => count.offsetLeft);
-    const before = drawn.current;
-    drawn.current = { turns, lefts };
-    if (before.turns !== turns || !motionAllowed(node) || !countsMove(node)) return;
-    counts.forEach((count, index) => {
-      const from = before.lefts[index];
-      const dx = from === undefined ? 0 : from - lefts[index]!;
-      if (Math.abs(dx) < 0.5) return;
-      count.animate([{ translate: `${dx}px 0` }, { translate: "0 0" }], {
-        duration: arriveMs(node),
-        easing: "cubic-bezier(0.2, 0, 0, 1)",
+    if (turns !== now.turns) {
+      now.turns = turns;
+      if (now.width !== undefined) {
+        const px = `${now.width}px`;
+        const words = node.querySelector<HTMLElement>(":scope .cv-roll-out");
+        const tail = node.querySelector<HTMLElement>(":scope .cv-roll-out__tail");
+        if (words) words.style.width = px;
+        if (tail) tail.style.left = px;
+      }
+    }
+    // What the observer watches: the words and the counts drawn now (no layout read, only a query).
+    const words = node.querySelector<HTMLElement>("output.cv-thinking");
+    const watched: Element[] = [
+      ...(words ? [words] : []),
+      // The words' row with their time: a time that grows a digit moves the counts after it.
+      ...node.querySelectorAll<HTMLElement>(":scope > .cv-shimmer__row"),
+      ...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count"),
+    ];
+    if (typeof ResizeObserver === "undefined") return;
+    if (watched.length === now.watched.length && watched.every((each, index) => each === now.watched[index])) return;
+    now.observer ??= new ResizeObserver(() => {
+      const at = line.current;
+      if (!at) return;
+      const output = at.querySelector<HTMLElement>("output.cv-thinking");
+      const width = output?.getBoundingClientRect().width;
+      now.width = width && width > 0 ? width : undefined;
+      const counts = [...at.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
+      const lefts = counts.map((count) => count.offsetLeft);
+      const before = now.lefts;
+      const glide = now.leftsTurns === now.turns;
+      now.lefts = lefts;
+      now.leftsTurns = now.turns;
+      if (!glide || !motionAllowed(at) || !countsMove(at)) return;
+      counts.forEach((count, index) => {
+        const from = before[index];
+        const dx = from === undefined ? 0 : from - lefts[index]!;
+        if (Math.abs(dx) < 0.5) return;
+        count.animate([{ translate: `${dx}px 0` }, { translate: "0 0" }], {
+          duration: arriveMs(at),
+          easing: "cubic-bezier(0.2, 0, 0, 1)",
+        });
       });
     });
+    for (const each of now.watched) if (!watched.includes(each)) now.observer.unobserve(each);
+    for (const each of watched) if (!now.watched.includes(each)) now.observer.observe(each);
+    now.watched = watched;
   });
+  useLayoutEffect(
+    () => () => {
+      state.current.observer?.disconnect();
+      state.current.observer = undefined;
+      state.current.watched = [];
+    },
+    [],
+  );
 }
 
 /// The same gates as the roll (conversation.css `cv-roll-*`).
@@ -593,8 +633,7 @@ export function Thinking({
   const lineRef = useRef<HTMLDivElement>(null);
   // A wait draws its words plainly, like a calm compaction: no sweep says work goes on.
   const calm = compactLook === "calm" || silent;
-  useRollOutWidth(lineRef, roll.turns);
-  useCountGlide(lineRef, roll.turns);
+  useLineGeometry(lineRef, roll.turns);
   // The question card already asks for an answer above the composer.
   if (waiting === "question") return null;
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
