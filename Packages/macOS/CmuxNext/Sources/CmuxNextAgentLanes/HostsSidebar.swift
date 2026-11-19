@@ -8,8 +8,11 @@ public import Observation
 @Observable @MainActor
 public final class HostsSidebar {
     public struct Host {
+        @MainActor private static func noRefresh() async {}
+
         public var rows: @MainActor () -> [MachineSectionRow]
         public var add: @MainActor () -> Void
+        public var joined: JoinedMachineStore?
         public var refresh: @MainActor () async -> Void
         public var startAging: @MainActor (AnyObject, @escaping @MainActor () -> Bool) -> Void
         public var stopAging: @MainActor (AnyObject) -> Void
@@ -19,20 +22,23 @@ public final class HostsSidebar {
         public init(rows: @escaping @MainActor () -> [MachineSectionRow],
                     add: @escaping @MainActor () -> Void,
                     openConnected: @escaping @MainActor (String) -> Void,
-                    openJoined: @escaping @MainActor (JoinedMachine) -> Void) {
+                    openJoined: @escaping @MainActor (JoinedMachine) -> Void,
+                    joined: JoinedMachineStore? = nil) {
             self.init(rows: rows, add: add, openConnected: openConnected, openJoined: openJoined,
-                      refresh: { }, startAging: { _, _ in }, stopAging: { _ in })
+                      joined: joined, refresh: Self.noRefresh, startAging: { _, _ in }, stopAging: { _ in })
         }
 
         public init(rows: @escaping @MainActor () -> [MachineSectionRow],
                     add: @escaping @MainActor () -> Void,
                     openConnected: @escaping @MainActor (String) -> Void,
                     openJoined: @escaping @MainActor (JoinedMachine) -> Void,
+                    joined: JoinedMachineStore? = nil,
                     refresh: @escaping @MainActor () async -> Void,
                     startAging: @escaping @MainActor (AnyObject, @escaping @MainActor () -> Bool) -> Void,
                     stopAging: @escaping @MainActor (AnyObject) -> Void) {
             self.rows = rows
             self.add = add
+            self.joined = joined
             self.openConnected = openConnected
             self.openJoined = openJoined
             self.refresh = refresh
@@ -69,23 +75,35 @@ public final class HostsSidebar {
     public init(host: Host? = nil, visible: @escaping @MainActor () -> Bool = { true }) {
         self.host = host
         if let host {
-            initialRefresh = Task { await host.refresh() }
-            host.startAging(self, visible)
+            start(host, visible: visible)
         }
     }
 
     public func bind(host: Host, visible: @escaping @MainActor () -> Bool = { true }) {
         initialRefresh?.cancel()
-        if let previous = self.host { previous.stopAging(self) }
+        if let previous = self.host { stop(previous) }
         self.host = host
-        initialRefresh = Task { await host.refresh() }
-        host.startAging(self, visible)
+        start(host, visible: visible)
     }
 
     public func stop() {
         initialRefresh?.cancel()
         initialRefresh = nil
-        if let host { host.stopAging(self) }
+        if let host { stop(host) }
+    }
+
+    private func start(_ host: Host, visible: @escaping @MainActor () -> Bool) {
+        if let joined = host.joined {
+            initialRefresh = Task { await joined.refresh() }
+            joined.startAging(self, visible: visible)
+        } else {
+            initialRefresh = Task { await host.refresh() }
+            host.startAging(self, visible)
+        }
+    }
+
+    private func stop(_ host: Host) {
+        if let joined = host.joined { joined.stopAging(self) } else { host.stopAging(self) }
     }
 
     /// Rows are transient and therefore never become a second machine catalog or a durable layout item.
