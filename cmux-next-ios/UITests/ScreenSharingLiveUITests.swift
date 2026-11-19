@@ -19,9 +19,25 @@ final class ScreenSharingLiveUITests: XCTestCase {
 
     @MainActor
     func testSeeAndControlAMac() throws {
+        guard environment["CMUX_SS_TARGET", default: "mac"] == "mac" else { throw XCTSkip("the rig's target is not a Mac") }
+        try seeAndControl()
+    }
+
+    /// The same gestures on a Linux desktop host (cmux-rd linux-host on Xvfb, its own fleet step), which
+    /// the rig reads back from that display's XI2 events.
+    @MainActor
+    func testSeeAndControlALinuxDesktop() throws {
+        guard environment["CMUX_SS_TARGET"] == "linux" else { throw XCTSkip("the rig's target is not a Linux desktop") }
+        try seeAndControl()
+    }
+
+    @MainActor
+    func seeAndControl() throws {
         guard environment["CMUX_SS_LIVE"] == "1", let mac = environment["CMUX_SS_MAC"] else {
             throw XCTSkip("live rig only (TEST_RUNNER_CMUX_SS_LIVE)")
         }
+        // A host on another fleet step comes online when that step starts: the rig gives it longer.
+        let online = TimeInterval(environment["CMUX_SS_WAIT"] ?? "") ?? 60
         let app = XCUIApplication()
         // The fleet step's own session (cmux-ci run --sign-in agent), else the manual rig's account.
         if let token = environment["CMUX_SS_REFRESH_TOKEN"], !token.isEmpty {
@@ -45,8 +61,8 @@ final class ScreenSharingLiveUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 20), "Screen Sharing row\n\(app.debugDescription)")
         row.tap()
         let macRow = app.buttons["screenSharing.mac.\(mac)"].firstMatch
-        XCTAssertTrue(macRow.waitForExistence(timeout: 60), "Mac row \(mac)\n\(app.debugDescription)")
-        XCTAssertTrue(wait(for: macRow, enabled: true, timeout: 60), "Mac \(mac) not shared/online\n\(app.debugDescription)")
+        XCTAssertTrue(macRow.waitForExistence(timeout: online), "Mac row \(mac)\n\(app.debugDescription)")
+        XCTAssertTrue(wait(for: macRow, enabled: true, timeout: online), "Mac \(mac) not shared/online\n\(app.debugDescription)")
         attach(app, "02-screen-sharing-page")
 
         macRow.tap()

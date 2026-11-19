@@ -16,9 +16,12 @@
 #          Accessibility for the host: the step's own, else CmuxScreenEvalLauncher.app's
 #          (scripts/measure/screen-stream-eval/launcher), which runs the host through
 #          screen-stream-eval.sh ios-live-host=DIR.
-#   linux  (next) cmux-rd linux-host on Xvfb with XTest injection, read back by `xinput test-xi2 --root` on
-#          that display: ss_live_start_linux / ss_live_stop_linux go beside the Mac's, and the readback's
-#          linux parser is already shared.
+#   linux  testSeeAndControlALinuxDesktop: a Linux desktop on its own fleet step (a Mac step cannot start
+#          one), scripts/ci/ios-screen-share-linux-host.sh host NAME: cmux-rd linux-host on Xvfb, XTest
+#          injection, registered on the dev hub as that step's own agent session, read back there from
+#          `xinput test-xi2 --root` on its display. The two steps meet through the hub only: NAME is
+#          cmux-ss-live-linux-<commit, 8>, and the phone waits up to 25 min for that row to come online.
+#          This step keeps the phone's video and screenshots; the readback is the Linux step's.
 #
 # The session: the step's own (cmux-ci run --sign-in agent, scripts/lib/fleet-signin-session.sh). The phone
 # gets it as CMUX_MOBILE_STACK_REFRESH_TOKEN (through TEST_RUNNER_CMUX_SS_REFRESH_TOKEN, that xcodebuild call
@@ -33,7 +36,8 @@ ss_live=0 ss_target="" ss_dir="" ss_approver="" ss_host_pid="" ss_mac_name="" ss
 ss_live_select() {
   case "$1" in
     ScreenSharingLiveUITests|ScreenSharingLiveUITests/testSeeAndControlAMac) ss_live=1 ss_target=mac ;;
-    ScreenSharingLiveUITests/*) echo "cmux-next-ios-sim.sh: no live Screen Sharing target for $1 (mac: testSeeAndControlAMac)" >&2; exit 2 ;;
+    ScreenSharingLiveUITests/testSeeAndControlALinuxDesktop) ss_live=1 ss_target=linux ;;
+    ScreenSharingLiveUITests/*) echo "cmux-next-ios-sim.sh: no live Screen Sharing target for $1 (mac: testSeeAndControlAMac, linux: testSeeAndControlALinuxDesktop)" >&2; exit 2 ;;
   esac
 }
 
@@ -48,6 +52,13 @@ ss_live_start() {
   local t0=$SECONDS here="$root/scripts/measure/screen-stream-eval" grants home launcher
   ss_dir="$work/ss-live"
   mkdir -p "$ss_dir" "$out/screen-share"
+  if [[ "$ss_target" == linux ]]; then
+    ss_mac_name="cmux-ss-live-linux-$(git rev-parse --short=8 HEAD)"
+    SS_TEST_ENV=(TEST_RUNNER_CMUX_SS_LIVE=1 TEST_RUNNER_CMUX_SS_TARGET=linux "TEST_RUNNER_CMUX_SS_MAC=$ss_mac_name"
+      TEST_RUNNER_CMUX_SS_WAIT=1500)
+    note "- Screen Sharing live: Linux desktop '$ss_mac_name' (its own step: ios-screen-share-linux-host.sh host $ss_mac_name)"
+    return 0
+  fi
   build_mac_app ssl
   swiftc -O -o "$ss_dir/InputProbe" cmux-next-ios/verify/screen-sharing/InputProbe.swift >"$ss_dir/swiftc.log" 2>&1 ||
     { tail -20 "$ss_dir/swiftc.log"; ss_fail "InputProbe did not compile"; return 1; }
@@ -106,13 +117,19 @@ EOF
     { ss_fail "set_shared failed (hub.log)"; return 1; }
   python3 -I scripts/ci/ios_screen_share_live.py approve "$sock" "$ss_dir/stop-approve" "$ss_dir/approvals.jsonl" &
   ss_approver=$!
-  SS_TEST_ENV=(TEST_RUNNER_CMUX_SS_LIVE=1 "TEST_RUNNER_CMUX_SS_MAC=$ss_mac_name")
+  SS_TEST_ENV=(TEST_RUNNER_CMUX_SS_LIVE=1 TEST_RUNNER_CMUX_SS_TARGET=mac "TEST_RUNNER_CMUX_SS_MAC=$ss_mac_name")
   note "- Screen Sharing live: Mac '$ss_mac_name' ($device) shared and approving, $((SECONDS - t0)) s"
 }
 
 # ss_live_finish: stops what ss_live_start started, reads the host's events back, keeps the files.
 ss_live_finish() {
   [[ -n "$ss_dir" ]] || return 0
+  if [[ "$ss_target" == linux ]]; then
+    note "- Screen Sharing live: the Linux desktop's readback is its own step's (artifacts/ios-screen-share-linux/readback.json)"
+    python3 -I -c 'import json,sys; json.dump({"target":"linux","host":sys.argv[1],"status":int(sys.argv[2]),"reason":sys.argv[3],"readback":"on the Linux step"},open(sys.argv[4],"w"),indent=2)' \
+      "$ss_mac_name" "$ss_status" "$ss_reason" "$out/screen-share/summary.json" || true
+    return 0
+  fi
   local sock="/tmp/cmux-debug-${mac_tag:-none}.sock"
   python3 -I scripts/ci/ios_screen_share_live.py hub "$sock" state >"$out/screen-share/hub-state.json" 2>/dev/null || true
   touch "$ss_dir/stop-approve" "$ss_dir/stop"
