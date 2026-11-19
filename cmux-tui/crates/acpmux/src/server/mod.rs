@@ -581,12 +581,40 @@ impl Conn {
         }
     }
 
-    /// A notification line built for every connection that reads it raw (a shared `session/update`,
-    /// `HubEvent::update_line`), as `send` would enqueue it for a local connection.
+    /// A chat's live record (`seq`) as `message` builds it: one line per record for every
+    /// connection of this one's class (`HubEvent::lines`, `slots[0]` for a peer daemon's link,
+    /// `slots[1]` for every other), queued as a stream line, which a slow reader's queue drops for
+    /// one resync note (`outbound.rs`). The line is what [`Self::send`] would queue: neither
+    /// `session/update` nor `_acpmux/event` is masked (`peer_text::masked`), and a peer's has its
+    /// message hosts redacted. A record with no seq is not in the journal, so nothing could read it
+    /// again: it goes as [`Self::send`] sends it.
     // perf-hot: 1us acpmux-token-fanout (every streamed token, per attached connection)
-    fn send_line(&self, line: &str) {
-        self.raise_gate();
-        self.out.push(line.to_owned());
+    fn send_stream(
+        &self,
+        slots: &[std::sync::OnceLock<Option<Arc<str>>>; 2],
+        seq: u64,
+        message: impl Fn() -> Message,
+    ) {
+        if seq == 0 {
+            self.send(&message());
+            return;
+        }
+        let peer = self.origin == Origin::Peer;
+        let line = slots[usize::from(!peer)].get_or_init(|| {
+            let mut msg = message();
+            if peer && let Message::Notification { params: Some(params), .. } = &mut msg {
+                crate::server::pending::redact_message_hosts(params);
+            }
+            msg.bounded_line_replying(None).ok().map(Arc::from)
+        });
+        match line {
+            Some(line) => {
+                self.raise_gate();
+                self.out.push_stream(outbound::Text::Shared(Arc::clone(line)));
+            }
+            // Larger than a frame: left out, and the client told (`send_replying`).
+            None => self.send(&message()),
+        }
     }
 
     /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
@@ -2190,14 +2218,13 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // Whether this record went out (or a replay sent it): a peer daemon's link hears of one
         // that did not by its seq alone (`MUX_UNSENT`).
         let mut sent = repeat || sub.event_stream;
+        let event =
+            || Message::notification(method::MUX_EVENT, routed(event_value(&ev.session_id, rec)));
         if repeat {
             // Sent by the replay.
         } else if sub.event_stream {
             if sub.filter.matches_live(rec) {
-                conn.send(&Message::notification(
-                    method::MUX_EVENT,
-                    routed(event_value(&ev.session_id, rec)),
-                ));
+                conn.send_stream(&ev.lines.event, rec.seq, event);
             }
         } else {
             // Agent -> client updates as standard ACP notifications.
@@ -2216,27 +2243,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                     );
                     Message::notification(method::SESSION_UPDATE, routed(params))
                 };
-                if conn.origin == Origin::Peer {
-                    // A peer daemon's link redacts and masks per connection (`send_replying`).
-                    conn.send(&message());
-                } else {
-                    // Every other connection reads the line as it is: built once per record,
-                    // shared (`HubEvent::update_line`). None: too large for one frame.
-                    let line = ev
-                        .update_line
-                        .get_or_init(|| message().bounded_line_replying(None).ok().map(Arc::from));
-                    match line {
-                        Some(line) => conn.send_line(line),
-                        None => conn.send(&message()),
-                    }
-                }
+                // Built once per record for each class of connection, shared.
+                conn.send_stream(&ev.lines.update, rec.seq, message);
                 sent = true;
             }
             if rec.dir == "mux" {
-                conn.send(&Message::notification(
-                    method::MUX_EVENT,
-                    routed(event_value(&ev.session_id, rec)),
-                ));
+                conn.send_stream(&ev.lines.event, rec.seq, event);
                 sent = true;
             }
         }

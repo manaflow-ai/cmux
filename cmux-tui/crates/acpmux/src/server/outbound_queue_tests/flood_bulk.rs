@@ -76,11 +76,11 @@ async fn flood_bulk_cheap_reads_answer_while_four_replays_hold_the_link() {
     assert!(first.contains("\"id\":1"), "{first}");
     let conn = conn_named(&name).await;
 
-    // The flood: four replays, every line queued on the connection the way a hub event's line is
-    // (`Conn::send_line`), before any read is asked.
+    // The flood: four replays, every line queued on the connection
+    // as a replay page is (kept whole, `outbound.rs`), before any read is asked.
     for n in 0..LINES_PER_REPLAY {
         for session in 0..REPLAYS {
-            conn.send_line(&replay_line(session, n));
+            assert!(conn.out.push(replay_line(session, n)));
         }
     }
 

@@ -40,6 +40,7 @@ fn row(conn: &Conn) -> (usize, Value) {
         "bytes": gauge.bytes,
         "bound": gauge.bound,
         "overrun": gauge.overrun,
+        "lagging": gauge.lagging,
     });
     (gauge.bytes, row)
 }
@@ -57,6 +58,9 @@ pub(crate) fn status() -> Value {
         "connections": live.len(),
         "bytes": total,
         "overruns": outbound::OVERRUNS.load(Ordering::Relaxed),
+        "held": outbound::TOTAL_HELD.load(Ordering::Relaxed),
+        "slowReaderResyncs": outbound::SLOW_RESYNCS.load(Ordering::Relaxed),
+        "streamLinesDropped": outbound::STREAM_DROPS.load(Ordering::Relaxed),
         "controlsResyncs": super::controls::RESYNCS.load(Ordering::Relaxed),
         "largest": top,
     })

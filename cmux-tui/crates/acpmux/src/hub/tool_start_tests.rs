@@ -13,7 +13,7 @@ fn event(dir: &str, kind: &str, update: Value) -> HubEvent {
             host_seq: None,
         }),
         remote: None,
-        update_line: Default::default(),
+        lines: Default::default(),
         row: Default::default(),
         list_seq: 0,
     }

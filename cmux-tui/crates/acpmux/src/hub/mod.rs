@@ -534,6 +534,18 @@ pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(2 * 6
 /// ([`Hub::lagged_reader`]), since the daemon started.
 pub(crate) static READER_LAGS: AtomicU64 = AtomicU64::new(0);
 
+/// A record's live lines, each built once and shared by every connection that sends it
+/// ([`HubEvent::lines`]). Each is None when too large for one frame. A peer daemon's link reads
+/// another line than every other origin: it names no `qualifiedSessionId`, and a message's
+/// sender host is redacted (`server::send_replying`).
+#[derive(Debug, Default)]
+pub struct EventLines {
+    /// The `session/update` line: for a peer daemon's link, then for every other origin.
+    pub update: [std::sync::OnceLock<Option<Arc<str>>>; 2],
+    /// The `_acpmux/event` line, as `update`.
+    pub event: [std::sync::OnceLock<Option<Arc<str>>>; 2],
+}
+
 /// Fan-out item: one appended record for one session, shared by every receiver, never copied.
 /// `remote` carries the peer name and the peer's summary when the session lives elsewhere.
 #[derive(Debug, Clone)]
@@ -541,11 +553,12 @@ pub struct HubEvent {
     pub session_id: String,
     pub record: Arc<EventRecord>,
     pub remote: Option<RemoteRef>,
-    /// The record's `session/update` line as attached connections that read it raw get it (every
-    /// origin but a peer daemon's), built by the first connection that sends it and shared by the
-    /// rest (`server::deliver`). HOT PATH AUDIT area F, row A4: a streamed token is copied and
-    /// encoded once, not once per attached connection.
-    pub update_line: Arc<std::sync::OnceLock<Option<Arc<str>>>>,
+    /// The record's live lines (its `session/update`, its `_acpmux/event`) as attached
+    /// connections get them, built by the first connection that sends each and shared by the rest
+    /// (`server::deliver`), bytes and all: a connection's queue holds the shared line
+    /// (`server/outbound.rs` `Text::Shared`). HOT PATH AUDIT area F, row A4: a streamed token is
+    /// copied and encoded once, not once per attached connection.
+    pub lines: Arc<EventLines>,
     /// The session's row as a watcher's `_acpmux/session_changed` carries it, without and with
     /// its tools, built by the first watching connection that sends it and shared by the rest
     /// (`server::deliver`): one build per record, not one per watching connection.
@@ -2854,7 +2867,7 @@ impl Hub {
                 session_id: session.id.clone(),
                 record: Arc::new(record.clone()),
                 remote: None,
-                update_line: Default::default(),
+                lines: Default::default(),
                 row: Default::default(),
                 list_seq: 0,
             };
