@@ -149,17 +149,19 @@ def listing(get: Get, path: str, key: str) -> list[dict[str, Any]]:
     raise Unreadable(f"{path}: more than {MAX_PAGES} pages")
 
 
-def signing(job: dict[str, Any]) -> bool:
-    """Whether a newer run's sign job holds or waits for a slot, or signed."""
+def signing(job: dict[str, Any], signed_counts: bool = True) -> bool:
+    """Whether a newer run's sign job holds or waits for a slot, or (with SIGNED_COUNTS) signed."""
     status, conclusion = job.get("status"), job.get("conclusion")
     if not isinstance(status, str):
         raise Unreadable(f"job {job.get('id')!r}: no status")
-    return status in WAITING or (status == "completed" and conclusion == "success")
+    return status in WAITING or (signed_counts and status == "completed" and conclusion == "success")
 
 
-def newer_signers(get: Get, repo: str, run_id: int) -> list[tuple[int, dt.datetime, str]]:
-    """Every nightly-next push run above RUN_ID whose sign job is queued, running or signed, newest first, with
-    its landing time and that job's state."""
+def newer_signers(get: Get, repo: str, run_id: int, sign_job: str = SIGN_JOB,
+                  signed_counts: bool = True) -> list[tuple[int, dt.datetime, str]]:
+    """Every nightly-next push run above RUN_ID whose sign job (SIGN_JOB; nightly_sign_gate.py reads
+    nightly-next-one) is queued, running or (with SIGNED_COUNTS) signed, newest first, with its landing time and
+    that job's state."""
     newer: dict[int, dt.datetime] = {}
     for status in ACTIVE_RUN_STATUSES:
         for run in listing(get, f"repos/{repo}/actions/workflows/nightly.yml/runs?branch=nightly-next&event=push&status={status}",
@@ -173,7 +175,7 @@ def newer_signers(get: Get, repo: str, run_id: int) -> list[tuple[int, dt.dateti
     for rid in sorted(newer, reverse=True):
         for job in listing(get, f"repos/{repo}/actions/runs/{rid}/jobs?filter=latest", "jobs"):
             name = job.get("name")
-            if isinstance(name, str) and name.split(" (", 1)[0] == SIGN_JOB and signing(job):
+            if isinstance(name, str) and name.split(" (", 1)[0] == sign_job and signing(job, signed_counts):
                 state = f"{job['status']}{'/' + str(job.get('conclusion')) if job['status'] == 'completed' else ''}"
                 found.append((rid, newer[rid], state))
                 break
@@ -185,7 +187,8 @@ def utcnow() -> dt.datetime:
 
 
 def decide(env: dict[str, str], get: Get, log: Callable[[str], None] = print,
-           feed: Callable[[], bytes] | None = None, now: Callable[[], dt.datetime] | None = None) -> tuple[bool, str]:
+           feed: Callable[[], bytes] | None = None, now: Callable[[], dt.datetime] | None = None,
+           sign_job: str = SIGN_JOB, signed_counts: bool = True) -> tuple[bool, str]:
     """(yield, why)."""
     if env.get("NIGHTLY_NEXT_SIGN_YIELD", "1") == "0":
         return False, "NIGHTLY_NEXT_SIGN_YIELD is 0"
@@ -199,7 +202,7 @@ def decide(env: dict[str, str], get: Get, log: Callable[[str], None] = print,
         rid = int(run_id)
         landed = landed_at(get, repo, rid)
         published = last_published_run((feed or read_feed)())
-        signers = newer_signers(get, repo, rid)
+        signers = newer_signers(get, repo, rid, sign_job, signed_counts)
     except Unreadable as why:
         log(f"::warning title=Sign yield::could not read the newer nightly-next runs or the NEXT feed ({why}); "
             "signing as usual")
