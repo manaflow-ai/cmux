@@ -169,6 +169,7 @@ impl Hub {
         incarnation: &str,
         fold: Fold,
     ) -> (OpenWork, Option<Checkpoint>) {
+        let stamp = self.store.log_stamp(&session.id).ok();
         let (reads, resume, settled) = match fold {
             Fold::Whole(reads) => (reads, false, None),
             Fold::Resume { settled } => (open_work_reads as Reads, true, settled),
@@ -235,7 +236,9 @@ impl Hub {
         // None when the log could not be read to its end, or when it is the one resumed from.
         let checkpoint = kept
             .filter(|(seq, ..)| *seq > 0 && *seq >= from && scanned.is_ok())
-            .map(|(seq, next, folds)| Checkpoint::new(seq, next, incarnation, inputs, folds));
+            .and_then(|(seq, next, folds)| {
+                Some(Checkpoint::new(seq, next, incarnation, inputs, folds, stamp?))
+            });
         (work, checkpoint)
     }
 }

@@ -763,3 +763,72 @@ async fn an_adoption_resumed_from_its_checkpoint_matches_a_whole_read() {
         assert!(resumed * 2 > log.records.len() * incarnations.len(), "log {n}: {resumed} resumed");
     }
 }
+
+/// A new hub must use the durable checkpoint, and changing the log must invalidate it even
+/// when its final record keeps the same sequence, timestamp and kind.
+#[tokio::test]
+async fn adoption_checkpoint_reopens_and_rejects_rewritten_content() {
+    let mut log = hosted_log_of(3, 2);
+    log.end_turn(3);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    hub.recovery_work(&session, "inc", u64::MAX);
+    let expected = adoption_state(&hub, &session, "inc");
+    hub.shutdown_all().await;
+    drop(session);
+    drop(hub);
+
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let hub = Hub::new_deferred(
+        cfg.clone(),
+        crate::store::open(&cfg.store, &root).unwrap(),
+        crate::mailbox::Mailbox::memory(),
+    );
+    let session = hub.resolve("chat0").unwrap();
+    hub.catch_up(&session);
+    let inputs = hub.fold_inputs(&session);
+    let point = hub.adoption_checkpoint(&session, "inc", &inputs).unwrap();
+    assert_eq!(adoption_state(&hub, &session, "inc"), expected);
+
+    // Earlier records can change while the final one is identical. The log's existing
+    // rewrite stamp is the discriminator for this case.
+    hub.store.bump_log_stamp("chat0", 2).unwrap();
+    assert!(hub.adoption_checkpoint(&session, "inc", &inputs).is_none());
+    hub.save_adoption_checkpoint(&session, point);
+    assert!(hub.adoption_checkpoint(&session, "inc", &inputs).is_none());
+    hub.recovery_work(&session, "inc", u64::MAX);
+    let point = hub.adoption_checkpoint(&session, "inc", &inputs).unwrap();
+
+    // An imported/replaced file can retain those three header fields. Alter only its body,
+    // leaving the stamp alone, so this specifically exercises the full-record digest.
+    hub.store.close_log("chat0");
+    let events = hub.store.session_dir("chat0").unwrap().join("events");
+    let mut replaced = false;
+    for entry in std::fs::read_dir(events).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|s| s.to_str()) != Some("ndjson") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut rewritten = String::new();
+        let mut changed = false;
+        for line in text.lines() {
+            let mut record: EventRecord = serde_json::from_str(line).unwrap();
+            if record.seq == point.seq {
+                record.msg = json!({"turnId": "different", "status": "completed"});
+                changed = true;
+            }
+            rewritten.push_str(&serde_json::to_string(&record).unwrap());
+            rewritten.push('\n');
+        }
+        if changed {
+            std::fs::write(path, rewritten).unwrap();
+            replaced = true;
+        }
+    }
+    assert!(replaced);
+    assert!(hub.adoption_checkpoint(&session, "inc", &inputs).is_none());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}

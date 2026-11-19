@@ -20,9 +20,9 @@
 //!   that turn's start), so each record it holds was read as every later fold reads it;
 //! - it holds only records written whole (through the log's last seq while no append ran), and
 //!   is saved only when the log read to its end;
-//! - the record it ends at is checked against the log by `(seq, at, kind)` (an import or a
-//!   journal restore replaced it), and a compaction since (which rewrites records in place)
-//!   drops it (`Store::adoption_checkpoint`). A fork's log joins its parent's: read whole.
+//! - the record it ends at is checked in full against the log. The log's change count and
+//!   system boot must also match, so a rewrite of an earlier record drops it; that count is
+//!   checked around the fold and save. A fork's log joins its parent's: read whole.
 //!
 //! A checkpoint that does not match is not used; the adoption reads the whole log and saves a
 //! new one. A change to what any fold reads or keeps bumps `VERSION`.
@@ -33,7 +33,7 @@ use crate::store::LinePos;
 use crate::subagents::SubagentTree;
 
 /// The checkpoint's format and the folds' meaning. Another one is not read.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 /// Every adoption fold's state through one record.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -44,6 +44,10 @@ pub(super) struct Checkpoint {
     pub(super) seq: u64,
     at: u64,
     kind: String,
+    digest: String,
+    /// Existing records changed under this count. It is durable within a system boot.
+    stamp: u64,
+    boot: u64,
     /// Where the record after it starts, when the fold read it.
     pub(super) next: Option<LinePos>,
     incarnation: String,
@@ -102,12 +106,16 @@ impl Checkpoint {
         incarnation: &str,
         inputs: FoldInputs,
         folds: Folds,
+        stamp: u64,
     ) -> Self {
         Self {
             v: VERSION,
             seq,
             at: 0,
             kind: String::new(),
+            digest: String::new(),
+            stamp,
+            boot: acpmux_core::boot::system_boot_id(),
             next,
             incarnation: incarnation.to_owned(),
             inputs,
@@ -144,23 +152,34 @@ impl Hub {
             || point.seq > session.seq.load(Ordering::SeqCst)
             || point.incarnation != incarnation
             || point.inputs != *inputs
+            || point.boot != acpmux_core::boot::system_boot_id()
+            || self.store.log_stamp(&session.id).ok() != Some(point.stamp)
             || session.meta().fork_seq.is_some()
         {
             return None;
         }
         let record = self.record_at(session, point.seq)?;
-        (record.at == point.at && record.kind == point.kind).then_some(point)
+        let digest = crate::sha256::sha256_hex(&serde_json::to_vec(&record).ok()?);
+        (record.at == point.at && record.kind == point.kind && digest == point.digest)
+            .then_some(point)
     }
 
     /// Saves `point` for `session`'s next adoption. A failed write leaves the last one, which is
     /// still right.
     pub(super) fn save_adoption_checkpoint(&self, session: &Session, mut point: Checkpoint) {
-        if session.meta().fork_seq.is_some() {
+        if session.meta().fork_seq.is_some()
+            || self.store.log_stamp(&session.id).ok() != Some(point.stamp)
+        {
             return;
         }
         let Some(record) = self.record_at(session, point.seq) else { return };
+        let Ok(record_bytes) = serde_json::to_vec(&record) else { return };
+        point.digest = crate::sha256::sha256_hex(&record_bytes);
         point.at = record.at;
         point.kind = record.kind;
+        if self.store.log_stamp(&session.id).ok() != Some(point.stamp) {
+            return;
+        }
         let Ok(bytes) = serde_json::to_vec(&point) else { return };
         if let Err(error) = self.store.save_adoption_checkpoint(&session.id, &bytes) {
             tracing::debug!(session = %session.id, "adoption checkpoint not saved: {error:#}");
