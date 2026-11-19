@@ -94,6 +94,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `action-signposts.sh` | Action perform, commit and gate signposts, light and STRESS. | perf-lead row 23 | 2026-10-27 | active |
 | `sidebar-stress.sh` | Sidebar scroll, switch, theme switch during a scroll and custom sidebar sections (install, save to render) at 20 and 500 workspaces. | - | 2026-11-17 | active |
 | `main-thread-large-session.sh` | Main thread under the LARGE session (60 workspaces x 6 tabs). | MTS-0 | 2026-11-10 | active |
+| `mobile-bench-mac-capture.sh` | Reference clips for the mobile bench: an iPhone app the App Store offers on the Mac, recorded at 120 fps (ScreenCaptureKit, every frame's own time) on a 120 Hz virtual display through the bench's flows, one `clip.mp4` + `meta.json` per flow (driver `scripts/mobile-bench/mac/`). | Leo 2026-11-19, mobile reference bench | 2026-11-19 | active |
 
 ## Rendering and frames
 
@@ -122,7 +123,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `idle-cpu.sh` | Idle CPU and wakeups of the app, acpmux and cmux-tui after N minutes. | - | 2026-11-04 | active |
 | `mcp-fanout.sh` | MCP tool-server processes, RSS and idle CPU per kind at N open chats (Claude, Codex) on any build (`app=`). | nightly-mcp-fanout | 2026-11-17 | active |
 | `mcp-fanout.py` | Python driver for mcp-fanout.sh. | nightly-mcp-fanout | 2026-11-17 | active |
-| `perf-10x-idle.sh` | Idle CPU, wakeups and RSS at 1, 10 and 50 workspaces. | perf-10x | 2026-11-14 | active |
+| `perf-10x-idle.sh` | Idle CPU, wakeups and RSS at 1, 10 and 50 workspaces; with `axes=`, the marginal idle cost (CPU, footprint, wakeups, disk bytes per hour, GPU utilization) of one more chat or terminal, hidden or visible, per process. | perf-10x, CMUX-672 | 2026-11-19 | active |
 | `perf-idle-ab.sh` | Interleaved base vs head idle A/B in one step. | - | 2026-11-14 | active |
 | `perf-idle-power.sh` | Idle power and wakeups in the scenarios of a browser comparison. | msg 2654 | 2026-11-15 | active |
 | `perf-bench.sh` | xbench: cmux NEXT against other browsers (power, scroll, video, tab switch, launch). | msg 2654 | 2026-11-15 | active |

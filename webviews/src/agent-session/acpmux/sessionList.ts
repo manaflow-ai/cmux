@@ -639,10 +639,13 @@ export function firstProject(
   return folders.find((cwd) => cwd !== homeFolder && (!projects || projects.has(cwd)));
 }
 
-/** A project's name for its header: the folder's last component, `~` for a home folder. */
+/**
+ * A project's name for its header: the folder's last component, `~` for a home folder, `/` for the
+ * filesystem root. Only no folder at all reads No folder: a folder is never called that.
+ */
 export function projectLabel(cwd: string | undefined, t: Translate = translate): string {
   const trimmed = (cwd ?? "").replace(/\/+$/, "");
-  if (!trimmed) return t("project.noFolder");
+  if (!trimmed) return cwd ? "/" : t("project.noFolder");
   const parts = trimmed.split("/").filter(Boolean);
   if (parts.length === 2 && (parts[0] === "Users" || parts[0] === "home")) return "~";
   return parts[parts.length - 1] ?? trimmed;
@@ -706,4 +709,17 @@ export function shortAge(updatedAt: number | undefined, now: number, t: Translat
   if (hours < 24) return t("age.hours", { n: hours });
   const days = Math.floor(hours / 24);
   return days < 14 ? t("age.days", { n: days }) : t("age.weeks", { n: Math.floor(days / 7) });
+}
+
+/** First shared wall-clock minute where shortAge's text changes (clock.ts useLabelClock), so its
+ *  label wakes then and not every minute. */
+export function nextShortAge(at: number, now: number): number {
+  if (!Number.isFinite(at)) return Infinity;
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const elapsed = Math.max(0, now - at);
+  const size = elapsed < hour ? minute : elapsed < day ? hour : elapsed < 14 * day ? day : 7 * day;
+  const change = at + (Math.floor(elapsed / size) + 1) * size;
+  return Math.max(now + minute, Math.ceil(change / minute) * minute);
 }

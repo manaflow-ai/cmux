@@ -38,6 +38,10 @@ pub struct Interrupt {
     /// The turn carries another person's text: the native engine refuses
     /// its local effects (README "Remote-origin messages").
     gate: AtomicBool,
+    /// The Chief ended the turn with its own `stop` or `sleep`
+    /// (`request_own`): its last step is done, so the session may serve the
+    /// next turn (`Settings::keep_turn_session`).
+    own: AtomicBool,
     /// The running acpmux turn's signals, woken on a request.
     wake: Mutex<Option<Sender<TurnSignal>>>,
     /// Wakes [`Interrupt::wait`] on a request.
@@ -67,6 +71,17 @@ impl Interrupt {
         {
             let _ = tx.send(TurnSignal::Noted);
         }
+    }
+
+    /// `request` from the Chief's own `stop` or `sleep`: a clean end.
+    pub fn request_own(&self) {
+        self.own.store(true, Ordering::SeqCst);
+        self.request();
+    }
+
+    /// The Chief ended the turn with its own tool, and nothing else asked.
+    pub fn is_own(&self) -> bool {
+        self.own.load(Ordering::SeqCst) && !self.is_hard()
     }
 
     /// `request`, and the runner does not wait for a running tool call:
@@ -122,6 +137,7 @@ impl Interrupt {
     pub fn clear(&self) {
         self.wanted.store(false, Ordering::SeqCst);
         self.hard.store(false, Ordering::SeqCst);
+        self.own.store(false, Ordering::SeqCst);
     }
 
     fn wake_with(&self, tx: Option<Sender<TurnSignal>>) {
@@ -975,12 +991,16 @@ pub fn run_with_drafts(
     let cancelled = is_cancelled(error.as_deref());
     // Only a clean end keeps the session: a failed, stopped or moved one may
     // hold a half-done step, and the next turn starts from the view again.
+    // The Chief's own `stop` or `sleep` is a clean end: its tool answered and
+    // the turn has nothing left to do (Nov 15-18: 98% of turns end so, and
+    // none was kept; tests/kept_turn_session.rs).
+    let own_end = cancelled && interrupt.is_own();
     let kept = (start.keep
         && orphan.is_none()
         && moved.is_none()
-        && error.is_none()
+        && (error.is_none() || own_end)
         && !answer_failed
-        && !cancelled
+        && (!cancelled || own_end)
         && fold.ended().is_some())
     .then(|| Kept {
         session: session.clone(),
