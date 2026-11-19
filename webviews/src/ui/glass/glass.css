@@ -17,6 +17,11 @@
   /* The theme surface the tint mixes from (WebTheme.swift: the page color made opaque). */
   /* glass-opaque-allow: the color --glass-tint mixes from at 40-60%; never painted as a fill itself */
   --glass-surface: var(--cmux-surface-solid, Canvas);
+  /* Shared native/web transient material; roles retain their geometry and contrast policy. */
+  --transient-surface-veil: light-dark(
+    color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-light-veil-alpha) * 100%), transparent),
+    color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-dark-veil-alpha) * 100%), transparent)
+  );
   /* The fill. With no wallpaper still to bend it is plain glass's; while the lens draws it is
      clearer (below): the bend, not the frost, says it is glass. */
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
@@ -141,16 +146,17 @@
    frost (the mode, below). */
 .ui-popup.ui-glass,
 .ui-card.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
-  --glass-backdrop: var(--ds-glass-menu-blur);
-  /* On the App's glass (HOST GLASS, below) every popup and card lays the same veil of the theme
-     surface: the model menu's since cmux#37794 (gallery ui.host-glass model-40: 0% let the
-     wallpaper's color into the row text, 70% read solid). Before, only the model menus had it and
-     every other popup was clear, so the model picker and the context card read as two materials
-     side by side (gallery ui.menu-material). */
-  --host-glass-fill: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-veil, 40%), transparent);
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
+  /* On the App's glass (HOST GLASS, below) a popup or card lays no veil of its own: the App draws its
+     whole native surface there, veil and rim included (Glass.makeHostSurface: a menu the native menu
+     panel with its 40% veil, a popover or hover card the native popovers' transient material), so the
+     web surface is the native one to the pixel (the Liquid Glass Parity playground, Lawrence
+     2026-11-18). Before, the page laid the menu veil over a veil-less glass under every popup
+     (cmux#37794), which matched native menus and no native popover. */
+  --host-glass-fill: transparent;
 }
-:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card).ui-glass {
+:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card, .ui-dialog).ui-glass {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
   --glass-backdrop: var(--ds-glass-lens-blur);
 }
@@ -384,6 +390,29 @@
   }
 }
 
+/* HOST GLASS IN EITHER ENGINE (hostGlass.ts HOST_GLASS_ENGINES_ATTRIBUTE): a page that asks for the
+   App's glass in WebKit too gets the rules above there as well. WebKit's own backdrop blur does reach
+   the window glass, but it is a CSS blur and saturate, never the App's Liquid Glass with its lensing
+   rim: beside a native surface only the App's own material matches (the Liquid Glass Parity
+   playground, pages/glass-parity). The drawn surface lays only its content, as in Chromium. No
+   `prefers-reduced-transparency` query around it: WebKit does not know that feature, so `not (...)` was
+   false there and WebKit kept its own blur over the App's glass. Reduce Transparency never gets here:
+   the reporter does not start under it (hostGlassApplies), so data-host-glass-on is never set. */
+:root[data-host-glass-engines="all"][data-host-glass-on] [data-host-glass]:not([data-host-glass-drawn]) {
+  filter: opacity(0);
+}
+:root[data-host-glass-engines="all"][data-host-glass-on][data-cmux-see-through]
+  [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay]):is(
+    :not([data-host-glass-cover]),
+    [data-glass-over]
+  ):is(.ui-glass, .ui-tooltip) {
+  background: var(--host-glass-fill, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--host-glass-edge, none);
+  border-color: transparent;
+}
+
 /* A HOVER CARD BLURS WHAT IT COVERS, IN EVERY CHROMIUM PAGE (Leo 2026-11-05, on the hover previews:
    "this awkward wannabe glass but kind of just opaque thing"). Chromium draws a backdrop-filter's
    blurred copy over the page's pixels, so the transcript's text read crisp through a hover card's
@@ -421,10 +450,10 @@
 .ui-tooltip.ui-card.ui-glass {
   border-color: transparent;
 }
-/* A tooltip carries text over whatever is under it, so its glass is the tooltip frost
+/* A tooltip carries text over whatever is under it, so it keeps the contrast-fitted veil
    (desktop.css --tooltip-*: the host's --cmux-tooltip-tint, the least alpha of the popup surface at
-   which the text keeps 4.5:1 over pure black and pure white, TooltipSurface.swift) and its stronger
-   blur, in every glass mode: set on the tooltip itself, so the lens's clearer root tint never reaches
+   which the text keeps 4.5:1 over pure black and pure white, TooltipSurface.swift) over the shared
+   transient frost, in every glass mode: set on the tooltip itself, so the lens's clearer root tint never reaches
    it. Reduce Transparency's !important rules below still make it opaque. A chart's tooltip
    (pages/chief-usage .cu-tooltip) is a tooltip too. */
 .ui-tooltip.ui-glass:not(.ui-card),
@@ -432,7 +461,7 @@
 .ui-title-tooltip.ui-glass,
 .cu-tooltip.ui-glass {
   --glass-tint: var(--tooltip-tint);
-  --glass-backdrop: var(--tooltip-blur);
+  --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   --glass-elevation: var(--tooltip-shadow);
 }
 

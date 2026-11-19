@@ -33,7 +33,7 @@ export type Cell = {
   id: string;
   agent: string;
   signIn: string;
-  proof: "live" | "stubbed" | "expect" | "start";
+  proof: "live" | "stubbed" | "expect" | "start" | "bench";
   args: string[];
   /** Environment the cell needs; absent, the cell is skipped with this reason. */
   needs?: { env: string; why: string };
@@ -96,6 +96,17 @@ export const CELLS: Cell[] = [
   // 2026-11-10: "I only have ChatGPT and Google ... Or else I ask the company to get me basic accounts later").
   // The `start` cells below need no account: a signed-out agent passes by naming itself.
   ...PICKER_HARNESSES.map(appStartCell),
+  // Not a chat: the start bench (cloud-journey.ts --start-bench, cloud-start-bench.ts), create-to-first-command phase
+  // by phase on the spare, cold, snapshot and VM API paths, 5 starts each. Dispatch it alone (cells=start-bench): it
+  // makes and deletes about 27 machines and runs 30 to 60 minutes. Leo, 2026-11-16: "let's do all those".
+  {
+    id: "start-bench",
+    agent: "claude",
+    signIn: "none needed: no agent is started",
+    proof: "bench",
+    args: ["--preclaim", "--start-bench", "5", "--cmux", "$CMUX_BIN"],
+    needs: { env: "CMUX_BIN", why: "a cmux CLI for the warm the app sends (the spare path)" },
+  },
   // TODO(hq#11225 PR4): gemini and grok through the team's inference gateway (a second machine), once gateway
   // routing for those harnesses lands: a started session there, never sign_in_required.
 ];
@@ -203,7 +214,8 @@ export function main(argv: string[]): number {
     console.error(`unknown cells: ${unknown.join(", ")} (--list names them)`);
     return 2;
   }
-  const cells = want ? CELLS.filter((c) => want.includes(c.id)) : CELLS;
+  // The bench is never part of a default run: it is long and makes many machines; name it in --cells.
+  const cells = want ? CELLS.filter((c) => want.includes(c.id)) : CELLS.filter((c) => c.proof !== "bench");
   // The default is a folder mkdtemp makes, never a guessable /tmp name another account could make first.
   const given = argValue("--out", argv);
   const out = given ? path.resolve(given) : mkdtempSync(path.join(os.tmpdir(), "cloud-chat-matrix-"));
@@ -217,6 +229,8 @@ export function main(argv: string[]): number {
   }
   const journey = fileURLToPath(new URL("./cloud-journey.ts", import.meta.url));
   const rows: Row[] = [];
+  // A bench cell's own table (start-bench.md) follows the matrix, so the job summary carries it.
+  const extra: string[] = [];
   for (const cell of cells) {
     if (cell.needs && !process.env[cell.needs.env]) {
       rows.push({ cell, verdict: "skip", why: `no ${cell.needs.env}: ${cell.needs.why}`, ms: {} });
@@ -237,9 +251,11 @@ export function main(argv: string[]): number {
     const steps: Step[] = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")).steps ?? []) : [];
     const row = judge(cell, steps, r.status ?? 1);
     rows.push(row);
+    const bench = path.join(dir, "start-bench.md");
+    if (existsSync(bench)) extra.push(readFileSync(bench, "utf8"));
     console.log(`${row.verdict.toUpperCase()} ${cell.id} ${((Date.now() - t0) / 1000).toFixed(0)} s :: ${row.why}`);
   }
-  const md = `${table(rows)}\n`;
+  const md = `${table(rows)}\n${extra.map((e) => `\n${e}`).join("")}`;
   writeFileSync(path.join(out, "matrix.md"), md);
   console.log(`\n${md}\nmatrix: ${path.join(out, "matrix.md")}`);
   return rows.some((r) => r.verdict === "fail") ? 1 : 0;
