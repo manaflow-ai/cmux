@@ -127,7 +127,6 @@ final class TerminalFloodBench {
         let focuses = agent && !CommandLine.arguments.contains("-CmuxMobileFloodBenchNoFocus")
         if focuses { model.benchFocusTerminal() }
         try? await clock.sleep(for: .seconds(2))
-        let pumpAtStart = model.benchPumpState()
         sampler.start()
         let keys = KeystrokeTimer(probe: probe, every: agent ? .milliseconds(125) : .milliseconds(200)) { [weak self] in
             guard let self else { return }
@@ -231,8 +230,6 @@ final class TerminalFloodBench {
         summary["pendingEchoesAtEnd"] = probe.take().pendingEchoes
         summary["focused"] = focuses
         summary["frameLog"] = CommandLine.arguments.contains("-CmuxMobileFrameLog")
-        summary["pumpAtStart"] = pumpAtStart
-        summary["pumpAtEnd"] = model.benchPumpState()
         summary["channels"] = ["main": daemon.main.counts(), "lane": daemon.lane.counts()]
         summary["connection"] = String(describing: model.connectionState)
         if let frames = Self.streamingFrameStats() { summary["streamingFrames"] = frames }

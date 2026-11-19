@@ -687,29 +687,6 @@ public final class TerminalModel {
     // MARK: Key bar
 
     #if DEBUG
-    /// The flood bench's agent workload: one key typed into the terminal the way the software
-    /// keyboard types it (`insertText` on the surface, then the caret query UIKit makes after
-    /// every text change). Returns the main thread's milliseconds for the key; nil before the
-    /// surface exists.
-    public func benchTypeNativeKey(_ text: String) -> Double? {
-        guard let surface = controller?.surface, surface.surface != nil else { return nil }
-        let start = CACurrentMediaTime()
-        surface.insertText(text)
-        _ = surface.caretRect(for: surface.endOfDocument)
-        return (CACurrentMediaTime() - start) * 1000
-    }
-
-    /// The flood bench's agent workload: the terminal takes the keyboard, as a tap on it does,
-    /// so UIKit's text system (its input delegate, the keyboard) is in the loop for each key.
-    public func benchFocusTerminal() {
-        controller?.focusTerminal()
-    }
-
-    /// The output pump's state (`TerminalViewController.benchPumpState`); empty before the page.
-    public func benchPumpState() -> [String: Any] {
-        controller?.benchPumpState() ?? [:]
-    }
-
     /// Demo drivers (`ws-terminal-composer`): a draft, with two photos and a
     /// file attached when asked, for gallery captures of the composer.
     public func demoFillComposer(_ text: String, attachments withAttachments: Bool) {
