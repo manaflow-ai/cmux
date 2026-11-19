@@ -5023,7 +5023,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// agent pick opened its empty session, as in the chat composer (cmux#45774).
   const newTabRunMode = newTabRunModeRows(sandboxModeRows, {
     sandbox: sandboxOffered,
-    cloud: cloudOffered,
+    cloud: cloudOfferable,
     sandboxPicked: sandboxPickedNotOffered,
     cloudPicked: cloudPickedNotOffered,
   });
@@ -13809,9 +13809,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           );
                         },
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
-                          const started = sandboxPickedNotOffered
-                            ? sandboxNotNow
-                            : startSandbox(text, attachments.length, harness);
+                          // Only a run this tab can make goes: a Sandboxed pick left over once a session opened here is refused.
+                          const started = sandboxing ? startSandbox(text, attachments.length, harness) : sandboxNotNow;
                           if (started !== false) newTabSandboxSent.current = true;
                           if (typeof started !== "string") return started;
                           heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
@@ -13881,7 +13880,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // (never home or above it, cloudStartFolder), and whenever Cloud may be offered, the
                   // host's sandbox check still out included (newTabProjectPick); a home or root answer
                   // asks nothing here (the local start still asks on Return).
-                  {...newTabProjectPick(callNative, sandboxOfferable, cloudFolderGrant.granting)}
+                  {...newTabProjectPick(callNative, cloudOfferable, cloudFolderGrant.granting)}
                   {...(!handshaken ? { startPending: true } : {})}
                   {...(newTabChatsPending ? { chatsPending: true } : {})}
                   {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
