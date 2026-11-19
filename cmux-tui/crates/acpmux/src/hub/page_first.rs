@@ -237,14 +237,18 @@ impl Hub {
         params: &Value,
         with_tools: bool,
     ) -> Result<(Vec<BuiltRow>, Option<Value>), RpcError> {
+        let fields = row_fields(params)?;
         let (list, Picked { rows: picked, next }) = self.picked_page(params)?;
         let built = picked
             .iter()
             .filter_map(|&at| list.rows().get(at))
-            .map(|row| match &row.source {
-                Source::Own(_) => BuiltRow::Tree(list.value(self, row, with_tools)),
-                Source::Peer(peer) => {
+            .map(|row| match (&row.source, &fields) {
+                (Source::Own(_), None) => BuiltRow::Tree(list.value(self, row, with_tools)),
+                (Source::Peer(peer), None) => {
                     BuiltRow::Peer(list.peer_text(peer, with_tools), peer.clone())
+                }
+                (_, Some(fields)) => {
+                    BuiltRow::Tree(only_fields(list.value(self, row, with_tools), fields))
                 }
             })
             .collect();
@@ -351,6 +355,38 @@ fn sort_rows(rows: &mut [Unbuilt]) {
             .then_with(|| a.session_id().cmp(b.session_id()))
             .then_with(|| a.peer().cmp(&b.peer()))
     });
+}
+
+/// The members a row keeps whatever `fields` names: what a page's cursor, its filters and a
+/// client's row key read.
+const KEPT_FIELDS: [&str; 5] = ["sessionId", "qualifiedSessionId", "peer", "updatedAt", "status"];
+
+/// A page's `fields` (`_acpmux/sessions {limit, fields: [..]}`): the top-level members each row
+/// keeps (a dotted path keeps its first segment's member whole), with [`KEPT_FIELDS`]. None when
+/// absent: every member. A caller that prints a few fields of a live list of 850 rows was sent
+/// about 1 MB a read for them (`acpmux-ls-paged`, 2026-11-19).
+fn row_fields(params: &Value) -> Result<Option<HashSet<String>>, RpcError> {
+    let invalid = || RpcError::invalid_params("fields must be an array of strings");
+    match params.get("fields") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Array(fields)) => {
+            let mut kept: HashSet<String> = KEPT_FIELDS.iter().map(|f| (*f).to_owned()).collect();
+            for field in fields {
+                let field = field.as_str().ok_or_else(invalid)?;
+                kept.insert(field.split('.').next().unwrap_or(field).to_owned());
+            }
+            Ok(Some(kept))
+        }
+        Some(_) => Err(invalid()),
+    }
+}
+
+/// `row` with only the members `fields` keeps.
+fn only_fields(mut row: Value, fields: &HashSet<String>) -> Value {
+    if let Some(members) = row.as_object_mut() {
+        members.retain(|key, _| fields.contains(key));
+    }
+    row
 }
 
 /// `excludeStatus` holds `closed`.

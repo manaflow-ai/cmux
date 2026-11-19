@@ -160,3 +160,29 @@ async fn a_first_page_reads_a_window_of_the_peers_rows() {
     assert!(next.is_some_and(|next| next.is_string()));
     assert_eq!(hub.closed_listed(0).remote, 18_000);
 }
+
+/// `fields` cuts each row of a page to the members named and those a cursor and a row key read,
+/// own rows and peers' alike, and the pages still give every row once.
+#[tokio::test]
+async fn a_page_with_fields_sends_only_those_members() {
+    let hub = mixed_hub();
+    let filter = json!({"excludeStatus": ["closed"], "fields": ["name", "lane.state"]});
+    let want = picked_from_all(&hub, 1_000, &json!({"excludeStatus": ["closed"]}));
+    assert_eq!(paged(&hub, 3, &filter), want, "pages with fields give every row once");
+    let mut params = filter.clone();
+    params["limit"] = json!(1_000);
+    let (rows, _) = hub.session_page_rows(&params, false).unwrap();
+    let allowed =
+        ["sessionId", "qualifiedSessionId", "peer", "updatedAt", "status", "name", "lane"];
+    let mut peers = 0;
+    for row in &rows {
+        let BuiltRow::Tree(row) = row else { panic!("a row with fields is built as a tree") };
+        let members = row.as_object().unwrap();
+        assert!(members.keys().all(|k| allowed.contains(&k.as_str())), "{row}");
+        assert!(members.contains_key("sessionId"));
+        peers += usize::from(members.contains_key("peer"));
+    }
+    assert!(peers > 0, "the peers' rows are cut too");
+    let bad = json!({"limit": 5, "fields": "name"});
+    assert!(hub.session_page_rows(&bad, false).is_err());
+}
