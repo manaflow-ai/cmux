@@ -232,6 +232,7 @@ from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
 from pr_runner_pool import LANE_LABEL  # noqa: E402
+from pr_runner_pool import OWNED_EPHEMERAL_LINUX  # noqa: E402
 from pr_runner_pool import SIM_FIRST_CAPABILITY, sim_first  # noqa: E402
 from pr_runner_pool import GitHub as PoolClient  # noqa: E402
 from pr_runner_pool import ARTIFACT_NAME as SNAPSHOT_ARTIFACT  # noqa: E402
@@ -709,6 +710,14 @@ def paid_portable_label(job: Mapping[str, Any]) -> str | None:
                  if rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(str(label))), None)
 
 
+def owned_linux_label(job: Mapping[str, Any]) -> str | None:
+    """The owned Mac fleet's Linux VM label (pr_runner_pool.OWNED_EPHEMERAL_LINUX) a job asked for, if any.
+
+    runner_pools.py may lead a pool with one; it reads this label's queue and starts from the snapshot to move the
+    pool to Blacksmith once every VM is taken (runner_pools.label_evidence())."""
+    return next((str(label) for label in job.get("labels") or () if str(label) in OWNED_EPHEMERAL_LINUX), None)
+
+
 def lane_label(job: Mapping[str, Any]) -> str | None:
     """The feat-cmux-next lane label (pr_runner_pool.LANE_LABEL: session, fast, dev, nightly) a job asked for."""
     return next((str(label) for label in job.get("labels") or () if LANE_LABEL.fullmatch(str(label))), None)
@@ -1136,7 +1145,7 @@ def pool_load_snapshot(
     markers: Mapping[int, tuple[str, int, int]] | None = None,
     capability_markers: Mapping[int, tuple[str, int]] | None = None,
 ) -> dict[str, Any]:
-    """Per-pool macOS and paid portable Linux demand from jobs this sweep already listed.
+    """Per-pool macOS, paid portable Linux and owned Linux VM demand (owned_linux_label()) from jobs this sweep already listed.
 
     A pool is a job's single runner label when it asked for one, which is
     every Blacksmith job, so pr_runner_pool.py can look a label up directly.
@@ -1208,7 +1217,7 @@ def pool_load_snapshot(
             # 3 h 20 min on glaeda-session-std-xcode-26.6 with no runner online, unseen here).
             lane = lane_label(job)
             macos = is_macos_job(job)
-            paid = paid_portable_label(job)
+            paid = paid_portable_label(job) or owned_linux_label(job)
             if not macos and not lane and not paid:
                 continue
             status = job.get("status")
@@ -1261,7 +1270,7 @@ def label_started(runs: Sequence[Mapping[str, Any]],
                   jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]]) -> dict[str, str]:
     """When a runner last took a job on each tracked label: the newest `started_at` of a listed job a runner
     took (runner_name or runner_id; a queued job's started_at is only its creation), running or finished, keyed by
-    each owned, lane, macOS or paid Linux label it asked for exactly (no root or capability rollup, as `pools` has).
+    each owned, lane, macOS, paid Linux or owned Linux VM label it asked for exactly (no root or capability rollup, as `pools` has).
 
     The rescue's stall-aware failover reads it (owned_pool_rescue.label_quiet()): a label whose pool count shows a
     job running but that started nothing while a job waited is no queue that job is moving in. Run 40993742146's
@@ -1280,7 +1289,7 @@ def label_started(runs: Sequence[Mapping[str, Any]],
                 continue
             for label in {str(item) for item in job.get("labels") or ()}:
                 if not (owned_pool(label) or LANE_LABEL.fullmatch(label) or "macos" in label.lower()
-                        or rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(label)):
+                        or rescue.BLACKSMITH_PORTABLE_LABEL.fullmatch(label) or label in OWNED_EPHEMERAL_LINUX):
                     continue
                 if label not in newest or started > newest[label]:
                     newest[label] = started

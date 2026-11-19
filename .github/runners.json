@@ -84,6 +84,14 @@
         "blacksmith-4vcpu-ubuntu-2404"
       ]
     },
+    "linux_owned_small": {
+      "why": "Small arch-agnostic Linux jobs (stdlib Python, git, bun; no Docker service, no secret, no App key) on the owned Mac fleet's Linux VMs first: arm64 Ubuntu 24.04, one just-in-time runner per fresh VM clone, one job each (runner_pools.py OWNED_EPHEMERAL_LINUX). Leo, 2026-11-19: \"dont we have linux vms set up on everybody yet? we shuold\" ... \"on the fleet\". The fleet is small (one clone per mini at first), so once a job there waits the stall cutoff the pool overflows to Blacksmith 2 then 4 vCPU until that queue drains. Never a job that needs x64 (an amd64 download, X64 Java); jobs read it only on push, schedule and workflow_dispatch while the runner group admits only main and feat-cmux-next",
+      "members": [
+        "glaeda-linux-arm64",
+        "blacksmith-2vcpu-ubuntu-2404",
+        "blacksmith-4vcpu-ubuntu-2404"
+      ]
+    },
     "linux_4": {
       "why": "Jobs measured at 4 vCPU that must stay on an ephemeral machine (secret-bearing and write-token jobs, which the linux pool may one day not be). A stalled 4 vCPU size moves them to 16 vCPU",
       "members": [
