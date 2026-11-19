@@ -369,6 +369,7 @@ final class CEFRuntime {
             let started = clock.now
             try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
+            ExecPolicyPrewarm.start() // experiment arm E (lane/rtc-premain-e, not for merge)
             CEFStartSteps.shared.timed("ready_hooks") {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
                 observeDisplays()
