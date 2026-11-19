@@ -1340,7 +1340,7 @@ function answerNextStep(question: HatQuestion, label: string, asker: string | un
   claimAnswer(key, label);
   setAnswerState(key, { sending: label });
   return answerThrough(callNative)(text).then(
-    () => setAnswerState(key, {}),
+    () => setAnswerState(key, { sent: label }),
     (error: unknown) => {
       setAnswerState(key, { failed: true });
       throw error;

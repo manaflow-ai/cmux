@@ -55,11 +55,15 @@ export const NextStepCard = memo(function NextStepCard({
     () => (answerKey ? answerState(answerKey) : own),
     () => own,
   );
-  const { sending, failed = false } = answerKey ? shared : own;
+  const { sending, sent, failed = false } = answerKey ? shared : own;
   const update = (state: AnswerState) => (answerKey ? setAnswerState(answerKey, state) : setOwn(state));
   const primary = useRef<HTMLButtonElement>(null);
   // A recap alone has no answer to send, so it leaves ⌘↩ to the composer.
-  const settled = answer !== undefined || superseded;
+  // A click shows its answer in place at once, while it goes and once it went, until the transcript
+  // reads the person's prompt (`answer`): no button comes back in between (Leo, 2026-11-19: "plus
+  // it's not instant yet").
+  const picked = answer ?? sending ?? sent;
+  const settled = picked !== undefined || superseded;
   const pending = !settled && onAnswer !== undefined && ask.options.length > 0;
   useEffect(() => {
     if (!pending || !registerKey) return;
@@ -70,15 +74,15 @@ export const NextStepCard = memo(function NextStepCard({
   if (!ask.question) return recap ? <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div> : null;
   if (settled) {
     // An answer the card made up (Yes, Not now) reads in the pane's words.
-    const made = ask.options.find((option) => option.key && option.label === answer)?.key;
+    const made = ask.options.find((option) => option.key && option.label === picked)?.key;
     return (
       <div className="acpmux-question-answered acpmux-next-step acpmux-next-step--answered">
         {recap}
         <span className="acpmux-hidden-label">{t("question.answered")}</span>
         <div className="acpmux-question-answered-item">
           <span className="acpmux-question-answered-prompt">{inlineText(ask.question)}</span>
-          {answer !== undefined && (
-            <span className="acpmux-question-answered-answer">{made ? t(made) : inlineText(answer)}</span>
+          {picked !== undefined && (
+            <span className="acpmux-question-answered-answer">{made ? t(made) : inlineText(picked)}</span>
           )}
         </div>
       </div>
@@ -91,7 +95,7 @@ export const NextStepCard = memo(function NextStepCard({
     // The answer goes as a reply to the ask: the question quoted with who asked, then the answer
     // (nextStepAsk.ts `answerPrompt`), so the bubble shows what it answers.
     void onAnswer(answerPrompt(ask.question, label, asker)).then(
-      () => update({}),
+      () => update({ sent: label }),
       () => update({ failed: true }),
     );
   };
