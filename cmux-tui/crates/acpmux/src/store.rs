@@ -19,7 +19,7 @@ use std::sync::Mutex;
 mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
 mod deferred;
-pub use deferred::{Deferral, Keep};
+pub use deferred::{Deferral, HeldBack, Keep, held_file, slot as held_slot};
 mod cold;
 pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
 mod superseded;
@@ -1464,6 +1464,19 @@ pub trait Store: Send + Sync {
     fn kept_parked(&self, _id: &str) -> Result<Option<Vec<u8>>> {
         Ok(None)
     }
+    /// Keeps `held`, the body of a tool output snapshot or turn diff chat `id` holds back from
+    /// its log (`store/deferred.rs`), as slot `slot` (lowercase hex, `deferred::slot`) beside the
+    /// log, in place of what the slot kept; None removes it, and a slot with nothing is Ok. The
+    /// body is kept before its stub is logged, so the next start stores what a killed daemon held
+    /// (`Hub::take_back_held`). Not synced: a kill keeps it, a power cut may not. Never makes a
+    /// chat's folder that is gone. A store that keeps nothing across a restart keeps nothing here.
+    fn keep_held(&self, _id: &str, _slot: &str, _held: Option<&[u8]>) -> Result<()> {
+        Ok(())
+    }
+    /// What [`Store::keep_held`] keeps for chat `id`: each slot and its bytes, in no order.
+    fn kept_held(&self, _id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        Ok(Vec::new())
+    }
     /// Writes a cold archive of `id`'s log beside it and checks it (`store/cold.rs`); None
     /// without a log to archive, or for a store that keeps none.
     fn stage_cold(&self, _id: &str) -> Result<Option<StagedCold>> {
@@ -1648,6 +1661,8 @@ struct Writers {
 
 /// What a chat keeps while a journal restore holds it (`Store::keep_parked`), beside its log.
 const PARKED: &str = "parked.json";
+/// The folder of a chat's held tool output bodies (`Store::keep_held`), beside its log.
+const HELD: &str = "held";
 
 struct SegmentWriter {
     index: u32,
@@ -2581,6 +2596,55 @@ impl Store for LocalStore {
             Err(_) if crate::home_fs::symlink_metadata(&path).is_err() => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    /// `<id>/held/<slot>.json`, beside the chat's `events/`: written whole by a rename, not
+    /// synced (a kill keeps what the kernel was given). Never makes the chat's folder: a deleted
+    /// chat gets no file of its own again.
+    fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
+        anyhow::ensure!(deferred::is_slot(slot), "{slot:?} names no held slot");
+        let _open = self.writable()?;
+        let chat = self.dir(id);
+        let dir = chat.join(HELD);
+        let path = dir.join(format!("{slot}.json"));
+        match held {
+            Some(bytes) => {
+                // Read in the held home, never by path (#41721 review F1).
+                let folder =
+                    crate::home_fs::symlink_metadata(&chat).is_ok_and(|m| m.file_type().is_dir());
+                anyhow::ensure!(folder, "no folder for {id}");
+                crate::home_fs::create_dir_all(&dir, 0o700)
+                    .with_context(|| format!("create {}", dir.display()))?;
+                crate::config::write_atomic_unsynced(&path, bytes)
+            }
+            None => match crate::home_fs::remove_file(&path) {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(e).with_context(|| format!("remove {}", path.display())),
+            },
+        }
+    }
+
+    /// Every `<slot>.json` in `<id>/held/`; none without the folder. A copy a write left (named
+    /// `<slot>.tmp-<pid>`) is no slot's.
+    fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        let dir = self.dir(id).join(HELD);
+        let entries = match crate::home_fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e).with_context(|| format!("list {}", dir.display())),
+        };
+        let mut out = Vec::new();
+        for entry in entries {
+            let name = entry.name.to_str().and_then(|n| n.strip_suffix(".json"));
+            let Some(slot) = name.filter(|s| entry.is_file && deferred::is_slot(s)) else {
+                continue;
+            };
+            let mut bytes = Vec::new();
+            crate::home_fs::private_state_file(dir.join(&entry.name))?.read_to_end(&mut bytes)?;
+            out.push((slot.to_owned(), bytes));
+        }
+        Ok(out)
     }
 
     fn delete(&self, id: &str) -> Result<()> {

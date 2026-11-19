@@ -160,6 +160,10 @@ pub struct Session {
     /// was none: until it is, the chat is not caught up and its log not read (review of #37284 at
     /// 23e76b07, F2). Taken under `append_lock`.
     pub(super) kept_read: AtomicBool,
+    /// The held tool output bodies an earlier run left beside the log are read back
+    /// (`Hub::take_back_held`), or there were none: until they are, the chat is not caught up.
+    /// Taken under `append_lock`.
+    pub(super) held_read: AtomicBool,
     /// The restore try whose thread writes this chat meanwhile (0: none).
     pub(super) restore_token: AtomicU64,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop

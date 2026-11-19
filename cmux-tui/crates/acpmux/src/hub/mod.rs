@@ -1918,7 +1918,9 @@ impl Hub {
         // again (review of #37284 at b7496c3f, F1). Until that list reads, the chat is not
         // caught up: the next append or read tries again, and its log is not read, so no queue
         // is rebuilt without the edits and removals it holds (review of #37284 at 23e76b07, F2).
-        if !self.take_back_kept(session) {
+        // Then the tool output bodies a killed run held back and wrote beside the log are stored,
+        // before any record of this run and before its log is read (`store/deferred.rs`).
+        if !self.take_back_kept(session) || !self.take_back_held(session) {
             if rebuilt {
                 self.save_meta(session);
             }
@@ -2004,6 +2006,7 @@ impl Hub {
             unparked: StdMutex::new(Vec::new()),
             unflushed: StdMutex::new(Vec::new()),
             kept_read: AtomicBool::new(false),
+            held_read: AtomicBool::new(false),
             restore_token: AtomicU64::new(0),
             restore_lease: StdMutex::new(None),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
@@ -3262,3 +3265,8 @@ impl Drop for LogsReady<'_> {
 #[cfg(test)]
 #[path = "update_cost_bench.rs"]
 mod update_cost_bench;
+
+// What appending a held tool output snapshot costs, small chat and god chat (manual, `--ignored`).
+#[cfg(test)]
+#[path = "held_append_bench.rs"]
+mod held_append_bench;

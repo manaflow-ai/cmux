@@ -391,6 +391,14 @@ impl Store for ForkView {
     fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
         self.inner.kept_parked(id)
     }
+    /// The held tool output bodies of a chat (`store/deferred.rs`): the store's own, beside its
+    /// log, a fork's beside its own.
+    fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
+        self.inner.keep_held(id, slot, held)
+    }
+    fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        self.inner.kept_held(id)
+    }
     /// A fork's lines are its chat's history lines through the seq it was forked through, then
     /// its own, as `scan` shows them. A chunk ends where the history does.
     fn read_log(

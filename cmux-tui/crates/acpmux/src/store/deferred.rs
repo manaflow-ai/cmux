@@ -25,10 +25,12 @@
 //! record that is not the agent's stream, to what it did before. The live stream is not touched:
 //! clients hear every record as the agent sent it. Every increment stays in the log.
 //!
-//! What a held snapshot costs if the daemon dies without its shutdown (`Hub::store_deferred`): a
-//! call that was running then may replay up to [`MAX_AGE_MS`] (or half its output) behind what the
-//! stream showed, if its agent outlives the daemon and ends the call with no content. A snapshot of
-//! more than [`MAX_HELD_BYTES`], or one past [`MAX_HELD_TOTAL`] held in the chat, is stored whole.
+//! A held body is written beside the log before its stub is (`Store::keep_held`, one small file
+//! per call or turn, its [`slot`]), and removed once the log holds it or something that replaces
+//! it ([`Deferral::settled`]). So a daemon that dies without its shutdown (`Hub::store_deferred`)
+//! loses nothing the stream showed: the next one stores what the files hold, unless a record past
+//! where each was written replaces it ([`HeldBack`], `Hub::take_back_held`). A snapshot of more
+//! than [`MAX_HELD_BYTES`], or one past [`MAX_HELD_TOTAL`] held in the chat, is stored whole.
 //!
 //! A turn's diff (`codex.turn/diff/updated`) is stored without its `diff` the same way, noted as
 //! `params.acpmuxSupersededDiff`, and the newest whole one is written before any record but the
@@ -36,7 +38,9 @@
 
 use super::superseded::{call_of_msg, fields, only_output};
 use super::*;
+use serde::{Deserialize, Serialize};
 use serde_json::Map;
+use std::collections::HashSet;
 
 /// A snapshot this many times the bytes of its call's last stored one is stored whole.
 const GROWTH: usize = 2;
@@ -51,6 +55,8 @@ const DIFF_KIND: &str = "codex.turn/diff/updated";
 /// The note a turn diff stored without its `diff` carries in its `params`: the diff's bytes.
 const DIFF_NOTE: &str = "acpmuxSupersededDiff";
 const UPDATE_KIND: &str = "tool_call_update";
+/// The version of a held body's file ([`held_file`]); a file of another is removed unread.
+const HELD_VERSION: u32 = 1;
 
 /// One chat's snapshots held back from its log while newer ones may replace them.
 #[derive(Default)]
@@ -60,6 +66,8 @@ pub struct Deferral {
     diff: Option<(Option<String>, Value, usize)>,
     /// Records made due that the store refused, in order: stored before anything else.
     retry: Vec<(&'static str, Value)>,
+    /// The slots whose body is written beside the log (`Store::keep_held`) and not removed yet.
+    written: HashSet<String>,
 }
 
 struct Call {
@@ -211,6 +219,36 @@ impl Deferral {
         }
     }
 
+    /// The body of `slot` is written beside the log (`Store::keep_held`).
+    pub fn wrote(&mut self, slot: String) {
+        self.written.insert(slot);
+    }
+
+    /// The written slots whose body it no longer holds (no held call's, not the held diff's, no
+    /// record's waiting to be stored again), forgotten: their files are to be removed. Free while
+    /// none is written; it never copies a body.
+    pub fn settled(&mut self) -> Vec<String> {
+        if self.written.is_empty() {
+            return Vec::new();
+        }
+        let mut holds: HashSet<String> = self
+            .calls
+            .iter()
+            .filter(|(_, c)| c.held.is_some())
+            .map(|(k, _)| call_slot(k))
+            .collect();
+        if let Some((turn, _, _)) = &self.diff {
+            holds.insert(diff_slot(turn.as_deref()));
+        }
+        holds.extend(self.retry.iter().filter_map(|(kind, msg)| slot(kind, msg)));
+        let settled: Vec<String> =
+            self.written.iter().filter(|s| !holds.contains(*s)).cloned().collect();
+        for s in &settled {
+            self.written.remove(s);
+        }
+        settled
+    }
+
     /// The snapshot and diff bytes held now, those waiting to be stored again included.
     fn held_bytes(&self) -> usize {
         let calls: usize =
@@ -277,20 +315,150 @@ fn text_bytes(parts: &[Value]) -> usize {
 /// Whether a record (`dir`, `kind`, `msg`), stored after a late one, makes it wrong to store that
 /// late one after it: a start of its call id (the id names a new call then: stored after it, the
 /// late output would read as that call's), an update of its call with content (which replaces
-/// it), or a newer diff of its turn.
+/// it), or a newer diff of its turn that carries its diff. A stub (an update without content, a
+/// diff without its `diff`) replaces nothing: the live path passes whole messages only, and the
+/// log a restart reads ([`HeldBack`]) holds the stubs of the very bodies it looks for.
 fn supersedes(dir: &str, kind: &str, msg: &Value, late_kind: &str, late: &Value) -> bool {
     if dir != "in" {
         return false;
     }
     if late_kind == DIFF_KIND {
         let turn = |m: &Value| m.pointer("/params/params/turnId").cloned();
-        return kind == DIFF_KIND && turn(msg) == turn(late);
+        let whole = msg.pointer("/params/params/diff").is_some_and(Value::is_string);
+        return kind == DIFF_KIND && whole && turn(msg) == turn(late);
     }
     let same_call = || call_of_msg(msg).zip(call_of_msg(late)).is_some_and(|(a, b)| a.0 == b.0);
     match kind {
         "tool_call" => same_call(),
         UPDATE_KIND => msg.pointer("/params/update/content").is_some() && same_call(),
         _ => false,
+    }
+}
+
+/// The name of a held body's file beside the log (`Store::keep_held`): 16 lowercase hex digits of
+/// an FNV-1a hash of its kind and what it is the body of (its call, a diff's turn). The same for a
+/// snapshot as sent and as stored late ([`late`] keeps what [`call_of_msg`] reads), and stable
+/// across builds: the next daemon reads the files this one left. None for a record never held.
+pub fn slot(kind: &str, msg: &Value) -> Option<String> {
+    match kind {
+        UPDATE_KIND => call_of_msg(msg).map(|(key, _)| call_slot(&key)),
+        DIFF_KIND => Some(diff_slot(msg.pointer("/params/params/turnId").and_then(Value::as_str))),
+        _ => None,
+    }
+}
+
+/// Whether `slot` could be a [`slot`]: lowercase hex only, so it never names a path elsewhere.
+pub fn is_slot(slot: &str) -> bool {
+    !slot.is_empty() && slot.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// The slot of the call `key` ([`call_of_msg`]).
+fn call_slot(key: &str) -> String {
+    let hash = super::kind_index::fnv(UPDATE_KIND.bytes().chain([0u8]).chain(key.bytes()));
+    format!("{hash:016x}")
+}
+
+/// The slot of a turn's diff (as [`Deferral::diff`] reads its turn: a turn id that is no string
+/// is no turn).
+fn diff_slot(turn: Option<&str>) -> String {
+    let turn = turn.into_iter().flat_map(|t| [1u8].into_iter().chain(t.bytes()));
+    let hash = super::kind_index::fnv(DIFF_KIND.bytes().chain([0u8]).chain(turn));
+    format!("{hash:016x}")
+}
+
+/// A held body's file (`Store::keep_held`): this version, the chat's seq when it was written
+/// (`after`: a record past it may replace the body), its kind, and the message as sent, borrowed.
+#[derive(Serialize)]
+struct HeldFile<'a> {
+    v: u32,
+    after: u64,
+    kind: &'a str,
+    msg: &'a Value,
+}
+
+/// The bytes of a held body's file: the message `msg` of kind `kind`, held while the chat's seq
+/// is `after`. Serialized from the borrowed message: the body is never copied.
+pub fn held_file(after: u64, kind: &str, msg: &Value) -> serde_json::Result<Vec<u8>> {
+    serde_json::to_vec(&HeldFile { v: HELD_VERSION, after, kind, msg })
+}
+
+/// The held bodies an earlier run wrote beside the log (`Store::kept_held`), read back at the next
+/// start (`Hub::take_back_held`): each is stored unless a record of the log past where it was
+/// written replaces it ([`supersedes`]). The log holds its stub, which replaces nothing; a late
+/// record of it that run stored, or anything newer of its call or turn, does.
+#[derive(Default)]
+pub struct HeldBack {
+    /// The bodies that read: each one's slot, where it was written, its kind, the record to store
+    /// (an update's late form) and whether a record past it replaces it.
+    found: Vec<(String, u64, &'static str, Value, bool)>,
+    /// The slots of the files that do not read as a body of this build's (not JSON, another
+    /// version, a body that is not its slot's): removed unread.
+    pub unread: Vec<String>,
+}
+
+impl HeldBack {
+    /// Reads `files`, each a slot and its bytes.
+    pub fn read(files: Vec<(String, Vec<u8>)>) -> Self {
+        #[derive(Deserialize)]
+        struct Written {
+            v: u32,
+            after: u64,
+            kind: String,
+            msg: Value,
+        }
+        let mut back = Self::default();
+        for (name, bytes) in files {
+            let read =
+                serde_json::from_slice::<Written>(&bytes).ok().filter(|r| r.v == HELD_VERSION);
+            let found = read.and_then(|read| {
+                let kind = match read.kind.as_str() {
+                    UPDATE_KIND => UPDATE_KIND,
+                    DIFF_KIND => DIFF_KIND,
+                    _ => return None,
+                };
+                let msg = if kind == UPDATE_KIND { late(read.msg) } else { read.msg };
+                (slot(kind, &msg).as_deref() == Some(name.as_str()))
+                    .then_some((read.after, kind, msg))
+            });
+            match found {
+                Some((after, kind, msg)) => back.found.push((name, after, kind, msg, false)),
+                None => back.unread.push(name),
+            }
+        }
+        // Stored in the order they were written.
+        back.found.sort_by_key(|(_, after, ..)| *after);
+        back
+    }
+
+    /// The seq to read the log past (`Store::scan`'s `after`); None with no body to look for.
+    pub fn after(&self) -> Option<u64> {
+        self.found.first().map(|(_, after, ..)| *after)
+    }
+
+    /// `record`, read from the log in order: the bodies it replaces are dropped. False once every
+    /// body is replaced, so the read can stop.
+    pub fn saw(&mut self, record: &EventRecord) -> bool {
+        for (_, after, kind, msg, replaced) in &mut self.found {
+            if !*replaced && record.seq > *after {
+                *replaced = supersedes(&record.dir, &record.kind, &record.msg, *kind, msg);
+            }
+        }
+        self.found.iter().any(|(.., replaced)| !*replaced)
+    }
+
+    /// The bodies to store now, oldest written first, each with its slot; and the slots of those
+    /// the log replaced.
+    pub fn into_late(self) -> (Vec<(String, &'static str, Value)>, Vec<String>) {
+        let mut late = Vec::new();
+        let mut replaced = Vec::new();
+        for (slot, _, kind, msg, gone) in self.found {
+            if gone {
+                replaced.push(slot);
+            } else {
+                late.push((slot, kind, msg));
+            }
+        }
+        (late, replaced)
     }
 }
 

@@ -989,6 +989,16 @@ impl Store for JournalStore {
     fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
         Store::kept_parked(&self.inner.local, id)
     }
+    /// Beside the log, not in the journal, as `keep_parked`: a held body takes no seq, and the
+    /// journal is what the deferral keeps it out of (`store/deferred.rs`). Not while a delete or
+    /// a checkpoint works on the chat's folder.
+    fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
+        let _folder = self.inner.folders.lock_or_recover();
+        Store::keep_held(&self.inner.local, id, slot, held)
+    }
+    fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        Store::kept_held(&self.inner.local, id)
+    }
     /// No journal record of the chat may be past the checkpoint: a replay must never write the
     /// lines a retention rewrite cut back into its log. A chat whose newest log record is at or
     /// below it (`Order::log_lsn`; retention takes chats untouched for days) needs no checkpoint;

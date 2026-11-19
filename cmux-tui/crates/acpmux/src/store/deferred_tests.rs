@@ -397,3 +397,141 @@ fn a_refused_record_is_dropped_once_a_record_that_replaces_it_is_stored() {
     let keep = deferral.keep("in", "tool_call_update", &snapshot("c", "B"), 1, false);
     assert_eq!(keep.before, vec![late("A")]);
 }
+
+fn diff(turn: &str, text: &str) -> Value {
+    json!({"jsonrpc": "2.0", "method": DIFF_KIND, "params": {"method": "turn/diff/updated", "params": {"turnId": turn, "diff": text}}})
+}
+
+/// A held body's file is named for its call or turn: the same as sent and as stored late, another
+/// for another call or turn, and never a path.
+#[test]
+fn a_held_bodys_slot_is_its_calls_or_turns() {
+    let sent = snapshot("c", "aaaa");
+    let named = slot(UPDATE_KIND, &sent).unwrap();
+    assert_eq!(slot(UPDATE_KIND, &late(sent.clone())), Some(named.clone()));
+    assert_eq!(slot(UPDATE_KIND, &snapshot("c", "aaaabbbb")), Some(named.clone()));
+    assert_ne!(slot(UPDATE_KIND, &snapshot("d", "aaaa")), Some(named.clone()));
+    let mut subagents = sent.clone();
+    subagents["params"]["_meta"] = json!({"acpmux": {"subagent": "x"}});
+    assert_ne!(slot(UPDATE_KIND, &subagents), Some(named.clone()), "another owner's call");
+    assert_eq!(slot(UPDATE_KIND, &late(subagents.clone())), slot(UPDATE_KIND, &subagents));
+    let turn = slot(DIFF_KIND, &diff("t1", "a")).unwrap();
+    assert_eq!(slot(DIFF_KIND, &diff("t1", "ab")), Some(turn.clone()));
+    assert_ne!(slot(DIFF_KIND, &diff("t2", "a")), Some(turn.clone()));
+    assert_ne!(turn, named, "a diff's slot is never a call's");
+    assert!(slot("status", &json!({"status": "idle"})).is_none());
+    for name in [&named, &turn] {
+        assert!(is_slot(name) && name.len() == 16, "{name}");
+    }
+    for bad in ["", "../parked", "ABCDEF", "12.json", "0a/0b"] {
+        assert!(!is_slot(bad), "{bad}");
+    }
+}
+
+/// The files to remove are those of bodies it holds no more: stored, replaced or waiting for
+/// nothing; one waiting to be stored again stays.
+#[test]
+fn a_written_slot_settles_once_nothing_holds_its_body() {
+    let mut deferral = Deferral::default();
+    assert!(deferral.settled().is_empty());
+    let _ = deferral.keep("in", "tool_call", &start("c"), 0, true);
+    let held = deferral.keep("in", UPDATE_KIND, &snapshot("c", "a"), 1, true);
+    assert!(held.stored.is_some());
+    let call = slot(UPDATE_KIND, &snapshot("c", "a")).unwrap();
+    deferral.wrote(call.clone());
+    assert!(deferral.settled().is_empty(), "still held");
+    let newer = deferral.keep("in", UPDATE_KIND, &snapshot("c", "ab"), 2, true);
+    assert!(newer.stored.is_some());
+    assert!(deferral.settled().is_empty(), "the same slot holds the newer one");
+    let due = deferral.keep("mux", "status", &json!({"status": "idle"}), 3, true).before;
+    assert_eq!(due.len(), 1);
+    deferral.retry(due);
+    assert!(deferral.settled().is_empty(), "waiting to be stored again");
+    assert_eq!(deferral.take_all().len(), 1);
+    assert_eq!(deferral.settled(), vec![call]);
+    assert!(deferral.settled().is_empty(), "named once");
+    // A held diff, made due by the turn's end.
+    assert!(deferral.keep("in", DIFF_KIND, &diff("t1", "a"), 4, true).stored.is_some());
+    let turn = slot(DIFF_KIND, &diff("t1", "a")).unwrap();
+    deferral.wrote(turn.clone());
+    assert!(deferral.settled().is_empty());
+    let end = deferral.keep("mux", "turn_result", &json!({}), 5, true);
+    assert_eq!(end.before.len(), 1);
+    assert_eq!(deferral.settled(), vec![turn]);
+    // A newer update with content replaces a held one: its slot settles at once.
+    let _ = deferral.keep("in", "tool_call", &start("d"), 6, true);
+    assert!(deferral.keep("in", UPDATE_KIND, &snapshot("d", "a"), 7, true).stored.is_some());
+    let other = slot(UPDATE_KIND, &snapshot("d", "a")).unwrap();
+    deferral.wrote(other.clone());
+    let mut ended = snapshot("d", "ab");
+    ended["params"]["update"]["status"] = json!("completed");
+    let whole = deferral.keep("in", UPDATE_KIND, &ended, 8, true);
+    assert!(whole.stored.is_none() && whole.before.is_empty());
+    assert_eq!(deferral.settled(), vec![other]);
+}
+
+/// A diff's stub (its turn, without its `diff`) replaces nothing: the log a restart reads holds the
+/// stubs of the very diffs it looks for. A whole diff of the turn does.
+#[test]
+fn a_diff_stub_does_not_replace_a_held_diff() {
+    let held = diff("t1", "a");
+    let mut stub = diff("t1", "ab");
+    stub["params"]["params"].as_object_mut().unwrap().remove("diff");
+    assert!(!supersedes("in", DIFF_KIND, &stub, DIFF_KIND, &held));
+    assert!(supersedes("in", DIFF_KIND, &diff("t1", "ab"), DIFF_KIND, &held));
+    assert!(!supersedes("in", DIFF_KIND, &diff("t2", "ab"), DIFF_KIND, &held));
+    // An update's stub replaces nothing either; its late body does.
+    let late_body = late(snapshot("c", "a"));
+    let mut update_stub = snapshot("c", "ab");
+    update_stub["params"]["update"].as_object_mut().unwrap().remove("content");
+    assert!(!supersedes("in", UPDATE_KIND, &update_stub, UPDATE_KIND, &late_body));
+    assert!(supersedes("in", UPDATE_KIND, &late_body, UPDATE_KIND, &late(snapshot("c", "0"))));
+}
+
+/// What a killed run left beside the log is stored unless the log replaced it past where it was
+/// written; a file that does not read as a body of its slot is removed unread.
+#[test]
+fn held_bodies_a_killed_run_left_are_stored_unless_the_log_replaced_them() {
+    let file = |after: u64, kind: &'static str, msg: &Value| {
+        (slot(kind, msg).unwrap(), held_file(after, kind, msg).unwrap())
+    };
+    let a = snapshot("a", "a's");
+    let b = snapshot("b", "b's");
+    let t = diff("t1", "x");
+    let mut other_version = held_file(2, UPDATE_KIND, &snapshot("e", "e's")).unwrap();
+    other_version = String::from_utf8(other_version).unwrap().replace("\"v\":1", "\"v\":9").into();
+    let files = vec![
+        file(5, UPDATE_KIND, &a),
+        file(3, UPDATE_KIND, &b),
+        file(4, DIFF_KIND, &t),
+        ("0123".to_owned(), b"not json".to_vec()),
+        // A body under another call's slot.
+        (slot(UPDATE_KIND, &snapshot("z", "")).unwrap(), held_file(1, UPDATE_KIND, &a).unwrap()),
+        (slot(UPDATE_KIND, &snapshot("e", "")).unwrap(), other_version),
+    ];
+    let mut back = HeldBack::read(files);
+    assert_eq!(back.unread.len(), 3, "{:?}", back.unread);
+    assert_eq!(back.after(), Some(3));
+    let record = |seq: u64, kind: &str, msg: Value| EventRecord {
+        seq,
+        at: seq,
+        dir: "in".into(),
+        kind: kind.into(),
+        msg,
+        host_seq: None,
+    };
+    let mut b_stub = b.clone();
+    b_stub["params"]["update"].as_object_mut().unwrap().remove("content");
+    let mut t_stub = t.clone();
+    t_stub["params"]["params"].as_object_mut().unwrap().remove("diff");
+    // a's late body, stored before the kill at seq 4, is not past where a was written (5).
+    assert!(back.saw(&record(4, UPDATE_KIND, late(a.clone()))));
+    assert!(back.saw(&record(5, UPDATE_KIND, b_stub)));
+    assert!(back.saw(&record(6, DIFF_KIND, t_stub)));
+    // A newer whole diff of its turn replaces the held diff.
+    assert!(back.saw(&record(7, DIFF_KIND, diff("t1", "xy"))));
+    let (late_now, replaced) = back.into_late();
+    assert_eq!(replaced, vec![slot(DIFF_KIND, &t).unwrap()]);
+    let stored: Vec<_> = late_now.iter().map(|(_, kind, msg)| (*kind, msg.clone())).collect();
+    assert_eq!(stored, vec![(UPDATE_KIND, late(b)), (UPDATE_KIND, late(a))], "by where written");
+}
