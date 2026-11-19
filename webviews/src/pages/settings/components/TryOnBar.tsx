@@ -68,15 +68,16 @@ export function TryOnSlot() {
   const [tryOn, setTryOn] = useState<CustomizeTryOn | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
-  // A try-on that ends (kept, reverted, run out) changed the library: the engine took its entry
-  // out or turned it off, so the Customization Library reads it again instead of showing it on.
+  // A try-on that starts or ends (kept, reverted, run out) changed the library: the engine put its
+  // entry on, or took it out or turned it off again, so the Customization Library reads it again
+  // instead of showing what it was.
   const shown = useRef<CustomizeTryOn | null>(null);
   const show = useCallback(
     (next: CustomizeTryOn | null) => {
-      const ended = shown.current !== null && next?.generation !== shown.current.generation;
+      const changed = next?.generation !== shown.current?.generation;
       shown.current = next;
       setTryOn(next);
-      if (ended) void queryClient.invalidateQueries({ queryKey: LIBRARY_KEY });
+      if (changed) void queryClient.invalidateQueries({ queryKey: LIBRARY_KEY });
     },
     [queryClient],
   );
