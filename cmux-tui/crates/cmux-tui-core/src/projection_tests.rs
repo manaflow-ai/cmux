@@ -197,6 +197,50 @@ fn a_mount_makes_git_check_only_size_and_mtime_there_and_keeps_it_once() {
     assert!(stat.contains("checkStat = minimal") && stat.contains("trustctime = false"));
 }
 
+/// cmuxterm-hq#13942: a folder named with `"` or `\` writes an include git can parse, which
+/// holds in that folder only, and git keeps working everywhere else on the machine.
+#[test]
+fn a_folder_named_with_a_quote_or_a_backslash_keeps_git_working() {
+    if std::process::Command::new("git").arg("--version").output().is_err() {
+        return;
+    }
+    for name in ["a\"b", "a\\b", "a*b"] {
+        let dir = cmux_unix_socket::short_test_dir("pgit");
+        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let (state, home, at, other) =
+            (base.join("p\"q\\"), base.join("h"), base.join(name), base.join("o"));
+        let sibling = base.join(name.replace('*', "x"));
+        for folder in [&state, &home, &at.join("repo"), &other, &sibling] {
+            std::fs::create_dir_all(folder).unwrap();
+        }
+        git_stat::keep(&state, &home, &at).unwrap();
+        let git = |repo: &Path, args: &[&str]| {
+            std::process::Command::new("git")
+                .env("HOME", &home)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .arg("-C")
+                .arg(repo)
+                .args(args)
+                .output()
+                .unwrap()
+        };
+        let check = |repo: &Path| {
+            let init = git(repo, &["init", "-q"]);
+            assert!(init.status.success(), "{name}: {}", String::from_utf8_lossy(&init.stderr));
+            let status = git(repo, &["status", "--porcelain"]);
+            assert!(status.status.success(), "{name}: {}", String::from_utf8_lossy(&status.stderr));
+            String::from_utf8_lossy(&git(repo, &["config", "core.checkStat"]).stdout)
+                .trim()
+                .to_owned()
+        };
+        assert_eq!(check(&at.join("repo")), "minimal", "{name}");
+        assert_eq!(check(&other), "", "{name}");
+        if sibling != at {
+            assert_eq!(check(&sibling), "", "{name}: a glob character matches only itself");
+        }
+    }
+}
+
 #[test]
 fn git_takes_the_settings_in_a_mount_and_below_it_only() {
     if std::process::Command::new("git").arg("--version").output().is_err() {
