@@ -578,6 +578,8 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
         eprintln!("cmux: {message}");
         return 1;
     }
+    // Its app requests say `origin: mcp`: only an agent has this server.
+    super::app::serve_as_mcp();
     // Closed stdin, SIGTERM (not hidden by the blocking read) or the client's death end it.
     let _ = crate::restore_default_termination_signals();
     acpmux::parent_watch::exit_with_parent();

@@ -153,7 +153,7 @@ impl<B: Backend> Server<B> {
                 Some(Placement::RightOf { workspace, pane }) => {
                     let mut with_place = Map::clone(&unplaced);
                     with_place.insert("workspace".into(), json!(workspace));
-                    match self.right_neighbor(&pane) {
+                    match self.right_neighbor(&pane).filter(|right| !self.is_agent_home(right)) {
                         Some(right) => {
                             with_place.insert("pane".into(), json!(right));
                             return Ok(Cow::Owned(with_place));
@@ -212,10 +212,20 @@ impl<B: Backend> Server<B> {
     /// page in the column right of the chat, or a new column there. The
     /// daemon's `workspace.open_url` would open it in Home, or, with the
     /// workspace named, in the chat's own pane when the chat is not docked.
+    /// The request names the caller's terminal, as `cmux open URL` does (an
+    /// agent in a cmux terminal has no agent session, and with no terminal
+    /// the app opened the link in the person's focused pane), and says
+    /// `origin: mcp`, so the app places that terminal's caller as an agent.
     fn open_beside(&self, arguments: &Map<String, Value>) -> Value {
         let key = arguments.get("idempotency_key").and_then(Value::as_str);
-        let mut params =
-            json!({"url": arguments.get("url").cloned().unwrap_or(Value::Null), "focus": false});
+        let mut params = json!({
+            "url": arguments.get("url").cloned().unwrap_or(Value::Null),
+            "focus": false,
+            "origin": "mcp",
+        });
+        if let Some(terminal) = self.backend.caller_terminal() {
+            params.set("terminal_id", json!(terminal));
+        }
         if let Some(key) = key {
             params.set("idempotency_key", json!(key));
         }
@@ -555,6 +565,19 @@ impl<B: Backend> Server<B> {
         let call = tool.plan(&arguments).ok()?;
         let answer = self.backend.resource(None, call.plan, &call.prefixes).ok()?;
         crate::cli::beside::neighbor_pane(&answer)
+    }
+
+    /// Whether `pane` is an agent's home (beside.rs `holds_agent`); `false`
+    /// when the daemon does not say.
+    fn is_agent_home(&self, pane: &str) -> bool {
+        let ask = |tool: &str, arguments: Map<String, Value>| {
+            let call = v2_tools::find(tool)?.plan(&arguments).ok()?;
+            self.backend.resource(None, call.plan, &call.prefixes).ok()
+        };
+        let tabs = ask("tab_list", Map::from_iter([("pane".to_owned(), json!(pane))]));
+        let agents = ask("agent_list", Map::new());
+        matches!((tabs, agents), (Some(tabs), Some(agents))
+            if crate::cli::beside::holds_agent(&tabs, &agents))
     }
 
     /// The caller's place from the session daemon alone: the terminal in

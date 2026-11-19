@@ -69,8 +69,11 @@ pub(super) enum Placement {
     NewColumn { workspace: String, chat_pane: String },
     /// A browser from a plain terminal, whose columns the app does not
     /// report (`own_pane`): a tab in the pane right of `pane`, else a new
-    /// pane right of it, where a Cmd-click in that terminal opens a link.
-    /// The transport asks the daemon for that neighbor.
+    /// pane right of it, where a Cmd-click in that terminal opens a link by
+    /// default. The transport asks the daemon for that neighbor, and makes
+    /// a new pane when the neighbor is another agent's home
+    /// ([`holds_agent`]), as the app does. The daemon knows no more: the
+    /// person's link placement setting is the app's alone.
     RightOf { workspace: String, pane: String },
 }
 
@@ -321,6 +324,30 @@ pub(super) fn right_neighbor_params(create: &Map<String, Value>, pane: &str) -> 
     lookup.insert("pane".into(), json!(pane));
     lookup.insert("direction".into(), json!("right"));
     lookup
+}
+
+/// The rows of a list answer (`[…]`, `{items}`, `{agents}` or `{value}`).
+fn rows(answer: &Value) -> &[Value] {
+    ["items", "agents", "value"]
+        .iter()
+        .find_map(|key| answer.get(*key).and_then(Value::as_array))
+        .or(answer.as_array())
+        .map_or(&[], Vec::as_slice)
+}
+
+/// Whether a pane is an agent's home: one of its `tabs` (a `tab.list` of
+/// the pane) shows a terminal an agent of `agents` (`agent.list`) runs in
+/// and has not ended. A caller's tab never opens in another agent's pane.
+pub(super) fn holds_agent(tabs: &Value, agents: &Value) -> bool {
+    let live: Vec<&str> = rows(agents)
+        .iter()
+        .filter(|agent| agent.get("state").and_then(Value::as_str) != Some("done"))
+        .filter_map(|agent| agent.get("terminal_id").and_then(Value::as_str))
+        .collect();
+    rows(tabs)
+        .iter()
+        .filter_map(|tab| tab.get("content_id").and_then(Value::as_str))
+        .any(|terminal| live.contains(&terminal))
 }
 
 /// The id of the pane a `pane.neighbor.get` answer names, if any.

@@ -55,9 +55,10 @@ pub(super) const RECIPES: &[Recipe] = &[
         ask: "Open a page / a file / a diff beside you.",
         commands: &["cmux --json browser open https://example.com", "cmux open README.md"],
         read: "With no place flag they open in your own workspace. A page (`browser open`, \
-               `browser profile open URL --profile NAME` for sign-in links) opens to your \
-               right: the column right of your chat, or the pane right of your terminal (a \
-               new pane when there is none), never over your terminal. A file, a diff \
+               `open URL`, `browser profile open URL --profile NAME` for sign-in links) \
+               opens in the column right of your chat, or, from a terminal, by the person's \
+               link placement setting: by default the pane on the terminal's right, else a \
+               new pane right of it. A file, a diff \
                (`cmux browser open-diff-viewer`, an app action) and a new terminal (`cmux \
                tab create terminal`) open beside an agent (the column right of its chat or \
                terminal, made when missing), and as a tab in the own pane of a plain shell. \

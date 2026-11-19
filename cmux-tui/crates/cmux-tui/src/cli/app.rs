@@ -577,10 +577,33 @@ pub(in crate::cli) fn caller_absolute(text: &str) -> Option<String> {
     Some(joined.to_string_lossy().into_owned())
 }
 
-/// `cli` when a person runs the command at a terminal, else `script`.
+/// Whether this process is `cmux mcp serve`.
+static MCP_SERVER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Marks this process as the cmux MCP server: every app request that asks
+/// for or uses a placement then says `origin: mcp` ([`with_caller`]). Only an
+/// agent has an MCP server, so the app places such a caller as an agent, also
+/// in a terminal whose hooks reported no agent (the app's `own_pane` answer
+/// put its new terminal over the agent's own pane).
+pub(super) fn serve_as_mcp() {
+    MCP_SERVER.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn is_mcp_server() -> bool {
+    MCP_SERVER.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// `mcp` in the cmux MCP server; else `cli` when a person runs the command
+/// at a terminal, else `script`.
 pub(super) fn action_origin() -> &'static str {
     use std::io::IsTerminal;
-    if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() { "cli" } else { "script" }
+    if is_mcp_server() {
+        "mcp"
+    } else if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+        "cli"
+    } else {
+        "script"
+    }
 }
 
 /// An action argument's name from its flag: the catalog names arguments in
@@ -1448,37 +1471,73 @@ pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value>
 /// session, or a Chief turn, whose link opens beside the Home chat. A
 /// `caller: null` means no caller (a request for another session than the
 /// caller's, frontend_browser.rs): it is removed and none is added.
-fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
+///
+/// In the cmux MCP server the request also says `origin: mcp` when it names
+/// none ([`serve_as_mcp`]); a person's `cmux` never gets it here.
+fn with_caller(method: &str, mut params: Value) -> (Value, Added) {
+    let mut added = Added::default();
     if let Some(object) = params.as_object_mut()
         && object.get("caller").is_some_and(Value::is_null)
     {
         object.remove("caller");
-        return (params, false);
+        return (params, added);
     }
     if !takes_caller(method) {
-        return (params, false);
+        return (params, added);
     }
-    let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return (params, false) };
+    if is_mcp_server()
+        && let Some(object) = params.as_object_mut()
+        && !object.contains_key("origin")
+    {
+        object.insert("origin".into(), json!("mcp"));
+        added.origin = true;
+    }
+    let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return (params, added) };
     if method == "browser.open_split" && caller.get("terminal_id").is_some() {
-        return (params, false);
+        return (params, added);
     }
-    let mut added = false;
     if let Some(object) = params.as_object_mut()
         && !object.contains_key("caller")
     {
         object.insert("caller".into(), caller);
-        added = true;
+        added.caller = true;
     }
     (params, added)
 }
 
-/// An app from before `caller` refuses it as an unknown param (its
-/// `browser.open_split` and `file.open` take no unknown params): the request
-/// is sent again without it, so a newer CLI still opens the tab there.
-fn refused_caller(response: &Result<Value, Value>) -> bool {
-    let Err(error) = response else { return false };
-    error_code(error) == Some("invalid_params")
-        && error.get("message").and_then(Value::as_str).is_some_and(|text| text.contains("caller"))
+/// What [`with_caller`] added to a request.
+#[derive(Clone, Copy, Default)]
+struct Added {
+    caller: bool,
+    origin: bool,
+}
+
+/// The params to send again when an older app refused what [`with_caller`]
+/// added as an unknown param (its `browser.open_split` and `file.open` take
+/// no unknown params), so a newer CLI still opens the tab there: `original`
+/// for a refused `caller`, `sent` without `origin` for a refused `origin`.
+fn without_refused(
+    response: &Result<Value, Value>,
+    original: &Value,
+    sent: &Value,
+    added: Added,
+) -> Option<Value> {
+    let Err(error) = response else { return None };
+    if error_code(error) != Some("invalid_params") {
+        return None;
+    }
+    let message = error.get("message").and_then(Value::as_str).unwrap_or_default();
+    if added.caller && message.contains("caller") {
+        return Some(original.clone());
+    }
+    if added.origin && message.contains("origin") {
+        let mut params = sent.clone();
+        if let Some(object) = params.as_object_mut() {
+            object.remove("origin");
+        }
+        return Some(params);
+    }
+    None
 }
 
 /// `timeout: None` reads until the app answers or closes the connection.
@@ -1509,10 +1568,13 @@ pub(super) fn request_by(
     // read barrier) can pass while both are healthy. A read changes nothing,
     // so it is asked once more; a mutation is never resent.
     if is_retryable_read(method) && timed_out(&response) && !passed(deadline) {
-        response = exchange_by(stream, method, with_read_barrier(method, with), timeout, deadline)?;
+        let again = with_read_barrier(method, with.clone());
+        response = exchange_by(stream, method, again, timeout, deadline)?;
     }
-    if added && refused_caller(&response) && !passed(deadline) {
-        return exchange_by(stream, method, with_read_barrier(method, params), timeout, deadline);
+    if !passed(deadline)
+        && let Some(accepted) = without_refused(&response, &params, &with, added)
+    {
+        return exchange_by(stream, method, with_read_barrier(method, accepted), timeout, deadline);
     }
     Ok(response)
 }

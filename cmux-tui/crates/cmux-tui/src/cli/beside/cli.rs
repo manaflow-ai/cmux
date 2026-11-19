@@ -17,8 +17,8 @@ use serde_json::{Map, Value, json};
 
 use super::{
     Caller, Earlier, Kind, Placement, app_placement, browser_placement, correlated,
-    correlation_key, creation_lookup_params, earlier_creation, names_no_place, neighbor_pane,
-    rename_params, right_neighbor_params, split_below_params, split_params,
+    correlation_key, creation_lookup_params, earlier_creation, holds_agent, names_no_place,
+    neighbor_pane, rename_params, right_neighbor_params, split_below_params, split_params,
 };
 use crate::cli::GlobalArgs;
 use crate::cli::command::{RequestPlan, WireOperation};
@@ -153,7 +153,8 @@ fn apply(
             let lookup = right_neighbor_params(params, &pane);
             let right = resolve::read(sender.reader, ResourceOperation::PaneNeighborGet, lookup)
                 .ok()
-                .and_then(|answer| neighbor_pane(&answer));
+                .and_then(|answer| neighbor_pane(&answer))
+                .filter(|right| !is_agent_home(sender.reader, params, right));
             match right {
                 Some(right) => {
                     let Some(params) = plan.params.as_object_mut() else {
@@ -175,6 +176,19 @@ fn apply(
         Ok(result) => wire::print_result(global, plan, result),
         Err(failure) => failure.report(global.output),
     })
+}
+
+/// Whether `pane` of the session of `create` is an agent's home
+/// ([`holds_agent`]); `false` when the daemon does not say.
+fn is_agent_home(reader: &mut Reader, create: &Map<String, Value>, pane: &str) -> bool {
+    let route = resolve::route(create);
+    let mut tabs = route.clone();
+    tabs.insert("pane".into(), json!(pane));
+    let Ok(tabs) = resolve::read(reader, ResourceOperation::TabList, tabs) else { return false };
+    let Ok(agents) = resolve::read(reader, ResourceOperation::AgentList, route) else {
+        return false;
+    };
+    holds_agent(&tabs, &agents)
 }
 
 /// Makes the pane `split` asks for (a new column, or a pane below one) and
