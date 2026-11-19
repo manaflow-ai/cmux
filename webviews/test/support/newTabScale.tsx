@@ -19,7 +19,7 @@ import { NewTabPage } from "../../src/agent-session/acpmux/NewTabPage";
 import { proseMirrorGlobals } from "../../src/agent-session/acpmux/promptFieldTesting";
 import type { MarkdownFieldElement } from "../../src/agent-session/acpmux/MarkdownField";
 import { noteReplaced } from "../../src/agent-session/acpmux/sessionIndex";
-import type { AcpmuxSessionEntry } from "../../src/agent-session/acpmux/types";
+import type { AcpmuxSessionEntry } from "../../src/agent-session/acpmux/sessionList";
 import { settleReact } from "./domTeardown";
 
 const KEYS = [
@@ -57,7 +57,7 @@ export function scaleSessions(size: number): AcpmuxSessionEntry[] {
       cwd: `${HOME}/fun/project-${index % 40}`,
       updatedAt: now - index * 60_000,
       activityAt: now - index * 60_000,
-      ...(index % 5 === 4 ? { peer: "big-box", host: "big-box", hostKind: "peer" as const } : {}),
+      ...(index % 5 === 4 ? { peer: "big-box", host: "big-box" } : {}),
       ...(index % 97 === 3 ? { host: "cloud-1", hostKind: "cloud" as const } : {}),
     }),
   );
@@ -129,7 +129,15 @@ export async function mountNewTab(
   const render = (sessions: AcpmuxSessionEntry[]) =>
     root.render(
       look === "classic" ? (
-        <NewTabPage snapshot={noChat(sessions)} home={HOME} knownProjects={KNOWN} projects={PROJECTS} />
+        <NewTabPage
+          snapshot={noChat(sessions)}
+          home={HOME}
+          knownProjects={KNOWN}
+          projects={PROJECTS}
+          onSubmit={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />
       ) : (
         <NewTabScreen
           snapshot={noChat(sessions)}
@@ -141,6 +149,8 @@ export async function mountNewTab(
           onSearch={() => {}}
           onShell={() => {}}
           onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
         />
       ),
     );

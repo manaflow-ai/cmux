@@ -201,9 +201,8 @@ export function NewTabPage({
   // (newTabModel.ts `RecentChats`), each kept at the cost of the chats that changed: a key typed, or a
   // chat working elsewhere, costs this page no pass over every listed chat
   // (test/new-tab-no-whole-list-passes.test.tsx).
-  const lists = useRef<{ folders: NewestFolders; recent: RecentChats } | null>(null);
-  lists.current ??= { folders: new NewestFolders(localFolderKey), recent: new RecentChats() };
-  const localFolders = lists.current.folders.of(snapshot.sessions);
+  const [lists] = useState(() => ({ folders: new NewestFolders(localFolderKey), recent: new RecentChats() }));
+  const localFolders = lists.folders.of(snapshot.sessions);
   const newestProject = useMemo(
     () => (home ? firstProject(localFolders, home, knownProjects) : undefined),
     [localFolders, home, knownProjects],
@@ -369,7 +368,7 @@ export function NewTabPage({
   queryRef.current = query;
   const open = focused && query.trim() !== "" && query !== dismissed;
   // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
-  const recentChats = lists.current.recent;
+  const recentChats = lists.recent;
   const recent = useMemo(() => (open ? recentChats.of(snapshot.sessions) : []), [open, recentChats, snapshot.sessions]);
   const rows = useMemo(
     () =>

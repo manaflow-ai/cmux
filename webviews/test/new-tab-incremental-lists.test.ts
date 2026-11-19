@@ -9,7 +9,7 @@ import { NewestFolders, localFolderKey, recentLocalFolders } from "../src/agent-
 import { omnibarFolderKey, omnibarFolders, omnibarFoldersFrom } from "../src/agent-session/acpmux/newtab/launchRows";
 import { RecentChats, recentSessions } from "../src/agent-session/acpmux/newTabModel";
 import { noteReplaced } from "../src/agent-session/acpmux/sessionIndex";
-import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/types";
+import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 
 /// A small seeded generator, so a failure names the run that found it.
 function random(seed: number) {
@@ -29,7 +29,7 @@ function chats(size: number, next: () => number): AcpmuxSessionEntry[] {
       title: `chat ${index}`,
       cwd: `/Users/me/fun/p${Math.floor(next() * 12)}`,
       activityAt: 1_000_000 + Math.floor(next() * 1000) * 1000,
-      ...(next() < 0.15 ? { peer: "box", host: "box", hostKind: "peer" as const } : {}),
+      ...(next() < 0.15 ? { peer: "box", host: "box" } : {}),
       ...(next() < 0.2 && index > 3 ? { spawnedBy: `s${Math.floor(next() * index)}` } : {}),
     }),
   );

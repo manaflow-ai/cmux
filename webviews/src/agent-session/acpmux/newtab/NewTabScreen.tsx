@@ -458,15 +458,14 @@ export function NewTabScreen(props: Props) {
   // the folders newest first, for the recent project (`localFolderKey`) and the field's completions
   // (`omnibarFolderKey`), and the chats as the location strip's machine lists read them
   // (`placeFields`: the same list while only another field of a chat changes).
-  const chatLists = useRef<{ local: NewestFolders; bar: NewestFolders; places: SessionsBy } | null>(null);
-  chatLists.current ??= {
+  const [chatLists] = useState(() => ({
     local: new NewestFolders(localFolderKey),
     bar: new NewestFolders(omnibarFolderKey),
     places: new SessionsBy(placeFields),
-  };
-  const localFolders = chatLists.current.local.of(snapshot.sessions);
-  const chatFolders = chatLists.current.bar.of(snapshot.sessions);
-  const placeSessions = chatLists.current.places.of(snapshot.sessions);
+  }));
+  const localFolders = chatLists.local.of(snapshot.sessions);
+  const chatFolders = chatLists.bar.of(snapshot.sessions);
+  const placeSessions = chatLists.places.of(snapshot.sessions);
   const candidate = useMemo(
     () => (startsRecent ? firstProject(localFolders, home, props.knownProjects) : undefined),
     [startsRecent, localFolders, home, props.knownProjects],
