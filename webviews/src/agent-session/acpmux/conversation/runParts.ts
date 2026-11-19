@@ -115,21 +115,27 @@ function cut(row: AcpmuxRow): AcpmuxRow[] {
 /// unchanged call's) and the run draws them the same way, else a new one. The whole row's version
 /// moves with every call in it, and a part that took it would lay out and draw again (VirtualTranscript
 /// skips a row whose version holds) for a call in another part.
-const PART_VERSIONS_KEPT = 512;
-const partVersions = new Map<string, { items: readonly AcpmuxActivity[]; epoch: number }>();
-/// One count for every part, so a part dropped from the map and made again never takes a version it
-/// had for other items.
+///
+/// Kept by the part's first call, weakly: every part of every run keeps its version while that call
+/// lives, however many parts the run has, and the entry goes with the call (its turn, its chat), so
+/// nothing here outgrows the calls the chats hold. One map of 512 for every run lost a run's first
+/// parts while a run of more than 512 was still being cut, and the next snapshot then gave every
+/// part a new version, so every mounted row drew and measured again.
+const partVersions = new WeakMap<AcpmuxActivity, { id: string; items: readonly AcpmuxActivity[]; epoch: number }>();
+/// One count for every part, so a part whose entry is gone (its first call replaced or collected)
+/// and made again never takes a version it had for other items.
 let nextEpoch = 0;
 function partVersion(id: string, items: readonly AcpmuxActivity[], row: AcpmuxRow): number {
-  const was = partVersions.get(id);
+  // A part holds at least one call (`cut` makes none empty).
+  const first = items[0]!;
+  const was = partVersions.get(first);
   const same =
-    was !== undefined && was.items.length === items.length && was.items.every((item, at) => item === items[at]);
+    was !== undefined &&
+    was.id === id &&
+    was.items.length === items.length &&
+    was.items.every((item, at) => item === items[at]);
   const epoch = same ? was.epoch : (nextEpoch = (nextEpoch + 1) % 100_000_000);
-  if (!same) {
-    partVersions.delete(id);
-    partVersions.set(id, { items, epoch });
-    if (partVersions.size > PART_VERSIONS_KEPT) partVersions.delete(partVersions.keys().next().value!);
-  }
+  if (!same) partVersions.set(first, { id, items, epoch });
   const look = (row.live ? 1 : 0) + (row.runOpen ? 2 : 0) + (row.settled ? 4 : 0) + (row.inBackground ? 8 : 0);
   // Below zero, where no row's own version is: the first part keeps the row's id, and a version the
   // row had before its first cut must not read as this one.
