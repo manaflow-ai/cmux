@@ -243,6 +243,11 @@ public nonisolated struct AgentProjectScan: Sendable {
 ///
 /// Agent session files are the strongest signal, while a small scan of common
 /// development roots keeps a fresh install useful before the first session.
+/// The folders the user is most active in rank first: each repository's
+/// newest git activity (its `HEAD` log, index and last fetch) and the
+/// shell's visits (`FolderActivity`: zoxide, z, `cd` history), each visit
+/// counted toward the repository it is in
+/// (https://github.com/manaflow-ai/cmux/issues/46904).
 /// Callers can pass cwd hints from classic/session history; those paths are
 /// checked without walking their contents. The scan never descends into a
 /// privacy-protected folder, and protected paths supplied as hints are kept
@@ -254,10 +259,13 @@ public struct RecentProjectScan: Sendable {
     public let maxProjects: Int
     public let maxDepth: Int
     public let maxEntriesPerDirectory: Int
+    /// The shell's visits; empty unless the caller read them (`live` does).
+    public var activity = FolderActivity()
 
     public nonisolated init(projects: AgentProjectScan, roots: [URL]? = nil, maxProjects: Int = 50,
-                maxDepth: Int = 2, maxEntriesPerDirectory: Int = 80) {
+                maxDepth: Int = 2, maxEntriesPerDirectory: Int = 80, activity: FolderActivity = FolderActivity()) {
         self.projects = projects
+        self.activity = activity
         self.roots = roots ?? Self.defaultRoots(home: projects.home)
         self.maxProjects = max(1, maxProjects)
         self.maxDepth = max(0, maxDepth)
@@ -273,7 +281,7 @@ public struct RecentProjectScan: Sendable {
     /// A scan rooted at the current user's home and agent configuration.
     public nonisolated static func live(environment: [String: String] = ProcessInfo.processInfo.environment) -> RecentProjectScan {
         let projects = AgentProjectScan.live(environment: environment)
-        return RecentProjectScan(projects: projects)
+        return RecentProjectScan(projects: projects, activity: FolderActivity.read(home: projects.home, environment: environment))
     }
 
     /// Returns recent projects, merging agent sessions, explicit cwd hints and
@@ -289,22 +297,122 @@ public struct RecentProjectScan: Sendable {
             }
         }
 
+        // The shell's visits, each credited to the repository it is in (a folder in none is not a project).
+        var visits: [String: Double] = [:]
+        for (folder, visit) in visitedRepositories() where projects.keeps(folder: folder) {
+            let id = folder.path
+            visits[id, default: 0] += visit.weight
+            var project = byPath[id] ?? AgentProject(folder: folder, sessions: 0, lastActive: .distantPast, apps: [])
+            project.lastActive = max(project.lastActive, min(visit.last, now))
+            byPath[id] = project
+        }
+
         for folder in gitRepositories() where projects.keeps(folder: folder) {
             let id = folder.path
-            let modified = projects.fileSystem.modified(folder.path)
-            if var existing = byPath[id] {
-                existing.lastActive = max(existing.lastActive, modified)
-                byPath[id] = existing
-            } else {
-                byPath[id] = AgentProject(folder: folder, sessions: 0, lastActive: modified, apps: [])
+            if byPath[id] == nil {
+                let git = gitActivity(folder)
+                byPath[id] = AgentProject(folder: folder, sessions: 0,
+                                          lastActive: git == .distantPast ? projects.fileSystem.modified(folder.path) : min(git, now), apps: [])
             }
         }
 
+        // Every candidate's git activity: the repository's own clock, not its folder's (which moves
+        // only when a top-level entry comes or goes). A protected folder is never looked at.
+        for (id, project) in byPath where projects.isLookable(project.folder) {
+            let git = gitActivity(project.folder)
+            if git > project.lastActive { byPath[id]?.lastActive = min(git, now) }
+        }
+
         return byPath.values.sorted {
-            let lhs = AgentProjectScan.score($0, now: now)
-            let rhs = AgentProjectScan.score($1, now: now)
+            let lhs = Self.score($0, visits: visits[$0.id] ?? 0, now: now)
+            let rhs = Self.score($1, visits: visits[$1.id] ?? 0, now: now)
             return lhs == rhs ? $0.folder.path < $1.folder.path : lhs > rhs
         }.prefix(maxProjects).map { $0 }
+    }
+
+    /// Recency first, with agent sessions and shell visits as weight: a
+    /// repository worked in today outranks one visited often months ago.
+    static func score(_ project: AgentProject, visits: Double, now: Date) -> Double {
+        let days = max(0, now.timeIntervalSince(project.lastActive) / 86_400)
+        return log2(1 + Double(project.sessions) + visits) - days / 14
+    }
+
+    /// The most visited folders read for a scan; the rest add nothing a user would pick.
+    static let maxVisitedFolders = 400
+    /// How many folders up from a visited one a repository is looked for.
+    static let maxRepositoryClimb = 6
+
+    /// The repositories the shell visited, with their summed visits. A visited
+    /// folder in a protected location, by its spelling or through a symlink,
+    /// is dropped before anything looks at it; the climb stops at the home
+    /// folder and at `/`, and never looks at a protected folder on the way.
+    nonisolated func visitedRepositories() -> [(URL, FolderActivity.Visits)] {
+        let fileSystem = projects.fileSystem
+        let home = projects.home.standardizedFileURL.path
+        var repositoryOf: [String: String?] = [:]
+        func repository(containing path: String) -> String? {
+            var current = path
+            var climbed: [String] = []
+            defer { for folder in climbed where repositoryOf[folder] == nil { repositoryOf[folder] = .some(nil) } }
+            for _ in 0...Self.maxRepositoryClimb {
+                if let known = repositoryOf[current] {
+                    for folder in climbed { repositoryOf[folder] = known }
+                    return known
+                }
+                guard current != "/", current != home,
+                      projects.isLookable(URL(fileURLWithPath: current, isDirectory: true)) else { return nil }
+                climbed.append(current)
+                if fileSystem.exists(current + "/.git") {
+                    for folder in climbed { repositoryOf[folder] = current }
+                    return current
+                }
+                current = (current as NSString).deletingLastPathComponent
+            }
+            return nil
+        }
+        var byRepository: [String: FolderActivity.Visits] = [:]
+        let ranked = activity.visits.sorted { $0.value.weight == $1.value.weight ? $0.key < $1.key : $0.value.weight > $1.value.weight }
+        for (path, visit) in ranked.prefix(Self.maxVisitedFolders) {
+            guard projects.privacyFolder(of: URL(fileURLWithPath: path, isDirectory: true)) == nil,
+                  let root = repository(containing: path) else { continue }
+            var entry = byRepository[root] ?? FolderActivity.Visits(weight: 0, last: .distantPast)
+            entry.weight = min(FolderActivity.maxWeight, entry.weight + visit.weight)
+            entry.last = max(entry.last, visit.last)
+            byRepository[root] = entry
+        }
+        return byRepository.map { (URL(fileURLWithPath: $0.key, isDirectory: true), $0.value) }
+    }
+
+    /// A repository's newest git activity: its `HEAD` log (commits, checkouts,
+    /// pulls), index (staging) and last fetch; a linked worktree's are in the
+    /// folder its `.git` file names. `distantPast` for a folder that is not one.
+    nonisolated func gitActivity(_ folder: URL) -> Date {
+        let fileSystem = projects.fileSystem
+        let dotGit = folder.standardizedFileURL.path + "/.git"
+        var gitDirs: [String] = []
+        if fileSystem.isDirectory(dotGit) {
+            gitDirs = [dotGit]
+        } else if fileSystem.exists(dotGit) {
+            gitDirs = [dotGit]
+            if let data = fileSystem.readPrefix(dotGit, 4096),
+               let line = String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline).first,
+               line.hasPrefix("gitdir: ") {
+                let target = String(line.dropFirst(8)).trimmingCharacters(in: .whitespaces)
+                let absolute = target.hasPrefix("/") ? target : folder.standardizedFileURL.path + "/" + target
+                let linked = URL(fileURLWithPath: absolute, isDirectory: true).standardizedFileURL
+                if projects.isLookable(linked) { gitDirs = [linked.path] }
+            }
+        } else {
+            return .distantPast
+        }
+        var newest = Date.distantPast
+        for gitDir in gitDirs {
+            for file in ["logs/HEAD", "index", "FETCH_HEAD", "HEAD"] {
+                newest = max(newest, fileSystem.modified(gitDir + "/" + file))
+            }
+        }
+        if newest == .distantPast { newest = fileSystem.modified(dotGit) }
+        return newest
     }
 
     /// Path candidates matching an explicit prefix or substring. The full
@@ -328,7 +436,7 @@ public struct RecentProjectScan: Sendable {
     }
 
     private nonisolated static func defaultRoots(home: URL) -> [URL] {
-        ["Projects", "Developer", "code", "src", "workspaces"].map {
+        ["Projects", "Developer", "code", "src", "workspaces", "dev", "repos", "git", "github", "work"].map {
             home.appending(path: $0, directoryHint: .isDirectory)
         }
     }

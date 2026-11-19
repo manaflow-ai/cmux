@@ -14,6 +14,8 @@ public nonisolated struct ScanFileSystem: Sendable {
     public var modified: @Sendable (String) -> Date
     /// The path with every symlink on its way resolved (`lstat` and `readlink` only).
     public var resolve: @Sendable (String) -> String
+    /// The first bytes of a small file (a linked worktree's `.git` file), at most the count given.
+    public var readPrefix: @Sendable (String, Int) -> Data? = { _, _ in nil }
 
     public init(isDirectory: @escaping @Sendable (String) -> Bool, exists: @escaping @Sendable (String) -> Bool,
                 subdirectories: @escaping @Sendable (URL) -> [String], modified: @escaping @Sendable (String) -> Date,
@@ -25,7 +27,17 @@ public nonisolated struct ScanFileSystem: Sendable {
         self.resolve = resolve
     }
 
-    public static let live = ScanFileSystem(
+    public static let live: ScanFileSystem = {
+        var live = disk
+        live.readPrefix = { path, count in
+            guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+            defer { try? handle.close() }
+            return try? handle.read(upToCount: count)
+        }
+        return live
+    }()
+
+    private static let disk = ScanFileSystem(
         isDirectory: { path in
             guard let values = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else { return false }
             return values.isDirectory == true && values.isSymbolicLink != true
