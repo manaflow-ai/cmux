@@ -563,6 +563,17 @@ class RuleTests(Fixture):
             "fake.sh: [[ ! -f \"$b\" ]] && b=\"$(/usr/libexec/PlistBuddy -c 'Print :B' \"$b\" 2>/dev/null || true)\"",
             "fake.sh: /usr/libexec/PlistBuddy -c \"Print :$2\" \"$1\" 2>/dev/null || true"])])
 
+    def test_a_plistbuddy_read_split_across_lines_is_read_as_one_command(self):
+        self.write("scripts/split.sh",
+                   'a="$(/usr/libexec/PlistBuddy -c \'Print :A\' "$a" \\\n  2>/dev/null || true)"\n'
+                   'b="$(/usr/libexec/PlistBuddy -c \'Print :B\' \\\n  "$b" 2>/dev/null || true)"\n'
+                   '[[ -f "$c" ]] && c="$(/usr/libexec/PlistBuddy -c \'Print :C\' \\\n  "$c" 2>/dev/null || true)"\n'
+                   'd="$(/usr/libexec/PlistBuddy -c \'Print :D\' "$d")"\n')
+        self.commit("split silenced reads")
+        self.assertEqual(self.refused(), [("plist-missing-file", [
+            "split.sh: a=\"$(/usr/libexec/PlistBuddy -c 'Print :A' \"$a\" \\",
+            "split.sh: b=\"$(/usr/libexec/PlistBuddy -c 'Print :B' \\"])])
+
     def test_deleting_the_file_check_makes_an_old_plistbuddy_read_new_debt(self):
         self.rebase_on({"scripts/name.sh": '[[ -f "$p" ]] || exit 1\n'
                         'n="$(/usr/libexec/PlistBuddy -c \'Print :N\' "$p" 2>/dev/null || true)"\n'})

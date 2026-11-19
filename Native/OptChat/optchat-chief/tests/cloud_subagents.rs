@@ -183,6 +183,7 @@ fn a_peer_session_names_its_peer_and_sends_only_an_asking_policy() {
         env: Default::default(),
         fast: false,
         peer: Some("cloud1".into()),
+        stop_condition: None,
     };
     let meta = session_meta(&spec, None);
     assert_eq!(meta["peer"], "cloud1");
