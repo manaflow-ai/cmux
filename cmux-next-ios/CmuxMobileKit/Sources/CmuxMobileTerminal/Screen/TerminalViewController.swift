@@ -3976,7 +3976,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         // exception) and the body moves down only as far as the cursor's row
         // needs. Set in the layout pass, so inside the keyboard's own animation.
         let placement = TerminalGridSizing(cellHeight: cell.height)
-            .keyboardPlacement(gridRows: tuiRows, visibleHeight: tuiClip.bounds.height,
+            .keyboardPlacement(gridRows: tuiGridHold.rows(page: tuiRows), visibleHeight: tuiClip.bounds.height,
                                cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift })
         if placement.lift != tuiKeyboardLift {
             tuiKeyboardLift = placement.lift
