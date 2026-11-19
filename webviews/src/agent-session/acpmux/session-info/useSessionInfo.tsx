@@ -1380,6 +1380,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           statuses={statuses}
           processes={processes ?? []}
           listed={registry?.listed ?? false}
+          olderProcesses={scope ? undefined : registry?.omitted}
+          onLoadOlderProcesses={scope ? undefined : registry?.loadOlder}
           transcriptTasks={transcriptTasks ?? []}
           sessions={scope ? [] : (sessions?.list ?? [])}
           workflows={scope ? [] : (workflows?.list ?? [])}
@@ -1466,6 +1468,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         statuses={statuses}
         processes={processes}
         listed={registry?.listed}
+        olderProcesses={scope ? undefined : registry?.omitted}
+        onLoadOlderProcesses={scope ? undefined : registry?.loadOlder}
         transcriptTasks={transcriptTasks}
         // The chats the chat's agent started are the chat's.
         sessions={startedList}

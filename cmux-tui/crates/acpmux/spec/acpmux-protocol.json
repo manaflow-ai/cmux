@@ -5050,6 +5050,7 @@
         },
         "calls": true,
         "cursor": true,
+        "endedBefore": true,
         "endedWithin": true,
         "limit": true,
         "recent": true,

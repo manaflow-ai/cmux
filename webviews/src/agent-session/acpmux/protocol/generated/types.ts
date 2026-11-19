@@ -1065,6 +1065,7 @@ export interface ProcessListParams {
   _meta?: RequestMeta;
   calls?: unknown;
   cursor?: unknown;
+  endedBefore?: unknown;
   endedWithin?: unknown;
   limit?: unknown;
   recent?: unknown;
