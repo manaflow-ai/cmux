@@ -80,7 +80,7 @@ pub(crate) enum PersonalChange {
         /// Who made the space (`created-by-detail-v1`), as the request sent it. Omitted when
         /// absent, so older mutation fingerprints keep their shape.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        created_by: Option<serde_json::Value>,
+        created_by: Option<Value>,
     },
     RoomUpdate {
         room: String,

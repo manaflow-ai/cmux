@@ -230,6 +230,7 @@ mod tests {
         let by_cwd = ListFilter {
             name: None,
             cwd: Some(super::super::super::command::CwdFilter::for_test("/work")),
+            created_by: None,
         };
         let error = listed(&by_cwd, Scope::Workspace, rows).unwrap_err();
         assert_eq!(error["code"], "validation.invalid");
