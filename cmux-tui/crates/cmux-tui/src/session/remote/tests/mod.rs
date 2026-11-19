@@ -20,6 +20,7 @@ mod bootstrap;
 mod browser;
 mod events;
 mod geometry;
+mod held_tree;
 mod identity;
 mod mirror;
 mod overflow;
