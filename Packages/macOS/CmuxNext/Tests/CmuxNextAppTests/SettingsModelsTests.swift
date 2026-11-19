@@ -21,7 +21,7 @@ import Testing
         /// `chatgpt.wait` answers in order; the last repeats.
         let waits = OSAllocatedUnfairLock<[String]>(initialState: [])
         let refuseKeyAdd = OSAllocatedUnfairLock(initialState: false)
-        let beginURL = OSAllocatedUnfairLock(initialState: "https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client")
+        let beginURL = OSAllocatedUnfairLock(initialState: "https://auth.openai.com/oauth/authorize?client_id=app_EMoamEEZ73f0CkXaXp7hrann")
         let signedInPlan = OSAllocatedUnfairLock(initialState: false)
         /// `chatgpt.wait` fails: acpmux's error name, or "" for a daemon that does not answer.
         let waitFailure = OSAllocatedUnfairLock<String?>(initialState: nil)

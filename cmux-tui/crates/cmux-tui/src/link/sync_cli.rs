@@ -54,6 +54,9 @@ pub(super) mod fence;
 pub(super) mod fetch;
 mod git_back;
 mod history;
+mod left_note;
+mod summary;
+pub(super) use summary::Summary;
 mod links;
 mod listed;
 mod local;
@@ -77,6 +80,8 @@ pub(super) use seed_pull::{
     Exported, SeedBase, SeedPulled, export_move_to, export_to,
     failure_code as seed_pull_failure_code, is_sha, seed_pull, still_as_recorded,
 };
+pub(crate) mod estimate;
+pub(crate) mod project;
 pub(crate) mod size_cap;
 pub(crate) mod skips;
 mod store;
@@ -128,43 +133,6 @@ struct Pushed {
     sha256: String,
     permissions: u32,
     revision: String,
-}
-
-#[derive(Default)]
-pub(super) struct Summary {
-    pub(super) written: u64,
-    pub(super) unchanged: u64,
-    pub(super) deleted: u64,
-    /// Every path left out, named or not.
-    pub(super) skipped: u64,
-    pub(super) bytes: u64,
-    /// The first [`skips::LISTED`] skipped paths, `[{path, kind, why}]`.
-    pub(super) skipped_files: serde_json::Value,
-    /// How many were skipped of each kind (`other`: counted, not named).
-    pub(super) skipped_counts: serde_json::Value,
-    /// The content-addressed store's part ([`store`]), when one was asked for.
-    pub(super) store: Option<serde_json::Value>,
-    /// Head links ([`push_head`]) the machine did not make, for nothing at their target
-    /// yet: a head without them is not the folder's head.
-    pub(super) head_links_short: u64,
-}
-
-impl Summary {
-    pub(super) fn json(&self) -> serde_json::Value {
-        let mut line = json!({
-            "written": self.written,
-            "unchanged": self.unchanged,
-            "deleted": self.deleted,
-            "skipped": self.skipped,
-            "bytes": self.bytes,
-            "skipped_files": if self.skipped_files.is_null() { json!([]) } else { self.skipped_files.clone() },
-            "skipped_counts": if self.skipped_counts.is_null() { json!({}) } else { self.skipped_counts.clone() },
-        });
-        if let Some(store) = &self.store {
-            line.set("store", store.clone());
-        }
-        line
-    }
 }
 
 /// How far a push is: files and bytes done (written or found unchanged)
@@ -1130,6 +1098,15 @@ fn push_inner(
     // A chat's copy stops at its limits before it sends anything, unless `--allow-large` said so.
     let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local)).then(size_cap::Cap::new);
     let mut set = local::collect(&local, rules, cap)?;
+    // A fresh chat copy that would take longer than the start's budget on this link goes as a
+    // first pass too, as its start said before any machine (estimate.rs). A re-push (a base is
+    // kept for the machine folder) never does: it would delete what a whole copy left there.
+    if head_links.is_none()
+        && !base::kept(&local, remote_root)
+        && let Some(estimate) = estimate::for_copy(&local, &mut set)
+    {
+        eprintln!("{}", json!({ "estimate": estimate.json() }));
+    }
     let before = set.files.len();
     let in_git = set.git;
     // A head link's file goes with it: the machine makes no link to nothing (`CLAUDE.md` to
@@ -1162,6 +1139,10 @@ fn push_inner(
     if set.files.remove(manifest_name).is_some() | set.links.remove(manifest_name).is_some() {
         set.skips.note(manifest_name, skips::Why::Reserved);
     }
+    // Nor is the note of what a first pass left on this Mac ([`left_note`]).
+    if set.files.remove(left_note::NAME).is_some() | set.links.remove(left_note::NAME).is_some() {
+        set.skips.note(left_note::NAME, skips::Why::Reserved);
+    }
     // Loose objects go as packs ([`packs`]).
     if git_record {
         let dirs = local::GitDirs::of(&local)?.context("the folder is no longer in git")?;
@@ -1169,6 +1150,8 @@ fn push_inner(
     }
     set.skips.unnamed(set.skipped);
     stages.mark("list");
+    // The send's own time, for the link's rate (estimate.rs): everything after the listing.
+    let sending = std::time::Instant::now();
     let (skipped_files, skipped_counts) = set.skips.json();
     let mut summary =
         Summary { skipped: set.skips.total(), skipped_files, skipped_counts, ..Summary::default() };
@@ -1412,6 +1395,11 @@ fn push_inner(
     };
     let Tally { mut summary, mut next, .. } = tally;
     summary.store = store_part;
+    // A copy into a folder the machine had nothing of sent every byte it counted: its rate is the
+    // link's (a re-push spends most of its time on files it finds unchanged).
+    if previous.files.is_empty() {
+        estimate::record_rate(summary.bytes, sending.elapsed());
+    }
     // A link whose target is a link not made yet waits for the next pass;
     // passes go on while one makes something.
     let mut waiting: Vec<(&String, &Linked)> = set.links.iter().collect();
@@ -1466,6 +1454,19 @@ fn push_inner(
     remote
         .write(&manifest_path, &mut manifest.as_slice(), 0o600)
         .context("cannot save the sync manifest")?;
+    // A first pass names what stayed on this Mac at the copy's top, for the chat's agent; a copy
+    // sent whole takes away a note an earlier first pass left (cmuxterm-hq#11697).
+    let note_path = format!("{remote_root}/{}", left_note::NAME);
+    match set.left.as_ref() {
+        Some(left_here) => {
+            let text = left_here.text(&local, remote_root);
+            remote
+                .write(&note_path, &mut text.as_bytes(), 0o644)
+                .context("cannot write the note of what stayed on this Mac")?;
+        }
+        None if rules == local::Rules::Copy => remote.delete(&[note_path])?,
+        None => {}
+    }
     store::forget(&mut remote, &left.jobs);
     // A pull's base is this copy, never the machine's.
     base::save(&local, remote_root, &next).context("cannot keep the sync record on this Mac")?;
@@ -1896,14 +1897,22 @@ impl std::fmt::Display for TooBig {
 
 impl std::error::Error for TooBig {}
 
-/// What a copy of `local` (`cmux link sync push`, by its rules) would send:
-/// its files and their bytes.
+/// What a chat's copy of `local` will send (`cmux link sync push`, by its rules and its limits, as `push_inner`
+/// lists it): its files and their bytes. A folder past the limits counts only its first pass, `.git` left out; an
+/// `--allow-large` folder counts whole. The listing is the copy's own, bounded at its file limit ([`size_cap`]), and
+/// a folder sent whole is summed from it with no file opened again (`link start-chat preflight`, a seed's refusal).
 pub(super) fn copy_estimate(local: &Path) -> anyhow::Result<(u64, u64)> {
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
-    let set = local::collect(&local, local::Rules::Copy, None)?;
-    let bytes = set.files.values().map(|file| size(file).unwrap_or(0)).fold(0, u64::saturating_add);
-    Ok((u64::try_from(set.files.len()).unwrap_or(u64::MAX), bytes))
+    let cap = (!size_cap::allowed(&local)).then(size_cap::Cap::new);
+    let set = local::collect(&local, local::Rules::Copy, cap)?;
+    let files = u64::try_from(set.files.len()).unwrap_or(u64::MAX);
+    // A first pass (its cap taken: at most `FIRST_FILES` files) or an `--allow-large` folder is summed file by file.
+    let bytes = match &set.cap {
+        Some(cap) => cap.bytes(),
+        None => set.files.values().map(|file| size(file).unwrap_or(0)).fold(0, u64::saturating_add),
+    };
+    Ok((files, bytes))
 }
 
 /// "1 file", "36,796 files".
