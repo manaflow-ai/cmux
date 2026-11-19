@@ -98,11 +98,14 @@ ENABLED_VALUE = "1"
 # The signing jobs glaeda gives the whole mini (glaeda SIGNING_JOBS): the workflow file and the job's display name
 # (its `name:` or id; a matrix adds " (...)"). The one copy in this repository: tests/test_ci_signing_owned_mac.py
 # reads it (picker_signing_jobs) and fails on any job that reads this script's owned pick and is not here.
-# publish-nightly-next-github is not one: it uploads on GitHub-hosted Ubuntu and never takes an owned Mac.
+# The last five left GitHub-hosted Ubuntu for the signer on 2026-11-19 (the hosted pool started none of them for
+# 224-444 min); each reads the owned pick and holds the whole Mac, so the at-most-one count sees it.
 SIGNING_JOBS = {
     "nightly.yml": ("build-sign-notarize-nightly", "recover-nightly-next-notarization",
                     "generate-nightly-deltas", "publish-nightly",
-                    "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one"),
+                    "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one",
+                    "publish-nightly-next-github", "sentry-dsyms-nightly", "sign-release-notes",
+                    "publish-release-notes", "publish-nightly-reel"),
     "release.yml": ("build-sign-notarize",),
     "repair-v0-64-25-helper-rpaths.yml": ("repair",),
     "cmux-next-dev-daily.yml": ("Sign cmux NEXT DEV",),

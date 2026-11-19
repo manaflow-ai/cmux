@@ -50,8 +50,9 @@ from signing_runner import SIGNING_JOBS  # noqa: E402
 
 DRIFTED = ("glaeda-nightly-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
 LABEL = "glaeda-trusted-next-signing"
-# Upload-only publisher: it holds the release App key and signs nothing, so it runs hosted, off the signer (5).
-UPLOADS = ("publish-nightly-next-github",)
+# Upload-only publishers that run hosted, off the signer: none since 2026-11-19, when the hosted pool started none of
+# the nightly's tail jobs for 224-444 min and publish-nightly-next-github came back to the signer's whole-Mac claim.
+UPLOADS: tuple[str, ...] = ()
 # signing_runner.SIGNING_JOBS names the keychain jobs; promote-nightly-next keeps its earlier route
 # (test_promote_keeps_its_earlier_route)
 JOBS = tuple(SIGNING_JOBS["nightly.yml"])
@@ -67,7 +68,7 @@ def route(name: str, context: dict) -> object:
 
 class SigningOnCmux15Test(unittest.TestCase):
     def test_a_nightly_next_push_takes_the_pick_then_the_signer(self) -> None:
-        self.assertEqual(len(JOBS), 7)
+        self.assertEqual(len(JOBS), 12)  # the five tail jobs joined on 2026-11-19
         rng = random.Random(15)
         for name in JOBS:
             source = manaflow_route(name)
