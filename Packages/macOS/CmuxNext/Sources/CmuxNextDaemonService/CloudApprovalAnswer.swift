@@ -153,7 +153,9 @@ extension CloudApprovalAnswer.Failure {
     }
 }
 
-extension CloudApprovalAnswer.Failure: CustomStringConvertible {
+extension CloudApprovalAnswer.Failure: CustomStringConvertible, LocalizedError {
+    /// What a person reads for it (`PlainErrorText.personal`), not "Something went wrong".
+    public var errorDescription: String? { description }
     public var description: String {
         switch self {
         case .notInFeed, .answered: CloudStrings.createApproveInFeed
