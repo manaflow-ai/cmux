@@ -512,6 +512,21 @@ class Workflow(unittest.TestCase):
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertIn(f"ok={ok}\n", out.read_text())
 
+    def test_a_look_result_waits_for_one_runner_not_two(self) -> None:
+        # 2026-11-19: every result run (the controller's look_result dispatch) queued for a Blacksmith 4 vCPU runner
+        # at `target`, then queued again for `publish` or `again`; 15 of 16 PRs without a receipt lost their look to
+        # runner queues (goals/hot-verify-share.md). The result run is one job with no needs.
+        lines = WORKFLOW.read_text().split("\njobs:\n", 1)[1].splitlines()
+        jobs = [line.strip().rstrip(":") for line in lines if line.startswith("  ") and not line.startswith("   ")
+                and line.rstrip().endswith(":") and not line.lstrip().startswith("#")]
+        runs = [job for job in jobs if "inputs.look_result != ''" in
+                next(line for line in self.job_block(job) if line.strip().startswith("if:"))]
+        self.assertEqual(runs, ["publish"])
+        block = self.job_block("publish")
+        self.assertFalse(any(line.strip().startswith("needs:") for line in block), "\n".join(block))
+        target_if = next(line for line in self.job_block("target") if line.strip().startswith("if:"))
+        self.assertIn("inputs.look_result == ''", target_if)
+
     def test_a_look_lost_on_the_fleet_is_started_once_more_and_only_once(self) -> None:
         # 2026-11-16: run 43788086518's step failed on three lent Macs' disk declines, run 43788591989's worker
         # stopped renewing its lease, and a reserved fleet Mac's gateway runner refused 8 looks (runs
