@@ -1563,7 +1563,7 @@ pub(super) fn remote_name(root: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(root.as_bytes());
     let digest = hasher.finalize();
-    let suffix: String = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect();
+    let suffix: String = digest.iter().take(16).map(|byte| format!("{byte:02x}")).collect();
     let name = root
         .trim_end_matches('/')
         .rsplit('/')
