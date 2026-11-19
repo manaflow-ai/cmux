@@ -53,8 +53,8 @@ public nonisolated struct RemoteRdHandshake: Sendable, Equatable {
             phase = .streaming(session: session)
         case (_, .refused):
             phase = .ended(.consentDenied)
-        case (_, .ended):
-            phase = .ended(stopSent ? .stoppedByViewer : .hostStoppedSharing)
+        case let (_, .ended(reason)):
+            phase = .ended(stopSent ? .stoppedByViewer : Self.hostEnd(reason))
         case (_, .stats), (_, .unknown), (_, .service), (_, .bulkCredit), (_, .streamOpen),
              (_, .streamOpened), (_, .streamRefused), (_, .streamClose):
             // Service, bulk and stream messages go to their handlers, not the setup.
@@ -62,6 +62,15 @@ public nonisolated struct RemoteRdHandshake: Sendable, Equatable {
         default:
             phase = .ended(.connectionLost)
         }
+    }
+
+    /// What the host's `ended` means: `cmux rd serve` ends a session it could not run with
+    /// `failed: <error>` (cmux-rd-host `serve.rs`), and that error is kept for the card; any
+    /// other reason (stopped, the viewer left) is the host stopping.
+    public static func hostEnd(_ reason: String) -> RemoteSessionEnd {
+        let text = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text == "failed" || text.hasPrefix("failed:") else { return .hostStoppedSharing }
+        return .hostFailed(reason: String(text.dropFirst("failed".count).drop { $0 == ":" || $0 == " " }))
     }
 
     /// The viewer sent stop.

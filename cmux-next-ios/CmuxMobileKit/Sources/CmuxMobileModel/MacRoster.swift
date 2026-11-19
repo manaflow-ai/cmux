@@ -11,13 +11,14 @@ import Foundation
 /// listed once by its most recently active build. The others are that Mac's
 /// other builds (`otherBuilds`), still listed in Settings → Devices.
 ///
+/// The build this phone picked, or was sent to by that build's pairing code
+/// (`preferring`, the team's remembered Mac), stands for its computer while it
+/// is online: a phone that scanned a dev build's code stays on that build
+/// instead of whichever other build of the computer sorts first.
+///
 /// A name is never an identity: several Macs can share one (they stay apart,
 /// with the `MacNameDisambiguation` tag), and a Mac that sent no machine id is
 /// never folded into another.
-///
-/// A tagged dev build lists the build its pairing code named
-/// (``DevHandoffMac``) for that build's computer, online or not, so the phone
-/// never moves to another tag's build there. Other builds list as above.
 public struct MacRoster: Equatable, Sendable {
     /// Listed: one build per computer, in the given order.
     public let visible: [MacDevice]
@@ -25,9 +26,9 @@ public struct MacRoster: Equatable, Sendable {
     /// most recently active first.
     public let otherBuilds: [String: [MacDevice]]
 
-    /// `preferred`: the build listed for its computer whatever the others' activity
-    /// (``DevHandoffMac``; nil outside tagged DEBUG builds).
-    public init(_ macs: [MacDevice], preferring preferred: String? = DevHandoffMac.current.macID) {
+    /// `preferring`: the build this phone picked (``Team/pickedMacID``); it is listed for its
+    /// computer over the other online builds, and never over an online build while it is offline.
+    public init(_ macs: [MacDevice], preferring preferred: String? = nil) {
         var groups: [String: [MacDevice]] = [:]
         var order: [String] = []
         for mac in macs {
@@ -38,10 +39,7 @@ public struct MacRoster: Equatable, Sendable {
         var listed = Set<String>()
         var others: [String: [MacDevice]] = [:]
         for key in order {
-            var ranked = (groups[key] ?? []).sorted(by: Self.moreActive)
-            if let preferred, let index = ranked.firstIndex(where: { $0.id == preferred }), index > 0 {
-                ranked.insert(ranked.remove(at: index), at: 0)
-            }
+            let ranked = (groups[key] ?? []).sorted { Self.moreActive($0, $1, preferred: preferred) }
             guard let first = ranked.first else { continue }
             listed.insert(first.id)
             var seen: Set<String> = [first.id]
@@ -72,10 +70,11 @@ public struct MacRoster: Equatable, Sendable {
         return "machine\u{0}\(mac.ownerUserID ?? "")\u{0}\(machine)"
     }
 
-    /// Online first; then the one seen last; then the id, so two online builds
-    /// keep one order however their sockets reconnect.
-    static func moreActive(_ a: MacDevice, _ b: MacDevice) -> Bool {
+    /// Online first; then the picked build; then the one seen last; then the id, so
+    /// two online builds keep one order however their sockets reconnect.
+    static func moreActive(_ a: MacDevice, _ b: MacDevice, preferred: String? = nil) -> Bool {
         if a.isOnline != b.isOnline { return a.isOnline }
+        if let preferred, (a.id == preferred) != (b.id == preferred) { return a.id == preferred }
         if !a.isOnline {
             let seenA = a.lastSeenAt ?? .distantPast
             let seenB = b.lastSeenAt ?? .distantPast
@@ -87,5 +86,5 @@ public struct MacRoster: Equatable, Sendable {
 
 extension Team {
     /// The team's Macs one per computer (``MacRoster``): what its lists, counts and pickers show.
-    public var listedMacs: [MacDevice] { MacRoster(macs).visible }
+    public var listedMacs: [MacDevice] { MacRoster(macs, preferring: pickedMacID).visible }
 }

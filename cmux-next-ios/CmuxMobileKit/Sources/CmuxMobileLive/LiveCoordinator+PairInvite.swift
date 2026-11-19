@@ -23,9 +23,6 @@ extension LiveCoordinator {
         // A code whose token was already presented is not taken again.
         guard pairing.invites.hold(invite) else { return false }
         log.info("pairing code for \(invite.mac, privacy: .private)")
-        // A tagged dev build lists and links this build for its computer from now on, not
-        // another tag's build there (nothing in Release).
-        devHandoff.remember(invite.mac)
         steerToInvite()
         return true
     }
@@ -60,9 +57,8 @@ extension LiveCoordinator {
         guard registeredTeamID == invite.team, store.activeTeam?.macs.contains(where: { $0.id == invite.mac }) == true,
               canLink(macID: invite.mac) else { return }
         if focusedMacID != invite.mac { retarget() }
-        // Another build on a listed computer (MacRoster lists one per computer) is not focused
-        // (a tagged dev build lists the code's build instead, DevHandoffMac): the held code pins
-        // it (MacLinkPolicy `pinned`), so it is dialed whatever else is shown.
+        // Another build on a listed computer (MacRoster lists one per computer) is not focused:
+        // the held code pins it (MacLinkPolicy `pinned`), so it is dialed whatever else is shown.
         if focusedMacID != invite.mac { applyLinks() }
         guard let session = sessions[invite.mac] else { return }
         switch session.pairingState {

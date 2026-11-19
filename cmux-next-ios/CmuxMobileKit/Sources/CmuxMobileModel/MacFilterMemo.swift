@@ -60,15 +60,13 @@ public final class MacFilterMemo {
     public init() {}
 
     private var rosterKey: [MacDevice]?
-    private var rosterPreferred: String?
-    private var cachedRoster = MacRoster([], preferring: nil)
+    private var cachedRoster = MacRoster([])
 
-    /// ``MacRoster`` of `macs`, recomputed only when a Mac or the preferred build changed.
-    public func roster(_ macs: [MacDevice], preferring preferred: String? = DevHandoffMac.current.macID) -> MacRoster {
-        if rosterKey == macs, rosterPreferred == preferred { return cachedRoster }
+    /// ``MacRoster`` of `macs`, recomputed only when a Mac changed.
+    public func roster(_ macs: [MacDevice]) -> MacRoster {
+        if rosterKey == macs { return cachedRoster }
         rosterKey = macs
-        rosterPreferred = preferred
-        cachedRoster = MacRoster(macs, preferring: preferred)
+        cachedRoster = MacRoster(macs)
         return cachedRoster
     }
 
