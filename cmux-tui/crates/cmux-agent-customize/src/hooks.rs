@@ -829,6 +829,7 @@ pub fn set_enabled(
                 let entry = codex_state_entry(document, key)?;
                 if enabled {
                     entry.remove("enabled");
+                    drop_empty_codex_state(document, key);
                 } else {
                     entry.insert("enabled", toml_edit::value(false));
                 }
@@ -1379,6 +1380,34 @@ fn edit_codex_config(
         text.parse().with_context(|| format!("parsing {}", path.display()))?;
     edit(&mut document)?;
     paths::write_with_backup(&paths.store_dir, &path, document.to_string().as_bytes())
+}
+
+/// Takes out what `codex_state_entry` made for KEY once it holds nothing:
+/// the `[hooks.state."<key>"]` table, then `hooks.state` and `hooks` when
+/// they are empty implicit tables (no header of their own in the file), so a
+/// turn off and back on of a hook with no state entry gives back the file.
+fn drop_empty_codex_state(document: &mut toml_edit::DocumentMut, key: &str) {
+    let Some(hooks) = document.get_mut("hooks").and_then(|item| item.as_table_like_mut()) else {
+        return;
+    };
+    if let Some(state) = hooks.get_mut("state").and_then(|item| item.as_table_like_mut())
+        && state
+            .get(key)
+            .and_then(|item| item.as_table_like())
+            .is_some_and(|entry| entry.is_empty())
+    {
+        state.remove(key);
+    }
+    let empty_implicit = |item: Option<&toml_edit::Item>| {
+        item.and_then(|item| item.as_table())
+            .is_some_and(|table| table.is_empty() && table.is_implicit())
+    };
+    if empty_implicit(hooks.get("state")) {
+        hooks.remove("state");
+    }
+    if empty_implicit(document.get("hooks")) {
+        document.remove("hooks");
+    }
 }
 
 /// `hooks.state."<key>"` as a table, created (as a `[hooks.state."<key>"]`
