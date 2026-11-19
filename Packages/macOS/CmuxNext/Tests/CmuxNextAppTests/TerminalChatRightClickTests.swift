@@ -22,9 +22,9 @@ struct TerminalChatRightClickTests {
         // A terminal running a Claude Code session, and the chat resuming one a terminal runs: a pair.
         #expect(offered(.init(terminal: true, agent: "claude", session: "s-1")))
         #expect(offered(.init(chat: true, agent: "codex", session: "s-2", running: true)))
-        // A chat whose terminal is gone is still one half: the row resumes the session in a terminal.
-        #expect(offered(.init(chat: true, agent: "codex", session: "s-2")))
-        #expect(offered(.init(chat: true, agent: "codex", session: "s-2", busy: true)))
+        // A chat no terminal runs is a GUI chat: no row (Leo, 2026-11-17: "just... stop showing the toggle on gui").
+        #expect(!offered(.init(chat: true, agent: "codex", session: "s-2")))
+        #expect(!offered(.init(chat: true, agent: "codex", session: "s-2", busy: true)))
         // A plain terminal, a cmux chat with no outside session, an agent acpmux cannot resume: none.
         #expect(!offered(.init(terminal: true, agent: nil, session: nil)))
         #expect(!offered(.init(chat: true, agent: nil, session: nil)))

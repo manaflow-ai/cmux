@@ -8,6 +8,14 @@ Read the matching skill before changing an area, then only the references needed
 
 ## The loop: use it first, then test
 
+**Before asking for a dev build, copy your nightly and swap your code in: `cmux app try .`** (on a Mac, in
+your checkout). It clones `/Applications/cmux NIGHTLY.app` (`--from APP` for another), runs the clone beside
+the person's cmux without touching it, puts your working tree's web UI (live on save) and daemon Rust in, and
+prints the clone's socket (`cmux --app-socket SOCKET ...`). `cmux app try . --extract` keeps what went in (a
+branch and a patch); `cmux app try . --stop` deletes the clone. When it says the change needs a build (Swift,
+FFI), the dev build is still the way, and it prints the fleet command. Off a Mac (a Linux host, a lane VM) it
+prints the fleet route: push, then `cmux-ci hot-verify N --look`.
+
 Write the code, put it into your running cmux, use it (screenshot, video, click through it), and only then run
 the slow checks: compile, CI, gallery, suites. 70% of recent Mac-app PRs go into a running app with no build (cmuxterm-hq hot-swap layers doc).
 Full loop and examples: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md); for people:
@@ -60,7 +68,7 @@ Known limit: a tree build is not Team-signed, so Rust hot-apply from it into a D
   user may. Reproduce in a tagged build and attach profiling to its PID.
 - Dogfood through `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh`, never `/tmp/cmux-cli`.
   Never report raw `.app` paths or `file://` URLs.
-- The app package needs Swift tools 6.2 and deploys to macOS 14; the classic Swift 6.0 rule
+- The app package needs Swift tools 6.2 and deploys to macOS 14; the old Swift 6.0 rule
   does not apply here. Check Release compiles and macOS 14 limits with
   [toolchain compatibility](skills/cmux-architecture/references/swift-6-0-compatibility.md).
 - No fleet Mac runs macOS 14 or 15 (aws-m4pro-1..4 run 27, aws-m4pro-5..9 run 26). Check an
@@ -73,6 +81,9 @@ A change to the Mac or iOS app is not done until the person can open it. Every a
 such a change ends with the dev build link, the fleet simulator evidence and the iPhone install result.
 Use one task tag, `<task-slug>` (for example `sidebar-star-align-v1`), for the Mac and iOS builds.
 A documentation-only change needs no build; give the file path instead.
+A change to the cmux-next API (`backend/apps/api`, `backend/db`) is tried on its own per-tag stack,
+`scripts/cmux-next/cloud-dev-stack.sh up --tag <task-slug> --journey`, and stopped with `down` when done
+([cmux-backend](skills/cmux-backend/SKILL.md#run-your-unmerged-cmux-next-api-a-per-tag-stack-on-the-dev-vm)).
 The report also names, for the person to run, the command that puts the change into their running cmux now, from
 [the loop](#the-loop-use-it-first-then-test) (`cmux app try <PR>`, `cmux customize use pr:N`), so they
 use it before the build is done. The agent itself runs it there only when asked; otherwise it uses a side copy (`hot-verify.py look`).
@@ -90,30 +101,25 @@ use it before the build is done. The agent itself runs it there only when asked;
   `--workspace` is required (queued builds with the same workspace and tag supersede each other).
   `--backend-mode local` because cmux-next reads no web API origin; the default `auto` provisions
   hq's shared backend and stops with "Shared backend helper missing" outside an hq checkout.
-  When you run `ios/scripts/reload.sh --review` below, skip this step: it builds and publishes the
+  When you run `cmux-next-ios/scripts/review.sh` below, skip this step: it builds and publishes the
   same-tag Mac app itself, and a second Mac build replaces the first.
   Report the Tag Opener link `http://127.0.0.1:17320/<task-slug>`. Never `open` it (macOS sends it
   to the default browser); team members add it to their workspace with hq's `scripts/open-dev-build.sh <task-slug>`.
-- **iOS:** first check which app you changed. `ios/` is the classic iPhone app; `cmux-next-ios/` is
-  the cmux-next iPhone app, and `ios/scripts/reload.sh` does not build it. Its one-command hand-off
-  (`cmux-next-ios/scripts/review.sh`, PR #43379) has not landed yet; until it does, do the Mac step
-  above, report the `cmux-next-ios/` change as not installed on a phone, and name that as the
-  blocker. For the classic app, run
-  `ios/scripts/reload.sh --review --tag <task-slug>`. In one command it builds on the
-  fleet (the Mac build above included, same tag, published to HQ), installs on every connected
-  iPhone, not only the configured one, through the authenticated install
-  (`scripts/verify-iphone-auth.sh` must pass; never raw `devicectl`), then checks the build in a
-  fleet simulator (hq's `verify-remote.sh`, signed in, with a screenshot and recording). Nothing
-  boots in a simulator on the person's Mac. If it fails with "Development
-  backend is unreachable or returned an HTTP error" (hq probes the dev backend once, unretried),
-  rerun the same command: it reuses the saved fleet jobs instead of resubmitting.
-  Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
+- **iOS:** the iPhone app is `cmux-next-ios/`. Run `cmux-next-ios/scripts/review.sh --tag <task-slug>`.
+  In one command it builds the same-tag Mac app and the iPhone app on the fleet, publishes the Mac
+  app to HQ, and leaves the build on every connected iPhone signed in and paired with that Mac
+  (`--manual-pairing` to pair by hand, `--no-auth` for a signed-out install). It proves both
+  survive a relaunch, and checks the build in a fleet simulator signed in with the agent account,
+  whose session comes from this Mac (`cmux-ci run --sign-in agent`; no credential lives on a
+  worker). Never install with raw `devicectl`, and nothing boots in a simulator on the person's
+  Mac. Rerunning the same command resumes the saved fleet jobs. Its phone leg passed end to end on
+  2026-11-18 (real iPhone, tag `phone-e2e-1118`, #46718, all three modes); report a failure as the
+  phone's blocker. Details:
+  [cmux-next-ios/CLAUDE.md](cmux-next-ios/CLAUDE.md).
+  The Tag Opener link opens the Mac app and, on every connected phone, the same-tag iPhone app it
+  has installed (hq `tools/cmux-hq/Sources/CmuxHQ/TagOpener.swift`, `iosLauncher.launch`).
 - **Install on every connected phone.** A phone that is connected gets the build, including one
-  you have not seen before: `--review` registers a new phone and installs on it too. The cmux-next
-  iOS app does not need Tailscale, but a fleet-built dev app talks to hq's tagged dev backend, a
-  tailnet-only `*.ts.net` host. A phone off the tailnet then installs the app but fails the auth
-  gate with "never published a signed-in app receipt"; report that as the phone's blocker and name
-  the cause. Locally built dev apps use the public staging API and have no such requirement.
+  you have not seen before: `review.sh` registers a new phone and installs on it too.
 - **A phone is always connected.** No connected phone, a locked phone, a queued install or a
   failed auth gate is a blocker to report with its error and retry command, never a step to skip
   or replace with a simulator-only result.
@@ -122,7 +128,7 @@ use it before the build is done. The agent itself runs it there only when asked;
   ```text
   Dev build:  http://127.0.0.1:17320/<task-slug>   (fleet job <JOB_ID>, head <sha>)
   Simulator:  fleet simulator, signed in: <evidence dir> (screenshot.png and the recording)
-  iPhone:     <name> (<model>, <udid>): installed, verify-iphone-auth PASS
+  iPhone:     <name> (<model>, <udid>): installed, signed in, paired and linked with <Mac>
               <name> (<model>, <udid>): BLOCKED: <reason>; retry: <command>   (one line per connected phone)
   ```
 
@@ -272,7 +278,8 @@ https://github.com/manaflow-ai/cmux/issues/13742 with a recommendation first.
 
 Read these before working in their scope; nested files may not load automatically:
 
-- `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).
+- `ios/`: the classic iPhone app, retired. Don't change it or install it; cmux-next's iPhone app is `cmux-next-ios/`.
+- `Packages/iOS/`: [Packages/iOS/AGENTS.md](Packages/iOS/AGENTS.md) (the Apple HIG rule for iPhone UI).
 - Cloud backend code (control plane, VM API routes, provider drivers, billing,
   entitlements, the NEXT Worker): new code goes to the private
   manaflow-ai/cmux-platform repository, not here. Read
