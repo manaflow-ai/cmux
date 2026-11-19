@@ -137,6 +137,104 @@ class InventoryBudgetTests(unittest.TestCase):
                                          MODULE.classify_run(run, prs, now=now, min_age_seconds=3600) is not None)
 
 
+class SupersededTests(unittest.TestCase):
+    now = ClassifyRunTests.now
+    run_data = {"id": 7, "created_at": "2026-09-18T00:00:00Z", "status": "queued", "event": "pull_request",
+                "head_sha": "old", "path": ".github/workflows/ci.yml", "name": "CI", "pull_requests": [{"number": 5}]}
+    heads = {5: "new", 6: "other"}
+
+    def test_queued_run_of_an_open_pr_at_a_newer_head_is_superseded(self):
+        self.assertEqual(MODULE.classify_superseded(self.run_data, self.heads, now=self.now), "superseded head")
+
+    def test_runs_that_must_be_kept(self):
+        protected = [".github/workflows/nightly.yml", ".github/workflows/promote-stable.yml",
+                     ".github/workflows/release.yml", ".github/workflows/cmux-dev.yml"]
+        cases = {
+            "live head": dict(self.run_data, head_sha="new"),
+            "head of another open PR": dict(self.run_data, head_sha="other"),
+            "started": dict(self.run_data, status="in_progress"),
+            "push": dict(self.run_data, event="push"),
+            "schedule": dict(self.run_data, event="schedule"),
+            "dispatch": dict(self.run_data, event="workflow_dispatch"),
+            "no pull request": dict(self.run_data, pull_requests=[]),
+            "closed pull request": dict(self.run_data, pull_requests=[{"number": 9}]),
+            "one PR still at this head": dict(self.run_data, pull_requests=[{"number": 5}, {"number": 9}]),
+            "young": dict(self.run_data, created_at="2026-09-18T23:55:00Z"),
+            "no sha": dict(self.run_data, head_sha=""),
+            "dev by name": dict(self.run_data, name="Dev build"),
+            **{path: dict(self.run_data, path=path) for path in protected},
+        }
+        for label, run in cases.items():
+            with self.subTest(label):
+                self.assertIsNone(MODULE.classify_superseded(run, self.heads, now=self.now))
+
+    def test_devtools_style_names_are_not_mistaken_for_dev(self):
+        run = dict(self.run_data, path=".github/workflows/devtools-check.yml", name="Devtools")
+        self.assertEqual(MODULE.classify_superseded(run, self.heads, now=self.now), "superseded head")
+
+    def run_main(self, api, cleanup="true"):
+        environment = {"GH_TOKEN": "t", "GH_REPO": "test/repo", "CLEANUP": cleanup, "SUPERSEDED": "true",
+                       "MAX_SUPERSEDED": "200", "GITHUB_EVENT_NAME": "workflow_dispatch"}
+        with mock.patch.dict(MODULE.os.environ, environment, clear=True), \
+                mock.patch.object(MODULE, "GitHub", return_value=api):
+            return MODULE.main()
+
+    def test_cancel_rereads_the_run_and_its_pr(self):
+        api = mock.Mock()
+        api.open_heads.return_value = dict(self.heads)
+        api.runs.return_value = [self.run_data]
+        api.request.side_effect = [dict(self.run_data), {"state": "open", "head": {"sha": "new"}}, {}]
+        self.assertEqual(self.run_main(api), 0)
+        self.assertEqual(api.request.call_args_list, [
+            mock.call("GET", "/repos/test/repo/actions/runs/7"),
+            mock.call("GET", "/repos/test/repo/pulls/5"),
+            mock.call("POST", "/repos/test/repo/actions/runs/7/cancel"),
+        ])
+
+    def test_started_run_or_pr_back_at_this_head_is_kept(self):
+        for current, pr in [(dict(self.run_data, status="in_progress"), {"state": "open", "head": {"sha": "new"}}),
+                            (self.run_data, {"state": "open", "head": {"sha": "old"}}),
+                            (self.run_data, {"state": "closed", "head": {"sha": "new"}})]:
+            with self.subTest(current=current, pr=pr):
+                api = mock.Mock()
+                api.open_heads.return_value = dict(self.heads)
+                api.runs.return_value = [self.run_data]
+                api.request.side_effect = [current, pr]
+                self.assertEqual(self.run_main(api), 0)
+                self.assertNotIn("POST", [call.args[0] for call in api.request.call_args_list])
+
+    def test_dry_run_and_schedule_never_cancel(self):
+        api = mock.Mock()
+        api.open_heads.return_value = dict(self.heads)
+        api.runs.return_value = [self.run_data]
+        self.assertEqual(self.run_main(api, cleanup="false"), 0)
+        api.request.assert_not_called()
+        environment = {"GH_TOKEN": "t", "GH_REPO": "test/repo", "CLEANUP": "true", "SUPERSEDED": "true",
+                       "GITHUB_EVENT_NAME": "schedule"}
+        api = mock.Mock()
+        api.runs.return_value = []
+        with mock.patch.dict(MODULE.os.environ, environment, clear=True), \
+                mock.patch.object(MODULE, "GitHub", return_value=api):
+            self.assertEqual(MODULE.main(), 0)
+        api.open_heads.assert_not_called()
+
+    def test_limit_is_bounded(self):
+        for value in ("0", "501", "x"):
+            environment = {"GH_TOKEN": "t", "GH_REPO": "test/repo", "SUPERSEDED": "true",
+                           "MAX_SUPERSEDED": value, "GITHUB_EVENT_NAME": "workflow_dispatch"}
+            with self.subTest(value=value), mock.patch.dict(MODULE.os.environ, environment, clear=True), \
+                    mock.patch.object(MODULE, "GitHub"):
+                self.assertEqual(MODULE.main(), 2)
+
+    def test_open_heads_pages_until_empty(self):
+        client = MODULE.GitHub("t", "test/repo")
+        pages = [[{"number": n, "head": {"sha": f"s{n}"}} for n in range(100)], [{"number": 100, "head": {"sha": "x"}}], []]
+        with mock.patch.object(client, "request", side_effect=pages) as request:
+            heads = client.open_heads()
+        self.assertEqual(len(heads), 101)
+        self.assertEqual(request.call_count, 3)
+
+
 class WorkflowSafetyTests(unittest.TestCase):
     def test_scheduled_and_manual_janitors_are_serialized(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
