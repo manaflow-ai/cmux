@@ -71,11 +71,18 @@ export function SheetPage({
   /** The change to bring into view (the route's `entry=` and `area=`). */
   focus?: ChangelogFocus;
 }) {
-  const main = useFocusScroll(focus, focusReady(s));
   const entry = focus?.entry ? titleKey(focus.entry) : undefined;
   const days = useMemo(() => groupByDay(s.builds), [s.builds]);
-  // While a focus may ask for a row, the days it can be in stay drawn, so useFocusScroll finds it.
-  const pinned = useMemo(() => (focus ? focusDays(days, s.inSpan) : []), [focus, days, s.inSpan]);
+  // The day holding the focused change, however far down the index (useFocusDay).
+  const found = useFocusDay(entry, focus?.n, days, s.inSpan, store, strings.language);
+  // While a focus may ask for a row, the days it can be in stay drawn, so useFocusScroll finds it:
+  // the focused change's own day once it is known, else the update's days (or the newest).
+  const pinned = useMemo(
+    () => (!focus ? [] : found !== undefined && found >= 0 ? [found] : focusDays(days, s.inSpan)),
+    [focus, found, days, s.inSpan],
+  );
+  const ready = focusReady(s) && (entry === undefined || found !== undefined);
+  const main = useFocusScroll(focus, ready, (found ?? -1) >= 0, pinned);
   const list = useRef<HTMLDivElement>(null);
   const shown = useDayWindow(list, days, sheetDayHeight, pinned);
   // Which days have their Versions open and which areas show every row, kept here: a long list
@@ -120,6 +127,50 @@ function focusDays(days: { builds: IndexEntry[] }[], inSpan: string[]): number[]
   const span = new Set(inSpan);
   const found = days.flatMap((day, index) => (day.builds.some((b) => span.has(b.build)) ? [index] : []));
   return found.length > 0 || days.length === 0 ? found : [0];
+}
+
+/** How many days useFocusDay reads at once while it looks for the focused change. */
+const FOCUS_SEARCH_BATCH = 8;
+
+/** The index of the day holding the change titled `entry` (its title key): the update's days first,
+    then every day newest first, loading each day's notes until one lists it (an Updated card row
+    or a link may name a change of any day, and a long index draws only the days near the view);
+    -1 when no day does; undefined while it looks, and without an `entry`. Looked for once per
+    focus (`n`, the click's nonce), not on each render. */
+function useFocusDay(
+  entry: string | undefined,
+  n: string | undefined,
+  days: { day: string; builds: IndexEntry[] }[],
+  inSpan: string[],
+  store: ChangelogStore,
+  language: string,
+): number | undefined {
+  const [found, setFound] = useState<{ key: string; index: number }>();
+  const key = entry === undefined ? undefined : `${entry}\n${n ?? ""}`;
+  useEffect(() => {
+    if (key === undefined || entry === undefined) return undefined;
+    let live = true;
+    const order = [...new Set([...focusDays(days, inSpan), ...days.keys()])];
+    const lists = (index: number) => {
+      const { loaded } = store.getSnapshot();
+      const notes = days[index]!.builds.map((b) => loaded[b.build]).filter((x): x is ReleaseNotes => !!x);
+      return sheetRows(mergedView(notes, language)).some((row) => titleKey(row.title) === entry);
+    };
+    void (async () => {
+      for (let start = 0; start < order.length; start += FOCUS_SEARCH_BATCH) {
+        const batch = order.slice(start, start + FOCUS_SEARCH_BATCH);
+        await Promise.all(batch.flatMap((index) => days[index]!.builds.map((b) => store.ensure(b.build))));
+        if (!live) return;
+        const index = batch.find(lists);
+        if (index !== undefined) return setFound({ key, index });
+      }
+      if (live) setFound({ key, index: -1 });
+    })();
+    return () => {
+      live = false;
+    };
+  }, [key, entry, days, inSpan, store, language]);
+  return found && found.key === key && found.index < days.length ? found.index : undefined;
 }
 
 /** About how tall a day is before it is drawn: its date line and its loading placeholder (styles.css
@@ -393,9 +444,12 @@ export function focusReady(s: ChangelogSnapshot): boolean {
 
 /** Scrolls `focus` into view once per click (its `n`), when `ready`: the first row titled
     `entry` (centered), else the first `area` section (the newest day's, at the top), and marks
-    it with `data-focus` for FOCUS_MARK_MS. Smooth unless the page's motion gate or the system
-    asks for less motion. Other renders scroll nothing. */
-function useFocusScroll(focus: ChangelogFocus | undefined, ready: boolean) {
+    it with `data-focus` for FOCUS_MARK_MS. A click is handled only once its target is on the
+    page: when a day lists the entry (`listed`), once that row is; else once the `pinned` days
+    (where the area is looked for) are drawn, which a long list does a render after it mounts. Smooth
+    unless the page's motion gate or the system asks for less motion. Other renders scroll
+    nothing. */
+function useFocusScroll(focus: ChangelogFocus | undefined, ready: boolean, listed: boolean, pinned: readonly number[]) {
   const main = useRef<HTMLElement>(null);
   const handled = useRef<string>(undefined);
   const mark = useRef<{ el: HTMLElement; timer: ReturnType<typeof setTimeout> }>(undefined);
@@ -403,7 +457,6 @@ function useFocusScroll(focus: ChangelogFocus | undefined, ready: boolean) {
   useEffect(() => {
     const root = main.current;
     if (!focus || !key || !ready || !root || handled.current === key) return;
-    handled.current = key;
     const entry = focus.entry ? titleKey(focus.entry) : undefined;
     const row = entry
       ? [...root.querySelectorAll<HTMLElement>(".cls-row[data-entry]")].find((el) => el.dataset.entry === entry)
@@ -412,6 +465,10 @@ function useFocusScroll(focus: ChangelogFocus | undefined, ready: boolean) {
       ? undefined
       : [...root.querySelectorAll<HTMLElement>(".cls-area[data-area]")].find((el) => el.dataset.area === focus.area);
     const target = row ?? area;
+    // The days are drawn a render after the list mounts, the focused change's day a render after it
+    // is found: until then the focus waits (a change no day lists falls back to its area's section).
+    if (!row && (listed || !pinned.every((index) => root.querySelector(`.cls-day[data-index="${index}"]`)))) return;
+    handled.current = key;
     if (!target) return;
     target.scrollIntoView?.({ block: row ? "center" : "start", behavior: lessMotion() ? "auto" : "smooth" });
     if (mark.current) {
@@ -424,7 +481,8 @@ function useFocusScroll(focus: ChangelogFocus | undefined, ready: boolean) {
       mark.current = undefined;
     }, FOCUS_MARK_MS);
     mark.current = { el: target, timer };
-  }, [focus, key, ready]);
+    // Each render until it is handled: the focused day mounts a render after it is found.
+  });
   useEffect(() => () => clearTimeout(mark.current?.timer), []);
   return main;
 }

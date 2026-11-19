@@ -25,7 +25,8 @@
 //
 // A long update's list (`release`, `sections`, `divided`, `flat`) draws only the rows in or near the
 // scroller, each group's rows a TanStack list of its own (WindowedRows), and redraws a row only when
-// its own change does; the count of rows below reads the lists' sizes, not every row's box.
+// its own change does; the count of rows below reads the lists' sizes, not every row's box. The row
+// holding the keyboard focus stays drawn wherever the card is scrolled, so the focus stays on it.
 import {
   memo,
   useCallback,
@@ -37,8 +38,15 @@ import {
   useState,
   useSyncExternalStore,
   type ComponentProps,
+  type FocusEvent,
 } from "react";
-import { measureElement as measureRow, useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
+import {
+  defaultRangeExtractor,
+  measureElement as measureRow,
+  useVirtualizer,
+  type Range,
+  type Virtualizer,
+} from "@tanstack/react-virtual";
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
 import { useDecoration } from "../../theme/decorations";
 import type { Strings } from "../shared/i18n";
@@ -306,7 +314,8 @@ const NotesItem = memo(
     from where the group starts in it: in a long list the rows near the scroller (none while the whole
     group is a screen or more away), the rest held as padding, so the scroller is as tall as with
     every row; in a short one every row. Either way each row is measured, so the group counts its
-    rows below an offset without reading a row's box. */
+    rows below an offset without reading a row's box. The row holding the focus stays drawn,
+    scrolled away or not, with the room of the rows between it and the others drawn. */
 function WindowedRows({
   group,
   entries,
@@ -334,6 +343,24 @@ function WindowedRows({
     resize?.observe(element.closest(".wn-notes-list") ?? element);
     return () => resize?.disconnect();
   }, [scroller]);
+  // The row holding the keyboard focus, kept drawn: scrolled away, it would unmount and drop the
+  // focus to the page.
+  const [focused, setFocused] = useState<number>();
+  const onFocus = (event: FocusEvent<HTMLUListElement>) => {
+    const index = Number((event.target as Element).closest("[data-index]")?.getAttribute("data-index"));
+    setFocused(Number.isInteger(index) ? index : undefined);
+  };
+  const onBlur = (event: FocusEvent<HTMLUListElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(undefined);
+  };
+  const rangeExtractor = useCallback(
+    (range: Range) => {
+      const near = defaultRangeExtractor(range);
+      if (focused === undefined || focused >= range.count || near.includes(focused)) return near;
+      return [...near, focused].sort((a, b) => a - b);
+    },
+    [focused],
+  );
   const getItemKey = useCallback((index: number) => entries[index]!.id, [entries]);
   // A row not drawn yet is guessed as tall as the first row measured, so drawing one as the list
   // scrolls does not move every row under it (TanStack places each again when a size differs from
@@ -357,6 +384,7 @@ function WindowedRows({
     gap: place.gap,
     scrollMargin: place.top,
     overscan: ROW_OVERSCAN,
+    rangeExtractor,
     // The first frame draws a popover's worth of rows before the scroller is measured.
     initialRect: { width: 320, height: 640 },
   });
@@ -382,7 +410,8 @@ function WindowedRows({
     const height = virtualizer.scrollRect?.height ?? 0;
     return place.top < offset + 2 * height && place.top + virtualizer.getTotalSize() > offset - height;
   });
-  const drawn = windowed ? (near ? virtualizer.getVirtualItems() : []) : undefined;
+  const all = windowed ? virtualizer.getVirtualItems() : undefined;
+  const drawn = all && (near ? all : all.filter((item) => item.index === focused));
   const first = drawn?.[0];
   const last = drawn?.[drawn.length - 1];
   const padding = !drawn
@@ -391,17 +420,24 @@ function WindowedRows({
       ? { paddingTop: first.start - place.top, paddingBottom: virtualizer.getTotalSize() - (last.end - place.top) }
       : { paddingTop: virtualizer.getTotalSize() };
   return (
-    <ul {...list} ref={ul} style={padding}>
-      {(drawn ?? entries.map((_, index) => ({ index }))).map(({ index }) => (
-        <NotesItem
-          key={entries[index]!.id}
-          index={index}
-          measure={virtualizer.measureElement}
-          entry={entries[index]!}
-          titlesOnly={rows.titlesOnly}
-          actions={rows.actions}
-        />
-      ))}
+    <ul {...list} ref={ul} style={padding} onFocus={onFocus} onBlur={onBlur}>
+      {(drawn ?? entries.map((_, index) => ({ index, start: 0, end: 0 }))).map(({ index, start }, at, items) => {
+        // The focused row drawn apart from the others: the rows between them as room (less the
+        // gap the room itself stands between).
+        const before = items[at - 1];
+        const room = before && before.index !== index - 1 ? start - before.end - 2 * place.gap : 0;
+        return [
+          room > 0 && <li key={`${entries[index]!.id}/room`} aria-hidden="true" style={{ height: room }} />,
+          <NotesItem
+            key={entries[index]!.id}
+            index={index}
+            measure={virtualizer.measureElement}
+            entry={entries[index]!}
+            titlesOnly={rows.titlesOnly}
+            actions={rows.actions}
+          />,
+        ];
+      })}
     </ul>
   );
 }
