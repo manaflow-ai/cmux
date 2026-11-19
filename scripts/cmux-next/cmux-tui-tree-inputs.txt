@@ -18,6 +18,7 @@ blob scripts/ci/acpmux-build-features.sh
 blob scripts/ci/tailnet-go.sh
 blob scripts/cmux-next/build-acpmux.sh
 blob scripts/ci/cargo-groups.sh
+blob scripts/ci/cmux-tui-mac-cargo-builds.sh
 blob scripts/ci/cmux-tui-darwin-builder
 blob scripts/ci/macos-cross.sh
 blob scripts/ci/macos_stubs.py

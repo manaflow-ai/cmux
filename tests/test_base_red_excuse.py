@@ -3521,6 +3521,12 @@ class SignedHostGitHub(FakeGitHub):
 class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
     """A workflow in BASE_DISPATCH with no base verdict starts one dispatch on the base tip and refuses, naming it;
     the check after it completes compares against it as any base run."""
+    LISTED = excuse.BASE_DISPATCH  # the real list, before setUp names the signed-host workflow it was written for
+
+    def setUp(self):
+        listed = unittest.mock.patch.object(excuse, "BASE_DISPATCH", frozenset({("feat-cmux-next", SIGNED_HOST_FILE)}))
+        listed.start()
+        self.addCleanup(listed.stop)
 
     def judge(self, gh):
         return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
@@ -3627,7 +3633,7 @@ class BaseDispatchForPullRequestOnlyWorkflows(unittest.TestCase):
 
     def test_each_base_dispatch_workflow_can_be_dispatched(self):
         yaml = excuse.yaml_module()
-        for branch, file in excuse.BASE_DISPATCH:
+        for branch, file in self.LISTED:
             workflow = yaml.safe_load((excuse.WORKFLOWS / file).read_text())
             triggers = workflow.get(True, workflow.get("on")) or {}
             self.assertIn("workflow_dispatch", triggers, file)
@@ -6738,6 +6744,39 @@ class JourneyPerStep(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "cut short|no closing summary"):
             self.judge(JourneyGitHub(head, JOURNEY_BASE))
 
+    # cmux#45546's review F1: a later run (PRODUCT_TEAM's, cloud-journey-ci.sh's second `run`) that dies before
+    # its first step line printed no step line and no summary, so an earlier run's red stood for the whole job.
+    PRODUCT_RETRIED = "##[warning]staging product-team failed once; running it again (first run's steps in the job summary)"
+    TAIL = ["##[notice]target=staging result=red", "##[error]Process completed with exit code 1."]
+
+    def test_the_real_tail_after_the_last_summary_is_still_excused(self):
+        text = self.judge(JourneyGitHub([*JOURNEY_HEAD[:-1], *self.TAIL], JOURNEY_BASE))
+        self.assertIn(f"excused '{JOURNEY}'", text)
+
+    def test_a_second_team_run_that_dies_before_any_step_line_is_refused(self):
+        # The product team's first run fails another step and is retried; the retry dies before its first step line.
+        # Read before this fix, only the test team's run was judged, and it matches the base's: excused.
+        first = journey_run(1500, "vm_5bbf16fdc988904ba609", "8dfc00220e55",
+                            fail=[("connect (carrier dial)", "carrier dial refused: 403 ticket expired")])
+        head = [*JOURNEY_HEAD[:-1], *first, self.PRODUCT_RETRIED, "error: sign in failed: fetch failed",
+                "    at signIn (scripts/cmux-next/cloud-journey.ts:3640:11)", *self.TAIL]
+        with self.assertRaisesRegex(excuse.Refused, "outside any journey run"):
+            self.judge(JourneyGitHub(head, JOURNEY_BASE))
+
+    def test_a_silent_second_team_run_cannot_take_the_first_teams_retry(self):
+        # The product team's first run dies printing nothing; its retry line follows the test team's judged run.
+        passed = [line for line in journey_run(1299, "vm_2647ba2efdd3d5eeac97", "0c736f4c5b32")
+                  if not line.startswith(("FAIL stub", "FAIL staging"))]
+        head = [*JOURNEY_HEAD[:-1], self.PRODUCT_RETRIED, *passed,
+                "PASS staging: 7 passed, 0 failed, 2 skipped, 31.0 s", *self.TAIL]
+        with self.assertRaisesRegex(excuse.Refused, "retry line"):
+            self.judge(JourneyGitHub(head, JOURNEY_BASE))
+
+    def test_a_line_after_the_last_summary_is_refused(self):
+        head = [*JOURNEY_HEAD[:-1], "error: sign in failed: fetch failed", *self.TAIL]
+        with self.assertRaisesRegex(excuse.Refused, "outside any journey run"):
+            self.judge(JourneyGitHub(head, JOURNEY_BASE))
+
     def test_a_retry_after_a_run_cut_short_hides_no_judged_run(self):
         # The first run dies before its summary; the retry line must not mark an earlier judged run as retried.
         head = [*journey_run(1299, "vm_2647ba2efdd3d5eeac97", "0c736f4c5b32"),
@@ -7709,8 +7748,9 @@ class WsCheckFleetRoute(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
 
-    def keep(self, *, run=1, receipt_run=1, conclusion="failure", state="done", ran_on="build-fleet"):
-        record = {"id": "j1", "repo": self.gh.REPO, "dispatch": self.gh.HOST, "run_id": run, "conclusion": conclusion,
+    def keep(self, *, run=1, receipt_run=1, conclusion="failure", state="done", ran_on="build-fleet", head=HEAD):
+        record = {"id": "j1", "repo": self.gh.REPO, "dispatch": self.gh.HOST, "head": head, "run_id": run,
+                  "conclusion": conclusion,
                   "fleet": {"from_run": run, "state": state, "steps": [{"where": "linux-pool", "job_id": "f1"}]}}
         (self.folder / "j1.json").write_text(json.dumps(record))
         receipt = {"source_sha": HEAD, "run_id": str(receipt_run), "ran_on": ran_on, "exit_code": 1}
@@ -7736,7 +7776,7 @@ class WsCheckFleetRoute(unittest.TestCase):
             self.judge()
 
     def test_a_kept_log_not_held_to_this_run_and_verdict_is_not_read(self):
-        for kwargs in ({"run": 7}, {"conclusion": "success"}, {"state": "running"}):
+        for kwargs in ({"run": 7}, {"conclusion": "success"}, {"state": "running"}, {"head": "b" * 40}):
             with self.subTest(**kwargs):
                 self.keep(**kwargs)
                 with self.assertRaisesRegex(excuse.Refused, "has no result on"):
@@ -7746,6 +7786,15 @@ class WsCheckFleetRoute(unittest.TestCase):
                 self.keep(**kwargs)
                 with self.assertRaisesRegex(excuse.Refused, "has no FAST_CHECKS_RECEIPT naming that run"):
                     self.judge()
+
+
+class WsCheckFleetRecordsFolders(unittest.TestCase):
+    """cmux#46667: with no BASE_RED_FLEET_RECORDS the primary broker's records are read, then the standby broker's."""
+
+    def test_the_standby_brokers_records_follow_the_primarys(self):
+        self.assertEqual(excuse.fleet_records_dirs({"HOME": "/h"}),
+                         [Path("/h/.local/state/lane-gh-broker/ci"), Path("/h/.local/state/lane-gh-broker-standby/ci")])
+        self.assertEqual(excuse.fleet_records_dirs({"HOME": "/h", excuse.FLEET_RECORDS_ENV: "/x"}), [Path("/x")])
 
 
 class WsCheckFailureText(unittest.TestCase):
@@ -15471,7 +15520,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
             "thunderdome-label.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
-            "cmux-next-pr-closed-cancel.yml", "language-boundaries.yml", "required-checks-drift.yml",
+            "cmux-next-pr-closed-cancel.yml", "ci-pr-closed-cancel.yml", "language-boundaries.yml",
+            "required-checks-drift.yml",
             "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml",
             # Dispatch-only secrets seal; on a pull request that edits it every job is skipped.
             "cmux-vm-secrets-seal.yml"),

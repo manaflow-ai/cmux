@@ -2,7 +2,7 @@
 """The perf cron's decisions (scripts/cmux-next/perf-cron.py): what a tick runs, when it yields to the fleet,
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
 network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23)."""
-import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, tempfile, unittest, urllib.error, urllib.request
+import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, tempfile, time, unittest, urllib.error, urllib.request
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -721,6 +721,33 @@ class WebUiTests(unittest.TestCase):
             {"name": "infinite_items.n1000.memory_vs_empty", "p50": 1.4, "p95": 1.4, "unit": "x", "floor": 0.1}]},
             budgets_mod, {"rows": {}})
         self.assertEqual(rows["webui.infinite_items.n1000.memory_vs_empty"]["p95"], 1.4)
+
+    def test_the_linux_job_cap_covers_every_run_of_the_part(self):
+        # 2026-11-17: the fixed 40-minute job cap cancelled infinite-items' build-only run three ticks running, so its
+        # job left no result and the part ended yielded_out.
+        self.assertEqual(cron.linux_job_minutes("infinite-items"), 70)
+        self.assertEqual(cron.linux_job_minutes("chat-disk"), 70)
+        self.assertEqual(cron.linux_job_minutes("web-ui"), 40)
+        self.assertEqual(cron.linux_job_minutes("web-ui-god"), 40)  # its paired rounds stop inside the suite's cap
+
+    def test_a_run_past_its_cap_is_killed_with_its_children(self):
+        # subprocess.run's timeout killed only bash: its cargo went on building, and the suite's own cargo build then
+        # waited on that build's lock.
+        started = time.monotonic()
+        out, _, code = cron.run_capped(["bash", "-c", "sleep 30 & echo \"child $!\"; wait"], ".", dict(os.environ), 1)
+        self.assertIsNone(code)
+        self.assertLess(time.monotonic() - started, 10)
+        child = int(out.split("child ", 1)[1].split()[0])
+        for _ in range(50):
+            try:
+                os.kill(child, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.1)
+        else:
+            self.fail(f"the run's child {child} outlived its cap")
+        out, _, code = cron.run_capped(["bash", "-c", "echo '{\"rows\": []}'; exit 3"], ".", dict(os.environ), 10)
+        self.assertEqual((code, cron.last_json_object(out)), (3, {"rows": []}))
 
     def test_the_chat_100k_flat_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-flat"))

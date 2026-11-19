@@ -62,7 +62,7 @@
 }
 .acpmux-harness-update-run {
   min-width: 56px;
-  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--agent-text);
 }
 .acpmux-harness-updates-all:hover,
