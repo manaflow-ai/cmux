@@ -1,6 +1,7 @@
 // Portable value checks per row kind. The daemon is the authority; the mock provider uses
 // these to behave like it, and the page uses them to refuse a bad field value before sending.
 import { parseThemeSpec } from "./themeSpec";
+import { isYouTubeId } from "./youtubeWallpaper";
 import type { Domains } from "./ops";
 import type { SchemaRow } from "./schema";
 
@@ -134,13 +135,19 @@ export function isCommandLabel(value: unknown): boolean {
 
 /**
  * A fixed picture (`appearance.backgroundLight` / `backgroundDark`, a Time of Day entry): a listed
- * painting or `desktop`, or a macOS wallpaper or image by absolute path; never a shuffle or none.
+ * painting or `desktop`, a macOS wallpaper or image by absolute path, or a `youtube:` video; never a
+ * shuffle or none.
  * The Swift rule is `BackdropSelectionSetting.picture`; this is its portable shape.
  */
 export function isBackdropPicture(value: unknown, choices: readonly string[] = []): boolean {
   if (typeof value !== "string") return false;
   if (["none", "daily", "appearance", "schedule"].includes(value)) return false;
-  return choices.includes(value) || /^(system|file):\/./.test(value) || /^[a-z0-9]+(-[a-z0-9]+)*$/.test(value);
+  return (
+    choices.includes(value) ||
+    /^(system|file):\/./.test(value) ||
+    /^[a-z0-9]+(-[a-z0-9]+)*$/.test(value) ||
+    isYouTubeId(value)
+  );
 }
 
 /** A Time of Day time: `H:MM` / `HH:MM`, or a sun event with an optional `±Nm` (≤1440) / `±Nh` (≤24) offset. */
@@ -167,15 +174,15 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
     // A listed painting, Shuffle Paintings, a shuffled folder, or a macOS wallpaper by absolute path (each Mac has its own set).
     if (
       typeof value === "string" &&
-      (choices.includes(value) || value === "daily" || /^(system|file|folder):\//.test(value))
+      (choices.includes(value) || value === "daily" || /^(system|file|folder):\//.test(value) || isYouTubeId(value))
     )
       return null;
-    return "expected none, daily, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>";
+    return "expected none, daily, a listed painting, system:<absolute path>, file:<absolute path>, folder:<absolute path> or youtube:<video id>";
   }
   if (row.validation === "domain:backdrop_picture") {
     return isBackdropPicture(value, choices)
       ? null
-      : "expected desktop, a listed painting, system:<absolute path> or file:<absolute path>";
+      : "expected desktop, a listed painting, system:<absolute path>, file:<absolute path> or youtube:<video id>";
   }
   if (row.validation === "domain:backdrop_schedule") {
     const ok =

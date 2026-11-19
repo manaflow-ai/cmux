@@ -1644,6 +1644,76 @@ mark {
   display: block;
 }
 
+/* Add YouTube Video… (video-wallpapers): the thumbnail of the pasted link in a fixed 16:9 box beside
+   the link, Start, End and Quality, so reading a link or a refusal never changes the form's height. */
+.youtube-add {
+  display: grid;
+  grid-template-columns: var(--page-size-160) minmax(0, 1fr);
+  gap: var(--ds-space-3);
+  align-items: start;
+}
+
+.youtube-add-preview .backdrop-thumb {
+  display: flex;
+  height: auto;
+  aspect-ratio: 16 / 9;
+}
+
+.youtube-add-fields,
+.youtube-add-option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.youtube-add-option {
+  gap: var(--ds-space-1);
+}
+
+.youtube-add-options,
+.youtube-add-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+  align-items: flex-end;
+}
+
+.youtube-add-time {
+  width: var(--page-size-96);
+}
+
+.youtube-add .youtube-add-problem {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Gallery variants: the thumbnail above the fields, or everything on one row. */
+.youtube-add[data-design="stacked"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.youtube-add[data-design="stacked"] .youtube-add-preview {
+  width: var(--page-size-160);
+}
+
+.youtube-add[data-design="inline"] {
+  grid-template-columns: var(--page-size-96) minmax(0, 1fr);
+  align-items: center;
+}
+
+.youtube-add[data-design="inline"] .youtube-add-fields {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.youtube-add[data-design="inline"] .youtube-add-link {
+  flex: 1;
+  min-width: var(--page-size-160);
+}
+
 .backdrop-title {
   overflow: hidden;
   font-size: var(--text-detail);

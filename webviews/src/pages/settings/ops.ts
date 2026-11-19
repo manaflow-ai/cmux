@@ -9,6 +9,7 @@
 // These types are hand-written until the op set is declared with the cmux-pane-protocol
 // schemars macro; then they come from the generated client.
 
+import type { YouTubeWallpaper } from "./youtubeWallpaper";
 import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
@@ -253,6 +254,9 @@ export type HostLists = {
    * its localized title. `video: true` marks a moving wallpaper; a macOS still (`apple`) says
    * whether macOS has downloaded the full picture.
    */
+  /** Whether the picker offers Add YouTube Video… (an Experimental setting may turn it off);
+   * absent: offered. YouTube choices already in use show either way. */
+  youtube_wallpapers?: boolean;
   backdrops?: Array<{
     id: string;
     title: string;
@@ -263,6 +267,9 @@ export type HostLists = {
     downloaded?: boolean;
     /** A macOS dynamic wallpaper (frames by sun position or clock): Switch Automatically's Sun. */
     dynamic?: boolean;
+    /** A YouTube wallpaper (`id` is its canonical `youtube:` id, `video: true`, collection `video`):
+     * its parts, and a remove button like the person's own images (`backdrop.image.remove`). */
+    youtube?: YouTubeWallpaper;
   }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;

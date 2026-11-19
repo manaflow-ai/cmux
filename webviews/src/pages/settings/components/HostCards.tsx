@@ -15,6 +15,8 @@ import { BackdropLink, formatBytes } from "./BackdropLink";
 import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
 import { WallpaperSwitch } from "./WallpaperSwitch";
+import { YouTubeAdd, YouTubeAddTile, youtubeAddOffered } from "./YouTubeAdd";
+import { parseYouTubeId } from "../youtubeWallpaper";
 import {
   DARK_KEY,
   DYNAMIC_KEY,
@@ -35,6 +37,8 @@ const DAILY_ID = "daily";
 const DESKTOP_ID = "desktop";
 /** The person's own images (BackdropUserImages.collection): removable, and shown in Finder. */
 const YOURS = "yours";
+/** Moving wallpapers (the host's `video` collection), where Add YouTube Video… lives. */
+const MOVING = "video";
 /** The rows the picker draws, left out of their group while it shows. */
 /** `appearance.backgroundBlur`: the window's Material, drawn in the card beside Opacity. */
 export const MATERIAL_KEY = "appearance.backgroundBlur";
@@ -96,6 +100,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const { host, rows } = state;
   const [browsing, setBrowsing] = useState(false);
   const [linking, setLinking] = useState(false);
+  const [addingYouTube, setAddingYouTube] = useState(false);
   // What the person's own images take, and their folder (Shuffle Your Images is `folder:` it).
   const [usage, setUsage] = useState<{ bytes: number; folder: string | null } | null>(null);
   // The macOS screen saver's aerial (Use My Screen Saver); null when it is not one.
@@ -186,10 +191,27 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     schedule: (read(SCHEDULE_KEY) as Record<string, string> | null) ?? null,
     dynamic: (read(DYNAMIC_KEY) as string | null) ?? "appearance",
   };
+  // A YouTube video in use that the host does not list (yet): its own tile among the moving wallpapers.
+  const youtubeTitle = t("settingsWindow.backdropPicker.youtubeTitle");
+  const unlistedYouTube: typeof backdrops = [];
+  for (const id of [appCurrent, current, switchValues.light, switchValues.dark]) {
+    const youtube = id === null ? null : parseYouTubeId(id);
+    if (id === null || !youtube) continue;
+    if (backdrops.some((choice) => choice.id === id) || unlistedYouTube.some((tile) => tile.id === id)) continue;
+    unlistedYouTube.push({
+      id,
+      title: youtubeTitle,
+      attribution: youtubeTitle,
+      collection: MOVING,
+      video: true,
+      youtube,
+    });
+  }
   // A slot holds one picture that stays: the shuffles and macOS wallpapers still downloading are not one.
   const pictures = [
     { id: "none", title: t("settingsWindow.backdropPicker.none") },
     ...backdrops.filter((choice) => choice.downloaded !== false),
+    ...unlistedYouTube,
   ];
   const rotating = !own && modeOf(switchValues, backdrops) === "rotate";
   const rotationRow = rotation && <SettingRow row={rotation} focused={focus === ROTATION_KEY} inactive={!shuffles} />;
@@ -289,6 +311,16 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     if (last && last.key === key) last.choices.push(choice);
     else groups.push({ key, title: choice.collection_title ?? null, choices: [choice] });
   }
+  // Add YouTube Video… lives in Moving wallpapers, drawn even before the host lists a moving one.
+  // Its one gate: the host may turn it off (an Experimental setting); videos in use still show.
+  const youtubeAdd = youtubeAddOffered(host);
+  let moving = groups.find((group) => group.key === MOVING);
+  if (!moving && (youtubeAdd || unlistedYouTube.length > 0)) {
+    moving = { key: MOVING, title: t("settingsWindow.backdropPicker.movingWallpapers"), choices: [] };
+    const apple = groups.findIndex((group) => group.key === "apple");
+    groups.splice(apple === -1 ? groups.length : apple, 0, moving);
+  }
+  moving?.choices.push(...unlistedYouTube);
   return (
     <section className="group" data-card="backdrop">
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
@@ -448,7 +480,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
             {group.choices.map((choice) =>
               choice.collection === "apple" ? (
                 tile(choice.id, choice.title, null, { pending: choice.downloaded === false })
-              ) : choice.collection === YOURS ? (
+              ) : choice.collection === YOURS || choice.youtube ? (
                 <div className="backdrop-own" key={choice.id}>
                   {tile(choice.id, choice.title, choice.attribution, {
                     video: choice.video,
@@ -481,7 +513,14 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                 })
               ),
             )}
+            {group.key === MOVING && youtubeAdd && (
+              <YouTubeAddTile open={addingYouTube} onToggle={() => setAddingYouTube((open) => !open)} />
+            )}
           </div>
+          {/* Under the group's tiles, so opening it never moves them. */}
+          {group.key === MOVING && youtubeAdd && addingYouTube && (
+            <YouTubeAdd onChoose={choose} onClose={() => setAddingYouTube(false)} />
+          )}
         </div>
       ))}
     </section>

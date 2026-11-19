@@ -214,6 +214,54 @@ const rowShapeEnvironments: CloudEnvironmentsState = {
     },
   ],
 };
+// YouTube wallpapers: a sample video id and public-safe stand-ins for its thumbnail (no real video).
+const SAMPLE_VIDEO = "aaaaaaaaaaa";
+const SAMPLE_NIGHT_SVG =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#253445"/><circle cx="235" cy="45" r="20" fill="#dfcf91"/><path d="M0 140L80 70L190 150L260 100L320 135V180H0Z" fill="#456253"/></svg>',
+  );
+const SAMPLE_RAIN_SVG =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270"><rect width="480" height="270" fill="#1d2433"/><rect y="150" width="480" height="120" fill="#2b3550"/><g fill="#f2c46d"><rect x="40" y="110" width="50" height="160"/><rect x="120" y="80" width="70" height="190"/><rect x="230" y="125" width="60" height="145"/><rect x="330" y="95" width="80" height="175"/></g><g stroke="#9fb3d9" stroke-width="2" opacity="0.5"><path d="M30 10l-12 40M110 30l-12 40M200 0l-12 40M290 20l-12 40M380 5l-12 40M450 35l-12 40"/></g></svg>',
+  );
+const SAMPLE_WAVES_SVG =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#3c6e8f"/><path d="M0 110q40-25 80 0t80 0t80 0t80 0V180H0Z" fill="#9cc7d9"/><path d="M0 135q40-20 80 0t80 0t80 0t80 0V180H0Z" fill="#e8f1f5"/></svg>',
+  );
+const youtubeImages: Record<string, string> = {
+  starryNight: SAMPLE_NIGHT_SVG,
+  [`youtube:${SAMPLE_VIDEO}`]: SAMPLE_RAIN_SVG,
+  [`youtube:${SAMPLE_VIDEO}?start=90&end=240`]: SAMPLE_RAIN_SVG,
+  "file:/backgrounds/Waves.mov": SAMPLE_WAVES_SVG,
+};
+/** The picker with a still, one of the person's own movies, and with `chosen` a YouTube video it lists. */
+const youtubeBackdrops = (chosen: boolean): NonNullable<HostLists["backdrops"]> => [
+  { id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" },
+  {
+    id: "file:/backgrounds/Waves.mov",
+    title: "Waves",
+    attribution: "Gallery sample movie",
+    collection: "video",
+    collection_title: "Moving wallpapers",
+    video: true,
+  },
+  ...(chosen
+    ? [
+        {
+          id: `youtube:${SAMPLE_VIDEO}?start=90&end=240`,
+          title: "Rain on the city",
+          attribution: "YouTube · 1:30–4:00",
+          collection: "video",
+          collection_title: "Moving wallpapers",
+          video: true,
+          youtube: { video: SAMPLE_VIDEO, start: 90, end: 240, quality: 1080 },
+        },
+      ]
+    : []),
+];
 const click = (selector: string): PageFixtureStep => ({ selector, action: "click" });
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
@@ -699,6 +747,36 @@ Object.assign(variants, {
       input('[data-card="backdrop-link"] input[type="url"]', "https://example.com/harbor.jpg"),
     ],
     note: "Add from a Link: an https image or movie downloads into the backgrounds folder and becomes the background.",
+  }),
+  // YouTube wallpapers (Leo: "yeah add youtube backgrounds too"): Add YouTube Video… in Moving
+  // wallpapers, a link with its t= read as Start, an End typed, the thumbnail beside the fields.
+  "backdrops-youtube-add": variant("personalization", {
+    focus: "personalization.background",
+    options: { values: { "appearance.background": "starryNight" } },
+    host: { ...host, backdrops: youtubeBackdrops(false) },
+    backdropImages: youtubeImages,
+    steps: [
+      wait('[data-card="backdrop"]'),
+      click('[data-card="backdrop"] [data-youtube-add]'),
+      input('[data-card="youtube-add"] input[type="url"]', `https://www.youtube.com/watch?v=${SAMPLE_VIDEO}&t=1m30s`),
+      input('[data-card="youtube-add"] [data-youtube-field="end"]', "4:00"),
+      wait('[data-card="youtube-add"] .youtube-add-preview img'),
+    ],
+    note: "Add YouTube Video…: the pasted link's thumbnail, Start from its t=, an End and Quality; Use as Wallpaper writes one youtube: id.",
+  }),
+  // A YouTube wallpaper in use: its tile in Moving wallpapers, chosen, with the Remove corner; Opacity and Material stay.
+  "backdrops-youtube-chosen": variant("personalization", {
+    focus: "personalization.background",
+    options: {
+      values: {
+        "appearance.background": `youtube:${SAMPLE_VIDEO}?start=90&end=240`,
+        "appearance.backgroundOpacity": 0.6,
+      },
+    },
+    host: { ...host, backdrops: youtubeBackdrops(true) },
+    backdropImages: youtubeImages,
+    steps: [wait('[data-card="backdrop"] [data-collection="video"] .backdrop-tile[aria-pressed="true"]')],
+    note: "A YouTube video as the wallpaper: chosen in Moving wallpapers beside the Add tile; Opacity and Material still tint and blur it.",
   }),
   // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
   // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
@@ -1872,6 +1950,7 @@ export default settingsPageEntry({
     "pages/settings/components/ArtBrowser.tsx",
     "pages/settings/components/BackdropLink.tsx",
     "pages/settings/components/BackdropScope.tsx",
+    "pages/settings/components/YouTubeAdd.tsx",
     "pages/settings/components/ChiefPetCard.tsx",
     "pages/settings/components/ChannelsCard.tsx",
     "pages/settings/components/ImportSuggestionsCard.tsx",
