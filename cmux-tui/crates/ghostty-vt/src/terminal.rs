@@ -1589,6 +1589,8 @@ impl Terminal {
                     size: size_of::<sys::GhosttyGridRef>(),
                     ..Default::default()
                 };
+                #[cfg(test)]
+                HISTORY_GRID_LOOKUPS.with(|lookups| lookups.set(lookups.get() + 1));
                 check(unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut grid_ref) })?;
                 row.push(read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf)?);
             }
@@ -3296,7 +3298,13 @@ thread_local! {
     static REPLAY_TEXT_LAYOUTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// Tests: lay the text out twice, as before the reuse.
     static FORCE_TWO_PASS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: history grid lookups `styled_history_rows` made.
+    static HISTORY_GRID_LOOKUPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
+
+#[cfg(test)]
+#[path = "styled_history_tests.rs"]
+mod styled_history_tests;
 
 #[cfg(test)]
 #[path = "replay_layout_tests.rs"]
