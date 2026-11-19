@@ -27,8 +27,10 @@ extension SettingsController {
             let overlay = name == themeFile?.name ? themeFile
                 : ThemeFileOverlay(name: name, source: themeFileSources[name].map { .success($0) }, base: root,
                                    folder: ThemeFileSetting.folder(configDirectory: file.url.deletingLastPathComponent()))
+            // Another file previews as choosing it applies: whole, with no exceptions (#44894).
+            let kept = name == themeFile?.name ? ThemeFileExceptionsSetting.keys(in: root) : []
             if let overlay {
-                root = edit(overlay.applied(to: root, managed: Set(managedKeys.keys)))
+                root = edit(overlay.applied(to: root, managed: Set(managedKeys.keys).union(kept)))
                 // A previewed density row shows over the file's own density, as any previewed key over the file.
                 let densityRows = [DensitySetting.configPath, CustomDensitySelectionSetting.configPath]
                 themeDensity = densityRows.contains(descriptor.path) ? nil : overlay.density(under: Set(managedKeys.keys))
