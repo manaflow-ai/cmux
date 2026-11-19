@@ -22,6 +22,7 @@ const KEYS = [
   "HTMLElement",
   "Element",
   "localStorage",
+  "getComputedStyle",
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
@@ -36,6 +37,7 @@ beforeEach(() => {
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
     localStorage: dom.window.localStorage,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   container = dom.window.document.getElementById("root") as HTMLElement;
