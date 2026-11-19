@@ -76,7 +76,7 @@
   height: 1px;
   margin: 5px var(--ui-row-padding-inline);
   border: 0;
-  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  background: var(--ds-surface-inset);
 }
 /* The opt-in slider (Debug Settings agent.reasoningSlider): wide enough for Faster, Smarter and the
    recommended line; the title row names the level the thumb sits on. */
