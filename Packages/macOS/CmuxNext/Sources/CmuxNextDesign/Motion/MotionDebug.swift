@@ -47,6 +47,7 @@ public struct MotionDebug {
         case "start":
             MotionTrace.start()
             commitProbe?.start()
+            commitProbe?.turns.start()
         case "speed":
             if let value = params["value"] as? String, let speed = MotionSpeed(rawValue: value) {
                 DesignSettings.shared.animationSpeed = speed
@@ -57,25 +58,46 @@ public struct MotionDebug {
             if let name = params["name"] as? String, let on = params["value"] as? Bool {
                 if name == "paneAnimations" {
                     DesignSettings.shared.paneAnimations = on
+                } else if name == "probe.hideFirst" {
+                    for view in hideOrderSwitches(in: windows) { view.hidesBeforeMovesGo = on } // a measure branch's switch
                 } else if let kind = MotionKind(rawValue: name) {
                     if on { DesignSettings.shared.enabledAnimations.insert(kind) } else { DesignSettings.shared.enabledAnimations.remove(kind) }
                 }
             }
         case "stop":
-            let report = self.report
+            let last = Self.report(windows: windows, turns: commitProbe?.turns)
             commitProbe?.stop()
+            commitProbe?.turns.stop()
             MotionTrace.stop()
-            return report
+            return last
         default:
             break
         }
-        return report
+        return Self.report(windows: windows, turns: commitProbe?.turns)
     }
 
-    private static var report: [String: Any] {
+    /// Each view in `windows` that reaches a pane motion with the measure branch's switch (a pane's host).
+    private static func hideOrderSwitches(in windows: [NSWindow]) -> [any MotionHideOrderSwitching] {
+        var found: [any MotionHideOrderSwitching] = []
+        var left: [NSView] = windows.compactMap { $0.contentView }
+        while let view = left.popLast() {
+            if let one = view as? any MotionHideOrderSwitching { found.append(one) }
+            left.append(contentsOf: view.subviews)
+        }
+        return found
+    }
+
+    private static func report(windows: [NSWindow], turns: MotionTurnProbe?) -> [String: Any] {
         let policy = Motion.basePolicy
+        let switches = hideOrderSwitches(in: windows)
         return [
             "recording": MotionTrace.isEnabled,
+            // A measure branch's fields: the record's start on the uptime clock (a frame's and a stall's clock), so a
+            // reader puts a span, a note and a late frame on one line of time; the turn probe's own counts; the switch
+            // (on in a screen that the windows show).
+            "started_s": MotionTrace.startedAt,
+            "turn_probe": ["callbacks": turns?.callbacks ?? 0, "turns": turns?.turns ?? 0, "noted": turns?.noted ?? 0] as [String: Any],
+            "probe_hide_first": switches.contains(where: { $0.hidesBeforeMovesGo }),
             "speed": policy.speed.rawValue,
             "reduce_motion": policy.reduceMotion,
             "enabled_kinds": policy.enabledKinds.map(\.rawValue).sorted(),
@@ -108,4 +130,12 @@ public struct MotionDebug {
             },
         ]
     }
+}
+
+/// A measure branch's switch (`debug.motion` kind `probe.hideFirst`, off at launch): a view whose pane motion hides the
+/// panes that its change took out BEFORE it takes the moves off the layers, so a bench can time the same hide in the
+/// two orders. The product's order is the other one. The pane motion owns the state; `debug.motion` sets it through
+/// each view of the windows that reaches one.
+@MainActor public protocol MotionHideOrderSwitching: AnyObject {
+    var hidesBeforeMovesGo: Bool { get set }
 }

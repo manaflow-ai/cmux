@@ -31,7 +31,9 @@ def definitions(path, names):
 
 BENCH = definitions(ROOT / "pane-perf-terminal.py", {"moving_frames", "not_applicable", "activate", "commit_frames",
                                                     "late_frames", "motion_arms", "commit_notes", "commit_placements",
-                                                    "layout_spans", "placed_at", "part_times", "probe_notes"})
+                                                    "layout_spans", "placed_at", "part_times", "probe_notes",
+                                                    "record_offset", "turn_notes", "stalls_in", "turn_text", "stall_text",
+                                                    "arm_tag"})
 ZOOM = definitions(ROOT / "pane-zoom-terminal.py", {"sample_frames"})
 
 
@@ -171,6 +173,52 @@ class PartTimesAndProbeNotes(unittest.TestCase):
         self.assertEqual(self.probe_notes(None, self.placed), [])
 
 
+class TurnsAndStallsOnTheActionsClock(unittest.TestCase):
+    def setUp(self):
+        self.bench = loaded()
+
+    def test_a_record_start_is_in_ms_after_the_send(self):
+        offset = self.bench["record_offset"]
+        self.assertEqual(offset({"started_s": 99.98}, 100.0), -20.0)
+        self.assertIsNone(offset({}, 100.0))  # a build without the field
+        self.assertIsNone(offset({"started_s": 99.98}, None))
+        self.assertIsNone(offset({"started_s": 5.0}, 100.0))  # another clock
+        self.assertIsNone(offset(None, 100.0))
+
+    def test_a_long_turn_has_its_parts_and_its_start_after_the_action(self):
+        notes = [{"t_ms": 130.0, "text": "turn: total=11.5 wake=0.1 passes=0.3 events=0.0 before_commit=10.5 commit=0.2 "
+                                         "after_commit=0.4 pass_count=2 view_layouts=31 window_layouts=1 before_commit_view_layouts=30"},
+                 {"t_ms": 3.0, "text": "layout.hide: 1 hosts"}, {"text": "turn: total=5.0 odd"}, None]
+        turns = self.bench["turn_notes"](notes, -20.0)
+        self.assertEqual(len(turns), 2)
+        self.assertEqual((turns[0]["total"], turns[0]["before_commit"], turns[0]["pass_count"], turns[0]["view_layouts"]), (11.5, 10.5, 2, 31))
+        self.assertEqual((turns[0]["start_after_action_ms"], turns[0]["end_after_action_ms"]), (98.5, 110.0))
+        # A note with no time has no place, and a word that is not name=number is left out.
+        self.assertEqual(turns[1], {"total": 5.0, "start_after_action_ms": None, "end_after_action_ms": None})
+        self.assertEqual(self.bench["turn_notes"](notes, None)[0]["start_after_action_ms"], None)
+        self.assertEqual(self.bench["turn_notes"](None, -20.0), [])
+        text = self.bench["turn_text"](turns[0])
+        self.assertIn("11.5 ms from 98.5 ms after the action = wake 0.1 + passes 0.3 + events 0.0 + before commit 10.5", text)
+        self.assertIn("2 passes, 31 view layouts (30 before the commit) in 1 window passes", text)
+
+    def test_a_stall_has_its_start_after_the_action_and_what_the_run_loop_called(self):
+        hangs = {"records": [
+            {"duration_ms": 11.26, "cpu_ms": 10.94, "start_uptime_ns": 100_098_000_000.0, "verdict": "ours",
+             "frames": ["AppKit -[NSView setHidden:]", "CoreFoundation __CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__",
+                        "CoreFoundation __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__"]},
+            {"duration_ms": 5.0}, {"cpu_ms": 1.0}, None]}
+        stalls = self.bench["stalls_in"](hangs, 100.0, keep=2)
+        self.assertEqual(stalls[0], {"ms": 11.3, "cpu_ms": 10.9, "after_action_ms": 98.0, "verdict": "ours", "called": "observer",
+                                     "frames": hangs["records"][0]["frames"][:2]})
+        self.assertEqual(stalls[1], {"ms": 5.0, "cpu_ms": None, "after_action_ms": None, "verdict": None, "called": None, "frames": []})
+        self.assertEqual(len(stalls), 2)  # a record with no duration is left out
+        self.assertEqual(self.bench["stalls_in"]({"count": 0}, 100.0), [])
+        self.assertEqual(self.bench["stalls_in"](None, 100.0), [])
+        self.assertIn("11.3 ms (cpu 10.9) from 98.0 ms after the action, ours, the run loop called: observer: AppKit -[NSView setHidden:] < ",
+                      self.bench["stall_text"](stalls[0]))
+        self.assertIn("no stack sample", self.bench["stall_text"](stalls[1]))
+
+
 class ZoomSampleFrames(unittest.TestCase):
     def setUp(self):
         namespace = {}
@@ -256,6 +304,12 @@ class MotionArms(unittest.TestCase):
         self.assertEqual(self.motion_arms("on,off"), ["on", "off"])
         self.assertEqual(self.motion_arms("off, on"), ["off", "on"])
         self.assertEqual(self.motion_arms("off"), ["off"])
+        self.assertEqual(self.motion_arms("on,off,hide-first"), ["on", "off", "hide-first"])
+
+    def test_an_arm_names_its_rows(self):
+        tag = loaded()["arm_tag"]
+        self.assertEqual([tag("6x5", arm) for arm in (None, "on", "off", "hide-first")],
+                         ["6x5", "6x5", "6x5-motion-off", "6x5-motion-hide-first"])
 
     def test_no_option_is_no_arm(self):
         # The app's own setting, one pass: the rows of a run without the option keep their names.

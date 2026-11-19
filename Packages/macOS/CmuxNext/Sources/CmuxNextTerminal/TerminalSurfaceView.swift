@@ -283,14 +283,14 @@ public final class TerminalSurfaceView: NSView {
     }
 
     public override func viewDidHide() {
-        super.viewDidHide()
+        super.viewDidHide(); MotionTrace.begin("layout.hide.terminal.ahead") // a measure branch's 3 probe parts
         isShown = false
         cancelGridReport()
-        dropAheadForHide()
+        dropAheadForHide(); MotionTrace.end("layout.hide.terminal.ahead"); MotionTrace.begin("layout.hide.terminal.watch")
         // A hidden terminal gets no mouseExited: its link hover and modifier watcher end here.
         linkPointer.exited()
-        observeWindow(false)
-        updateOcclusion()
+        observeWindow(false); MotionTrace.end("layout.hide.terminal.watch"); MotionTrace.begin("layout.hide.terminal.occlusion")
+        updateOcclusion(); MotionTrace.end("layout.hide.terminal.occlusion")
     }
 
     public override func viewDidUnhide() {

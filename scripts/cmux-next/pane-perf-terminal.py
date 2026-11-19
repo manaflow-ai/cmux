@@ -99,7 +99,11 @@ parser.add_argument("--gate", action="store_true", help="fail on the budget rows
 parser.add_argument("--missed-budget", type=int, default=0)
 parser.add_argument("--pane-motion", default=None,
                     help="on, off or on,off: each round runs its actions one time for each arm, in the same app and layout "
-                         "(`debug.motion` kind paneAnimations); the off arm's rows are named <layout>-motion-off")
+                         "(`debug.motion` kind paneAnimations); the off arm's rows are named <layout>-motion-off. "
+                         "hide-first is a third arm on a measure branch's build (motion_arms)")
+parser.add_argument("--stall-ms", type=int, default=None,
+                    help="start the app with its main-thread watchdog at this threshold (CMUX_NEXT_HANG_THRESHOLD_MS, 4 "
+                         "at the least): each row then lists the stalls of its action with the stack sampled in each")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -539,6 +543,82 @@ def probe_notes(notes, placements):
     return found
 
 
+def record_offset(motion, action_s):
+    """The start of a `debug.motion` record in ms after the action was sent (below 0: the record started before the
+    send, as the bench's does): the reply's `started_s` and `action_s` are both the uptime clock, so `t_ms` and
+    `at_ms` of the record plus this are on the clock of a late frame's `after_action_ms`. None on a build without the
+    field, and for a start that is not in the 10 s around the send (another clock)."""
+    started = motion.get("started_s") if isinstance(motion, dict) else None
+    if not (isinstance(started, (int, float)) and isinstance(action_s, (int, float))):
+        return None
+    offset = (started - action_s) * 1000
+    return round(offset, 1) if -10000 <= offset <= 10000 else None
+
+
+def turn_notes(notes, offset):
+    """The turn probe's notes (`turn: total=11.5 wake=0.1 ...`, one for each long turn of the main run loop, written at
+    the turn's end), each as a dict of its numbers, with `start_after_action_ms` and `end_after_action_ms` (`offset`
+    is `record_offset`; None without it or without the note's time). A word that is not `name=number` is left out."""
+    turns = []
+    for note in notes if isinstance(notes, list) else []:
+        if not (isinstance(note, dict) and isinstance(note.get("text"), str) and note["text"].startswith("turn: ")):
+            continue
+        turn = {}
+        for word in note["text"][len("turn: "):].split():
+            key, _, value = word.partition("=")
+            try:
+                turn[key] = int(value) if value.lstrip("-").isdigit() else float(value)
+            except ValueError:
+                continue
+        end, total = note.get("t_ms"), turn.get("total")
+        timed = offset is not None and isinstance(end, (int, float)) and isinstance(total, (int, float))
+        turn["start_after_action_ms"] = round(end + offset - total, 1) if timed else None
+        turn["end_after_action_ms"] = round(end + offset, 1) if timed else None
+        turns.append(turn)
+    return turns
+
+
+def stalls_in(hangs, action_s, keep=10):
+    """The main thread's stalls of a `debug.hangs` reply (the watchdog's records; with `--stall-ms` the app runs with
+    its threshold there): each with `ms`, `cpu_ms`, `after_action_ms` (its start: the record's `start_uptime_ns` and
+    `action_s` are both the uptime clock; None without one of them), the watchdog's `verdict`, `called` (what the
+    run loop called, from the innermost run loop frame of the stack: main queue, timer, observer, source0, source1 or
+    block; None with no such frame) and `frames` (the first `keep` frames of the ONE stack that the watchdog sampled
+    in the stall, the leaf first; empty with no sample). A record with no duration is left out."""
+    # What the run loop called, by a part of the name of its frame in a sampled stack.
+    calls = (("SERVICING_THE_MAIN_DISPATCH_QUEUE", "main queue"), ("TIMER_CALLBACK", "timer"), ("OBSERVER_CALLBACK", "observer"),
+             ("SOURCE0_PERFORM", "source0"), ("SOURCE1_PERFORM", "source1"), ("CALLING_OUT_TO_A_BLOCK", "block"))
+    found = []
+    for record in (hangs.get("records") if isinstance(hangs, dict) else None) or []:
+        if not (isinstance(record, dict) and isinstance(record.get("duration_ms"), (int, float))):
+            continue
+        frames = [str(frame) for frame in record.get("frames") or []]
+        start, cpu = record.get("start_uptime_ns"), record.get("cpu_ms")
+        timed = isinstance(start, (int, float)) and isinstance(action_s, (int, float))
+        found.append({"ms": round(record["duration_ms"], 1), "cpu_ms": round(cpu, 1) if isinstance(cpu, (int, float)) else None,
+                      "after_action_ms": round(start / 1e6 - action_s * 1000, 1) if timed else None,
+                      "verdict": record.get("verdict"),
+                      "called": next((name for frame in frames for mark, name in calls if mark in frame), None),
+                      "frames": frames[:keep]})
+    return found
+
+
+def turn_text(turn):
+    """One long turn of `turn_notes` as a row's text: its length, its start, its parts and its layout counts."""
+    parts = " + ".join(f"{name.replace('_', ' ')} {turn.get(name)}" for name in ("wake", "passes", "events", "before_commit", "commit", "after_commit"))
+    return (f"{turn.get('total')} ms from {turn.get('start_after_action_ms')} ms after the action = {parts}; "
+            f"{turn.get('pass_count')} passes, {turn.get('view_layouts')} view layouts ({turn.get('before_commit_view_layouts')} before "
+            f"the commit) in {turn.get('window_layouts')} window passes")
+
+
+def stall_text(stall, frames=6, width=90):
+    """One stall of `stalls_in` as a row's text: its length, its CPU time, its start, the verdict, what the run loop
+    called, and the first `frames` frames of its stack (each cut to `width` characters)."""
+    stack = " < ".join(frame[:width] for frame in stall["frames"][:frames]) or "no stack sample"
+    return (f"{stall['ms']} ms (cpu {stall['cpu_ms']}) from {stall['after_action_ms']} ms after the action, {stall['verdict']}, "
+            f"the run loop called: {stall['called']}: {stack}")
+
+
 def late_frames(frames, action_s=None):
     """Where the long intervals of a `debug.frames` reply are (stopped with `raw`). The probe's `missed` counts each
     interval above 1.5 refreshes one time, however long it is. `missed_refreshes` is the refreshes that those
@@ -579,16 +659,30 @@ def motion_arms(value):
     if value is None:
         return []
     arms = [arm.strip() for arm in value.split(",")]
-    if not all(arm in ("on", "off") for arm in arms) or len(set(arms)) != len(arms):
-        raise ValueError(f"--pane-motion takes on, off or on,off, not {value!r}")
+    # `hide-first` is the arm of a measure branch's switch: the motion is on, and its end hides the panes that the
+    # change took out before it takes the moves off the layers (`debug.motion` kind probe.hideFirst).
+    if not all(arm in ("on", "off", "hide-first") for arm in arms) or len(set(arms)) != len(arms):
+        raise ValueError(f"--pane-motion takes on, off, hide-first or a list of them, not {value!r}")
     return arms
 
 
-def set_pane_motion(on):
-    """Sets `ui.paneAnimations` in the running app (`debug.motion` kind); returns an error string or None."""
+def arm_tag(label, arm):
+    """The name of an arm's rows in a layout named `label`: the on arm (and no arm) keeps the layout's name."""
+    return label if arm in (None, "on") else f"{label}-motion-{arm}"
+
+
+def set_pane_motion(on, hide_first=False):
+    """Sets `ui.paneAnimations` in the running app (`debug.motion` kind), and the measure branch's switch
+    `probe.hideFirst` when the app has it (or when `hide_first` asks for it); returns an error string or None."""
     reply = rpc("debug.motion", {"action": "kind", "name": "paneAnimations", "value": on})
     seen = reply.get("pane_animations") if isinstance(reply, dict) else None
-    return None if seen is on else f"pane_animations is {seen!r} after the call, not {on!r}"
+    if seen is not on:
+        return f"pane_animations is {seen!r} after the call, not {on!r}"
+    if not hide_first and "probe_hide_first" not in reply:
+        return None  # a build without the switch
+    reply = rpc("debug.motion", {"action": "kind", "name": "probe.hideFirst", "value": hide_first})
+    seen = reply.get("probe_hide_first") if isinstance(reply, dict) else None
+    return None if seen is hide_first else f"probe_hide_first is {seen!r} after the call, not {hide_first!r}"
 
 
 def not_applicable(step, columns):
@@ -667,6 +761,7 @@ def measure(label, name):
     moving = moving_frames(motion.get("samples")) if isinstance(motion, dict) else 0
     committed = commit_frames(motion.get("samples")) if isinstance(motion, dict) else 0
     late = late_frames(frames, action_s)
+    offset = record_offset(motion, action_s)
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
     result = {
         "label": label, "action": name, "error": error,
@@ -678,6 +773,12 @@ def measure(label, name):
         "layout_spans": layout_spans(motion.get("spans")) if isinstance(motion, dict) else {},
         "probe_notes": probe_notes(motion.get("notes"), commit_placements(motion.get("samples"), motion.get("notes")))
         if isinstance(motion, dict) else [],
+        # A measure branch's fields (a build without them gives None, [] and no row text): the record's start on the
+        # action's clock, the turn probe's long turns and its own counts, and the watchdog's stalls (--stall-ms).
+        "record_start_after_action_ms": offset,
+        "turns": turn_notes(motion.get("notes"), offset) if isinstance(motion, dict) else [],
+        "turn_probe": motion.get("turn_probe") if isinstance(motion, dict) else None,
+        "stalls": stalls_in(hangs, action_s),
         "background_cpu": background_cpu,
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
         "commit_p50_ms": (commit or {}).get("p50_ms"), "commit_p95_ms": (commit or {}).get("p95_ms"),
@@ -767,6 +868,13 @@ def measure(label, name):
                           for part, facts in sorted(result["layout_spans"].items()))
         extra += (f"  commit note after its tick's start [{placed}]  parts [{parts}]"
                   f"  probe notes {result['probe_notes']}")
+        start = placed_at(result["commit_placements"])
+        if start is not None and offset is not None:
+            extra += f"  placed {round(start + offset, 1)} ms after the action"
+    if result["turns"] or result["turn_probe"]:
+        extra += f"  long turns [{', '.join(turn_text(turn) for turn in result['turns'][:8])}]  turn probe {result['turn_probe']}"
+    if opts.stall_ms:
+        extra += f"  stalls [{', '.join(stall_text(stall) for stall in result['stalls'][:8])}]"
     print(f"  {label:<22} moved {moving:>3} commit {committed:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"long intervals = {late['missed_refreshes']} refreshes [{where}] (refresh {result['refresh_ms']})  "
@@ -931,7 +1039,9 @@ def main():
     # no-gui-session, the state-folder socket, and a BENCH-LAUNCH report (crash, sample, log tail) on failure.
     # The app activates and its window becomes key (no CMUX_NEXT_NO_ACTIVATE), as for a person; without
     # no-activate the app reads no test window placement, so the window is placed through the socket below.
-    BENCH = BenchApp(APP, out=opts.out, config=CONFIG, env={"CMUX_NEXT_NO_ACTIVATE": None}, window=None, screen=None,
+    # --stall-ms: the app's main-thread watchdog records, and samples a stack in, each stall from that many ms.
+    stall_env = {"CMUX_NEXT_HANG_THRESHOLD_MS": str(opts.stall_ms)} if opts.stall_ms else {}
+    BENCH = BenchApp(APP, out=opts.out, config=CONFIG, env={"CMUX_NEXT_NO_ACTIVATE": None, **stall_env}, window=None, screen=None,
                      log_name=f"app-{TAG}.log")
     try:
         BENCH.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
@@ -980,7 +1090,7 @@ def main():
             state.update(dock_overlap_pt=STRESS.get("dock_overlap_pt"), chat_fallbacks=STRESS.get("chat_fallbacks"))
         label = name if state["window_key"] else f"{name}-inactive"
         # One pass for each arm in each round (--pane-motion): the off arm's rows are named <label>-motion-off.
-        tags = {arm: label if arm != "off" else f"{label}-motion-off" for arm in arms or [None]}
+        tags = {arm: arm_tag(label, arm) for arm in arms or [None]}
         for tag in tags.values():
             conditions["layouts"][tag] = state
         print(f"  {name}: window key {state['window_key']}, frontmost {state['frontmost']} (rows named {', '.join(tags.values())})", flush=True)
@@ -988,7 +1098,7 @@ def main():
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index, arm in [(index, arm) for index in range(opts.rounds) for arm in tags]:
             label = tags[arm]
-            problem = set_pane_motion(arm == "on") if arm else None
+            problem = set_pane_motion(arm != "off", hide_first=arm == "hide-first") if arm else None
             if problem:
                 row(f"{label} #{index}: the pane motion is {arm}", "the app took the setting", problem, False)
                 UNMEASURED.append(f"{label} #{index}: {problem}")

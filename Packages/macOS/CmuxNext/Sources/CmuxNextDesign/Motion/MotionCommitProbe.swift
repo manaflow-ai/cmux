@@ -34,6 +34,9 @@ public final class MotionCommitProbe {
     /// A pass shorter than this committed nothing worth counting.
     static let floorMilliseconds = 0.05
 
+    /// A measure branch's probe of the main run loop's turns: this probe's owner owns it with it, and `debug.motion`
+    /// starts and stops the two together.
+    public let turns = MotionTurnProbe()
     private var observers: [CFRunLoopObserver] = []
     private var commitStart: CFTimeInterval?
     private let record: (Double) -> Void

@@ -92,6 +92,8 @@ final class PaneCommitMotion {
     private var remaining: TimeInterval = 0
     /// The frame ticks that a motion whose time is spent stayed for the pass of a change that waits (``step(_:)``).
     private var overtime = 0
+    /// A measure branch's switch (`debug.motion` kind `probe.hideFirst`): ``finish()`` hides what a change took out first.
+    var hidesFirst = false
     /// One number for each act, in the keys of its animations.
     var serial = 0
     /// Each animation in flight.
@@ -342,6 +344,12 @@ final class PaneCommitMotion {
         let held = Array(holds.values)
         holds = [:]
         for hold in held { endHold(hold.holder, of: hold.host) }
+        // A measure branch's switch (`hidesFirst`, off in the product): the hide comes before the moves go.
+        if hidesFirst, !passBegan, let first = departs {
+            departs = nil
+            MotionTrace.note("layout.hide.order: the hide is before the moves go off the layers (\(moved.count) animations on)")
+            first()
+        }
         if !moved.isEmpty || !grounds.isEmpty || !under.isEmpty || lastFrame != nil || raised != nil {
             CATransaction.begin()
             CATransaction.setDisableActions(true)

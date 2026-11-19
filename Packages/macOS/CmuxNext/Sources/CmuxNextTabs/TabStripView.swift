@@ -461,10 +461,10 @@ public final class TabStripView: NSView {
     }
 
     public override func viewDidHide() {
-        super.viewDidHide()
+        super.viewDidHide(); MotionTrace.begin("layout.hide.tabs") // a measure branch's probe part
         syncShown(false)
         // The flush corner's tab row draws only while no shown pane hides its strip (vertical tabs hide it).
-        if isPaneTabRow, CornerFlush.current.isOn { CornerFlushChrome.stripDidChange(self) }
+        if isPaneTabRow, CornerFlush.current.isOn { CornerFlushChrome.stripDidChange(self) }; MotionTrace.end("layout.hide.tabs")
     }
 
     public override func viewDidUnhide() {
