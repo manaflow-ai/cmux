@@ -108,6 +108,27 @@ import CmuxNextWakeupsTestSupport
         #expect(h.video.url == nil && h.video.isHidden && h.video.playerLayer.player == nil, "a still wallpaper keeps the video")
     }
 
+    /// cmux#47019: a window moved off every display (-20000,-20000) stayed `.visible` to AppKit and
+    /// its video decoded at full cost. Its frame decides now, checked again every few seconds.
+    @Test func aVideoInAWindowMovedOffEveryDisplayHoldsAndResumesWhenItComesBack() async throws {
+        let clip = try await Self.clip()
+        let h = make(.file(path: clip.path), players: BackdropVideoPlayers())
+        defer { h.close() }
+        h.video.screenFramesOverride = [CGRect(x: 0, y: 0, width: 1440, height: 900), CGRect(x: 1440, y: 0, width: 1920, height: 1080)]
+        #expect(h.video.isPlaying && h.video.canBeSeen)
+        h.window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
+        // AppKit posts no occlusion change for the move; the display check (every 3 s) sees it.
+        h.video.checkDisplays()
+        #expect(!h.video.isPlaying && !h.video.canBeSeen, "a window off every display still plays its video")
+        // Partly on the second display: seen again.
+        h.window.setFrameOrigin(NSPoint(x: 3200, y: 500))
+        h.video.checkDisplays()
+        #expect(h.video.isPlaying, "the video does not resume when its window comes back on a display")
+        // Touching a display only along an edge is off it.
+        #expect(!NSWindow.overlapsScreen(CGRect(x: 1440, y: 0, width: 100, height: 100), screens: [CGRect(x: 0, y: 0, width: 1440, height: 900)]))
+        #expect(NSWindow.overlapsScreen(CGRect(x: -20000, y: -20000, width: 10, height: 10), screens: []), "no display known is not off screen")
+    }
+
     @Test func windowsShowingOneVideoShareOneDecoderAndAClosedWindowLetsItGo() async throws {
         let clip = try await Self.clip()
         let players = BackdropVideoPlayers()

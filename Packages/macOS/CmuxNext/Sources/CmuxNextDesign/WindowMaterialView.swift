@@ -346,6 +346,8 @@ public final class WindowMaterialView: NSView {
         let youtube = hidesArt ? nil : shown?.youtube
         showsYouTube = youtube != nil
         youtubeView?.show(youtube)
+        // The living and YouTube wallpapers move on the video view's terms: its display check runs for them.
+        videoView.drivesOtherSight = showsShader || showsYouTube
         // Window Glass: the desktop shows through the art. The model value only, so a fade-in in
         // flight runs on to it.
         artOpacity = Float(backdrop.artOpacity)

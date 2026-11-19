@@ -95,9 +95,12 @@ public nonisolated struct BackdropPlayback: Equatable, Sendable {
     }
 
     /// The window terms of `window` now (visibility, minimized, the app hidden; the system's
-    /// power, heat and motion), each replaced by a test's override.
+    /// power, heat and motion), each replaced by a test's override. A window moved off every
+    /// display is not visible whatever AppKit's occlusion says (cmux#47019): `screens` are the
+    /// displays' frames, nil `NSScreen.screens`.
     @MainActor public static func terms(_ window: NSWindow, visibleOverride: Bool?, lowPowerOverride: Bool?,
-                                        reduceMotionOverride: Bool?, screensAsleep: Bool, sessionInactive: Bool) -> Terms {
+                                        reduceMotionOverride: Bool?, screensAsleep: Bool, sessionInactive: Bool,
+                                        screens: [CGRect]? = nil) -> Terms {
         var terms = Terms()
         if let visibleOverride {
             terms.visible = visibleOverride
@@ -106,6 +109,7 @@ public nonisolated struct BackdropPlayback: Equatable, Sendable {
             terms.minimized = window.isMiniaturized
             terms.appHidden = NSApp.isHidden
         }
+        terms.visible = terms.visible && window.isOnSomeScreen(screens: screens)
         terms.screensAsleep = screensAsleep
         terms.sessionInactive = sessionInactive
         terms.lowPower = lowPowerOverride ?? LowPowerMode.system.isEnabled

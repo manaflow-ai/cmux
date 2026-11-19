@@ -33,6 +33,8 @@ public final class BackdropVideoView: NSView {
     public var reduceMotionOverride: Bool? { didSet { update() } }
     public var lowPowerOverride: Bool? { didSet { update() } }
     public var visibleOverride: Bool? { didSet { update() } }
+    /// Tests: the displays' frames in place of `NSScreen.screens` (a window off all of them is unseen).
+    public var screenFramesOverride: [CGRect]? { didSet { update() } }
     /// Tests: the windows above this one, in place of the screen's.
     public var windowsAboveOverride: (() -> [BackdropCoverage.Window])?
     private let players: BackdropVideoPlayers
@@ -50,6 +52,14 @@ public final class BackdropVideoView: NSView {
     public var onSightChange: (@MainActor (_ closing: Bool) -> Void)?
     private var coverage = BackdropCoverage()
     private let coverageTimer = DemandTimer(owner: "backdrop-video-coverage")
+    /// Whether the backdrop also shows a living wallpaper that moves on this view's terms
+    /// (``onSightChange``), so the display check runs for it with no video (WindowMaterialView sets it).
+    public var drivesOtherSight = false { didSet { if drivesOtherSight != oldValue { update() } } }
+    /// Re-checks whether the window is on a display while a moving wallpaper shows: AppKit keeps a
+    /// window moved off every display `.visible` and posts nothing (cmux#47019).
+    private let displayTimer = DemandTimer(owner: "backdrop-video-displays")
+    /// The last display check's answer, nil while none runs.
+    private var lastOnDisplays: Bool?
 
     /// `players` shares one decoder per file; `idle` is the app's idle wake (tests inject theirs).
     public init(frame frameRect: NSRect, players: BackdropVideoPlayers = .shared,
@@ -133,7 +143,7 @@ public final class BackdropVideoView: NSView {
         guard url != nil, !isHidden, let window else { return nil }
         var terms = BackdropPlayback.terms(window, visibleOverride: visibleOverride, lowPowerOverride: lowPowerOverride,
                                            reduceMotionOverride: reduceMotionOverride, screensAsleep: signals.screensAsleep,
-                                           sessionInactive: signals.sessionInactive)
+                                           sessionInactive: signals.sessionInactive, screens: screenFramesOverride)
         terms.covered = coverage.resting
         terms.secondsSinceInput = idle.secondsSinceInput
         terms.idleAfter = idle.idleAfter
@@ -177,6 +187,7 @@ public final class BackdropVideoView: NSView {
     }
 
     private func update() {
+        syncDisplayCheck()
         guard let url, playerLayer.player != nil else {
             idle.unwatch(self)
             return stopCoverage()
@@ -195,6 +206,36 @@ public final class BackdropVideoView: NSView {
             idle.unwatch(self)
         }
         players.setPlaying(answer.plays, seen: answer.canBeSeen, url, viewer: ObjectIdentifier(self))
+    }
+
+    /// Whether the window's frame overlaps a display (``AppKit/NSWindow/isOnSomeScreen(screens:)``).
+    private var onDisplays: Bool { window?.isOnSomeScreen(screens: screenFramesOverride) ?? false }
+
+    /// Runs the display check while a video or a living wallpaper shows in a window AppKit calls
+    /// visible, and only then: an occluded, minimized or closed window wakes nothing (its own
+    /// notifications answer for it).
+    private func syncDisplayCheck() {
+        guard let window, window.occlusionState.contains(.visible), !window.isMiniaturized,
+              playerLayer.player != nil || drivesOtherSight else {
+            displayTimer.cancel()
+            lastOnDisplays = nil
+            return
+        }
+        if lastOnDisplays == nil { lastOnDisplays = onDisplays }
+        guard !displayTimer.isScheduled else { return }
+        displayTimer.schedule(after: .seconds(BackdropCoverage.interval)) { @MainActor [weak self] in
+            self?.checkDisplays()
+        }
+    }
+
+    /// Whether the window moved off every display or back since the last check: the video and the
+    /// living wallpapers (``onSightChange``) answer again. The display timer calls it (tests call it).
+    public func checkDisplays() {
+        let now = onDisplays
+        let changed = lastOnDisplays != nil && lastOnDisplays != now
+        lastOnDisplays = now
+        update()
+        if changed { onSightChange?(false) }
     }
 
     /// Samples how much of the window other windows hide, and rests or resumes the video on it.
