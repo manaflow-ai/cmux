@@ -45,9 +45,10 @@ SOFT = "soft"
 # How much of the kept warnings' text goes into the job summary; all of it is in the log above it.
 SUMMARY_CAP = 20_000
 FLAG_ENVS = ("RUSTFLAGS", "RUSTDOCFLAGS", "CARGO_ENCODED_RUSTFLAGS")
-# A diagnostic header: rustc/clippy `warning: ...` or `warning[E..]: ...`, swiftc/clang `path:1:2: warning: ...`.
+# A diagnostic header: rustc/clippy `warning: ...` or `warning[E..]: ...`, swiftc/clang `path:1:2: warning: ...`,
+# oxlint `  ⚠ plugin(rule): ...`.
 # cargo's tallies ("`x` (lib) generated 3 warnings", "N warnings emitted") are not one.
-WARNING = re.compile(r"^(?:warning(?:\[[\w:-]+\])?: |\S+:\d+:\d+: warning: )")
+WARNING = re.compile(r"^(?:warning(?:\[[\w:-]+\])?: |\S+:\d+:\d+: warning: |\s*⚠ )")
 TALLY = re.compile(r"^warning: (?:.*\bgenerated \d+ warnings?\b|\d+ warnings? emitted|build failed, waiting)")
 
 
@@ -123,8 +124,13 @@ def warnings_in(lines) -> list[str]:
 
 
 def fixer(command: list[str]) -> str | None:
-    """The ci-oops fixer id for warnings of `command`: clippy's own `--fix` for cargo, else none (a follow-up)."""
-    return "clippy-fix" if "cargo" in command[:4] else None
+    """The ci-oops fixer id for warnings of `command`: `cargo clippy --fix`, `oxlint --fix` (webviews lint:fix),
+    else none (a follow-up)."""
+    if any("cargo" in part for part in command[:4]):
+        return "clippy-fix"
+    if "oxlint" in command or command[:3] == ["bun", "run", "lint"]:
+        return "oxlint-fix"
+    return None
 
 
 def log_path(env=os.environ) -> Path:
