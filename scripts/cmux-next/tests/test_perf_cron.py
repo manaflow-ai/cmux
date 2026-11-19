@@ -680,12 +680,15 @@ class WebUiTests(unittest.TestCase):
         spec2 = importlib.util.spec_from_file_location("cef_resize_cron", os.path.join(HERE, "..", "cef-resize-cron.py"))
         cr = importlib.util.module_from_spec(spec2)
         spec2.loader.exec_module(cr)
-        summary = {"validity": {"on0": {"ok": True}}, "modes": {"on0": {"light": {"rows": [
+        summary = {"summary": [
             {"layout": "4x2", "action": "drag", "missed": 2, "commit_p95_ms": 3.1, "commit_max_ms": 7.0, "refresh_ms": 8.33},
             {"layout": "1x2", "action": "window", "missed": 0, "commit_p95_ms": 5.0, "refresh_ms": 16.67},
-            {"layout": "1x2", "action": "drag", "missed": None, "commit_p95_ms": None, "refresh_ms": 8.33}]}}}}
+            {"layout": "1x2", "action": "drag", "missed": None, "commit_p95_ms": None, "refresh_ms": 8.33}]}
         bench_rows = cr.rows_from(summary)
-        self.assertEqual(cr.missing_from(summary, bench_rows), [])
+        self.assertEqual(cr.missing_from(bench_rows), ["drag 1x2: no rows", "window 4x2: no rows"],
+                         "each layout and action asked for with no number")
+        self.assertIn("--browser", cr.bench_cmd(argparse.Namespace(app="A", tag="T", rounds=3), "/o"),
+                      "a Chromium page in the measured layout")
         part = cron.PART_BY_NAME["cef-resize"]
         rows = cron.rows_of_part(part, {"rows": bench_rows}, budgets_mod, {})
         self.assertEqual(sorted(rows), ["cef_resize.drag.4x2.commit_p95_ms", "cef_resize.drag.4x2.missed",
@@ -700,11 +703,8 @@ class WebUiTests(unittest.TestCase):
         self.assertFalse(cron.over_target("cef_resize.window.1x2.commit_p95_ms", rows["cef_resize.window.1x2.commit_p95_ms"], 16.67))
         self.assertTrue(cron.frame_sensitive("cef_resize.drag.4x2.missed", rows["cef_resize.drag.4x2.missed"]))
         self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("cef_resize.drag.4x2.missed"), "judged, not report-only")
-        no_window = {**summary, "modes": {"on0": {"light": {"rows": summary["modes"]["on0"]["light"]["rows"][:1]}}}}
-        self.assertEqual(cr.missing_from(no_window, cr.rows_from(no_window)), ["window: no rows"])
-        invalid = {"validity": {"on0": {"ok": False}}, "modes": {"on0": {}}}
-        self.assertEqual(len(cr.missing_from(invalid, cr.rows_from(invalid))), 1, "a run that was not layer-hosted")
-        self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": cr.missing_from(invalid, [])}))
+        self.assertEqual(len(cr.missing_from(cr.rows_from({}))), 4, "no report: every layout and action is missing")
+        self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": cr.missing_from([])}))
 
     def test_the_memory_agents_part_measures_the_optimized_app(self):
         """CMUX-571 ram-baseline compares the app with other apps' release builds and with the 2026-11-08 Release

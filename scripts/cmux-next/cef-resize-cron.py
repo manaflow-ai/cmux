@@ -5,10 +5,11 @@ time while panes and the window resize beside a Chromium page, as perf-cron rows
 Leo, 2026-11-19: "a lot of this is just applying things properly and having those measurements in so that we're aware
 of things". cef-resize-sync-bench.py measured a hosted page's resize wait only in hand runs, which nothing stored.
 
-This runs cef-resize-sync-bench.py on the cron's app in the shipped mode only, `on0` (layer hosting on, the default;
-`browserResize.syncDeadline` 0, the default since cmux-ad m19), its `light` bench (pane-perf-terminal.py --browser:
-the top-left pane is a Chromium page) and two resize actions: `drag` (a pane divider dragged out and back, one event
-per 120 Hz frame) and `window` (Window > Zoom and back, the window's own animated resize). Per layout and action it
+This runs that bench's `light` command on the cron's app: pane-perf-terminal.py --browser (the top-left pane is a
+Chromium page), layouts 1x2 and 4x2, actions `drag` (a pane divider dragged out and back, one event per 120 Hz frame)
+and `window` (Window > Zoom and back, the window's own animated resize). It runs the build as it ships: layer hosting
+on and every resize deadline 0 (CEFLayerHosting's defaults; the browserResize.layerHosting and .syncDeadline tunables
+that cef-resize-sync-bench.py's modes set are gone, and the app refuses them as unknown keys). Per layout and action it
 writes report.json's `rows` (perf-cron.py's budgets kind):
 - cef_resize.<action>.<layout>.missed: display frames missed during the resize (median of the rounds), budget 0:
   plans/cmux-next/cef-layer-hosting-DESIGN.md "Live resize": "Every motion frame must show the page at that frame's
@@ -28,19 +29,19 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-MODE = "on0"
-BENCH = "light"
+LAYOUTS = "1x2,4x2"
 ACTIONS = "drag,window"
 DEFAULT_REFRESH_MS = 1000 / 120  # the cron's virtual display (perf-cron.py VDISPLAY_HZ)
 COMMIT_FLOOR_MS = 0.5
 MISSED_FLOOR = 0.5  # perf-cron.py COUNT_FLOOR: one whole frame regresses
 
 
-def rows_from(summary: dict) -> list[dict]:
-    """perf-cron rows from cef-resize-sync-bench.py's summary.json (pure)."""
-    result = ((summary.get("modes") or {}).get(MODE) or {}).get(BENCH) or {}
+def rows_from(report: dict) -> list[dict]:
+    """perf-cron rows from pane-perf-terminal.py's report.json `summary` (pure)."""
     rows = []
-    for r in result.get("rows") if isinstance(result.get("rows"), list) else []:
+    for r in report.get("summary") if isinstance(report.get("summary"), list) else []:
+        if not isinstance(r, dict):
+            continue
         layout, action = r.get("layout"), r.get("action")
         if not layout or not action:
             continue
@@ -58,21 +59,18 @@ def rows_from(summary: dict) -> list[dict]:
     return rows
 
 
-def missing_from(summary: dict, rows: list[dict]) -> list[str]:
-    """Why the report is incomplete (pure): the mode was not valid, or the bench left no number."""
-    validity = (summary.get("validity") or {}).get(MODE) or {}
-    if not validity.get("ok"):
-        return [f"{MODE}: not a valid layer-hosted run (cef-layer-verify.py)"]
+def missing_from(rows: list[dict]) -> list[str]:
+    """Why the report is incomplete (pure): a layout and action asked for with no rows."""
     have = {r["name"].rsplit(".", 1)[0] for r in rows if r["name"].endswith(".missed")}
-    if not have:
-        return [f"{MODE} {BENCH}: the bench left no rows"]
-    return [f"{a}: no rows" for a in ACTIONS.split(",") if not any(h.startswith(f"cef_resize.{a}.") for h in have)]
+    return [f"{a} {lay}: no rows" for a in ACTIONS.split(",") for lay in LAYOUTS.split(",")
+            if f"cef_resize.{a}.{lay}" not in have]
 
 
 def bench_cmd(args: argparse.Namespace, out: str) -> list[str]:
-    return [sys.executable, os.path.join(HERE, "cef-resize-sync-bench.py"), "--app", args.app, "--tag", args.tag,
-            "--out", out, "--label", "cron", "--modes", MODE, "--benches", BENCH, "--actions", ACTIONS,
-            "--rounds", str(args.rounds)]
+    """cef-resize-sync-bench.py's `light` command (pure)."""
+    return [sys.executable, os.path.join(HERE, "pane-perf-terminal.py"), "--app", args.app, "--tag", args.tag,
+            "--out", out, "--actions", ACTIONS, "--rounds", str(args.rounds), "--json", os.path.join(out, "report.json"),
+            "--browser", "--layouts", LAYOUTS]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -87,13 +85,14 @@ def main(argv: list[str] | None = None) -> int:
     os.makedirs(out, exist_ok=True)
     status = subprocess.run(bench_cmd(args, out), cwd=ROOT).returncode
     try:
-        with open(os.path.join(out, "summary.json")) as f:
-            summary = json.load(f)
+        with open(os.path.join(out, "report.json")) as f:
+            bench = json.load(f)
     except (OSError, ValueError):
-        summary = {}
-    rows = rows_from(summary)
-    report = {"rows": rows, "bench_status": status, "mode": MODE, "actions": ACTIONS}
-    missing = missing_from(summary, rows)
+        bench = {}
+    rows = rows_from(bench)
+    report = {"rows": rows, "bench_status": status, "layouts": LAYOUTS, "actions": ACTIONS,
+              "summary": bench.get("summary"), "macos": bench.get("macos"), "host": bench.get("host")}
+    missing = missing_from(rows)
     if missing:
         report["incomplete"] = missing
     with open(args.json, "w") as f:

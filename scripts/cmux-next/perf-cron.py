@@ -197,7 +197,7 @@ PARTS = [
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
     # Late frames and the frame's commit time while a pane divider drags and the window zooms beside a Chromium page
-    # (cef-resize-cron.py: cef-resize-sync-bench.py in its shipped mode on0, light bench): cef_resize.<action>.<layout>
+    # (cef-resize-cron.py: cef-resize-sync-bench.py's light bench on the build as it ships): cef_resize.<action>.<layout>
     # .missed (budget 0) and .commit_p95_ms (budget half a display frame), from plans/cmux-next/cef-layer-hosting-DESIGN.md
     # "Live resize". The bench build, like memory-agents and throughput: the frames people see are Release frames.
     {"name": "cef-resize", "args": [*MEASURE, "--config=bench", "--suite=cef-resize"],
