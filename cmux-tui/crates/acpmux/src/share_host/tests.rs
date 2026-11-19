@@ -938,12 +938,14 @@ fn only_an_enable_for_the_current_join_keeps_its_host() {
     assert_eq!(linux::after_enable(&set_up, true, true), undo, "cancelled");
     assert_eq!(linux::after_enable(&set_up, false, false), undo, "the join changed");
     assert_eq!(linux::after_enable(&Outcome::Cancelled, true, true), undo);
+    // Review of #45369: an enable that failed or timed out may have started the unit before it
+    // ended, so for the current join too its host is stopped, never left running unmarked.
     let failed = Outcome::Failed("x".into());
-    assert_eq!(
-        linux::after_enable(&failed, false, true),
-        After { save_mark: false, stop_host: false }
-    );
+    assert_eq!(linux::after_enable(&failed, false, true), undo, "failed");
     assert_eq!(linux::after_enable(&failed, false, false), undo);
+    assert_eq!(linux::after_enable(&Outcome::TimedOut, false, true), undo, "timed out");
+    let not_installed = Outcome::NotInstalled("not signed in".into());
+    assert_eq!(linux::after_enable(&not_installed, false, true), undo, "not installed");
 }
 
 #[test]

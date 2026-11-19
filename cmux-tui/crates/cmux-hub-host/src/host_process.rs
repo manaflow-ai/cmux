@@ -59,14 +59,22 @@ pub fn hold(dir: &Path) -> std::io::Result<Running> {
     Ok(Running { _held: held })
 }
 
+/// What a host of `dir` signs in with: while either is there, a host may serve from it.
+const SIGN_IN_FILES: [&str; 2] = ["device.json", "account.json"];
+
 /// Ok once no host of `dir` runs: at once when none holds [`PID_FILE`]; else after its holder
 /// let go within `wait`, or was killed (its process group when it leads one, so its session
 /// helpers go with it) and gone within two more seconds. Else the holder's pid, when the file
-/// names one.
+/// names one. With no [`PID_FILE`] at all, gone is proven only when `dir` has no sign-in either:
+/// a host from a build older than the file (one a person started by hand, say) holds no lock,
+/// so while a sign-in is there it may still run, and that is not verified (`Err(None)`).
 pub fn ensure_gone(dir: &Path, wait: Duration) -> Result<(), Option<u32>> {
     let file = match File::open(dir.join(PID_FILE)) {
         Ok(file) => file,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let signed_in = SIGN_IN_FILES.iter().any(|f| dir.join(f).symlink_metadata().is_ok());
+            return if signed_in { Err(None) } else { Ok(()) };
+        }
         Err(_) => return Err(None),
     };
     let mut file = match FileLock::take_within(file, Kind::Exclusive, wait, STEP) {
@@ -151,6 +159,24 @@ mod tests {
         let _running = hold(&dir).unwrap();
         let text = std::fs::read_to_string(dir.join(PID_FILE)).unwrap();
         assert_eq!(text, std::process::id().to_string());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review of #45369: with a sign-in but no pid file, a host from an older build may run
+    /// unseen, so gone is not verified; with neither, nothing can serve.
+    #[test]
+    fn a_sign_in_without_a_pid_file_is_not_verified_gone() {
+        let dir = scratch("old-build");
+        for file in SIGN_IN_FILES {
+            std::fs::write(dir.join(file), b"{}").unwrap();
+            assert_eq!(ensure_gone(&dir, Duration::from_millis(50)), Err(None), "{file}");
+            std::fs::remove_file(dir.join(file)).unwrap();
+        }
+        assert_eq!(ensure_gone(&dir, Duration::from_millis(50)), Ok(()));
+        // A host of this build that ran and stopped left its file: gone is proven by its lock.
+        std::fs::write(dir.join("device.json"), b"{}").unwrap();
+        drop(hold(&dir).unwrap());
+        assert_eq!(ensure_gone(&dir, Duration::from_millis(50)), Ok(()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
