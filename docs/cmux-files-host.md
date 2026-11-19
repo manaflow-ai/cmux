@@ -137,6 +137,12 @@ sidebar file tree. Making it touches no disk; the helper is looked up at the fir
 the same `FilesHost` gates, so a Release build never finds one and reads in process. A child that cannot start, exits, or answers with an error makes that read happen in
 process as before, and three failures in a row without an answer stop it trying.
 
+Naming a folder can be a read too: `FileManager.displayName(atPath:)` asks Launch Services, which
+looks inside the folder for its `.localized` marker, so the pane's tab title and its sidebar's
+Favorites asked macOS for Downloads in the app's name before any listing. `FolderDisplayName`
+names the home's standard folders (Desktop, Documents, Downloads, ...) from the system's own table
+(`SystemFolderLocalizations`) instead, in every build: the same name, with no read.
+
 ## What still asks
 
 - The DEV app's own reads, once per tag: Quick Look and thumbnails of a file in `~/Downloads`,

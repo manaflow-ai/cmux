@@ -63,7 +63,7 @@ final class FilesPaneService: InternalPageProvider {
 
     func title(for key: String) -> String {
         guard let folder = tabs[key]?.model.folder else { return title }
-        return folder.path == "/" ? "/" : FileManager.default.displayName(atPath: folder.path)
+        return folder.path == "/" ? "/" : FolderDisplayName().name(of: folder)
     }
 
     func history(for key: String) -> (any PageHistory)? { tabs[key]?.history }
