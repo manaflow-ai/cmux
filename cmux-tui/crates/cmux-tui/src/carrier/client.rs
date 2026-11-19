@@ -67,6 +67,13 @@ const MAX_FRAME_BYTES: usize = 65_535;
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(15);
 /// The Noise handshake of one attempt, at most.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
+/// The first attempt's circuit join and Noise handshake, each at most. A daemon that registered a moment
+/// before (a fresh create's first dial) sometimes never joins the circuit or never answers the handshake;
+/// the redial then connects in about 2 s, so a 15 s wait cost 15 s (production probe, 2026-11-18/19:
+/// 17 of 69 fresh-create first dials, `relay` 17.6-21.7 s and `handshake` 11.7-30.5 s). A handshake that
+/// connects takes 0.9 s at p50, 3.4 s at p99 and 5.0 s at most (241 dials). Later attempts keep the full
+/// bounds, so a slow network still connects.
+pub(super) const FIRST_ATTEMPT_LINK_TIMEOUT: Duration = Duration::from_secs(6);
 /// How long an established session tries to resume before it gives up.
 /// After that its streams end, and the next stream (`held`) or the
 /// caller's next dial opens a fresh session instead of resuming forever.
@@ -306,6 +313,7 @@ fn relay_provider(
     answer: &CarrierAnswer,
     tickets: Arc<TicketCache>,
     deadline: Instant,
+    first_attempt: bool,
 ) -> Result<RelayProvider, Failure> {
     let credentials = RelayCredentialSource::callback(move || {
         let tickets = tickets.clone();
@@ -321,6 +329,13 @@ fn relay_provider(
         credentials,
     )
     .map(|provider| provider.with_allocation_deadline(park_until(deadline, Instant::now())))
+    .map(|provider| {
+        if first_attempt {
+            provider.with_first_join_timeout(FIRST_ATTEMPT_LINK_TIMEOUT)
+        } else {
+            provider
+        }
+    })
     .map_err(|e| Failure::fatal(Step::Relay, e.to_string()))
 }
 
@@ -338,6 +353,7 @@ async fn attempt(
     step: &Arc<Progress>,
     resume: &Arc<Resume>,
     current: &Arc<CurrentRoute>,
+    first_attempt: bool,
 ) -> Result<Dialed, Failure> {
     step.set(Step::Ticket);
     step.mark(|marks| marks.started = Some(Instant::now()));
@@ -354,7 +370,7 @@ async fn attempt(
     let tickets = TicketCache::new(plan.source.clone(), plan.machine.clone(), &answer);
     step.set(Step::Relay);
     let session = random_session()?;
-    let provider = Arc::new(relay_provider(&answer, tickets, plan.deadline)?);
+    let provider = Arc::new(relay_provider(&answer, tickets, plan.deadline, first_attempt)?);
     let ssh = ssh_route(
         &plan.ssh,
         &answer,
@@ -375,6 +391,7 @@ async fn attempt(
         session,
         set: &set,
         first: None,
+        first_attempt,
     };
     let selected =
         select_initial_route(&set.routes, session, CARRIER_LANES, CARRIER_AUTH, false, &mut route)
@@ -409,6 +426,8 @@ struct RouteAttempt<'a> {
     set: &'a RouteSet,
     /// The first route's failure, when it failed.
     first: Option<Failure>,
+    /// The dial's first attempt: its handshake waits [`FIRST_ATTEMPT_LINK_TIMEOUT`].
+    first_attempt: bool,
 }
 
 /// A failed route. A relay failure past the park that no retry fixes (a
@@ -562,16 +581,29 @@ impl RouteAttempt<'_> {
             self.current.clone(),
         ));
         let routes: Arc<dyn ReconnectGroupSource> = carrier_routes.clone();
-        let connection =
-            match ClientConnection::connect_with_reconnect_groups(tracked, config, Some(routes))
-                .await
-            {
-                Ok(connection) => connection,
-                Err(error) => {
-                    let _ = group.close().await;
-                    return Err(classify(&error, step.get()));
-                }
-            };
+        let connect =
+            ClientConnection::connect_with_reconnect_groups(tracked, config, Some(routes));
+        let connected = if self.first_attempt {
+            match tokio::time::timeout(FIRST_ATTEMPT_LINK_TIMEOUT, connect).await {
+                Ok(connected) => connected.map_err(|error| classify(&error, step.get())),
+                Err(_) => Err(Failure::retry(
+                    Step::Handshake,
+                    format!(
+                        "the daemon did not answer the first handshake within {} s",
+                        FIRST_ATTEMPT_LINK_TIMEOUT.as_secs()
+                    ),
+                )),
+            }
+        } else {
+            connect.await.map_err(|error| classify(&error, step.get()))
+        };
+        let connection = match connected {
+            Ok(connection) => connection,
+            Err(failure) => {
+                let _ = group.close().await;
+                return Err(failure);
+            }
+        };
         step.mark(|marks| marks.connected = Some(Instant::now()));
         connection.set_resume_hooks(self.resume.clone());
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
@@ -843,7 +875,7 @@ pub(super) async fn dial(plan: &DialPlan) -> Result<Dialed, Failure> {
                 }
                 let result = match tokio::time::timeout_at(
                     plan.deadline,
-                    attempt(plan, &step, resume, current),
+                    attempt(plan, &step, resume, current, number == 1),
                 )
                 .await
                 {

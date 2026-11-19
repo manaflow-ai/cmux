@@ -1297,6 +1297,92 @@ async fn a_parked_allocation_waits_until_the_allocation_deadline() {
     server.abort();
 }
 
+/// A relay that allocates the Connect but whose daemon never joins the circuit (no `Ready`).
+async fn allocate_but_never_join() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut control, _) = accept_with_authorization(stream).await;
+        let RelayControl::Connect { lane, generation, .. } =
+            receive_test_control(&mut control).await
+        else {
+            panic!("expected client connect");
+        };
+        send_test_control(
+            &mut control,
+            &RelayControl::Allocated {
+                circuit: CircuitId("unjoined-circuit".into()),
+                lane,
+                generation,
+                join_ticket: "join-ticket".into(),
+            },
+        )
+        .await;
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut circuit_socket, _) = accept_with_authorization(stream).await;
+        assert!(matches!(
+            receive_test_control(&mut circuit_socket).await,
+            RelayControl::Join { .. }
+        ));
+        while circuit_socket.next().await.is_some() {}
+    });
+    (address, server)
+}
+
+/// The first connect's circuit join gives up at the provider's first join timeout when the daemon never
+/// joins (a daemon that registered a moment before, production 2026-11-18), not at `control_timeout`;
+/// a resume's join (a later generation) keeps `control_timeout`.
+#[tokio::test]
+async fn an_unjoined_first_circuit_fails_at_the_first_join_timeout() {
+    let config = RelayClientConfig {
+        slot: "test-slot".into(),
+        ticket: "client-ticket".into(),
+        maximum_frame_bytes: 64,
+        control_timeout: Duration::from_secs(5),
+    };
+    let request = |address: std::net::SocketAddr| ConnectRequest {
+        endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
+        session: SessionId::ZERO,
+        lane_policy: LanePolicy::Isolated,
+        routing: BTreeMap::new(),
+    };
+    let open = |generation: u64, first_join: bool| async move {
+        let (address, server) = allocate_but_never_join().await;
+        let provider = RelayProvider::new(config.clone()).unwrap();
+        let provider = if first_join {
+            provider.with_first_join_timeout(Duration::from_millis(300))
+        } else {
+            provider
+        };
+        let group = provider.connect(request(address)).await.unwrap();
+        let started = Instant::now();
+        let error = group
+            .open(LinkRequest { lane: Lane::Interactive, generation })
+            .await
+            .err()
+            .expect("an unjoined circuit fails");
+        let waited = started.elapsed();
+        let _ = group.close().await;
+        server.abort();
+        (error, waited)
+    };
+
+    let (error, waited) = open(0, true).await;
+    assert!(error.to_string().contains("join timed out"), "{error}");
+    assert!(
+        waited < Duration::from_secs(2),
+        "waited {waited:?}: control_timeout, not the first join timeout"
+    );
+
+    let (error, waited) = open(1, true).await;
+    assert!(error.to_string().contains("join timed out"), "{error}");
+    assert!(
+        waited >= Duration::from_secs(4),
+        "a resume gave up after {waited:?}, before control_timeout"
+    );
+}
+
 /// A WebSocket sink that hands each message, with the (virtual) instant it was
 /// sent, to the test: the batched sender's socket with no host in the way.
 struct RecordingSink {

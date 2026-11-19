@@ -600,6 +600,9 @@ pub struct RelayProvider {
     /// `control_timeout`: a Connect the relay parks until the daemon
     /// registers then follows its caller's one deadline.
     allocation_deadline: Option<Instant>,
+    /// When set, the first connect's circuit join (generation 0) waits this
+    /// long for the daemon's `Ready` instead of `control_timeout`.
+    first_join_timeout: Option<Duration>,
 }
 
 impl RelayProvider {
@@ -618,7 +621,13 @@ impl RelayProvider {
     ) -> Result<Self, ProviderError> {
         config.ticket.zeroize();
         config.validate_common()?;
-        Ok(Self { config, credentials, tls: RelayTls::default(), allocation_deadline: None })
+        Ok(Self {
+            config,
+            credentials,
+            tls: RelayTls::default(),
+            allocation_deadline: None,
+            first_join_timeout: None,
+        })
     }
 
     /// Wait for each lane's allocation until `deadline` rather than for
@@ -629,6 +638,16 @@ impl RelayProvider {
     /// step, keeps `control_timeout`.
     pub fn with_allocation_deadline(mut self, deadline: Instant) -> Self {
         self.allocation_deadline = Some(deadline);
+        self
+    }
+
+    /// Wait this long, rather than `control_timeout`, for the daemon to join
+    /// the first connect's circuit (generation 0). A daemon that registered a
+    /// moment ago can leave its first circuit unjoined, and the caller's next
+    /// attempt gets a new circuit sooner than a 15 s wait would. A resume's
+    /// join, and every other control step, keeps `control_timeout`.
+    pub fn with_first_join_timeout(mut self, timeout: Duration) -> Self {
+        self.first_join_timeout = Some(timeout);
         self
     }
 
@@ -681,6 +700,7 @@ impl TransportProvider for RelayProvider {
             credentials: self.credentials.clone(),
             tls: self.tls.clone(),
             allocation_deadline: self.allocation_deadline,
+            first_join_timeout: self.first_join_timeout,
             control: Mutex::new(Some(control)),
             closed: AtomicBool::new(false),
         }))
@@ -697,6 +717,7 @@ struct RelayLinkGroup {
     credentials: RelayCredentialSource,
     tls: RelayTls,
     allocation_deadline: Option<Instant>,
+    first_join_timeout: Option<Duration>,
     // An allocation temporarily takes ownership of the control socket. If the
     // allocation future is cancelled, the socket is dropped while this slot
     // remains empty, so a later attempt cannot consume a stale response.
@@ -1247,7 +1268,9 @@ impl LinkGroup for RelayLinkGroup {
             request.generation,
             allocation.1,
             self.config.maximum_frame_bytes,
-            self.config.control_timeout,
+            self.first_join_timeout
+                .filter(|_| request.generation == 0)
+                .unwrap_or(self.config.control_timeout),
             &self.tls,
         )
         .await
@@ -1931,7 +1954,7 @@ async fn run_registration_once(
                     Ok(RelayControl::Incoming { circuit, lane, generation, join_ticket }) => {
                         spawn_incoming(
                             circuits, &daemon, config, framing, tls, circuit, lane, generation,
-                            join_ticket,
+                            join_ticket, log,
                         );
                     }
                     Ok(_) => {}
@@ -1985,6 +2008,7 @@ async fn run_registration_once(
                             lane,
                             generation,
                             join_ticket,
+                            log,
                         );
                         continue;
                     }
@@ -2061,6 +2085,7 @@ fn spawn_incoming(
     lane: LaneToken,
     generation: u64,
     join_ticket: String,
+    log: &RegisterLog,
 ) {
     let daemon = daemon.clone();
     let endpoint = config.endpoint.clone();
@@ -2069,8 +2094,12 @@ fn spawn_incoming(
     let timeout = config.control_timeout;
     let tls = tls.clone();
     let task_circuit = circuit.clone();
-    circuits.try_spawn(circuit, async move {
-        if let Ok(link) = join_circuit(
+    // A dial whose circuit this daemon never joins waits out its join or
+    // handshake bound with nothing on the machine saying why: say it here.
+    let label = log.label.clone();
+    let failed_label = label.clone();
+    let spawned = circuits.try_spawn(circuit, async move {
+        match join_circuit(
             &endpoint,
             &slot,
             RelayRole::Daemon,
@@ -2085,9 +2114,17 @@ fn spawn_incoming(
         )
         .await
         {
-            daemon.incoming(link).await;
+            Ok(link) => daemon.incoming(link).await,
+            Err(error) => {
+                if let Some(label) = failed_label {
+                    eprintln!("{label}: joining an incoming circuit failed: {error}");
+                }
+            }
         }
     });
+    if !spawned && let Some(label) = label {
+        eprintln!("{label}: an incoming circuit was not joined: already joined, or at the limit");
+    }
 }
 
 struct IncomingCircuitTasks {
