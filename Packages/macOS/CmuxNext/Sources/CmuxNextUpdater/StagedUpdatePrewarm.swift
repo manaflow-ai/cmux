@@ -112,6 +112,17 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         return runs
     }
 
+    /// Raised once someone waits for the pre-warm (an install click, ``UpdaterService/installAfterPrewarm(_:)``):
+    /// a run that starts from then on runs at ``WorkPriority/userBlocking``, not best effort. A run already
+    /// started keeps its priority.
+    public final class Urgency: Sendable {
+        private let raised = Atomic<Bool>(false)
+        public init() {}
+        public func raise() { raised.store(true, ordering: .relaxed) }
+        public var isRaised: Bool { raised.load(ordering: .relaxed) }
+        var priority: TaskPriority { (isRaised ? WorkPriority.userBlocking : .bestEffort).taskPriority }
+    }
+
     /// Finds the staged bundle on `work`'s files lane, then starts each run (``AsyncProcess``, nothing
     /// waits on a thread). `progress` gets a line for the update log once the scan ends and as each run
     /// ends, so a pre-warm cut short by the relaunch still says how far it got. Returns the last line.
@@ -125,8 +136,10 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
     /// With `marker`, a pre-warm that found the staged bundle leaves ``build`` there for that build's first
     /// launch (``consumeLaunchMarker(build:at:)``), which records itself as pre-warmed (`cmux app launch-times`).
     /// The marker write runs at ``WorkPriority/userVisible`` too, for the same reason as the scan.
+    ///
+    /// Each run starts at `urgency`'s priority: best effort until an install click waits for the pre-warm.
     public func perform(work: BackgroundWork, processes: AsyncProcess = AsyncProcess(),
-                        timeout: Duration = .seconds(20), marker: URL? = nil,
+                        timeout: Duration = .seconds(20), marker: URL? = nil, urgency: Urgency = Urgency(),
                         progress: (@Sendable (String) -> Void)? = nil) async -> String {
         let asked = ContinuousClock.now
         let scanned = try? await work.run(.userVisible, mayBlock: .files) { [self] () -> (URL, [Run])? in
@@ -143,7 +156,12 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
             let started = ContinuousClock.now
             let status: String
             do {
-                let outcome = try await processes.run(ProcessRequest(run.executable, run.arguments, timeout: timeout))
+                let request = ProcessRequest(run.executable, run.arguments, timeout: timeout)
+                let outcome = try await withThrowingTaskGroup(of: ProcessOutcome.self) { group in
+                    group.addTask(priority: urgency.priority) { try await processes.run(request) }
+                    guard let outcome = try await group.next() else { throw CancellationError() }
+                    return outcome
+                }
                 // A crash reads as its signal, not as an exit status ("cmux exit 11" was a SIGSEGV).
                 status = !outcome.exited ? "signal \(outcome.status)" : Self.describe(exit: outcome.status, of: run)
             } catch {
