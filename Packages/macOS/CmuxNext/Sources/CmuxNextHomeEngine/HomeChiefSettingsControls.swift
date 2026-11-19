@@ -109,7 +109,7 @@ final class HomeChiefLinkButton: NSButton {
     private var isHovering = false { didSet { applyTitle() } }
     private var tracking: NSTrackingArea?
 
-    init(title: String, target: AnyObject, action: Selector) {
+    init(title: String, target: AnyObject?, action: Selector?) {
         super.init(frame: .zero)
         text = title
         self.target = target

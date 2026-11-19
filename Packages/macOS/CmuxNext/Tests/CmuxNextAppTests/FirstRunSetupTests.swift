@@ -73,6 +73,7 @@ import Testing
         #expect(setup.isReviewing)
         #expect(defaults.string(forKey: FirstRunSetup.stateKey) == "pending")
         #expect(defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey), "reopening keeps completed rows answered")
+        #expect(FirstRunSetup(defaults: defaults).isReviewing, "reopening persists across relaunch")
     }
 
     @Test func aSkippedLaunchCannotReopenTheCard() throws {

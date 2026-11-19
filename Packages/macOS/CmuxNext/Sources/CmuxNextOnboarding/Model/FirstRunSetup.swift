@@ -12,11 +12,13 @@ public import Observation
 public final class FirstRunSetup {
     /// UserDefaults: "pending" while the card shows, "ended" once hidden or done.
     public static let stateKey = "home.firstRun.setupCard"
+    /// UserDefaults: the Home settings link reopened the card for review, so a relaunch keeps a completed card open.
+    private static let reviewKey = "home.firstRun.setupCard.reviewing"
     /// Whether Home shows the card now.
     public private(set) var shows: Bool
     /// Whether a person explicitly reopened the card to review completed rows. A review stays visible even when
     /// every row is already complete; a normal first-run card still ends as soon as its rows finish.
-    public private(set) var isReviewing = false
+    public private(set) var isReviewing: Bool
     /// Bring your history showed, or its row was dismissed (``OnboardingWindowPresenter/historyShownKey``).
     public private(set) var historyDone: Bool
     @ObservationIgnored private let defaults: UserDefaults
@@ -27,6 +29,7 @@ public final class FirstRunSetup {
         self.defaults = defaults
         self.skipsOnboarding = skipsOnboarding
         shows = !skipsOnboarding && defaults.string(forKey: Self.stateKey) == "pending"
+        isReviewing = !skipsOnboarding && defaults.bool(forKey: Self.reviewKey)
         historyDone = defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey)
     }
 
@@ -63,6 +66,7 @@ public final class FirstRunSetup {
               !defaults.bool(forKey: OnboardingWindowPresenter.agentsShownKey) else { return false }
         for key in [OnboardingWindowPresenter.agentsShownKey] + replacedKeys { defaults.set(true, forKey: key) }
         defaults.set("pending", forKey: Self.stateKey)
+        defaults.removeObject(forKey: Self.reviewKey)
         isReviewing = false
         shows = true
         return true
@@ -81,9 +85,14 @@ public final class FirstRunSetup {
 
     /// Hide, or every row done: the card leaves for good, and its chat history row with it.
     public func end() {
-        guard defaults.string(forKey: Self.stateKey) != "ended" else { return }
+        guard defaults.string(forKey: Self.stateKey) != "ended" else {
+            defaults.removeObject(forKey: Self.reviewKey)
+            isReviewing = false
+            return
+        }
         historyAnswered()
         defaults.set("ended", forKey: Self.stateKey)
+        defaults.removeObject(forKey: Self.reviewKey)
         isReviewing = false
         shows = false
     }
@@ -93,6 +102,7 @@ public final class FirstRunSetup {
     public func reopen() {
         guard !skipsOnboarding else { return }
         defaults.set("pending", forKey: Self.stateKey)
+        defaults.set(true, forKey: Self.reviewKey)
         isReviewing = true
         shows = true
     }

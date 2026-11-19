@@ -140,7 +140,7 @@ public final class HomeChiefSettingsView: NSView {
     /// The last picture write and whether it saved (Debug: `debug.home.api edit_picture`).
     private var pictureWrite: Task<Void, Never>?
     private var pictureSaved = false
-    private let reviewSetupButton = HomeChiefLinkButton(title: "", target: nil, action: nil)
+    private let reviewSetupButton = HomeChiefLinkButton(title: HomeEngineStrings.reviewSetup, target: nil, action: nil)
 
     /// The harness items the picker offers: the official engines (``ChiefBackend/official``:
     /// the user's own Claude login, Codex, Muse Code, and UniiChat, acpmux's built-in `unii`); the
@@ -232,7 +232,6 @@ public final class HomeChiefSettingsView: NSView {
         // The rest of the Chief's settings (the pet, the chat's look, every Chief) live in Settings.
         let allSettings = HomeChiefLinkButton(title: HomeEngineStrings.allChiefSettings, target: self, action: #selector(openAllSettings))
         allSettings.setAccessibilityIdentifier("cmux.home.chief.allSettings")
-        reviewSetupButton.title = HomeEngineStrings.reviewSetup
         reviewSetupButton.target = self
         reviewSetupButton.action = #selector(openReviewSetup)
         reviewSetupButton.setAccessibilityIdentifier("cmux.home.chief.reviewSetup")
