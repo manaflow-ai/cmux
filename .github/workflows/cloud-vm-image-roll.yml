@@ -189,14 +189,14 @@ jobs:
     # - A newer request landing between the check and the dispatch is replaced by it (seconds wide; the next
     #   cmux-tui build dispatches again).
     # - A read that fails leaves the run alone and exits 0: the watch never turns a roll red.
-    # Runner: the pool router's 2-vCPU choice when it is ephemeral (Blacksmith or hosted), else hosted; never the
+    # Runner: the pool router's 2-vCPU pool (vars.RUNNER_POOLS.linux_2), with no hosted label of its own; never the
     # lane it watches. Holds no secret, only the run's own token with actions: write.
     if: >-
       github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
       github.run_attempt == 1 && !inputs.pools &&
       !(github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'cmux-vm: image roll ') ||
       startsWith(github.event.head_commit.message, 'cmux-vm: image rollback ')))
-    runs-on: ${{ (startsWith(fromJSON(vars.RUNNER_POOLS).linux_2, 'blacksmith-') || fromJSON(vars.RUNNER_POOLS).linux_2 == 'ubuntu-24.04') && fromJSON(vars.RUNNER_POOLS).linux_2 || 'ubuntu-24.04' }} # ephemeral-required: Actions write stays on a fresh runner, never the lane it watches
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_2 }} # ephemeral-required: the pool router's 2-vCPU pool, never the lane it watches
     timeout-minutes: 30
     permissions:
       actions: write
