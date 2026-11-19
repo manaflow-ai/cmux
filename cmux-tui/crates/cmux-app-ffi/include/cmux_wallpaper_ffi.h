@@ -1,7 +1,7 @@
 /* cmux-wallpaper's C ABI (cmux-tui/crates/cmux-app-ffi/src/wallpaper.rs): live
  * wallpapers (plans/cmux-next/live-wallpapers.md). The first-party set with
  * its Metal translated at build time (no shader compiler), the manifest check, the
- * draw scheduler, the 160-byte Frame uniform packer, and the pointer's and
+ * draw scheduler, the Frame uniform packer (CMUX_WALLPAPER_FRAME_FLOATS floats), and the pointer's, its trail's and
  * agent activity's smoothing. No globals; results that own strings have their own free
  * function. cmux_wallpaper_abi_version() returns ABI_VERSION (src/wallpaper.rs). */
 
@@ -14,6 +14,22 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+/*
+ Floats in the Frame uniform (`cmux_wallpaper_frame_pack` writes this
+ many; 4 bytes each). Size the uniform buffer from this, never a literal.
+ */
+#define CMUX_WALLPAPER_FRAME_FLOATS 104
+
+/*
+ Points in a `CmuxWallpaperTrail`, and rows in `Frame.trail`.
+ */
+#define CMUX_WALLPAPER_TRAIL_POINTS 16
+
+/*
+ Floats `cmux_wallpaper_trail_rows` writes: 4 per point (x, y, age, valid).
+ */
+#define CMUX_WALLPAPER_TRAIL_FLOATS 64
 
 /*
  The result of `cmux_wallpaper_validate_manifest`; free it with
@@ -112,11 +128,15 @@ typedef struct {
      The view has drawn at least one frame.
      */
     bool has_frame;
+    /*
+     The manifest's `idle_after` in seconds; 0 means the default (20).
+     */
+    double idle_after_s;
 } CmuxWallpaperScheduleInput;
 
 /*
  One frame's values by name (`FrameInput`); `cmux_wallpaper_frame_pack`
- writes the 40 floats of the 160-byte Frame uniform. Colors are linear
+ writes the `CMUX_WALLPAPER_FRAME_FLOATS` floats of the Frame uniform. Colors are linear
  RGB (`cmux_wallpaper_srgb_to_linear`). NaN or infinite values become 0.
  */
 typedef struct {
@@ -185,6 +205,11 @@ typedef struct {
      Dark appearance.
      */
     bool dark;
+    /*
+     The pointer's trail, `CMUX_WALLPAPER_TRAIL_POINTS` rows of (x, y, age,
+     valid), newest first: `cmux_wallpaper_trail_rows` fills it. Zeros: no trail.
+     */
+    float trail[CMUX_WALLPAPER_TRAIL_FLOATS];
 } CmuxWallpaperFrameInput;
 
 /*
@@ -205,6 +230,26 @@ typedef struct {
     bool inside;
     bool has_sample;
 } CmuxWallpaperPointer;
+
+/*
+ The pointer's recent path (`TrailState`): a ring of points, newest first,
+ `len` of them set. Zero it (or call `cmux_wallpaper_trail_reset`) once;
+ then `update` on each pointer move, with the same position and time as
+ `cmux_wallpaper_pointer_update`, and `rows` once per drawn frame into
+ `CmuxWallpaperFrameInput.trail`.
+ */
+typedef struct {
+    /*
+     Seconds, the host's monotonic clock.
+     */
+    double t[CMUX_WALLPAPER_TRAIL_POINTS];
+    float x[CMUX_WALLPAPER_TRAIL_POINTS];
+    float y[CMUX_WALLPAPER_TRAIL_POINTS];
+    /*
+     Points set, 0..=`CMUX_WALLPAPER_TRAIL_POINTS`.
+     */
+    uint32_t len;
+} CmuxWallpaperTrail;
 
 /*
  The agents' activity in a window (`ActivityState`). Zero it (or call
@@ -260,7 +305,8 @@ const uint8_t *cmux_wallpaper_first_party_source(size_t index, size_t *len);
  First-party wallpaper `index`'s program in Metal Shading Language 2.1,
  translated when the library was built (the library has no shader
  compiler): `vertex vs_main` (a full-screen triangle, 3 vertices) and
- `fragment fs_main`, the 160-byte Frame uniform at buffer index 0 in both.
+ `fragment fs_main`, the Frame uniform (`CMUX_WALLPAPER_FRAME_FLOATS`
+ floats) at buffer index 0 in both.
  Static UTF-8 bytes as above.
 
  # Safety
@@ -303,18 +349,19 @@ uint32_t cmux_wallpaper_gpu_strikes(uint32_t strikes, float gpu_ms);
 
 /*
  The floats in the Frame uniform (`cmux_wallpaper_frame_pack` writes this
- many): the host sizes its buffer from this, never from a number of its
- own, so a Frame that grows cannot overrun it.
+ many, `CMUX_WALLPAPER_FRAME_FLOATS`): the host sizes its buffer from this,
+ never from a number of its own, so a Frame that grows cannot overrun it.
  */
 size_t cmux_wallpaper_frame_floats(void);
 
 /*
- Writes the 40 floats (160 bytes) of the Frame uniform for `input` to
- `out`. False, and nothing written, when either is null.
+ Writes the `CMUX_WALLPAPER_FRAME_FLOATS` floats (4 bytes each) of the
+ Frame uniform for `input` to `out`. False, and nothing written, when
+ either is null.
 
  # Safety
  `input` is null or points to a valid `CmuxWallpaperFrameInput`; `out` is
- null or points to `cmux_wallpaper_frame_floats()` writable floats.
+ null or points to `CMUX_WALLPAPER_FRAME_FLOATS` writable floats.
  */
 bool cmux_wallpaper_frame_pack(const CmuxWallpaperFrameInput *input, float *out);
 
@@ -373,6 +420,39 @@ float cmux_wallpaper_pointer_since_moved(const CmuxWallpaperPointer *state, doub
  `state` is null or points to a valid `CmuxWallpaperPointer`.
  */
 bool cmux_wallpaper_pointer_settled(const CmuxWallpaperPointer *state);
+
+/*
+ Sets `state` to its start (no points).
+
+ # Safety
+ `state` is null or points to a writable `CmuxWallpaperTrail`.
+ */
+void cmux_wallpaper_trail_reset(CmuxWallpaperTrail *state);
+
+/*
+ A pointer move to (`x`, `y`) at time `t` seconds (the values given to
+ `cmux_wallpaper_pointer_update`): the head follows the pointer, and a move
+ 50 ms or more after the newest committed point commits a new one. NaN or
+ infinite values are ignored.
+
+ # Safety
+ `state` is null or points to a valid, writable `CmuxWallpaperTrail`.
+ */
+void cmux_wallpaper_trail_update(CmuxWallpaperTrail *state, float x, float y, double t);
+
+/*
+ Writes `Frame.trail` at time `now` to `out`: `CMUX_WALLPAPER_TRAIL_POINTS`
+ rows of (x, y, age seconds, valid 0/1), newest first, x and y times
+ `scale` (the update's units to the Frame's rendered pixels; 1 when they
+ already are). A point older than 1 s or not set is all zeros. False, and
+ nothing written, when either pointer is null.
+
+ # Safety
+ `state` is null or points to a valid `CmuxWallpaperTrail`; `out` is null or
+ points to `CMUX_WALLPAPER_TRAIL_FLOATS` writable floats
+ (`CmuxWallpaperFrameInput.trail`).
+ */
+bool cmux_wallpaper_trail_rows(const CmuxWallpaperTrail *state, double now, float scale, float *out);
 
 /*
  Sets `state` to its start (no event, level 0).

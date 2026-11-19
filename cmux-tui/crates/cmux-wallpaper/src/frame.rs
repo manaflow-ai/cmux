@@ -1,7 +1,8 @@
 //! The `Frame` uniform (`prelude.wgsl`) and the pointer's smoothing.
 //!
-//! Every field of `Frame` is a `vec4<f32>`, so the layout is the same in
-//! Metal, WGSL and GLSL std140: 10 vec4s, 40 floats, 160 bytes.
+//! Every field of `Frame` is a `vec4<f32>` (or an array of them), so the
+//! layout is the same in Metal, WGSL and GLSL std140: 26 vec4s, 104 floats,
+//! 416 bytes.
 //!
 //! | floats | field | x | y | z | w |
 //! |---|---|---|---|---|---|
@@ -14,11 +15,13 @@
 //! | 24..28 | accent | r | g | b | 1 |
 //! | 28..36 | params | 8 floats in manifest order |
 //! | 36..40 | activity | agent activity (eased 0..1) | seconds since the newest agent event | agent events so far (mod 1024) | 0 |
+//! | 40..104 | trail: 16 rows, newest first ([`TrailState::rows`](crate::trail::TrailState::rows)) | x px | y px | age seconds | valid (0/1) |
 
 use crate::manifest::Manifest;
+use crate::trail::TRAIL_POINTS;
 
 /// Floats in `Frame`.
-pub const FRAME_FLOATS: usize = 40;
+pub const FRAME_FLOATS: usize = 40 + TRAIL_POINTS * 4;
 /// Bytes in `Frame`.
 pub const FRAME_BYTES: usize = FRAME_FLOATS * 4;
 /// `presence.y` and `activity.y` never exceed this (a float stays exact).
@@ -56,6 +59,9 @@ pub struct FrameInput {
     pub since_agent_event: f32,
     /// Agent events so far, mod [`AGENT_EVENT_WRAP`] ([`ActivityState::count`]).
     pub agent_events: f32,
+    /// The pointer's recent path in rendered pixels, newest first
+    /// ([`TrailState::rows`](crate::trail::TrailState::rows)); zeros when the host keeps none.
+    pub trail: [[f32; 4]; TRAIL_POINTS],
 }
 
 fn finite(v: f32) -> f32 {
@@ -66,7 +72,7 @@ fn flag(b: bool) -> f32 {
     if b { 1.0 } else { 0.0 }
 }
 
-/// The 40 floats of `Frame` for `input`. A NaN or infinite input becomes 0,
+/// The [`FRAME_FLOATS`] floats of `Frame` for `input`. A NaN or infinite input becomes 0,
 /// so no frame hands the GPU a NaN.
 pub fn pack_frame(input: &FrameInput) -> [f32; FRAME_FLOATS] {
     let i = input;
@@ -95,9 +101,10 @@ pub fn pack_frame(input: &FrameInput) -> [f32; FRAME_FLOATS] {
             0.0,
         ],
     ];
+    let trail = i.trail.iter().flatten().map(|v| finite(*v));
     let mut out = [0.0; FRAME_FLOATS];
-    for (slot, v) in out.iter_mut().zip(rows.iter().flatten()) {
-        *slot = *v;
+    for (slot, v) in out.iter_mut().zip(rows.iter().flatten().copied().chain(trail)) {
+        *slot = v;
     }
     out
 }
@@ -360,20 +367,22 @@ mod tests {
                 "accent:vec4<f32>",
                 "params:array<vec4<f32>,2>",
                 "activity:vec4<f32>",
+                "trail:array<vec4<f32>,16>",
             ]
         );
-        assert_eq!(FRAME_BYTES, 160);
+        assert_eq!(FRAME_FLOATS, 104);
+        assert_eq!(FRAME_BYTES, 416);
     }
 
     #[cfg(feature = "compile")]
     #[test]
-    fn layout_by_naga_is_160_bytes() {
+    fn layout_by_naga_is_416_bytes() {
         let module = naga::front::wgsl::parse_str(PRELUDE).unwrap();
         let mut layouter = naga::proc::Layouter::default();
         layouter.update(module.to_ctx()).unwrap();
         let (handle, _) =
             module.types.iter().find(|(_, t)| t.name.as_deref() == Some("Frame")).unwrap();
-        assert_eq!(layouter[handle].size, 160);
+        assert_eq!(layouter[handle].size, 416);
     }
 
     #[test]
@@ -402,6 +411,10 @@ mod tests {
             activity: 0.75,
             since_agent_event: 1.5,
             agent_events: 3.0,
+            trail: std::array::from_fn(|r| {
+                let r = f32::from(u8::try_from(r).unwrap());
+                [100.0 + r, 200.0 + r, r * 0.05, 1.0]
+            }),
         };
         let f = pack_frame(&input);
         assert_eq!(&f[0..4], &[1.0, 2.0, 3.0, 1.0]);
@@ -413,6 +426,10 @@ mod tests {
         assert_eq!(&f[24..28], &[0.7, 0.8, 0.9, 1.0]);
         assert_eq!(&f[28..36], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
         assert_eq!(&f[36..40], &[0.75, 1.5, 3.0, 0.0]);
+        assert_eq!(&f[40..44], &[100.0, 200.0, 0.0, 1.0]);
+        assert_eq!(&f[100..104], &[115.0, 215.0, 0.75, 1.0]);
+        // No trail from the host: the rows are zeros.
+        assert!(pack_frame(&FrameInput::default())[40..].iter().all(|v| *v == 0.0));
     }
 
     #[test]
@@ -421,6 +438,7 @@ mod tests {
             time: f32::NAN,
             presence: f32::INFINITY,
             ink: [f32::NAN; 3],
+            trail: [[f32::NAN, f32::INFINITY, 0.0, 1.0]; TRAIL_POINTS],
             ..Default::default()
         };
         assert!(pack_frame(&input).iter().all(|v| v.is_finite()));
