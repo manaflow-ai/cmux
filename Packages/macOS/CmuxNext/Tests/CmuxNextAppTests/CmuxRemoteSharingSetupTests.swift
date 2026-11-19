@@ -491,18 +491,31 @@ struct CmuxRemoteSharingSetupTests {
         #expect(lines.contains("without asking"))
     }
 
-    /// An agent that wrote `"shareWithoutAsking": true` into cmux-next.json itself approves nothing:
-    /// a `true` counts only with this Mac's record of the answered sheet or an MDM-forced value
-    /// (review of #47312, P1). The record is outside the settings file.
-    @Test func aFileOnlyTrueIsNotTheYesUntilTheSheetIsAnswered() throws {
-        let suite = "ssdog-share-consent-\(UUID().uuidString)"
+    /// The standing yes, as `CmuxRemoteShareConsent.holds` decides it (review of #47312, P1 and P2): a `true`
+    /// an agent wrote into cmux-next.json alone approves nothing; this Mac's record of the answered sheet
+    /// or a device MDM force does; a team policy is not the person's yes; off is never a yes.
+    @Test func onlyTheAnsweredSheetOrDeviceMDMMakeTheStandingYes() {
+        #expect(!CmuxRemoteShareConsent.holds(settingOn: true, managed: nil, recorded: false))
+        #expect(CmuxRemoteShareConsent.holds(settingOn: true, managed: nil, recorded: true))
+        #expect(CmuxRemoteShareConsent.holds(settingOn: true, managed: .device, recorded: false))
+        #expect(!CmuxRemoteShareConsent.holds(settingOn: true, managed: .team("t"), recorded: false))
+        #expect(!CmuxRemoteShareConsent.holds(settingOn: false, managed: .device, recorded: true))
+    }
+
+    /// Turning the setting off drops the record, so a later file-only `true` needs the sheet again
+    /// instead of reviving the old yes (review of #47312, P1).
+    @Test func turningTheSettingOffForgetsTheYes() throws {
+        let suite = "ss-share-consent-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        #expect(defaults.object(forKey: CmuxRemoteShareConsent.recordKey) == nil)
+        defaults.set(Date(), forKey: CmuxRemoteShareConsent.recordKey)
 
-        let consent = CmuxRemoteShareConsent.setting({ nil }, defaults: defaults)
-        consent.remember()
+        CmuxRemoteShareConsent.forgetUnlessOn(settingOn: true, defaults: defaults)
         #expect(defaults.object(forKey: CmuxRemoteShareConsent.recordKey) is Date)
+        CmuxRemoteShareConsent.forgetUnlessOn(settingOn: false, defaults: defaults)
+        #expect(defaults.object(forKey: CmuxRemoteShareConsent.recordKey) == nil)
+        #expect(!CmuxRemoteShareConsent.holds(settingOn: true, managed: nil,
+                                               recorded: defaults.object(forKey: CmuxRemoteShareConsent.recordKey) is Date))
     }
 
     @Test func eachGuideStepHasAStableIdentifierAndCancel() {

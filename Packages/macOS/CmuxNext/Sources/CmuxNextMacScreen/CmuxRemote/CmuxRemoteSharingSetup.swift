@@ -195,23 +195,38 @@ extension CmuxRemoteShareConsent {
     /// defaults, outside the settings file (as hang reports keep theirs, HangReportsController).
     nonisolated static let recordKey = "cmux.macScreen.shareWithoutAsking.consentedAt"
 
-    /// `macScreen.shareWithoutAsking` from the app's settings. A `true` counts only when MDM forces
-    /// it or this Mac holds the record the answered sheet wrote: the user-only policy guards
-    /// `settings set`, not the file, so an agent that wrote `true` into cmux-next.json would
-    /// otherwise approve its own share request (review of #47312). A file-only `true` shows the
-    /// sheet once; answering it writes the record.
+    /// Whether the standing yes holds. The setting must be on, and either this Mac's MDM forces it
+    /// (a device profile; a team policy is not the person's yes) or this Mac holds the record of
+    /// the answered sheet. The user-only policy guards `settings set`, not cmux-next.json, so a
+    /// `true` an agent wrote into the file alone never counts (review of #47312).
+    public nonisolated static func holds(settingOn: Bool, managed: ManagedSource?, recorded: Bool) -> Bool {
+        settingOn && (managed == .device || recorded)
+    }
+
+    /// `macScreen.shareWithoutAsking` from the app's settings, with the record in `defaults`.
     public static func setting(_ settings: @escaping @MainActor @Sendable () -> SettingsController?,
                                defaults: UserDefaults = .standard) -> Self {
         Self(given: {
-            guard let settings = settings(), settings.snapshot.macScreen.shareWithoutAsking else { return false }
-            return settings.managedKeys[MacScreenSettings.shareWithoutAskingPath.joined(separator: ".")] != nil
-                || defaults.object(forKey: recordKey) is Date
+            guard let settings = settings() else { return false }
+            return holds(settingOn: settings.snapshot.macScreen.shareWithoutAsking,
+                         managed: settings.managedKeys[MacScreenSettings.shareWithoutAskingPath.joined(separator: ".")],
+                         recorded: defaults.object(forKey: recordKey) is Date)
         }, remember: {
-            defaults.set(Date(), forKey: recordKey)
             guard let settings = settings(),
                   let descriptor = SettingsSchema.descriptor(for: MacScreenSettings.shareWithoutAskingPath) else { return }
-            // task-owner: one settings write after the person answered the Share This Mac sheet
-            Task { try? await settings.setSetting(descriptor, to: .bool(true), by: .user) }
+            // task-owner: one settings write after the person answered the Share This Mac sheet; the record is
+            // written only once the setting is, so a failed write leaves no record.
+            Task {
+                guard (try? await settings.setSetting(descriptor, to: .bool(true), by: .user)) != nil else { return }
+                defaults.set(Date(), forKey: recordKey)
+            }
         })
+    }
+
+    /// Drops the record whenever the setting reads off, from the file, Settings, a reset or an
+    /// agent: a later `true` written into the file then needs the sheet again instead of reviving
+    /// an old yes (review of #47312, P1). Called from every settings snapshot change.
+    public nonisolated static func forgetUnlessOn(settingOn: Bool, defaults: UserDefaults = .standard) {
+        if !settingOn { defaults.removeObject(forKey: recordKey) }
     }
 }
