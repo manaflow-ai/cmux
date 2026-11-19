@@ -81,7 +81,10 @@ const environments = [
 ];
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -118,7 +121,11 @@ beforeEach(async () => {
     native.push([method, params]);
     if (method === "cloud.environment.list") return environments;
     if (method === "cloud.environment.create")
-      return { ...environments[1], id: "env_new", name: (params.environment as { name: string }).name };
+      return {
+        ...environments[1],
+        id: "env_new",
+        name: (params.environment as { name: string }).name,
+      };
     return {};
   });
 });
@@ -128,7 +135,9 @@ afterEach(async () => {
   root = undefined;
   host.replaceChildren();
   (await import("../src/agent-session/acpmux/native")).setNativeHost(undefined);
-  (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({ cloudEnvironments: false });
+  (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({
+    cloudEnvironments: false,
+  });
 });
 
 afterAll(async () => {
@@ -153,11 +162,19 @@ async function mount({ flag, mode, chat: firstChat }: { flag: boolean; mode: "pe
     chatSend = (explicit, retry) => held.forSend(explicit, retry);
     return <ComposerContext {...rest} runMode={{ ...rest.runMode!, environment: held.pick }} />;
   }
-  (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({ cloudEnvironments: flag });
+  (await import("../src/agent-session/acpmux/composerSettings")).setComposerSettings({
+    cloudEnvironments: flag,
+  });
   const props = {
     environments: true,
     stripLayout: "where-machine",
-    summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local", cwd: "/Users/you/src/cmux" },
+    summary: {
+      sessionId: "",
+      harness: "claude",
+      host: "This Mac",
+      hostKind: "local",
+      cwd: "/Users/you/src/cmux",
+    },
     localName: "studio-mac",
     projectChoices: [{ cwd: "/Users/you/src/cmux", label: "cmux" }],
     onProject: () => undefined,
@@ -338,6 +355,10 @@ test("cloud.startChat's payload: Auto and the flag off send today's; a pick goes
 });
 
 test("a failed start retains its environment unless the person picks another target, including Auto", async () => {
+  const { rememberEnvironment } = await import("../src/agent-session/acpmux/cloudEnvironmentChoice");
+  // The menu shows remembered targets after the first pick; both choices must belong to this folder.
+  rememberEnvironment("/Users/you/src/cmux", "env_web");
+  rememberEnvironment("/Users/you/src/cmux", "env_gpu");
   await mount({ flag: true, mode: "cloud", chat: "retry-chat" });
   const { cloudStartKeys, startCloudChat } = await import("../src/agent-session/acpmux/cloudRun");
   const keys = cloudStartKeys();
@@ -351,7 +372,9 @@ test("a failed start retains its environment unless the person picks another tar
   };
   const pick = async (label: string) => {
     await openChip();
-    await act(async () => row(label)!.click());
+    const target = row(label);
+    expect(target).toBeDefined();
+    await act(async () => target!.click());
     await flush();
   };
   await pick("GPU training");
@@ -457,7 +480,11 @@ test("the rows' model: order, the picked one never hidden, Edit names Auto's env
     kind: "environment",
     environment: { id: "z", name: "Z" },
   });
-  const auto = { ...control, current: choice.AUTO_ENVIRONMENT, auto: { id: "env_default", name: "Default" } };
+  const auto = {
+    ...control,
+    current: choice.AUTO_ENVIRONMENT,
+    auto: { id: "env_default", name: "Default" },
+  };
   expect(choice.cloudEnvironmentRows(auto, "Auto").find((row) => row.kind === "edit")).toEqual({
     kind: "edit",
     name: "Default",
@@ -485,5 +512,8 @@ test("the recent list: remembered per folder, most recent first, only environmen
     "env_web",
     "env_gpu",
   ]);
-  expect(choice.autoEnvironment(environments as never)).toEqual({ id: "env_default", name: "Default" });
+  expect(choice.autoEnvironment(environments as never)).toEqual({
+    id: "env_default",
+    name: "Default",
+  });
 });
