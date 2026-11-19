@@ -91,7 +91,7 @@ describe("motion scale", () => {
     expect(finds("a.css", ".a { animation: swipe var(--agent-motion-move,190ms) ease-out both; }")).toEqual([1]);
     // A --cmux-motion-* must be a step, and its fallback that step.
     expect(finds("a.css", ":root { --motion-focus: var(--cmux-motion-focus, 100ms); }")).toEqual([1]);
-    expect(finds("a.css", ":root { --motion-in: var(--cmux-motion-micro, 180ms); }")).toEqual([1]);
+    expect(finds("a.css", ":root { --motion-in: var(--cmux-motion-micro, 180ms); }")).toEqual([1]); // motion-allow: an off-step fallback the scan must catch
   });
 
   test("off-scale Tailwind classes and script durations fail", () => {

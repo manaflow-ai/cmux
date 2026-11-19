@@ -179,7 +179,19 @@ impl Hub {
         let connected = self
             .first_connect(session, &request_id, &card, key.as_deref().map(String::as_str))
             .await;
+        let store = self.mcp_store_dir().await;
+        let kept = self.keep_in_shared_store(
+            &store,
+            session,
+            &card,
+            &scope,
+            &connected,
+            key.as_deref().map(String::as_str),
+        );
         let mut reply = json!({"status": status, "name": name, "scope": scope});
+        if let Some(kept) = kept {
+            reply.set("kept", json!(kept));
+        }
         if let (Value::Object(extra), Some(out)) = (connected, reply.as_object_mut()) {
             out.extend(extra);
         }
@@ -248,6 +260,98 @@ impl Hub {
         result
     }
 
+    /// The machine's store of MCP connections (cmux-mcp-connect `shared`), the one every Chief
+    /// reads: config `mcpStore`, else `$CMUX_MCP_HOME`, else `<acpmux home>/mcp`.
+    pub async fn mcp_store_dir(&self) -> std::path::PathBuf {
+        let configured = self.config.read().await.mcp_store.clone();
+        configured.unwrap_or_else(|| {
+            cmux_mcp_connect::shared::dir(&crate::config::home(), &|k| std::env::var(k).ok())
+        })
+    }
+
+    /// Keeps an approved remote server in the machine's store with the scope the person picked
+    /// (`chat` for this chat, `chief` for the Chief it works for, ...), so the agents that scope
+    /// names have it through `cmux mcp serve`'s `mcp_servers` tool, and a Chief's `mcp` finishes
+    /// a sign-in it needs. Who sees it is `shared::visible`. A key the person typed goes to the
+    /// 0600 secrets file only. A server of that name already there with another URL is left
+    /// alone; one with this URL this chat already sees is kept as it is (it may be wider than
+    /// this card); one it does not see takes this card's scope (the person's latest choice).
+    /// Returns the store's name for it, or None when nothing was kept.
+    fn keep_in_shared_store(
+        &self,
+        dir: &std::path::Path,
+        session: &Session,
+        card: &Value,
+        scope: &str,
+        connected: &Value,
+        key: Option<&str>,
+    ) -> Option<String> {
+        use cmux_mcp_connect::shared;
+        if field(card, "transport").as_str() != Some("remote") {
+            return None;
+        }
+        let chief = shared::chief_of_session(&session.meta().name).map(str::to_owned);
+        let viewer = shared::Viewer::Agent { session: session.id.clone(), chief: chief.clone() };
+        // "This Chief" from a chat no Chief runs is this chat (fail closed, never every Chief).
+        let (scope, owner) = match (scope, chief) {
+            ("chat", _) | ("chief", None) => ("chat", Some(session.id.clone())),
+            ("chief", Some(home)) => ("chief", Some(home)),
+            (other, _) => (other, None),
+        };
+        let state = match field(connected, "connect").as_str() {
+            Some("connected") => "connected",
+            Some("signInNeeded") => "needs sign-in",
+            _ => return None,
+        };
+        let url = field(card, "url").as_str()?;
+        let name = shared::clean_name(field(card, "name").as_str()?);
+        let path = shared::server_path(dir, &name);
+        if let Some(old) =
+            std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        {
+            if old.pointer("/transport/url").and_then(Value::as_str) != Some(url) {
+                return None;
+            }
+            let sees = shared::visible(
+                field(&old, "scope").as_str(),
+                field(&old, "owner").as_str(),
+                &viewer,
+            );
+            // Signed in already (by a Chief or an earlier card) and this chat has it.
+            if sees && *field(&old, "state") == "connected" && state != "connected" {
+                return Some(name);
+            }
+        }
+        let secret_names: Vec<String> = match (key, field(card, "keyName").as_str()) {
+            (Some(_), Some(header)) => vec![header.to_owned()],
+            _ => Vec::new(),
+        };
+        let added_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+        let record = shared::Remote {
+            name: &name,
+            url,
+            publisher: field(card, "publisher").as_str().unwrap_or_default(),
+            verified: *field(card, "verified") == json!(true),
+            added_by: "a cmux chat (connect card)",
+            added_ms,
+            state,
+            scope: Some(scope),
+            owner: owner.as_deref(),
+            secret_names: &secret_names,
+        }
+        .record();
+        if let (Some(value), Some(header)) = (key, field(card, "keyName").as_str()) {
+            let secrets = shared::key_secrets(header, value);
+            write_private(&shared::secrets_path(dir, &name), secrets.to_string().as_bytes())
+                .ok()?;
+        }
+        let text = serde_json::to_vec_pretty(&record).ok()?;
+        write_file(&path, &text, 0o644).ok()?;
+        Some(name)
+    }
+
     /// The person's answer to a connect card. `scope` is theirs (the card's menu); it must be one
     /// of [`SCOPES`].
     pub fn answer_mcp_connect(
@@ -311,5 +415,92 @@ impl McpConnects {
             .unwrap_or_else(|e| e.into_inner())
             .values()
             .any(|p| p.session == session)
+    }
+}
+
+/// Writes `bytes` to `path` through a temporary file and a rename, with `mode`
+/// (the Unix file mode; see [`temp_file_options`] for Windows).
+fn write_file(path: &std::path::Path, bytes: &[u8], mode: u32) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let dir = path.parent().ok_or_else(|| std::io::Error::other("no folder"))?;
+    std::fs::create_dir_all(dir)?;
+    let tmp = dir.join(format!(
+        ".{}.acpmux.{}.tmp",
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("f"),
+        std::process::id()
+    ));
+    let mut f = temp_file_options(mode).open(&tmp)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    std::fs::rename(&tmp, path)
+}
+
+/// How [`write_file`] opens its temporary file: made, or cut to nothing, with `mode`.
+#[cfg(unix)]
+fn temp_file_options(mode: u32) -> std::fs::OpenOptions {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true).mode(mode);
+    options
+}
+/// Windows has no file mode: the file takes the access list of its folder
+/// ([`private_folder`] for a secret's).
+#[cfg(windows)]
+fn temp_file_options(_mode: u32) -> std::fs::OpenOptions {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    options
+}
+
+/// [`write_file`] at 0600 in a 0700 folder (a secret).
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        private_folder(dir)?;
+    }
+    write_file(path, bytes, 0o600)
+}
+
+/// Makes `dir` if it is missing and sets it to 0700.
+#[cfg(unix)]
+fn private_folder(dir: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::create_dir_all(dir)?;
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+}
+/// Windows: the folder gets the owner-only access list (`owner_only.rs`), which a file made in
+/// it takes. The file is not made with a list of its own.
+#[cfg(windows)]
+fn private_folder(dir: &std::path::Path) -> std::io::Result<()> {
+    crate::owner_only::create_dir_all(dir)?;
+    crate::owner_only::restrict(dir)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::{write_file, write_private};
+    use std::os::unix::fs::PermissionsExt as _;
+
+    fn mode(path: &std::path::Path) -> std::io::Result<u32> {
+        Ok(std::fs::metadata(path)?.permissions().mode() & 0o777)
+    }
+
+    #[test]
+    fn mcp_connect_a_secret_is_a_0600_file_in_a_0700_folder() -> std::io::Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let secrets = tmp.path().join("secrets");
+        let secret = secrets.join("a.json");
+        write_private(&secret, b"one")?;
+        // A second write replaces the file and leaves no temporary file beside it.
+        write_private(&secret, b"two")?;
+        assert_eq!(std::fs::read(&secret)?, b"two");
+        assert_eq!(mode(&secret)?, 0o600);
+        assert_eq!(mode(&secrets)?, 0o700);
+        assert_eq!(std::fs::read_dir(&secrets)?.count(), 1);
+        // A record is not a secret. The process's umask can take bits from 0644, never add any.
+        let record = tmp.path().join("servers").join("a.json");
+        write_file(&record, b"{}", 0o644)?;
+        assert_eq!(mode(&record)? & !0o644, 0);
+        assert_eq!(mode(&record)? & 0o600, 0o600);
+        Ok(())
     }
 }
