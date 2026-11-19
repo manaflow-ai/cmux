@@ -115,7 +115,7 @@ class Letters:
     app's socket call, `wait` the helper's wait (predicate, seconds, step)."""
 
     def __init__(self, builder, rpc, wait, pause=time.sleep):
-        self.builder, self.rpc, self.wait, self.pause = builder, rpc, wait, pause
+        self.builder, self.rpc, self.wait, self.pause, self.setup_fields = builder, rpc, wait, pause, []
 
     def notes(self):
         return list((self.rpc("debug.focus") or {}).get("new_tab_key_log") or [])
@@ -170,9 +170,10 @@ class Letters:
             if not focused:
                 raise NotRun("the chat's field did not get the keyboard")
         elif form in ("switch-next", "switch-previous"):
-            self.keys(pane, letter())
-            self.page_tab(workspace, pane)
-            self.keys(pane, letter())
+            for tab in (first, None):  # a letter in each of the 2 tabs; the record says what each field then had
+                tab or self.page_tab(workspace, pane)
+                self.keys(pane, letter())
+                self.setup_fields.append(self.field().get("text"))
             if form == "switch-next":
                 self.select(first)
             return pane, pane, chord(NEXT_TAB if form == "switch-next" else PREVIOUS_TAB, shift=True) + three_keys(SWITCH_WAIT_MS)
@@ -193,7 +194,7 @@ class Letters:
 
     def case(self, form, index):
         """One case in a workspace of its own, which is closed after it: the case's record."""
-        record, workspace = {"form": form, "case": index}, self.builder.new_workspace()
+        record, workspace, self.setup_fields = {"form": form, "case": index}, self.builder.new_workspace(), []
         try:
             if not workspace:
                 raise NotRun("no new workspace")
@@ -229,6 +230,8 @@ class Letters:
         except Exception as error:  # noqa: BLE001  one case that stopped must not lose the other cases
             record["not_run"] = f"the case stopped: {error!r}"
         finally:
+            if self.setup_fields:
+                record["setup_fields"] = self.setup_fields
             if workspace:
                 try:
                     self.builder.action("closeWorkspace", {"confirm": True}, target=f"workspace:{workspace}", focus=False)
@@ -242,7 +245,7 @@ class Letters:
         report, end = {"gap_ms": GAP_MS, "budget_s": budget_s, "forms": [], "cases": []}, now() + budget_s
         late = f"the budget of the letter cases ({budget_s:.0f} s) ended before this case"
         for form in forms:
-            cases = [self.case(form, index) if now() < end else {"form": form, "index": index, "not_run": late} for index in range(count)]
+            cases = [self.case(form, index) if now() < end else {"form": form, "case": index, "not_run": late} for index in range(count)]
             for record in cases:
                 say("HELD-NEW-TAB-LETTER-CASE " + repr(record))
             report["cases"] += cases
