@@ -548,6 +548,7 @@
           "symbol": "flask",
           "groups": [
             {"group": "settings.group.labs", "keys": ["appearance.experimentalControls"]},
+            {"group": "settings.group.experiments"},
             {"group": "settings.group.appearanceTuning"}
           ]
         },

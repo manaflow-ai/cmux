@@ -41,6 +41,11 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     /// `sidePins`); their constants are the main pane's gutter.
     var mainPaneEdges: [NSLayoutConstraint] = []
     private var mainPaneObservation: Task<Void, Never>?
+    /// The glass sidebar experiment (`experiments.glassSidebarExtension`, off by default); its look, which the pins read.
+    private(set) lazy var glassChrome = GlassSidebarChrome(sidebar: sidebar, content: contentHost, root: self, reduceTransparency: reduceTransparency) {
+        [weak self] in self?.glassLook = $0; self?.applyMainPane()
+    }
+    private(set) var glassLook = GlassSidebarLook.off
     let cornerFlush = CornerFlushChrome(frame: .zero)
     let sidebar: SidebarContainerView
     /// The edge the sidebar sits on (`sidebar.side`, R109).
@@ -183,6 +188,7 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
             self?.onMainPaneMove?()
         }
         wireContentAreaMotion()
+        _ = glassChrome // before the first pins: the window opens in its look
         applyMainPane()
         mainPaneObservation = observeMainPane()
         // queue: .main: the workspace center may post off main; a selector
@@ -312,7 +318,8 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
         sidebar.sidebarView.followToolbarBand(windowControls: left, reserve: left ? fullBandMaxX + Metrics.space2 : Metrics.space3, edgeInWindow: left ? bandEdge : nil)
         if presenceChanged { onToolbarBandPresenceChange?() }
         layoutTitlebarReveal(rowHeight: rowHeight, openForwardMaxX: alignedFullBand.minX + toolbarBand.slots().width)
-        sidebarFloat.layout(in: self, rowHeight: rowHeight, sidebarHidden: sidebarHidden, side: sidebarSide, cornerRadius: mainPaneCornerRadius)
+        sidebarFloat.layout(in: self, rowHeight: rowHeight, sidebarHidden: sidebarHidden, side: sidebarSide,
+                            cornerRadius: glassLook.cardRadius(mainPane: mainPaneCornerRadius, windowCornerRadius: window?.frameCornerRadius ?? 0))
         layoutTitlebarAccessories(midY: midY)
     }
 
@@ -443,6 +450,7 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     /// makes the whole window one material with the theme tint over it
     /// (`WindowBackdrop`). Re-run on theme and Reduce Transparency changes.
     func themeDidChange() {
+        glassChrome.apply() // Reduce Transparency extends nothing
         paintBackground()
         updateMainPaneShade()
         if let window { applyBackdrop(to: window) }

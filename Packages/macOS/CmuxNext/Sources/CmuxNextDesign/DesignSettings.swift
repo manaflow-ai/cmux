@@ -308,6 +308,10 @@ public final class DesignSettings {
     /// `appearance.chromeStyle`: the window look whose defaults the finer
     /// keys refine (`ChromeStyle`).
     public var chromeStyle: ChromeStyle = .default
+    /// `experiments.glassSidebarExtension` (Settings > Experimental > Experiments, off by default): the sidebar is an
+    /// inset glass panel, the active pane's content extends blurred under it, and the top-left controls float as
+    /// glass over full-bleed panes (``GlassSidebarExtension``).
+    public var glassSidebarExtension = false
     /// `appearance.titleAreaContrast`: how strongly the chrome around the content (the titlebar, the tab
     /// row and the sidebar) is shaded, as a share of the theme's shade
     /// (``Metrics/mainPaneChromeShade(isDark:)``). 1, the default, is the shade as it was; lower is softer.

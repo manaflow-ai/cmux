@@ -101,12 +101,14 @@ extension WindowRootView {
     // @intent familiar first (Lawrence 2026-10-14): a margin on every side of the main pane, as in
     // Helium, the sidebar's side too.
     func applyMainPane() {
-        let gutter = Metrics.mainPaneGutter, top = mainPaneTopInset, edge = Metrics.windowEdgeInset(gutter, in: window)
+        // The glass sidebar experiment runs the panes full-bleed: no gap beside the sidebar's card or at the edges.
+        let bleed = glassLook.fullBleed, gutter = bleed ? 0 : Metrics.mainPaneGutter, top = mainPaneTopInset
+        let edge = bleed ? 0 : Metrics.windowEdgeInset(gutter, in: window), sidebarGap = bleed ? 0 : CornerFlush.current.sidebarGap ?? gutter
         for constraints in sidePins.values {
             for constraint in constraints where constraint.firstItem === contentHost {
                 switch constraint.firstAttribute {
-                case .leading: constraint.constant = constraint.secondItem !== self ? CornerFlush.current.sidebarGap ?? gutter : edge
-                case .trailing: constraint.constant = constraint.secondItem !== self ? -(CornerFlush.current.sidebarGap ?? gutter) : -edge
+                case .leading: constraint.constant = constraint.secondItem !== self ? sidebarGap : edge
+                case .trailing: constraint.constant = constraint.secondItem !== self ? -sidebarGap : -edge
                 default: break
                 }
             }
@@ -126,14 +128,14 @@ extension WindowRootView {
     /// The main pane's corner radius in this window: concentric with the
     /// window's own corners, which change with fullscreen.
     var mainPaneCornerRadius: CGFloat {
-        Metrics.mainPaneCornerRadius(windowCornerRadius: window?.frameCornerRadius ?? 0)
+        glassLook.fullBleed ? 0 : Metrics.mainPaneCornerRadius(windowCornerRadius: window?.frameCornerRadius ?? 0)
     }
 
     /// The card's top inset: under a minimal titlebar the top row's pills sit on the traffic
     /// lights' line, and with tab bars at the bottom the card clears the lights when no sidebar
     /// is under them (`WindowTitlebar.cardTopInset`).
     var mainPaneTopInset: CGFloat {
-        let gutter = Metrics.mainPaneGutter
+        let gutter = glassLook.fullBleed ? 0 : Metrics.mainPaneGutter
         // The sidebar's state, not the card's frame mid-slide: the inset changes once per toggle.
         let sidebarHoldsLights = sidebarSide == .left && !sidebarHidden && !sidebar.isHidden
         let clears = DesignSettings.shared.tabBarPosition == .bottom && !sidebarHoldsLights

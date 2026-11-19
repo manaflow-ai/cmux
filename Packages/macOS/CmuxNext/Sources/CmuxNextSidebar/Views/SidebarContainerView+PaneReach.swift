@@ -15,8 +15,9 @@ extension SidebarContainerView {
     }
 
     /// Rail content is an overlay and does not take space from the pane.
-    /// The float is a card of its own, inset from the window edges: it reaches no gutter either.
-    public var paneReach: CGFloat { model.style == .rail || isFloatOverlay || model.isFloating ? 0 : Self.paneReach }
+    /// The float (and the docked glass card) is a card of its own, inset from the window edges: it reaches no gutter
+    /// either.
+    public var paneReach: CGFloat { model.style == .rail || showsCardLook || model.isFloating ? 0 : Self.paneReach }
 
     /// Keeps the curved-card edge line in the titlebar band, above the card: the row-to-card gap
     /// stays plain sidebar background, and flat styles keep the full-height line. A shaded chrome

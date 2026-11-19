@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-19 (lane/taste-glass-sidebar): Sidebar-Look: Leo, 2026-11-19, on the taste builds: "we might as well just
+  build out a bunch that are really promising and just see how they fare, like without waiting." Settings >
+  Experimental > Experiments > Glass Sidebar (`experiments.glassSidebarExtension`, off by default): the docked sidebar
+  takes the floating sidebar's glass card (`SidebarContainerView.glassDocked`), inset by the main pane gutter with
+  corners concentric with the window's; the panes run full-bleed; on macOS 26 the main pane sits in an
+  `NSBackgroundExtensionView` so its content extends mirrored and blurred under the card (`GlassSidebarChrome`,
+  `ContentBackgroundExtension`). Debug `chrome.glassSidebar.variant`: extended (default), glassOnly, flush. Off, the
+  sidebar's views and pins are as before. Regression: `GlassSidebarLookTests`.
+
 - 2026-11-18 (a590, hover card grid base red): Sidebar-Look: the workspace hover card's tab rows line up with its
   header again, icons on one column and text on one edge, as before #44449. d8917c9 (#44449) scaled every density
   from Default by one factor, so the card's padding (7.5 pt), its icon-to-text gap and the tab rows' fill outset

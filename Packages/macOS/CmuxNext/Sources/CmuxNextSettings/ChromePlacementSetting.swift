@@ -54,6 +54,7 @@ extension SettingsApplier {
         if design.browserShowsLoadingBar != snapshot.browserShowLoadingBar { design.browserShowsLoadingBar = snapshot.browserShowLoadingBar }
         if design.paneBackgrounds != snapshot.paneBackgrounds { design.paneBackgrounds = snapshot.paneBackgrounds }
         applyChromeStyle(snapshot, to: design)
+        applyGlassSidebarExtension(snapshot, to: design)
         applySidebarSurface(snapshot, to: design)
         applyTitleAreaContrast(snapshot, to: design)
         applyTitleAreaTone(snapshot, to: design)

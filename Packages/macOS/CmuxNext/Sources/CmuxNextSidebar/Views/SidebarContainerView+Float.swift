@@ -13,30 +13,36 @@ extension SidebarContainerView {
     /// so the card and the pane card sit the same distance from the window.
     public static var floatInset: CGFloat { Metrics.mainPaneGutter }
 
-    /// The width the container is at or animating to: the model's, plus the inset while floating.
-    var floatTargetWidth: CGFloat { model.displayWidth + (model.isFloating ? Self.floatInset : 0) }
+    /// The width the container is at or animating to: the model's, plus the inset while floating or docked as
+    /// glass (none once hidden, so a hidden docked sidebar leaves no strip).
+    var floatTargetWidth: CGFloat {
+        if model.isFloating { return model.displayWidth + Self.floatInset }
+        return model.displayWidth + (glassDocked && model.displayWidth > 0 ? glassDockedInset : 0)
+    }
 
-    /// Sets the card look on or off for ``isFloatOverlay``: the panel inset and rounded, the clip
-    /// unclipped so the shadow shows (the window's own edge hides the card while it slides in).
+    /// Sets the card look on or off for ``isFloatOverlay`` (or ``glassDocked``): the panel inset and rounded, the
+    /// clip unclipped so the shadow shows (the window's own edge hides the card while it slides in). A flush docked
+    /// card (inset 0) is square and casts no shadow.
     func applyFloatLook() {
-        let on = isFloatOverlay
-        let inset = on ? Self.floatInset : 0
+        let on = showsCardLook
+        let inset = isFloatOverlay ? Self.floatInset : glassDocked ? glassDockedInset : 0
+        let radius = on && inset > 0 ? floatCornerRadius : 0
         panelTop.constant = inset
         panelBottom.constant = -inset
         panel.wantsLayer = true
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let layer = panel.layer {
-            layer.cornerRadius = on ? floatCornerRadius : 0
+            layer.cornerRadius = radius
             layer.cornerCurve = .circular
             layer.masksToBounds = on
         }
         clipLayer?.masksToBounds = !on
-        floatShadowLayer.isHidden = !on
+        floatShadowLayer.isHidden = !on || radius == 0
         CATransaction.commit()
         mountFloatGlass()
         floatGlass.isHidden = !on
-        floatGlass.cornerRadius = on ? floatCornerRadius : 0
+        floatGlass.cornerRadius = radius
         applySurfaceFill()
         syncHandleVisibility()
         needsLayout = true
@@ -60,13 +66,13 @@ extension SidebarContainerView {
         set {
             guard floatCornerRadiusValue != newValue else { return }
             floatCornerRadiusValue = newValue
-            if isFloatOverlay { applyFloatLook() }
+            if showsCardLook { applyFloatLook() }
         }
     }
 
     /// Shapes the shadow to the card's rect (the panel's frame in the clip).
     func layoutFloatShadow() {
-        guard isFloatOverlay, let clipLayer else { return }
+        guard showsCardLook, let clipLayer else { return }
         let shadow = floatShadowLayer
         if shadow.superlayer !== clipLayer {
             let elevation = PopupStyle.standard.elevation

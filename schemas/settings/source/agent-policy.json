@@ -456,6 +456,13 @@
     },
     {
       "agent": "settable",
+      "why": "Experiments: looks the person can turn off again (experiments.*).",
+      "keys": [
+        "experiments.glassSidebarExtension"
+      ]
+    },
+    {
+      "agent": "settable",
       "why": "Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).",
       "keys": [
         "home.channelsEnabled"
