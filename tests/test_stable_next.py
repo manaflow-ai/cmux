@@ -89,6 +89,18 @@ class Pick(unittest.TestCase):
         with self.assertRaises(stable_next.Refused):
             stable_next.pick(feed(item(300)), None, set(), lambda b: None, None, {300})
 
+    def test_takes_the_newest_build_whose_release_notes_are_published(self):
+        """notes/4424316677601.json was never published: plan failed on every tick of 2026-11-17's night."""
+        has = {300: False, 200: True, 100: True}.get
+        result = stable_next.pick(feed(item(300), item(200), item(100)), None, set(), lambda b: None, None, has_notes=has)
+        self.assertEqual(result["build"], "200")
+        self.assertEqual(result["passed_without_notes"], "300")
+        self.assertEqual(stable_next.pick(feed(item(300)), None, set(), lambda b: None, None)["passed_without_notes"], "")
+        with self.assertRaises(stable_next.Refused):
+            stable_next.pick(feed(item(300)), None, set(), lambda b: None, None, has_notes=lambda b: False)
+        with self.assertRaises(stable_next.Refused):
+            stable_next.pick(feed(item(300), item(200)), None, set(), lambda b: None, 300, has_notes=has)
+
     def test_an_explicit_build_must_be_on_the_feed(self):
         self.assertEqual(stable_next.pick(feed(item(200), item(100)), None, set(), lambda b: None, 100)["build"], "100")
         with self.assertRaises(stable_next.Refused):
