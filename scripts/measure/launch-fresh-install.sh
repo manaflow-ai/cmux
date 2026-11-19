@@ -26,6 +26,9 @@
 #   t   as s, the stapled notarization ticket removed (Contents/CodeResources: outside the code signature's seal, so
 #       the signature still verifies and the check must find the ticket another way)
 #   v   as s, quarantined and the ticket removed (a download whose ticket is not stapled)
+#       With no stapled ticket the system may ask Apple's ticket service online: every launch records network (online
+#       when that service answered within 3 s just before it, else offline). This harness cannot block the network
+#       (that needs root beyond the fleet's sudo), so an offline arm needs a host with no route out.
 #   r   as s, then the same copy exec'd again: the row is the second launch (first_main_start is the first's), which
 #       says whether the check is paid once per copy
 # Each launch also records the copy's size (app_kb), file count (app_files), Mach-O count (app_macho) and whether a
@@ -126,7 +129,8 @@ for name in dict.fromkeys(r["row"] for r in rows):
              "prompted": sum(1 for r in runs if isinstance(r.get("prompt"), (int, float))),
              # Launches that started with an unanswered prompt of an earlier launch on screen, and that left one.
              "prompts_before": sum(1 for r in runs if r.get("prompts_before")),
-             "prompt_left": sum(1 for r in runs if r.get("prompt_left"))}
+             "prompt_left": sum(1 for r in runs if r.get("prompt_left")),
+             "online": sum(1 for r in runs if r.get("network") == "online")}
     for key in ("prompt", "prompt_gone", "start", "main", "window", "usable", "main_start",
                 "syspolicyd_ms", "xprotect_ms", "amfid_ms", "trustd_ms", "mount_ms", "prepare_checker_ms", "prewarm_ms",
                 "spawn_ms", "resume_to_main", "request_to_start", "stub_main", "resume_to_stub_main", "stub_main_to_main",
@@ -300,6 +304,8 @@ first() {
     rm -f "$app/Contents/CodeResources" && ticket=removed
   fi
   [[ "$name" == u || "$name" == v ]] && xattr -r -w com.apple.quarantine "0083;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$app"
+  local network=offline
+  curl -s -o /dev/null -m 3 https://api.apple-cloudkit.com/ && network=online
   app_kb="$(du -sk "$app" | cut -f1)"
   app_files="$(find "$app" -type f | wc -l | tr -d ' ')"
   app_macho="$(find "$app" -type f -perm -u+x -print0 | xargs -0 file -b 2>/dev/null | grep -c 'Mach-O')"
@@ -366,9 +372,9 @@ r.update(row=sys.argv[1], rep=sys.argv[2] if sys.argv[2] == "T" else int(sys.arg
          quarantine_before=sys.argv[6], quarantine_after=sys.argv[7], framework_quarantine=sys.argv[8], load=float(sys.argv[9]),
          mounted_by=sys.argv[10], mount_ms=json.loads(sys.argv[11]), prewarm_ms=json.loads(sys.argv[12]),
          prepare_checker_ms=int(sys.argv[13]), ticket=sys.argv[14], app_kb=int(sys.argv[15]), app_files=int(sys.argv[16]),
-         app_macho=int(sys.argv[17]), first_main_start=json.loads(sys.argv[18]))
+         app_macho=int(sys.argv[17]), first_main_start=json.loads(sys.argv[18]), network=sys.argv[19])
 print(json.dumps(r, sort_keys=True))' "$name" "$rep" "$copied_by" "$cpu_before" "$cpu_after" "$before" "$after" "$fwq" "$(load1)" \
-    "$mounted_by" "$mount_ms" "$prewarm_ms" "$prepare_checker_ms" "$ticket" "$app_kb" "$app_files" "$app_macho" "$first_main")"
+    "$mounted_by" "$mount_ms" "$prewarm_ms" "$prepare_checker_ms" "$ticket" "$app_kb" "$app_files" "$app_macho" "$first_main" "$network")"
   echo "LF-RUN $json"
   # Every process this copy left (the app, its helpers, the daemons a quit keeps), from the copy or where it ran
   # translocated.
