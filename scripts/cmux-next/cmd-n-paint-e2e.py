@@ -42,12 +42,15 @@ bench. The quick and cold openings are reported, not judged: the exit status is 
 `--screen` is another use of the same app and keys, with no judgement and none of the openings above: each key
 alone, and each key a set time after another key, as the screen showed it frame by frame, in a session of
 `--workspaces` workspaces (new_surface_screen.py has its arguments and its report). The recording is then
-`--duration-ms` 2000 long unless that is given.
+`--duration-ms` 2000 long unless that is given. With `w` in `--keys`, the mode also records the Close Tab key
+(Command-W): alone, a set time after a New Tab key, and the same time after a hold of the New Tab key
+(`--close-cases`).
 
 Usage: cmd-n-paint-e2e.py (--socket <path> | --app PATH --tag TAG) [--runs 3] [--keys n,t] [--out DIR] [--cold] [--split N]
        [--arms warm,quick,cold] [--quick-runs 3] [--cold-runs 3] [--json FILE]
-       cmd-n-paint-e2e.py (--socket <path> | --app PATH --tag TAG) --screen [--runs 3] [--keys n,t] [--gaps 0,100]
+       cmd-n-paint-e2e.py (--socket <path> | --app PATH --tag TAG) --screen [--runs 3] [--keys n,t[,w]] [--gaps 0,100]
        [--workspaces N] [--live-shells 8] [--duration-ms 2000] [--page-watch 3] [--json FILE] [--screen-tgz FILE]
+       [--close-cases idle,key,hold] [--close-gap-ms 100] [--hold-keys 6] [--hold-delay-ms 375] [--hold-repeat-ms 90]
 """
 import argparse, atexit, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
@@ -78,8 +81,9 @@ opts = parser.parse_args()
 if opts.screen and "--screen" not in sys.argv:
     parser.error("--screen: write the flag whole (the mode's module and arguments are read by that word)")
 if opts.screen and new_surface_screen.openings(opts) > new_surface_screen.OPENINGS_LIMIT:
-    parser.error(f"--screen: {new_surface_screen.openings(opts)} openings asked (--runs for each key and gap, two with a gap); "
-                 f"at most {new_surface_screen.OPENINGS_LIMIT} in one run: the app keeps its newest 64 opening records")
+    parser.error(f"--screen: {new_surface_screen.openings(opts)} opening records can come in one recording (2 for each New Tab or "
+                 f"New Workspace key of it: --gaps, --hold-keys); at most {new_surface_screen.OPENINGS_LIMIT}: the app keeps its "
+                 "newest 64 opening records, and the tool counts a recording's new ones in that list")
 if opts.duration_ms is None:
     opts.duration_ms = 2000 if opts.screen else 700
 ARMS = [a for a in opts.arms.split(",") if a]

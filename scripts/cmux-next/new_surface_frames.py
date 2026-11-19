@@ -100,6 +100,20 @@ went back to the picture before the key after its first change (that change was 
 recording ended less than `settle_ms` after `content_first`: nobody could say that nothing changed in that time.
 
 `content_first` is chat_open_frames.py's first content frame (a click on a chat's row), for a key.
+
+A Close Tab key (`w`; `close_of`, with the pane's tabs before and after the keys). The same frames, read for a
+close: the picture before is the one at the Close Tab key, the content region's first change is the frame in which
+the closed tab's content is gone (`content_gone`: a blank frame counts), `content_final` is the frame from which
+the content of the tab that shows stays (`content_shown`), and the strip's first change is `strip_first`; `order`
+says which of the two changed first, in frames. Which tab closed and which tab shows come from the app's list of
+the pane's tabs, by the tabs' ids and places, not from the pictures. The key has no opening mark, so its zero is
+only the reply's `before_send_ms`. What a close's row does not see: two tabs with one picture (a New Tab page
+after a New Tab page) leave the content region with no change, and the row then says so and has no
+`content_gone` (the reader's `content:` reason for an opening is then no fault: `not_a_fault_for_a_close`); with
+New Tab keys before the Close Tab key in the same recording, a change of a New Tab key that still runs at the
+Close Tab key is taken as the Close Tab key's (`new_tab_change_can_be_in_the_frames`), and the app's marks give
+the true time between the keys only for the New Tab keys that went in after the recording's start
+(`new_tab_marks_before_ms`: each `newTab.open` mark's start before the Close Tab key went in).
 """
 import math
 
@@ -543,3 +557,128 @@ def cell(summary):
             f"the key's own work p50 {work['p50'] if work else 'n/a'} ms max {work['max'] if work else 'n/a'}; "
             f"blank {summary['blank_frames']}; caret rows {summary['blinks']}"
             + ("" if not zeros else f"; zero: {zeros[0]}" if len(zeros) == 1 else f"; ROWS OF {len(zeros)} ZEROS (their times are not one table): {' / '.join(zeros)}"))
+
+
+NEW_TAB_MARK, CLOSE_MARK = "newTab.open", "closeLocalTab"  # one for each opening of a New Tab key; one for each closed local tab
+
+
+def _shows(before, after, closed, left, new_tab_keys):
+    """The tab that shows after a Close Tab key, by its place: from the closed tab for a key alone, and against
+    the New Tab keys of the recording when there are some. `left`: the tabs of `after` that `before` had not."""
+    shown, old = after.get("selected"), [tab["id"] for tab in before["tabs"]]
+    if shown is None:
+        return "not known: the app names no shown tab"
+    if new_tab_keys:
+        if shown in left:
+            return f"a new tab of the recording (place {left.index(shown) + 1} of the {len(left)} that are left, from the left)"
+        return "the tab that was shown before the New Tab keys" if shown == before.get("selected") else "another tab that was there before the New Tab keys"
+    if not closed:
+        return "no tab closed"
+    if not closed[0]["was_shown"]:
+        return ("the tab that was shown before the key (the closed tab was not the shown one)" if shown == before.get("selected")
+                else "another tab than the one shown before the key (the closed tab was not the shown one)")
+    if shown not in old:
+        return "a tab that was not there before the key"
+    places = old.index(shown) - closed[0]["index"]
+    side = "left" if places < 0 else "right"
+    return f"the tab to the {side} of the closed tab" if abs(places) == 1 else f"another tab ({abs(places)} places to the {side} of the closed tab)"
+
+
+def close_of(row, spans, before, after, new_tab_keys=0):
+    """One Close Tab key's facts (the module doc), from `row` (`one_key` of its recording), the recording's marks
+    and the pane's tabs before the keys and after them (`{"tabs": [{"id", "kind"}], "selected": id}`, or None when
+    the app did not list them). `new_tab_keys`: the New Tab key-downs that the tool sent before the Close Tab key.
+    Returns (the fact, the INVALID reasons). A close of a tab that nobody expected, and a tab that shows that
+    nobody expected, are facts and no fault: the proof of the input is the count of tabs and the marks."""
+    regions = row.get("regions") or {}
+    content, strip, work = regions.get("content") or {}, regions.get("strip"), row.get("key_work_ms") or 0.0
+    gone, moved = content.get("first"), (strip or {}).get("first")
+    # Each `newTab.open` mark's start, in ms before the time at which the Close Tab key went in (below 0: after it).
+    marks = sorted((round(-(span["ms"] + work), 1) for span in spans or [] if span.get("name") == NEW_TAB_MARK and _number(span.get("ms"))), reverse=True)
+    earlier = [mark for mark in marks if mark >= 0]
+    if strip is None:
+        order = "not known: the rows carry no strip numbers"
+    elif not gone:
+        order = "the strip changed and the content area did not (one picture before and after the key)" if moved else "neither the strip nor the content area changed"
+    elif not moved:
+        order = "the content area changed and the strip did not"
+    elif moved["frame"] == gone["frame"]:
+        order = "the strip and the content area changed in the same frame"
+    else:
+        order = f"the strip changed {abs(moved['frame'] - gone['frame'])} frames {'before' if moved['frame'] < gone['frame'] else 'after'} the content area"
+    fact = {"new_tab_keys": new_tab_keys, "new_tab_marks_before_ms": earlier, "last_new_tab_key_before_ms": min(earlier, default=None),
+            "close_marks_ms": [round(span["ms"] + work, 1) for span in spans or [] if span.get("name") == CLOSE_MARK and _number(span.get("ms"))],
+            "content_gone": gone, "content_shown": row.get("content_final") if gone else None, "strip_first": moved,
+            "content_between_frames": content.get("between_frames"), "blank_frames": row.get("blank_frames"), "order": order,
+            "new_tab_change_can_be_in_the_frames": new_tab_keys > 0,
+            # The reader's reason for an OPENING with no new content: a close between two tabs of one picture has none.
+            "not_a_fault_for_a_close": [reason for reason in row.get("invalid") or [] if reason.startswith("content: ")]}
+    faults = []
+    if new_tab_keys and not earlier:
+        faults.append("input: no `newTab.open` mark in the recording before the Close Tab key went in: the last New Tab key did not open "
+                      "a tab in the recording, or it went in before the recording's start")
+    if marks and marks[-1] < 0:
+        faults.append(f"input: a `newTab.open` mark starts {-marks[-1]:g} ms after the Close Tab key went in: a New Tab key was not before it")
+    if not before or not after:
+        which = "before and after" if not before and not after else "before" if not before else "after"
+        return fact, [f"tabs: the app did not list the pane's tabs {which} the keys (`debug.focus`): which tab closed and which tab shows is not known"] + faults
+    old, now = [tab["id"] for tab in before["tabs"]], [tab["id"] for tab in after["tabs"]]
+    closed = [{"id": tab["id"], "kind": tab.get("kind"), "index": index, "was_shown": tab["id"] == before.get("selected")}
+              for index, tab in enumerate(before["tabs"]) if tab["id"] not in now]
+    left = [name for name in now if name not in old]
+    closed_new = max(0, new_tab_keys - len(left))
+    if new_tab_keys:
+        closed_is = (f"a tab that was there before the New Tab keys ({closed[0]['kind']})" if closed
+                     else "a new tab of the recording" if closed_new else "no tab")
+    else:
+        closed_is = "no tab" if not closed else f"{'the shown tab' if closed[0]['was_shown'] else 'a tab that was not the shown one'} ({closed[0]['kind']})"
+    if len(closed) > 1:
+        closed_is = f"{len(closed)} tabs that were there before the key"
+    shown = next(({"id": tab["id"], "kind": tab.get("kind"), "index": index} for index, tab in enumerate(after["tabs"])
+                  if tab["id"] == after.get("selected")), {"id": after.get("selected"), "kind": None, "index": None})
+    fact.update({"tabs_before": len(old), "tabs_after": len(now), "closed": closed, "closed_is": closed_is, "new_tabs_left": len(left),
+                 "closed_new_tabs": closed_new, "shown_before": before.get("selected"),
+                 "shown_after": {**shown, "of": len(now), "is": _shows(before, after, closed, left, new_tab_keys)}})
+    expected = len(old) + new_tab_keys - 1
+    if len(now) != expected:
+        faults.insert(0, f"input: {new_tab_keys} New Tab key-downs and 1 Close Tab key sent: the pane had {len(old)} tabs before them and has "
+                         f"{len(now)} after them ({expected} is the count for one tab opened by each key-down and one tab closed)")
+    return fact, faults
+
+
+def close_summary(rows):
+    """One Close Tab case: over its VALID rows, how many times each tab showed and each kind of tab closed, and
+    p50 and max of the close's frames."""
+    facts = [row["close_tab"] for row in rows if not row.get("invalid") and row.get("close_tab")]
+
+    def counted(values):
+        out = {}
+        for value in values:
+            out[value] = out.get(value, 0) + 1
+        return out
+
+    out = {"n": len(rows), "valid": len(facts), "shows": counted((fact.get("shown_after") or {}).get("is") or "not known" for fact in facts),
+           "closed": counted(fact.get("closed_is") or "not known" for fact in facts), "order": counted(fact["order"] for fact in facts),
+           "content_did_not_change": sum(1 for fact in facts if not fact["content_gone"]),
+           "blank_frames": _spread([fact.get("blank_frames") for fact in facts]),
+           "content_between_frames": _spread([fact.get("content_between_frames") for fact in facts]),
+           "last_new_tab_key_before_ms": _spread([fact.get("last_new_tab_key_before_ms") for fact in facts])}
+    for name in ("content_gone", "content_shown", "strip_first"):
+        out[name] = {unit: _spread([(fact.get(name) or {}).get(unit) for fact in facts]) for unit in ("frame", "ms")}
+    return out
+
+
+def close_cell(summary):
+    def said(name):
+        frames, ms = summary[name]["frame"], summary[name]["ms"]
+        return "none" if not frames else f"frame {frames['p50']:g} (max {frames['max']:g}), {ms['p50']:g} ms (max {ms['max']:g})"
+
+    def each(name):
+        return ", ".join(f"{what} {count}/{summary['valid']}" for what, count in summary[name].items()) or "no valid row"
+    blank, between, gap = summary["blank_frames"], summary["content_between_frames"], summary["last_new_tab_key_before_ms"]
+    return (f"; CLOSE TAB, over the {summary['valid']} valid rows: closed: {each('closed')}; shows after the close: {each('shows')}; "
+            f"closed tab's content gone {said('content_gone')}; content of the tab that shows final {said('content_shown')}; "
+            f"strip's first change {said('strip_first')}; order: {each('order')}; the content area did not change in "
+            f"{summary['content_did_not_change']} rows; blank frames p50 {blank['p50'] if blank else 'n/a'} max {blank['max'] if blank else 'n/a'}; "
+            f"content frames at neither picture p50 {between['p50'] if between else 'n/a'} max {between['max'] if between else 'n/a'}"
+            + ("" if not gap else f"; the last New Tab key's mark before the Close Tab key p50 {gap['p50']:g} ms max {gap['max']:g}"))
