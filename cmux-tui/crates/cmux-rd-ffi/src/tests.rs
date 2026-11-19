@@ -371,7 +371,8 @@ fn a_panic_poisons_only_that_receiver() {
     let other = receiver(CMUX_RD_CARRIER_DATAGRAM);
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
-    let rc = with_receiver(r.0, |_| panic!("boom"));
+    // SAFETY: a live receiver from cmux_rd_receiver_new; this test is its only user.
+    let rc = unsafe { with_receiver(r.0, |_| panic!("boom")) };
     std::panic::set_hook(hook);
     assert_eq!(rc, CMUX_RD_ERR_PANIC);
     // SAFETY: live (poisoned) receiver.

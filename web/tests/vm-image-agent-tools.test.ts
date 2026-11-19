@@ -11,17 +11,9 @@ import {
   a11yRuntimeDir,
   a11yScript,
   a11yTemplateUnit,
-  AGENT_DISPLAY_SIZE,
   AGENT_TOOLS_BIN,
   AGENT_XAUTHORITY,
   agentXauthority,
-  DESKTOP_CHECK_SCRIPT,
-  DESKTOP_CHECK_SECONDS,
-  DESKTOP_SESSION_SCRIPT,
-  DESKTOP_SESSION_UNIT,
-  desktopCheckScript,
-  desktopSessionScript,
-  desktopSessionUnit,
   DISPLAY_TEMPLATE_UNIT,
   displayTemplateUnit,
   ROOT_PROPERTY_SCRIPT,
@@ -59,6 +51,14 @@ import {
   rdStartScript,
   rdTmpfiles,
   rdUnit,
+  AGENT_DISPLAY_SIZE,
+  DESKTOP_CHECK_SCRIPT,
+  DESKTOP_CHECK_SECONDS,
+  DESKTOP_SESSION_SCRIPT,
+  DESKTOP_SESSION_UNIT,
+  desktopCheckScript,
+  desktopSessionScript,
+  desktopSessionUnit,
 } from "../scripts/cmux-vm-image/agent-tools";
 import { bakeOptionsFromArgv, daemonUnit, desktopRecord, refusedFirstUsePackages } from "../scripts/cmux-vm-image/bake";
 import { CURRENT_BIN, type InputsLock, type LockedProgram, readInputsLock, rolesManifest, storeEntry } from "../scripts/cmux-vm-image/lock";
@@ -168,16 +168,17 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     for (const file of agentToolsFiles(rdLock).filter((f) => f.path.endsWith("cmux-cua"))) await bashSyntax(file.text);
     const phases = browserRoleBakePhases(lock);
     expect(phases.map((p) => p.name)).toEqual([
-      "agent-tools-browser-apt-update",
+      "agent-tools-browser-apt-fetch",
       "agent-tools-browser-apt-install",
       "agent-tools-browser-program-chrome-for-testing",
       "agent-tools-browser-program-cmux-browser-host",
+      "agent-tools-display-wm-apt-fetch",
       "agent-tools-display-wm-apt-install",
       "agent-tools-browser-lists",
     ]);
-    // The desktop session's closure, pinned from the lock like the browser's.
-    const wm = phases.find((p) => p.name === "agent-tools-display-wm-apt-install")!.command;
-    for (const [name, version] of Object.entries(lock.apt.ubuntu.firstUse["display-wm"])) expect(wm).toContain(`'${name}=${version}'`);
+    // The desktop session's closure, pinned from the lock like the browser's: each .deb by its locked sha256.
+    const wm = phases.find((p) => p.name === "agent-tools-display-wm-apt-fetch")!.command;
+    for (const [name, version] of Object.entries(lock.apt.ubuntu.firstUse["display-wm"])) expect(wm).toContain(lock.apt.ubuntu.debs[`${name}=${version}`]!.sha256);
     expect(lock.roles["display-wm"].apt).toEqual(["openbox", "xterm"]);
     for (const phase of phases) await bashSyntax(phase.command);
     await bashSyntax(staticCheckCommand());
@@ -218,7 +219,7 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     for (const word of ["claude-token-file", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "anthropic-oauth"]) expect(source).not.toContain(word);
     const base = ["bun", "probe.ts", "--snapshot", "sh-1", "--tag", "t"];
     const parsed = probeOptionsFromArgv(base);
-    expect({ ...parsed, outDir: typeof parsed.outDir }).toEqual({ snapshotId: "sh-1", tag: "t", vmId: undefined, modelRoute: "none", outDir: "string" });
+    expect({ ...parsed, outDir: typeof parsed.outDir }).toEqual({ snapshotId: "sh-1", tag: "t", vmId: undefined, modelRoute: "none", outDir: "string", baseline: "none" });
     for (const flag of ["--claude-token-file", "--token-file", "--credentials", "--anthropic-key-file"]) expect(() => probeOptionsFromArgv([...base, flag, "/x"])).toThrow();
   });
 
