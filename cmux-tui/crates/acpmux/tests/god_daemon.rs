@@ -271,7 +271,9 @@ struct Rpc {
 /// its connection's fan-out dropped instead (`_acpmux/lagged`'s `dropped`): the hub's broadcast
 /// holds 8,192 events, and 26 lists of 400 rows announced at once overrun it. A client that asked
 /// for peer row batches (`peerRowBatches`) reads one `_acpmux/peer_rows_changed` per list instead
-/// (`batches`).
+/// (`batches`). Its fan-out still takes every row's hub event, and when it falls behind it hears
+/// one `_acpmux/lagged` with `watch: true` (`watch_lags`) and follows the list for what it missed:
+/// those dropped events were never its notices, so they are not `dropped` (2 of 24 god runs).
 #[derive(Clone, Default)]
 struct Flood {
     notices: u64,
@@ -280,6 +282,7 @@ struct Flood {
     dropped: u64,
     batches: u64,
     batch_bytes: u64,
+    watch_lags: u64,
 }
 
 impl Flood {
@@ -298,13 +301,14 @@ impl Flood {
             dropped: self.dropped - before.dropped,
             batches: self.batches - before.batches,
             batch_bytes: self.batch_bytes - before.batch_bytes,
+            watch_lags: self.watch_lags - before.watch_lags,
         }
     }
 
     /// Every flood notice queued for the client: those it read and those its fan-out dropped,
     /// a batch's one notice included.
     fn queued(&self) -> u64 {
-        self.notices + self.dropped + self.batches
+        self.notices + self.dropped + self.batches + self.watch_lags
     }
 
     /// Their bytes: those read, and the dropped ones at the mean of the row notices read.
@@ -407,7 +411,11 @@ impl Rpc {
             *self.flood.by_peer.entry(peer.to_owned()).or_default() += 1;
         }
         if v["method"] == "_acpmux/lagged" {
-            self.flood.dropped += v["params"]["dropped"].as_u64().unwrap_or(0);
+            if v["params"]["watch"] == true {
+                self.flood.watch_lags += 1;
+            } else {
+                self.flood.dropped += v["params"]["dropped"].as_u64().unwrap_or(0);
+            }
         }
         if v["method"] == "_acpmux/peer_rows_changed" {
             self.flood.batches += 1;
@@ -718,7 +726,7 @@ fn flood_json(window: &Result<Flood, Value>, lists: u64) -> Value {
         return json!({"attachNoticesAhead": null, "attachNoticesAheadMax": null,
                       "noticeBytes": null, "noticeBytesPerPeerList": null, "peerLists": lists,
                       "noticesRead": null, "noticesDropped": null, "rowNotices": null,
-                      "batchNotices": null,
+                      "batchNotices": null, "watchLags": null,
                       "floodError": window.as_ref().err()});
     };
     let bytes = w.queued_bytes();
@@ -733,6 +741,8 @@ fn flood_json(window: &Result<Flood, Value>, lists: u64) -> Value {
         // Peer rows told one notice each (read or dropped), and peer lists told as one batch.
         "rowNotices": w.notices + w.dropped,
         "batchNotices": w.batches,
+        // Falls behind told to a batch watcher, which follows the list for them.
+        "watchLags": w.watch_lags,
         "floodError": null,
     })
 }
@@ -1453,7 +1463,8 @@ async fn batch_run() -> Value {
 
 /// The attach flood of a client that asked for peer row batches, pinned: each peer's list
 /// reaches it as one `_acpmux/peer_rows_changed` ahead of the attaches, and no peer row as its own
-/// `session_changed` (read or dropped). 26 notices where the client before them had 10,400.
+/// `session_changed` (read or dropped). 26 notices where the client before them had 10,400, and
+/// one more for each time its fan-out fell behind and it followed the list instead.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_attach_flood_is_one_batch_notice_per_peer_list() {
     let line = batch_run().await;
@@ -1462,8 +1473,16 @@ async fn the_attach_flood_is_one_batch_notice_per_peer_list() {
     assert_eq!(line["floodError"], Value::Null, "{line}");
     assert_eq!(line["peerLists"], json!(god.peers), "one list per peer: {line}");
     assert_eq!(line["rowNotices"], json!(0), "no row's own notice: {line}");
-    assert_eq!(line["batchNotices"], json!(god.peers), "one batch per list: {line}");
-    assert_eq!(line["attachNoticesAhead"], json!(god.peers), "one notice per list: {line}");
+    // When its fan-out falls behind (`watchLags`), a list's batch can be among the events it
+    // missed: the lag's one note tells it to follow the list instead.
+    let lags = line["watchLags"].as_u64().expect("watchLags");
+    let batches = line["batchNotices"].as_u64().expect("batchNotices");
+    assert!(
+        batches <= god.peers as u64 && batches + lags >= god.peers as u64,
+        "a batch per list: {line}"
+    );
+    let ahead = line["attachNoticesAhead"].as_u64().expect("attachNoticesAhead");
+    assert!(ahead <= god.peers as u64 + lags, "one notice per list: {line}");
     assert_eq!(line["attachNoticesAheadMax"], json!(1), "one notice per list: {line}");
 }
 
