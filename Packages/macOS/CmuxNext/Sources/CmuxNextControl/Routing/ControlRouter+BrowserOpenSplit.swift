@@ -63,7 +63,11 @@ struct BrowserOpenSplitRun {
         if let origin = request.origin { params["origin"] = .string(origin) }
         if let tab = placement.targetTab { params["target"] = .string("tab:" + tab) }
         // action.run aims it beside the caller's chat, or at a new column there.
-        if placement.kind.isBesideCaller, let session = request.agentSession { params["caller"] = ["agent_session": .string(session)] }
+        if placement.kind.isBesideCaller, let session = request.agentSession {
+            var caller: [String: JSONValue] = ["agent_session": .string(session)]
+            if let key = request.callerWorkspace { caller["workspace"] = .string(key) }
+            params["caller"] = .object(caller)
+        }
         if let key = request.idempotencyKey { params["idempotency_key"] = .string(key) }
         let opened = try await router.runAction(forwarding(call, method: "action.run", params))
         let topology = router.snapshots.current.topology
@@ -122,6 +126,8 @@ struct BrowserOpenSplitRequest: Sendable, Equatable {
     var terminalID: String?
     /// `caller.agent_session`: the agent whose chat the tab opens beside.
     var agentSession: String?
+    /// `caller.workspace`: the workspace the agent session runs in, for an agent whose chat no tab shows.
+    var callerWorkspace: String?
     var focus: Bool
     var idempotencyKey: String?
     var origin: String?
@@ -143,7 +149,9 @@ struct BrowserOpenSplitRequest: Sendable, Equatable {
         self.url = url
         workspaceID = try Self.string(params, "workspace_id")
         terminalID = try Self.string(params, "terminal_id")
-        agentSession = try ControlCaller(params)?.agentSession
+        let caller = try ControlCaller(params)
+        agentSession = caller?.agentSession
+        callerWorkspace = caller?.workspaceKey
         focus = try Self.bool(params, "focus") ?? false
         if try Self.bool(params, "transparent_background") == true {
             throw ControlError(code: "unsupported",
@@ -207,11 +215,11 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
 
     static func resolve(_ request: BrowserOpenSplitRequest, in topology: ControlTopology, method: String) throws -> Self {
         try resolve(workspaceID: request.workspaceID, agentSession: request.agentSession, terminalID: request.terminalID,
-                    in: topology, method: method)
+                    callerWorkspace: request.callerWorkspace, in: topology, method: method)
     }
 
     /// The placement for a named workspace, an agent caller or the caller's terminal (`file.open` too).
-    static func resolve(workspaceID: String?, agentSession: String?, terminalID: String?,
+    static func resolve(workspaceID: String?, agentSession: String?, terminalID: String?, callerWorkspace: String? = nil,
                         in topology: ControlTopology, method: String) throws -> Self {
         if let id = workspaceID {
             guard let workspace = topology.workspace(id: id) else {
@@ -222,7 +230,7 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
         }
         // An agent's tab opens beside its chat; action.run picks the pane (ControlCaller).
         if let session = agentSession {
-           let caller = ControlCaller(agentSession: session)
+           let caller = ControlCaller(agentSession: session, workspaceKey: callerWorkspace)
            guard let location = ControlCallerLocation.resolve(caller, in: topology) else {
                throw BrowserCallerTarget.missingCaller(caller)
            }
