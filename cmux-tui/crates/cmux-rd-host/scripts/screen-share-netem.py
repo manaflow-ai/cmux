@@ -95,7 +95,8 @@ def recovered_after_drop(drop_s, drop_restored, stalls_ms, host_ended):
     return drop_s is None or (drop_restored and not host_ended and bool(stalls_ms))
 
 
-STAGES = ("up", "inject", "draw_damage", "gate", "encode", "send", "down", "decode", "total")
+STAGES = ("up", "inject", "draw_damage", "gate", "capture", "encode", "send", "down", "decode",
+          "total")
 
 
 def stage_samples(samples, log_lines):
@@ -105,8 +106,10 @@ def stage_samples(samples, log_lines):
       up           key sent -> host read the input datagram
       inject       read -> XTest injected
       draw_damage  injected -> the session saw X damage (the app draws, the X server reports it)
-      gate         damage seen -> encode start (settle window, frame-rate cap, encoder busy)
-      encode       encode start -> bitstream (XShm readback, I420 convert and OpenH264)
+      gate         damage seen -> capture start (settle window, frame-rate cap, encoder busy);
+                   a host without `capture_start_us` counts the capture here, to encode start
+      capture      capture start -> encode start (XShm readback and I420 convert)
+      encode       encode start -> bitstream (OpenH264)
       send         bitstream -> last datagram handed to the carrier (pacer)
       down         last datagram handed over -> frame complete on the viewer
       decode       complete -> decoded
@@ -126,8 +129,11 @@ def stage_samples(samples, log_lines):
             if f and f.get("damage_us"):
                 row["draw_damage"] = (f["damage_us"] - inj["inject_us"]) / 1000
         if f:
+            start = f.get("capture_start_us")
             if f.get("damage_us"):
-                row["gate"] = (f["release_us"] - f["damage_us"]) / 1000
+                row["gate"] = ((start or f["release_us"]) - f["damage_us"]) / 1000
+            if start:
+                row["capture"] = (f["release_us"] - start) / 1000
             row["encode"] = (f["encoded_us"] - f["release_us"]) / 1000
             if f.get("sent_us"):
                 row["send"] = (f["sent_us"] - f["encoded_us"]) / 1000

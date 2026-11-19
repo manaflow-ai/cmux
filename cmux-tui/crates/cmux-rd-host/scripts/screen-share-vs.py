@@ -1128,6 +1128,10 @@ class Remote:
     def argv(self, cmd):
         if self.via == "ssh":
             return ["ssh", "-o", "BatchMode=yes", self.name, cmd]
+        if self.via == "local":
+            # The orchestrator runs on the Mac itself: a lane VM's reach relay carries no stdin,
+            # and the session's signaling goes over the host's and viewer's stdin.
+            return ["/bin/bash", "-c", cmd]
         return ["reach", self.name, cmd]
 
     def run(self, cmd, timeout=120, stdin=None):
@@ -1790,7 +1794,8 @@ def main():
     r.add_argument("--link", default="wired", help="a label for the table")
     r.add_argument("--link-bind", help="bind the shared Mac's link socket to this address (its "
                    "Wi-Fi address when Ethernet shares the subnet), so both directions use it")
-    r.add_argument("--via", choices=["reach", "ssh"], default="reach")
+    r.add_argument("--via", choices=["reach", "ssh", "local"], default="reach",
+                   help="local: both Macs are this one (run the orchestrator on the shared Mac)")
     r.add_argument("--root", default="cmux-rd-test", help="relative to the remote home")
     r.add_argument("--python", default="/usr/bin/python3")
     r.add_argument("--bin", help="local cmux-rd (macOS arm64, features bench,link) to install")

@@ -111,7 +111,10 @@ fn is_media_datagram(datagram: &[u8]) -> bool {
 /// `scripts/measure/screen-stream-eval` reads it): `input_us`, the last viewer input injected before
 /// this frame, once; `shown_us`, when the display showed the frame (ScreenCaptureKit's display time);
 /// `arrived_us`, when the capture handed it over; `damage_us`, when the session first saw damage
-/// since the last frame; `release_us`, when the gate let the encode start; `encoded_us`, when the
+/// since the last frame; `capture_start_us`, when the encode thread began the capture (Linux: the
+/// XShm readback and I420 conversion run from here to `release_us`; macOS: taking the newest
+/// ScreenCaptureKit frame); `release_us`, when the capture ended and the encode started (the
+/// frame's `t_capture_us`); `encoded_us`, when the
 /// encode ended; `sent_us`, when its last datagram was handed to the carrier. Every injected
 /// input also gets a line of its own, `{"inject_us", "recv_us"}` (`recv_us`: when the datagram
 /// that carried it was read), so a remote viewer's key press can be matched to its injection
@@ -140,6 +143,7 @@ impl Timing {
     fn frame(
         &mut self,
         shown: Option<(u64, u64)>,
+        capture_start_us: u64,
         release_us: u64,
         encoded_us: u64,
         encoded_bytes: usize,
@@ -150,6 +154,7 @@ impl Timing {
             "shown_us": shown.map(|t| t.0),
             "arrived_us": shown.map(|t| t.1),
             "damage_us": self.damage_us.take(),
+            "capture_start_us": capture_start_us,
             "release_us": release_us,
             "encoded_us": encoded_us,
             "encoded_bytes": encoded_bytes,
@@ -499,7 +504,8 @@ impl MediaSession {
             let len = frame.access_unit.len();
             // An IDR the engine did not ask for is the encoder's own choice.
             let idr = frame.idr.then(|| req.idr_reason.map_or("encoder", |r| r.as_str()));
-            (frame.picked_times, frame.t_capture_us, frame.encoded_us, len, idr)
+            let times = (frame.capture_start_us, frame.t_capture_us, frame.encoded_us);
+            (frame.picked_times, times, len, idr)
         });
         self.encode_ms.push_back(frame.encode_ms);
         if self.encode_ms.len() > 120 {
@@ -517,8 +523,8 @@ impl MediaSession {
             self.encoder.halve_bitrate();
         }
         let line = match (self.timing.as_mut(), logged) {
-            (Some(timing), Some((shown, t_capture_us, encoded_us, len, idr))) => {
-                Some(timing.frame(shown, t_capture_us, encoded_us, len, idr))
+            (Some(timing), Some((shown, (capture_start_us, release_us, encoded_us), len, idr))) => {
+                Some(timing.frame(shown, capture_start_us, release_us, encoded_us, len, idr))
             }
             _ => None,
         };
