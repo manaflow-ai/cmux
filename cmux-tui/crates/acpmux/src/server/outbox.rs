@@ -266,7 +266,8 @@ pub(super) async fn remember_forward(
         updated_at: now,
     };
     hub.outbox
-        .remember_forward(intent)
+        .remember_forward_async(intent)
+        .await
         .map(|delivery| delivery.id)
         .map_err(|e| RpcError::internal(format!("cannot persist peer message intent: {e:#}")))
 }
@@ -359,7 +360,7 @@ async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value,
 
 /// Settle only after the caller has written the sender-side message projection.
 pub(super) fn forward_accepted(hub: &Arc<Hub>, id: &str, accepted: Value, stored: bool) {
-    hub.outbox.update(id, |d| {
+    hub.outbox.update_soon(id, |d| {
         if d.request.pointer("/_meta/acpmux/forwardProjection").is_none()
             || d.state == State::Delivered
         {
@@ -381,7 +382,7 @@ pub(super) fn forward_accepted(hub: &Arc<Hub>, id: &str, accepted: Value, stored
 /// receiver's journal for its own message id, as after a restart, and records the sender's copy
 /// only when the receiver holds it, or fails when its retries run out.
 pub(super) fn forward_unconfirmed(hub: &Arc<Hub>, id: &str) {
-    hub.outbox.update(id, |d| {
+    hub.outbox.update_soon(id, |d| {
         if d.request.pointer("/_meta/acpmux/forwardProjection").is_none() || d.settled() {
             return;
         }
@@ -395,7 +396,7 @@ pub(super) fn forward_unconfirmed(hub: &Arc<Hub>, id: &str) {
 }
 
 pub(super) fn forward_refused(hub: &Arc<Hub>, id: &str, error: &RpcError) {
-    hub.outbox.update(id, |d| {
+    hub.outbox.update_soon(id, |d| {
         // A turn can fail after its message was accepted. It cannot undo that
         // acceptance or turn a delivered event into a failed delivery.
         if d.settled() || d.accepted.is_some() {
@@ -566,25 +567,33 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         // The owner's copy wrote its prompt's records: the peer took it, and it is never sent
         // again (a resend could run it twice); it stays open on them (`hub/open_delivery.rs`).
         if delivery.proof.is_some() && delivery.pin.is_some() {
-            hub.outbox.update(id, |d| {
-                if !d.settled() {
-                    let (pin, answer) = (d.pin.clone(), json!({"proven": true}));
-                    crate::hub::open_delivery::accepted(d, pin, answer);
-                }
-            });
+            hub.outbox
+                .update_async(id, |d| {
+                    if !d.settled() {
+                        let (pin, answer) = (d.pin.clone(), json!({"proven": true}));
+                        crate::hub::open_delivery::accepted(d, pin, answer);
+                    }
+                })
+                .await;
             return;
         }
         // Past its day (a restart resumes old ones too): failed, never sent this late.
         if expired(&delivery, crate::store::now_ms()) {
-            let saved = hub.outbox.update_saved(id, |d| {
-                if !d.settled() {
-                    d.state = State::Failed;
-                    let last =
-                        d.error.take().map(|e| format!("; last error: {e}")).unwrap_or_default();
-                    d.error = Some(format!("not delivered within a day of being sent{last}"));
-                    crate::attach::strip(&mut d.request);
-                }
-            });
+            let saved = hub
+                .outbox
+                .update_saved_async(id, |d| {
+                    if !d.settled() {
+                        d.state = State::Failed;
+                        let last = d
+                            .error
+                            .take()
+                            .map(|e| format!("; last error: {e}"))
+                            .unwrap_or_default();
+                        d.error = Some(format!("not delivered within a day of being sent{last}"));
+                        crate::attach::strip(&mut d.request);
+                    }
+                })
+                .await;
             // Its bytes go once the file says it failed: a restart reads it open otherwise.
             if saved && let Some(path) = hub.outbox.attachments_path(&delivery) {
                 forget_attachments(path).await;
@@ -600,11 +609,14 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         // Saved as maybe sent, and with its pin, before the attempt may reach the peer
         // (below): an attempt whose state is not on disk does not go (review of #37284 at
         // a088585e: a failed save was logged, and the attempt went).
-        let mut saved = hub.outbox.update_saved(id, |d| {
-            if !d.settled() {
-                start_attempt(d, attempt);
-            }
-        });
+        let mut saved = hub
+            .outbox
+            .update_saved_async(id, |d| {
+                if !d.settled() {
+                    start_attempt(d, attempt);
+                }
+            })
+            .await;
         if hub.outbox.get(id).is_none_or(|d| d.settled()) {
             return;
         }
@@ -630,7 +642,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             delivery.pin.clone().or_else(|| crate::hub::open_delivery::pin(hub, &delivery.target))
         };
         if fresh_pin && pin.is_some() {
-            saved &= hub.outbox.update_saved(id, |d| d.pin.clone_from(&pin));
+            saved &= hub.outbox.update_saved_async(id, |d| d.pin.clone_from(&pin)).await;
         }
         let outcome = if !saved {
             // Nothing went on the link.
@@ -673,14 +685,17 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // A peer's session may lose it with the machine's disk until the owner's copy of
                 // that session holds it (`hub/open_delivery.rs`): open until then.
                 let open = pin.is_some();
-                let saved = hub.outbox.update_saved(id, |d| {
-                    crate::hub::open_delivery::accepted(d, pin, accepted);
-                    // Settled: its record keeps no attachment bytes (`attach.rs`). One open on
-                    // its peer keeps them until it closes: a delivery again sends them too.
-                    if !open {
-                        crate::attach::strip(&mut d.request);
-                    }
-                });
+                let saved = hub
+                    .outbox
+                    .update_saved_async(id, |d| {
+                        crate::hub::open_delivery::accepted(d, pin, accepted);
+                        // Settled: its record keeps no attachment bytes (`attach.rs`). One open on
+                        // its peer keeps them until it closes: a delivery again sends them too.
+                        if !open {
+                            crate::attach::strip(&mut d.request);
+                        }
+                    })
+                    .await;
                 if saved
                     && !open
                     && let Some(path) = hub.outbox.attachments_path(&delivery)
@@ -708,7 +723,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     // nothing: read again, and tried. A later one may have been taken by the
                     // session that is gone: it never runs in the new one; failed, saying why.
                     Next::Stale if fresh_pin => {
-                        hub.outbox.update(id, |d| d.pin = None);
+                        hub.outbox.update_async(id, |d| d.pin = None).await;
                         (error, Next::Retry)
                     }
                     Next::Stale => (error, Next::Fail),
@@ -723,25 +738,27 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // again meanwhile is not failed as stale for an attempt it never saw (review of
                 // #37284 at c4a6f4e7, F3).
                 let drop_pin = !hub.at_c4a6();
-                hub.outbox.update(id, |d| {
-                    if d.settled() {
-                        return;
-                    }
-                    d.never_sent = delivery.never_sent && link_unsent;
-                    if drop_pin && d.never_sent && d.relay_post.is_none() {
-                        d.pin = None;
-                    }
-                    d.state = match (next, delay) {
-                        (Next::Held, _) => State::Held,
-                        (_, Some(_)) if d.projection_only() => State::Held,
-                        (_, Some(_)) => State::Queued,
-                        _ => State::Failed,
-                    };
-                    d.error = Some(error);
-                    if d.settled() {
-                        crate::attach::strip(&mut d.request);
-                    }
-                });
+                hub.outbox
+                    .update_async(id, |d| {
+                        if d.settled() {
+                            return;
+                        }
+                        d.never_sent = delivery.never_sent && link_unsent;
+                        if drop_pin && d.never_sent && d.relay_post.is_none() {
+                            d.pin = None;
+                        }
+                        d.state = match (next, delay) {
+                            (Next::Held, _) => State::Held,
+                            (_, Some(_)) if d.projection_only() => State::Held,
+                            (_, Some(_)) => State::Queued,
+                            _ => State::Failed,
+                        };
+                        d.error = Some(error);
+                        if d.settled() {
+                            crate::attach::strip(&mut d.request);
+                        }
+                    })
+                    .await;
                 if hub.outbox.get(id).is_none_or(|d| d.state == State::Delivered) {
                     return;
                 }
@@ -889,7 +906,7 @@ async fn redeliver_one(
                 // Proven by records no restore gave back and no journal holds (review of #37284
                 // at 27f3761b, F1): delivered again, as one never proven.
                 tracing::warn!(delivery = %d.id, "a proof no machine holds; delivered again");
-                hub.outbox.update(&d.id, od::unprove);
+                hub.outbox.update_async(&d.id, od::unprove).await;
             }
             // To the pinned session, by its id, never by the name it was sent to (review of
             // #37284 at 4bce04df, F2).
@@ -903,7 +920,7 @@ async fn redeliver_one(
                 tracing::warn!(delivery = %d.id, "a delivery again was refused: {error}");
             }
             let mut settled = false;
-            hub.outbox.update(&d.id, |d| settled = od::after_again(d, again));
+            hub.outbox.update_async(&d.id, |d| settled = od::after_again(d, again)).await;
             if settled {
                 close_open(hub, d, |_| {}).await;
             }
@@ -914,10 +931,13 @@ async fn redeliver_one(
 /// Closes open delivery `d` with `f`: settled now, its record keeps no attachment bytes, and
 /// the ones kept beside the outbox go.
 async fn close_open(hub: &Arc<Hub>, d: &Delivery, f: impl FnOnce(&mut Delivery)) {
-    let saved = hub.outbox.update_saved(&d.id, |d| {
-        f(d);
-        crate::attach::strip(&mut d.request);
-    });
+    let saved = hub
+        .outbox
+        .update_saved_async(&d.id, |d| {
+            f(d);
+            crate::attach::strip(&mut d.request);
+        })
+        .await;
     // The bytes go only once the file says it closed (review of #37284 at a088585e): a restart
     // that reads it open sends it again, or checks its proof again, with them. A file left
     // without its delivery's bytes' owner is swept at the next open (`Outbox::open`).
@@ -973,7 +993,7 @@ async fn relay_attempt(
         let held =
             matches!(e.code.as_deref(), Some("mesh.idempotency_conflict" | "mesh.not_found"));
         let next = if e.refused && !held {
-            hub.outbox.update(&delivery.id, |d| d.relay_post = None);
+            hub.outbox.update_soon(&delivery.id, |d| d.relay_post = None);
             Next::Unsent
         } else {
             Next::Retry

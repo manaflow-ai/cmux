@@ -1243,7 +1243,7 @@ pub struct Hub {
     pub(super) trust_waits: trust_wait::Waits,
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
-    pub(crate) outbox: outbox::Outbox,
+    pub(crate) outbox: Arc<outbox::Outbox>,
     /// The team hub a send to a name nobody here resolves goes through, while a mesh relay
     /// runs (`server/mesh_relay.rs`); unset without one, or in a hub a test builds. A sign-out's
     /// leave clears it and a later enroll sets the new hub's (`server/machine_enroll.rs`).

@@ -34,13 +34,24 @@
 //! (group commit): 60 sends at once used to queue behind 180 whole-file writes and syncs, each up
 //! to a second on a busy disk (`design/acpmux-perf.md` in leo-workspace).
 //!
+//! A change made on the daemon's runtime (a delivery's attempt, `server/outbox.rs`) waits for its
+//! write without holding a runtime thread ([`Outbox::update_saved_async`]): one blocking task
+//! writes at a time, and every change made before it starts shares its write. Before, each such
+//! change wrote and synced on the runtime thread that made it, under the disk's lock, so a few
+//! thousand messages waiting for a peer held every runtime thread on that lock and its syncs at
+//! once: the daemon's own 10 s tick ran 16-40 s late and every request waited (2026-11-19,
+//! 11,009 chats). A snapshot's deliveries are copied under the deliveries' lock and encoded after
+//! it, so a change never waits for a whole snapshot's encoding.
+//!
 //! A peer answers a forwarded `session/prompt` only when its turn ends (or, for a steer, when the
 //! agent's step ends), so the forwarding daemon passes the peer's `_acpmux/prompt_accepted` on to
 //! the connection that sent the prompt as soon as it arrives ([`PeerAccepts`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -282,6 +293,69 @@ pub struct Outbox {
     /// (`server/outbox.rs` `redeliver_open`): the next link goes on after it, so none waits
     /// behind the others for good.
     pub(crate) redelivered_to: StdMutex<HashMap<String, (u64, String)>>,
+    /// The writes the runtime's changes wait for ([`Outbox::saved_async`]).
+    flush: Flush,
+    /// Tests: each write sleeps this long first, as a sync on a busy disk does.
+    #[cfg(test)]
+    pub(crate) slow_write_ms: std::sync::atomic::AtomicU64,
+}
+
+/// The one blocking task that writes for the runtime's changes, and what the writes reached.
+#[derive(Default)]
+struct Flush {
+    /// A blocking task is writing, or about to.
+    running: AtomicBool,
+    written: tokio::sync::watch::Sender<Written>,
+}
+
+/// What the writes reached, as a runtime change's wait reads it.
+#[derive(Clone, Copy, Default)]
+struct Written {
+    /// The last change on disk.
+    saved: u64,
+    /// Writes that failed, and the newest change any of them was to hold.
+    failures: u64,
+    failed_through: u64,
+    /// Blocking writes that ended: each wakes the waits, and one that still needs a write
+    /// starts the next.
+    ended: u64,
+}
+
+/// One write of every change made so far, on a blocking thread, for the runtime's waits
+/// (`Outbox::saved_async`). Its drop ends it: a write that panicked, or a task dropped before it
+/// ran, answers its waits as failed (a later write takes the changes) instead of leaving them
+/// waiting on a write that never ends.
+struct FlushEnd {
+    outbox: Arc<Outbox>,
+    /// The change the write read; set once it ended well.
+    change: Option<(u64, bool)>,
+}
+
+impl FlushEnd {
+    fn run(mut self) {
+        let change = self.outbox.book().changes;
+        let saved = self.outbox.save_checked(change).inspect_err(|e| {
+            tracing::warn!("outbox: could not save: {e:#}");
+        });
+        self.change = Some((change, saved.is_ok()));
+    }
+}
+
+impl Drop for FlushEnd {
+    fn drop(&mut self) {
+        let flush = &self.outbox.flush;
+        // Ended before the waits wake, so one that still needs a write starts the next. A failed
+        // write (or one that never ended) answers every wait whose change it was to hold.
+        let (change, saved) = self.change.unwrap_or((self.outbox.book().changes, false));
+        flush.running.store(false, Ordering::Release);
+        flush.written.send_modify(|w| {
+            w.ended += 1;
+            if !saved {
+                w.failures += 1;
+                w.failed_through = w.failed_through.max(change);
+            }
+        });
+    }
 }
 
 /// The deliveries and the number of changes made to them.
@@ -419,9 +493,22 @@ impl Outbox {
     /// Independent sessions may legitimately use the same client prompt id.
     /// Unlike ordinary queued deliveries, a forward must not proceed when this
     /// write fails: no later retry can recreate its intent after a restart.
+    #[cfg(test)]
     pub fn remember_forward(&self, delivery: Delivery) -> anyhow::Result<Delivery> {
         let (delivery, change, _) = self.add_scoped(delivery, true);
         self.save_checked(change)?;
+        self.changed.notify_waiters();
+        Ok(delivery)
+    }
+
+    /// [`Self::remember_forward`] for a task on the runtime: its write is waited for without
+    /// holding a runtime thread ([`Self::saved_async`]).
+    pub(crate) async fn remember_forward_async(
+        self: &Arc<Self>,
+        delivery: Delivery,
+    ) -> anyhow::Result<Delivery> {
+        let (delivery, change, _) = self.add_scoped(delivery, true);
+        anyhow::ensure!(self.saved_async(change).await, "the outbox could not be written");
         self.changed.notify_waiters();
         Ok(delivery)
     }
@@ -476,41 +563,41 @@ impl Outbox {
     }
 
     /// Keep the original team destination independently of the hub's resolved receipt shape.
-    /// Terminal records survive restart but are never submitted as prompts by `resume`.
-    pub(crate) fn record_team_receipt(
-        &self,
+    /// Terminal records survive restart but are never submitted as prompts by `resume`. True once
+    /// it is on disk; its write is waited for without holding a runtime thread.
+    pub(crate) async fn record_team_receipt(
+        self: &Arc<Self>,
         id: &str,
         address: &str,
         caller: Option<&str>,
     ) -> bool {
         let key = format!("mesh:{id}");
-        let mut book = self.book();
-        let now = crate::store::now_ms();
-        book.deliveries.entry(key.clone()).or_insert_with(|| Delivery {
-            id: key.clone(),
-            target: address.to_owned(),
-            request: json!({"teamOrigin": true, "_meta": {"acpmux": {"promptId": key}}}),
-            caller: caller.map(str::to_owned),
-            unproven_caller: None,
-            not_terminal: false,
-            state: State::Delivered,
-            attempts: 0,
-            never_sent: false,
-            relay_post: None,
-            open_on_peer: false,
-            pin: None,
-            proof: None,
-            error: None,
-            accepted: None,
-            created_at: now,
-            updated_at: now,
-        });
-        book.dirty.insert(key);
-        let change = book.changed();
-        drop(book);
-        self.save(change);
-        let in_memory = self.path.lock().unwrap_or_else(|e| e.into_inner()).is_none();
-        in_memory || self.disk.lock().unwrap_or_else(|e| e.into_inner()).saved >= change
+        let change = {
+            let mut book = self.book();
+            let now = crate::store::now_ms();
+            book.deliveries.entry(key.clone()).or_insert_with(|| Delivery {
+                id: key.clone(),
+                target: address.to_owned(),
+                request: json!({"teamOrigin": true, "_meta": {"acpmux": {"promptId": key}}}),
+                caller: caller.map(str::to_owned),
+                unproven_caller: None,
+                not_terminal: false,
+                state: State::Delivered,
+                attempts: 0,
+                never_sent: false,
+                relay_post: None,
+                open_on_peer: false,
+                pin: None,
+                proof: None,
+                error: None,
+                accepted: None,
+                created_at: now,
+                updated_at: now,
+            });
+            book.dirty.insert(key);
+            book.changed()
+        };
+        self.saved_async(change).await
     }
 
     pub(crate) fn team_receipt(&self, id: &str) -> Option<Delivery> {
@@ -586,16 +673,7 @@ impl Outbox {
     /// of #37284 at a088585e: a failed save was logged and the bytes went anyway). False for a
     /// failed save; true when no such delivery is here.
     pub fn update_saved(&self, id: &str, f: impl FnOnce(&mut Delivery)) -> bool {
-        let mut book = self.book();
-        let Some(d) = book.deliveries.get_mut(id) else { return true };
-        // A closure that panics part way has still changed the delivery: that change is marked
-        // and saved like any other before the panic goes on, so memory never holds what no
-        // write will take (a restart went back to before it and sent it again).
-        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(d)));
-        d.updated_at = crate::store::now_ms();
-        book.dirty.insert(id.to_owned());
-        let change = book.changed();
-        drop(book);
+        let Some((change, ran)) = self.apply(id, f) else { return true };
         let saved = self.save_checked(change);
         if let Err(e) = &saved {
             tracing::warn!("outbox: could not save: {e:#}");
@@ -605,6 +683,98 @@ impl Outbox {
             std::panic::resume_unwind(panic);
         }
         saved.is_ok()
+    }
+
+    /// [`Self::update`] for a task on the runtime: its write is waited for without holding a
+    /// runtime thread ([`Self::saved_async`]).
+    pub(crate) async fn update_async(self: &Arc<Self>, id: &str, f: impl FnOnce(&mut Delivery)) {
+        self.update_saved_async(id, f).await;
+    }
+
+    /// [`Self::update_saved`] for a task on the runtime: its write is waited for without holding
+    /// a runtime thread ([`Self::saved_async`]).
+    pub(crate) async fn update_saved_async(
+        self: &Arc<Self>,
+        id: &str,
+        f: impl FnOnce(&mut Delivery),
+    ) -> bool {
+        let Some((change, ran)) = self.apply(id, f) else { return true };
+        let saved = self.saved_async(change).await;
+        self.changed.notify_waiters();
+        if let Err(panic) = ran {
+            std::panic::resume_unwind(panic);
+        }
+        saved
+    }
+
+    /// [`Self::update`] for a synchronous caller on the runtime that does not wait for the write:
+    /// the change is in memory at once, and its write runs as [`Self::saved_async`] writes. Off
+    /// the runtime it is [`Self::update`].
+    pub(crate) fn update_soon(self: &Arc<Self>, id: &str, f: impl FnOnce(&mut Delivery)) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return self.update(id, f);
+        };
+        let Some((change, ran)) = self.apply(id, f) else { return };
+        let outbox = self.clone();
+        runtime.spawn(async move {
+            outbox.saved_async(change).await;
+            outbox.changed.notify_waiters();
+        });
+        if let Err(panic) = ran {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    /// Changes delivery `id` with `f` in memory: the change to wait for, and how `f` ended. None
+    /// when there is no such delivery.
+    fn apply(
+        &self,
+        id: &str,
+        f: impl FnOnce(&mut Delivery),
+    ) -> Option<(u64, std::thread::Result<()>)> {
+        let mut book = self.book();
+        let d = book.deliveries.get_mut(id)?;
+        // A closure that panics part way has still changed the delivery: that change is marked
+        // and saved like any other before the panic goes on, so memory never holds what no
+        // write will take (a restart went back to before it and sent it again).
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(d)));
+        d.updated_at = crate::store::now_ms();
+        book.dirty.insert(id.to_owned());
+        Some((book.changed(), ran))
+    }
+
+    /// Returns once change `change` is on disk (true), or once a write that was to hold it failed
+    /// (false; logged, and a later write takes it), and holds no runtime thread while it waits:
+    /// one blocking task writes at a time ([`Self::flush_once`]), and every change made before it
+    /// starts shares its write. True at once for an outbox in memory.
+    pub(crate) async fn saved_async(self: &Arc<Self>, change: u64) -> bool {
+        if self.path.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
+            return true;
+        }
+        let flush = &self.flush;
+        let mut written = flush.written.subscribe();
+        // A write that failed before this wait began may not have held this change: only a later
+        // failure answers false.
+        let failures = written.borrow().failures;
+        loop {
+            let now = *written.borrow_and_update();
+            if now.saved >= change {
+                return true;
+            }
+            if now.failures > failures && now.failed_through >= change {
+                return false;
+            }
+            if !flush.running.swap(true, Ordering::AcqRel) {
+                // Ended by its drop whether it ran, panicked or was dropped unrun (a runtime
+                // shutting down): no wait is left on a write that never ends.
+                let ended = FlushEnd { outbox: self.clone(), change: None };
+                tokio::task::spawn_blocking(move || ended.run());
+            }
+            // The sender lives as long as this outbox.
+            if written.changed().await.is_err() {
+                return false;
+            }
+        }
     }
 
     /// Whether every change so far is on disk: one whose write failed is written again now
@@ -650,8 +820,10 @@ impl Outbox {
         let snapshot = disk.snapshot_next
             || (disk.journal >= COMPACT_FLOOR.max(2 * disk.snapshot)
                 && disk.journal >= disk.snapshot_retry_at);
-        // The changed deliveries' lines and, for a snapshot, every delivery, as of one change.
-        let (lines, whole, dirty, newest) = {
+        // The changed deliveries' lines and, for a snapshot, a copy of every delivery, as of one
+        // change. The copy is encoded once the deliveries' lock is let go: a change made
+        // meanwhile never waits for a whole snapshot's encoding.
+        let (lines, copy, dirty, newest) = {
             let mut book = self.book();
             let dirty = std::mem::take(&mut book.dirty);
             let encoded = (|| -> serde_json::Result<_> {
@@ -661,23 +833,33 @@ impl Outbox {
                     serde_json::to_writer(&mut lines, &*on_disk(d))?;
                     lines.push(b'\n');
                 }
-                let whole = if snapshot {
-                    let all: BTreeMap<&String, std::borrow::Cow<Delivery>> =
-                        book.deliveries.iter().map(|(id, d)| (id, on_disk(d))).collect();
-                    Some(serde_json::to_vec(&all)?)
-                } else {
-                    None
-                };
-                Ok((lines, whole))
+                Ok(lines)
             })();
             match encoded {
-                Ok((lines, whole)) => (lines, whole, dirty, book.changes),
+                Ok(lines) => {
+                    let copy: Option<BTreeMap<String, Delivery>> = snapshot.then(|| {
+                        let all = book.deliveries.iter();
+                        all.map(|(id, d)| (id.clone(), on_disk(d).into_owned())).collect()
+                    });
+                    (lines, copy, dirty, book.changes)
+                }
                 Err(e) => {
                     book.dirty.extend(dirty);
                     return Err(e.into());
                 }
             }
         };
+        let whole = match copy.map(|all| serde_json::to_vec(&all)).transpose() {
+            Ok(whole) => whole,
+            Err(e) => {
+                self.book().dirty.extend(dirty);
+                return Err(e.into());
+            }
+        };
+        #[cfg(test)]
+        std::thread::sleep(std::time::Duration::from_millis(
+            self.slow_write_ms.load(Ordering::Relaxed),
+        ));
         // The journal gets these lines before any snapshot: a snapshot that fails leaves them
         // readable after the snapshot they follow.
         let written = (|| -> anyhow::Result<()> {
@@ -766,6 +948,8 @@ impl Outbox {
             return Err(e);
         }
         disk.saved = newest;
+        // The runtime's waits read it (`saved_async`), whichever thread wrote.
+        self.flush.written.send_modify(|w| w.saved = w.saved.max(newest));
         Ok(())
     }
 }
@@ -1324,6 +1508,86 @@ mod tests {
         first.join().unwrap();
         assert_eq!(retry.join().unwrap(), ("d-1".to_owned(), true));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Changes made on the runtime wait for their writes without holding its threads: a 20 ms
+    /// tick on a two-thread runtime stays within 500 ms while 16 deliveries change three times on
+    /// a disk whose every write takes 100 ms, and every change is on disk when its wait returns.
+    /// Before, each change wrote and synced on the runtime thread that made it, under the disk's
+    /// lock: both threads waited on that lock, the tick ran seconds late (on 2026-11-19 the
+    /// daemon's 10 s tick ran 16-40 s late every few minutes with thousands of messages waiting).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn changes_on_the_runtime_leave_its_threads_free_while_they_are_written() {
+        let late = runtime_lateness_under_slow_writes(false).await;
+        assert!(late < std::time::Duration::from_millis(500), "the tick ran {late:?} late");
+    }
+
+    /// The same changes made as the daemon made them before (`update_saved` on the runtime):
+    /// the tick runs late by many writes. Kept to show what the test above guards against.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn changes_written_on_the_runtime_held_its_threads() {
+        let late = runtime_lateness_under_slow_writes(true).await;
+        assert!(late >= std::time::Duration::from_millis(500), "the tick ran only {late:?} late");
+    }
+
+    /// The most a 20 ms tick ran late while 16 deliveries changed three times each, every write
+    /// taking 100 ms; `blocking`: each change writes on the runtime thread (`update_saved`).
+    async fn runtime_lateness_under_slow_writes(blocking: bool) -> std::time::Duration {
+        use std::time::{Duration, Instant};
+        const DELIVERIES: usize = 16;
+        let (dir, path) = temp_outbox();
+        let outbox = Arc::new(Outbox::default());
+        outbox.open(&path);
+        for n in 0..DELIVERIES {
+            outbox.add(delivery(n)).unwrap();
+        }
+        outbox.slow_write_ms.store(100, Ordering::Relaxed);
+        let stop = Arc::new(AtomicBool::new(false));
+        let ticker = {
+            let stop = stop.clone();
+            tokio::spawn(async move {
+                let every = Duration::from_millis(20);
+                let mut late = Duration::ZERO;
+                while !stop.load(Ordering::Relaxed) {
+                    let due = Instant::now() + every;
+                    tokio::time::sleep(every).await;
+                    late = late.max(Instant::now().saturating_duration_since(due));
+                }
+                late
+            })
+        };
+        let began = Instant::now();
+        let changes: Vec<_> = (0..DELIVERIES)
+            .map(|n| {
+                let outbox = outbox.clone();
+                tokio::spawn(async move {
+                    for _ in 0..3 {
+                        let id = format!("d-{n}");
+                        let saved = if blocking {
+                            outbox.update_saved(&id, |d| d.attempts += 1)
+                        } else {
+                            outbox.update_saved_async(&id, |d| d.attempts += 1).await
+                        };
+                        assert!(saved);
+                    }
+                })
+            })
+            .collect();
+        for change in changes {
+            change.await.unwrap();
+        }
+        let took = began.elapsed();
+        stop.store(true, Ordering::Relaxed);
+        let late = ticker.await.unwrap();
+        outbox.slow_write_ms.store(0, Ordering::Relaxed);
+        let reopened = Outbox::default();
+        reopened.open(&path);
+        for n in 0..DELIVERIES {
+            assert_eq!(reopened.get(&format!("d-{n}")).unwrap().attempts, 3, "d-{n} on disk");
+        }
+        println!("RUNTIME-LATE blocking={blocking} max tick lateness {late:?}, {took:?} in all");
+        let _ = std::fs::remove_dir_all(&dir);
+        late
     }
 
     fn temp_outbox() -> (PathBuf, PathBuf) {
