@@ -10,7 +10,8 @@
 //! - the chat does not send a turn (its whole context) per message or per retry: the requests the
 //!   model gets stay at the hold's rate;
 //! - the waits between those requests grow, and stay under the longest configured wait;
-//! - no message is lost: once the limit lifts, every one goes in with a turn that completes;
+//! - no message is lost: once the limit lifts, every one is in a conversation that went on (a
+//!   turn that completes, or a cut turn a completed turn came after);
 //! - the row says why the chat is not answering: rate-limited, until when.
 use super::*;
 
@@ -56,17 +57,26 @@ fn drain_errors(c: &mut TestClient, errors: &mut Vec<(Value, String)>) {
     }
 }
 
-/// The texts of the turns that completed: every `user_message` of a turn whose result is
-/// `completed`.
+/// The texts the agent has in a conversation that went on: every `user_message` of a turn that
+/// completed, or of a turn the 429 cut that a completed turn came after. The cut turn's prompt
+/// reached the agent and stays in its conversation; its continuation, or the queued turn that
+/// took the continuation's place, goes on from there and does not send it again (#47337
+/// counted the same on real Claude Code: 280 of 280 reached the model, none twice).
 fn completed_texts(hub: &Hub, id: &str) -> String {
     let all = events(hub, id);
-    let completed: Vec<&Value> = all
+    let last_completed =
+        all.iter().rposition(|e| e.kind == "turn_result" && e.msg["status"] == "completed");
+    let went_on: Vec<&Value> = all
         .iter()
-        .filter(|e| e.kind == "turn_result" && e.msg["status"] == "completed")
-        .map(|e| &e.msg["turnId"])
+        .enumerate()
+        .filter(|(i, e)| {
+            e.kind == "turn_result"
+                && (e.msg["status"] == "completed" || last_completed.is_some_and(|l| *i < l))
+        })
+        .map(|(_, e)| &e.msg["turnId"])
         .collect();
     all.iter()
-        .filter(|e| e.kind == "user_message" && completed.contains(&&e.msg["turnId"]))
+        .filter(|e| e.kind == "user_message" && went_on.contains(&&e.msg["turnId"]))
         .map(|e| e.msg.to_string())
         .collect::<Vec<_>>()
         .join("\n")
