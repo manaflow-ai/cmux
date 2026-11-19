@@ -78,6 +78,7 @@ if [[ "$(uname -s)" == Darwin ]]; then
   [[ "$(/usr/bin/tar --version 2>/dev/null || true)" == *bsdtar* ]] || die "/usr/bin/tar is not bsdtar on this Mac"
 fi
 plist() {
+  [[ -f "$1" ]] || return 0
   if (( darwin )); then
     /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true
   else
