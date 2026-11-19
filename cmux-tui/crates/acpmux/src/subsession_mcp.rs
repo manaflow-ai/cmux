@@ -33,9 +33,10 @@ pub const CMUX_APP_TAB_TOOL: &str = "app_agent_open_tab";
 
 /// What the server tells the agent once, at `initialize` (MCP `instructions`).
 pub fn instructions() -> String {
-    "Sub-sessions are agent sessions you start as your children. Use start_session only when the user \
-asked for a new session, a parallel task or a handoff; otherwise suggest the work (offer_session or \
-suggest_tasks when you have them). A sub-session starts with none of your history: its prompt must be \
+    "Sub-sessions are agent sessions you start as your children. Start one with start_session \
+whenever work can run in parallel, be handed off or branch off (a side task, a follow-up, a second \
+approach), without asking the user first; it is a session of its own the user sees under your chat. \
+A sub-session starts with none of your history: its prompt must be \
 the whole task, with the files, the constraints and how to check the result. With fork: true it is \
 instead a fork of this chat as it is now, with all of your history: use it when work this conversation \
 already holds the context for should branch off (a second approach to compare, a side task that needs \

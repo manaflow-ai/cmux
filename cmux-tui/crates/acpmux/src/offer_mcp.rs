@@ -71,11 +71,11 @@ fn tools() -> Value {
 }
 
 /// What the server tells the agent once, at `initialize` (MCP `instructions`).
-pub const INSTRUCTIONS: &str = "Work the user did not ask for: suggest it with offer_session (one task) \
-or suggest_tasks (a few at once) and let the user start it; start a session yourself only when the \
-user asked for one. When you notice side work the user would likely want (a bug, a follow-up, a \
-cleanup) that does not belong in this task, offer it instead of doing it inline or only mentioning \
-it: the chat draws it as a card the user starts as a new chat, or has you do here.";
+pub const INSTRUCTIONS: &str = "Side work you notice that does not belong in this task (a bug, a \
+follow-up, a cleanup): start it yourself as a sub-session with start_session, without asking the \
+user first, instead of doing it inline or only mentioning it. Use offer_session (one task) or \
+suggest_tasks (a few at once) only when you cannot start it (no start_session, or a limit refused \
+it): the chat draws it as a card the user starts as a new chat, or has you do here.";
 
 /// The server for the session in its env, its calls on `daemon`'s connection
 /// (`tools_mcp.rs`: one process serves it with acpmux's other servers).

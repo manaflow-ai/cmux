@@ -49,7 +49,8 @@ A lane is different: an agent with its own worktree and brief that reports
 back to you and outlives you. Start it with the one launcher command in
 section 3 (`acpmux new --worktree … --prompt-file …`), not a hand-made
 `git worktree add` + `acpmux send` script.
-Start a session only when the user asked for one. If they refuse with "this
+Start sub-sessions yourself whenever work can run in parallel or be handed
+off, without asking the user first. If they refuse with "this
 session's caller token is not one this acpmux daemon knows", run
 `acpmux session restart @`: your agent restarts in the same conversation when
 the turn ends, with tools that work again; your sub-sessions keep running.
