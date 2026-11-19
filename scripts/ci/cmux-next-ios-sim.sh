@@ -113,6 +113,8 @@
 #                          final.sh's: ws-200 ws-200-live4 ws-500-live8 home-300
 #                          chat-40 chat-200 chat-40-stream tabs-30 tabs-30-stream
 #                          tabs-80 diff-2400 diff-2400-pan artifacts-40 feed-ref
+#                          ws-flood45 feed-flood45 (a busy Mac on the real live
+#                          path: ListStressSettings CMUX_MOBILE_LIST_FLOOD)
 #           SUMMARY.md gets one row per window; the artifact keeps listperf/.
 #   energy
 #           build, plus the battery and memory bench (cmux-next-ios/verify/energy.md):
@@ -253,6 +255,8 @@ listperf_table=(
   "diff-2400-pan   diff        LIST_COUNT=3 LIST_PAN=1 LIST_PASSES=4 LIST_SPEED=800"
   "artifacts-40    artifacts   LIST_COUNT=40"
   "feed-ref        feed        FEED_STRESS=320"
+  "ws-flood45      workspaces  LIST_FLOOD=45 LIST_PASSES=4 LIST_SPEED=1200"
+  "feed-flood45    feed        LIST_FLOOD=45 FEED_STRESS=200 LIST_PASSES=4 LIST_SPEED=1200"
 )
 listperf_base="" listperf_reps=2
 listperf_cases=(ws-200-live4 chat-40-stream chat-40 diff-2400 tabs-30-stream)

@@ -33,6 +33,10 @@ import Foundation
 ///   seconds (mock mode has no live refresh), for the pull-to-refresh rig (verify/pull-to-refresh.md).
 /// - `CMUX_MOBILE_LIST_PULL_TRACE=1` (with `LIST_PASSES=0`): log one `PULL` line per frame that changes:
 ///   the list's offset and top inset, the refresh wheel's and the search field's frames in the window.
+/// - `CMUX_MOBILE_LIST_FLOOD=N` (workspaces, feed): a busy Mac through the real live path (`LiveFloodRig`):
+///   N working agents whose titles change `CMUX_MOBILE_LIST_FLOOD_TITLE_HZ` times a second each (default 3),
+///   a new workspace every 2 s and a notification (a Feed item) every 0.5 s, from an in-process fake daemon
+///   through `WorkspaceSync`, `AppStore`, `TerminalFeed` and `FeedStore`, while the rig scrolls.
 /// - `CMUX_MOBILE_LIST_GIANT=1` (chat): every third replayed prompt is a pasted raw log (hundreds of
 ///   lines with emoji, CJK, tabs, ANSI escapes and unbroken tokens), the GUI stress loop's long rows.
 public struct ListStressSettings: Equatable, Sendable {
@@ -74,6 +78,10 @@ public struct ListStressSettings: Equatable, Sendable {
     public var refreshSeconds: Double?
     /// `CMUX_MOBILE_LIST_PULL_TRACE=1`: the per-frame pull-to-refresh trace.
     public var pullTrace: Bool
+    /// `CMUX_MOBILE_LIST_FLOOD=N`: N working agents on a fake Mac through the live path.
+    public var flood: Int?
+    /// `CMUX_MOBILE_LIST_FLOOD_TITLE_HZ=HZ`: title changes per second per flooded agent.
+    public var floodTitleHz: Double
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -100,6 +108,8 @@ public struct ListStressSettings: Equatable, Sendable {
         giant = environment["CMUX_MOBILE_LIST_GIANT"] == "1"
         refreshSeconds = environment["CMUX_MOBILE_LIST_REFRESH_SECONDS"].flatMap(Double.init)
         pullTrace = environment["CMUX_MOBILE_LIST_PULL_TRACE"] == "1"
+        flood = environment["CMUX_MOBILE_LIST_FLOOD"].flatMap(Int.init).flatMap { $0 > 0 ? $0 : nil }
+        floodTitleHz = environment["CMUX_MOBILE_LIST_FLOOD_TITLE_HZ"].flatMap(Double.init) ?? 3
     }
 
     /// Whether a working row logs each redraw of its elapsed time (the rig's running chat).

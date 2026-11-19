@@ -3,6 +3,8 @@
 import CmuxMobileAgentChat
 import CmuxMobileChief
 import CmuxMobileDesign
+import CmuxMobileFeed
+import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileTransport
@@ -33,6 +35,8 @@ final class ListStressRig: NSObject {
     /// `CMUX_MOBILE_LIST_PAN=1`: the passes pan sideways (the diff's unwrapped code).
     private var horizontal: Bool { settings.pans }
     private var live: Task<Void, Never>?
+    /// `CMUX_MOBILE_LIST_FLOOD=N`: the fake busy Mac on the real live path.
+    private var flood: LiveFloodRig?
     let log = Logger(subsystem: "dev.cmux.mobile", category: "frames")
 
     init(settings: ListStressSettings, shell: ShellModel) {
@@ -82,9 +86,10 @@ final class ListStressRig: NSObject {
 
     private func open(_ screen: String) async {
         let store = shell.store
+        if let agents = settings.flood { await startFlood(agents) }
         switch screen {
         case "workspaces":
-            store.workspaces = Self.workspaces(count: settings.count, from: store.workspaces)
+            if settings.flood == nil { store.workspaces = Self.workspaces(count: settings.count, from: store.workspaces) }
             shell.tab = .workspaces
         case "tabs":
             guard var ws = store.workspace(id: "ws-cmux") else { return }
@@ -258,6 +263,15 @@ final class ListStressRig: NSObject {
     }
 
     // MARK: Live changes
+
+    /// A busy Mac's events through the production live path (`LiveFloodRig`): bound before the
+    /// screen opens, so the list starts with the Mac's `agents` workspaces and keeps changing.
+    private func startFlood(_ agents: Int) async {
+        let rig = LiveFloodRig(store: shell.store, feedStore: .shared, macID: "mac-studio",
+                               load: LiveFloodRig.Load(workspaces: agents, titleHz: settings.floodTitleHz))
+        flood = rig
+        await rig.start()
+    }
 
     /// What a busy Mac publishes: one workspace's activity and working state change,
     /// and the whole list is replaced (as `AppStore.replaceWorkspaces` does), `liveHz` times a second.
@@ -437,6 +451,7 @@ final class ListStressRig: NSObject {
     private func finish() {
         logMemory("\(settings.screen ?? "-")-done")
         live?.cancel()
+        flood?.logSummary()
         Self.running = nil
         log.notice("FRAMELOG list-stress-done \(self.settings.screen ?? "-", privacy: .public) passes=\(self.pass, privacy: .public)")
         if settings.exitsWhenDone {
