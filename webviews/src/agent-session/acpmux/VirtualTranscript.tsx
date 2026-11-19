@@ -3375,13 +3375,6 @@ function TranscriptView({
   /// This is render-phase state, alongside `sendsAt`, so the counter does not add a mutable ref read
   /// to the render path (React Doctor's no-ref-current-in-render rule).
   const [pendingSentPromptCount, setPendingSentPromptCount] = useState(0);
-  /// The last committed row snapshot used to distinguish an async prompt registration from history
-  /// already in the tail. State keeps this render comparison out of the ref-backed placement cache.
-  const [sendRowsSnapshot, setSendRowsSnapshot] = useState(() => ({
-    current: rows,
-    previous: rows,
-  }));
-  if (sendRowsSnapshot.current !== rows) setSendRowsSnapshot({ current: rows, previous: sendRowsSnapshot.current });
   /// A prompt was sent before the chat opened (while its tail still fits): it opens at the latest
   /// message, not at the reader's old place.
   const sentBeforeOpen = useRef(false);
@@ -3609,26 +3602,39 @@ function TranscriptView({
     } else if (sends < observedSends) {
       pending = 0;
     }
-    const previous = sendRowsSnapshot.previous;
-    const first = Math.max(0, previous.length - ARRIVAL_TAIL);
-    const last = Math.min(rows.length, previous.length + ARRIVAL_TAIL);
-    const indexes = new Set<number>();
-    for (let index = first; index < last; index += 1) indexes.add(index);
-    for (let index = Math.max(0, rows.length - ARRIVAL_TAIL); index < rows.length; index += 1) indexes.add(index);
-    for (const index of indexes) {
-      const row = rows[index];
-      // A later send can arrive before the row snapshot changes. A prompt already matched to
-      // an earlier send must not consume that later send's pending slot again.
-      if (
-        pending > 0 &&
-        row?.kind === "user" &&
-        !isLineRow(row) &&
-        row.id !== previous[index]?.id &&
-        !promptIds.has(row.id)
-      ) {
-        if (promptIds === sentPromptIds) promptIds = new Set(sentPromptIds);
-        rememberSentPromptId(promptIds, row.id);
-        pending -= 1;
+    // Only a send still waiting for its prompt row has anything to match. With none waiting, this
+    // window was built and walked on every commit of a streaming chat for a result it could not use.
+    if (pending > 0) {
+      // "Which rows arrived since the last drawn pass": the rows the placement pass last committed
+      // (`previousRows`, set in its layout effect, so it lags by a commit and not by a render pass).
+      // A send's prompt row can land in the same commit that raises `sends` (a harness switch holds
+      // it) or commits later, and this reads as an arrival either way. A row drawn a commit *before*
+      // `sends` rises is not an arrival here, which is why a new chat's first prompt (startingSends
+      // draws its row before `chat.new` answers) takes its send entrance from the mount path and not
+      // from this matching, as it did before. Taking a snapshot of the send's own rows instead missed
+      // the same-commit case, and taking one per row change was the render-phase setState this
+      // change removes.
+      const previous = previousRows.current;
+      const first = Math.max(0, previous.length - ARRIVAL_TAIL);
+      const last = Math.min(rows.length, previous.length + ARRIVAL_TAIL);
+      const indexes = new Set<number>();
+      for (let index = first; index < last; index += 1) indexes.add(index);
+      for (let index = Math.max(0, rows.length - ARRIVAL_TAIL); index < rows.length; index += 1) indexes.add(index);
+      for (const index of indexes) {
+        const row = rows[index];
+        // A later send can arrive before the row snapshot changes. A prompt already matched to
+        // an earlier send must not consume that later send's pending slot again.
+        if (
+          pending > 0 &&
+          row?.kind === "user" &&
+          !isLineRow(row) &&
+          row.id !== previous[index]?.id &&
+          !promptIds.has(row.id)
+        ) {
+          if (promptIds === sentPromptIds) promptIds = new Set(sentPromptIds);
+          rememberSentPromptId(promptIds, row.id);
+          pending -= 1;
+        }
       }
     }
     sentPromptIdsForRender = promptIds;
