@@ -49,6 +49,8 @@ mod git_install;
 #[cfg(unix)]
 mod git_source;
 #[cfg(unix)]
+mod git_updates;
+#[cfg(unix)]
 mod github_gateway;
 #[cfg(unix)]
 mod grants;
