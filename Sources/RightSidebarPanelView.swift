@@ -503,10 +503,16 @@ struct RightSidebarPanelView: View {
     private var customSidebarPanel: some View {
         if let name = fileExplorerState.customSidebarName,
            let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) {
-            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+            // Rebuilds once a second only when the sidebar reads `clock`,
+            // otherwise on data changes (issue #46725).
+            CustomSidebarLiveDataReader(
+                fileURL: fileURL,
+                monitor: tabManager.customSidebarDataChangeMonitor,
+                build: { clockDate, _ in customSidebarDataContext(clockDate) }
+            ) { dataContext in
                 CustomSidebarSurface(
                     fileURL: fileURL,
-                    dataContext: customSidebarDataContext(timeline.date),
+                    dataContext: dataContext,
                     dispatch: makeCmuxSidebarActionDispatch(),
                     contentInsets: CustomSidebarContentInsets(top: 8, bottom: 8),
                     rendersInProcess: customSidebarRenderer == .inProcess,

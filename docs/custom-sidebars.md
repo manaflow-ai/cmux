@@ -342,7 +342,7 @@ with:
 
     cmux sidebar open mine
 
-## Live data you can bind to (read-only, refreshes ~1s)
+## Live data you can bind to (read-only, refreshes on change)
 
 - `workspaces` — array, one per workspace. Always present: `id`, `title`,
   `selected` (Bool), `pinned` (Bool), `index` (Int), `directory`, `ports`
@@ -406,9 +406,11 @@ with:
   collapsing every surface into the workspace-level `latestPrompt`.
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
-- `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The
-  sidebar re-renders about once a second, so clocks/countdowns and workspace
-  changes are live.
+- `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. A
+  sidebar whose source mentions `clock` re-renders about once a second, so
+  clocks and countdowns stay live. A sidebar that never mentions `clock`
+  re-renders only when its data changes, and its `clock` holds the time of
+  that change.
 
 Optional fields are omitted when the workspace doesn't have them, so guard with
 `if let b = w.branch { ... }` or `w.pr != nil ? ... : ...` rather than assuming
@@ -568,8 +570,11 @@ rendered best-effort, never crashes) — and ask for the feature.
 
 ## Performance and lazy loading
 
-The sidebar re-evaluates roughly once a second (so clocks and data stay live),
-and it renders rows eagerly. Keep each render cheap and the list bounded:
+A sidebar re-evaluates when workspace data changes, at most about once a
+second. If its source mentions `clock`, it also re-evaluates every second so
+clocks stay live; leave `clock` out of a sidebar that doesn't show time so it
+stays idle between changes. Rows render eagerly. Keep each render cheap and
+the list bounded:
 
 - Cap long lists. Show what fits and slice the rest: `for w in workspaces.prefix(20) { ... }`
   or `ForEach(items.prefix(50)) { ... }`. Do not render hundreds of rows.
@@ -578,7 +583,7 @@ and it renders rows eagerly. Keep each render cheap and the list bounded:
 - Only render detail for the selected item. In a two-column layout, build the
   right column from the selected workspace's tabs, not every workspace's tabs.
 - Prefer one focused sidebar over a giant catch-all; deep nesting and huge
-  trees cost the most per tick.
+  trees cost the most per render.
 
 ## Tips
 

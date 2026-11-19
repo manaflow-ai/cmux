@@ -28,10 +28,18 @@ struct CustomSidebarPanelView: View {
     var body: some View {
         Group {
             if isVisibleInUI {
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                // Rebuilds once a second only when the sidebar reads
+                // `clock`, otherwise on data changes (issue #46725).
+                CustomSidebarLiveDataReader(
+                    fileURL: panel.fileURL,
+                    monitor: tabManager.customSidebarDataChangeMonitor,
+                    build: { clockDate, refreshDate in
+                        customSidebarDataContext(now: clockDate, refreshDate: refreshDate)
+                    }
+                ) { dataContext in
                     CustomSidebarSurface(
                         fileURL: panel.fileURL,
-                        dataContext: customSidebarDataContext(now: timeline.date),
+                        dataContext: dataContext,
                         dispatch: makeCmuxSidebarActionDispatch(),
                         contentInsets: CustomSidebarContentInsets.zero,
                         rendersInProcess: customSidebarRenderer == .inProcess,
@@ -95,9 +103,10 @@ struct CustomSidebarPanelView: View {
         Task { await client.shutdown() }
     }
 
-    private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
+    private func customSidebarDataContext(now: Date, refreshDate: Date) -> [String: SwiftValue] {
         CustomSidebarPaneDataContextCache.shared.dataContext(
             now: now,
+            refreshDate: refreshDate,
             tabManager: tabManager,
             sidebarUnread: sidebarUnread
         ) {

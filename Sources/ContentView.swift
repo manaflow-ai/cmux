@@ -13082,10 +13082,9 @@ struct VerticalTabsSidebar: View, Equatable {
                   let customSidebarURL = inMemoryTemplatePreview == nil
                     ? CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId)
                     : URL(fileURLWithPath: "/__cmux-in-memory-sidebar-preview.js") {
-            // Periodic tick so the custom sidebar re-renders live (clock,
-            // countdowns, and refreshed workspace/data context), mirroring the
-            // default sidebar's TimelineView. No banned timers involved.
-            // The surface mounts the in-process renderer by default (native
+            // The reader rebuilds the data context once a second only when
+            // the sidebar reads `clock`; otherwise it rebuilds on data changes
+            // (issue #46725). The surface mounts the in-process renderer by default (native
             // hover/focus/keyboard, same-frame resize); the
             // `customSidebars.renderer` setting switches it to the
             // out-of-process worker for untrusted sources (no file-derived
@@ -13095,14 +13094,18 @@ struct VerticalTabsSidebar: View, Equatable {
             // harmless (the host shuts the short-lived client down on
             // unmount).
             SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                CustomSidebarLiveDataReader(
+                    fileURL: customSidebarURL,
+                    sourceOverride: inMemoryTemplatePreview,
+                    monitor: tabManager.customSidebarDataChangeMonitor,
+                    build: { clockDate, _ in
+                        customSidebarDataContext(now: clockDate, unreadSnapshot: unreadSnapshot)
+                    }
+                ) { dataContext in
                     CustomSidebarSurface(
                         fileURL: customSidebarURL,
                         sourceOverride: inMemoryTemplatePreview,
-                        dataContext: customSidebarDataContext(
-                            now: timeline.date,
-                            unreadSnapshot: unreadSnapshot
-                        ),
+                        dataContext: dataContext,
                         dispatch: makeCmuxSidebarActionDispatch(),
                         contentInsets: CustomSidebarContentInsets(
                             top: SidebarWorkspaceScrollInsets.workspaceList.top,
