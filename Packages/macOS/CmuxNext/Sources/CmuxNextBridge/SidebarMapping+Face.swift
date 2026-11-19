@@ -173,6 +173,8 @@ extension SidebarMapping {
             ?? Self.sidebarTitle(workspace, page: page)
         let agentTab = at(facts.agent)
         let rowAgent = Self.agentMark(agentTab, harnessIcons: harnessIcons)
+        // The user's icon or color, before the shown tab's marks (`iconFromShownTab`).
+        let ownIcon = Self.icon(color: workspace.color, icon: workspace.icon, asset: options.iconAsset)
         var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
@@ -189,7 +191,7 @@ extension SidebarMapping {
             agentWorking: statuses.working,
             // A cmux page draws its own icon; a site with no favicon (none, or not loaded yet) keeps the slot with a
             // globe the favicon replaces.
-            icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: options.iconAsset)
+            icon: ownIcon
                 ?? iconPage?.icon.map(WorkspaceIcon.page)
                 ?? iconPage?.favicon.map(WorkspaceIcon.favicon)
                 ?? (Self.isSite(iconTab, newTabPages: newTabPages) ? .pagePlaceholder : nil),
@@ -238,6 +240,7 @@ extension SidebarMapping {
         row.focusedTab = focused.map { TabID($0.id) }
         // The row's agent chat's acpmux session, whose dot glyph `appearance.agentSignature` draws.
         row.agentSessionID = agentTab?.agentSession?.session.flatMap { $0.isEmpty ? nil : $0 }
+        row.iconFromShownTab = ownIcon == nil && row.icon != nil
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
         row.startsInCloud = page?.startsInCloud ?? false
