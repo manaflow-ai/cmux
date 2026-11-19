@@ -96,6 +96,9 @@ final class FeedRowGlitchUITests: XCTestCase {
 
         func brightness(_ name: String) -> Double {
             XCTAssertTrue(quote.waitForExistence(timeout: 10), "the quote after \(name)")
+            // On screen, so its pixels are the bubble's (an off-screen quote would read as dark).
+            XCTAssertTrue(quote.isHittable && app.windows.firstMatch.frame.contains(quote.frame),
+                          "the quote is on screen after \(name): \(quote.frame)")
             let image = XCUIScreen.main.screenshot().image
             attach(image, name)
             return Self.brightFraction(image, in: quote.frame)

@@ -926,12 +926,19 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     func tableView(_ tableView: UITableView, willBeginEditingRowAt indexPath: IndexPath) {
         guard let id = dataSource?.itemIdentifier(for: indexPath) else { return }
         openRow = id
-        // A rightward swipe closes it and never opens the drawer (Mail). A swipe on the table is
-        // UIKit's: its own swipe recognizer drags the row closed under the finger, so closing it
-        // here too ran a second, animated close against that one, and the row jumped up a row's
-        // height for a moment. The drawer closes it only for a swipe that starts off the table.
-        RowSwipeActions.shared.setOpen(registrationKey, close: { [weak tableView] in
-            guard let tableView, !tableView.isTracking else { return }
+        registerOpenRow(in: tableView)
+    }
+
+    /// Tells the drawer a row is open: a rightward swipe closes it and never opens the drawer (Mail).
+    /// A swipe on the table is UIKit's: its own swipe recognizer drags the row closed under the
+    /// finger, so closing it here too ran a second, animated close against that one, and the row
+    /// jumped up a row's height for a moment. The drawer closes it only for a swipe that starts off
+    /// the table. Left to UIKit, the row stays registered (the drawer drops a closer it called): a
+    /// short drag springs it back open, and the row must still count as open.
+    private func registerOpenRow(in tableView: UITableView) {
+        RowSwipeActions.shared.setOpen(registrationKey, close: { [weak self, weak tableView] in
+            guard let self, let tableView else { return }
+            guard !tableView.isTracking else { return self.registerOpenRow(in: tableView) }
             tableView.setEditing(false, animated: true)
         })
     }
