@@ -89,5 +89,46 @@ class SavedSamplesTests(unittest.TestCase):
         self.assertIn("LR-PROFILE head incl     3.0 ms $s4cmux11AppDelegateC6launchyyF", lines)
 
 
+class FrameworkImageTests(unittest.TestCase):
+    """Since cmux#44204 the app's code is CmuxNextApp.framework behind a stub executable: its frames are named from
+    its own dSYM, found in a folder of dSYMs (a nightly's nightly-next-dsyms artifact), linked at 0, not 0x100000000."""
+
+    def test_framework_frames_named_from_a_folder_of_dsyms(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        for bundle, image in (("cmux.app.dSYM", "cmux"), ("CmuxNextApp.framework.dSYM", "CmuxNextApp")):
+            dwarf = root / "dsyms" / "Release" / bundle / "Contents" / "Resources" / "DWARF"
+            dwarf.mkdir(parents=True)
+            (dwarf / image).write_text("")
+        nm = root / "llvm-nm"
+        # The framework's table starts at 0 (a dylib's link address); the stub's at 0x100000000.
+        nm.write_text("#!/bin/sh\ncase \"$3\" in\n"
+                      "*CmuxNextApp) printf '%s\\n' '0000000000001000 T _$s11CmuxNextApp12LaunchWarmupO5startyyFZ' "
+                      "'0000000000002000 T _end' ;;\n"
+                      "*) printf '%s\\n' '0000000100000000 T _main' '0000000100001000 T _end' ;;\nesac\n")
+        nm.chmod(0o755)
+        images = {"cmux": {"load": "0x102000000", "uuid": "A"}, "CmuxNextApp": {"load": "0x108000000", "uuid": "B"},
+                  "dyld": {"load": "0x18d306000", "uuid": "C"}}
+        # The leaf at 0x108001010 (framework offset 0x1010), its caller in the stub at 0x102000010.
+        samples = [(0, 1000000, [("0x108001010", "?", "0x108001010"), ("0x102000010", "cmux", "0x102000010")])]
+        which = module.shutil.which
+        module.shutil.which = lambda name: None
+        os.environ["LLVM_NM"] = str(nm)
+        try:
+            named = module.symbolicate(samples, images, str(root / "dsyms"))
+        finally:
+            module.shutil.which = which
+            del os.environ["LLVM_NM"]
+        frames = named[0][2]
+        self.assertEqual(frames[0][:2], ("$s11CmuxNextApp12LaunchWarmupO5startyyFZ", "CmuxNextApp"))
+        self.assertEqual(frames[1][:2], ("main", "cmux"))
+
+    def test_no_dsym_for_an_image_leaves_its_frames(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.assertIsNone(module.dwarf_for(tmp.name, "CmuxNextApp"))
+
+
 if __name__ == "__main__":
     unittest.main()
