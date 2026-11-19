@@ -50,7 +50,10 @@ the head's web source key) installed as the copy's web overlay, else
 from the head's webviews served live by a dev server (web-overlay.sh server --local), so later edits of a
 dir: source hot-reload. The rust layer is hot-apply.py apply --branch --parts rust on the copy: the cmux CI
 published for the head's cmux-tui tree, else (a dir: source with cmux-tui and cargo here) a local cargo
-build. Light and dark are the copy's own terminal theme (settings.set appearance.theme), never the Mac's
+build. When the head's daemon would differ from the app's Rust in commits that are not the change's (it branched
+before the app's commit, or the app lags its fork with FFI changes between), the plan applies the change's own
+commits onto the app's commit (git merge-tree, daemon_from) and the look swaps in that commit's daemon: its
+published build, else --rust-binary; a change that does not apply cleanly still needs a build. Light and dark are the copy's own terminal theme (settings.set appearance.theme), never the Mac's
 appearance. With --kit (cmuxterm-hq build-fleet/pr_capture) its window shot and its steps runner are used;
 without it the engine shoots with screencapture and runs the steps a release socket serves (action, rpc,
 cmux, wait, shot, waitFor), naming the others as needing the kit.
@@ -440,21 +443,39 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
             out["layers"].append("web")
     if "rust" in planned.get("parts", []):
         baseline = None
+        skew: tuple[str, list[str]] | None = None
         if not behind and fork != base and h.tree_key(rules, fork) != h.tree_key(rules, base):
-            out["build"]["Rust the app has and the change lacks"] = [
+            skew = ("Rust the app has and the change lacks", [
                 f"the app's commit {base[:12]} has cmux-tui changes the change (branched at {fork[:12]}) lacks: "
-                "rebase it onto the app's commit, or build it"]
+                "rebase it onto the app's commit, or build it"])
         elif behind and (pinned := lag_pins_daemon(h, repo, base, fork)) and not (
                 not h.swift_read_rust(repo, [p for p in pinned if p != FFI_PIN_FILE])
                 and (baseline := lag_ffi_baseline(h, rules, the_app, head, base, out))):
             # The head's daemon carries the lagging commits' FFI changes, which the app does not link. The fork's
             # release brings the library up; Rust the Swift build reads itself still needs a new app.
-            out["build"]["Rust the app links (FFI), in the commits the app lacks"] = pinned
+            skew = ("Rust the app links (FFI), in the commits the app lacks", pinned)
         elif not behind and pins_differ(h, repo, base, head) and not (
                 baseline := lag_ffi_baseline(h, rules, the_app, head, base, out)):
             # A change branched before the app's commit on another app FFI release: hot-apply holds its daemon back
             # (cmux#44876's look, 2026-11-18: the NIGHTLY was a repin ahead, and that release does not go back).
-            out["build"]["Rust the app links (FFI): the app's release is not the change's"] = [FFI_PIN_FILE]
+            skew = ("Rust the app links (FFI): the app's release is not the change's", [FFI_PIN_FILE])
+        onto, why = onto_app(repo, base, fork, head) if skew else (None, "")
+        if onto:
+            # cmuxterm-hq#13435: every one of a week's 132 needs-build looks was this skew, none the PR's own
+            # paths. The daemon of the change's own commits on the app's commit has the app's Rust and FFI and
+            # only the change's diff over them: what a person trying the PR on that nightly would run. It needs no
+            # FFI release of its own: it links the one the app's commit pins.
+            out["layers"].append("rust")
+            out["daemon_from"] = onto
+            out["tree_key"] = h.tree_key(rules, onto)
+            out["notes"].append(f"the daemon is the change's own commits ({fork[:12]}..{head[:12]}) applied onto "
+                                f"the app's commit {base[:12]} ({onto[:12]}), not the head's tree: {skew[0]}")
+            if not h.published(out["tree_key"]):
+                out["notes"].append("no CI build of that daemon is published: a look needs it built "
+                                    "(look --rust-binary)")
+        elif skew:
+            out["build"][skew[0]] = skew[1]
+            out["notes"].append(why)
         else:
             out["layers"].append("rust")
             out["tree_key"] = planned.get("tree_key")
@@ -482,6 +503,31 @@ def on_first_parent_line(repo: Path, head: str, base: str) -> bool:
     branch's earlier commits (its Swift too) would pass as lag."""
     line = git(repo, "rev-list", "--first-parent", f"^{base}", base_tip(repo), check=False)
     return head in line.split()
+
+
+def onto_app(repo: Path, base: str, fork: str, head: str) -> tuple[str | None, str]:
+    """The change's own commits (FORK..HEAD) applied onto the app's commit BASE, as a commit of the merged tree
+    whose parent is BASE, and an empty reason; or None and why not (a conflict, a git too old for merge-tree).
+    The commit's names and dates are fixed and its date is HEAD's, so one change on one app is always the same
+    commit (and tree key). It is written to REPO's objects and never to a ref."""
+    try:
+        done = subprocess.run(["git", "-C", str(repo), "merge-tree", "--write-tree", "--no-messages",
+                               f"--merge-base={fork}", base, head], capture_output=True, text=True,
+                              timeout=GIT_SECONDS)
+    except subprocess.TimeoutExpired:
+        return None, f"git merge-tree ran past {GIT_SECONDS}s applying the change onto the app's commit"
+    tree = (done.stdout.split() or [""])[0]
+    if done.returncode == 1:
+        return None, (f"the change's own commits ({fork[:12]}..{head[:12]}) do not apply cleanly onto the app's "
+                      f"commit {base[:12]}: no daemon of the change on the app's Rust")
+    if done.returncode != 0 or not SHA.fullmatch(tree):
+        return None, f"git merge-tree could not apply the change onto the app's commit: {done.stderr.strip()[-200:]}"
+    stamp = git(repo, "show", "-s", "--format=%ct", head)
+    who = {"GIT_AUTHOR_NAME": "hot-verify", "GIT_AUTHOR_EMAIL": "hot-verify@cmux.invalid",
+           "GIT_COMMITTER_NAME": "hot-verify", "GIT_COMMITTER_EMAIL": "hot-verify@cmux.invalid",
+           "GIT_AUTHOR_DATE": f"@{stamp} +0000", "GIT_COMMITTER_DATE": f"@{stamp} +0000"}
+    message = f"hot-verify: {fork} .. {head} onto {base}"
+    return git(repo, "commit-tree", "--no-gpg-sign", tree, "-p", base, "-m", message, env=who), ""
 
 
 def lag_pins_daemon(h, repo: Path, base: str, fork: str) -> list[str]:
@@ -547,6 +593,8 @@ def plan_text(planned: dict) -> str:
         lines.append(f"build: {why}: {', '.join(paths[:5])}{' ...' if len(paths) > 5 else ''}")
     lines += [f"note: {note}" for note in planned["notes"]]
     lines += [f"head: {planned['head']}", f"base: {planned['base']}"]
+    if planned.get("daemon_from"):
+        lines.append(f"daemon_from: {planned['daemon_from']}")
     return "\n".join(lines) + "\n"
 
 
@@ -1324,11 +1372,31 @@ def apply_ffi_baseline(rules: Path, planned: dict, side: Side) -> dict:
             "applied": receipt.get("applied")}
 
 
-def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path) -> dict:
-    """The head's daemon into the copy (hot-apply.py apply --branch --parts rust): the published build of its
-    cmux-tui tree, else a local cargo build of a dir: source."""
+def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
+               given: Path | None = None) -> dict:
+    """The change's daemon into the copy (hot-apply.py apply --branch --parts rust): the published build of the
+    head's cmux-tui tree, else a local cargo build of a dir: source. A plan with daemon_from (the change applied
+    onto the app's commit) takes that commit's published build, else GIVEN (look --rust-binary), never the
+    head's: the head's daemon is the skew the plan stepped around."""
+    onto = planned.get("daemon_from")
+    if onto:
+        argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", onto, "--branch",
+                "--parts", "rust", "--app", str(side.app()), "--repo", str(rules)]
+        if given is None and not hot().published(planned["tree_key"]):
+            raise LookError(f"the daemon of the change applied onto the app's commit ({onto[:12]}) is not "
+                            "published: build that commit's cmux-tui and pass it as --rust-binary")
+        if given is not None:
+            argv += ["--binary", str(given)]
+        how = ("given binary of the change applied onto the app's commit" if given is not None
+               else "published tree build of the change applied onto the app's commit")
+        return run_hot_apply_rust(argv, side, how)
     argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", planned["head"], "--branch",
             "--parts", "rust", "--app", str(side.app()), "--repo", str(rules)]
+    if given is not None:
+        # The look's own plan has no daemon_from, so a binary built for one (the worker's plan) is not this change's
+        # daemon: swapping it in would label another daemon as the head's.
+        raise LookError("--rust-binary is the daemon of a plan's daemon_from, and this plan has none: its daemon "
+                        "is the head's")
     if planned.get("ffi_baseline"):
         argv.append("--ffi-in")  # apply_ffi_baseline put the release in before the copy opened
     binary = None
@@ -1342,6 +1410,11 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
             binary = src_tree / "cmux-tui/target/release/cmux-tui"
     if binary is not None:
         argv += ["--binary", str(binary)]
+    how = "local cargo build" if binary is not None else "published tree build"
+    return run_hot_apply_rust(argv, side, how)
+
+
+def run_hot_apply_rust(argv: list[str], side: Side, how: str) -> dict:
     env = {**os.environ, "CMUX_HOT_APPLY_STATE_DIR": str(side.dir() / "hot-apply")}
     done = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=APPLY_SECONDS)
     if done.returncode != 0:
@@ -1350,7 +1423,7 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
     receipt = {}
     with contextlib.suppress(ValueError, IndexError):
         receipt = json.loads(done.stdout.strip().splitlines()[-1])
-    return {"how": "local cargo build" if binary else "published tree build", "phases": receipt.get("phases")}
+    return {"how": how, "phases": receipt.get("phases")}
 
 
 # ---------------------------------------------------------------- look
@@ -1492,7 +1565,8 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
         applied = {}
         with phases("apply"):
             if "rust" in planned["layers"]:
-                applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch)
+                given = Path(args.rust_binary).resolve() if getattr(args, "rust_binary", None) else None
+                applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given)
             if "web" in planned["layers"]:
                 applied["web"] = apply_web(rules, planned, src_tree, side, scratch)
         receipt["applied"] = applied
@@ -1667,6 +1741,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--kit")
     p.add_argument("--state")
     p.add_argument("--no-video", action="store_true")
+    p.add_argument("--rust-binary", help="the cmux-tui built from the plan's daemon_from (the change applied onto "
+                   "the app's commit), when no CI build of it is published")
     p.add_argument("--watch", action="store_true")
     p.add_argument("--pr", type=int, help="the pull request a sha: source is the head of: its published web layer")
     p.set_defaults(func=command_look)
