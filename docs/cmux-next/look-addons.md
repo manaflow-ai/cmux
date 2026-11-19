@@ -32,6 +32,11 @@ change often, so a look sets only these custom properties, on `:root`
 | `--cv-card-fill`, `--cv-card-ring` | every card in the transcript (tool output, code, edited files) and its hairline; unset, each card keeps its own strength |
 | `--cv-user-bubble-tint`, `--cv-user-bubble-edge` | the prompt bubble's glass tint and its hairline |
 | `--cv-user-bubble-radius` | the prompt bubble's corner |
+| `--cv-reply-fill`, `--cv-reply-ring`, `--cv-reply-radius`, `--cv-reply-padding` | the agent's reply as a card: its fill, hairline, corner and room around the text; unset, no card |
+| `--cv-hover-duration`, `--cv-hover-ease` | how an icon button's fill and ink, and a tool row's words, change under the pointer; unset, at once |
+| `--cv-popover-fill`, `--cv-popover-ring`, `--cv-popover-radius` | the pane's menus, pickers and popovers: their fill over the frost, hairline and corner |
+| `--cv-popover-row-selected` | a menu's or picker's highlighted row (pointer or keys) |
+| `--cv-code-comment`, `--cv-code-string`, `--cv-code-constant`, `--cv-code-keyword`, `--cv-code-function`, `--cv-code-type` | highlighted code (code blocks, edits, commands); unset, each keeps its terminal palette slot |
 
 ```css
 :root {
@@ -53,6 +58,28 @@ the transcript. Type, width and spacing are settings instead, because the chat e
 from them before it draws; a stylesheet that set a font size would make rows jump as they are
 measured.
 
+The reply card keeps that promise too. Its fill is the reply's own row, and `--cv-reply-padding` is
+that fill spread outward past the row, with the ring on its outer edge, so the text stays where it
+is. Keep the room within the gap between rows (12 px or less), or the card reaches under the row
+next to it. `--cv-hover-duration` runs only when motion is on: Reduce Motion, cmux motion off or
+reduced, and `ui.animationSpeed` off keep the hover instant whatever the look sets. There is no
+press scale: a held button changes only its fill ([design/pressed-state.md](../../design/pressed-state.md)).
+Reduce Transparency, Lens and Spectrum keep their own popup fill over `--cv-popover-fill`, and
+`appearance.borders: none` and Increase Contrast keep their own popup edge over `--cv-popover-ring`.
+
+```css
+:root {
+  --cv-reply-fill: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  --cv-reply-ring: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  --cv-reply-radius: 10px;
+  --cv-reply-padding: 10px;
+  --cv-hover-duration: 120ms;
+  --cv-popover-radius: 12px;
+  --cv-popover-row-selected: color-mix(in srgb, var(--agent-accent) 28%, transparent);
+  --cv-code-keyword: var(--agent-accent);
+}
+```
+
 The theme colors (`--agent-text`, `--agent-accent`, `--agent-border` and the rest the host derives
 from your theme) are set on the page by cmux itself, so a stylesheet cannot override them. Set those
 with the theme file's `colors` and `appearance.surfaces.agentPane`.
@@ -70,7 +97,9 @@ with the theme file's `colors` and `appearance.surfaces.agentPane`.
   It also holds every drawn line of text to WCAG AA contrast (4.5:1, 3:1 for large text) over the
   fills under it, in a light theme and a dark one: a look may not take a line under the minimum, nor
   lower one the plain chat already draws under it. When a built-in preset exists, it also compares
-  the add-on's capture with the built-in one.
+  the add-on's capture with the built-in one. The chat-pane tokens (reply card, hover timing, popovers,
+  code colors) are held the same way on the gallery's `look-tokens-code` state, and the hover timing
+  is checked to stay instant under reduced motion.
 
 ## Not yet possible from outside
 
@@ -82,3 +111,5 @@ with the theme file's `colors` and `appearance.surfaces.agentPane`.
 | Which facts go on which row line | `sidebar.workspaceRow.lines` validates but is not drawn | #42244 |
 | Row decorations from an installed look without replacing your own `customize/` | only the `local/customize` app may decorate rows, and a look's `customize/` files replace yours | needs per-look decoration layers |
 | The chat's theme colors from `agent-pane/theme.css` | the host sets them inline | the theme file is the place for them |
+| A speaker label over the agent's reply ("Claude", "Codex") | the reply draws no label of its own (the row names its speaker to screen readers only), so there is nothing to paint; adding one is new UI that the height estimate would have to count | a follow-up: a label the pane draws, with its own paint tokens |
+| Pressing a button smaller | a held button changes only its fill, everywhere (design/pressed-state.md) | not planned |

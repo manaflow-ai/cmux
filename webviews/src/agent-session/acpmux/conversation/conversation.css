@@ -2208,6 +2208,25 @@ pre.cv-math-source {
   flex: 1;
   min-width: 0;
 }
+/* A look's reply card (cmux.agentPane.style/1, schemas/agent-pane/style-tokens.json): the fill, ring,
+   corner and room of the agent's reply. Every one is paint on the row the virtualizer measures, so
+   the card never moves the reply's text or any row: the fill is the row's background, and its room
+   (--cv-reply-padding) is that fill spread past the row's edge as a shadow, the ring a hairline on
+   that outer edge. Unset, the card draws nothing: a transparent fill, no ring, a square corner and no
+   room, the reply as it always was. Selection (below) keeps its own fill and corner over it. */
+.acpmux-row.acpmux-assistant {
+  border-radius: var(--cv-reply-radius, 0px);
+  background-color: var(--cv-reply-fill, transparent);
+  box-shadow: 0 0 0 var(--cv-reply-padding, 0px) var(--cv-reply-fill, transparent);
+}
+.acpmux-row.acpmux-assistant::after {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--cv-reply-padding, 0px));
+  border: var(--cmux-hairline, 0.5px) solid var(--cv-reply-ring, transparent);
+  border-radius: calc(var(--cv-reply-radius, 0px) + var(--cv-reply-padding, 0px));
+  pointer-events: none;
+}
 /* Keyboard transcript selection uses a roving article tab stop. The fill is deliberately on the
    row rather than the prose so a range remains visible while its rows virtualize in and out. */
 .acpmux-row[data-transcript-selected="true"] {
@@ -5523,6 +5542,22 @@ a.cv-sha:focus-visible {
 .cv-iconbtn[data-popup-open] {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+}
+/* A look's hover timing (cmux.agentPane.style/1 --cv-hover-duration, --cv-hover-ease): how an icon
+   button's fill and ink, and a tool row's words, come and go under the pointer. Unset it is 0s, the
+   hover on the frame the pointer arrives (HOVER FOLLOWS THE POINTER, below). It runs only through the
+   web motion gate: Reduce Motion, cmux motion off or reduced (`data-cmux-motion`) and ui.animationSpeed
+   off (`data-agent-motion`) keep the hover instant whatever a look sets. A held button changes its
+   fill only (design/pressed-state.md), so there is no press scale to time. */
+@media (prefers-reduced-motion: no-preference) {
+  :where(:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"])) .cv-iconbtn,
+  :where(:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"]))
+    button.cv-tool
+    > :is(.cv-tool__text, .cv-command__text, .cv-agent-activity__sentence) {
+    transition-property: color, background-color;
+    transition-duration: var(--cv-hover-duration, 0s);
+    transition-timing-function: var(--cv-hover-ease, ease);
+  }
 }
 .cv-turn-auth-action {
   all: unset;

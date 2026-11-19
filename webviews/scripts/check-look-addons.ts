@@ -4,7 +4,8 @@
  * have recreated and customized stuff to their liking").
  *
  * The chat's stylesheet contract, schemas/agent-pane/style-tokens.json (cmux.agentPane.style/1):
- *   undeclared    a token is not declared on a root selector (`:root`, `html`) in its owner file, so a
+ *   undeclared    a token is not declared on a root selector (`:root`, `html`) in its owner file (or, for
+ *                 a script owner such as syntax-theme.ts, not named there as a string literal), so a
  *                 person's `:root { ... }` could not set it.
  *   scoped        a token is also declared under another selector outside `alsoScopedIn`, so a look's
  *                 value would silently stop at that element.
@@ -102,7 +103,13 @@ function cssFiles(dir: string, out: string[] = []): string[] {
 }
 
 /** The contract against the shipped stylesheets (`sheets`: repo-relative path to text) and the host. */
-export function checkContract(contract: Contract, sheets: Map<string, string>, pushed: Set<string>): Problem[] {
+export function checkContract(
+  contract: Contract,
+  sheets: Map<string, string>,
+  pushed: Set<string>,
+  /** Script owners (repo-relative path to text): a token a script writes into the page itself. */
+  scripts: Map<string, string> = new Map(),
+): Problem[] {
   const problems: Problem[] = [];
   const decls = new Map<string, Array<Declaration & { file: string }>>();
   const reads = new Set<string>();
@@ -132,11 +139,20 @@ export function checkContract(contract: Contract, sheets: Map<string, string>, p
     // read there with today's value as the fallback: either way a person's `:root` value wins.
     const rootDeclared = mine.some((decl) => decl.file === token.owner && rootLevel(decl.selectors));
     const fallbackOnly = mine.length === 0 && fallbacks.has(`${token.owner} ${token.name}`);
-    if (!rootDeclared && !fallbackOnly)
+    // A script owner (the code colors, which the highlighter writes into each span as
+    // `var(--cv-code-keyword, the slot's color)`) names the token as a string literal and declares
+    // nothing: its read is the fallback form, made at run time.
+    const scripted =
+      !token.owner.endsWith(".css") &&
+      mine.length === 0 &&
+      (scripts.get(token.owner) ?? "").includes(`"${token.name}"`);
+    if (!rootDeclared && !fallbackOnly && !scripted)
       problems.push({
         kind: "undeclared",
         where,
-        message: `neither declared on :root nor read with a fallback in ${token.owner}`,
+        message: token.owner.endsWith(".css")
+          ? `neither declared on :root nor read with a fallback in ${token.owner}`
+          : `${token.owner} does not name it as a string literal`,
       });
     for (const decl of mine) {
       if (rootLevel(decl.selectors) || (token.alsoScopedIn ?? []).includes(decl.file)) continue;
@@ -146,7 +162,8 @@ export function checkContract(contract: Contract, sheets: Map<string, string>, p
         message: `${token.name} is declared below the root here, so a look's value stops at it; declare it on :root or list the file in alsoScopedIn`,
       });
     }
-    if (!reads.has(token.name)) problems.push({ kind: "unused", where, message: "no stylesheet reads it" });
+    if (!reads.has(token.name) && !scripted)
+      problems.push({ kind: "unused", where, message: "no stylesheet reads it" });
   }
   return problems;
 }
@@ -278,7 +295,11 @@ export function run(): Problem[] {
     sheets.set(path.relative(repo, file).split(path.sep).join("/"), readFileSync(file, "utf8"));
   const pushed = hostPushed(readFileSync(path.join(webviews, "src/agent-session/shared/theme.ts"), "utf8"));
   const looks = (JSON.parse(readFileSync(LOOKS_PATH, "utf8")) as { looks: Look[] }).looks;
-  return [...checkContract(contract, sheets, pushed), ...checkLooks(looks, builtInLooks(), contract)];
+  const scripts = new Map<string, string>();
+  for (const token of contract.tokens)
+    if (!token.owner.endsWith(".css") && existsSync(path.join(repo, token.owner)))
+      scripts.set(token.owner, readFileSync(path.join(repo, token.owner), "utf8"));
+  return [...checkContract(contract, sheets, pushed, scripts), ...checkLooks(looks, builtInLooks(), contract)];
 }
 
 if (import.meta.main) {

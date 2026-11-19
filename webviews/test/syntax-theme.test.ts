@@ -117,7 +117,10 @@ describe("code colors come from the terminal palette", () => {
       "entity.name.function",
       "entity.name.type",
     ]) {
-      const slot = variableOf(ruleFor(chat, scope)?.settings.foreground)?.match(/^--agent-ansi-(\d+)$/)?.[1];
+      // A look's code token (LOOK_CODE_TOKENS) comes first; the palette slot is its fallback.
+      const chatColor = ruleFor(chat, scope)?.settings.foreground ?? "";
+      expect({ scope, look: variableOf(chatColor) }).toEqual({ scope, look: expect.stringMatching(/^--cv-code-/) });
+      const slot = chatColor.match(/var\(--agent-ansi-(\d+),/)?.[1];
       expect({ scope, slot }).toEqual({ scope, slot: expect.any(String) });
       const pageColor = rootVariable(variableOf(ruleFor(page, scope)?.settings.foreground) ?? "");
       expect({ scope, color: pageColor }).toEqual({ scope, color: night.palette[slot!] });

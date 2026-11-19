@@ -146,14 +146,24 @@
    frost (the mode, below). */
 .ui-popup.ui-glass,
 .ui-card.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --glass-floating-tint: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --glass-tint: var(--glass-floating-tint);
   --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   /* On the App's glass (HOST GLASS, below) every popup and card lays the same veil of the theme
      surface: the model menu's since cmux#37794 (gallery ui.host-glass model-40: 0% let the
      wallpaper's color into the row text, 70% read solid). Before, only the model menus had it and
      every other popup was clear, so the model picker and the context card read as two materials
      side by side (gallery ui.menu-material). */
-  --host-glass-fill: color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-host-veil) * 100%), transparent);
+  --glass-floating-veil: color-mix(in srgb, var(--glass-surface) calc(var(--ds-transient-host-veil) * 100%), transparent);
+  --host-glass-fill: var(--glass-floating-veil);
+}
+/* A chat look's popover fill (cmux.agentPane.style/1 --cv-popover-fill; only the agent pane loads a
+   look's stylesheet): it takes the place of the menu level's tint, on the page's glass and on the
+   App's. Unset, both are the level's own. Lens and Spectrum (below) and Reduce Transparency's opaque
+   fill still win over it, so a look never makes a popup see-through for a person who asked for it solid. */
+.ui-popup.ui-glass {
+  --glass-tint: var(--cv-popover-fill, var(--glass-floating-tint));
+  --host-glass-fill: var(--cv-popover-fill, var(--glass-floating-veil));
 }
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card, .ui-dialog).ui-glass {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);

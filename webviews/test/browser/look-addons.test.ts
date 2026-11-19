@@ -342,4 +342,131 @@ await requireBrowserLane("look-addons.test.ts", async () => {
       }
     });
   }
+
+  // The chat-pane groups (a reply card, hover timing, popovers, code colors; asked for by an outside
+  // look's author): each lands where it names, none moves a box, and the hover timing goes through the
+  // motion gate. The gallery's look-tokens-* states draw each group alone.
+  const PANE_TOKENS = `:root {
+  --cv-reply-fill: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  --cv-reply-ring: color-mix(in srgb, var(--agent-text) 16%, transparent);
+  --cv-reply-radius: 10px;
+  --cv-reply-padding: 10px;
+  --cv-hover-duration: 160ms;
+  --cv-hover-ease: linear;
+  --cv-popover-radius: 14px;
+  --cv-popover-row-selected: color-mix(in srgb, var(--agent-accent) 30%, transparent);
+  --cv-code-keyword: color-mix(in srgb, var(--agent-accent) 90%, var(--agent-text));
+}`;
+  for (const theme of ["dark", "light"] as const) {
+    test(`the chat-pane tokens (${theme}): land where they name and move no box`, async () => {
+      const page = await browser.newPage({ viewport: { width: 1000, height: 900 } });
+      try {
+        await open(page, "look-tokens-code", theme);
+        const reply = '[data-row-id="look-tokens-answer"]';
+        await page.locator(reply).waitFor();
+        // The code card's lines are highlighted off the main thread; wait for its colored spans.
+        await page.waitForFunction(
+          () => {
+            const walk = (root: ParentNode): boolean =>
+              [...root.querySelectorAll("*")].some(
+                (el) =>
+                  (el.getAttribute("style") ?? "").includes("--cv-code-keyword") ||
+                  (el.shadowRoot !== null && walk(el.shadowRoot)),
+              );
+            return walk(document.body);
+          },
+          undefined,
+          { timeout: 30_000 },
+        );
+        const plain = await boxes(page);
+        const plainLines = await readability(page);
+        const before = await page.evaluate((reply) => {
+          const row = getComputedStyle(document.querySelector(reply)!);
+          return { fill: row.backgroundColor, radius: row.borderTopLeftRadius };
+        }, reply);
+        // Unset, the reply has no card and keeps its square corner.
+        expect(before).toEqual({ fill: "rgba(0, 0, 0, 0)", radius: "0px" });
+
+        await applyLook(page, PANE_TOKENS);
+        expect(moved(plain, await boxes(page))).toEqual([]);
+        expect(unreadable(plainLines, await readability(page))).toEqual([]);
+
+        const after = await page.evaluate((reply) => {
+          const resolve = (value: string, property = "color") => {
+            const probe = document.createElement("div");
+            probe.style.setProperty(property, value);
+            document.body.appendChild(probe);
+            try {
+              return getComputedStyle(probe).getPropertyValue(property);
+            } finally {
+              probe.remove();
+            }
+          };
+          const row = document.querySelector(reply)!;
+          const style = getComputedStyle(row);
+          const ring = getComputedStyle(row, "::after");
+          const button = document.querySelector(".cv-iconbtn")!;
+          const root = document.documentElement;
+          const gate = { motion: root.getAttribute("data-cmux-motion"), agent: root.getAttribute("data-agent-motion") };
+          root.removeAttribute("data-cmux-motion");
+          root.removeAttribute("data-agent-motion");
+          const hoverOn = getComputedStyle(button).transitionDuration;
+          root.setAttribute("data-cmux-motion", "reduced");
+          const hoverReduced = getComputedStyle(button).transitionDuration;
+          if (gate.motion === null) root.removeAttribute("data-cmux-motion");
+          else root.setAttribute("data-cmux-motion", gate.motion);
+          if (gate.agent !== null) root.setAttribute("data-agent-motion", gate.agent);
+          return {
+            fill: style.backgroundColor === resolve("color-mix(in srgb, var(--agent-text) 5%, transparent)"),
+            radius: style.borderTopLeftRadius,
+            room: style.boxShadow.includes("10px"),
+            ring: ring.borderTopColor === resolve("color-mix(in srgb, var(--agent-text) 16%, transparent)"),
+            ringRadius: ring.borderTopLeftRadius,
+            hoverOn,
+            hoverReduced,
+            popupRadius: getComputedStyle(root).getPropertyValue("--ui-popup-radius").trim(),
+            rowSelected:
+              getComputedStyle(root).getPropertyValue("--acpmux-menu-highlight").trim() ===
+              getComputedStyle(root).getPropertyValue("--cv-popover-row-selected").trim(),
+          };
+        }, reply);
+        expect(after).toEqual({
+          fill: true,
+          radius: "10px",
+          room: true,
+          ring: true,
+          ringRadius: "20px",
+          hoverOn: "0.16s",
+          hoverReduced: "0s",
+          popupRadius: "14px",
+          rowSelected: true,
+        });
+
+        // The code block's keywords take the look's color; the rest keep their palette slots.
+        const keyword = await page.evaluate(() => {
+          const spans: Element[] = [];
+          const walk = (root: ParentNode) => {
+            for (const el of root.querySelectorAll("*")) {
+              if ((el.getAttribute("style") ?? "").includes("--cv-code-keyword")) spans.push(el);
+              if (el.shadowRoot) walk(el.shadowRoot);
+            }
+          };
+          walk(document.body);
+          const probe = document.createElement("div");
+          probe.style.color = "var(--cv-code-keyword)";
+          document.body.appendChild(probe);
+          const want = getComputedStyle(probe).color;
+          probe.remove();
+          return { spans: spans.length, colored: spans.every((span) => getComputedStyle(span).color === want) };
+        });
+        expect(keyword.spans).toBeGreaterThan(0);
+        expect(keyword.colored).toBe(true);
+
+        await applyLook(page, "");
+        expect(moved(plain, await boxes(page))).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    });
+  }
 });

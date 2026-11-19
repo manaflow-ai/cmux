@@ -112,9 +112,29 @@ export function syntaxRoleColors(
   ) as Record<SyntaxRoleName, string>;
 }
 
-/** The agent pane's color for a role: its lifted ANSI slot, the default palette behind it. */
+/**
+ * A chat look's code colors (cmux.agentPane.style/1, schemas/agent-pane/style-tokens.json): the roles a
+ * look may recolor, each by its own token on `:root`. Shiki and the pane's own highlighters write the
+ * color as `var(token, the slot's color)` into each span, so a look's value recolors code in place and,
+ * unset, every role keeps its palette slot. Only the agent pane loads a look's stylesheet.
+ */
+const LOOK_CODE_TOKENS: Partial<Record<SyntaxRoleName, string>> = {
+  comment: "--cv-code-comment",
+  string: "--cv-code-string",
+  constant: "--cv-code-constant",
+  keyword: "--cv-code-keyword",
+  function: "--cv-code-function",
+  type: "--cv-code-type",
+};
+const LOOK_CODE_TOKEN_OF = new Map<SyntaxRole, string>(
+  Object.entries(LOOK_CODE_TOKENS).map(([role, token]) => [SYNTAX_ROLES[role as SyntaxRoleName], token!]),
+);
+
+/** The agent pane's color for a role: a look's token, else its lifted ANSI slot, the default palette behind it. */
 export function agentSyntaxColor(spec: SyntaxRole, type: "light" | "dark", foreground: string): string {
   const slot = spec.slots[0];
   if (slot == null) return foreground;
-  return `var(--agent-ansi-${slot}, ${defaultSyntaxPalettes[type][String(slot)]})`;
+  const color = `var(--agent-ansi-${slot}, ${defaultSyntaxPalettes[type][String(slot)]})`;
+  const token = LOOK_CODE_TOKEN_OF.get(spec);
+  return token ? `var(${token}, ${color})` : color;
 }

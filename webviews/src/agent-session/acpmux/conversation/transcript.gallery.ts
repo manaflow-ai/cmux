@@ -261,6 +261,67 @@ const mockDaemonFrames = {
   },
 };
 
+// LOOK TOKENS (cmux.agentPane.style/1, schemas/agent-pane/style-tokens.json): the chat-pane groups a
+// look sets from outside, each sent to the pane through the host's own path for a person's
+// agent-pane/theme.css (`cmuxAcpmuxBridge.applyCustomization`), over the stage's own sheet. The
+// sheets use only the theme's own colors, as a look must. test/browser/look-addons.test.ts applies
+// them all and holds them to moving no box.
+const LOOK_TOKEN_SHEETS = {
+  reply: `:root {
+  --cv-reply-fill: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  --cv-reply-ring: color-mix(in srgb, var(--agent-text) 16%, transparent);
+  --cv-reply-radius: 10px;
+  --cv-reply-padding: 10px;
+}`,
+  hover: `:root {
+  --cv-hover-duration: 160ms;
+  --cv-hover-ease: cubic-bezier(0, 0, 0.58, 1);
+}`,
+  popover: `:root {
+  --cv-popover-fill: color-mix(in srgb, var(--agent-page-bg) 86%, transparent);
+  --cv-popover-ring: color-mix(in srgb, var(--agent-accent) 40%, transparent);
+  --cv-popover-radius: 14px;
+  --cv-popover-row-selected: color-mix(in srgb, var(--agent-accent) 30%, transparent);
+}`,
+  code: `:root {
+  --cv-code-comment: color-mix(in srgb, var(--agent-text) 50%, transparent);
+  --cv-code-string: var(--agent-ansi-2);
+  --cv-code-constant: var(--agent-ansi-3);
+  --cv-code-keyword: var(--agent-accent);
+  --cv-code-function: var(--agent-ansi-6);
+  --cv-code-type: var(--agent-ansi-4);
+}`,
+} as const;
+
+/// Sends `css` to the pane as a person's agent-pane/theme.css, after the stage's own (its font).
+const applyLookSheet = (css: string) => async (ctx: PlayContext) => {
+  const page = ctx.document.defaultView as unknown as {
+    cmuxAcpmuxBridge: { applyCustomization(customization: { themeCSS: string }): void };
+  };
+  const stage = ctx.document.getElementById("acpmux-user-theme")?.textContent ?? "";
+  page.cmuxAcpmuxBridge.applyCustomization({ themeCSS: `${stage}\n${css}` });
+  await ctx.waitFor(() => ctx.document.getElementById("acpmux-user-theme")?.textContent?.includes(css) ?? false);
+};
+
+/// A reply with prose and a fenced code block, under a prompt and two tool rows, with its footer.
+const lookTokensChat = chat([
+  user("Add a retry cap to the fetch helper", 6, { id: "look-tokens-prompt" }),
+  activity(
+    [
+      tool("Read src/net/retry.ts", "read", "completed", { locations: [{ path: "src/net/retry.ts" }] }),
+      tool("Run the retry tests", "execute", "completed", { command: "bun test src/net" }),
+    ],
+    5.8,
+    { id: "look-tokens-tools" },
+  ),
+  assistant(
+    "The delay now stops growing at the cap:\n\n```ts\n// Never wait longer than the cap.\nexport function delayFor(attempt: number, cap = 8000): number {\n  return Math.min(cap, 250 * 2 ** attempt);\n}\n```\n\nThe retry tests pass.",
+    5.5,
+    { id: "look-tokens-answer" },
+  ),
+  summary(5.4, { id: "look-tokens-summary", status: "completed", durationMs: 41_000, toolCount: 2 }),
+]);
+
 const openWorked = async (ctx: PlayContext) => {
   await ctx.click({ selector: ".cv-worked" });
   await ctx.waitFor(() => ctx.find({ selector: ".cv-worked" }).getAttribute("aria-expanded") === "true");
@@ -1715,6 +1776,37 @@ export default agentPaneEntry({
     "activity-tone-secondary": {
       note: "Selected activity hierarchy: tool calls, Worked for and received peer messages (their Markdown too) use one AA-readable secondary tone; prompts and assistant text stay primary. Capture in light and dark.",
       snapshot: messageSurfaceChat,
+    },
+    "look-tokens-reply-card": {
+      note: "A look's reply card (--cv-reply-fill, -ring, -radius, -padding): the fill on the reply's row, its room painted outward, so nothing moves. Unset, the reply has no card. No speaker label: the reply draws none to paint.",
+      snapshot: lookTokensChat,
+      play: applyLookSheet(LOOK_TOKEN_SHEETS.reply),
+    },
+    "look-tokens-hover": {
+      note: "A look's hover timing (--cv-hover-duration 160ms, --cv-hover-ease) on the footer's icon buttons and the tool rows, through the motion gate. The pointer rests on Copy; a held button changes only its fill.",
+      snapshot: lookTokensChat,
+      play: async (ctx) => {
+        await applyLookSheet(LOOK_TOKEN_SHEETS.hover)(ctx);
+        await ctx.hover({ selector: ".acpmux-turnSummary .cv-iconbtn" });
+      },
+    },
+    "look-tokens-popover": {
+      note: "A look's popovers (--cv-popover-fill, -ring, -radius, -row-selected): the chat menu open, the pointer on a row.",
+      height: 900,
+      ready: { transport: "mock" },
+      snapshot: lookTokensChat,
+      checks: mockDaemonFrames,
+      play: async (ctx) => {
+        await applyLookSheet(LOOK_TOKEN_SHEETS.popover)(ctx);
+        await chatMenuReady(ctx);
+        await ctx.click({ role: "button", name: "Chat actions" });
+        await ctx.hover({ role: "menuitem", name: "Mark as Unread" });
+      },
+    },
+    "look-tokens-code": {
+      note: "A look's code colors (--cv-code-comment, -string, -constant, -keyword, -function, -type) on a fenced block; unset, each keeps its terminal palette slot.",
+      snapshot: lookTokensChat,
+      play: applyLookSheet(LOOK_TOKEN_SHEETS.code),
     },
     "activity-tone-tertiary": {
       note: "Gallery arm: a stronger tertiary dimming for background activity, checked against the same light/dark fixture.",

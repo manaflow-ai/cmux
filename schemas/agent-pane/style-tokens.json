@@ -1,5 +1,5 @@
 {
-  "$comment": "cmux.agentPane.style/1: the CSS custom properties a person's agent-pane/theme.css (and a look add-on's) may set, on :root only. They are paint: color, fill, edge and corner. None moves a box, so a look applied or hot reloaded never shifts the transcript. Type, width and spacing are settings (agentPane.display.*), because the transcript's height estimate reads them (model.ts); a stylesheet that set them would make rows jump when they are measured. The colors the host pushes from the theme (--agent-text, --agent-accent and the rest of shared/theme.ts cssVariables) are inline styles on the root, so a stylesheet cannot beat them: set those with the theme file's `colors` and `appearance.surfaces.agentPane`. webviews scripts/check-look-addons.ts holds the pane's stylesheets and every add-on in examples/looks to this file: each token is declared on :root in `owner` (or, for a token with no value of its own, read there with a fallback: `var(--token, today's value)`), nowhere else but `alsoScopedIn`, never pushed by the host, and an add-on sets nothing else. Docs: docs/cmux-next/look-addons.md.",
+  "$comment": "cmux.agentPane.style/1: the CSS custom properties a person's agent-pane/theme.css (and a look add-on's) may set, on :root only. They are paint: color, fill, edge, corner, a card's outward room, code colors and hover timing. None moves a box, so a look applied or hot reloaded never shifts the transcript. Type, width and spacing are settings (agentPane.display.*), because the transcript's height estimate reads them (model.ts); a stylesheet that set them would make rows jump when they are measured. The colors the host pushes from the theme (--agent-text, --agent-accent and the rest of shared/theme.ts cssVariables) are inline styles on the root, so a stylesheet cannot beat them: set those with the theme file's `colors` and `appearance.surfaces.agentPane`. webviews scripts/check-look-addons.ts holds the pane's stylesheets and every add-on in examples/looks to this file: each token is declared on :root in `owner` (or, for a token with no value of its own, read there with a fallback: `var(--token, today's value)`; a script owner names it as a string literal and writes that fallback form at run time), nowhere else but `alsoScopedIn`, never pushed by the host, and an add-on sets nothing else. Docs: docs/cmux-next/look-addons.md.",
   "interface": "cmux.agentPane.style/1",
   "status": "draft: shapes are refined with the first outside look before the interface is public",
   "selectors": [":root"],
@@ -66,6 +66,102 @@
       "kind": "length",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
       "about": "The prompt bubble's corner radius. Unset: 12 px at the chat's text scale. A corner never changes the bubble's box."
+    },
+    {
+      "name": "--cv-reply-fill",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The agent's reply as a card: its fill, on the reply's row. Unset: transparent, no card."
+    },
+    {
+      "name": "--cv-reply-ring",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The reply card's hairline, on the outer edge of its room. Unset: none (transparent)."
+    },
+    {
+      "name": "--cv-reply-radius",
+      "kind": "length",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The reply card's corner radius. Unset: 0 (square). A corner never changes the row's box."
+    },
+    {
+      "name": "--cv-reply-padding",
+      "kind": "length",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The reply card's room around the text on every side, painted outward past the row (the fill spread as a shadow), so the text and every row stay where they are. Unset: 0. Keep it within the gap between rows (12 px or less), or the card reaches under its neighbours."
+    },
+    {
+      "name": "--cv-hover-duration",
+      "kind": "duration",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "How long an icon button's fill and ink, and a tool row's words, take to change under the pointer. Unset: 0s (on the frame the pointer arrives). Reduce Motion, cmux motion off or reduced, and ui.animationSpeed off keep it instant."
+    },
+    {
+      "name": "--cv-hover-ease",
+      "kind": "easing",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "The easing of that hover change. Unset: ease (unseen while the duration is 0s)."
+    },
+    {
+      "name": "--cv-popover-fill",
+      "kind": "color",
+      "owner": "webviews/src/ui/glass/glass.css",
+      "about": "The fill of the pane's menus, pickers and popovers, over their frost, on the page's glass and the App's. Unset: the menu level's own tint. Lens, Spectrum and Reduce Transparency keep theirs."
+    },
+    {
+      "name": "--cv-popover-ring",
+      "kind": "color",
+      "owner": "webviews/src/ui/popupSurface.css",
+      "about": "Those popups' hairline edge. Unset: the theme's text at 12%. appearance.borders none and Increase Contrast win over it."
+    },
+    {
+      "name": "--cv-popover-radius",
+      "kind": "length",
+      "owner": "webviews/src/ui/popupSurface.css",
+      "about": "Those popups' corner radius, which the pane's other floating cards share; a row's highlight stays concentric with it. Unset: the design scale's popup radius (8 px)."
+    },
+    {
+      "name": "--cv-popover-row-selected",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/styles.css",
+      "about": "The fill of a menu's or picker's highlighted row (pointer or keys), and of the hover fills inside a popup. Unset: each keeps its own (the accent at 20% on a menu row, the text at 14% in the pickers)."
+    },
+    {
+      "name": "--cv-code-comment",
+      "kind": "color",
+      "owner": "webviews/src/syntax-theme.ts",
+      "about": "Comments in highlighted code (code blocks, edits, commands). Unset: the terminal palette's slot 8."
+    },
+    {
+      "name": "--cv-code-string",
+      "kind": "color",
+      "owner": "webviews/src/syntax-theme.ts",
+      "about": "Strings in highlighted code. Unset: palette slot 2."
+    },
+    {
+      "name": "--cv-code-constant",
+      "kind": "color",
+      "owner": "webviews/src/syntax-theme.ts",
+      "about": "Numbers and language constants in highlighted code. Unset: palette slot 3."
+    },
+    {
+      "name": "--cv-code-keyword",
+      "kind": "color",
+      "owner": "webviews/src/syntax-theme.ts",
+      "about": "Keywords in highlighted code. Unset: palette slot 5."
+    },
+    {
+      "name": "--cv-code-function",
+      "kind": "color",
+      "owner": "webviews/src/syntax-theme.ts",
+      "about": "Function names in highlighted code. Unset: palette slot 4."
+    },
+    {
+      "name": "--cv-code-type",
+      "kind": "color",
+      "owner": "webviews/src/syntax-theme.ts",
+      "about": "Type and class names in highlighted code. Unset: palette slot 6."
     }
   ]
 }

@@ -83,3 +83,42 @@ test("every built-in look needs an add-on twin or a pending reason", () => {
   ]);
   expect(checkLooks([{ id: "studio", addon: null, builtIn: null, pending: "soon" }], ["studio"], contract)).toEqual([]);
 });
+
+test("the chat-pane groups: a reply card, hover timing, popovers and code colors", () => {
+  expect(
+    kinds(
+      ":root { --cv-reply-fill: color-mix(in srgb, var(--agent-text) 4%, transparent); --cv-reply-ring: transparent; --cv-reply-radius: 10px; --cv-reply-padding: 10px; }",
+    ),
+  ).toEqual([]);
+  expect(kinds(":root { --cv-hover-duration: 120ms; --cv-hover-ease: cubic-bezier(0, 0, 0.58, 1); }")).toEqual([]);
+  expect(
+    kinds(
+      ":root { --cv-popover-fill: color-mix(in srgb, var(--agent-page-bg) 80%, transparent); --cv-popover-ring: var(--agent-border); --cv-popover-radius: 12px; --cv-popover-row-selected: color-mix(in srgb, var(--agent-accent) 28%, transparent); }",
+    ),
+  ).toEqual([]);
+  expect(kinds(":root { --cv-code-keyword: var(--agent-ansi-5); --cv-code-comment: var(--agent-soft); }")).toEqual([]);
+  // Their colors follow the theme like every other color token's.
+  expect(kinds(":root { --cv-reply-fill: #1d1d1f; }")).toEqual(["literal-color"]);
+  expect(kinds(":root { --cv-code-string: rgb(120 200 80); }")).toEqual(["literal-color"]);
+  // A press scale is not a token: a held button changes only its fill (design/pressed-state.md).
+  expect(kinds(":root { --cv-press-scale: 0.96; }")).toEqual(["private-token"]);
+});
+
+test("a script owner names its token as a string literal and declares nothing", () => {
+  const token = { name: "--cv-code-x", kind: "color", owner: "a.ts", about: "" };
+  const one = (source: string, css = "") =>
+    checkContract(
+      { ...contract, tokens: [token] },
+      new Map([["b.css", css]]),
+      new Set<string>(),
+      new Map([["a.ts", source]]),
+    ).map((p) => p.kind);
+  expect(one('const tokens = { x: "--cv-code-x" };')).toEqual([]);
+  expect(one("const tokens = {};")).toEqual(["undeclared", "unused"]);
+  // Declared below the root in a stylesheet, its value would stop there.
+  expect(one('const tokens = { x: "--cv-code-x" };', ".y { --cv-code-x: red; }")).toEqual([
+    "undeclared",
+    "scoped",
+    "unused",
+  ]);
+});
