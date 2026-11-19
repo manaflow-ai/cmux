@@ -34,8 +34,9 @@ import type { CDPSession, Page } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { chromium } from "./browsers";
 import { newestPage } from "./daemonPage";
-import { takeSnapshot, type Snapshot } from "./heapProbe";
+import { diff as heapDiff, retainers, takeSnapshot, type Snapshot } from "./heapProbe";
 import { perfRow } from "./perfRow";
+import { sourceMapper } from "./sourceMapper";
 import { addStabilityProbe, measureIdle, settledAt } from "./stability";
 
 const COUNTS = (process.argv[2] ?? "1,10,30").split(",").map(Number);
@@ -43,6 +44,8 @@ const TURNS = Number(process.argv[3] ?? 100);
 const IDLE_WINDOW_MS = Number(process.env.IDLE_MS ?? 5000);
 const RELEASE = process.env.RELEASE === "1";
 const REOPEN = Number(process.env.REOPEN ?? 10);
+const COLLECT_GC = process.env.COLLECT === "gc";
+const AGE = Number(process.env.AGE ?? 0);
 if (COUNTS.some((n) => !Number.isInteger(n) || n < 1) || !Number.isInteger(TURNS) || TURNS < 1) {
   console.error("usage: bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]");
   process.exit(2);
@@ -126,6 +129,51 @@ function pssMB(pid: number): number {
   return kb / 1024;
 }
 
+/// ALLOC=1: what the newest chat's page allocated that is still alive after a collection, by the source module of
+/// the allocating frame (the build's source map) and by allocation site: the module code a page runs as it loads,
+/// whatever it draws. Code the engine compiles is not a JS allocation and does not show here.
+type SamplingNode = {
+  callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number };
+  selfSize: number;
+  children: SamplingNode[];
+};
+async function printAllocations(cdp: CDPSession, out: string) {
+  const { profile } = (await cdp.send("HeapProfiler.getSamplingProfile")) as { profile: { head: SamplingNode } };
+  await cdp.send("HeapProfiler.stopSampling");
+  const map = sourceMapper(out);
+  const byModule = new Map<string, number>();
+  const bySite = new Map<string, number>();
+  let total = 0;
+  const where = (frame: SamplingNode["callFrame"]) =>
+    frame.url
+      ? map(path.basename(frame.url), frame.lineNumber, frame.columnNumber)
+      : `(${frame.functionName || "native"})`;
+  const walk = (node: SamplingNode, stack: string[]) => {
+    const here = node.callFrame.url || node.callFrame.functionName ? where(node.callFrame) : "";
+    const frames = here ? [...stack, here] : stack;
+    if (node.selfSize) {
+      total += node.selfSize;
+      // The innermost first-party frame (node_modules frames count toward their package).
+      const site = frames.at(-1) ?? "(root)";
+      const module = site.replace(/:\d+$/, "").replace(/^.*node_modules\/((?:@[^/]+\/)?[^/]+).*$/, "$1");
+      byModule.set(module, (byModule.get(module) ?? 0) + node.selfSize);
+      const name = `${site} ${node.callFrame.functionName || "(anonymous)"}`;
+      bySite.set(name, (bySite.get(name) ?? 0) + node.selfSize);
+    }
+    for (const child of node.children) walk(child, frames);
+  };
+  walk(profile.head, []);
+  const top = (sizes: Map<string, number>, n: number) =>
+    [...sizes]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, n)
+      .map(([name, size]) => `  ${(size / 1048576).toFixed(2).padStart(6)} MB  ${name}`)
+      .join("\n");
+  console.log(`chat-pages-memory: the newest chat's live JS allocations, ${(total / 1048576).toFixed(1)} MB sampled`);
+  console.log(`by module:\n${top(byModule, 30)}`);
+  console.log(`by site:\n${top(bySite, 30)}`);
+}
+
 const releases: (() => unknown)[] = [];
 const release = async () => {
   for (const stop of [...releases].reverse()) {
@@ -158,7 +206,12 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    build: {
+      outDir: out,
+      emptyOutDir: true,
+      minify: process.env.MINIFY !== "0",
+      sourcemap: process.env.ALLOC === "1",
+    },
     logLevel: "error",
   });
   // CSS=inline: the page's stylesheets as one inline <style>, as the page shipped them before; else linked
@@ -194,7 +247,9 @@ try {
   // One renderer per site, as the app gives cmux-page (the fork's scheme-scoped switch; for one site the same).
   const server = await chromium.launchServer({
     headless: true,
-    args: ["--process-per-site", "--js-flags=--expose-gc"],
+    // JS_FLAGS: more V8 flags for the renderer (--no-isolate-script-cache-ageing: a script's compiled code stays
+    // shared by every page that loads it for as long as any of them lives).
+    args: ["--process-per-site", `--js-flags=--expose-gc ${process.env.JS_FLAGS ?? ""}`.trim()],
   });
   releases.push(() => server.close());
   const root = server.process().pid!;
@@ -227,6 +282,8 @@ try {
         const depth = name.split("/").length;
         const keep =
           depth === 1 ||
+          // MEMDUMP_DEPTH=N: every allocator N levels deep too (malloc/..., cc/..., blink_objects/...).
+          depth <= Number(process.env.MEMDUMP_DEPTH ?? 1) ||
           (name.startsWith("partition_alloc/partitions/") && depth === 3) ||
           (name.startsWith("v8/main/heap/") && depth === 4);
         const size = dump.attrs?.size?.value;
@@ -241,7 +298,10 @@ try {
     if (process.env.MEMDUMP !== "1") return;
     const sizes = await memoryDump();
     const per = lastDump ? count - lastDump.count : 0;
-    const rows = [...sizes].filter(([, mb]) => mb >= 0.05).sort((a, b) => b[1] - a[1]);
+    // Named per-allocation dumps (shared_memory/<guid>, parkable_strings/__<hash>) are summed into their parent.
+    const rows = [...sizes]
+      .filter(([n, mb]) => mb >= 0.05 && !/\/(?:[0-9A-F]{32}|__[0-9a-f]{16})$/.test(n))
+      .sort((a, b) => b[1] - a[1]);
     console.log(
       `  memdump at ${count}: ${rows.map(([n, mb]) => `${n} ${mb.toFixed(1)}${per ? ` (+${((mb - (lastDump!.sizes.get(n) ?? 0)) / per).toFixed(2)}/chat)` : ""}`).join(", ")}`,
     );
@@ -250,7 +310,14 @@ try {
   await addStabilityProbe(context, { boxes: false });
 
   const sample = async (pages: { page: Page; cdp: CDPSession }[]) => {
-    for (const { cdp } of pages) await cdp.send("HeapProfiler.collectGarbage");
+    // COLLECT=gc: a forced full collection (the page's gc()) instead of DevTools' collect-all-available, which
+    // also empties V8's compilation cache, so a page opened after a sample compiles its own copy of every script
+    // (one per URL per sample), a copy the app makes only when that cache lets go of a script.
+    // COLLECT=purge: Chromium's critical memory-pressure purge of the renderer's JS (Memory.forciblyPurgeJavaScriptMemory).
+    for (const { page, cdp } of pages)
+      if (COLLECT_GC) await page.evaluate(() => (globalThis as { gc?: () => void }).gc?.());
+      else if (process.env.COLLECT === "purge") await cdp.send("Memory.forciblyPurgeJavaScriptMemory");
+      else await cdp.send("HeapProfiler.collectGarbage");
     const heap = ((await pages[0]!.cdp.send("Runtime.getHeapUsage")) as { usedSize: number }).usedSize / 1048576;
     // Let the collections' freed pages go back before reading the process.
     await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -282,6 +349,44 @@ try {
         rows += counts[1]!;
       }
       console.log(`  elements (all pages): ${nodes}, transcript rows drawn: ${rows}`);
+      // What the newest page holds besides its DOM: its sheets and rules (a linked sheet's rules are one parse
+      // every page shares; an inline or constructed sheet is the page's own), its fonts and images, and the
+      // workers and frames it started.
+      const newest = pages.at(-1)!.page;
+      const held = await newest
+        .evaluate(() => {
+          let rules = 0;
+          let ownRules = 0;
+          for (const sheet of [...document.styleSheets, ...document.adoptedStyleSheets]) {
+            let count = 0;
+            try {
+              count = sheet.cssRules.length;
+            } catch {
+              // A cross-origin sheet.
+            }
+            rules += count;
+            if (!sheet.href) ownRules += count;
+          }
+          let shadowSheets = 0;
+          for (const element of document.querySelectorAll("*"))
+            if (element.shadowRoot)
+              shadowSheets += element.shadowRoot.styleSheets.length + element.shadowRoot.adoptedStyleSheets.length;
+          const fonts = [...document.fonts];
+          return {
+            sheets: document.styleSheets.length,
+            adopted: document.adoptedStyleSheets.length,
+            shadowSheets,
+            rules,
+            ownRules,
+            fontFaces: fonts.length,
+            fontsLoaded: fonts.filter((font) => font.status === "loaded").length,
+            images: document.images.length,
+            iframes: document.querySelectorAll("iframe").length,
+            canvases: document.querySelectorAll("canvas").length,
+          };
+        })
+        .catch(() => undefined);
+      console.log(`  newest page holds: ${JSON.stringify({ ...held, workers: newest.workers().length })}`);
     }
     return { renderers: pids.length, mb, heap };
   };
@@ -334,10 +439,23 @@ try {
   const hiddenPages = new Set<Page>();
   const warmLoads: number[] = [];
   let kindsAt: { count: number; sizes: Map<string, number> } | undefined;
+  let retainersAt: { count: number; snapshot: Snapshot } | undefined;
   let first: { count: number; mb: number } | undefined;
   for (const count of COUNTS) {
     while (pages.length < count) {
       const index = pages.length;
+      // ALLOC=1: the newest chat of the last count opens under the isolate's sampling heap profiler.
+      if (process.env.ALLOC === "1" && count === total && index === count - 1 && pages[0])
+        await pages[0].cdp.send("HeapProfiler.startSampling", { samplingInterval: 512 });
+      // AGE=N: N forced full collections before each new chat, as the time a chat stays open ages the code it ran
+      // (V8 drops a script from its compilation cache once its top-level code is old), so a chat opened later may
+      // compile its own copy of the bundle.
+      for (let round = 0; round < AGE && pages.length; round++)
+        await pages[0]!.page.evaluate(() => (globalThis as { gc?: () => void }).gc?.());
+      // PRESSURE=1: a critical memory-pressure notice before each new chat, as the app sends every hidden chat page
+      // 10 s after a hide (CEFHiddenPageTrim), so whatever it drops is gone when the next chat opens.
+      if (process.env.PRESSURE === "1" && pages.length)
+        await pages[0]!.cdp.send("Memory.simulatePressureNotification", { level: "critical" });
       const page = await context.newPage();
       await page.goto(urlFor(index));
       const shown = await page.waitForFunction(
@@ -386,6 +504,7 @@ try {
     const wakeups = idle.reduce((sum, row) => sum + row.wakeups, 0) / (IDLE_WINDOW_MS / 1000);
     const sources = idle.flatMap((row) => row.sources).slice(0, 4);
     const now = await sample(live);
+    if (process.env.ALLOC === "1" && count === total && live.length > 1) await printAllocations(live[0]!.cdp, out);
     await printDump(count);
     if (process.env.KINDS === "1") {
       const sizes = bySize(await takeSnapshot(live[0]!.cdp));
@@ -397,6 +516,14 @@ try {
         for (const [name, size] of rows.sort((a, b) => b[1] - a[1]).slice(0, 30))
           console.log(`  ${(size / 1048576).toFixed(2).padStart(7)} MB  ${name}`);
       } else kindsAt = { count, sizes };
+    }
+    if (process.env.RETAINERS === "1") {
+      const snapshot = await takeSnapshot(live[0]!.cdp);
+      if (retainersAt) {
+        heapDiff(retainersAt.snapshot, snapshot, `chats ${retainersAt.count}->${count}`);
+        retainers(retainersAt.snapshot, snapshot, `chats ${retainersAt.count}->${count}`);
+      }
+      retainersAt = { count, snapshot };
     }
     first ??= { count, mb: now.mb };
     const perChat = count > first.count ? (now.mb - first.mb) / (count - first.count) : (now.mb - empty.mb) / count;
