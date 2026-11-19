@@ -225,6 +225,36 @@ extension AppearanceSettingsSchema {
                 keywords: ["window", "style", "chrome", "card", "flat", "border", "borders", "lines", "divider", "outline", "seam", "sidebar", "two-tone", "minimal", "bare", "floating", "gaps", "blocks"]
             ),
             SettingDescriptor(
+                ToolbarButtonStyleSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.toolbarButtonStyle", "Top Right Buttons"),
+                help: SettingsText.keyed("settings.appearance.toolbarButtonStyle.help", "How a pane's buttons draw: today's, plain glyphs, a grouped pill, or glass."),
+                kind: .choice([
+                    SettingChoice(ToolbarButtonStyle.standard.rawValue, SettingsText.keyed("settings.choice.toolbarButtonStyle.standard", "Standard")),
+                    SettingChoice(ToolbarButtonStyle.plain.rawValue, SettingsText.keyed("settings.choice.toolbarButtonStyle.plain", "Plain")),
+                    SettingChoice(ToolbarButtonStyle.grouped.rawValue, SettingsText.keyed("settings.choice.toolbarButtonStyle.grouped", "Grouped")),
+                    SettingChoice(ToolbarButtonStyle.glass.rawValue, SettingsText.keyed("settings.choice.toolbarButtonStyle.glass", "Glass")),
+                ]),
+                default: .string(ToolbarButtonStyleSetting.fallback.rawValue),
+                keywords: ["toolbar", "buttons", "top right", "pill", "glass", "plain", "grouped", "capsule", "tab bar"]
+            ),
+            SettingDescriptor(
+                HomeCardStyleSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.homeCardStyle", "Home Cards"),
+                help: SettingsText.keyed("settings.appearance.homeCardStyle.help", "How the cards on Home and the New Tab page draw: today's, flat, raised, or glass."),
+                kind: .choice([
+                    SettingChoice(HomeCardStyle.standard.rawValue, SettingsText.keyed("settings.choice.homeCardStyle.standard", "Standard")),
+                    SettingChoice(HomeCardStyle.flat.rawValue, SettingsText.keyed("settings.choice.homeCardStyle.flat", "Flat")),
+                    SettingChoice(HomeCardStyle.raised.rawValue, SettingsText.keyed("settings.choice.homeCardStyle.raised", "Raised")),
+                    SettingChoice(HomeCardStyle.glass.rawValue, SettingsText.keyed("settings.choice.homeCardStyle.glass", "Glass")),
+                ]),
+                default: .string(HomeCardStyleSetting.fallback.rawValue),
+                keywords: ["home", "new tab", "cards", "card", "chats", "flat", "raised", "shadow", "glass", "elevated"]
+            ),
+            SettingDescriptor(
                 TitleAreaToneSetting.configPath,
                 section: .appearance,
                 group: group,
@@ -286,95 +316,6 @@ extension AppearanceSettingsSchema {
                 kind: .toggle,
                 default: .bool(AnimationKindsSetting.newWorkspaceDefault),
                 keywords: ["motion", "animation", "workspace", "sidebar"]
-            ),
-        ]
-    }
-}
-
-extension AppearanceSettingsSchema {
-    static var panes: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.panes", "Panes")
-        return [
-            SettingDescriptor(
-                PaneChromeConfigParser.paneSeparationPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneSeparation", "Separation"),
-                help: SettingsText.keyed("settings.layout.paneSeparation.help", "How panes are told apart."),
-                summary: SettingsText.keyed("settings.layout.paneSeparation.summary", "How panes are told apart"),
-                kind: .choice([
-                    SettingChoice(PaneSeparation.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                    SettingChoice(PaneSeparation.dividers.rawValue, SettingsText.keyed("settings.choice.dividers", "Dividers")),
-                    SettingChoice(PaneSeparation.borders.rawValue, SettingsText.keyed("settings.choice.borders", "Borders")),
-                    SettingChoice(PaneSeparation.cards.rawValue, SettingsText.keyed("settings.choice.cards", "Cards")),
-                ]),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.choice.default", "Default"),
-                keywords: ["border", "divider", "separator", "gap", "cards", "lines", "seamless", "pane"]
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.panePaddingPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.panePadding", "Padding"),
-                kind: .number(SettingNumber(PaneChromeConfigParser.panePaddingRange, step: 1, unit: .points, placeholder: PaneChromeConfigParser.panePaddingPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneCornerRadiusPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneCornerRadius", "Corner Radius"),
-                help: SettingsText.keyed("settings.layout.paneCornerRadius.help", "One radius for panes, tabs, panels, popovers and cards."),
-                kind: .number(SettingNumber(PaneChromeConfigParser.paneCornerRadiusRange, step: 1, unit: .points, placeholder: PaneChromeConfigParser.paneCornerRadiusPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["rounded", "radius", "tabs", "concentric", "corners"]
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.cornerPaddingPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.cornerPadding", "Corner Padding"),
-                help: SettingsText.keyed("settings.layout.cornerPadding.help", "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this."),
-                kind: .number(SettingNumber(PaneChromeConfigParser.cornerPaddingRange, step: 1, unit: .points, placeholder: PaneChromeConfigParser.cornerPaddingPlaceholder)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["inset", "gap", "tabs", "concentric", "corners", "radius"]
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneBorderPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneBorder", "Border"),
-                kind: .choice([
-                    SettingChoice(PaneBorderStyle.subtle.rawValue, SettingsText.keyed("settings.choice.subtle", "Subtle")),
-                    SettingChoice(PaneBorderStyle.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
-                ]),
-                default: .string(PaneChromeConfigParser.paneBorderDefault.rawValue),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneBorderColorPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneBorderColor", "Border Color"),
-                kind: .color,
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.theme", "Theme"),
-                keywords: []
-            ),
-            SettingDescriptor(
-                PaneChromeConfigParser.paneBorderWidthPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.layout.paneBorderWidth", "Border Width"),
-                kind: .number(SettingNumber(PaneChromeConfigParser.paneBorderWidthRange, step: 0.5, unit: .points)),
-                default: nil,
-                defaultLabel: SettingsText.keyed("settings.default.onePixel", "One pixel"),
-                keywords: []
             ),
         ]
     }

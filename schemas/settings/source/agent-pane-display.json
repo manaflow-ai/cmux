@@ -760,7 +760,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.inspector.help",
-            "text": "Push narrows the chat; Overlay covers it."
+            "text": "Push narrows the chat; Overlay covers it; Inline puts it atop the chat."
           },
           "kind": "choice",
           "choices": [
@@ -776,6 +776,13 @@
               "title": {
                 "key": "settings.choice.agentChatInspectorOverlay",
                 "text": "Overlay"
+              }
+            },
+            {
+              "value": "inline",
+              "title": {
+                "key": "settings.choice.agentChatInspectorInline",
+                "text": "Inline"
               }
             }
           ],

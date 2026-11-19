@@ -1,8 +1,9 @@
 // l10n-allow-file: gallery fixtures, public-safe look names and notes.
 // The golden chrome preview's looks: each one is a theme file fragment, written with the keys a theme file
 // takes (`density` with Density Playground tokens, and look keys such as `tabs.plusButton`), so a look picked
-// here ships as theme values, not as a fork of the chrome. `proposed` holds the few choices that have no
-// setting yet (toolbar button style, Home card style, inline Session Info); the preview draws them and says so.
+// here ships as theme values, not as a fork of the chrome. Every choice the preview draws is now
+// a real key (`appearance.toolbarButtonStyle`, `appearance.homeCardStyle`, Session Info `inline`); `proposed` stays
+// for a future choice that has no setting yet, which the key line marks "(proposed)".
 
 /** Density Playground tokens the preview reads (`DensityTokenCatalog`), in points. */
 export type GoldenDensityTokens = {
@@ -22,17 +23,15 @@ export type GoldenDensityTokens = {
 export type GoldenThemeFragment = {
   density?: { basedOn?: "compact" | "cozy" | "comfortable"; tokens: Partial<GoldenDensityTokens> };
   "appearance.chromeStyle"?: "default" | "card" | "flat" | "floating" | "blocks";
-  "agentPane.display.sessionInfo.placement"?: "push" | "overlay";
+  "agentPane.display.sessionInfo.placement"?: "push" | "overlay" | "inline";
+  "appearance.toolbarButtonStyle"?: "standard" | "plain" | "grouped" | "glass";
   "tabs.plusButton"?: "hover" | "always";
   "layout.paneCornerRadius"?: number;
+  "appearance.homeCardStyle"?: "standard" | "flat" | "raised" | "glass";
 };
 
 /** Choices with no setting yet: drawn, and named as proposals in the preview's key line. */
-export type GoldenProposed = {
-  "tabs.toolbarButtonStyle"?: "plain" | "grouped" | "glass";
-  "home.cardStyle"?: "flat" | "raised" | "glass";
-  "agentPane.display.sessionInfo.placement"?: "inline";
-};
+export type GoldenProposed = Record<string, string>;
 
 export type GoldenLook = {
   /** The area this look varies (its sheet), or `look` for a whole-window look. */
@@ -121,53 +120,50 @@ export const GOLDEN_LOOKS = {
   "session-inline": {
     area: "session-info",
     label: "Inline",
-    note: "Session Info as a band over the chat: a proposed placement.",
-    theme: {},
-    proposed: { "agentPane.display.sessionInfo.placement": "inline" },
+    note: "Session Info as a band atop the chat (placement inline).",
+    theme: { "agentPane.display.sessionInfo.placement": "inline" },
   },
   // Top right buttons.
   "buttons-plain": {
     area: "toolbar-buttons",
     label: "Plain icons",
     note: "Bare glyphs; a fill only on hover.",
-    theme: { "tabs.plusButton": "always" },
-    proposed: { "tabs.toolbarButtonStyle": "plain" },
+    theme: { "tabs.plusButton": "always", "appearance.toolbarButtonStyle": "plain" },
   },
   "buttons-grouped": {
     area: "toolbar-buttons",
     label: "Grouped pill",
     note: "One filled pill holds the buttons.",
-    theme: { "tabs.plusButton": "always" },
-    proposed: { "tabs.toolbarButtonStyle": "grouped" },
+    theme: { "tabs.plusButton": "always", "appearance.toolbarButtonStyle": "grouped" },
   },
   "buttons-glass": {
     area: "toolbar-buttons",
     label: "Glass capsule",
     note: "A glass capsule with a rim over the window.",
-    theme: { "tabs.plusButton": "always", density: { tokens: { controlHeight: 28 } } },
-    proposed: { "tabs.toolbarButtonStyle": "glass" },
+    theme: {
+      "tabs.plusButton": "always",
+      "appearance.toolbarButtonStyle": "glass",
+      density: { tokens: { controlHeight: 28 } },
+    },
   },
   // Home cards.
   "home-flat": {
     area: "home-cards",
     label: "Flat",
     note: "Tonal fill, no edge, no shade.",
-    theme: {},
-    proposed: { "home.cardStyle": "flat" },
+    theme: { "appearance.homeCardStyle": "flat" },
   },
   "home-raised": {
     area: "home-cards",
     label: "Raised",
     note: "An elevated card with a hairline and a soft shadow.",
-    theme: {},
-    proposed: { "home.cardStyle": "raised" },
+    theme: { "appearance.homeCardStyle": "raised" },
   },
   "home-glass": {
     area: "home-cards",
     label: "Glass",
     note: "See-through cards with a rim over the window's picture.",
-    theme: {},
-    proposed: { "home.cardStyle": "glass" },
+    theme: { "appearance.homeCardStyle": "glass" },
   },
   // Whole-window looks: the showcase themes' shapes (examples/customize-showcase, examples/customize/leo).
   "look-stock": {
@@ -193,8 +189,9 @@ export const GOLDEN_LOOKS = {
       },
       "layout.paneCornerRadius": 2,
       "appearance.chromeStyle": "blocks",
+      "appearance.homeCardStyle": "flat",
+      "appearance.toolbarButtonStyle": "grouped",
     },
-    proposed: { "tabs.toolbarButtonStyle": "grouped", "home.cardStyle": "flat" },
   },
   "look-neon": {
     area: "look",
@@ -204,8 +201,9 @@ export const GOLDEN_LOOKS = {
       density: { tokens: shape(15, { sidebarWidth: 280, sidebarRowHeight: 30, panelCornerRadius: 18 }) },
       "agentPane.display.sessionInfo.placement": "overlay",
       "appearance.chromeStyle": "floating",
+      "appearance.homeCardStyle": "glass",
+      "appearance.toolbarButtonStyle": "glass",
     },
-    proposed: { "tabs.toolbarButtonStyle": "glass", "home.cardStyle": "glass" },
   },
   "look-dusk": {
     area: "look",
@@ -217,8 +215,9 @@ export const GOLDEN_LOOKS = {
         tokens: shape(12, { sidebarWidth: 300, sidebarRowHeight: 30, panelCornerRadius: 16 }),
       },
       "appearance.chromeStyle": "card",
+      "appearance.homeCardStyle": "raised",
+      "agentPane.display.sessionInfo.placement": "inline",
     },
-    proposed: { "agentPane.display.sessionInfo.placement": "inline", "home.cardStyle": "raised" },
   },
 } satisfies Record<string, GoldenLook>;
 
@@ -231,12 +230,9 @@ export function resolveGoldenLook(id: GoldenLookId) {
   return {
     look,
     tokens,
-    sessionInfo:
-      look.proposed?.["agentPane.display.sessionInfo.placement"] ??
-      look.theme["agentPane.display.sessionInfo.placement"] ??
-      "push",
-    buttons: look.proposed?.["tabs.toolbarButtonStyle"] ?? "plain",
-    cards: look.proposed?.["home.cardStyle"] ?? "raised",
+    sessionInfo: look.theme["agentPane.display.sessionInfo.placement"] ?? "push",
+    buttons: look.theme["appearance.toolbarButtonStyle"] ?? "standard",
+    cards: look.theme["appearance.homeCardStyle"] ?? "standard",
     chrome: look.theme["appearance.chromeStyle"] ?? "default",
     paneRadius: look.theme["layout.paneCornerRadius"] ?? tokens.panelCornerRadius,
   };

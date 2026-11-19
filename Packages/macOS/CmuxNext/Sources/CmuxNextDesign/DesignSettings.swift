@@ -311,6 +311,8 @@ public final class DesignSettings {
     /// `appearance.chromeStyle`: the window look whose defaults the finer
     /// keys refine (`ChromeStyle`).
     public var chromeStyle: ChromeStyle = .default
+    /// `appearance.toolbarButtonStyle`: how a pane's top right buttons and the tab bar's + draw (`ToolbarButtonStyle`).
+    public var toolbarButtonStyle: ToolbarButtonStyle = .standard
     /// `appearance.titleAreaContrast`: how strongly the chrome around the content (the titlebar, the tab
     /// row and the sidebar) is shaded, as a share of the theme's shade
     /// (``Metrics/mainPaneChromeShade(isDark:)``). 1, the default, is the shade as it was; lower is softer.
@@ -325,6 +327,9 @@ public final class DesignSettings {
     public var titleAreaTone: TitleAreaTone = .oneColor {
         didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.homeCardStyle`: how the cards on Home and the New Tab page draw (``HomeCardStyle``). The cards are
+    /// web: open pages follow through the pane's theme push, which observes this property (`AgentPaneView.observeMotion`).
+    public var homeCardStyle: HomeCardStyle = .standard
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler

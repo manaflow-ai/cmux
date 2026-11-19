@@ -133,13 +133,14 @@
 .gc-session-chip { padding: 2px 8px; border-radius: var(--gc-tab-radius); background: var(--gc-fill-strong); }
 .gc-session-chip b { color: var(--gc-ink); font-weight: 600; }
 
-/* Home cards: flat, raised or glass (a proposed style key). */
+/* Home cards: appearance.homeCardStyle, standard (today's New Tab cards), flat, raised or glass. */
 .gc-home-body { flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 22px 18px; }
 .gc-home-body h3 { margin: 0; font-size: 20px; font-weight: 650; }
 .gc-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .gc-card { display: flex; flex-direction: column; gap: 6px; min-height: 92px; padding: 14px; border-radius: var(--gc-panel-radius); }
 .gc-card .gc-icon { width: 18px; height: 18px; color: var(--gc-accent); }
 .gc-card span { color: var(--gc-muted); font-size: 12px; }
+.golden-chrome[data-cards="standard"] .gc-card { background: color-mix(in srgb, var(--gc-ink) 8%, transparent); box-shadow: inset 0 0 0 0.5px var(--gc-line); }
 .golden-chrome[data-cards="flat"] .gc-card { background: var(--gc-fill-strong); }
 .golden-chrome[data-cards="raised"] .gc-card { background: var(--gc-card-bg); box-shadow: 0 0 0 1px var(--gc-line), var(--gc-shadow); }
 .golden-chrome[data-cards="glass"] .gc-home { background: color-mix(in srgb, var(--gc-window) 40%, transparent); backdrop-filter: blur(10px); }

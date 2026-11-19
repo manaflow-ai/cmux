@@ -33,6 +33,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   motion: null,
   statusIndicators: null,
   workingLook: null,
+  homeCardStyle: null,
   slots: null,
   subagentTray: null,
   subagentTrayPlacement: null,
@@ -46,6 +47,11 @@ const motionVariables = {
   fadeOut: "--agent-motion-out",
   move: "--agent-motion-move",
 } as const;
+
+/** The `data-home-cards` value of an `appearance.homeCardStyle`: null for `standard` (today's cards) or an unknown value. */
+export function homeCardStyle(value: unknown): "flat" | "raised" | "glass" | null {
+  return value === "flat" || value === "raised" || value === "glass" ? value : null;
+}
 
 export function applyAgentTheme(theme: AgentSessionTheme): void {
   if (typeof document === "undefined") {
@@ -69,6 +75,11 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // How agent work shows on running rows (conversation.css WORKING-LOOK).
   if (theme.workingLook) root.dataset.workingLook = theme.workingLook;
   else delete root.dataset.workingLook;
+  // appearance.homeCardStyle: Home's and the New Tab page's cards (newtab/screen.css HOME-CARDS). `standard`, absent
+  // or a value this page does not know draws today's cards.
+  const homeCards = homeCardStyle(theme.homeCardStyle);
+  if (homeCards) root.dataset.homeCards = homeCards;
+  else delete root.dataset.homeCards;
   // The theme's slot choices (schemas/theme/slots.json): each slot draws the variant the look names;
   // a look without `slots` (every host today) leaves every slot on its default.
   configureThemeSlots(theme.slots);
