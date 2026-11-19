@@ -126,11 +126,19 @@ struct HostsSidebarTests {
 
     @Test func disabledLabsSectionProjectsNoRowsOrActions() {
         var added = false
+        var enabled = false
+        var refreshes = 0
+        var agingStarts = 0
         let host = HostsSidebar.Host(rows: { [Self.machine("m1", "Desk")] }, add: { added = true },
-                                     openConnected: { _ in }, openJoined: { _ in }, enabled: { false })
+                                     openConnected: { _ in }, openJoined: { _ in }, enabled: { enabled },
+                                     refresh: { refreshes += 1 }, startAging: { _, _ in agingStarts += 1 }, stopAging: { _ in })
         let hosts = HostsSidebar(host: host)
         #expect(hosts.rows().isEmpty)
         #expect(!hosts.activate(LayoutItemID("client.hosts:add")))
         #expect(!added)
+        #expect(refreshes == 0 && agingStarts == 0)
+        enabled = true
+        _ = hosts.rows()
+        #expect(refreshes == 1 && agingStarts == 1)
     }
 }

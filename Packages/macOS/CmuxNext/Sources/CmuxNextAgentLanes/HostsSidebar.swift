@@ -79,10 +79,12 @@ public final class HostsSidebar {
 
     @ObservationIgnored private var host: Host?
     @ObservationIgnored private var initialRefresh: Task<Void, Never>?
+    @ObservationIgnored private var visible: @MainActor () -> Bool = { true }
     public private(set) var expanded = true
 
     public init(host: Host? = nil, visible: @escaping @MainActor () -> Bool = { true }) {
         self.host = host
+        self.visible = visible
         if let host {
             start(host, visible: visible)
         }
@@ -92,6 +94,7 @@ public final class HostsSidebar {
         initialRefresh?.cancel()
         if let previous = self.host { stop(previous) }
         self.host = host
+        self.visible = visible
         start(host, visible: visible)
     }
 
@@ -102,6 +105,7 @@ public final class HostsSidebar {
     }
 
     private func start(_ host: Host, visible: @escaping @MainActor () -> Bool) {
+        guard host.enabled() else { return }
         if let joined = host.joined {
             initialRefresh = Task { await joined.refresh() }
             joined.startAging(self, visible: visible)
@@ -117,7 +121,16 @@ public final class HostsSidebar {
 
     /// Rows are transient and therefore never become a second machine catalog or a durable layout item.
     public func rows() -> [SidebarTransientItem] {
-        guard let host, host.enabled() else { return [] }
+        guard let host else { return [] }
+        guard host.enabled() else {
+            if initialRefresh != nil {
+                initialRefresh?.cancel()
+                initialRefresh = nil
+                stop(host)
+            }
+            return []
+        }
+        if initialRefresh == nil { start(host, visible: visible) }
         return Self.rows(machines: host.rows(), expanded: expanded)
     }
 
