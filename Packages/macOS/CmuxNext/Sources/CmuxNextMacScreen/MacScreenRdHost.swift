@@ -176,7 +176,7 @@ nonisolated final class MacScreenRdHost: Sendable {
                                    scope: session.viewOnly ? "view" : "control", stun: session.servers.stun,
                                    turn: session.servers.turn,
                                    display: offer.display.map(String.init) ?? "main", maxFps: offer.maxFps.map { min($0, 120) },
-                                   maxWidth: offer.maxWidth))
+                                   maxWidth: offer.maxWidth, encodeProfile: offer.encodeProfile))
                 for candidate in offer.candidates { process.send(Later(candidate: candidate)) }
             case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
                 process.send(Later(candidate: candidate.candidate))
@@ -243,12 +243,15 @@ nonisolated final class MacScreenRdHost: Sendable {
         var display: String
         var maxFps: Int?
         var maxWidth: Int?
+        /// `encode_profile`: the viewer's `a=cmux-rd-encode-profile:` (`ultra`); omitted when nil, the standard profile.
+        var encodeProfile: String?
 
         enum CodingKeys: String, CodingKey {
             case session, viewer, scope, stun, turn, display
             case peerKey = "peer_key"
             case maxFps = "max_fps"
             case maxWidth = "max_width"
+            case encodeProfile = "encode_profile"
         }
     }
 

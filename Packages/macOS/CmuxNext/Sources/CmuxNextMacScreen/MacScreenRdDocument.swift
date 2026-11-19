@@ -17,6 +17,7 @@ import Foundation
 ///     a=cmux-rd-display:1                             (offer: the display to show)
 ///     a=cmux-rd-max-width:1920                        (offer: the quality wish)
 ///     a=cmux-rd-max-fps:120                           (offer)
+///     a=cmux-rd-encode-profile:ultra                  (offer: remote.screenSharingProfile; absent: standard)
 ///     a=cmux-rd-displays:3342x2160,1920x1080          (answer: the host's displays)
 ///     a=cmux-rd-current:0                             (answer: the display it streams)
 nonisolated struct MacScreenRdDocument: Equatable, Sendable {
@@ -29,6 +30,8 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
     var display: Int?
     var maxWidth: Int?
     var maxFps: Int?
+    /// The encode profile the viewer asks for (`ultra`); nil asks for the host's standard one.
+    var encodeProfile: String?
     var displays: [CGSize] = []
     var currentDisplay: Int?
 
@@ -38,6 +41,7 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
         if let display { lines.append("a=cmux-rd-display:\(display)") }
         if let maxWidth { lines.append("a=cmux-rd-max-width:\(maxWidth)") }
         if let maxFps { lines.append("a=cmux-rd-max-fps:\(maxFps)") }
+        if let encodeProfile { lines.append("a=cmux-rd-encode-profile:\(encodeProfile)") }
         if !displays.isEmpty {
             lines.append("a=cmux-rd-displays:" + displays.map { "\(Int($0.width))x\(Int($0.height))" }.joined(separator: ","))
         }
@@ -61,6 +65,7 @@ nonisolated struct MacScreenRdDocument: Equatable, Sendable {
             case "cmux-rd-display": display = Int(value)
             case "cmux-rd-max-width": maxWidth = Int(value)
             case "cmux-rd-max-fps": maxFps = Int(value)
+            case "cmux-rd-encode-profile": encodeProfile = value
             case "cmux-rd-current": currentDisplay = Int(value)
             case "cmux-rd-displays":
                 displays = value.split(separator: ",").compactMap { size in

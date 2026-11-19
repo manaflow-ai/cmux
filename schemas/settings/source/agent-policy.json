@@ -1548,6 +1548,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Ultra spends up to 150 Mbps on every Screen Sharing session this Mac views; only the person picks it.",
+      "keys": [
+        "remote.screenSharingProfile"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Changes how this Mac's Mac Screen streams leave the network; only the person sets it.",
       "keys": [
         "macScreen.debug.relayOnly"

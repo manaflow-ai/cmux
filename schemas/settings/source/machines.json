@@ -921,6 +921,58 @@
           "swift_enum": {
             "name": "UltraConnectionMode"
           }
+        },
+        {
+          "key": "remote.screenSharingProfile",
+          "name": "screenSharingProfile",
+          "note": "Read by MacScreenSession: ultra puts a=cmux-rd-encode-profile:ultra in the viewer's cmux.rd offer and the host's cmux-rd serve setup gets \"encode_profile\": \"ultra\"; balanced (the default) sends nothing. Not remote.ultra, which repairs loss on the WireGuard tunnel.",
+          "title": {
+            "key": "settings.remote.screenSharingProfile",
+            "text": "Screen Sharing Profile"
+          },
+          "help": {
+            "key": "settings.remote.screenSharingProfile.help",
+            "text": "Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network."
+          },
+          "summary": {
+            "key": "settings.remote.screenSharingProfile.summary",
+            "text": "Picture quality and bandwidth when viewing another Mac"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "balanced",
+              "title": {
+                "key": "settings.remote.screenSharingProfile.balanced",
+                "text": "Balanced"
+              },
+              "note": "Today's stream; the viewer asks for nothing extra."
+            },
+            {
+              "value": "ultra",
+              "title": {
+                "key": "settings.remote.screenSharingProfile.ultra",
+                "text": "Ultra"
+              },
+              "note": "Up to 120 fps and 150 Mbps, near-lossless text, on a fast direct link."
+            }
+          ],
+          "default": "balanced",
+          "keywords": [
+            "screen sharing",
+            "mac screen",
+            "profile",
+            "quality",
+            "ultra",
+            "bandwidth",
+            "fps",
+            "frame rate",
+            "bitrate",
+            "text"
+          ],
+          "swift_enum": {
+            "name": "ScreenSharingProfile"
+          }
         }
       ]
     },

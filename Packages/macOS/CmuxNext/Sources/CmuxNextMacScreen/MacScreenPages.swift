@@ -108,6 +108,15 @@ public final class MacScreenPages {
             #endif
         }
     }
+    /// Settings > cmux Remote > Screen Sharing Profile (`remote.screenSharingProfile`): `ultra`
+    /// when the person chose Ultra, nil for Balanced (the offer then asks for nothing extra). The app
+    /// feeds it from the setting; a running stream keeps its profile, its next session asks for this one.
+    public var encodeProfile: String? {
+        didSet {
+            guard encodeProfile != oldValue else { return }
+            for tab in tabs.values { tab.pane?.session?.encodeProfile = encodeProfile }
+        }
+    }
     /// Tab key -> the record a person opened in it.
     private var confirmed: [String: MacScreenRecord] = [:]
     /// Tab key -> the record it shows, set before its view is made.
@@ -429,6 +438,7 @@ public final class MacScreenPages {
         #if DEBUG
         if relayOnly { pane.setRelayOnly(true) }
         #endif
+        pane.session?.encodeProfile = encodeProfile
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
         pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
         pane.handlers.signIn = { [weak self] in self?.events.signIn() }

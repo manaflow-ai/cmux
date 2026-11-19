@@ -69,6 +69,20 @@ extension MachineSettingsSchema {
                 default: .string(RemoteSettings.ultraDefault.rawValue),
                 keywords: ["ultra", "auto", "lossy", "packet loss", "bandwidth", "data", "wireguard", "cloud", "latency", "fec"]
             ),
+            SettingDescriptor(
+                RemoteSettings.screenSharingProfilePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.remote.screenSharingProfile", "Screen Sharing Profile"),
+                help: SettingsText.keyed("settings.remote.screenSharingProfile.help", "Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network."),
+                summary: SettingsText.keyed("settings.remote.screenSharingProfile.summary", "Picture quality and bandwidth when viewing another Mac"),
+                kind: .choice([
+                    SettingChoice(ScreenSharingProfile.balanced.rawValue, SettingsText.keyed("settings.remote.screenSharingProfile.balanced", "Balanced")),
+                    SettingChoice(ScreenSharingProfile.ultra.rawValue, SettingsText.keyed("settings.remote.screenSharingProfile.ultra", "Ultra")),
+                ]),
+                default: .string(RemoteSettings.screenSharingProfileDefault.rawValue),
+                keywords: ["screen sharing", "mac screen", "profile", "quality", "ultra", "bandwidth", "fps", "frame rate", "bitrate", "text"]
+            ),
         ]
     }
 }

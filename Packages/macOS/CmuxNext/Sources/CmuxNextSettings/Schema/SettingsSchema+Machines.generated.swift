@@ -95,6 +95,9 @@ extension RemoteSettings {
     /// `remote.ultra`: Read by the Rust tunnel starts (cmux-tui-util user_settings::ultra): auto (the default) sends no repair data on a clean link and UltraMode::SETTING (rs:4:4) within about one round trip of a loss (cmux-wg UltraChoice::Auto); always sends it on every datagram; CMUX_WG_ULTRA still wins. Replaces the toggle remote.ultraMode, whose true still reads as always.
     public nonisolated static let ultraPath = ["remote", "ultra"]
     public nonisolated static let ultraDefault: UltraConnectionMode = .auto
+    /// `remote.screenSharingProfile`: Read by MacScreenSession: ultra puts a=cmux-rd-encode-profile:ultra in the viewer's cmux.rd offer and the host's cmux-rd serve setup gets "encode_profile": "ultra"; balanced (the default) sends nothing. Not remote.ultra, which repairs loss on the WireGuard tunnel.
+    public nonisolated static let screenSharingProfilePath = ["remote", "screenSharingProfile"]
+    public nonisolated static let screenSharingProfileDefault: ScreenSharingProfile = .balanced
 }
 
 extension DeviceHubSettings {

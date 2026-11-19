@@ -7519,5 +7519,13 @@
       "de": "Agent is the standard noun for an AI agent in German, spelled as in English (as home.info.agent).",
       "fr": "Agent is the standard noun for an AI agent in French, spelled as in English (as home.info.agent)."
     }
+  },
+  "settings.remote.screenSharingProfile.ultra": {
+    "source": "Ultra",
+    "identityLocales": {
+      "de": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required.",
+      "fr": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required.",
+      "es": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required."
+    }
   }
 }
