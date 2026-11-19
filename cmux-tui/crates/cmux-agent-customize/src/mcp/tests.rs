@@ -289,6 +289,16 @@ fn claude_refuses_what_it_cannot_do() {
     .unwrap_err();
     assert!(err.contains("already has a user server named agent-memory"), "{err}");
     assert_eq!(fs::read_to_string(&h.paths.claude_json).unwrap(), before);
+    // A switch for a server Claude Code does not have writes nothing.
+    let err = apply(
+        &h.paths,
+        &target(Agent::Claude, "nope", Some(Scope::User), None),
+        &Edit::Disable,
+        &opts,
+    )
+    .unwrap_err();
+    assert!(err.contains("no user server named nope"), "{err}");
+    assert_eq!(fs::read_to_string(&h.paths.claude_json).unwrap(), before);
     fs::write(&h.paths.claude_json, "{ not json").unwrap();
     let err = apply(
         &h.paths,

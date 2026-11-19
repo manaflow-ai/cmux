@@ -590,6 +590,15 @@ mod claude {
             }
             None => None,
         };
+        // A switch names a server Claude Code has: an unknown name would only leave a stray entry.
+        if matches!(edit, Edit::Enable | Edit::Disable)
+            && !list(paths, project.as_deref())
+                .servers
+                .iter()
+                .any(|server| server.name == name && server.scope == scope)
+        {
+            return Err(format!("Claude Code has no {} server named {name}", scope.id()));
+        }
         // Which file the edit writes: a project server's definition lives in `.mcp.json`, its
         // switches and every other scope's state in `~/.claude.json`.
         let file = match (scope, edit) {
