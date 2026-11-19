@@ -453,10 +453,6 @@ path = "tests/test_ci_pr_size.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_pr_trigger_paths.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_process_tree_reaping.py"
 lane = "linux-guard"
 

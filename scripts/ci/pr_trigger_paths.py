@@ -31,7 +31,8 @@ GitHub's filter reads at most the first 300 changed files of a pull request: a l
 past the 300th starts no run. Every derived workflow is advisory or warns on feat-cmux-next, and the feat-cmux-next
 push still runs the push-triggered ones, so that miss is a fix-forward, not a hole in a merge gate.
 
-Test: tests/test_ci_pr_trigger_paths.py (run by ci-guards.yml's `ci` group).
+Test: tests/test_ci_pr_trigger_paths.py, run by whoever changes a PR workflow or a decider's source (no CI step: cmux adds no CI
+tests, CLAUDE.md "never add CI gates ... or CI tests"). It needs a full checkout (cmux-ci test) for rust-workspaces.
 """
 from __future__ import annotations
 
@@ -241,7 +242,9 @@ def tracked(root: Path) -> set[str]:
 def named_paths(text: str, files: set[str]) -> list[str]:
     """Repository paths a workflow names that exist: a file, or a folder (as FOLDER/**)."""
     found = set()
-    for name in NAMED_PATH.findall(text):
+    # Comments name files too (this script, in the generated line): only what the workflow runs counts.
+    code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    for name in NAMED_PATH.findall(code):
         name = name.rstrip("/.")
         if name in files:
             found.add(name)

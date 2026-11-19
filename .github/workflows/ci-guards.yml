@@ -1181,12 +1181,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_have_no_path_filters.py
 
-      # A workflow run takes a queue slot even when every job skips: each pull request workflow has trigger
-      # `paths:` (derived from its own decider, scripts/ci/pr_trigger_paths.py) or a reason to start on every head.
-      - name: Validate pull request workflows start only for their inputs
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_pr_trigger_paths.py
-
       - name: Validate the CI quota hold gate stays on optional workflows only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_quota_hold_gate.py
