@@ -109,12 +109,24 @@ def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
             uses = job.get("uses") or ""
             if uses.startswith("./.github/workflows/"):
                 # A caller job cannot name an environment; the jobs of the called workflow that read the
-                # passed secrets must, so the environment's branch policy still bounds who gets them.
-                callee = yaml.load((ROOT / uses[2:]).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
-                for callee_name, callee_job in (callee.get("jobs") or {}).items():
-                    if workflow_jobs.secret_names(callee_job) - {"GITHUB_TOKEN"}:
+                # passed secrets must, so the environment's branch policy still bounds who gets them. A
+                # called job that is itself a caller passes them on: its callee's jobs must, and so on.
+                pending, seen = [uses], set()
+                while pending:
+                    called = pending.pop()
+                    if called in seen:
+                        continue
+                    seen.add(called)
+                    callee = yaml.load((ROOT / called[2:]).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+                    for callee_name, callee_job in (callee.get("jobs") or {}).items():
+                        if not workflow_jobs.secret_names(callee_job) - {"GITHUB_TOKEN"}:
+                            continue
+                        nested = callee_job.get("uses") or ""
+                        if nested.startswith("./.github/workflows/"):
+                            pending.append(nested)
+                            continue
                         assert workflow_jobs.resolve(callee_job).environment, (
-                            f"{path.name} {job_name} passes secrets to {uses} {callee_name}, which has no environment"
+                            f"{path.name} {job_name} passes secrets to {called} {callee_name}, which has no environment"
                         )
                 continue
             assert workflow_jobs.resolve(job).environment, (

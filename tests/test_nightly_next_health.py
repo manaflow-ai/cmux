@@ -116,6 +116,12 @@ class Judge(unittest.TestCase):
         self.assertEqual(out["health"]["verdict"], "unknown")
         self.assertEqual(out["action"], "none")
 
+    def test_half_a_reading_is_unknown_and_never_pulls(self):
+        # The newest build read, the build before it did not (a 429): no comparison, no pull.
+        out = self.judge(reading({"sessions": 10, "crashed": 3}, why="Sentry answered HTTP 429"))
+        self.assertEqual(out["health"]["verdict"], "unknown")
+        self.assertEqual(out["action"], "none")
+
     def test_a_pass_flips_to_fail_on_a_later_tick(self):
         first = self.judge(reading({"sessions": 10}, {"sessions": 10}))
         later = health.judge(FEED, reading({"sessions": 20, "crashed": 4}, {"sessions": 10}), first["health"],

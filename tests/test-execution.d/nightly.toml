@@ -149,7 +149,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_health.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks the health gate's verdicts (crash-free and hang thresholds against the previous build, pending, unknown on a partial Sentry read), that only the feed's newest build is pulled and never the last one, the Sentry query shape, the guard's health keys and the drill's health step; run python3 tests/test_nightly_next_health.py after changing nightly_next_health.py or nightly-next-health.yml (about 1 s, no Mac, no network)."
 
 [[test]]
 path = "tests/test_nightly_next_identity.py"

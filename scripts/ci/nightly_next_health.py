@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import http.client
 import json
 import os
 import re
@@ -121,7 +122,7 @@ def sentry_get(path: str, params: List[Tuple[str, str]], token: str,
     except urllib.error.HTTPError as e:
         hint = " (the token needs org:read and event:read)" if e.code in (401, 403) else ""
         raise SourceError(f"Sentry answered HTTP {e.code} for {path}{hint}") from e
-    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as e:
         raise SourceError(f"Sentry did not answer {path}: {e}") from e
 
 
@@ -204,7 +205,8 @@ def judge(feed: str, reading: Dict[str, Any], existing: Optional[Dict[str, Any]]
     age = (now - first).total_seconds() if first else None
 
     reasons = []
-    if reading.get("why") and not mine:
+    if reading.get("why") and (not mine or (previous is not None and not theirs)):
+        # A build is judged only against the build before it: half a reading is no reading.
         verdict = "unknown"
         reasons.append(f"Sentry was not read: {reading['why']}")
     else:

@@ -45,19 +45,17 @@ on:
         required: false
       NIGHTLY_NEXT_R2_ACCOUNT_ID:
         required: false
-  pull_request:
-    paths:
-      - .github/workflows/nightly-next-health.yml
-      - scripts/ci/nightly_next_health.py
-      - tests/test_nightly_next_health.py
+      SENTRY_AUTH_TOKEN:
+        required: false
 
 permissions: {}
 
-# One judge at a time per folder, never cancelled: a queued tick that starts after a pull reads the
-# pulled feed and judges the build the feed serves now.
+# One judge at a time on the users' feed; a running one is never cancelled. GitHub keeps one pending
+# run per group, so a judge queued behind a running one may be replaced by the next tick's, which
+# reads the feed again. The cron's dispatcher on main and each drill have groups of their own.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('nightly-next-health-pr-{0}', github.event.pull_request.number) || inputs.drill && format('nightly-next-health-drill-{0}', github.run_id) || 'nightly-next-health' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.event_name == 'schedule' && format('nightly-next-health-start-{0}', github.run_id) || inputs.drill && format('nightly-next-health-drill-{0}', github.run_id) || 'nightly-next-health' }}
+  cancel-in-progress: false
 
 env:
   # The same values as nightly-next-rollback.yml; nightly-next-guard.py checks every write against them.
@@ -83,20 +81,6 @@ jobs:
     steps:
       - name: Dispatch the judge on nightly-next
         run: gh workflow run nightly-next-health.yml -R "$GITHUB_REPOSITORY" --ref nightly-next
-
-  # main's tree has none of the tooling; its copy of this file only registers the cron.
-  test:
-    if: github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next'
-    permissions:
-      contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-      - name: Validate the health verdict and the pull decision
-        run: python3 -I tests/test_nightly_next_health.py
 
   judge:
     if: >-
@@ -136,7 +120,8 @@ jobs:
           # a verdict; only the newest can be pulled. A dispatch with a build judges that one.
           echo "builds=${BUILD:-$(python3 -I scripts/ci/nightly_next_health.py recent --feed health/feed.xml)}" >> "$GITHUB_OUTPUT"
 
-      # Each build: its earlier verdict (a 404 is none yet), its reading, its verdict in health/out/<build>.json.
+      # Each build: its earlier verdict (a 404 is none yet; any other failure skips the build this tick, so its
+      # first_session_at and failed_at are never reset), its reading, its verdict in health/out/<build>.json.
       # The step's outputs are the first build's: the newest, or the dispatched one.
       - name: Read Sentry release health and judge
         id: judge
@@ -150,9 +135,15 @@ jobs:
           first=1
           for build in $BUILDS; do
             existing=()
-            curl -fsSL --retry 2 --connect-timeout 10 --max-time 30 -A "cmux-nightly-next-health/1" -H "Cache-Control: no-cache" \
-              -o "health/existing-$build.json" "${NIGHTLY_NEXT_FEED_BASE}/${NIGHTLY_HEALTH_DIR}${build}.json?health=${GITHUB_RUN_ID}" \
-              && existing=(--existing "health/existing-$build.json")
+            code="$(curl -sSL --retry 2 --connect-timeout 10 --max-time 30 -A "cmux-nightly-next-health/1" -H "Cache-Control: no-cache" \
+              -o "health/existing-$build.json" -w '%{http_code}' "${NIGHTLY_NEXT_FEED_BASE}/${NIGHTLY_HEALTH_DIR}${build}.json?health=${GITHUB_RUN_ID}" || true)"
+            case "$code" in
+              200) existing=(--existing "health/existing-$build.json") ;;
+              404) ;;
+              *) echo "::warning title=nightly-next health::build $build: its earlier verdict did not read (HTTP ${code:-none}); judged next tick"
+                 first=0  # a skipped newest build is never pulled this tick
+                 continue ;;
+            esac
             now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             if [ "$DRILL" = true ]; then
               python3 -I scripts/ci/nightly_next_health.py drill-reading --build "$build" --now "$now" --out "health/reading-$build.json"
@@ -183,6 +174,7 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
+          shopt -s nullglob
           for file in health/out/*.json; do
             key="${NIGHTLY_NEXT_R2_PREFIX}${NIGHTLY_HEALTH_DIR}$(basename "$file")"
             python3 -I scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
