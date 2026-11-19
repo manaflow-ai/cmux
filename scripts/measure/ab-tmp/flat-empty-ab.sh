@@ -25,8 +25,10 @@ for name in "$@"; do
     xz -dc "$here/to-$name.patch.xz" > "$tree/to.patch"
     (cd "$tree" && git apply --unsafe-paths -p1 to.patch) || { echo "flat-empty-ab: $name: patch failed"; exit 2; }
   fi
-  (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null 2>&1 || bun install >/dev/null 2>&1) \
-    || { echo "flat-empty-ab: $name: bun install failed"; exit 2; }
+  # The head's packages first (the commits' lockfiles differ by a line), then this tree's lockfile over them.
+  [ -d "$root/webviews/node_modules" ] && cp -al "$root/webviews/node_modules" "$tree/webviews/node_modules"
+  (cd "$tree/webviews" && bun install --frozen-lockfile 2>&1 | tail -n 5 || bun install 2>&1 | tail -n 5)
+  [ -d "$tree/webviews/node_modules/playwright" ] || { echo "flat-empty-ab: $name: no packages"; exit 2; }
 done
 for round in $(seq 1 "$rounds"); do
   for name in "$@"; do
