@@ -149,6 +149,7 @@ import { newTabIconColumnArm } from "./iconColumn.experiment";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
+import { useHeldWhileHidden } from "./heldWhileHidden";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
@@ -391,6 +392,10 @@ export function NewTabScreen(props: Props) {
   // What the page shows or opens appears at once; exits keep their fades (noEntryMotion.ts).
   useNoEntryMotion();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
+  // The chats the page's lists draw from: hidden (a tab's New Tab behind another, the spare), it keeps
+  // the ones it last drew, so another chat's change runs no card, leader or folder pass over every
+  // chat; shown, it reads the newest once (heldWhileHidden.ts).
+  const sessions = useHeldWhileHidden(snapshot.sessions);
   // NewTabPage resolves the host's unset template too, but keep this component safe when mounted
   // directly (gallery/tests and embedders): the written default is Minimal, not the retired stage.
   const template: ScreenTemplate = props.template ?? screenTemplate(DEFAULT_NEW_TAB_TEMPLATE);
@@ -460,7 +465,7 @@ export function NewTabScreen(props: Props) {
   // `FolderRecency`): a chat working moves its folder up without every chat being sorted again.
   const recency = useRef<FolderRecency>(null);
   recency.current ??= new FolderRecency();
-  const recentFolders = recency.current.of(snapshot.sessions);
+  const recentFolders = recency.current.of(sessions);
   const candidate = useMemo(
     () => (startsRecent ? firstProject(recentFolders, home, props.knownProjects) : undefined),
     [startsRecent, recentFolders, home, props.knownProjects],
@@ -1043,7 +1048,7 @@ export function NewTabScreen(props: Props) {
   // another chat working sorts no chat again.
   const barRecency = useRef<FolderRecency>(null);
   barRecency.current ??= new FolderRecency(omnibarFolder);
-  const barRecent = barRecency.current.of(snapshot.sessions);
+  const barRecent = barRecency.current.of(sessions);
   const barFolders = useMemo(() => omnibarFolders(props.projects, barRecent), [props.projects, barRecent]);
   const barAgents = useMemo(
     () =>
@@ -1142,10 +1147,7 @@ export function NewTabScreen(props: Props) {
   // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.
   const clock = useMinuteClock();
   const at = now ?? clock;
-  const cards = useMemo(
-    () => pageChatCards(sections, snapshot.sessions, at, t, device),
-    [sections, snapshot.sessions, at, t, device],
-  );
+  const cards = useMemo(() => pageChatCards(sections, sessions, at, t, device), [sections, sessions, at, t, device]);
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user. Show All Chats off
   // (`sidebar.showChats`) keeps the recent chats in its place.
@@ -1156,7 +1158,7 @@ export function NewTabScreen(props: Props) {
   const leads = useMemo(
     () =>
       allChats
-        ? leaders(snapshot.sessions).map(({ entry, reports }) => ({
+        ? leaders(sessions).map(({ entry, reports }) => ({
             id: entry.sessionId,
             title: entry.displayTitle ?? entry.name ?? entry.sessionId,
             ...(entry.harness ? { harness: entry.harness } : {}),
@@ -1165,15 +1167,12 @@ export function NewTabScreen(props: Props) {
             label: nt("leads.reports", { count: String(reports.length) }),
           }))
         : [],
-    [allChats, snapshot.sessions, nt],
+    [allChats, sessions, nt],
   );
   // The stage layout's suggested actions start with the chats waiting on the user: one asking for
   // input, or one that hit an error or lost its agent. Picked from every chat, not the trimmed
   // recent cards (needsYouCards).
-  const needsYou = useMemo(
-    () => (stage ? needsYouCards(snapshot.sessions, at, t) : []),
-    [stage, snapshot.sessions, at, t],
-  );
+  const needsYou = useMemo(() => (stage ? needsYouCards(sessions, at, t) : []), [stage, sessions, at, t]);
   const openCard = (id: string) => {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
     if (key && props.onOpenChat) {
@@ -1867,7 +1866,7 @@ export function NewTabScreen(props: Props) {
   // composer reads none of them again.
   const startablePlaces = useRef<SessionsBy>(null);
   startablePlaces.current ??= new SessionsBy((session) => [session.cwd, session.peer, session.hostKind, session.host]);
-  const placedChats = startablePlaces.current.of(snapshot.sessions);
+  const placedChats = startablePlaces.current.of(sessions);
   const startableSessions = useMemo(
     () => placedChats.filter((session) => session.peer || session.hostKind !== "cloud"),
     [placedChats],
