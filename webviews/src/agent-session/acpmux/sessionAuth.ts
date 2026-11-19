@@ -210,6 +210,24 @@ export type SessionAuthQuery =
   | { target: { harness: string; host?: string; routeId?: string; cwd?: string } };
 export type ReadSessionAuth = (query: SessionAuthQuery, refresh?: boolean) => Promise<unknown>;
 
+/// The last verdict each reader (a page's acpmux link) had for a harness on a machine and route,
+/// whatever the folder. A New Tab spare checks its harness with no folder (it knows none); the Cmd-T
+/// that adopts it names one, which is a new check that probes again (hundreds of ms). Until it
+/// answers the page draws this verdict (`drawn`), so the adopted page's first frame already has its
+/// sign-in line and nothing moves in later (Leo, 2026-11-08: "the animation makes the thing blank in
+/// between"). Kept outside the hook, so an adoption that remounts the screen keeps it too.
+const lastVerdicts = new WeakMap<ReadSessionAuth, Map<string, SessionAuth>>();
+
+/// What a target check names but its folder (and the auth epoch); none for a chat's own check.
+function verdictKey(query: SessionAuthQuery | undefined, epoch: string | number): string | undefined {
+  return query && "target" in query
+    ? JSON.stringify([query.target.harness, query.target.host ?? null, query.target.routeId ?? null, epoch])
+    : undefined;
+}
+
+/// `auth` is the verdict of this check alone: unknown until it answers, and the only one that may hold
+/// a send. `drawn` is what the page shows: the same, or while a check of another folder runs, the last
+/// verdict for this harness, machine and route (`lastVerdicts`).
 export function useSessionAuth(
   query: SessionAuthQuery | undefined,
   read: ReadSessionAuth | undefined,
@@ -249,6 +267,13 @@ export function useSessionAuth(
           setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
           return;
         }
+        const kept = verdictKey(selected, epoch);
+        if (kept) {
+          const verdicts = lastVerdicts.get(read) ?? new Map<string, SessionAuth>();
+          lastVerdicts.set(read, verdicts);
+          if (auth.state === "unknown") verdicts.delete(kept);
+          else verdicts.set(kept, auth);
+        }
         setResult({ selection, auth });
       },
       () => {
@@ -261,8 +286,11 @@ export function useSessionAuth(
     };
   }, [read, selected, selection, refresh, refreshEpoch, version]);
   const recheck = useCallback(() => setRefresh((n) => n + 1), []);
+  const answered = result?.selection === selection ? result.auth : undefined;
+  const kept = answered ? undefined : verdictKey(selected, epoch);
   return {
-    auth: result?.selection === selection ? result.auth : UNKNOWN_AUTH,
+    auth: answered ?? UNKNOWN_AUTH,
+    drawn: answered ?? (read && kept ? lastVerdicts.get(read)?.get(kept) : undefined) ?? UNKNOWN_AUTH,
     pending: Boolean(read && selected) && result?.selection !== selection,
     recheck,
   };
