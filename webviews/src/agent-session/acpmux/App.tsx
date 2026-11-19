@@ -108,7 +108,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -117,9 +116,10 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
-import { heldPick, withCloudStartFolder, withDraftFolder } from "./newtab/draftFolder";
+import { heldPick, withDraftFolder, withCloudStartFolder } from "./newtab/draftFolder";
 import {
   cloudModePickFor as cloudModeFor,
   cloudSendAgent,
@@ -579,8 +579,6 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -589,6 +587,8 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -12595,8 +12595,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           />
         </Notice>
         {!showNewTab && folderAskView}
-        {/* The private folder's line is the folder chip's menu's (Composer `folderNote`); only the
-            host's refusal of its Choose folder… stands over the composer, with the line to retry. */}
+        {/* Only the host's refusal of the folder chip's Choose folder… stands over the composer,
+            with the line to retry. */}
         <Notice id="folder-choice" tier="error" when={folderChoiceOffered && folderError}>
           <FolderChoice error={folderError} onChoose={chooseWorkspaceFolder} />
         </Notice>
@@ -13234,7 +13234,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   },
                 }
               : {})}
-            {...(folderChoiceOffered ? { folderNote: t("agentHome.notice") } : {})}
             onBrowseProject={
               folderChoiceOffered
                 ? chooseWorkspaceFolder

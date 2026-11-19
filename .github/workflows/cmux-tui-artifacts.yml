@@ -129,8 +129,12 @@ concurrency:
   # branch group, run 44154640719 queued on a dead Linux pool held the group for
   # 8 hours, the newer commits' runs stayed pending, and every nightly in that
   # window failed at "Bundle the cmux-tui client" (#45792).
+  # Its group is its own, not feat-cmux-next's push group for the same commit: in one
+  # shared push-<sha> group, nightly-next run 44410790075 sat pending behind feat-cmux-next
+  # run 44404420100, whose preflight never got a runner, until nightly 44410790376 timed out
+  # (2026-11-18). The same-key owner claim keeps the two runs from building the tree twice.
   # cmux-tui-tree-request.yml republishes a commit's tree on demand.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next') && github.event_name == 'push' && format('push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' && format('push-{0}', github.sha) || github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && format('nightly-push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
   cancel-in-progress: false
 
 permissions: {}
