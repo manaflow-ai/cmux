@@ -251,6 +251,8 @@ import { type UploadProgressReport, uploadToMachine } from "./cloudUploads";
 import { uploadForSend } from "./sendUploads";
 import { droppedPaths } from "./composer/intakeFiles";
 import { useToolCards } from "./toolCards/toolCardStore";
+import { TerminalApprovalAsk } from "./terminalApproval/TerminalApprovalAsk";
+import { useTerminalApproval } from "./terminalApproval/terminalApproval";
 import {
   COMPUTER_USE_PREVIEW_RESERVE,
   useComputerUsePreview,
@@ -2731,13 +2733,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const individualPermission =
     heldOnCard(draftAsk, snapshot.permission, snapshot.permissionGroups) ??
     (askOnSingleCard(snapshot.permission, snapshot.permissionGroups) ? snapshot.permission : undefined);
+  // The terminal's own dialog while it drives this chat's session (terminalApproval/): acpmux sends none then.
+  const terminalApproval = useTerminalApproval();
+  const terminalAsk = individualPermission ? null : terminalApproval;
   // The asks of the sub-sessions below this chat (subagents/childAsks.ts): the oldest shows here,
   // answered through this chat, while the chat has no ask of its own.
   const belowAsks = useMemo(
     () => childAsks([...(snapshot.asks ?? []), ...(snapshot.groupedAsks ?? [])], snapshot.sessions, snapshot.sessionId),
     [snapshot.asks, snapshot.groupedAsks, snapshot.sessions, snapshot.sessionId],
   );
-  const childAsk = individualPermission ? undefined : belowAsks[0];
+  // One card at a time takes the answer keys: a sub-session's ask waits behind this chat's and the terminal's.
+  const childAsk = individualPermission || terminalAsk ? undefined : belowAsks[0];
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
@@ -12195,6 +12201,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
     hasPermissionGroups ||
     individualPermission ||
+    terminalAsk ||
     childAsk ||
     secret ||
     toolCards.length > 0,
@@ -12320,7 +12327,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           }}
         />
       )}
-      {(individualPermission || childAsk || secret || toolCards.length > 0) && (
+      {(individualPermission || terminalAsk || childAsk || secret || toolCards.length > 0) && (
         <>
           <ToolCards
             cards={toolCards}
@@ -12343,6 +12350,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               shownChat={shownChat}
               alwaysAtSource={chatOnPeer(snapshot)}
               onDraft={(open) => setDraftAsk(open ? individualPermission : undefined)}
+            />
+          )}
+          {terminalAsk && (
+            <TerminalApprovalAsk
+              approval={terminalAsk}
+              shortcuts={cardTakesShortcuts(snapshot.permissionGroups)}
+              focusComposer={() => composerHandle.current?.focus()}
             />
           )}
           {childAsk && (

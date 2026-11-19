@@ -79,3 +79,21 @@ The control shows at rest (`alwaysVisible`): it never fades with the bar's other
 `design/transcript-overlays.md`: stable zones hold what never moves when something arrives, and the identity of a
 view is never news. Which face of a session you are on is identity, so the control lives in the pane's stable
 top-right row, at one x on both faces, and nothing arriving in the chat or the terminal moves it.
+
+## Approvals in whichever view is up
+
+A pending approval shows, and is answered, in the face the person looks at. No new look: it is the chat's own
+permission card (`PermissionCard.tsx`), and in the terminal it is plain text.
+
+- **Chat drives, terminal up** (`acpmux resume-here`, `cli/resume_here_ask.rs`): the chat's pending permission
+  prints as its title, its command and its options numbered; a number and Enter answers it. Only the cmux app may
+  allow (`hub/person.rs`), so a terminal's allow is refused and says to switch the pane to Chat; a deny answers
+  there. One answered in the chat is no longer asked.
+- **Terminal drives, chat up** (the chat is a View Only watch, which acpmux sends no permission): the harness's own
+  dialog (Claude Code's "Do you want to proceed?", Codex's "Would you like to run the following command?") is read
+  off the terminal's screen while its agent state is Blocked (`cmux-window-rules` `tabs::approval`,
+  `TerminalChatApproving`) and drawn as the chat's permission card. A click picks that option in the terminal with
+  the arrow keys and Enter, only while the terminal still shows that very dialog (its id covers the question, the
+  command and every row, so the same question about another command is another dialog) with that option, and only
+  while the harness is still in the foreground (each key a `send` naming it, so an exited harness's shell gets none).
+- Gallery: `agent-pane.terminal-approval` (Claude three options, Codex, a long command, Claude's edit).

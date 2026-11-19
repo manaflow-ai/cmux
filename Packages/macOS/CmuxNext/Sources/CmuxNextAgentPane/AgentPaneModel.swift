@@ -410,6 +410,12 @@ public final class AgentPaneModel {
     /// and what the person typed in the card's field, if the button sends it.
     @ObservationIgnored public internal(set) var toolCards: [AgentPaneToolCard] = []
     @ObservationIgnored public var onToolCard: (@MainActor (_ card: String, _ action: String, _ value: AgentPaneToolCard.Entered?) -> Void)?
+    /// The paired terminal's approval dialog (``AgentPaneTerminalApproval``), and the App's answer to a pick: false when the
+    /// terminal no longer shows that dialog.
+    @ObservationIgnored public internal(set) var terminalApproval: AgentPaneTerminalApproval?
+    @ObservationIgnored public var onTerminalApproval: (@MainActor (AgentPaneTerminalApproval.Pick) async -> Bool)?
+    /// The App's watch of the paired terminal that reads that dialog: the chat owns it, so it ends with the chat.
+    @ObservationIgnored public var terminalApprovalWatch: AnyObject?
     /// The chat's live preview card (``AgentPaneComputerUsePreview``), and the App's answer to a click on it (its session).
     @ObservationIgnored public internal(set) var computerUsePreview: AgentPaneComputerUsePreview?
     @ObservationIgnored public var onComputerUsePreview: (@MainActor (_ session: String, _ action: AgentPaneComputerUsePreview.Action) -> Void)?
@@ -950,6 +956,7 @@ public final class AgentPaneModel {
         case .remoteControl(let on): return await AgentPaneRemoteControl.reply(on: on, in: self, userGesture: userGesture)
         case .paneNoticeAction(let id): return paneNoticeAction(id, userGesture: userGesture)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
+        case .terminalApproval(let pick): return await AgentPaneTerminalApproval.respond(pick, in: self)
         case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
         case .uploadStage(let stage):

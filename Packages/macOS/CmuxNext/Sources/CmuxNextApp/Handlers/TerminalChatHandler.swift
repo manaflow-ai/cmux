@@ -61,6 +61,8 @@ enum TerminalChatHandler {
             let adopt = AgentPaneAdopt(harness: harness, agentSessionId: session, watch: watches ? true : nil)
             // A tab that already resumes this session is shown instead of a duplicate.
             if let existing = services.agentTabs.tab(resuming: adopt) ?? chat(running: session, services: services) {
+                // The terminal drives: its approval dialog shows in the chat and is answered there.
+                TerminalChatApprovals.follow(terminal: tab, chat: existing, services: services)
                 if invocation.allowsViewChange { _ = services.revealTab(existing) }
                 return .done
             }
@@ -74,7 +76,11 @@ enum TerminalChatHandler {
             // The new tab shows now; the registry reports a failed open.
             pane.selectWhenReported(surface: pending.surface)
             return .applied(result: {
-                do { _ = try await pending.value(); return .success([:]) } catch is CancellationError {
+                do {
+                    let made = try await pending.value()
+                    TerminalChatApprovals.follow(terminal: tab, chat: made.key, services: services)
+                    return .success([:])
+                } catch is CancellationError {
                     return .success([:]) // the person closed the tab first
                 } catch { return .failure(ActionWorkFailure("open terminal as chat", error)) }
             })

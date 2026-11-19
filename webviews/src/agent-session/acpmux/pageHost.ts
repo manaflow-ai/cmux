@@ -13,6 +13,7 @@ import { setAgentDiffColors } from "./diffColors";
 import { setChatDisplay } from "./chatDisplay";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
+import { setTerminalApproval } from "./terminalApproval/terminalApproval";
 import { setPlanScopeDrift } from "./planScopeDriftStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
@@ -178,6 +179,9 @@ export function applyHostEvent(event: HostEvent): void {
       // The workspaces and tabs a pasted cmux link can name (chips/cmuxLinkPlaces.ts), kept before
       // the transcript mounts.
       return setLinkPlaces(event.value);
+    case "terminalApproval":
+      // The terminal's approval dialog for this chat, kept before the dock mounts.
+      return setTerminalApproval(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);

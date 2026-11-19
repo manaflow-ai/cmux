@@ -625,6 +625,8 @@ extension AgentPaneRequest {
             if let files = AgentPaneUpload.files(params) { self = .upload(files) } else { self = .unsupported(method) }
         case "chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel":
             self = Self.uploadStage(method, params)
+        case "chat.terminalApproval.answer":
+            if let pick = AgentPaneTerminalApproval.pick(params) { self = .terminalApproval(pick) } else { self = .unsupported(method) }
         case "chat.toolCard.respond":
             if let answer = AgentPaneToolCard.answer(params) { self = .toolCard(card: answer.card, action: answer.action, value: answer.value) } else { self = .unsupported(method) }
         case "chat.computerUsePreview":
