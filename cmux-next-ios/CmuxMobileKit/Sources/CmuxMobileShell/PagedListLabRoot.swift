@@ -14,7 +14,8 @@ private let theme = CmuxMobileTheme.standard
 /// - SCENARIO: `normal` (30-row pages, 0.4 s each, 20 pages), `slow` (6 s a page: the edge's
 ///   spinner shows), `fast` (50 pages at 0.05 s, for fling hitches), `end` (two pages, then the
 ///   end), `empty`, `firstfail` (the first read fails once), `morefail` (the second page fails
-///   once), `live` (a new row arrives every 1.5 s).
+///   once), `live` (a new row arrives every 1.5 s), `stall` (the first page at once, then a read
+///   that doesn't answer for 10 minutes: the edge's spinner stays, for a screenshot).
 /// `-cmux-mobile-gallery-appearance light|dark` picks the scheme; `-cmux-mobile-paged-lab-clean`
 /// hides the measurement line for screenshots.
 public struct PagedListLabRoot: View {
@@ -93,10 +94,12 @@ public struct PagedListLabRoot: View {
         NavigationStack {
             Group {
                 if direction == .up {
-                    // The chat's bottom stack rides the keyboard; the rows ride it.
-                    list.pagedBottomAccessory { bottomStack }
+                    // The chat's bottom stack rides the keyboard on a bar that reaches the screen's
+                    // bottom edge; the rows ride it.
+                    list.pagedBottomAccessory(background: .bar) { bottomStack }
                 } else {
-                    list.safeAreaInset(edge: .bottom, spacing: 0) { bottomStack }
+                    // A clean screenshot has nothing under the rows: no bar either.
+                    list.safeAreaInset(edge: .bottom, spacing: 0) { bottomStack.background(clean ? AnyShapeStyle(.clear) : AnyShapeStyle(.bar)) }
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -118,7 +121,9 @@ public struct PagedListLabRoot: View {
             probe.pageLanded = { [hud] shift, rows in hud.landed(shift: shift, rows: rows) }
             probe.scrolling = { [hud] moving in hud.scrolling(moving) }
             probe.frameShift = { [hud] shift in hud.sampled(shift) }
+            probe.shiftDetail = { [hud] shift, detail in hud.shifted(shift, detail) }
             probe.slid = { [hud] frames in hud.slid(frames) }
+            probe.held = { [hud] rows in hud.hold(rows) }
             await model.loadFirst()
         }
         .task { await model.listen() }
@@ -172,12 +177,18 @@ public struct PagedListLabRoot: View {
                 }
             }
             operation("Insert", "insert") { source.insertNewest() }
+            // A newest row 2.5 s from now: a test rests a finger on the list before it lands.
+            operation("Later", "later") {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(2.5))
+                    source.insertNewest()
+                }
+            }
             operation("Banner", "banner") { banner.toggle() }
             operation("Reload", "reload") { Task { await model.loadFirst() } }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(.bar)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("lab.ops")
     }
@@ -201,7 +212,6 @@ public struct PagedListLabRoot: View {
             .foregroundStyle(theme.colors.label2.color)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
-            .background(.bar)
             .accessibilityIdentifier("lab.hud")
             .accessibilityValue(hud.json(edge: edgeName, newer: newerEdgeName, changes: model.changesApplied, flushes: model.flushes))
     }
@@ -232,12 +242,13 @@ public struct PagedListLabRoot: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.bar)
     }
 }
 
 enum PagedLabScenario: String, Sendable {
-    case normal, slow, fast, end, empty, firstfail, morefail, live
+    /// `stall`: the first page at once, then a read that never answers while a test looks at it
+    /// (the edge's spinner, reached in one or two flings).
+    case normal, slow, fast, end, empty, firstfail, morefail, live, stall
 
     var pageSize: Int { 30 }
     var pages: Int {
@@ -306,7 +317,7 @@ final class PagedLabSource: PagedListSource {
 
     func page(after cursor: String?) async throws -> PagedListPage<PagedLabItem> {
         // motion: not an animation; the lab's source answers after a network-like delay.
-        try await Task.sleep(for: scenario.latency)
+        try await Task.sleep(for: scenario == .stall && cursor != nil ? .seconds(600) : scenario.latency)
         let page = cursor.flatMap(Int.init) ?? 0
         if scenario == .firstfail, cursor == nil, !failedFirst {
             failedFirst = true
@@ -379,12 +390,16 @@ final class PagedLabHUD {
     /// The largest move of the row being read, in any frame, that the scroll itself doesn't explain
     /// (the probe's per-frame layout shift; while scrolling too).
     var frameShift: CGFloat = 0
+    /// What the list was doing in the worst shifted frame (the controller's probe detail).
+    var worstShift = ""
     /// Layout passes the measure sampled, and those whose shift passed half a point.
     var samples = 0
     var shiftedFrames = 0
     /// Slides to the newest end, and the display frames the last one took (1: a jump).
     var slides = 0
     var slideFrames = 0
+    /// Rows that arrived under a resting finger and waited for it.
+    var heldRows = 0
     /// Row values in memory, rows known, rows on disk and the disk file's size.
     var inMemory = 0
     var total = 0
@@ -418,9 +433,17 @@ final class PagedLabHUD {
         if abs(shift) > frameShift { frameShift = abs(shift) }
     }
 
+    func shifted(_ shift: CGFloat, _ detail: String) {
+        if abs(shift) >= frameShift { worstShift = detail }
+    }
+
     func slid(_ frames: Int) {
         slides += 1
         slideFrames = frames
+    }
+
+    func hold(_ rows: Int) {
+        heldRows += rows
     }
 
     func landed(shift: CGFloat, rows: Int) {
@@ -440,7 +463,7 @@ final class PagedLabHUD {
 
     func json(edge: String, newer: String = "end", changes: Int = 0, flushes: Int = 0) -> String {
         let ratio = seconds > 0 ? hitchMs / seconds : 0
-        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames)}"#
+        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)"}"#
     }
 }
 

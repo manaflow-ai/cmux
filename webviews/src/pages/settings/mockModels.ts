@@ -101,7 +101,7 @@ const macLogins: ModelsState = {
 };
 
 /** Settings > Cloud's states (CloudModelsCard.tsx): only this Mac's CLI logins (healthy here, nothing
- * for Cloud), a Claude Code token, and a ChatGPT plan. */
+ * for Cloud), a Claude Code token, a ChatGPT plan, and that plan signed out or turned off. */
 const personalOnly = (connections: ModelConnection[]): ModelsState => ({
   ...empty,
   personal: { connections, spread: true, available: true },
@@ -109,6 +109,8 @@ const personalOnly = (connections: ModelConnection[]): ModelsState => ({
 const macOnly = personalOnly([codexLogin, claudeLogin]);
 const claudeForCloud = personalOnly([codexLogin, claudeLogin, claudeToken]);
 const chatgptForCloud = personalOnly([codexLogin, claudeLogin, chatgptPlan]);
+const chatgptSignedOut = personalOnly([codexLogin, claudeLogin, { ...chatgptPlan, signedIn: false }]);
+const chatgptOff = personalOnly([codexLogin, claudeLogin, { ...chatgptPlan, enabled: false }]);
 
 export const mockModels = {
   empty,
@@ -116,6 +118,8 @@ export const mockModels = {
   macOnly,
   claudeForCloud,
   chatgptForCloud,
+  chatgptSignedOut,
+  chatgptOff,
   chatgptPending: { ...macLogins, chatgpt: { attempt: "attempt-1", error: null } },
   chatgptError: { ...macLogins, chatgpt: { attempt: null, error: "no_plan_scope" } },
   member: {

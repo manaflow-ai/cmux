@@ -308,17 +308,25 @@ impl Hub {
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
         // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
         // for the person's next chat, which never waits behind a lane's start.
-        let claimable = fixed_id.is_none()
+        let shaped = fixed_id.is_none()
             && adopt.is_none()
             && starter.is_none()
             && meta.session_env.is_empty()
             && route.is_none()
             && meta.tools.off.is_empty()
             && meta.additional_directories.is_empty()
-            && checked_cwd.is_none()
-            && credential.is_none();
-        let pooled =
-            if claimable { self.pool_claim(&meta, &profile, &defaults.env).await } else { None };
+            && checked_cwd.is_none();
+        // A Cloud chat's owner credential (`agent_credentials.rs`) takes only an entry warmed with
+        // that same credential (`_acpmux/prewarm` `credentials`, cmux#45953): the key's auth
+        // fingerprint hashes the credentialed spawn env, so another credential, or none, misses.
+        let pooled = if shaped {
+            self.pool_claim(&meta, &profile, &defaults.env, credential.as_ref()).await
+        } else {
+            None
+        };
+        // Only a shape with no credential of its own is remembered for a spare or the last-used
+        // role: those start with no credential, so they never hold one.
+        let claimable = shaped && credential.is_none();
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));

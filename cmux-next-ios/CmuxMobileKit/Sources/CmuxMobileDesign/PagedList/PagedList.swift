@@ -40,6 +40,7 @@ public struct PagedList<Item: Identifiable & Equatable, Row: View, Empty: View>:
     var showNewest: (@MainActor () -> Void)?
     var beyondWindow = 0
     var accessory: (() -> AnyView)?
+    var accessoryBackground: AnyShapeStyle?
     var followsKeyboard = true
     var pinning: PagedListBottomPinning?
     var indicator: ((PagedListNewest) -> AnyView)?
@@ -71,9 +72,19 @@ public struct PagedList<Item: Identifiable & Equatable, Row: View, Empty: View>:
         if accessory != nil || indicator != nil {
             // UIKit lays out the rows, the accessory and the keyboard together: the host takes the
             // whole height and insets the rows itself.
-            PagedListHostRepresentable(config: config, overlay: overlay, accessory: accessory?(), followsKeyboard: followsKeyboard,
-                                       indicator: indicator)
-                .ignoresSafeArea(accessory != nil ? .all : .container, edges: .vertical)
+            let host = PagedListHostRepresentable(config: config, overlay: overlay, accessory: accessory?(),
+                                                  accessoryBackground: accessoryBackground, followsKeyboard: followsKeyboard,
+                                                  indicator: indicator)
+            if accessory != nil {
+                // The host reaches the screen's bottom edge, under the keyboard: UIKit puts the
+                // accessory on the keyboard and insets the rows by it. The top keeps the screen's
+                // safe area (its bars, a banner), as the plain list does.
+                host.ignoresSafeArea(.keyboard).ignoresSafeArea(.container, edges: .bottom)
+            } else {
+                // Only an indicator: laid out as the plain list (a bar the screen puts under the
+                // list with `safeAreaInset` insets the rows).
+                host
+            }
         } else {
             plain
         }
@@ -205,6 +216,18 @@ public struct PagedList<Item: Identifiable & Equatable, Row: View, Empty: View>:
         var copy = self
         copy.accessory = { AnyView(accessory()) }
         copy.followsKeyboard = followsKeyboard
+        copy.accessoryBackground = nil
+        return copy
+    }
+
+    /// ``pagedBottomAccessory(followsKeyboard:_:)`` on a `background` that reaches from the
+    /// accessory's top to the screen's bottom edge (under the home indicator, and behind the
+    /// keyboard as it moves), as a chat's composer bar does. Without one, the rows show under the
+    /// accessory and below it (a floating composer).
+    public func pagedBottomAccessory(followsKeyboard: Bool = true, background: some ShapeStyle,
+                                     @ViewBuilder _ accessory: @escaping () -> some View) -> Self {
+        var copy = pagedBottomAccessory(followsKeyboard: followsKeyboard, accessory)
+        copy.accessoryBackground = AnyShapeStyle(background)
         return copy
     }
 
@@ -285,12 +308,36 @@ struct PagedListEdgeView: View {
     let retry: @MainActor () async -> Void
 
     var body: some View {
+        let framed = states
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, minHeight: 52)
+        Group {
+            if spins {
+                // The spinner is a UIKit view with nothing for VoiceOver: the edge itself is the
+                // element, so it is read ("Loading more") and found by its identifier.
+                framed
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text("Loading more"))
+            } else {
+                framed.accessibilityElement(children: .contain)
+            }
+        }
+        .accessibilityIdentifier("\(identifier).\(end == .older ? "edge" : "newer").\(stateName)")
+    }
+
+    private var spins: Bool {
+        switch edge {
+        case .more, .loading: true
+        case .failed, .end: false
+        }
+    }
+
+    @ViewBuilder private var states: some View {
         Group {
             switch edge {
             case .more, .loading:
                 CmuxSpinner()
                     .controlSize(.small)
-                    .accessibilityLabel(Text("Loading more"))
             case .failed(let message):
                 VStack(spacing: 6) {
                     Text(message)
@@ -311,10 +358,6 @@ struct PagedListEdgeView: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity, minHeight: 52)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("\(identifier).\(end == .older ? "edge" : "newer").\(stateName)")
     }
 
     private var stateName: String {
@@ -403,6 +446,7 @@ struct PagedListHostRepresentable<Item: Identifiable & Equatable, Row: View>: UI
     let config: PagedListConfig<Item, Row>
     let overlay: AnyView?
     let accessory: AnyView?
+    let accessoryBackground: AnyShapeStyle?
     let followsKeyboard: Bool
     let indicator: ((PagedListNewest) -> AnyView)?
 
@@ -414,8 +458,8 @@ struct PagedListHostRepresentable<Item: Identifiable & Equatable, Row: View>: UI
 
     func updateUIViewController(_ host: PagedListHostController, context: Context) {
         host.loadViewIfNeeded()
-        host.setAccessory(accessory, followsKeyboard: followsKeyboard)
-        host.setIndicator(indicator)
+        host.setAccessory(accessory, background: accessoryBackground, followsKeyboard: followsKeyboard)
+        host.setIndicator(indicator, direction: config.direction)
         host.setOverlay(overlay)
         config.apply(to: context.coordinator)
     }

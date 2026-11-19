@@ -244,6 +244,33 @@ public actor AgentSessionAttachClient {
     /// (`cloud start-session`'s `stages_ms`); nil when its daemon sent none.
     public private(set) var startPhases: [String: Int]?
 
+    /// `agent-session-prewarm` (cmux-tui `agent_session_prewarm.rs`, cmux#45953): served only on the owner's own Cloud
+    /// VM, so it is no ``DaemonCapability`` case, as ``startCredentialsCapability``.
+    public static let prewarmCapability = "agent-session-prewarm-v1"
+
+    /// Warms the agent a coming ``start(cwd:harness:homeConfirmed:personKey:ownerLink:model:permissionMode:startMode:credentials:)``
+    /// of this tab will run, on the owner's own Cloud VM, so that start takes a running agent instead of a cold one. It sends
+    /// exactly the params that start would (``startParams``), so the machine's acpmux keys the warmed agent as that start's
+    /// `session/new`; a start that differs starts cold, as before. Binds nothing and answers whether acpmux took the hint.
+    /// Only over the owner answer of the link (``ownedConnection(_:check:)``), as the start: never to a teammate's machine.
+    public func prewarm(cwd: String, harness: String?, ownerLink: @escaping OwnerLink, model: String? = nil, permissionMode: String? = nil,
+                        startMode: String? = nil, credentials: [String: String]? = nil) async throws -> Bool {
+        guard mode == .attach else { return false }
+        let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
+            guard served.start, model == nil || served.model else {
+                throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve this start")
+            }
+        }
+        guard callerOwnsVM else { return false }
+        let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: false, personKey: nil,
+                                      servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
+                                      model: model, servesModel: served.model, servesPermissionMode: served.permissionMode, permissionMode: permissionMode,
+                                      startMode: startMode, servesStartMode: served.startMode,
+                                      servesCredentials: served.credentials, credentials: credentials)
+        let data = try await call("agent-session-prewarm", params, timeout: requestTimeout, on: transport)
+        return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["accepted"] as? Bool == true
+    }
+
     /// `timings_ms`'s known phases as whole milliseconds (``machineTimings(_:)``'s names), `acpmux_started` as 0 or 1.
     static func machinePhases(_ value: Any?) -> [String: Int]? {
         guard let timings = value as? [String: Any] else { return nil }

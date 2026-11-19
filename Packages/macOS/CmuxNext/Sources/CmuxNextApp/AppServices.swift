@@ -155,7 +155,7 @@ final class AppServices {
         var joinedMachines: MachineJoinService?
         /// `debug.join_consent`: the join status the app reads (``JoinConsentServices/app(_:)``), and its person line.
         var joinStatus: JoinStatus?
-        let joinLine = DebugJoinConsent.FixtureLine()
+        let joinLine = JoinConsentFixtureLine()
         /// `debug.object_menu`: the tab or pane menu it opened last; nil after a workspace menu.
         weak var objectMenu: NSMenu?
     }

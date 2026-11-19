@@ -116,6 +116,7 @@ main() {
   # executable's, so a run shows whether a scan moved onto it.
   FW="$APP/Contents/Frameworks/CmuxNextApp.framework/CmuxNextApp"
   [[ -e "$FW" ]] || FW=""
+  [[ -f "$APP/Contents/Info.plist" ]] || { echo "LP-FAIL $APP has no Contents/Info.plist"; exit 3; }
   echo "LP app $(basename "$APP") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null) exe_bytes=$(stat -f %z "$EXE") stub=${STUB#$APP/} stub_bytes=$([[ -n "$STUB" ]] && stat -f %z "$STUB") framework_bytes=$([[ -n "$FW" ]] && stat -L -f %z "$FW")"
   OUT="$out"
   # The copy's first exec pays its first-look cost (3.4 to 4.4 s, not this study's subject); the priming launch makes

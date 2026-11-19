@@ -5,8 +5,8 @@ description: "Test, review and ship the cmux-next iPhone app (cmux-next-ios): fl
 
 # cmux iOS
 
-`cmux-next-ios/` is the cmux-next iPhone app (`CmuxMobileApp`); `ios/` is the classic app with its own
-[ios/AGENTS.md](../../ios/AGENTS.md). Read [cmux-next-ios/SECURITY.md](../../cmux-next-ios/SECURITY.md), the
+`cmux-next-ios/` is the iPhone app (`CmuxMobileApp`); `ios/` is the retired classic app, not changed
+or installed. Read [cmux-next-ios/SECURITY.md](../../cmux-next-ios/SECURITY.md), the
 parity rule in the root `CLAUDE.md` and the HIG rule in [Packages/iOS/AGENTS.md](../../Packages/iOS/AGENTS.md).
 iOS is Aziz's area (`azooz2003-bit`).
 

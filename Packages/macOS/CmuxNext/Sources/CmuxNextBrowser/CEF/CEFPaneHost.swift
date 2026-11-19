@@ -156,6 +156,7 @@ final class CEFPaneHost {
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !holdsOwnTab { runtime.lastShownHost = self }
+        if hostsExtensionWindows { runtime.lastShownWebHost = self }
         if attachPopupWindowIfNeeded(tab) { return }
         // A tab shown before its browser exists (a new tab, a hibernated one waking) gets it once
         // this turn's frame is committed: building or joining a Chromium window holds the main

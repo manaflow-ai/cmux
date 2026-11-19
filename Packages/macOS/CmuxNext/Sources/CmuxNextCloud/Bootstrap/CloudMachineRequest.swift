@@ -28,9 +28,13 @@ public struct CloudMachineRequest: Equatable, Sendable {
     public var autosize: CloudAutosizeRequest?
     /// One key per request: the creation's Retry sends it again, so a create that reached the
     /// server but whose answer was lost does not make a second machine.
-    public var idempotencyKey = UUID().uuidString
+    /// A new key has no route yet (``route``).
+    public var idempotencyKey = UUID().uuidString { didSet { if idempotencyKey != oldValue { route = nil } } }
     /// The create was sent at least once with ``idempotencyKey``.
     public var wasSent = false
+    /// The route the first send with ``idempotencyKey`` took (``createRoute(personsOwnCreate:team:)``): every
+    /// Retry of the key takes it, as the server keeps each key per caller. Nil until that send.
+    public var route: CloudCreateRoute?
     /// The team the first send went to (`X-Cmux-Team-Id`): the key is scoped per team, so every
     /// retry, and the bootstrap and idle-pause calls on the machine, go to this team.
     public var team: String?

@@ -108,8 +108,8 @@ on:
         type: boolean
 
 concurrency:
-  # One group per feat-cmux-next push (cx-73f2), per other pushed branch, and
-  # per commit for a manual dispatch. Pin refs are refused before preflight.
+  # One group per feat-cmux-next or nightly-next push (cx-73f2), per other
+  # pushed branch, and per commit for a manual dispatch. Pin refs are refused before preflight.
   # cancel-in-progress stays false: a started run is never cancelled, so no
   # publish of immutable objects stops mid-upload.
   # feat-cmux-next pushes do not share a workflow group (the group cannot read
@@ -124,8 +124,13 @@ concurrency:
   # stops after the 3 min tree-preflight. Same-key pushes share one build
   # through the owner election, not a key concurrency group (a key group
   # replaced pending builds; see the build job).
+  # nightly-next pushes get the same per-commit group: every nightly build waits
+  # (await-tree-client.sh, 45 min) for its own commit's tree. In a shared
+  # branch group, run 44154640719 queued on a dead Linux pool held the group for
+  # 8 hours, the newer commits' runs stayed pending, and every nightly in that
+  # window failed at "Bundle the cmux-tui client" (#45792).
   # cmux-tui-tree-request.yml republishes a commit's tree on demand.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' && format('push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next') && github.event_name == 'push' && format('push-{0}', github.sha) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
   cancel-in-progress: false
 
 permissions: {}

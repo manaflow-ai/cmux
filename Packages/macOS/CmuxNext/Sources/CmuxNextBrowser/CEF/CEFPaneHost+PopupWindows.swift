@@ -100,13 +100,20 @@ extension CEFRuntime {
         }
     }
 
-    /// The tab a popup window opens over: the last shown pane's tab, else
-    /// any other shown pane's (the last shown pane may have lost its tab,
-    /// as when an extension removed a tab it had moved there).
+    /// The tab a popup window opens over: the last shown web pane's tab when
+    /// that pane is in a window, else another web pane's in a window, else the
+    /// last shown web pane's or any web pane's (the last shown pane may have
+    /// lost its tab, as when an extension removed a tab it had moved there; a
+    /// pane in no window defers the attach). A web pane has a regular profile's
+    /// store: an extension's window (`chrome.windows.create`) belongs to one,
+    /// and a cmux page (Home, an agent chat, New Tab; its store is off the
+    /// record) lets no popup open, so the window closed at once. Nil when no
+    /// web pane shows: the window closes and the extension sees it removed.
     func popupWindowOpener() -> CEFTab? {
-        if let tab = lastShownHost?.visibleTab { return tab }
-        let panes = hosts.values.filter { !$0.holdsOwnTab && $0.visibleTab != nil }
-        return (panes.first { $0.hostView.window != nil } ?? panes.first)?.visibleTab
+        let panes = hosts.values.filter { $0.hostsExtensionWindows && $0.visibleTab != nil }
+        let last = lastShownWebHost.flatMap { last in panes.first { $0 === last } }
+        if let last, last.hostView.window != nil { return last.visibleTab }
+        return (panes.first { $0.hostView.window != nil } ?? last ?? panes.first)?.visibleTab
     }
 
     private func adoptPopupWindow(window: Int32, browser: Int32) {

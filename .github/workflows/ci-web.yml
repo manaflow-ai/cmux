@@ -31,7 +31,7 @@ jobs:
     # blacksmith-32vcpu-ubuntu-2404 and this job (124762739841) waited 50 minutes unassigned; on
     # 2026-11-04 the pool's blacksmith-4vcpu-ubuntu-2404 held it (126357110799) 10 minutes before the
     # pool reconciler marked that size dead. Either way every webview shard and the verdict waited.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2 || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     # actions: read: a pull request's handoff below reads the base's webview test history (an artifact of its newest push).
     permissions:
@@ -1214,9 +1214,16 @@ jobs:
   # React Doctor is independent of the per-file browser tests. Keep it on its
   # own required lane so the long-running shard 1 does not serialize this
   # diagnostic after the test suite.
+  # A feat-cmux-next push only. This scan reports and never fails on a finding
+  # (`--fail-on none`); on a pull request `React Doctor (changed React projects)`
+  # (cmux-next-react-doctor.yml) scans the same webviews project with the same
+  # pinned tool and gates it: a new error or a failed scan is red there. Running
+  # it here too was 786 runs and about 178 hours of 16 vCPU a day (p50 13.6 min,
+  # 2026-11-16T08:27Z..11-17T08:27Z) for a verdict nobody read, and its timeouts
+  # held PRs (#44127).
   react-doctor:
     needs: [web-subarea-scope, runners]
-    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ github.event_name != 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     # React Doctor took 7.4-9.9 min on 4 vCPU and hit the 10 min timeout on
     # 2026-10-20 (runs 39505208959, 39506071754), which failed
     # react-apps-check. It takes the 16 vCPU size from the capability map.
@@ -1295,9 +1302,12 @@ jobs:
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
           required = inputs["web"] == "true" and needs["web-subarea-scope"]["outputs"].get("react_apps") == "true"
-          required_jobs = ["react-apps-check-shard", "react-doctor"]
+          required_jobs = ["react-apps-check-shard"]
+          # A pull request's base replay; a push's React Doctor report (the ratchet gates a pull request's).
           if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
               required_jobs.append("react-apps-base-check")
+          else:
+              required_jobs.append("react-doctor")
           exit_with_verdict({name: needs[name]["result"] for name in required_jobs}, "react-apps-check",
                             () if required else required_jobs)
           for name in required_jobs:
@@ -1314,7 +1324,7 @@ jobs:
   webviews-test-durations:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && fromJSON(vars.RUNNER_POOLS).hosted_saturated && fromJSON(vars.RUNNER_POOLS).linux_2 || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Checkout the shard helper

@@ -84,6 +84,32 @@ final class PagedListUITests: XCTestCase {
         XCTAssertLessThanOrEqual(reading.frameShift, 0.5, "a row moved \(reading.frameShift) pt in a frame the slide does not explain")
     }
 
+    /// A row that arrives under a resting finger (touching the list, not dragging) waits: the rows
+    /// under the finger stay, and the new row slides in when it lifts. The spring waits for the
+    /// finger instead of stalling or jumping, and the indicator never counts a row the list slid to.
+    @MainActor func testUpRowArrivingUnderARestingFingerSlidesInWhenItLifts() {
+        let lab = PagedLabDriver.launch("up:normal", test: self)
+        XCTAssertTrue(lab.row(0).waitForExistence(timeout: 10))
+        lab.settle(lab.row(0))
+        let slides = lab.reading.slides
+        // The row lands 2.5 s after the tap; the finger rests from before that until after it.
+        lab.app.buttons["lab.op.later"].tap()
+        lab.list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).press(forDuration: 5)
+        let arrived = lab.row(-2)
+        XCTAssertTrue(arrived.waitForExistence(timeout: 5), "the new row did not show")
+        lab.waitFor("the slide", timeout: 5) { lab.reading.slides > slides }
+        lab.settle(arrived)
+        lab.attach("up-resting-finger-slid-in")
+        let reading = lab.reading
+        lab.record("up-resting-finger", reading.json)
+        XCTAssertGreaterThanOrEqual(reading.held, 1, "the row did not land under the resting finger (the press came late)")
+        XCTAssertLessThanOrEqual(arrived.frame.maxY, lab.floor + 1, "the new row is under the composer")
+        XCTAssertGreaterThan(arrived.frame.maxY, lab.floor - 60, "the list did not slide on to the new row")
+        XCTAssertGreaterThan(reading.slideFrames, 5, "the new row jumped into place (\(reading.slideFrames) frames)")
+        XCTAssertFalse(lab.app.buttons["pagedList.newest"].exists, "the indicator shows for a row the list slid to")
+        XCTAssertLessThanOrEqual(reading.frameShift, 0.5, "a row moved \(reading.frameShift) pt in a frame the slide does not explain")
+    }
+
     /// The composer rides the keyboard mid-list and the rows ride with it (Telegram, Messages): the
     /// gap between the row being read and the composer stays the same, keyboard up and down.
     @MainActor func testUpComposerRidesTheKeyboardMidList() {
@@ -92,7 +118,7 @@ final class PagedListUITests: XCTestCase {
         for _ in 0..<3 { lab.drag(by: 360) }
         lab.settle(lab.list.cells.firstMatch)
         let composer = lab.app.textFields["lab.composer"]
-        let row = lab.visibleRow()
+        let row = lab.visibleRow(nearFloor: true)
         let gap = composer.frame.minY - row.frame.maxY
         composer.tap()
         XCTAssertTrue(lab.app.keyboards.firstMatch.waitForExistence(timeout: 5), "no keyboard")
@@ -134,12 +160,14 @@ final class PagedListUITests: XCTestCase {
         lab.record("up-pill", lab.reading.json)
     }
 
-    /// 100,000 rows with a window of 300 in memory: flinging deep keeps memory bounded (the rest on
-    /// disk), and flinging back reads the newer rows back from disk, with no row moving under the reader.
+    /// 100,000 rows with a window of 300 in memory, under a live load: flinging deep keeps memory
+    /// bounded (the rest on disk), flinging back keeps it bounded, and the newest-rows pill takes the
+    /// list back to its newest rows, read back from disk, with no row moving under the reader.
     @MainActor func testWindowedHugeListKeepsMemoryBounded() {
         continueAfterFailure = true
         let lab = PagedLabDriver.launch("down:normal", extra: ["-cmux-mobile-paged-lab-stress", "huge", "-cmux-mobile-paged-lab-window", "300"], test: self)
-        XCTAssertTrue(lab.row(0).waitForExistence(timeout: 15))
+        // Any row: the load can move row 0 before the first look.
+        XCTAssertTrue(lab.list.cells.firstMatch.waitForExistence(timeout: 15))
         for _ in 0..<40 { lab.scroll(towardOlder: true, direction: "down", speed: .fast) }
         lab.settle(lab.list.cells.firstMatch)
         lab.waitFor("rows spilled to disk", timeout: 5) { lab.reading.onDisk > 0 }
@@ -149,14 +177,48 @@ final class PagedListUITests: XCTestCase {
         XCTAssertGreaterThan(deep.total, 1000, "the flings did not read deep (\(deep.total) rows)")
         XCTAssertLessThanOrEqual(deep.inMemory, 450, "\(deep.inMemory) row values in memory with a window of 300")
         XCTAssertGreaterThan(deep.onDisk, 0, "nothing went to disk")
-        for _ in 0..<60 where !lab.row(0).exists { lab.scroll(towardOlder: false, direction: "down", speed: .fast) }
-        XCTAssertTrue(lab.row(0).waitForExistence(timeout: 10), "flinging back did not bring the newest rows back from disk")
+        // Back toward the newest rows: the window reads them back from disk ahead of the reader.
+        for _ in 0..<8 { lab.scroll(towardOlder: false, direction: "down", speed: .fast) }
+        lab.settle(lab.list.cells.firstMatch)
+        let partway = lab.reading
+        lab.attach("huge-partway-back")
+        XCTAssertLessThanOrEqual(partway.inMemory, 450, "\(partway.inMemory) row values in memory on the way back")
+        // Ten rows a second arrive at the head, so scrolling never catches up with it: the newest-rows
+        // pill jumps there (the window goes to the head and reads it back). Not row 0: the load
+        // removes and moves rows at the head too.
+        let pill = lab.app.buttons["pagedList.newest"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 5), "no newest-rows pill deep in the list")
+        pill.tap()
+        lab.waitFor("the newest rows back from disk", timeout: 10) { lab.reading.newer == "end" }
         lab.settle(lab.list.cells.firstMatch)
         lab.attach("huge-back-at-top")
         let back = lab.reading
         lab.record("huge-back", back.json)
         XCTAssertLessThanOrEqual(back.inMemory, 450, "\(back.inMemory) row values in memory on the way back")
         XCTAssertLessThanOrEqual(back.frameShift, 0.5, "a row moved \(back.frameShift) pt in a frame the scroll does not explain")
+    }
+
+    /// Rows a windowed list reads back from disk on the way back to its newest end are not new
+    /// rows: with no live source, the pill never counts any (`.up`, where the newer edge is at the
+    /// bottom and the reader parks on it after a fling).
+    @MainActor func testWindowedRowsBackFromDiskAreNotNew() {
+        continueAfterFailure = true
+        let lab = PagedLabDriver.launch("up:fast", extra: ["-cmux-mobile-paged-lab-window", "150"], test: self)
+        XCTAssertTrue(lab.row(0).waitForExistence(timeout: 15))
+        for _ in 0..<24 { lab.scroll(towardOlder: true, direction: "up", speed: .fast) }
+        lab.settle(lab.list.cells.firstMatch)
+        lab.waitFor("rows spilled to disk", timeout: 5) { lab.reading.onDisk > 0 }
+        let pill = lab.app.buttons["pagedList.newest"]
+        var counted: [String] = []
+        for _ in 0..<12 where lab.reading.newer != "end" {
+            lab.scroll(towardOlder: false, direction: "up", speed: .fast)
+            if pill.exists, pill.label.hasSuffix(" new") { counted.append(pill.label) }
+        }
+        lab.settle(lab.list.cells.firstMatch)
+        if pill.exists, pill.label.hasSuffix(" new") { counted.append(pill.label) }
+        lab.attach("up-window-back")
+        lab.record("up-window-back", lab.reading.json)
+        XCTAssertTrue(counted.isEmpty, "rows read back from disk counted as new: \(counted)")
     }
 
     // MARK: States

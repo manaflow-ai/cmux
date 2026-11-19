@@ -65,15 +65,19 @@ struct PagedLabDriver {
         return tops
     }
 
-    /// The first lab row fully on screen inside the list, away from its edges.
-    func visibleRow() -> XCUIElement {
+    /// The first lab row fully on screen inside the list, away from its edges (`nearFloor`: the
+    /// lowest one above the bars under the list, which stays on screen when the rows ride the
+    /// keyboard up).
+    func visibleRow(nearFloor: Bool = false) -> XCUIElement {
         let frame = list.frame
+        let bottom = min(frame.maxY, floor)
         if let snapshot = try? list.snapshot() {
             func rows(_ element: XCUIElementSnapshot) -> [XCUIElementSnapshot] {
                 (element.identifier.hasPrefix("lab.row.") ? [element] : []) + element.children.flatMap(rows)
             }
-            let inView = rows(snapshot).filter { $0.frame.minY > frame.minY + 120 && $0.frame.maxY < frame.maxY - 220 }
-            if let pick = inView.first { return app.descendants(matching: .any)[pick.identifier] }
+            let inView = rows(snapshot).filter { $0.frame.minY > frame.minY + 120 && $0.frame.maxY < bottom - (nearFloor ? 8 : 120) }
+            let pick = nearFloor ? inView.max { $0.frame.maxY < $1.frame.maxY } : inView.first
+            if let pick { return app.descendants(matching: .any)[pick.identifier] }
         }
         return app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'lab.row.'")).firstMatch
     }
@@ -157,4 +161,5 @@ struct PagedLabReading {
     var diskBytes: Int { Int(number("diskBytes")) }
     var slides: Int { Int(number("slides")) }
     var slideFrames: Int { Int(number("slideFrames")) }
+    var held: Int { Int(number("held")) }
 }

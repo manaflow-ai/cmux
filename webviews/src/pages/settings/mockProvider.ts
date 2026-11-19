@@ -54,11 +54,11 @@ import {
   type SnapshotResult,
   type ThemeOverride,
   type WorkspaceBackground,
-  type ModelsRun,
-  type ModelsState,
   type CustomizeTryOn,
   type LibraryListing,
   type LibraryRun,
+  type ModelsRun,
+  type ModelsState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -300,6 +300,8 @@ export class MockSettingsProvider {
         return {};
       },
       "cmux.settings.devices.join_consent": (params) => {
+        if (this.joinConsentRefusal) throw new ProtocolError("cmux.app.user_only", this.joinConsentRefusal);
+        if (this.joinConsentReplyError) return { error: this.joinConsentReplyError };
         const join = this.host.devices_join;
         if (join)
           this.setHost({
@@ -1255,6 +1257,10 @@ export class MockSettingsProvider {
   wentBack: string | null = null;
   /** The build the card's last Switch asked for. */
   switchedTo: string | null = null;
+  /** The host's refusal of every join consent switch press (`cmux.app.user_only`); null: it runs. */
+  joinConsentRefusal: string | null = null;
+  /** The `error` a join consent switch press's reply carries (the host was busy with another write); null: it runs. */
+  joinConsentReplyError: string | null = null;
   /** The host's refusal of every Switch; null: Switch runs. */
   switchRefusal: string | null = null;
   /** Why Open Theme File's export failed (the CLI's last stderr line); null: the file opens. */

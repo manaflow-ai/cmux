@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -70,9 +71,19 @@ class IosPagedList(Bench):
         args = ["test", f"ui={suite}/{only}" if only else f"ui={suite}"]
         if ctx.arg("video") == "1":
             args.append("video")
-        res = ctx.fleet_step(SCRIPT, args, ARTIFACT, step_class="simulator", labels=("bench",),
+        # No extra label: the simulator minis advertise `simulator` only (a `bench` label matches no worker).
+        res = ctx.fleet_step(SCRIPT, args, ARTIFACT, step_class="simulator", labels=(),
                              timeout=int(ctx.arg("timeout") or 5400), ref=ctx.arg("ref") or ctx.build.get("sha"))
-        self.ingest(ctx, res.artifact_path or res.log_path)
+        path = res.artifact_path
+        if path is None and res.job_id:
+            # A case that failed fails the step, and a failed step's artifact comes only with --failed:
+            # its measurements are the point of the run.
+            out = ctx.workdir / "evidence-failed.zip"
+            got = subprocess.run(["cmux-ci", "artifact", "--failed", res.job_id, str(out)], text=True, capture_output=True)
+            if got.returncode == 0 and out.exists():
+                path = out
+                ctx.notes.append(f"step {res.job_id} failed; its measurements come from the failed-step evidence")
+        self.ingest(ctx, path or res.log_path)
 
     def ingest(self, ctx: Context, path: Path) -> None:
         cases = self._cases(path)
@@ -103,18 +114,42 @@ class IosPagedList(Bench):
 
     @staticmethod
     def _cases(path: Path) -> dict[str, dict[str, Any]]:
-        """Every STRESS record in a file, a zip of the step's evidence, or a folder (the last one per case wins)."""
+        """Every STRESS record in a file, a zip of the step's evidence, or a folder (the last one per case wins).
+
+        A record is a `PAGEDLIST STRESS-… {json}` console line, or a test attachment named `PAGEDLIST-STRESS-…`
+        (ui-attachments/manifest.json maps it to its exported file: the step's console export can be empty)."""
         texts: list[str] = []
+        files: dict[str, bytes] = {}
         if path.is_dir():
-            texts = [p.read_text(encoding="utf-8", errors="replace") for p in sorted(path.rglob("*"))
-                     if p.is_file() and p.suffix in TEXT_SUFFIXES]
+            files = {str(p.relative_to(path)): p.read_bytes() for p in sorted(path.rglob("*"))
+                     if p.is_file() and p.suffix in TEXT_SUFFIXES}
         elif zipfile.is_zipfile(path):
             with zipfile.ZipFile(path) as z:
-                texts = [z.read(n).decode("utf-8", errors="replace") for n in z.namelist()
-                         if n.endswith(TEXT_SUFFIXES)]
+                files = {n: z.read(n) for n in z.namelist() if n.endswith(TEXT_SUFFIXES)}
         else:
             texts = [path.read_text(encoding="utf-8", errors="replace")]
+        texts += [data.decode("utf-8", errors="replace") for data in files.values()]
         cases: dict[str, dict[str, Any]] = {}
+        for name, data in files.items():
+            if not name.endswith("manifest.json"):
+                continue
+            folder = name[: -len("manifest.json")]
+            try:
+                manifest = json.loads(data)
+            except ValueError:
+                continue
+            for test in manifest if isinstance(manifest, list) else []:
+                for att in test.get("attachments") or []:
+                    label = str(att.get("suggestedHumanReadableName", ""))
+                    if not label.startswith("PAGEDLIST-STRESS-"):
+                        continue
+                    body = files.get(folder + str(att.get("exportedFileName", "")))
+                    try:
+                        record = json.loads(body) if body else None
+                    except ValueError:
+                        continue
+                    if isinstance(record, dict):
+                        cases[label[len("PAGEDLIST-"):].split("_0_")[0]] = record
         for text in texts:
             for line in text.splitlines():
                 m = LINE.search(line)

@@ -38,6 +38,7 @@ import { loadEntrySources } from "../../scripts/gallery/entries";
 import { findingKey, scanStage, type Finding } from "./accentGlassScan";
 import { warmGalleryFrame } from "./galleryFrame";
 import { requireBrowserLane } from "./requireBrowserLane";
+import { launchStageBrowser, type StageBrowser } from "./stageBrowser";
 
 export type AccentGlassPart = {
   /** The part's test file name, for requireBrowserLane. */
@@ -95,7 +96,8 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
 
     const { createServer } = await import("vite");
     let vite: Awaited<ReturnType<typeof createServer>> | undefined;
-    let browser: Browser | undefined;
+    // One Chromium for the whole part, relaunched when it dies mid-file (test/support/stageBrowser.ts).
+    let shared: StageBrowser<Browser, Page> | undefined;
     beforeAll(async () => {
       vite = await createServer({
         configFile: path.join(webviews, viteConfig),
@@ -103,16 +105,19 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
         logLevel: "error",
       });
       await vite.listen();
-      browser = await chromium.launch({ headless: true });
+      shared = await launchStageBrowser<Browser, Page>({
+        launch: () => chromium.launch({ headless: true }),
+        open: (browser) => browser.newPage({ viewport: { width: 760, height: 900 } }),
+      });
       const first = stages[0];
       if (first)
         await warmGalleryFrame(vite, first.entry, {
-          browser,
+          browser: shared.browser,
           params: { variant: first.variant, theme: first.theme, frame: "component" },
         });
     });
     afterAll(async () => {
-      await browser?.close();
+      await shared?.close();
       await vite?.close();
     });
 
@@ -175,26 +180,37 @@ export async function accentGlassInvariants({ file, part, parts, viteConfig }: A
       await Promise.all(
         // One page per worker, reused from stage to stage: a fresh page per stage cost more than the scan.
         Array.from({ length: 8 }, async () => {
-          const open = () => browser!.newPage({ viewport: { width: 760, height: 900 } });
-          let page = await open();
+          let page: Page | undefined;
           for (let stage = queue.shift(); stage; stage = queue.shift()) {
+            // A page open that fails (the browser died: `Target.createBrowserContext` failed) relaunches the
+            // browser and retries once; past that every open fails at once, so the stages left end now
+            // instead of holding the part to its 450 s limit (runs 44139691454, 44105019567).
+            if (!page)
+              try {
+                page = await shared!.page();
+              } catch (error) {
+                results.push({ stage: stageName(stage), error: String(error).split("\n")[0]! });
+                continue;
+              }
             // fixed-wait: the stage's deadline above; each stage ends as soon as it is scanned.
             const result = await scanWithin(page, stage);
             results.push(result);
             // A stage that failed may leave its page stuck or crashed: the next stage gets a new one. A hung
             // page's close may not answer either, so it is not awaited.
             if ("error" in result) {
-              void page.close().catch(() => {});
-              page = await open();
+              void shared!.closePage(page);
+              page = undefined;
             }
             if (results.length % 50 === 0)
               console.log(
                 `accent-glass: ${results.length}/${stages.length} stages, ${Math.round(performance.now() / 1000)}s`,
               );
           }
-          await page.close().catch(() => {});
+          if (page) await shared!.closePage(page);
         }),
       );
+      // A browser that could not be brought back fails the part on its cause, not as missing coverage.
+      expect(shared!.failure, "the shared Chromium").toBeUndefined();
 
       const fresh: string[] = [];
       const reported = new Set<string>();

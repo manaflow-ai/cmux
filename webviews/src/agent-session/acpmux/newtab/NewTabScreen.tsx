@@ -73,8 +73,8 @@ import { Spinner } from "../conversation/icons";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
-import { listingWanted, omnibarChats, omnibarFolders } from "./launchRows";
-import { type CompleteFolder, useChatSearch, useFolderListing } from "./omnibarReads";
+import { listingWanted, omnibarFolders } from "./launchRows";
+import { type CompleteFolder, useFolderListing } from "./omnibarReads";
 import { useRecentlyClosed } from "./recentlyClosed";
 import { initialRecentProject } from "./recentProject";
 import { rememberedStartedProject } from "./startedProject";
@@ -1003,16 +1003,9 @@ export function NewTabScreen(props: Props) {
     [typed, shell, machine, environment, props.runMode?.mode, attachments.length],
   );
   const profiles = props.onOpenInProfile && props.onOpenInNewProfile ? omnibar.profiles : undefined;
-  // The omnibar's agent sources (launchRows.ts): the chats it searches, the folders and agents it
-  // starts. The device index's search and a typed path's folder listing answer later
-  // (omnibarReads.ts), never in the keystroke's turn.
+  // The omnibar's agent sources (launchRows.ts): the folders and agents it starts. A typed path's
+  // folder listing answers later (omnibarReads.ts), never in the keystroke's turn.
   const barText = touched && !shell && !commandTyping && !profilePick ? typed : "";
-  const pushed = useDeviceChats();
-  const barSearched = useChatSearch(barText, props.loadChatsPage);
-  const barChats = useMemo(
-    () => omnibarChats(snapshot.sessions, barSearched, pushed),
-    [snapshot.sessions, barSearched, pushed],
-  );
   const barFolders = useMemo(
     () => omnibarFolders(props.projects, snapshot.sessions),
     [props.projects, snapshot.sessions],
@@ -1042,7 +1035,6 @@ export function NewTabScreen(props: Props) {
                 translate: nt,
                 create: props.onCreate ? ["terminal", "browser", "chat"] : ["chat"],
                 ...(ask ? { ask } : {}),
-                chats: barChats,
                 folders: barFolders,
                 agents: barAgents,
                 ...(harness ? { defaultAgent: harness } : {}),
@@ -1065,7 +1057,6 @@ export function NewTabScreen(props: Props) {
       props.suggestionOrder,
       props.onCreate,
       nt,
-      barChats,
       barFolders,
       barAgents,
       harness,
@@ -1109,6 +1100,8 @@ export function NewTabScreen(props: Props) {
     const timer = setTimeout(() => setChatsReserveOver(true), RESERVE_MS);
     return () => clearTimeout(timer);
   }, [holdChats]);
+  // The device chat index's newest chats, for the cards under the field.
+  const pushed = useDeviceChats();
   const device = holdChats ? NO_DEVICE_CHATS : pushed;
   const closed = useRecentlyClosed();
   // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.
@@ -1324,8 +1317,6 @@ export function NewTabScreen(props: Props) {
         return props.onOpenInProfile?.(row.url, row.id, how);
       case "newProfile":
         return props.onOpenInNewProfile?.(row.url, row.name);
-      case "chat":
-        return openChatRow(row.id, row.key);
       case "launch":
         return launch(row.harness, row.folder);
       case "run":
@@ -1493,23 +1484,6 @@ export function NewTabScreen(props: Props) {
     const asked = askChat(harness, "", project, chipModel);
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
-  };
-  /// A chat row (launchRows.ts): a device chat opens through the host's Open Chat path, a live
-  /// session in this page, as its card does.
-  const openChatRow = (id: string, key?: string) => {
-    touch();
-    if (!key || !props.onOpenChat) return openCard(id);
-    const failed = (error: unknown) =>
-      setStartError({
-        error: errorMessage(error) || t("switch.unknownError"),
-        local: true,
-        retry: () => (setStartError(undefined), openChatRow(id, key)),
-      });
-    try {
-      void Promise.resolve(props.onOpenChat(key)).catch(failed);
-    } catch (error) {
-      failed(error);
-    }
   };
   /// A launch row ("Codex in ~/fun/cmux"): that agent's chat starts in that folder with no prompt,
   /// as New chat does there; the host asks about a folder the person has not trusted yet.
@@ -2618,11 +2592,7 @@ export function NewTabScreen(props: Props) {
                   activate(row, event.altKey || event.metaKey);
                 }}
               >
-                {rowFavicon(row) ? (
-                  <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
-                ) : (
-                  <SuggestionGlyph row={row} />
-                )}
+                <SuggestionGlyph row={row} />
                 <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
                 {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
                 {row.type === "action" && !!row.keycaps?.length && (
@@ -2714,18 +2684,11 @@ function rowKey(row: ScreenRow): string {
       return `action:${row.id}`;
     case "profile":
       return `profile:${row.id}`;
-    case "chat":
-      return `chat:${row.key ?? row.id}`;
     case "launch":
       return `launch:${row.harness}:${row.folder}`;
     default:
       return row.type;
   }
-}
-
-/// A tab's or visited page's favicon (cx-d0d.8): it takes the glyph's place when the host sent one.
-function rowFavicon(row: ScreenRow): string | undefined {
-  return row.type === "tab" || row.type === "history" ? row.icon : undefined;
 }
 
 function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
@@ -2749,8 +2712,6 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
       return row.name ? nt("row.openInNamedProfile", { name: row.name }) : nt("row.openInNewProfile");
     case "profile":
       return nt("row.openInThisProfile", { name: row.name });
-    case "chat":
-      return row.title;
     case "launch":
       return nt("row.launch", { agent: row.agent, folder: homePath(row.folder) });
     case "run":
@@ -2773,8 +2734,6 @@ function rowDetail(row: ScreenRow): string | undefined {
     case "newProfile":
     case "profile":
       return shortHost(row.url);
-    case "chat":
-      return row.harness ? agentName(row.harness) : undefined;
     default:
       return undefined;
   }

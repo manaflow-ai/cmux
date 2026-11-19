@@ -336,7 +336,10 @@ jobs:
     # target_set=windows selects no Unix target (an empty matrix is an error).
     if: needs.plan-build.outputs.unix_targets == 'true'
     runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && !matrix.darwin_on_linux && inputs.macos_retry_runner || matrix.runner }}
-    timeout-minutes: 60
+    # 60 fit the 16 vCPU Blacksmith legs with a warm sticky disk; a 4 vCPU
+    # GitHub-hosted runner builds every fat-LTO cargo group cold (see "Make
+    # room on a GitHub-hosted Linux runner").
+    timeout-minutes: 120
     permissions:
       contents: read
     strategy:
@@ -360,6 +363,37 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y binutils clang libclang-dev musl-tools pkg-config
+
+      # A GitHub-hosted Linux runner (4 vCPU, 16 GB, about 20 GB free on /) is
+      # far smaller than the Blacksmith legs this job was sized on, and it gets
+      # no warm sticky disk, so every leg builds cold: each cargo group
+      # (scripts/ci/cargo-groups.sh) has its own fat-LTO target directory, all
+      # running at once. Run 44183512559 (2026-11-17): the macOS-on-Linux and
+      # x86_64 musl legs died 20 and 14 min into that build with exit 143 and
+      # "The runner has received a shutdown signal", far inside the 60 min
+      # job timeout. Free the preinstalled toolchains this job never uses, add
+      # swap on the scratch disk, and print what is left.
+      - name: Make room on a GitHub-hosted Linux runner
+        if: runner.os == 'Linux' && runner.environment == 'github-hosted'
+        shell: bash
+        run: |
+          set -uo pipefail
+          df -h / /mnt 2>/dev/null || df -h /
+          free -h
+          for d in /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+                   /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/share/swift \
+                   /opt/microsoft /opt/google /usr/lib/jvm; do
+            sudo rm -rf "$d" &
+          done
+          sudo docker image prune --all --force >/dev/null 2>&1 &
+          wait
+          if mountpoint -q /mnt && ! swapon --show | grep -q /mnt/cmux-swap; then
+            { sudo fallocate -l 12G /mnt/cmux-swap && sudo chmod 600 /mnt/cmux-swap &&
+              sudo mkswap /mnt/cmux-swap >/dev/null && sudo swapon /mnt/cmux-swap; } ||
+              echo "warning: could not add swap on /mnt" >&2
+          fi
+          df -h / /mnt 2>/dev/null || df -h /
+          free -h
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version

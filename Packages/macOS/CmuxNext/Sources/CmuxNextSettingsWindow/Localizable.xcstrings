@@ -106769,127 +106769,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "What Cloud chats run on. Mac-only logins don't count."
+            "value": "What Cloud chats run on."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما تعمل عليه محادثات Cloud. لا تُحتسب تسجيلات دخول الـ Mac."
+            "value": "ما تعمل عليه محادثات Cloud."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Na čemu rade Cloud razgovori. Prijave za Mac se ne broje."
+            "value": "Na čemu rade Cloud razgovori."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Det, Cloud-chats kører på. Mac-logins tæller ikke."
+            "value": "Det, Cloud-chats kører på."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Worauf Cloud-Chats laufen. Mac-Anmeldungen zählen nicht."
+            "value": "Worauf Cloud-Chats laufen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lo que usa Cloud. Las sesiones solo del Mac no cuentan."
+            "value": "Lo que usa Cloud."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce qu’utilise Cloud. Les connexions du Mac ne comptent pas."
+            "value": "Ce qu’utilise Cloud."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ciò che usa Cloud. Gli accessi del Mac non contano."
+            "value": "Ciò che usa Cloud."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud チャットの接続です。Mac 専用のログインは対象外です。"
+            "value": "Cloud チャットの接続です。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អ្វីដែលការជជែក Cloud ប្រើ។ ការចូលតែលើ Mac មិនរាប់ទេ។"
+            "value": "អ្វីដែលការជជែក Cloud ប្រើ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 채팅이 쓰는 연결입니다. Mac 전용 로그인은 제외됩니다."
+            "value": "Cloud 채팅이 쓰는 연결입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Det Cloud-chatter kjører på. Mac-pålogginger teller ikke."
+            "value": "Det Cloud-chatter kjører på."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Na czym działa Cloud. Logowania tylko z Maca się nie liczą."
+            "value": "Na czym działa Cloud."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O que os chats do Cloud usam. Logins só do Mac não contam."
+            "value": "O que os chats do Cloud usam."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "На чём работает Cloud. Входы только на Mac не считаются."
+            "value": "На чём работает Cloud."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สิ่งที่แชต Cloud ใช้ การเข้าสู่ระบบเฉพาะ Mac ไม่นับ"
+            "value": "สิ่งที่แชต Cloud ใช้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud bağlantıları. Yalnızca Mac oturumları sayılmaz."
+            "value": "Cloud bağlantıları."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "На чому працює Cloud. Входи лише на Mac не враховуються."
+            "value": "На чому працює Cloud."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kết nối cho Cloud. Đăng nhập chỉ trên Mac không tính."
+            "value": "Kết nối cho Cloud."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 对话使用的连接。仅限此 Mac 的登录不算。"
+            "value": "Cloud 对话使用的连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 對話使用的連線。僅限此 Mac 的登入不算。"
+            "value": "Cloud 對話使用的連線。"
           }
         }
       }
@@ -107022,138 +107022,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "已為 Cloud 連線"
-          }
-        }
-      }
-    },
-    "settingsWindow.cloud.status.off": {
-      "comment": "Settings > Cloud > Models for Cloud (CloudModelsCard.tsx): whether Cloud chats have a Claude, ChatGPT or API key connection. Cloud is the product feature; Claude, Claude Code, ChatGPT, Codex, Codex CLI, OpenAI and Anthropic are product names; claude setup-token is a command. Not translated. Keep each line under 60 characters.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turned off or signed out in Models"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "متوقف أو تم تسجيل الخروج في النماذج"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Isključeno ili odjavljeno u Modelima"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slået fra eller logget ud i Modeller"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "In „Modelle“ aus oder abgemeldet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desactivado o sin sesión en Modelos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Désactivé ou déconnecté dans Modèles"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disattivato o disconnesso in Modelli"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「モデル」でオフ、またはサインアウト中"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បានបិទ ឬចេញពីគណនីក្នុង ម៉ូដែល"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모델에서 꺼져 있거나 로그아웃됨"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slått av eller logget ut i Modeller"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wyłączone lub wylogowane w Modelach"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desativado ou desconectado em Modelos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выключено или выполнен выход в «Моделях»"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ปิดอยู่หรือออกจากระบบใน โมเดล"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modeller'de kapalı veya oturum kapalı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вимкнено або виконано вихід у «Моделях»"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đang tắt hoặc đã đăng xuất trong Mô hình"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在“模型”中已关闭或已退出登录"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在「模型」中已關閉或已登出"
           }
         }
       }
@@ -107422,666 +107290,6 @@
         }
       }
     },
-    "settingsWindow.cloud.openModels": {
-      "comment": "Settings > Cloud > Models for Cloud (CloudModelsCard.tsx): whether Cloud chats have a Claude, ChatGPT or API key connection. Cloud is the product feature; Claude, Claude Code, ChatGPT, Codex, Codex CLI, OpenAI and Anthropic are product names; claude setup-token is a command. Not translated. Keep each line under 60 characters.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Models"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فتح النماذج"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otvori Modele"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Åbn Modeller"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modelle öffnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir Modelos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvrir Modèles"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apri Modelli"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "モデルを開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បើក ម៉ូដែល"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모델 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Åpne Modeller"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otwórz Modele"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir Modelos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Открыть «Модели»"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เปิด โมเดล"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modeller'i Aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Відкрити «Моделі»"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mở Mô hình"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "打开“模型”"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "打開「模型」"
-          }
-        }
-      }
-    },
-    "settingsWindow.cloud.claude.macOnly": {
-      "comment": "Settings > Cloud > Models for Cloud (CloudModelsCard.tsx): whether Cloud chats have a Claude, ChatGPT or API key connection. Cloud is the product feature; Claude, Claude Code, ChatGPT, Codex, Codex CLI, OpenAI and Anthropic are product names; claude setup-token is a command. Not translated. Keep each line under 60 characters.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your Claude Code login works on this Mac only."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تسجيل دخول Claude Code يعمل على هذا الـ Mac فقط."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code prijava radi samo na ovom Macu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dit Claude Code-login virker kun på denne Mac."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ihre Claude Code-Anmeldung gilt nur auf diesem Mac."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tu sesión de Claude Code solo funciona en este Mac."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Votre connexion Claude Code ne sert que sur ce Mac."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’accesso a Claude Code vale solo su questo Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code のログインはこの Mac でのみ使えます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការចូល Claude Code ដំណើរការតែលើ Mac នេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code 로그인은 이 Mac에서만 작동합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code-påloggingen virker bare på denne Macen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Logowanie Claude Code działa tylko na tym Macu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seu login do Claude Code funciona só neste Mac."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вход в Claude Code работает только на этом Mac."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การเข้าสู่ระบบ Claude Code ใช้ได้เฉพาะบน Mac นี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code oturumu yalnızca bu Mac'te çalışır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вхід у Claude Code працює лише на цьому Mac."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đăng nhập Claude Code chỉ dùng được trên Mac này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code 登录仅适用于此 Mac。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code 登入僅適用於此 Mac。"
-          }
-        }
-      }
-    },
-    "settingsWindow.cloud.claude.needs": {
-      "comment": "Settings > Cloud > Models for Cloud (CloudModelsCard.tsx): whether Cloud chats have a Claude, ChatGPT or API key connection. Cloud is the product feature; Claude, Claude Code, ChatGPT, Codex, Codex CLI, OpenAI and Anthropic are product names; claude setup-token is a command. Not translated. Keep each line under 60 characters.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud needs a token from claude setup-token."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يحتاج Cloud إلى رمز من claude setup-token."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloudu treba token iz claude setup-token."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud skal bruge et token fra claude setup-token."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud braucht ein Token aus claude setup-token."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud necesita un token de claude setup-token."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud a besoin d’un jeton de claude setup-token."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud richiede un token da claude setup-token."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud には claude setup-token のトークンが必要です。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud ត្រូវការថូខឹនពី claude setup-token។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud에는 claude setup-token 토큰이 필요합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud trenger et token fra claude setup-token."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud wymaga tokenu z claude setup-token."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O Cloud precisa de um token do claude setup-token."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud нужен токен из claude setup-token."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud ต้องใช้โทเค็นจาก claude setup-token"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, claude setup-token belirteci gerektirir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud потрібен токен із claude setup-token."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud cần token từ claude setup-token."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 需要 claude setup-token 生成的令牌。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 需要 claude setup-token 產生的權杖。"
-          }
-        }
-      }
-    },
-    "settingsWindow.cloud.chatgpt.macOnly": {
-      "comment": "Settings > Cloud > Models for Cloud (CloudModelsCard.tsx): whether Cloud chats have a Claude, ChatGPT or API key connection. Cloud is the product feature; Claude, Claude Code, ChatGPT, Codex, Codex CLI, OpenAI and Anthropic are product names; claude setup-token is a command. Not translated. Keep each line under 60 characters.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your Codex CLI login works on this Mac only."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تسجيل دخول Codex CLI يعمل على هذا الـ Mac فقط."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex CLI prijava radi samo na ovom Macu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dit Codex CLI-login virker kun på denne Mac."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ihre Codex CLI-Anmeldung gilt nur auf diesem Mac."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tu sesión de Codex CLI solo funciona en este Mac."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Votre connexion Codex CLI ne sert que sur ce Mac."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’accesso a Codex CLI vale solo su questo Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex CLI のログインはこの Mac でのみ使えます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការចូល Codex CLI ដំណើរការតែលើ Mac នេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex CLI 로그인은 이 Mac에서만 작동합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex CLI-påloggingen virker bare på denne Macen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Logowanie Codex CLI działa tylko na tym Macu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seu login do Codex CLI funciona só neste Mac."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вход в Codex CLI работает только на этом Mac."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การเข้าสู่ระบบ Codex CLI ใช้ได้เฉพาะบน Mac นี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex CLI oturumu yalnızca bu Mac'te çalışır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вхід у Codex CLI працює лише на цьому Mac."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đăng nhập Codex CLI chỉ dùng được trên Mac này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex CLI 登录仅适用于此 Mac。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex CLI 登入僅適用於此 Mac。"
-          }
-        }
-      }
-    },
-    "settingsWindow.cloud.chatgpt.needs": {
-      "comment": "Settings > Cloud > Models for Cloud (CloudModelsCard.tsx): whether Cloud chats have a Claude, ChatGPT or API key connection. Cloud is the product feature; Claude, Claude Code, ChatGPT, Codex, Codex CLI, OpenAI and Anthropic are product names; claude setup-token is a command. Not translated. Keep each line under 60 characters.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud needs a ChatGPT sign-in or an OpenAI key."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يحتاج Cloud إلى تسجيل دخول ChatGPT أو مفتاح OpenAI."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloudu treba ChatGPT prijava ili OpenAI ključ."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud skal bruge ChatGPT eller en OpenAI-nøgle."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud braucht ChatGPT oder einen OpenAI-Schlüssel."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud necesita ChatGPT o una clave de OpenAI."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud a besoin de ChatGPT ou d’une clé OpenAI."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud richiede ChatGPT o una chiave OpenAI."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud には ChatGPT へのサインインか OpenAI キーが必要です。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud ត្រូវការការចូល ChatGPT ឬកូនសោ OpenAI។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud에는 ChatGPT 로그인 또는 OpenAI 키가 필요합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud trenger ChatGPT-pålogging eller en OpenAI-nøkkel."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud wymaga logowania ChatGPT lub klucza OpenAI."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O Cloud precisa do ChatGPT ou de uma chave da OpenAI."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud нужен вход в ChatGPT или ключ OpenAI."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud ต้องเข้าสู่ระบบ ChatGPT หรือใช้คีย์ OpenAI"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud, ChatGPT oturumu veya OpenAI anahtarı gerektirir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud потрібен вхід у ChatGPT або ключ OpenAI."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud cần đăng nhập ChatGPT hoặc khóa OpenAI."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 需要登录 ChatGPT 或 OpenAI 密钥。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 需要登入 ChatGPT 或 OpenAI 金鑰。"
-          }
-        }
-      }
-    },
     "settingsWindow.cloud.apiKey.help": {
       "comment": "Settings > Cloud > Models for Cloud (CloudModelsCard.tsx): whether Cloud chats have a Claude, ChatGPT or API key connection. Cloud is the product feature; Claude, Claude Code, ChatGPT, Codex, Codex CLI, OpenAI and Anthropic are product names; claude setup-token is a command. Not translated. Keep each line under 60 characters.",
       "extractionState": "manual",
@@ -108210,138 +107418,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Anthropic 金鑰用於 Claude，OpenAI 金鑰用於 Codex。"
-          }
-        }
-      }
-    },
-    "settingsWindow.cloud.apiKey.macOnly": {
-      "comment": "Settings > Cloud > Models for Cloud (CloudModelsCard.tsx): whether Cloud chats have a Claude, ChatGPT or API key connection. Cloud is the product feature; Claude, Claude Code, ChatGPT, Codex, Codex CLI, OpenAI and Anthropic are product names; claude setup-token is a command. Not translated. Keep each line under 60 characters.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your other keys work on this Mac only."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مفاتيحك الأخرى تعمل على هذا الـ Mac فقط."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ostali ključevi rade samo na ovom Macu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dine andre nøgler virker kun på denne Mac."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ihre anderen Schlüssel gelten nur auf diesem Mac."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tus otras claves solo funcionan en este Mac."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vos autres clés ne servent que sur ce Mac."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le altre chiavi valgono solo su questo Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ほかのキーはこの Mac でのみ使えます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កូនសោផ្សេងទៀតដំណើរការតែលើ Mac នេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다른 키는 이 Mac에서만 작동합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "De andre nøklene virker bare på denne Macen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pozostałe klucze działają tylko na tym Macu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suas outras chaves funcionam só neste Mac."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Другие ключи работают только на этом Mac."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "คีย์อื่นใช้ได้เฉพาะบน Mac นี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diğer anahtarlar yalnızca bu Mac'te çalışır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Інші ключі працюють лише на цьому Mac."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Các khóa khác chỉ dùng được trên Mac này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "其他密钥仅适用于此 Mac。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "其他金鑰僅適用於此 Mac。"
           }
         }
       }
@@ -111488,6 +110564,402 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "未儲存"
+          }
+        }
+      }
+    },
+    "settingsWindow.cloud.chatgpt.signIn": {
+      "comment": "Settings > Cloud > Models for Cloud (CloudModelsCard.tsx): whether Cloud chats have a Claude, ChatGPT or API key connection. Cloud is the product feature; Claude, Claude Code, ChatGPT, Codex, Codex CLI, OpenAI and Anthropic are product names; claude setup-token is a command. Not translated. Keep each line under 60 characters.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in with ChatGPT"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول باستخدام ChatGPT"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijava putem ChatGPT"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind med ChatGPT"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit ChatGPT anmelden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión con ChatGPT"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter avec ChatGPT"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi con ChatGPT"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ChatGPT でサインイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលដោយប្រើ ChatGPT"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ChatGPT로 로그인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på med ChatGPT"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się przez ChatGPT"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar com o ChatGPT"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войти через ChatGPT"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ด้วย ChatGPT"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ChatGPT ile oturum aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійти через ChatGPT"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập bằng ChatGPT"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 ChatGPT 登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 ChatGPT 登入"
+          }
+        }
+      }
+    },
+    "settingsWindow.cloud.status.turnedOff": {
+      "comment": "Settings > Cloud > Models for Cloud (CloudModelsCard.tsx): whether Cloud chats have a Claude, ChatGPT or API key connection. Cloud is the product feature; Claude, Claude Code, ChatGPT, Codex, Codex CLI, OpenAI and Anthropic are product names; claude setup-token is a command. Not translated. Keep each line under 60 characters.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turned off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متوقف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slået fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgeschaltet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "꺼짐"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slått av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выключено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已關閉"
+          }
+        }
+      }
+    },
+    "settingsWindow.cloud.turnOn": {
+      "comment": "Settings > Cloud > Models for Cloud (CloudModelsCard.tsx): whether Cloud chats have a Claude, ChatGPT or API key connection. Cloud is the product feature; Claude, Claude Code, ChatGPT, Codex, Codex CLI, OpenAI and Anthropic are product names; claude setup-token is a command. Not translated. Keep each line under 60 characters.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn On"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uključi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå til"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włącz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкнути"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟"
           }
         }
       }

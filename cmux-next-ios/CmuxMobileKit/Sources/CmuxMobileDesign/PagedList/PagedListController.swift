@@ -77,9 +77,14 @@ public final class PagedListProbe {
     /// list's own deliberate moves: following the newest row, riding the bottom edge). 0 when
     /// nothing shifted; the stress bench fails on anything over half a point.
     public var frameShift: ((CGFloat) -> Void)?
+    /// A frame that shifted more than half a point, with what the list was doing (the lab keeps the
+    /// worst one, so a failing stress case names its cause).
+    public var shiftDetail: ((_ shift: CGFloat, _ detail: String) -> Void)?
     /// The list slid to its newest end on its spring (a row arrived, or the indicator's jump), in
     /// this many display frames: more than one is an animation, not a jump.
     public var slid: ((_ frames: Int) -> Void)?
+    /// Rows arrived at the newest end under a resting finger and wait for it to lift.
+    public var held: ((_ rows: Int) -> Void)?
 
     public init() {}
 }
@@ -111,7 +116,12 @@ final class PagedListLayout: UICollectionViewCompositionalLayout {
     override func invalidationContext(forPreferredLayoutAttributes preferred: UICollectionViewLayoutAttributes,
                                       withOriginalAttributes original: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutInvalidationContext {
         let context = super.invalidationContext(forPreferredLayoutAttributes: preferred, withOriginalAttributes: original)
-        guard let collectionView, context.contentOffsetAdjustment == .zero else { return context }
+        guard let collectionView else { return context }
+        guard context.contentOffsetAdjustment == .zero else {
+            // UIKit's own adjustment for this row: a correction for the measure, not a scroll.
+            corrected?(context.contentOffsetAdjustment.y)
+            return context
+        }
         let delta = preferred.frame.height - original.frame.height
         guard abs(delta) > 0.25 else { return context }
         // The row starts above the reader's top edge: everything the reader sees is below it and would
@@ -184,7 +194,26 @@ final class SwipeProvider {
 /// newest row stays at the bottom (a keyboard, a rotation, a row that grew) and a short `.up` list
 /// sits at the bottom.
 final class PagedListCollectionView: UICollectionView {
+    var willLayout: (() -> Void)?
     var didLayout: (() -> Void)?
+    /// While a set of the offset runs, what it asked for (each outermost set numbered): UIKit may
+    /// move the offset further inside it (rows above it sized as they came into view, with the
+    /// content moved by as much), which is its correction, not the finger's or the fling's move.
+    private(set) var offsetRequest: (serial: Int, from: CGFloat, y: CGFloat)?
+    private var requests = 0
+
+    override var contentOffset: CGPoint {
+        get { super.contentOffset }
+        set {
+            let outer = offsetRequest == nil
+            if outer {
+                requests += 1
+                offsetRequest = (requests, super.contentOffset.y, newValue.y)
+            }
+            super.contentOffset = newValue
+            if outer { offsetRequest = nil }
+        }
+    }
     /// VoiceOver's three-finger scroll down at the top refreshes, as it does with `UIRefreshControl`.
     var accessibilityRefresh: (() -> Bool)?
 
@@ -193,9 +222,24 @@ final class PagedListCollectionView: UICollectionView {
         return super.accessibilityScroll(direction)
     }
 
+    /// Inside a layout pass: an offset move now is the layout's or UIKit's own (a self-sized row's
+    /// correction, a batch update), never the person's scroll, which moves it between passes.
+    private(set) var laying = 0
+    /// Inside the layer's layout, which runs `layoutSubviews` and then UIKit's own work after it.
+    private(set) var layingLayer = 0
+
     override func layoutSubviews() {
+        laying += 1
+        defer { laying -= 1 }
+        willLayout?()
         super.layoutSubviews()
         didLayout?()
+    }
+
+    override func layoutSublayers(of layer: CALayer) {
+        layingLayer += 1
+        defer { layingLayer -= 1 }
+        super.layoutSublayers(of: layer)
     }
 }
 
@@ -258,6 +302,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private var keeping = false
     /// A layout pass runs (an inset it changes calls back into it).
     private var laying = false
+    /// A snapshot is being applied and the reader put back: its layout passes are not frames anyone
+    /// sees (the frame-shift measure samples once, after it).
+    private var updating = false
     /// Rows are landing at the newest end of an `.up` list (the spring takes it there, not a jump).
     private var arriving = false
     /// The status bar's scroll to top is running: it moves the list on purpose.
@@ -274,18 +321,39 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         var id: CellID
         var next: CellID?
         var gap: Int?
+        /// The row's top, or its bottom for an `.up` list at its newest row.
+        var bottom: Bool
         var windowY: CGFloat
         var width: CGFloat
+        var offsetY: CGFloat
     }
     private var shiftSample: ShiftSample?
     /// Offset moves since the last sample that the scroll explains.
     private var explained: CGFloat = 0
+    /// Counts every offset move the scroll explains (the finger, a fling, the list's own slide): a
+    /// landing measured after one is judged per frame instead.
+    private var explainedMoves = 0
     private var lastOffsetY: CGFloat = 0
     /// Depth of the list's own deliberate moves (explained) and corrections (not explained).
     private var ownMoves = 0
     private var corrections = 0
     /// A correction the layout asked for and UIKit has yet to apply.
     private var pendingAdjustment: CGFloat = 0
+    /// The offset moves since the last sample and how the measure read each (the probe's detail).
+    private var trail: [String] = []
+    private var scrollDepth = 0
+    /// Rows that arrived at the newest end under a resting finger: they slide in when it lifts, or
+    /// count on the indicator when a drag starts instead.
+    private var heldArrivals = 0
+    /// The last offset set whose own part the measure counted as the scroll.
+    private var countedRequest = 0
+    /// How far rows that arrived at the newest end while the person scrolled there (held out of view)
+    /// moved that end: the list still counts as at its newest end within this, and slides on to
+    /// them when the scroll ends.
+    private var heldHeight: CGFloat = 0
+    /// While the reader scrolls: the row under the reader's top edge and its top on screen as drawn
+    /// when a layout pass starts.
+    private var passHold: (id: CellID, top: CGFloat)?
 
     init(direction: PagedListDirection, row: @escaping (Item) -> Row, edgeView: @escaping (PagedListEdge, PagedListEnd) -> AnyView) {
         self.direction = direction
@@ -307,7 +375,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         collectionView = PagedListCollectionView(frame: .zero, collectionViewLayout: layout)
         super.init()
         swipes.provide = { [weak self] indexPath in self?.swipeConfiguration(at: indexPath) }
-        layout.corrected = { [weak self] delta in self?.pendingAdjustment += delta }
+        layout.corrected = { [weak self] delta in
+            guard let self else { return }
+            self.pendingAdjustment += delta
+            self.note(self.collectionView.laying > 0 ? "AL" : self.collectionView.layingLayer > 0 ? "AS" : "A", delta)
+        }
         collectionView.backgroundColor = .clear
         collectionView.alwaysBounceVertical = true
         collectionView.keyboardDismissMode = .interactive
@@ -337,12 +409,20 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             }
         }
         spring.target = { [weak self] in self?.newestOffset ?? 0 }
+        spring.current = { [weak self] in self?.collectionView.contentOffset.y ?? 0 }
+        spring.holds = { [weak self] in self?.collectionView.isTracking ?? false }
         spring.apply = { [weak self] y in self?.moveOffset(to: y) }
         spring.finished = { [weak self] frames in
-            self?.newest.arrived = 0
-            self?.probe?.slid?(frames)
+            guard let self else { return }
+            // The slide ends at the newest end: the list follows it from here.
+            self.followsNewest = true
+            self.heldArrivals = 0
+            self.heldHeight = 0
+            self.newest.arrived = 0
+            self.probe?.slid?(frames)
         }
         newest.jump = { [weak self] in self?.jumpToNewest() }
+        collectionView.willLayout = { [weak self] in self?.willLayout() }
         collectionView.didLayout = { [weak self] in self?.didLayout() }
         collectionView.registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { [weak self] (_: PagedListCollectionView, _: UITraitCollection) in
             self?.textSizeChanged()
@@ -390,23 +470,43 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let newerEdgeChanged = newNewerEdge != newerEdge
         let newShowsEdge = newEdge != .end || edgeHasEndView
         let newShowsNewerEdge = newNewerEdge != .end
+        // Rows a windowed model brings back from disk at its newer edge are not new: only rows that
+        // land while the list holds its newest rows arrive.
+        let heldNewest = newerEdge == .end
         edge = newEdge
         newerEdge = newNewerEdge
         guard newOrder != order || newShowsEdge != showsEdge || newShowsNewerEdge != showsNewerEdge || !changed.isEmpty
             || edgeChanged || newerEdgeChanged || !loaded else { return }
         let rowsChanged = newOrder != order || newShowsEdge != showsEdge || newShowsNewerEdge != showsNewerEdge
+        let distanceBefore = distanceToNewest
 
         // Rows that arrived at the newest end: the rows now on the newest side of the old newest row.
         let oldNewest = newestID(in: order)
         var arrivals = 0
-        if loaded, let oldNewest, oldNewest != newestID(in: newOrder), let at = newOrder.firstIndex(of: oldNewest) {
+        if loaded, heldNewest, let oldNewest, oldNewest != newestID(in: newOrder), let at = newOrder.firstIndex(of: oldNewest) {
             arrivals = direction == .down ? at : newOrder.count - 1 - at
         }
-        let animates = animatesNewest && !UIAccessibility.isReduceMotionEnabled && !collectionView.isTracking
+        let animates = animatesNewest && !UIAccessibility.isReduceMotionEnabled
+        // A finger on the list, or a fling still moving it, holds the rows under it: rows that arrive
+        // then land out of view, and slide in when the finger lifts or the fling ends at the newest
+        // end (the spring never fights the scroll).
+        let follows = followsNewest && !collectionView.isTracking && !collectionView.isDecelerating
         // A `.down` list following its newest row keeps the rows in place too, then slides to the
         // new top; an `.up` one slides to the new bottom (the rows below the reader are new).
-        let slidesDown = direction == .down && followsNewest && arrivals > 0 && animates
-        let anchor = rowsChanged && loaded && (!followsNewest || slidesDown) ? captureAnchor() : nil
+        let slidesDown = direction == .down && follows && arrivals > 0 && animates
+        // An `.up` list at its newest row stays on it after each layout pass, except while rows arrive
+        // and its slide runs: then it keeps its rows too, so a page or rows landing or leaving above
+        // (a full window dropping its oldest row) don't move them (rows that arrive below move
+        // nothing above).
+        // A `.down` list mid-slide keeps its rows the same way (the new rows above it can change).
+        let holdsForSlide = follows && (spring.isRunning || (direction == .up && arrivals > 0))
+        // An `.up` list at its newest end keeps its lowest row's bottom where it is, as Messages does:
+        // a change above pushes the older rows up, never the newest down.
+        // Rows that changed height (an edit) count too: mid-scroll or mid-slide, no layout pass after
+        // the update keeps the reader (`keepReader` waits for the scroll to end), and UIKit's own
+        // self-sizing move keeps a different edge than the reader's.
+        let anchor = (rowsChanged || !changed.isEmpty) && loaded && (!follows || slidesDown || holdsForSlide)
+            ? captureAnchor(fromBottom: direction == .up && followsNewest) : nil
         items = next
         order = newOrder
         showsEdge = newShowsEdge
@@ -430,7 +530,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         if newerEdgeChanged, present.contains(.newerEdge), newShowsNewerEdge { reconfigure.append(.newerEdge) }
         snapshot.reconfigureItems(reconfigure)
         applies += 1
-        arriving = direction == .up && followsNewest && arrivals > 0 && animates
+        // The new rows' move to the newest end is the slide (or, without motion, the jump) below,
+        // the list's own: the layout pass doesn't pin them first.
+        arriving = direction == .up && follows && arrivals > 0
+        updating = true
         // No diff animation: a page lands out of view, or under a reader who stays put; rows that
         // arrive at the newest end slide in on the list's spring below.
         dataSource.apply(snapshot, animatingDifferences: false)
@@ -441,14 +544,27 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         let used = anchor.flatMap { restore($0) }
         keepReader()
         if !loaded, direction == .up { scrollToNewest() }
+        updating = false
+        if arrivals > 0, followsNewest, !follows {
+            heldHeight += max(0, distanceToNewest - distanceBefore)
+        }
         loaded = true
+        // The state this update leaves is what the next frame draws: measure it once, here.
+        sampleShift(from: "update")
         if arrivals > 0 {
-            if followsNewest {
+            if follows {
                 if animates {
                     spring.run(from: collectionView.contentOffset.y)
                 } else {
                     scrollToNewest()
                 }
+            } else if followsNewest, collectionView.isTracking, !collectionView.isDragging {
+                // A finger rests on the list at its newest end: the rows stay under it (the anchor
+                // held them) and the new ones slide in when it lifts (the spring waits for it). A
+                // drag that starts instead counts them on the indicator.
+                heldArrivals += arrivals
+                probe?.held?(arrivals)
+                spring.run(from: collectionView.contentOffset.y, jump: !animates)
             } else {
                 newest.arrived += arrivals
             }
@@ -469,15 +585,31 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             var id: CellID
             var index: Int
             var windowY: CGFloat
+            /// `windowY` is the row's bottom, not its top.
+            var bottom = false
         }
         var rows: [Row]
+        /// The rows' bottoms, lowest first (an `.up` list at its newest end), not their tops.
+        var fromBottom = false
         var id: CellID? { rows.first?.id }
     }
 
     private var readerTop: CGFloat { collectionView.contentOffset.y + collectionView.adjustedContentInset.top }
 
-    /// The rows on screen whose bottom is below the reader's top edge (the first is the one being read).
-    private func captureAnchor() -> Anchor? {
+    /// The rows on screen whose bottom is below the reader's top edge (the first is the one being read),
+    /// or, `fromBottom`, those whose top is above the bottom edge, lowest first, by their bottoms.
+    private func captureAnchor(fromBottom: Bool = false) -> Anchor? {
+        if fromBottom {
+            let bottom = bottomEdgeY
+            var rows: [Anchor.Row] = []
+            for indexPath in collectionView.indexPathsForVisibleItems.sorted().reversed() {
+                guard let attributes = collectionView.layoutAttributesForItem(at: indexPath),
+                      attributes.frame.minY < bottom - 0.5,
+                      let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
+                rows.append(Anchor.Row(id: id, index: indexPath.item, windowY: windowY(attributes, bottom: true), bottom: true))
+            }
+            return rows.isEmpty ? nil : Anchor(rows: rows, fromBottom: true)
+        }
         let top = readerTop
         var rows: [Anchor.Row] = []
         for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
@@ -489,14 +621,19 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         return rows.isEmpty ? nil : Anchor(rows: rows)
     }
 
-    private func windowY(_ attributes: UICollectionViewLayoutAttributes) -> CGFloat {
-        collectionView.convert(attributes.frame.origin, to: nil).y
+    private func windowY(_ attributes: UICollectionViewLayoutAttributes, bottom: Bool = false) -> CGFloat {
+        collectionView.convert(CGPoint(x: 0, y: bottom ? attributes.frame.maxY : attributes.frame.minY), to: nil).y
     }
 
-    private func windowY(of id: CellID) -> CGFloat? {
+    private func windowY(of id: CellID, bottom: Bool = false) -> CGFloat? {
         guard let indexPath = dataSource.indexPath(for: id),
               let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return nil }
-        return windowY(attributes)
+        return windowY(attributes, bottom: bottom)
+    }
+
+    /// The list's bottom edge in content coordinates (above the keyboard, an accessory, a bar).
+    private var bottomEdgeY: CGFloat {
+        collectionView.contentOffset.y + collectionView.bounds.height - collectionView.adjustedContentInset.bottom
     }
 
     /// Puts the reader back: the first row of `anchor` that is still in the list and kept its place
@@ -515,7 +652,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             return oldGap.signum() == newGap.signum() && abs(newGap - oldGap) <= max(2, abs(oldGap))
         }
         guard let pick = survivors.indices.first(where: stable).map({ survivors[$0].0 }),
-              let now = windowY(of: pick.id) else { return nil }
+              let now = windowY(of: pick.id, bottom: anchor.fromBottom) else { return nil }
         let delta = now - (pick.windowY + shift)
         guard abs(delta) > 0.25 else { return pick }
         if deliberate { moveOffset(to: collectionView.contentOffset.y + delta) } else { correctOffset(by: delta) }
@@ -531,10 +668,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         guard !keeping else { return }
         keeping = true
         defer { keeping = false }
-        // While the reader scrolls nothing is kept (and nothing is measured: a scroll step costs no
-        // more than without this); the place is taken again when the scroll ends.
+        // While the reader scrolls the place isn't kept between passes (the scroll moves it; each
+        // pass keeps it within itself, `holdAcrossPass`); it is taken again when the scroll ends.
         let reading = collectionView.isTracking || collectionView.isDecelerating || scrollingToTop
-        guard loaded, !reading, !followsNewest, collectionView.window != nil else {
+        guard loaded, !reading, !followsNewest, !spring.isRunning, collectionView.window != nil else {
             kept = nil
             return
         }
@@ -565,10 +702,16 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             probe.pageLanded?(0, rows)
             return
         }
+        let movesAtLanding = explainedMoves
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.collectionView.layoutIfNeeded()
-            let shift = self.windowY(of: row.id).map { abs($0 - row.windowY) } ?? 0
+            // While the reader scrolls or the list slides, that moves the row between the landing and
+            // this turn (also a fling that ended in between, or a slide that ran one frame): the
+            // per-frame measure (`frameShift`) judges those landings, not this one.
+            let scrolling = self.collectionView.isTracking || self.collectionView.isDecelerating
+                || self.spring.isRunning || self.explainedMoves != movesAtLanding
+            let shift = scrolling ? 0 : self.windowY(of: row.id, bottom: row.bottom).map { abs($0 - row.windowY) } ?? 0
             probe.pageLanded?(shift, rows)
         }
     }
@@ -602,8 +745,26 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         direction == .up ? maxOffsetY : -collectionView.adjustedContentInset.top
     }
 
+    /// How far the viewport is from the newest end (0 there).
+    private var distanceToNewest: CGFloat {
+        direction == .up ? maxOffsetY - collectionView.contentOffset.y : collectionView.contentOffset.y - newestOffset
+    }
+
     private func scrollToNewest() {
         moveOffset(to: newestOffset)
+    }
+
+    /// Keeps an `.up` list that follows its newest row on it after a layout pass. Riding the bottom
+    /// edge (the keyboard, a composer that grew) is the list's own move; the rest cancels what moved
+    /// the newest row (a page or a row above that changed the content's height), a correction: the
+    /// reader sees nothing move, so the shift measure counts nothing for it.
+    private func stayOnNewest(edgeMove: CGFloat?) {
+        // The edge moving up by d (d < 0) takes the rows up with it: an offset move of -d (or, for a
+        // short list sitting on the edge, its top inset's).
+        if let edgeMove { explained -= edgeMove }
+        let delta = newestOffset - collectionView.contentOffset.y
+        guard abs(delta) > 0.01 else { return }
+        correctOffset(by: delta)
     }
 
     /// The newest-rows indicator's jump: a windowed model brings its newest rows back first.
@@ -612,6 +773,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         followsNewest = true
         newest.arrived = 0
         newest.isAway = false
+        heldHeight = 0
+        // A fling still running would drive the offset too: stop it where it is.
+        if collectionView.isDecelerating { collectionView.setContentOffset(collectionView.contentOffset, animated: false) }
         if UIAccessibility.isReduceMotionEnabled || !animatesNewest {
             scrollToNewest()
         } else {
@@ -624,13 +788,50 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         collectionView.convert(CGPoint(x: 0, y: collectionView.bounds.maxY - collectionView.adjustedContentInset.bottom), to: nil).y
     }
 
+    /// While the reader scrolls (a finger or a fling), each layout pass keeps the row under the
+    /// reader's top edge where it was drawn: a pass that moves it (rows above that changed height out
+    /// of view, a window that moved) puts it back in the same pass. Between passes the scroll moves
+    /// it, which is the scroll. Updates keep their own anchor; at rest `keepReader` keeps it.
+    /// A `.down` list's slide to new rows at its top does the same: the rows it reveals above size
+    /// themselves as they come into view, and must not push the rows below down (the spring carries
+    /// the correction and slides on).
+    private func willLayout() {
+        passHold = nil
+        let scrolling = collectionView.isTracking || collectionView.isDecelerating
+        let sliding = direction == .down && spring.isRunning
+        guard loaded, !updating, !keeping, !laying,
+              sliding || (scrolling && !followsNewest && !spring.isRunning) else { return }
+        let top = readerTop
+        var best: (id: CellID, minY: CGFloat)?
+        // The cells as drawn: their frames are the last pass's (the layout may already hold the next).
+        for cell in collectionView.visibleCells where cell.frame.maxY > top + 0.5 {
+            guard best == nil || cell.frame.minY < best!.minY,
+                  let indexPath = collectionView.indexPath(for: cell),
+                  let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
+            best = (id, cell.frame.minY)
+        }
+        if let best { passHold = (best.id, best.minY - collectionView.contentOffset.y) }
+    }
+
+    private func holdAcrossPass() {
+        guard let hold = passHold else { return }
+        passHold = nil
+        guard let indexPath = dataSource.indexPath(for: hold.id), let cell = collectionView.cellForItem(at: indexPath) else { return }
+        let delta = (cell.frame.minY - collectionView.contentOffset.y) - hold.top
+        if abs(delta) > 0.25 { correctOffset(by: delta) }
+    }
+
     /// Each layout pass: a short `.up` list sits at the bottom; an `.up` list that follows its newest
     /// row stays on it (keyboard, rotation, a row that grew); otherwise the bottom edge's move is
     /// answered as `pinning` says, and the reader is kept.
     private func didLayout() {
-        guard !keeping, !laying else { return }
+        guard !keeping, !laying else {
+            passHold = nil
+            return
+        }
         laying = true
         defer { laying = false }
+        holdAcrossPass()
         let width = collectionView.bounds.width
         let edgeNow = collectionView.window == nil ? nil : bottomEdge
         let edgeMove: CGFloat? = {
@@ -640,7 +841,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         defer {
             lastBoundsWidth = width
             lastBottomEdge = edgeNow
-            sampleShift()
+            sampleShift(from: "layout")
         }
         if direction == .up {
             let insets = collectionView.adjustedContentInset
@@ -658,7 +859,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             return
         }
         if direction == .up, followsNewest {
-            if !collectionView.isDecelerating, !spring.isRunning, !arriving { scrollToNewest() }
+            if !collectionView.isDecelerating, !spring.isRunning, !arriving { stayOnNewest(edgeMove: edgeMove) }
             kept = nil
         } else if let edgeMove, pinning == .ridesBottomEdge, !followsNewest, let kept, !keeping {
             // The bottom edge moved (the keyboard, a composer that grew): what the reader sees goes
@@ -685,24 +886,62 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     /// The frame-shift measure (``PagedListProbe/frameShift``): the row being read at the end of the
     /// last pass, where it is now, less what the scroll explains. Skipped across a rotation, and
     /// when that row left or moved (a removal or move is not a shift of what is read).
-    private func sampleShift() {
-        guard let report = probe?.frameShift, loaded, collectionView.window != nil else { return }
+    private func sampleShift(from source: String) {
+        guard !updating, let report = probe?.frameShift, loaded, collectionView.window != nil else { return }
         let width = collectionView.bounds.width
-        let current = firstReadable()
+        let current = referenceRow()
+        let offsetY = collectionView.contentOffset.y
         defer {
-            shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, windowY: $0.windowY, width: width) }
+            shiftSample = current.map { ShiftSample(id: $0.id, next: $0.next, gap: $0.gap, bottom: $0.bottom, windowY: $0.windowY, width: width, offsetY: offsetY) }
             explained = 0
             pendingAdjustment = 0
+            trail.removeAll(keepingCapacity: true)
         }
         guard let last = shiftSample, abs(last.width - width) < 0.5,
-              let indexPath = dataSource.indexPath(for: last.id), let now = windowY(of: last.id) else { return }
+              let indexPath = dataSource.indexPath(for: last.id), let now = windowY(of: last.id, bottom: last.bottom) else { return }
         if let next = last.next, let gap = last.gap {
             guard let nextPath = dataSource.indexPath(for: next), nextPath.item - indexPath.item == gap else { return }
         }
-        report((now - last.windowY) + explained)
+        let shift = (now - last.windowY) + explained
+        report(shift)
+        if abs(shift) > 0.5, let detail = probe?.shiftDetail {
+            let insets = collectionView.adjustedContentInset
+            detail(shift, "from=\(source) moved=\(now - last.windowY) explained=\(explained) offset=\(offsetY - last.offsetY) "
+                + "pending=\(pendingAdjustment) follows=\(followsNewest) tracking=\(collectionView.isTracking) "
+                + "decelerating=\(collectionView.isDecelerating) spring=\(spring.isRunning) arriving=\(arriving) "
+                + "insetTop=\(insets.top) insetBottom=\(insets.bottom) gap=\(bottomGap) rows=\(order.count) "
+                + "trail=\(trail.joined(separator: ","))")
+        }
     }
 
-    private func firstReadable() -> (id: CellID, next: CellID?, gap: Int?, windowY: CGFloat)? {
+    /// One offset move or layout correction for the probe's detail: its kind, the move, and `^` when
+    /// it came inside another scroll callback.
+    private func note(_ kind: String, _ delta: CGFloat) {
+        guard probe?.shiftDetail != nil, trail.count < 24 else { return }
+        let nested = kind.hasPrefix("A") ? scrollDepth > 0 : scrollDepth > 1
+        trail.append("\(kind)\(nested ? "^" : "")\(String(format: "%+.1f", delta))")
+    }
+
+    /// The row the measure follows: the one the list keeps still. The one being read (its top), or,
+    /// for an `.up` list at its newest row, the lowest row on screen (its bottom: the list keeps that
+    /// on the bottom edge, and a row there that grows grows upward).
+    private func referenceRow() -> (id: CellID, next: CellID?, gap: Int?, bottom: Bool, windowY: CGFloat)? {
+        guard direction == .up, followsNewest else { return firstReadable() }
+        let bottom = bottomEdgeY
+        var found: (CellID, Int, CGFloat)?
+        for indexPath in collectionView.indexPathsForVisibleItems.sorted().reversed() {
+            guard let attributes = collectionView.layoutAttributesForItem(at: indexPath),
+                  attributes.frame.minY < bottom - 0.5,
+                  let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
+            if let first = found {
+                return (first.0, id, indexPath.item - first.1, true, first.2)
+            }
+            found = (id, indexPath.item, windowY(attributes, bottom: true))
+        }
+        return found.map { ($0.0, nil, nil, true, $0.2) }
+    }
+
+    private func firstReadable() -> (id: CellID, next: CellID?, gap: Int?, bottom: Bool, windowY: CGFloat)? {
         let top = readerTop
         var found: (CellID, Int, CGFloat)?
         for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
@@ -710,11 +949,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                   attributes.frame.maxY > top + 0.5,
                   let id = dataSource.itemIdentifier(for: indexPath), case .row = id else { continue }
             if let first = found {
-                return (first.0, id, indexPath.item - first.1, first.2)
+                return (first.0, id, indexPath.item - first.1, false, first.2)
             }
             found = (id, indexPath.item, windowY(attributes))
         }
-        return found.map { ($0.0, nil, nil, $0.2) }
+        return found.map { ($0.0, nil, nil, false, $0.2) }
     }
 
     // MARK: Reading ahead
@@ -780,25 +1019,58 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        scrollDepth += 1
+        defer { scrollDepth -= 1 }
         let y = scrollView.contentOffset.y
         let delta = y - lastOffsetY
         lastOffsetY = y
         let userMove = scrollView.isTracking || scrollView.isDecelerating || scrollingToTop
+        let personMoves = (scrollView.isTracking || scrollView.isDecelerating) && corrections == 0 && ownMoves == 0
+            && !updating && collectionView.laying == 0 && collectionView.layingLayer == 0 && !spring.isRunning
         if corrections > 0 {
             // Putting the reader back: not part of the scroll.
-        } else if pendingAdjustment != 0, abs(delta - pendingAdjustment) < 0.5 {
-            // The layout's own correction for a row above that changed height.
-            pendingAdjustment = 0
-        } else if ownMoves > 0 || userMove {
+            note("c", delta)
+        } else if ownMoves > 0 {
             explained += delta
+            explainedMoves += 1
+            note("o", delta)
+        } else if updating || collectionView.laying > 0 || collectionView.layingLayer > 0 {
+            // Inside an update or a layout pass: the layout's or UIKit's own move (a row above
+            // that sized itself, a batch update), never the finger or a fling, which move the
+            // offset between passes.
+            note(updating ? "U" : collectionView.laying > 0 ? "L" : "S", delta)
+        } else if pendingAdjustment != 0, delta * pendingAdjustment > 0, abs(delta) <= abs(pendingAdjustment) + 0.5 {
+            // The layout's own correction for a row above that changed height (UIKit may apply
+            // several rows' corrections one at a time or together).
+            pendingAdjustment = abs(pendingAdjustment - delta) < 0.5 ? 0 : pendingAdjustment - delta
+            note("p", delta)
+        } else if userMove {
+            explainedMoves += 1
+            let kind = scrollView.isDragging ? "d" : scrollView.isTracking ? "t" : "u"
+            if let request = collectionView.offsetRequest {
+                // The set asked for the finger's or the fling's step; what it moved beyond that is
+                // UIKit's (once per set: a callback nested in the same set is all UIKit's).
+                let person = request.serial == countedRequest ? 0 : request.y - request.from
+                countedRequest = request.serial
+                explained += person
+                note(kind, person)
+                if abs(delta - person) > 0.01 { note("K", delta - person) }
+            } else {
+                explained += delta
+                note(kind, delta)
+            }
+        } else {
+            note("n", delta)
         }
         pullToRefresh?.scrolled()
-        if scrollView.isTracking || scrollView.isDecelerating {
+        // Only the person's moves decide whether the list follows its newest row: the list's own
+        // slide or a correction under a resting finger is not them leaving it.
+        if personMoves {
             let wasFollowing = followsNewest
-            switch direction {
-            case .up: followsNewest = maxOffsetY - y <= 4
-            case .down: followsNewest = y + scrollView.adjustedContentInset.top <= 4
-            }
+            // At the end of the rows shown is the newest row only when the list holds it: a windowed
+            // list's newer-edge spinner is not followed (its rows come from disk, not live).
+            followsNewest = distanceToNewest - heldHeight <= 4 && newerEdge == .end
+            if !followsNewest { heldHeight = 0 }
             if followsNewest, !wasFollowing { newest.arrived = 0 }
             if onReading != nil, let id = readingRowID() { report(id) }
         }
@@ -832,13 +1104,18 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        // The person's finger wins over the list's own slide.
+        // The person's finger wins over the list's own slide; rows held for it count as new.
         spring.stop()
+        if heldArrivals > 0 {
+            newest.arrived += heldArrivals
+            heldArrivals = 0
+        }
         probe?.scrolling?(true)
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate {
+            settleOnNewest()
             takePlace()
             probe?.scrolling?(false)
         }
@@ -846,12 +1123,32 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         pullToRefresh?.endedDecelerating()
+        settleOnNewest()
         takePlace()
         probe?.scrolling?(false)
     }
 
+    /// A scroll that ends at the newest end, after rows arrived there under the finger (they landed
+    /// out of view): the list slides on to them. Not from a pull past the top of a `.down` list
+    /// (pull to refresh owns that).
+    private func settleOnNewest() {
+        let offset = collectionView.contentOffset.y
+        guard loaded, followsNewest, !spring.isRunning, abs(newestOffset - offset) > 0.5,
+              direction == .up || offset > newestOffset else { return }
+        if animatesNewest, !UIAccessibility.isReduceMotionEnabled {
+            spring.run(from: collectionView.contentOffset.y)
+        } else {
+            scrollToNewest()
+        }
+    }
+
     func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
         spring.stop()
+        if heldArrivals > 0 {
+            newest.arrived += heldArrivals
+            heldArrivals = 0
+        }
+        heldHeight = 0
         scrollingToTop = true
         return true
     }
