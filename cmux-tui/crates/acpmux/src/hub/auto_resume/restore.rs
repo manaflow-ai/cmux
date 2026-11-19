@@ -383,11 +383,8 @@ impl Hub {
                 }
                 return;
             }
-            let delay = retry.next_at.saturating_sub(crate::hub::now_ms());
-            tokio::select! {
-                () = tokio::time::sleep(Duration::from_millis(delay)) => {}
-                () = wake.notified() => {}
-            }
+            // A restored `rate_limit` wait holds the chat again until its deadline.
+            hub.wait_retry(&session, &turn_id, retry.reason, retry.next_at, &wake).await;
             let cut = CutTurn {
                 from: from.as_deref(),
                 prompt_id: &retry.prompt_id,
