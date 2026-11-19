@@ -9,6 +9,13 @@ extension DaemonService {
     /// Whether this daemon has floating panes.
     public var floatsPanes: Bool { supports(DaemonCapability.floatingPanes.rawValue) }
 
+    /// Raises a floating pane, preserving its frame when a gesture supplies none.
+    public func bringFloatingPaneToFront(_ pane: PaneID, frame: CGRect?) {
+        guard floatsPanes else { return }
+        let wire = frame.map { FloatingPaneSnapshot.Frame(x: Double($0.minX), y: Double($0.minY), w: Double($0.width), h: Double($0.height)) }
+        Task { await run("float-pane") { _ = try await $0.request(FloatPaneRequest(pane: pane, mode: .on, frame: wire)) } }
+    }
+
     /// Floats `pane` above the tiled panes of its screen, or puts a floating pane back into its place.
     public func toggleFloating(_ pane: PaneID) {
         guard floatsPanes else { return }
