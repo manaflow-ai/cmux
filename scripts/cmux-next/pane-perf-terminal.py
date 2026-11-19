@@ -53,18 +53,21 @@ With --pane-motion on,off each round runs its actions one time for each arm, in 
 and its row `still` passes when no spring and no commit motion moved. Without the option the app's own setting
 runs one time and each row keeps its name.
 
-With --window-look see-through the window is a see-through window with a blur instead of the launch's opaque one. The
-look is written both ways the app reads it: `appearance.backgroundOpacity` and `appearance.backgroundBlur` in the app
-config, and `background-opacity` and `background-blur` (a radius) in the terminal config file. `see-through` alone
-takes round values (0.8, frosted, 0.8, 10); each value is an argument (`see-through:opacity=0.5,blur=glass,
-terminal-opacity=0.5,terminal-blur=8`; `unset` leaves a key out). The window is over the fixture's desktop, or with
-`behind=checker` (or `stripes`) over the app's own patterned panel (`debug.capture_backdrop`). The conditions also
-list each window of another app that is behind the window (`windows_behind`, from the screen's window list), and a
-see-through run has a row that passes when there is none: a blur over a window that redraws is another measure than
-a blur over a still desktop. Each row and summary of
-such a run is named <layout>-see-through-<opacity>-<blur>-<terminal opacity>-<terminal blur>, so it is never compared
-with an opaque window's rows, and the report's conditions hold the look (`window_look`). Without the option, or with
-`opaque`, the launch and each row's name stay as they were.
+With --window-look KEY=VALUE[,KEY=VALUE...] the window has another look than the launch's opaque one, for example a
+window with a picture background (`background=NAME,opacity=0.5,blur=none`, NAME a built-in picture). The option
+writes the keys that it names and no other key, and no key has a default: `background`, `opacity` and `blur` are
+`appearance.background`, `appearance.backgroundOpacity` and `appearance.backgroundBlur` of the app config;
+`terminal-opacity` and `terminal-blur` are `background-opacity` and `background-blur` (a radius) of the terminal
+config file, which the app also reads. The window is over the fixture's desktop, or with `behind=checker` (or
+`stripes`) over the app's own patterned panel (`debug.capture_backdrop`). The report's conditions hold the look
+(`window_look`) and in `resolved` what the running app itself says it shows: the background's kind and the
+picture's id, the opacity (the alpha of the backdrop's tint, `debug.themes`) and the blur (the app's settings
+answer: the debug read has no blur field). The row `the app shows the window's look` fails when that is not the
+named look; the measures still run then, under the look's name. The conditions also list each window of another
+app that is behind the window (`windows_behind`, from the screen's window list), and a run with a look has a row
+that passes when there is none. Each row and summary of such a run is named <layout>-look-<each named key and its
+value>, so it is never compared with an opaque window's rows. Without the option, or with `opaque`, the launch and
+each row's name stay as they were.
 
 With --browser-engine webkit the probe page and the --pages pages are WebKit pages instead (no `debug.cef` counters
 change then; Lawrence 2026-11-05: "resize webviews (both chrome and webkit) more often").
@@ -81,7 +84,7 @@ Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--b
        [--browser-engine chromium|webkit]
        [--actions split,close,column,zoom,window,drag,keys,scroll,idle,page] [--rounds 3] [--scrollback 5000] [--stream]
        [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N] [--pane-motion on,off]
-       [--window-look opaque|see-through[:KEY=VALUE,...]]
+       [--window-look opaque|KEY=VALUE[,KEY=VALUE...]]
 """
 import argparse, glob, json, math, os, pathlib, signal, subprocess, sys, tempfile, time
 
@@ -119,10 +122,10 @@ parser.add_argument("--stall-ms", type=int, default=None,
                     help="start the app with its main-thread watchdog at this threshold (CMUX_NEXT_HANG_THRESHOLD_MS, 4 "
                          "at the least): each row then lists the stalls of its action with the stack sampled in each")
 parser.add_argument("--window-look", default=None,
-                    help="opaque (the default: the launch as it was) or see-through[:opacity=0..1,"
-                         "blur=frosted|glass|glass-clear|none,terminal-opacity=0..1,terminal-blur=RADIUS,"
-                         "behind=desktop|checker|stripes]: a see-through window with a blur, set in the app config and "
-                         "in the terminal config file; its rows are named <layout>-see-through-<each value>")
+                    help="opaque (the default: the launch as it was) or KEY=VALUE[,KEY=VALUE...] with background=NAME, "
+                         "opacity=0..1, blur=frosted|glass|glass-clear|none (the app config), terminal-opacity=0..1, "
+                         "terminal-blur=RADIUS (the terminal config file) and behind=desktop|checker|stripes: only the "
+                         "named keys are written; its rows are named <layout>-look-<each named key and its value>")
 opts, _unknown = parser.parse_known_args()
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -706,95 +709,91 @@ def set_pane_motion(on, hide_first=False):
 
 def window_look(value):
     """`--window-look`: None for `opaque` (and for no option: the launch, the config and each row's name stay as they
-    were), or the values of a see-through window with a blur. `see-through` alone takes round values; each value
-    is an argument (`see-through:opacity=0.5,blur=glass,terminal-opacity=0.5,terminal-blur=8,behind=checker`), and
-    `unset` leaves that key out. `opacity` and `blur` go to the app config (`appearance.backgroundOpacity`, 0 to 1,
-    and `appearance.backgroundBlur`: frosted, glass, glass-clear or none); `terminal-opacity` and `terminal-blur` go
-    to the terminal config file (`background-opacity`, and `background-blur`: a radius). `behind` is what the window
-    is over: `desktop` (what the screen shows there), or the app's own `checker` or `stripes` panel. Another word, or
-    a look that sets none of the 4 keys, raises ValueError."""
+    were), or the keys that the option names, as KEY=VALUE parts with a comma between them. No key has a default:
+    a key that is not named is not written. `background` (`appearance.background`: a built-in picture's name, `none`,
+    `daily` or `desktop`), `opacity` (`appearance.backgroundOpacity`, 0 to 1) and `blur` (`appearance.backgroundBlur`:
+    frosted, glass, glass-clear or none) go to the app config; `terminal-opacity` and `terminal-blur` go to the
+    terminal config file (`background-opacity`, and `background-blur`: a radius). `behind` is what the window is
+    over: `desktop` (what the screen shows there; the same as no `behind`), or the app's own `checker` or `stripes`
+    panel. Another word, a key two times, or no config key at all, raises ValueError."""
     if value is None or value == "opaque":
         return None
-    word, colon, rest = value.partition(":")
-    look = {"opacity": 0.8, "blur": "frosted", "terminal_opacity": 0.8, "terminal_blur": 10, "behind": "desktop"}
-    refused = ValueError("--window-look takes opaque or see-through[:opacity=0..1,blur=frosted|glass|glass-clear|none,"
-                         "terminal-opacity=0..1,terminal-blur=RADIUS,behind=desktop|checker|stripes] "
-                         f"(unset leaves a key out; one key at least stays), not {value!r}")
-    if word != "see-through" or (colon and not rest.strip()):
-        raise refused
-    seen = set()
-    for part in rest.split(",") if colon else []:
+    refused = ValueError("--window-look takes opaque or KEY=VALUE[,KEY=VALUE...] with background=NAME, opacity=0..1, "
+                         "blur=frosted|glass|glass-clear|none, terminal-opacity=0..1, terminal-blur=RADIUS and "
+                         f"behind=desktop|checker|stripes (one config key at least), not {value!r}")
+    look = {}
+    for part in value.split(","):
         key, equals, text = (piece.strip() for piece in part.partition("="))
         key = key.replace("-", "_")
-        if not equals or key not in look or key in seen:
+        if not equals or key in look:
             raise refused
-        seen.add(key)
         try:
-            if key == "behind":
-                found = text if text in ("desktop", "checker", "stripes") else None
-            elif text == "unset":
-                look[key] = None
-                continue
+            if key == "background":
+                found = text if text and not text.strip("abcdefghijklmnopqrstuvwxyz0123456789-") else None
             elif key == "blur":
                 found = text if text in ("frosted", "glass", "glass-clear", "none") else None
+            elif key == "behind":
+                found = text if text in ("desktop", "checker", "stripes") else None
             elif key == "terminal_blur":
                 found = int(text) if int(text) >= 0 else None
-            else:
+            elif key in ("opacity", "terminal_opacity"):
                 found = float(text) if 0 <= float(text) <= 1 else None
+            else:
+                found = None
         except ValueError:
             found = None
         if found is None:
             raise refused
         look[key] = found
-    if all(look[key] is None for key in ("opacity", "blur", "terminal_opacity", "terminal_blur")):
+    if not set(look) - {"behind"}:
         raise refused
     return look
 
 
 def look_tag(look):
-    """The part a see-through look adds to each row's layout name: each of its 4 values in the flag's order, then
+    """The part a look adds to each row's layout name: each named key and its value in the option's order, then
     what the window is over when that is not the desktop. An opaque window adds nothing."""
     if not look:
         return ""
-    values = [look["opacity"], look["blur"], look["terminal_opacity"], look["terminal_blur"]]
-    over = "" if look["behind"] == "desktop" else f"-over-{look['behind']}"
-    return "see-through-" + "-".join("unset" if value is None else format(value, "g") if isinstance(value, float)
-                                     else str(value) for value in values) + over
+    parts = [f"{key.replace('_', '-')}-{format(value, 'g') if isinstance(value, float) else value}"
+             for key, value in look.items() if key != "behind"]
+    over = "" if look.get("behind", "desktop") == "desktop" else f"-over-{look['behind']}"
+    return "look-" + "-".join(parts) + over
 
 
 def look_config(config, look):
-    """The app config with the look's `appearance.backgroundOpacity` and `appearance.backgroundBlur` (a copy; the
-    other keys stay). An opaque window gets `config` itself: the launch default."""
+    """The app config with the look's named keys of `appearance`: `background`, `backgroundOpacity` and
+    `backgroundBlur` (a copy; the other keys stay, and a key that the look does not name is not written). An opaque
+    window gets `config` itself: the launch default."""
     if not look:
         return config
     appearance = dict(config.get("appearance") or {})
-    if look["opacity"] is not None:
-        appearance["backgroundOpacity"] = look["opacity"]
-    if look["blur"] is not None:
-        appearance["backgroundBlur"] = look["blur"]
+    for key, name in (("background", "background"), ("opacity", "backgroundOpacity"), ("blur", "backgroundBlur")):
+        if key in look:
+            appearance[name] = look[key]
     return {**config, "appearance": appearance} if appearance else dict(config)
 
 
 def look_terminal_lines(look):
-    """The look's lines of the terminal config file: an opacity and a blur radius. None for an opaque window."""
-    if not look:
-        return []
+    """The look's lines of the terminal config file: an opacity and a blur radius, each only when the look names it.
+    None for an opaque window."""
     lines = []
-    if look["terminal_opacity"] is not None:
+    if look and "terminal_opacity" in look:
         lines.append(f"background-opacity = {look['terminal_opacity']:g}")
-    if look["terminal_blur"] is not None:
+    if look and "terminal_blur" in look:
         lines.append(f"background-blur = {look['terminal_blur']}")
     return lines
 
 
 def look_problem(look, env, read=None):
-    """Why the launched app did not get the look (None when it did, and for an opaque window): the app config and
-    the terminal config file of the launch's own environment must hold each key and line of the look."""
+    """Why the launched app did not get the look (None when it did, and for an opaque window): the app config of
+    the launch's own environment must hold each named key, and its terminal config file each named line (a look
+    with no terminal line does not read that file)."""
     if not look:
         return None
     read = read or (lambda path: open(path).read())
     try:
-        terminal = read(env["CMUX_NEXT_GHOSTTY_CONFIG"]).splitlines()
+        terminal = read(env["CMUX_NEXT_GHOSTTY_CONFIG"]).splitlines() if look_terminal_lines(look) else []
         appearance = json.loads(read(env["CMUX_NEXT_CONFIG_FILE"])).get("appearance") or {}
     except (KeyError, OSError, ValueError) as error:
         return f"the launch's config files were not read: {error!r}"
@@ -802,6 +801,55 @@ def look_problem(look, env, read=None):
     wanted = look_config({}, look).get("appearance") or {}
     missing += [f"appearance.{key}" for key, value in wanted.items() if appearance.get(key) != value]
     return f"not in the launch's config: {missing}" if missing else None
+
+
+def look_resolved(look, backdrop, settings):
+    """What the running app says that its window shows, and why that is not the look: (resolved, problem), problem
+    None when it is the look, and for an opaque window (which is read and never fails). `backdrop` is `debug.themes`'
+    `windows[0].backdrop`: `picture` is the id of the picture that the window shows (empty with none); the alpha of
+    `tint` (`#RRGGBBAA`: the theme tint over the picture or the desktop) is the opacity the app resolved, Liquid
+    Glass carries that tint itself (`glassTint`), and an opaque window paints its `sheet` and shows no tint.
+    `settings` is the app's own answer (`settings.get`) for each `appearance` key. `resolved` holds the background's
+    kind (`picture` or `none`), the picture's id, the opacity, `glass`, and `blur`: the app's settings answer, for
+    the debug read has no field for the blur. The look fails when a named settings key has another value in the
+    app, when `background` names a picture that the window does not show, or when the shown opacity is not the
+    named `opacity` (to 1.5 steps of the alpha's 255)."""
+    backdrop = backdrop if isinstance(backdrop, dict) else {}
+    settings = settings if isinstance(settings, dict) else {}
+
+    def alpha(name):
+        text = backdrop.get(name) or ""
+        try:
+            return int(text[7:9], 16) / 255 if isinstance(text, str) and len(text) == 9 and text[0] == "#" else None
+        except ValueError:
+            return None
+
+    picture = backdrop.get("picture") or ""
+    tint, glass = alpha("tint"), alpha("glassTint")
+    opacity = tint if tint is not None else glass if glass is not None else 1.0 if backdrop.get("sheet") else None
+    resolved = {"background": "picture" if picture else "none", "picture": picture,
+                "opacity": None if opacity is None else round(opacity, 3), "glass": tint is None and glass is not None,
+                "blur": settings.get("backgroundBlur"), "settings": settings}
+    if not look:
+        return resolved, None
+
+    def same(seen, value):
+        number = isinstance(value, float) and isinstance(seen, (int, float)) and not isinstance(seen, bool)
+        return abs(seen - value) <= 1e-9 if number else seen == value
+
+    wanted = look_config({}, look).get("appearance") or {}
+    faults = [f"appearance.{key} is {settings.get(key)!r} in the app's settings, not {value!r}"
+              for key, value in wanted.items() if not same(settings.get(key), value)]
+    name = look.get("background")
+    if name == "none" and picture:
+        faults.append(f"the window shows the picture {picture!r}, not none")
+    elif name in ("daily", "desktop") and not picture:
+        faults.append(f"the window shows no picture, not the {name} one")
+    elif name not in (None, "none", "daily", "desktop") and picture != name:
+        faults.append(f"the window shows the picture {picture!r}, not {name!r}")
+    if "opacity" in look and (opacity is None or abs(opacity - look["opacity"]) > 1.5 / 255):
+        faults.append(f"the window's opacity is {resolved['opacity']!r}, not {look['opacity']!r}")
+    return resolved, "; ".join(faults) or None
 
 
 def screen_windows():
@@ -1227,7 +1275,7 @@ def main():
     BENCH = BenchApp(APP, out=opts.out, config=look_config(CONFIG, look), env={"CMUX_NEXT_NO_ACTIVATE": None, **stall_env},
                      window=None, screen=None, log_name=f"app-{TAG}.log")
     if look_terminal_lines(look):
-        # A see-through window's terminal lines: the launch opens this file to append, so they stay in it.
+        # A look's named terminal lines: the launch opens this file to append, so they stay in it.
         with open(os.path.join(BENCH.scratch, "ghostty"), "w") as terminal_config:
             terminal_config.write("\n".join(look_terminal_lines(look)) + "\n")
     try:
@@ -1246,14 +1294,13 @@ def main():
         window_problem is None)
     behind = None
     if look:
-        # No see-through row from an opaque window: the launch's own config files hold the look, or the run ends.
+        # No row of a look from the launch's opaque window: the launch's own config files hold the look, or the run ends.
         problem = look_problem(look, BENCH.launched_env or {})
-        if not problem and look["behind"] != "desktop":
+        if not problem and look.get("behind", "desktop") != "desktop":
             behind = rpc("debug.capture_backdrop", {"pattern": look["behind"]})  # before the app takes the front
             if not (isinstance(behind, dict) and behind.get("backdrop_number")):
                 problem = f"no {look['behind']} panel behind the window: {behind}"
-        row("the window has the see-through look", look_tag(look), problem or "in the app config and the terminal config file",
-            problem is None)
+        row("the launch's config holds the window's look", look_tag(look), problem or "each named key and line", problem is None)
         if problem:
             UNMEASURED.append(f"window look: {problem}")
             return
@@ -1264,12 +1311,27 @@ def main():
     # was key when it started (`layouts`).
     conditions = {"env": BENCH.launched_env, "window": STRESS_MODULE.window_on_screen(placed) if isinstance(placed, dict) else None,
                   "layouts": {}}
-    # The window's look: its values, what the window is over, and the backdrop the app says it shows (`debug.themes`).
-    themes = rpc("debug.themes")
-    shown = (themes.get("windows") or [{}])[0].get("backdrop") if isinstance(themes, dict) else None
-    conditions["window_look"] = {"look": "see-through" if look else "opaque", **(look or {}),
-                                 "terminal_config": look_terminal_lines(look), "backdrop_shown": shown,
+    # The window's look: its named keys, what the window is over, and what the app itself says it shows (`resolved`:
+    # `debug.themes`' backdrop and the app's own settings answer). A picture loads and a tint blends after the
+    # launch: a look waits for them (test harness: at most 10 s); an opaque window is read one time.
+    answer = rpc("settings.get", {"path": "appearance"})
+    settings = answer.get("value") if isinstance(answer, dict) and isinstance(answer.get("value"), dict) else {"not read": answer}
+    deadline = time.monotonic() + 10
+    while True:
+        themes = rpc("debug.themes")
+        shown = (themes.get("windows") or [{}])[0].get("backdrop") if isinstance(themes, dict) else None
+        resolved, look_fault = look_resolved(look, shown, settings)
+        blending = isinstance(shown, dict) and shown.get("blending") == "true"
+        if not look or not (look_fault or blending) or time.monotonic() > deadline:
+            break
+        time.sleep(0.5)  # test harness: the picture's load and the tint's blend
+    conditions["window_look"] = {"look": look_tag(look) or "opaque", **(look or {}),
+                                 "terminal_config": look_terminal_lines(look), "resolved": resolved, "backdrop_shown": shown,
                                  "terminal_background": themes.get("ghostty_background") if isinstance(themes, dict) else None}
+    if look:
+        row("the app shows the window's look", look_tag(look),
+            look_fault or f"{resolved['background']} {resolved['picture']!r}, opacity {resolved['opacity']}, blur {resolved['blur']!r}",
+            look_fault is None)
     try:
         others = windows_behind(screen_windows(), app.pid)
     except Exception as error:  # noqa: BLE001  a read for the record: no failure of it ends a measure
@@ -1277,7 +1339,7 @@ def main():
     conditions["window_look"]["windows_behind"] = others
     if look:
         conditions["window_look"]["over"] = "the fixture's desktop" if behind is None else behind
-        row("no window of another app is behind the see-through window", "none", str(others)[:300], others == [])
+        row("no window of another app is behind the window with the look", "none", str(others)[:300], others == [])
     print("CONDITIONS " + json.dumps(conditions), flush=True)
     report = {"tag": TAG, "macos": macos, "host": host, "stream": opts.stream, "scrollback": opts.scrollback,
               "conditions": conditions, "runs": []}
@@ -1302,7 +1364,7 @@ def main():
         if name == "stress":
             # A bottom Dock over the window's lower edge, and chats the session replaced (none in STRESS).
             state.update(dock_overlap_pt=STRESS.get("dock_overlap_pt"), chat_fallbacks=STRESS.get("chat_fallbacks"))
-        label = f"{name}-{look_tag(look)}" if look else name  # a see-through window's rows say its look's values
+        label = f"{name}-{look_tag(look)}" if look else name  # a look's rows say each of its named values
         label = label if state["window_key"] else f"{label}-inactive"
         # One pass for each arm in each round (--pane-motion): the off arm's rows are named <label>-motion-off.
         tags = {arm: arm_tag(label, arm) for arm in arms or [None]}
