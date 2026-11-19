@@ -13,7 +13,11 @@
 //! last goes out once the first are durable, not after the syncs of the last (the turn bench,
 //! `benches/turn_overhead.rs`, measured 3.8 ms of a 4.5 ms turn there: every line of the turn
 //! went out in one burst after its newest record's sync). A burst whose lines all need one LSN
-//! costs one wait, as the journal's group commit costs one sync. A kept change (a draft, a name:
+//! costs one wait, as the journal's group commit costs one sync. Each batch the gate takes asks
+//! the journal once for the sync of the newest change its lines need
+//! (`cmux_journal::Journal::ask_durable`), as a `wait_durable` does: the journal's group window
+//! (`ack_group_window`, 5 ms) is for the records nobody waits to see, and an acked change a
+//! client waits for is synced at once instead of at the window's end. A kept change (a draft, a name:
 //! [`crate::store::ShowAfter::Written`]) raises the written needs instead, to the store's last
 //! kept record, and its lines wait for the journal's written LSN to reach it: its record written,
 //! not synced, so typing and renaming never wait for a disk sync while a kill -9 still keeps every
@@ -81,9 +85,9 @@ pub(super) fn install(
     durability: Durability,
     pump: super::outbound::Pump,
 ) -> (Arc<Gate>, impl std::future::Future<Output = ()> + Send + 'static) {
-    let Durability { acked, durable, kept, written, stalled } = durability;
+    let Durability { acked, durable, kept, written, ask, stalled } = durability;
     let gate = Arc::new(Gate { raised: pump.raised(), acked, kept });
-    let run = run(pump, Journal { durable, written }, stalled);
+    let run = run(pump, Journal { durable, written, ask }, stalled);
     (gate, run)
 }
 
@@ -109,11 +113,23 @@ fn stall_limit() -> Duration {
 struct Journal {
     durable: watch::Receiver<u64>,
     written: watch::Receiver<u64>,
+    /// Asks the journal to sync through an LSN now.
+    ask: Arc<dyn Fn(u64) + Send + Sync>,
 }
 
 impl Journal {
     fn reached(&self, needs: Needs) -> bool {
         *self.durable.borrow() >= needs.durable && *self.written.borrow() >= needs.written
+    }
+
+    /// Asks the journal to sync through the newest LSN `batch` needs, once for the whole batch: a
+    /// client waits for these lines, so they do not wait out the group window, and one sync covers
+    /// them all.
+    fn ask(&self, batch: &[super::outbound::Line]) {
+        let needs = batch.iter().map(|line| line.needs.durable).max().unwrap_or(0);
+        if *self.durable.borrow() < needs {
+            (self.ask)(needs);
+        }
     }
 
     /// Until both LSNs are reached; false when the journal's writer ended.
@@ -146,6 +162,7 @@ async fn run(
                 }
             }
         }
+        journal.ask(&batch);
         for line in batch.drain(..) {
             if !journal.reached(line.needs)
                 && !wait(&pump, &mut journal, line.needs, &stalled).await

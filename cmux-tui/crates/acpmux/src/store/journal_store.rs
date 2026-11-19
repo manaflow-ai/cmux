@@ -928,11 +928,17 @@ impl Store for JournalStore {
     }
     fn durability(&self) -> Option<Durability> {
         let inner = Arc::downgrade(&self.inner);
+        let asker = Arc::downgrade(&self.inner);
         Some(Durability {
             acked: Arc::clone(&self.inner.acked),
             durable: self.inner.durable.clone(),
             kept: Arc::clone(&self.inner.kept),
             written: self.inner.written.clone(),
+            ask: Arc::new(move |lsn| {
+                if let Some(inner) = asker.upgrade() {
+                    inner.journal.ask_durable(lsn);
+                }
+            }),
             stalled: Arc::new(move |waited: Duration| {
                 let Some(inner) = inner.upgrade() else { return false };
                 let stats = inner.journal.stats();

@@ -628,6 +628,7 @@ async fn the_gauge_counts_the_lines_the_gate_holds_and_the_transport_has_not_rea
         durable,
         kept: Arc::new(AtomicU64::new(0)),
         written,
+        ask: Arc::new(|_| {}),
         stalled: Arc::new(|_: Duration| false),
     };
     let scope = cmux_scope::Scope::new("durable-gate-test");
