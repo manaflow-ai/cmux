@@ -331,9 +331,9 @@ final class StoreKitRig {
 enum PlansSnapshot {
     static let size = CGSize(width: 393, height: 1500)
 
-    static func attach(_ model: BillingModel, name: String, to test: XCTestCase) {
+    static func attach(_ model: BillingModel, name: String, to test: XCTestCase) async {
         for style in [UIUserInterfaceStyle.light, .dark] {
-            let image = render(model, style: style)
+            let image = await render(model, style: style)
             let attachment = XCTAttachment(image: image)
             attachment.name = "\(name)-\(style == .dark ? "dark" : "light").png"
             attachment.lifetime = .keepAlways
@@ -341,19 +341,27 @@ enum PlansSnapshot {
         }
     }
 
-    static func render(_ model: BillingModel, style: UIUserInterfaceStyle) -> UIImage {
+    /// Shows the screen in a window of the host app's scene, lets SwiftUI
+    /// lay out the list over a few run loop turns, then draws the window.
+    static func render(_ model: BillingModel, style: UIUserInterfaceStyle) async -> UIImage {
         let root = NavigationStack {
             MobilePlansView(entryPoint: .settings, initialPeriod: .monthly)
         }
         .environment(model)
         let host = UIHostingController(rootView: root)
-        let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+        window.frame = CGRect(origin: .zero, size: size)
         window.overrideUserInterfaceStyle = style
         window.rootViewController = host
-        window.isHidden = false
-        host.view.frame = window.bounds
-        host.view.setNeedsLayout()
-        host.view.layoutIfNeeded()
+        window.makeKeyAndVisible()
+        // The list fills in over a few layout passes; a bounded number of
+        // frame-length turns, not a wait for any state.
+        for _ in 0..<10 {
+            host.view.setNeedsLayout()
+            host.view.layoutIfNeeded()
+            try? await Task.sleep(for: .milliseconds(30))
+        }
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }

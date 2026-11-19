@@ -45,7 +45,7 @@ final class BillingStoreKitTests: XCTestCase {
     /// Buy Pro: the purchase JWS is posted, finished after the server
     /// accepts, and the plan, product and refund transaction id are set.
     func testBuyProPostsFinishesAndShowsPro() async throws {
-        PlansSnapshot.attach(rig.model, name: "01-free-before-purchase", to: self)
+        await PlansSnapshot.attach(rig.model, name: "01-free-before-purchase", to: self)
         let transactionID = try await buy(CmuxProduct.proMonthly)
 
         XCTAssertEqual(rig.model.purchase, .completed(.pro))
@@ -67,7 +67,7 @@ final class BillingStoreKitTests: XCTestCase {
         XCTAssertEqual(rig.model.account.account?.currentPlan, BillingCurrentPlan(planID: .pro, source: .apple))
         XCTAssertEqual(rig.model.currentAppleProductID, CmuxProduct.proMonthly)
         XCTAssertEqual(rig.model.currentAppleTransactionID, transactionID)
-        PlansSnapshot.attach(rig.model, name: "02-pro-purchased", to: self)
+        await PlansSnapshot.attach(rig.model, name: "02-pro-purchased", to: self)
     }
 
     /// Upgrade Pro Monthly to Max Monthly: the Max transaction is posted and
@@ -93,14 +93,15 @@ final class BillingStoreKitTests: XCTestCase {
         XCTAssertEqual(rig.model.currentAppleTransactionID, maxID)
         let entitled = await rig.entitledProductIDs()
         XCTAssertEqual(entitled, [CmuxProduct.maxMonthly])
-        PlansSnapshot.attach(rig.model, name: "10-upgraded-to-max", to: self)
+        await PlansSnapshot.attach(rig.model, name: "10-upgraded-to-max", to: self)
     }
 
     // MARK: - Cancel
 
     /// Cancel = auto-renew off, then expiry. Turning auto-renew off creates no
-    /// transaction: StoreKit re-delivers the current one unchanged, the app
-    /// posts it again, and the plan stays until the period ends. At expiry
+    /// transaction: StoreKit reports it in the renewal info (and may
+    /// re-deliver the current transaction unchanged, which the app posts
+    /// again), and the plan stays until the period ends. At expiry
     /// StoreKit drops the entitlement (and may re-deliver the transaction
     /// with its expiry moved to now); the server learns of it from Apple, and
     /// on its next refresh the plans screen shows Free with no current
@@ -118,18 +119,17 @@ final class BillingStoreKitTests: XCTestCase {
                 return false
             }
         }
-        try await rig.waitUntil("the re-delivered transaction is posted") {
-            self.rig.server.posts.count > postsAfterBuy
-        }
-        let cancelled = try XCTUnwrap(rig.server.posts.last?.payload)
-        XCTAssertEqual(cancelled.transactionID, transactionID, "auto-renew off creates no new transaction")
-        XCTAssertNil(cancelled.revocationDate)
+        let cancelPosts = rig.server.posts.dropFirst(postsAfterBuy)
+        XCTAssertTrue(cancelPosts.allSatisfy { $0.payload.transactionID == transactionID && $0.payload.revocationDate == nil },
+                      "auto-renew off creates no transaction")
+        print("[storekit] auto-renew off re-delivered the transaction \(cancelPosts.count) time(s)")
+        let cancelled = try XCTUnwrap(rig.server.posts.last { $0.payload.transactionID == transactionID }?.payload)
         XCTAssertGreaterThan(try XCTUnwrap(cancelled.expires), Date(), "access lasts until the period ends")
         await rig.model.refresh()
         XCTAssertEqual(rig.model.account.account?.currentPlan, BillingCurrentPlan(planID: .pro, source: .apple))
         XCTAssertEqual(rig.model.currentAppleProductID, CmuxProduct.proMonthly)
         XCTAssertEqual(rig.model.currentAppleTransactionID, transactionID)
-        PlansSnapshot.attach(rig.model, name: "03-cancelled-auto-renew-off", to: self)
+        await PlansSnapshot.attach(rig.model, name: "03-cancelled-auto-renew-off", to: self)
 
         let postsBeforeExpiry = rig.server.posts.count
         try rig.session.expireSubscription(productIdentifier: CmuxProduct.proMonthly)
@@ -147,7 +147,7 @@ final class BillingStoreKitTests: XCTestCase {
         XCTAssertNil(rig.model.currentAppleTransactionID)
         let unfinished = await rig.unfinishedIDs()
         XCTAssertEqual(unfinished, [], "every re-delivery was finished")
-        PlansSnapshot.attach(rig.model, name: "05-expired-free", to: self)
+        await PlansSnapshot.attach(rig.model, name: "05-expired-free", to: self)
     }
 
     // MARK: - Refund
@@ -176,7 +176,7 @@ final class BillingStoreKitTests: XCTestCase {
         let unfinished = await rig.unfinishedIDs()
         XCTAssertFalse(unfinished.contains(transactionID), "the revocation is finished after the server accepted it")
         try await rig.eventually("the refunded entitlement dropped") { await self.rig.entitledProductIDs().isEmpty }
-        PlansSnapshot.attach(rig.model, name: "06-refunded-free", to: self)
+        await PlansSnapshot.attach(rig.model, name: "06-refunded-free", to: self)
     }
 
     // MARK: - Renewal
@@ -200,7 +200,7 @@ final class BillingStoreKitTests: XCTestCase {
         XCTAssertEqual(rig.model.account.account?.currentPlan.planID, .pro)
         let unfinished = await rig.unfinishedIDs()
         XCTAssertFalse(unfinished.contains(renewal.transactionID))
-        PlansSnapshot.attach(rig.model, name: "07-renewed-pro", to: self)
+        await PlansSnapshot.attach(rig.model, name: "07-renewed-pro", to: self)
     }
 
     /// Billing retry with a grace period: the failed renewal creates no
@@ -240,7 +240,7 @@ final class BillingStoreKitTests: XCTestCase {
         XCTAssertEqual(rig.model.account.account?.currentPlan, BillingCurrentPlan(planID: .pro, source: .apple))
         XCTAssertEqual(rig.model.currentAppleProductID, CmuxProduct.proMonthly)
         XCTAssertEqual(rig.model.currentAppleTransactionID, transactionID)
-        PlansSnapshot.attach(rig.model, name: "08-billing-retry-grace", to: self)
+        await PlansSnapshot.attach(rig.model, name: "08-billing-retry-grace", to: self)
     }
 
     /// Billing retry without a grace period: StoreKit drops the entitlement
@@ -266,7 +266,7 @@ final class BillingStoreKitTests: XCTestCase {
         await rig.model.refresh()
         XCTAssertEqual(rig.model.account.account?.currentPlan, BillingCurrentPlan(planID: .free, source: .none))
         XCTAssertNil(rig.model.currentAppleProductID)
-        PlansSnapshot.attach(rig.model, name: "09-billing-retry-no-grace", to: self)
+        await PlansSnapshot.attach(rig.model, name: "09-billing-retry-no-grace", to: self)
     }
 
     // MARK: - Ask to Buy
@@ -280,7 +280,7 @@ final class BillingStoreKitTests: XCTestCase {
         await rig.model.buy(try rig.offer(CmuxProduct.proMonthly), entryPoint: .settings)
         XCTAssertEqual(rig.model.purchase, .pending(productID: CmuxProduct.proMonthly))
         XCTAssertEqual(rig.server.posts.count, 0, "nothing to post while approval is pending")
-        PlansSnapshot.attach(rig.model, name: "11-ask-to-buy-pending", to: self)
+        await PlansSnapshot.attach(rig.model, name: "11-ask-to-buy-pending", to: self)
 
         try await approveAskToBuy()
         XCTAssertEqual(rig.model.purchase, .completed(.pro))
@@ -289,7 +289,7 @@ final class BillingStoreKitTests: XCTestCase {
         }
         await rig.model.refresh()
         XCTAssertEqual(rig.model.currentAppleProductID, CmuxProduct.proMonthly)
-        PlansSnapshot.attach(rig.model, name: "12-ask-to-buy-approved", to: self)
+        await PlansSnapshot.attach(rig.model, name: "12-ask-to-buy-approved", to: self)
     }
 
     /// The person leaves the plans screen while Ask to Buy is pending (its
@@ -330,7 +330,7 @@ final class BillingStoreKitTests: XCTestCase {
         XCTAssertEqual(rig.server.posts.count, 0, "an interrupted purchase has no completed transaction yet")
         XCTAssertEqual(rig.model.purchase, .pending(productID: CmuxProduct.proMonthly),
                        "StoreKit 2 returns .pending for an interrupted purchase")
-        PlansSnapshot.attach(rig.model, name: "13-interrupted-purchase", to: self)
+        await PlansSnapshot.attach(rig.model, name: "13-interrupted-purchase", to: self)
 
         let interrupted = try XCTUnwrap(rig.testTransactions(CmuxProduct.proMonthly).last)
         rig.session.interruptedPurchasesEnabled = false
@@ -349,7 +349,7 @@ final class BillingStoreKitTests: XCTestCase {
         // a token-less transaction no other account owns.
         XCTAssertNil(resolved.appAccountToken)
         XCTAssertNil(rig.model.currentAppleProductID)
-        PlansSnapshot.attach(rig.model, name: "14-interrupted-purchase-resolved", to: self)
+        await PlansSnapshot.attach(rig.model, name: "14-interrupted-purchase-resolved", to: self)
     }
 
     // MARK: - Helpers
