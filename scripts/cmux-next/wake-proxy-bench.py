@@ -30,7 +30,6 @@ import argparse
 import json
 import os
 import random
-import re
 import signal
 import subprocess
 import sys
@@ -57,6 +56,20 @@ def descendants(roots: set[int], table: list[tuple[int, int, str]]) -> set[int]:
         out.add(pid)
         todo.extend(children.get(pid, []))
     return out
+
+
+def find_key(value, key: str) -> str | None:
+    """The first string under `key` anywhere in `value` (a CLI `--json` answer; pure)."""
+    if isinstance(value, dict):
+        if isinstance(value.get(key), str):
+            return value[key]
+        value = list(value.values())
+    if isinstance(value, list):
+        for item in value:
+            found = find_key(item, key)
+            if found:
+                return found
+    return None
 
 
 def freeze_set(bundle: str, app_pid: int) -> list[int]:
@@ -86,25 +99,34 @@ class Terminal:
                     "HOME": os.environ.get("HOME", "/tmp")}
         self.surface = None
 
+    def argv(self, *args) -> list[str]:
+        # The app's control socket (`--app-socket`), as bench_memory.App and the other benches of this build call it.
+        return [self.app.cli_path, "--app-socket", self.app.socket, *args]
+
     def cli(self, *args, timeout=30):
-        return subprocess.run([self.app.cli_path, "--socket", self.app.socket, *args], capture_output=True, text=True,
-                              timeout=timeout, env=self.env)
+        return subprocess.run(self.argv(*args), capture_output=True, text=True, timeout=timeout, env=self.env,
+                              stdin=subprocess.DEVNULL)
 
     def open(self) -> str:
-        made = self.cli("new-workspace", "--name", "wake-proxy").stdout.split()
-        workspace = next((w for w in made if w.startswith("workspace:")), None)
-        if not workspace:
-            raise SystemExit(f"wake-proxy: new-workspace answered {made}")
-        self.cli("select-workspace", "--workspace", workspace)
+        """A new focused workspace (`workspace create --focus`, as attention-ring-clear-live and
+        automation-typing-bench make theirs), shown in the window, and its terminal (the daemon's `term_...`)."""
+        done = self.cli("--json", "workspace", "create", "--name", "wake-proxy", "--focus")
+        try:
+            made = json.loads(done.stdout)
+        except ValueError:
+            made = {}
+        term, workspace = find_key(made, "terminal_id"), find_key(made, "workspace_id")
+        if not term:
+            raise SystemExit(f"wake-proxy: workspace create answered {(done.stdout + done.stderr).strip()[:300]}")
+        self.app.call("action.run", {"action": "goToWorkspace", "target": f"workspace:{workspace}", "origin": "script",
+                                     "focus": True}, timeout=ECHO_TIMEOUT_S)
+        self.surface = term
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
-            for line in self.cli("tree", "--workspace", workspace).stdout.splitlines():
-                m = re.search(r"surface (surface:\d+) \[terminal\]", line)
-                if m:
-                    self.surface = m.group(1)
-                    return self.surface
-            time.sleep(0.5)  # test script: the workspace's terminal appears by itself
-        raise SystemExit(f"wake-proxy: {workspace} never showed a terminal")
+            if self.view_text().strip():
+                return term
+            time.sleep(0.5)  # test script: the shell draws its first prompt by itself
+        raise SystemExit(f"wake-proxy: {workspace} never showed its terminal")
 
     def view_text(self) -> str:
         reply = self.app.call("debug.surfaces", {"text": True}, timeout=ECHO_TIMEOUT_S)
@@ -114,8 +136,8 @@ class Terminal:
     def echo_start(self) -> tuple[subprocess.Popen, str]:
         """Types `echo wake-$((A+B))`; only the shell's output line holds wake-<sum>, never the typed text."""
         a, b = random.randrange(1 << 20), random.randrange(1 << 20)
-        proc = subprocess.Popen([self.app.cli_path, "--socket", self.app.socket, "send", "--surface", self.surface,
-                                 f"echo wake-$(({a}+{b}))\n"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        proc = subprocess.Popen(self.argv("terminal", self.surface, "write", "--text", f"echo wake-$(({a}+{b}))\n"),
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
                                 env=self.env)
         return proc, f"wake-{a + b}"
 

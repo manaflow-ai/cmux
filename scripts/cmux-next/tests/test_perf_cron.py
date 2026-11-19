@@ -747,6 +747,13 @@ class WebUiTests(unittest.TestCase):
             spec2.loader.exec_module(wake)
         table = [(10, 1, "app"), (11, 10, "helper"), (20, 1, "daemon"), (21, 20, "host"), (22, 21, "zsh"), (30, 1, "other")]
         self.assertEqual(wake.descendants({10, 20}, table), {10, 11, 20, 21, 22}, "the shells under the terminal hosts too")
+        # This build's CLI answers `workspace create --json` with nested ids; the old `new-workspace` answered nothing.
+        made = {"ok": True, "result": {"workspace_id": "ws_1", "panes": [{"pane_id": "pane_1", "terminal_id": "term_9"}]}}
+        self.assertEqual(wake.find_key(made, "terminal_id"), "term_9")
+        self.assertEqual(wake.find_key(made, "workspace_id"), "ws_1")
+        self.assertIsNone(wake.find_key({}, "terminal_id"))
+        term = wake.Terminal(mock.MagicMock(cli_path="/b/cmux", socket="/s.sock"))
+        self.assertEqual(term.argv("x")[:3], ["/b/cmux", "--app-socket", "/s.sock"], "the app socket, not the daemon's")
 
     def test_the_memory_agents_part_measures_the_optimized_app(self):
         """CMUX-571 ram-baseline compares the app with other apps' release builds and with the 2026-11-08 Release
