@@ -36,6 +36,7 @@ pub mod artifacts_sync;
 pub mod attach;
 pub mod author;
 pub mod beads;
+pub mod bg_exit_masking;
 pub mod bg_hook;
 pub mod bg_run;
 #[path = "cli/bounded_child.rs"]
