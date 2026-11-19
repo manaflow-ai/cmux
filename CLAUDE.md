@@ -30,6 +30,9 @@ Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
   [verification rules](skills/cmux-dev-workflow/references/verification-rules.md).
 - **Never quit, kill, relaunch or replace the user's running cmux** (`/Applications/cmux.app`,
   `com.cmuxterm.app`), and never set `CMUX_ALLOW_REPLACING_RUNNING_CMUX`. Reproduce in a tagged build.
+- **Wait on GitHub with one shared waiter, never a poll**: one background `glaeda-gh wait pr OWNER/REPO#N --sha
+  FULL_SHA` per PR, or the acpmux `run_wait` tool; never `gh pr checks --watch`, `gh run watch` or a sleep loop
+  ([verification rules](skills/cmux-dev-workflow/references/verification-rules.md)).
 - **Scope every search** to your worktree or a named subfolder, never `..`, `~`, `/` or `$TMPDIR`.
 - **Before every push**, `python3 scripts/cmux-next/prepush-gate.py` (the pre-push hook runs it) and, for
   `webviews/` or `web/`, `scripts/web-lint.sh`. Never `--no-verify` or `CMUX_NEXT_CHECKS_SKIP_REASON` unless the
