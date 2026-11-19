@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -33,6 +34,29 @@ class SamplesTests(unittest.TestCase):
 
     def run_collector(self, *suites):
         return subprocess.run([sys.executable, str(SCRIPT), str(self.out), "--suites", *suites], capture_output=True, text=True)
+
+    def test_suite_summary_survives_empty_arrays_under_nounset(self):
+        # Execute the runner's actual statement: a crash here prevents evidence.zip.
+        runner = SCRIPT.with_name("cmux-next-ios-sim.sh").read_text()
+        summary = next(row for row in runner.splitlines() if 'note "- UI tests ' in row)
+        bash = os.environ.get("CMUX_TEST_BASH", "bash")
+        for warm, cold in ((False, False), (True, False), (False, True), (True, True)):
+            with self.subTest(warm=warm, cold=cold):
+                setup = '''set -euo pipefail
+note() { printf '%s\\n' "$1"; }
+out=$1
+ui_status=0 ui_action=test ui_seconds=1 t0=$SECONDS
+ui_suites=() ui_cold=()
+'''
+                if warm:
+                    setup += 'ui_suites=("LaunchTTIUITests/testChatOpenWarm")\n'
+                if cold:
+                    setup += 'ui_cold=("LaunchTTIColdUITests/testChatOpenCold")\n'
+                result = subprocess.run([bash, "-c", setup + summary, "summary", str(self.out)], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("exit 0", result.stdout)
+                self.assertEqual("LaunchTTIUITests/testChatOpenWarm" in result.stdout, warm)
+                self.assertEqual("LaunchTTIColdUITests/testChatOpenCold" in result.stdout, cold)
 
     def test_empty_console_uses_attachments_without_double_counting(self):
         self.attach("ui", line() * 10)
