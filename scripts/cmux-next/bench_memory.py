@@ -802,6 +802,7 @@ def add_axis_item(app: App, chats: "FakeChats | None", axis: str, index: int, op
     elif axis == "page-hidden":
         # Shown once (open_workspace selects it), so the page loads and draws; hidden again by the next item.
         workspace = open_workspace(app, "browser", PAGES.url(index), index)
+        PAGES.wait_loaded(index)
     else:
         workspace = None
         if index > 0:
@@ -814,8 +815,9 @@ def add_axis_item(app: App, chats: "FakeChats | None", axis: str, index: int, op
         if axis == "terminal-visible":
             made = app.run("newSurface")
         elif axis == "page-visible":
-            made = app.run("openBrowser.chromium", url=PAGES.url(index))
+            made = app.action("openBrowser.chromium", focus=True, url=PAGES.url(index))
             PAGES.note_open(index, made)
+            PAGES.wait_loaded(index)
         else:
             session = chats.new_session(index)
             if session is None:
@@ -1168,9 +1170,13 @@ def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats
         if kind == "terminal":
             response = app.run("newSurface")
         elif kind == "browser":
-            response = app.run("openBrowser.chromium", url=url)
             if PAGES:
+                # With focus, as a person's open: without it a new tab opens in the background and does not load
+                # until it is shown (App.action), so the frames pages never loaded (0 requests in three fleet runs).
+                response = app.action("openBrowser.chromium", focus=True, url=url)
                 PAGES.note_open(index, response)
+            else:
+                response = app.run("openBrowser.chromium", url=url)
         elif kind == "chat":
             # A prompt opens an agent chat tab. It waits in the composer for a
             # Send (fleet minis carry no agent credentials either): --fake-agent
@@ -1569,6 +1575,16 @@ class PageFrames:
         """The app's reply to a page open (the first few, for the report's `page_debug`)."""
         if len(self.opens) < 3:
             self.opens.append({"index": index, "reply": json.dumps(reply)[:400]})
+
+    def wait_loaded(self, index: int, deadline_s: float = 15) -> bool:
+        """Until page `index` reported once (it loaded and ran), at most `deadline_s`."""
+        end = time.monotonic() + deadline_s
+        while time.monotonic() < end:
+            if index in self.snapshot():
+                return True
+            time.sleep(0.05)  # test script: the page's first beat arrives on its own
+        print(f"   frames page {index}: no report within {deadline_s:.0f} s", file=sys.stderr, flush=True)
+        return False
 
     def debug(self) -> dict:
         with self.lock:
