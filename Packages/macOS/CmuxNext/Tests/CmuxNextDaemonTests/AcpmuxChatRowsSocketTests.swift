@@ -98,8 +98,11 @@ struct AcpmuxChatRowsSocketTests {
         host = socketHost(daemon, handles: handles, receiver: again)
         #expect(await host?.open(sid: "rows.1", request: ChatWire.open) == .success("rows.1"))
         #expect(await eventually { again.rowIds.count == 10 })
-        // A barrier, not a wait: the driver's turn on what it read, then the host's turn.
-        await host?.snapshotForTesting().driver?.flushForTesting()
+        // First proof that the driver read every byte the daemon wrote, so nothing is left in the
+        // socket; then a barrier, not a wait: the driver's turn on what it read, then the host's turn.
+        let driver = try #require(await host?.snapshotForTesting().driver)
+        #expect(await eventually { await driver.heldForTesting().bytes == first.count && daemon.written(1) == first.count })
+        await driver.flushForTesting()
         _ = await host?.snapshotForTesting()
         #expect(daemon.connections == 2 && handles.count == 2)
         #expect(daemon.count("\"method\":\"sub\"", in: 1) == 1)

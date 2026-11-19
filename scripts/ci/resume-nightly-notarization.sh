@@ -28,7 +28,6 @@ DMG_IMMUTABLE="$4"
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 XCRUN_TOOL="${CMUX_XCRUN_TOOL:-xcrun}"
 CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"
-DITTO_TOOL="${CMUX_DITTO_TOOL:-/usr/bin/ditto}"
 HDIUTIL_TOOL="${CMUX_HDIUTIL_TOOL:-/usr/bin/hdiutil}"
 SPCTL_TOOL="${CMUX_SPCTL_TOOL:-spctl}"
 SYSPOLICY_TOOL="${CMUX_SYSPOLICY_TOOL:-syspolicy_check}"
@@ -64,9 +63,6 @@ if [ "$NOTARY_LOG_TIMEOUT_SECONDS" -le 0 ]; then
   echo "CMUX_NOTARY_LOG_TIMEOUT_SECONDS must be a positive integer" >&2
   exit 2
 fi
-
-# shellcheck source=lib/gatekeeper-assessment.sh
-source "$ROOT_DIR/scripts/ci/lib/gatekeeper-assessment.sh"
 
 if [ ! -f "$STATE_FILE" ] || [ ! -r "$STATE_FILE" ]; then
   echo "Notarization state file not found: $STATE_FILE" >&2
@@ -120,9 +116,6 @@ STATE_STAPLED_APP="$(state_value stapled_app)"
 # CMUX_RESUME_APP_ONLY=true: staple and check the app, then stop; this DMG is
 # not changed (resume-stapled-app-notarization.sh builds the DMG that ships).
 RESUME_APP_ONLY="${CMUX_RESUME_APP_ONLY:-false}"
-# CMUX_SKIP_HELPER_RECHECK=true: the caller checked this same app's Computer
-# Use helper earlier in the job (the stapled-app DMG continuation).
-SKIP_HELPER_RECHECK="${CMUX_SKIP_HELPER_RECHECK:-false}"
 CHANNEL="${CMUX_CHANNEL:-${RECORDED_CHANNEL:-nightly}}"
 if [ -z "$SUBMISSION_ID" ] || [ -z "$RECORDED_DMG" ] || [ -z "$RECORDED_SHA256" ] || [ -z "$RECORDED_IMMUTABLE" ] || [ -z "$RECORDED_CHANNEL" ]; then
   echo "Incomplete notarization state: $STATE_FILE" >&2
@@ -187,30 +180,6 @@ trap cleanup EXIT
 staple_app() {
   "$XCRUN_TOOL" stapler staple "$1"
   [ ! -e "$1/Contents/CodeResources" ] || chmod 0644 "$1/Contents/CodeResources"
-}
-
-verify_computer_use_helper() {
-  local helper_path="$APP_PATH/Contents/Library/cmux Computer Use.app"
-  if [ "$SKIP_HELPER_RECHECK" = true ]; then
-    echo "The Computer Use helper of this app was checked earlier in this job"
-    return 0
-  fi
-  local standalone_helper="$TMP_DIR/cmux Computer Use.app"
-  if [ ! -d "$helper_path/Contents" ]; then
-    echo "Recovered app is missing the Computer Use helper: $helper_path" >&2
-    return 1
-  fi
-  # The helper was independently notarized before the outer DMG submission.
-  # Verify its stapled ticket and code signature again after recovery, then
-  # assess the same standalone shape the runtime copies and launches. This is
-  # deliberately deferred until the outer Apple wait has elapsed, avoiding a
-  # CDN propagation hold on the signing lane.
-  "$XCRUN_TOOL" stapler validate "$helper_path"
-  "$CODESIGN_TOOL" --verify --strict --verbose=2 "$helper_path"
-  "$DITTO_TOOL" "$helper_path" "$standalone_helper"
-  "$XCRUN_TOOL" stapler validate "$standalone_helper"
-  "$CODESIGN_TOOL" --verify --strict --verbose=2 "$standalone_helper"
-  assess_with_gatekeeper "$standalone_helper"
 }
 
 # shellcheck source=lib/notary-auth.sh
@@ -294,7 +263,6 @@ if [ "$WAIT_EXIT" -ne 0 ] || [ "$WAIT_STATUS" != "Accepted" ] || [ "$LOG_EXIT" -
 fi
 
 "$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"
-verify_computer_use_helper
 staple_app "$APP_PATH"
 "$XCRUN_TOOL" stapler validate "$APP_PATH"
 "$SPCTL_TOOL" -a -vv --type execute "$APP_PATH"

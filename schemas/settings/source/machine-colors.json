@@ -18,7 +18,7 @@
           },
           "help": {
             "key": "settings.machines.colors.help",
-            "text": "The color of each machine's sidebar rows and tab badges, by machine name: \"#RRGGBB\", or an accent name (red, green, yellow, purple, cyan, orange, pink, blue) that follows the theme. A machine without one gets a color from its name."
+            "text": "By machine name: \"#RRGGBB\" or an accent name, such as red or blue."
           },
           "kind": "string_map",
           "swift_owner": "MachineColorsSetting",
