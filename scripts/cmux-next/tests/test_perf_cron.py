@@ -670,6 +670,49 @@ class WebUiTests(unittest.TestCase):
                          "no empty sample: no ratio either")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
 
+    def test_the_power_part_owns_its_rows_and_judges_them_against_their_budgets(self):
+        """Leo, 2026-11-19: "having those measurements in so that we're aware of things". power-cron.py stores the
+        app's mW idle with a terminal (budget: standalone Ghostty idle in the same run), with one page and scrolling
+        (budgets: the best other browser in the xbench baseline); the Ghostty number and the ratio are shown only."""
+        self.assertIn("power", FLEET, "a Mac part on the measure host")
+        part = cron.PART_BY_NAME["power"]
+        self.assertIn("--suite=power", part["args"])
+        self.assertIn("--config=bench", part["args"], "the optimized app, the build throughput and memory use")
+        for name in ("power.idle.terminal.total_mw", "power.idle.tab1.total_mw", "power.active.scroll.total_mw",
+                     "power.idle.terminal.ghostty_mw"):
+            self.assertEqual(cron.part_for_row(name + "@cmux20-bench"), "power")
+        spec2 = importlib.util.spec_from_file_location("power_cron", os.path.join(HERE, "..", "power-cron.py"))
+        power = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(power)
+        bench = {"results": [{"label": "terminal", "total": {"mw": 3.21}}, {"label": "tab1", "total": {"mw": 5.0}},
+                             {"label": "scroll", "total": {"mw": 1.5}}]}
+        report = {"rows": power.rows_from(bench, 0.5)}
+        rows = cron.rows_of_part(part, report, budgets_mod, {})
+        terminal = rows["power.idle.terminal.total_mw"]
+        self.assertEqual((terminal["p95"], terminal["unit"], terminal["budget"]), (3.21, "mW", 0.5),
+                         "the terminal row's budget is Ghostty's idle mW from the same run")
+        self.assertEqual(rows["power.idle.tab1.total_mw"]["budget"], 0.4)
+        self.assertEqual(rows["power.active.scroll.total_mw"]["budget"], 7.7)
+        self.assertEqual(rows["power.idle.terminal.vs_ghostty"]["p95"], 6.42)
+        for name, row_ in rows.items():
+            if not cron.REPORT_ONLY_ROW_RE.match(name):
+                self.assertIsNotNone(cron.target_of(name, row_, 8.33), f"{name} is judged against a real budget")
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.match("power.idle.terminal.ghostty_mw"))
+        self.assertTrue(cron.REPORT_ONLY_ROW_RE.match("power.idle.terminal.vs_ghostty"))
+        self.assertFalse(cron.REPORT_ONLY_ROW_RE.match("power.idle.terminal.total_mw"))
+        # Over its budget with no reference: listed, not a silent pass.
+        found = cron.find_regressions({"power.idle.tab1.total_mw@cmux20-bench": rows["power.idle.tab1.total_mw"]}, {},
+                                      8.33, 8.33, budgets_mod)
+        self.assertEqual([(r["name"], r["target"], r["why"]) for r in found],
+                         [("power.idle.tab1.total_mw@cmux20-bench", 0.4, cron.NO_REFERENCE)])
+        # A run with no Ghostty keeps the app's row, judged against the fallback.
+        no_ghostty = {r["name"]: r for r in power.rows_from(bench, None)}
+        self.assertEqual(no_ghostty["power.idle.terminal.total_mw"]["budget"], power.GHOSTTY_FALLBACK_MW)
+        self.assertNotIn("power.idle.terminal.ghostty_mw", no_ghostty)
+        self.assertEqual(power.missing_scenarios(power.rows_from(bench, None)), [])
+        partial = power.rows_from({"results": [{"label": "terminal", "total": {"mw": 1.0}}]}, 0.5)
+        self.assertEqual(power.missing_scenarios(partial), ["tab1: no power sample", "scroll: no power sample"])
+
     def test_the_memory_agents_part_measures_the_optimized_app(self):
         """CMUX-571 ram-baseline compares the app with other apps' release builds and with the 2026-11-08 Release
         baseline (app process 243-285 MB). The part measured the Debug build (app process 323.3 MB at 8c515cc5), so

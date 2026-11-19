@@ -196,6 +196,13 @@ PARTS = [
     {"name": "throughput", "args": [*MEASURE, "--config=bench", "--suite=terminal-throughput"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "terminal-throughput",
      "run_seconds": 1800},  # a cold bench-configuration build alone took 800 s (2026-11-15)
+    # Power (scripts/cmux-next/power-cron.py, bench_power.py): the app and every process it owns in mW, idle with one
+    # terminal, idle with one Chromium page and scrolling a page, and standalone Ghostty idle in the same step. The
+    # terminal row's budget is that Ghostty number; the page rows' are the best other browser's in the checked-in
+    # xbench baseline. The bench configuration, as for throughput: power of a Debug build is not the app's.
+    {"name": "power", "args": [*MEASURE, "--config=bench", "--suite=power"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "power",
+     "run_seconds": 1800},  # about 11 minutes of scenarios, plus a cold bench build (800 s) when this part runs first
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -238,6 +245,7 @@ ROW_PARTS = [
     (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"),
+    (r"^power\.", "power"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
     (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.infinite_items\.", "infinite-items"),
@@ -251,9 +259,11 @@ ROW_PARTS = [
 # here reads a higher p95 as worse. The memory-agents breakdown (memory-agents-cron.py) says where the judged totals'
 # memory is, per process kind; its kinds come and go with the app, so a row each is shown, not judged. The chat
 # composer's typing stages (acp.<engine>.typing.to_listener and .to_work, perf-budgets.py STAGE_ROW_RE) say where
-# the judged to_frame time goes: shown, not judged (measurement only, no new gate).
+# the judged to_frame time goes: shown, not judged (measurement only, no new gate). The power part's Ghostty idle mW
+# and the app's ratio to it are the terminal row's comparison: shown, not judged (that row has Ghostty's mW as budget).
 REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.breakdown\."
-                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$)")
+                                r"|acp\.[^.]+\.typing\.(to_listener|to_work)$"
+                                r"|power\.idle\.terminal\.(ghostty_mw|vs_ghostty)$)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -1905,7 +1915,7 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True).stdout
             ok = "--suite=launch" in text and '"--activation"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents"):
+        elif need in ("perf-gate", "launch", "memory-agents", "power"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text

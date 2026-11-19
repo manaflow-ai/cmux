@@ -71,6 +71,11 @@ if "--suite=bench-smoke" in sys.argv:
 if "--suite=terminal-throughput" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "terminal-throughput-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=terminal-throughput"])
+# `--suite=power`: the app's power in mW, idle and scrolling, against standalone Ghostty at idle
+# (scripts/cmux-next/power-cron.py, bench_power.py; the perf cron's power part).
+if "--suite=power" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "power-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=power"])
 # `--suite=premain`: where the time from the process start to main() goes (scripts/cmux-next/premain-launch.py): the
 # staged copy, a new ditto copy and a new APFS clone, 3 launches each, with the signature checkers' log per launch.
 if "--suite=premain" in sys.argv:
