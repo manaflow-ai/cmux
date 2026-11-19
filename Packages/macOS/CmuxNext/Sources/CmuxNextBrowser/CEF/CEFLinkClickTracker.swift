@@ -33,6 +33,8 @@ final class CEFLinkClickTracker {
     private var monitor: Any?
     /// Menus opening and closing (the app's one seam for them), kept while clicks are recorded.
     private var menus: MenuTracking?
+    /// The page the person last pressed, released or typed on: the one a menu they open belongs to.
+    private(set) var lastPressed: Int32?
     /// The pages a click can land on now (the runtime's shown tabs).
     var targets: () -> [CEFClickTarget] = { [] }
     /// A mouse down, mouse up or key down on page `browser`: a fresh user
@@ -69,24 +71,18 @@ final class CEFLinkClickTracker {
         let menus = MenuTracking()
         menus.subscribe { [weak self] change in
             guard case .ended(let menu) = change else { return }
-            self?.recordMenuChoice(menu, keyWindow: NSApp.keyWindow)
+            self?.recordMenuChoice(menu)
         }
         self.menus = menus
     }
 
-    /// `menu` closed (a row chosen, or dismissed) while `keyWindow` is key: the person's gesture on
-    /// the page whose window that is, as a key down is and as the host's own Chromium menu counts
-    /// its close. A menu of the app's menu bar is no page's gesture.
-    func recordMenuChoice(_ menu: NSMenu?, keyWindow: NSWindow?) {
-        guard let menu, !Self.inMenuBar(menu), let window = keyWindow else { return }
-        recordMenuChoice(in: ObjectIdentifier(window), parent: window.parent.map(ObjectIdentifier.init),
-                         center: CGPoint(x: window.frame.midX, y: window.frame.midY))
-    }
-
-    /// ``recordMenuChoice(_:keyWindow:)`` for the key window `window` (its `parent`, its screen
-    /// `center`): a gesture only when that window is a shown page's.
-    func recordMenuChoice(in window: ObjectIdentifier, parent: ObjectIdentifier?, center: CGPoint) {
-        guard let browser = CEFLinkClicks.browser(clickedIn: window, parent: parent, at: center, targets: targets()) else { return }
+    /// `menu` closed (a row chosen, or dismissed): the person's gesture on the page they last
+    /// pressed or typed on, which opened it, as the host's own Chromium menu counts its close. The
+    /// page comes from that press, never the key window's middle: in a split window the middle is
+    /// another pane's page (a <select> in Settings beside a chat was refused). A menu of the app's
+    /// menu bar, or one with no press on a page before it, is no page's gesture.
+    func recordMenuChoice(_ menu: NSMenu?) {
+        guard let menu, !Self.inMenuBar(menu), let browser = lastPressed else { return }
         onGesture(browser)
     }
 
@@ -124,6 +120,7 @@ final class CEFLinkClickTracker {
     /// middle release is also the page's last click.
     func record(_ type: NSEvent.EventType, on browser: Int32, button: Int, flags: NSEvent.ModifierFlags, timestamp: TimeInterval) {
         onGesture(browser)
+        lastPressed = browser
         guard type == .leftMouseUp || type == .otherMouseUp else { return }
         clicks[browser] = CEFLinkClickRecord(gesture: BrowserLinkGesture(flags: flags, button: type == .otherMouseUp ? button : 0),
                                              timestamp: timestamp)
@@ -131,5 +128,6 @@ final class CEFLinkClickTracker {
 
     func forget(opener: Int32) {
         clicks[opener] = nil
+        if lastPressed == opener { lastPressed = nil }
     }
 }

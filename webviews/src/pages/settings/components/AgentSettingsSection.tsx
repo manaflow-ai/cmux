@@ -241,7 +241,6 @@ function AgentPanel({
       {state?.curated.map((row) => (
         <CuratedRow key={row.key} row={row} busy={busy} onRun={onRun} />
       ))}
-      {state && state.entries.length > 0 && <AllSettings state={state} />}
       {state && (
         <div className="row" data-agent-files="">
           <div className="row-main">
@@ -306,6 +305,8 @@ function AgentPanel({
           </div>
         </div>
       ))}
+      {/* Last: expanding it (hundreds of keys) never moves the Open File buttons above it. */}
+      {state && state.entries.length > 0 && <AllSettings state={state} />}
     </div>
   );
 }

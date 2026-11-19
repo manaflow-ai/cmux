@@ -167,6 +167,20 @@ test("Open File sends verb open with that file's path", async () => {
   page.unmount();
 });
 
+test("All Settings sits below the files, so expanding it never moves Open File", async () => {
+  const page = await renderCard(<AgentCustomizationCard />, on);
+  const codex = agent(page.container, "codex");
+  const order = (selector: string) => [...codex.querySelectorAll("*")].indexOf(codex.querySelector(selector)!);
+  expect(order('[data-agent-action="all"]')).toBeGreaterThan(order('[data-agent-file="user"]'));
+  await click(codex.querySelector('[data-agent-action="all"]')!);
+  // The first click on Open File after expanding opens the file.
+  await click(codex.querySelector('[data-agent-file="user"] [data-agent-action="open"]')!);
+  expect(page.provider.agentConfigRuns).toEqual([
+    { verb: "open", agent: "codex", path: "/Users/you/.codex/config.toml" },
+  ]);
+  page.unmount();
+});
+
 test("a host with the lab off answers enabled false, and the card says it cannot read them", async () => {
   const page = await renderCard(<AgentCustomizationCard />, {
     ...on,
