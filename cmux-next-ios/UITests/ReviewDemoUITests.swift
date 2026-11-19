@@ -50,13 +50,18 @@ final class ReviewDemoUITests: XCTestCase {
             let send = app.buttons["terminal.composer.send"]
             XCTAssertTrue(send.waitForExistence(timeout: 5), "the composer's send button\n\(app.debugDescription)")
             send.tap()
-            XCTAssertTrue(waitFor(seconds: 3), "the shell's answer settles")
+            // git status's own output (the shell answered, not just the typed line).
+            let answered = app.textViews["Terminal"].firstMatch
+            XCTAssertTrue(answered.waitForExistence(timeout: 5), "the terminal's text\n\(app.debugDescription)")
+            XCTAssertTrue(waitFor(seconds: 2), "the shell's answer settles")
             attach(app, "\(look)-03-terminal-command")
 
             // The browser tab: the page opens on the phone.
             let tabs = app.buttons["Tabs"].firstMatch
             XCTAssertTrue(tabs.waitForExistence(timeout: 10), "the workspace's Tabs button\n\(app.debugDescription)")
             tabs.tap()
+            // With the keyboard up, the first tap only puts it away.
+            if !app.buttons.matching(NSPredicate(format: "label ENDSWITH ', tab'")).firstMatch.waitForExistence(timeout: 3) { tabs.tap() }
             let card = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'cmux' AND label ENDSWITH ', tab'")).firstMatch
             XCTAssertTrue(card.waitForExistence(timeout: 10), "the browser tab's card\n\(app.debugDescription)")
             attach(app, "\(look)-04-tabs")

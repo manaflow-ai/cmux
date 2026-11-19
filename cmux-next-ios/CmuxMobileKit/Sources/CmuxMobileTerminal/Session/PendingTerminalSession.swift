@@ -52,10 +52,13 @@ public enum TerminalSessionChoice {
     public static func session(
         live: (any TerminalSession)?,
         mockDataEnabled: Bool,
+        reviewDemo: Bool = false,
         macName: String?,
         programName: String
     ) -> any TerminalSession {
         if let live { return live }
+        // The review demo account: the terminal opens on its last commands, ready for typing.
+        if reviewDemo { return MockTerminalSession(instantIntro: true) }
         if mockDataEnabled {
             #if DEBUG
             // A Codex-like inline TUI streaming history (reproduction harness).
@@ -63,7 +66,7 @@ public enum TerminalSessionChoice {
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex-idle") { return FakeCodexSession(idleRedraw: true) }
             return MockTerminalSession(roundTrip: .milliseconds(Self.mockRoundTripMilliseconds))
             #else
-            return MockTerminalSession()
+            return MockTerminalSession(instantIntro: true)
             #endif
         }
         return PendingTerminalSession(macName: macName, programName: programName)

@@ -63,6 +63,23 @@ private final class LiveStub: TerminalSession {
         #expect(!output.contains("(mock)"))
     }
 
+    /// The review demo's terminal opens on its last commands at once and takes the
+    /// reviewer's typing right away (a typed-out intro dropped keys for seconds).
+    @Test func reviewDemoShellIsReadyAtOnce() async throws {
+        let chosen = TerminalSessionChoice.session(live: nil, mockDataEnabled: true, reviewDemo: true, macName: nil, programName: "zsh")
+        let session = try #require(chosen as? MockTerminalSession)
+        var output = ""
+        session.start { event in
+            if case .output(let data) = event { output += String(decoding: data, as: UTF8.self) }
+        }
+        defer { session.stop() }
+        try await Self.waitUntil(1) { output.contains("Finished") }
+        #expect(output.contains("Finished"), "the intro's build finished within a second")
+        session.send(Data("echo ready\r".utf8))
+        try await Self.waitUntil(2) { output.components(separatedBy: "ready").count > 2 }
+        #expect(output.components(separatedBy: "ready").count > 2, "the first typed command ran")
+    }
+
     static func waitUntil(_ seconds: Double, _ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .milliseconds(Int(seconds * 1000)))
         while !condition(), ContinuousClock.now < deadline {

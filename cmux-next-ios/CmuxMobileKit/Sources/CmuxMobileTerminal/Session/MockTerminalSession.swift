@@ -15,6 +15,11 @@ public final class MockTerminalSession: TerminalSession {
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     private let clock: any Clock<Duration>
     private let playsIntro: Bool
+    /// The intro is written at once (the review demo): the terminal opens on its
+    /// last commands and takes typing from the first frame. Off: it is typed out.
+    private let instantIntro: Bool
+    /// Pauses are skipped while the instant intro is written.
+    private var paced = true
     private var columns = 50
     private var rows = 40
     private var line = ""
@@ -50,10 +55,11 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     /// `playsIntro`: run `ls -la`, `git log` and a build when the session starts.
-    public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, roundTrip: Duration = .zero,
-                macResize: Duration? = nil) {
+    public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, instantIntro: Bool = false,
+                roundTrip: Duration = .zero, macResize: Duration? = nil) {
         self.clock = clock
         self.playsIntro = playsIntro
+        self.instantIntro = instantIntro
         self.roundTrip = roundTrip
         self.macResize = macResize
     }
@@ -65,7 +71,9 @@ public final class MockTerminalSession: TerminalSession {
         self.handler = handler
         handler(.title("zsh — cmux-next"))
         let intro = playsIntro
+        if instantIntro { paced = false }
         run { session in
+            defer { session.paced = true }
             session.write("Last login: Mon Oct 12 09:41:07 on ttys004\r\n")
             session.prompt()
             guard intro else { return }
@@ -216,6 +224,7 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     private func pause(_ milliseconds: Int) async throws {
+        guard paced else { return }
         try await clock.sleep(for: .milliseconds(milliseconds))
     }
 

@@ -239,6 +239,7 @@ final class ShellModel {
         creator = WorkspaceCreator(store: store, backend: offlineCreation,
                                    taskDrafts: TaskDraftStore(directory: mockMode ? nil : Self.taskDraftsFolder(account: auth.user?.id)))
         terminalTabs.mockDataEnabled = mockMode || reviewDemo
+        terminalTabs.reviewDemo = reviewDemo
         terminalTabs.macName = { [weak store] workspace in
             store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name
         }
