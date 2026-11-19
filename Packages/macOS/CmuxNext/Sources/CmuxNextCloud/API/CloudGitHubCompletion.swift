@@ -69,9 +69,15 @@ public struct CloudGitHubCompletion: Equatable, Sendable {
 }
 
 extension CloudGitHubCompletion {
+    /// An organization member's install that GitHub turned into a request to the organization's owners
+    /// (`setup_action=request`, no installation yet): nothing to link until an owner approves it.
+    public var isOwnerRequest: Bool { setupAction == "request" && installationID == nil }
+
     /// Finishes `url` when it is this build's completion link (``CloudGitHubCompletion/link(scheme:)``) with `auth`'s
-    /// own sign-in, then counts it in ``CloudGitHubChanges``; false for any other URL. A cancel on GitHub finishes nothing.
-    @MainActor public static func handle(_ url: URL, auth: CloudAuth) -> Bool {
+    /// own sign-in, counts it in ``CloudAuth/gitHubChanges`` and hands its answer to `answered` (the app shows the
+    /// person what happened); false for any other URL. A cancel on GitHub finishes nothing.
+    @MainActor public static func handle(_ url: URL, auth: CloudAuth,
+                                         answered: @escaping @MainActor (CloudOwnerAPIClient.GitHubCompletion) -> Void = { _ in }) -> Bool {
         guard let completion = CloudGitHubCompletion(url: url, scheme: auth.configuration.callbackScheme) else { return false }
         guard completion.error == nil else { return true }
         let base = auth.configuration.ownerAPIBaseURL(), team = completion.team
@@ -80,8 +86,9 @@ extension CloudGitHubCompletion {
             await auth.awaitRestored()
             guard auth.isSignedIn else { return }
             let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-            _ = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }).gitHubComplete(completion)
+            let answer = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }).gitHubComplete(completion)
             auth.gitHubChanges.count += 1
+            answered(answer)
         }
         return true
     }
@@ -91,8 +98,12 @@ extension CloudOwnerAPIClient {
     /// What one completion answered.
     public enum GitHubCompletion: Equatable, Sendable {
         case connected
-        /// The API refused it (a state for someone else, expired, or GitHub refused the code).
-        case refused
+        /// GitHub sent the install to the organization's owners (``CloudGitHubCompletion/isOwnerRequest``): not an
+        /// error, nothing linked until an owner approves; `message` is the API's words for the person, when it gave any.
+        case pendingApproval(message: String?)
+        /// The API refused it (a state for someone else, expired, or GitHub refused the code); `message` is the API's
+        /// words for the person, when it gave any.
+        case refused(message: String?)
         case noAnswer
     }
 
@@ -100,14 +111,19 @@ extension CloudOwnerAPIClient {
     public func gitHubComplete(_ completion: CloudGitHubCompletion) async -> GitHubCompletion {
         let body: [String: Any] = ["op": "integration.complete", "params": completion.params, "origin": "user", "idempotency_key": completion.idempotencyKey]
         guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else { return .noAnswer }
-        return Self.completion(status: answer.status, body: answer.body)
+        return Self.completion(status: answer.status, body: answer.body, ownerRequest: completion.isOwnerRequest)
     }
 
-    /// A 2xx answer that says `ok` (no error) is connected; a 408, 429 or 5xx may not have run; anything else refused.
-    static func completion(status: Int, body: Data) -> GitHubCompletion {
+    /// A 2xx answer that says `ok` (no error) is connected; a 408, 429 or 5xx may not have run; anything else refused,
+    /// with the API's `error.message`; a refused owner request (`ownerRequest`) is pending an owner's approval.
+    static func completion(status: Int, body: Data, ownerRequest: Bool = false) -> GitHubCompletion {
         guard status < 500, status != 408, status != 429 else { return .noAnswer }
-        guard (200..<300).contains(status), let reply = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
-              reply["ok"] as? Bool != false, reply["error"] == nil || reply["error"] is NSNull else { return .refused }
+        let reply = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+        guard (200..<300).contains(status), let reply, reply["ok"] as? Bool != false, reply["error"] == nil || reply["error"] is NSNull else {
+            let said = ((reply?["error"] as? [String: Any])?["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = said?.isEmpty == false ? said : nil
+            return ownerRequest ? .pendingApproval(message: message) : .refused(message: message)
+        }
         return .connected
     }
 }

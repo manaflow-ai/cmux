@@ -219,10 +219,34 @@ struct CloudGitHubReposTests {
 
     @Test func aCompletionIsConnectedOnlyWhenTheAPISaysOk() {
         #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":true,"value":{}}"#)) == .connected)
-        #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid"}}"#)) == .refused)
-        #expect(CloudOwnerAPIClient.completion(status: 403, body: Self.body("{}")) == .refused)
+        #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid"}}"#)) == .refused(message: nil))
+        #expect(CloudOwnerAPIClient.completion(status: 403, body: Self.body("{}")) == .refused(message: nil))
         #expect(CloudOwnerAPIClient.completion(status: 503, body: Data()) == .noAnswer)
         #expect(CloudOwnerAPIClient.completion(status: 429, body: Data()) == .noAnswer)
+    }
+
+    /// A refused completion carries the API's words for the person (an expired state, another person's state).
+    @Test func aRefusedCompletionCarriesTheAPIsMessage() {
+        let refused = Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid","message":"integration state expired"}}"#)
+        #expect(CloudOwnerAPIClient.completion(status: 400, body: refused) == .refused(message: "integration state expired"))
+        #expect(CloudOwnerAPIClient.completion(status: 200, body: refused) == .refused(message: "integration state expired"))
+        #expect(CloudOwnerAPIClient.completion(status: 400, body: Self.body(#"{"ok":false,"error":{"code":"x","message":"  "}}"#)) == .refused(message: nil))
+    }
+
+    /// An organization member's install comes back as `setup_action=request` with no installation: the API's refusal
+    /// of it reads as an owner's approval pending, not as an error; a request that did bring an installation does not.
+    @Test func anOwnerRequestReadsAsPendingApproval() throws {
+        let state = "h.\(Self.statePayload).s"
+        let link = CloudGitHubCompletion.link(scheme: "cmux-dev-x")
+        let request = try #require(CloudGitHubCompletion(url: try #require(URL(string: "\(link)?state=\(state)&setup_action=request")), scheme: "cmux-dev-x"))
+        #expect(request.isOwnerRequest)
+        let installed = try #require(CloudGitHubCompletion(url: try #require(URL(string: "\(link)?state=\(state)&installation_id=7&setup_action=request")), scheme: "cmux-dev-x"))
+        #expect(!installed.isOwnerRequest)
+        let said = "GitHub sent your request to install the cmux GitHub App to the organization's owners. When an owner approves it, choose Connect GitHub in cmux again"
+        let refused = Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid","message":"\#(said)"}}"#)
+        #expect(CloudOwnerAPIClient.completion(status: 400, body: refused, ownerRequest: true) == .pendingApproval(message: said))
+        #expect(CloudOwnerAPIClient.completion(status: 503, body: Data(), ownerRequest: true) == .noAnswer)
+        #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":true,"value":{}}"#), ownerRequest: true) == .connected)
     }
 
     static let statePayload = "eyJ0ZWFtIjoidGVhbV8wMTIzNDU2Nzg5YWJjZGVmMDEyMyIsInJldCI6ImNtdXgtZGV2LXg6Ly9pbnRlZ3JhdGlvbi9jb21wbGV0ZSJ9"
