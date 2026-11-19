@@ -272,7 +272,14 @@ describe("searchAdminUsers Gmail spellings", () => {
   });
 
   test("lists an account found by two spellings once", async () => {
-    const app = fakeApp([fakeUser({ id: "u1", primaryEmail: "patlee@gmail.com" })]);
+    // The typed query matches the display name and the canonical query matches
+    // the email, so both Stack searches return u1.
+    const app = fakeApp([
+      fakeUser({ id: "u1", primaryEmail: "patlee@gmail.com", displayName: "patlee@googlemail.com" }),
+    ]);
+    const queries = adminUserSearchQueries("patlee@googlemail.com");
+    const hits = await Promise.all(queries.map((query) => app.listUsers({ query })));
+    expect(hits.filter((page) => page.some((user) => user.id === "u1")).length).toBeGreaterThan(1);
     const rows = await searchAdminUsers("patlee@googlemail.com", {
       app,
       stripeBillingStatus: async () => noStripe,
