@@ -62,21 +62,35 @@ import UniformTypeIdentifiers
     }
 
     /// With `CMUX_SHADER_STILLS_DIR` set, writes every shader's light and dark still (640x400 PNG)
-    /// there: the captures a review reads. Without it, nothing is written.
+    /// there, plus `stills.png`, one sheet of them all (a row per shader, light then dark), so a CI
+    /// step returning one file returns every capture. A relative directory is taken from the
+    /// repository root. Without the variable nothing is written.
     @Test func everyShaderStillIsWrittenWhenAskedFor() throws {
         guard let folder = ProcessInfo.processInfo.environment["CMUX_SHADER_STILLS_DIR"], !folder.isEmpty,
               let renderer = BackdropShaderRenderer() else { return }
-        let directory = URL(fileURLWithPath: folder, isDirectory: true)
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let directory = folder.hasPrefix("/") ? URL(fileURLWithPath: folder, isDirectory: true)
+            : root.appendingPathComponent(folder, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        for shader in BackdropShader.allCases {
-            for dark in [false, true] {
-                let image = try #require(renderer.still(shader, width: 640, height: 400, dark: dark), "\(shader) drew no still")
-                let url = directory.appendingPathComponent("\(shader.rawValue)-\(dark ? "dark" : "light").png")
-                let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
-                CGImageDestinationAddImage(destination, image, nil)
-                #expect(CGImageDestinationFinalize(destination), "\(url.lastPathComponent) was not written")
+        let width = 640, height = 400, shaders = BackdropShader.allCases
+        let sheet = try #require(CGContext(data: nil, width: width * 2, height: height * shaders.count, bitsPerComponent: 8,
+                                           bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                           bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        for (row, shader) in shaders.enumerated() {
+            for (column, dark) in [false, true].enumerated() {
+                let image = try #require(renderer.still(shader, width: width, height: height, dark: dark), "\(shader) drew no still")
+                try Self.writePNG(image, to: directory.appendingPathComponent("\(shader.rawValue)-\(dark ? "dark" : "light").png"))
+                sheet.draw(image, in: CGRect(x: column * width, y: (shaders.count - 1 - row) * height, width: width, height: height))
             }
         }
+        try Self.writePNG(try #require(sheet.makeImage()), to: directory.appendingPathComponent("stills.png"))
+    }
+
+    static func writePNG(_ image: CGImage, to url: URL) throws {
+        let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination), "\(url.lastPathComponent) was not written")
     }
 
     @Test func thePosterIsRenderedOnFirstDecodeOffTheMainThread() async throws {
