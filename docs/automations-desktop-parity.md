@@ -34,7 +34,7 @@ Sources, read 2026-11-19:
 | Each run as a chat | yes: history row opens the run's session | yes: standalone run is a new chat; in-chat run returns to its chat | prompt runs were agent sessions, not linked | a run opens its chat (prompt) or its log (command) |
 | Inbox / unread | Cowork review like any task | Scheduled is the inbox; unread marker on runs needing attention | none | unread failed and needs-you runs; badge; seen when opened |
 | Notifications | catch-up start | push/email (ChatGPT), unread marker | none | a failed or needs-you run posts a cmux notification |
-| Logs | the run's session | the run's chat | `cmux automation logs` | same, plus the log on the page |
+| Logs | the run's session | the run's chat | `cmux automation logs` | same, plus the log on the page (`show-page --name` opens it) |
 | Pause / resume / delete | yes | paused status; auto-pause when the chat is deleted | CLI | page buttons and CLI |
 | Limits | cloud ≥ 1 h; local none | 3 to 15 active tasks by plan; once per hour | local: none; Cloud free plan 1 | same |
 
@@ -59,6 +59,22 @@ Tried: `cmux automation list`, `runner status`, `history` on the nightly 4427140
    send sessions away unless a folder here is named), and a run started from inside an agent chat
    became that chat's child.
 9. The page loaded once when shown and never refreshed.
+
+## Proof
+
+- Rust: `cmux-tui/crates/cmux-automations/tests/reliability.rs` (retry with backoff, heartbeat
+  health, unread failures, needs-permission, run chat names; red first) and
+  `cmux-tui/crates/cmux-tui/tests/automation_cli_journey.rs` (history rows, `seen`, runner health,
+  a prompt run that cannot start is retryable).
+- Swift: `AutomationsPageActionTests` (runs joined to their automation, button words, refusals,
+  form words, show by name, rendered PNGs of the page and the form).
+- Live: three capture tours in `scripts/cmux-next/media/tours` run a real runner in a terminal of
+  the app, in the capture slot's own home (or `CMUX_AUTOMATIONS_DIR` under tour.py), and end on
+  the page: `automations-scheduled` (a run fires at its minute), `automations-catch-up` (the
+  runner is off for two and a half minutes, the page says automations are off; it starts again,
+  runs the latest missed minute once, late, and skips the older one with its reason) and
+  `automations-failure` (a failed run with its reason and log). `cmux automation show-page --name
+  NAME` opens one automation with its newest log.
 
 Not built here (next): Cloud run history on the page, worktree-per-run, saved "always allow" per
 automation, failover between machines (platonic ideal section 4), archive and bulk mark-read.
