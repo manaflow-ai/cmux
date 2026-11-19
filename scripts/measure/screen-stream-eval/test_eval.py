@@ -166,6 +166,26 @@ class ReportTests(unittest.TestCase):
             self.assertFalse(any(e.startswith('latency') for e in errors))
             self.assertIn('window: no repeat ran', errors)
 
+    def test_iphone_sim_host_stop_removes_its_set_and_two_macs_are_refused(self):
+        with tempfile.TemporaryDirectory() as name:
+            state = Path(name)
+            env = {**os.environ, "EVAL_STATE": str(state), "EVAL_ROOT": str(HERE.parents[2]), "EVAL_BIN": str(state)}
+            script = str(HERE / "targets/iphone-sim.sh")
+            # Nothing made yet (the harness's exit trap before any view): a no-op that succeeds.
+            subprocess.run(["bash", script, "host-stop"], env=env, check=True, capture_output=True)
+            sims = Path(tempfile.mkdtemp(prefix="iphsim.", dir="/tmp"))
+            (state / "sims").write_text(f"{sims}\n")
+            (state / "udid").write_text("UDID\n")
+            subprocess.run(["bash", script, "host-stop"], env=env, check=True, capture_output=True)
+            self.assertFalse(sims.exists())
+            self.assertFalse((state / "sims").exists() or (state / "udid").exists())
+            for var in ("EVAL_BIND", "EVAL_PEER"):
+                for verb in ("build", "host-start", "latency-view"):
+                    done = subprocess.run(["bash", script, verb, "key", "1", str(state / "raw")],
+                                          env={**env, var: "100.64.0.1"}, capture_output=True, text=True)
+                    self.assertEqual(done.returncode, 1)
+                    self.assertIn("one Mac only", done.stderr)
+
     def test_iphone_sim_report_keeps_presented_and_decoded_and_needs_no_window(self):
         app = {"g2g_ms": {"n": 190, "p50": 61.5, "p95": 80.0},
                "decoded_g2g_ms": {"n": 190, "p50": 48.0, "p95": 66.0},

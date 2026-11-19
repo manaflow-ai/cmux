@@ -115,7 +115,10 @@ Today's targets:
   scan-out after `presentedTime`, a real phone's GPU, decoder and radio. Latency only (`caps`
   prints `latency-only`). It builds the app (FFI from the worker's cache, xcodegen, `xcodebuild`)
   and needs an iOS simulator runtime; a Mac with none stops at build, naming the runtimes it has:
-  `--arg=targets=webrtc,iphone-sim`.
+  `--arg=targets=webrtc,iphone-sim`. One Mac only: with `lan=` or `viewer-of=` its build, host
+  and view refuse, since a viewer Mac's simulator would have nothing on the host Mac to stop it.
+  Its `host-stop` (also run by the harness's exit trap, on a signal too) deletes every simulator
+  in its own `/tmp/iphsim.*` set and the set.
 - `cu-png`: the computer-use preview's frame path as the app runs it today (`CmuxNextComputerUse`
   `ComputerUseLiveCapture`), replayed by `cu-png.swift` on the scene's window. It captures a window
   stream, reads it at 6 fps, scales it to 360 px on the long side, and encodes PNG and a base64

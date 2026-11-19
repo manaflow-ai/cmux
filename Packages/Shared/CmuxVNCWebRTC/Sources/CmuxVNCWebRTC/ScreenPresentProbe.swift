@@ -113,7 +113,8 @@ public final class ScreenPresentProbe: NSObject, RTCVideoRenderer, @unchecked Se
     public func firstShown(_ value: UInt16) async -> Shown? {
         await withCheckedContinuation { (continuation: CheckedContinuation<Shown?, Never>) in
             let done = lock.withLock { () -> Shown? in
-                if let presented = presentedAt.first(where: { Self.reached($0.key, value) })?.value {
+                // The earliest present of any value at or past it (a Dictionary has no order).
+                if let presented = presentedAt.filter({ Self.reached($0.key, value) }).map(\.value).min() {
                     return Shown(decoded: firstDecoded(atOrPast: value), presented: presented)
                 }
                 waiter = (value, continuation)

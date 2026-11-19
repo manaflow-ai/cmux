@@ -122,6 +122,9 @@ private struct LatencyRun {
                 }
             } else {
                 lost += 1
+                // A lost input can still show late. Wait until the counter holds still, so its
+                // late frame cannot answer the next sample's `current + 1` at once.
+                await settle()
             }
             try? await Task.sleep(for: .milliseconds(Int.random(in: 40 ... 160))) // the rd bench's gap
         }
@@ -152,6 +155,23 @@ private struct LatencyRun {
             report["frames_dropped"] = after.framesDropped - before.framesDropped
         }
         return report
+    }
+
+    /// Returns once the marker's counter has not changed for 300 ms (bounded: 3 s).
+    private func settle() async {
+        var last = probe.value
+        var stableSince = CACurrentMediaTime()
+        let deadline = stableSince + 3
+        while CACurrentMediaTime() < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+            let now = CACurrentMediaTime()
+            if probe.value != last {
+                last = probe.value
+                stableSince = now
+            } else if now - stableSince >= 0.3 {
+                return
+            }
+        }
     }
 
     private static func percentiles(_ values: [Double]) -> [String: Double] {

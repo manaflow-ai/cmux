@@ -16,7 +16,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ios="$EVAL_ROOT/cmux-next-ios"
 
 # The simulator device set: under /tmp, since a deep path overflows CoreSimulator's socket paths.
-sims() { cat "$EVAL_STATE/sims" 2>/dev/null; }
+sims() { cat "$EVAL_STATE/sims" 2>/dev/null || true; }
 simctl() { xcrun simctl --set "$(sims)" "$@"; }
 
 # The runtime and iPhone: the fleet's declared runtime (CMUX_CI_IOS_SIM_RUNTIME), else the newest
@@ -76,16 +76,45 @@ build_app() {
 }
 
 # ensure_sim: the target's one iPhone, created and booted on first use, then installed with the app.
+# It runs in $(...), where set -e is off (bash 3.2), so every step checks its own result. The set's
+# path is recorded before anything is made in it, so host-stop (and the harness's exit trap) can
+# remove whatever a failed step left; the udid is recorded only once the app is installed.
 ensure_sim() {
   if [[ -s "$EVAL_STATE/udid" ]]; then cat "$EVAL_STATE/udid"; return 0; fi
-  local runtime device_type udid
-  read -r runtime device_type <"$EVAL_STATE/sim-choice"
-  mktemp -d /tmp/iphsim.XXXXXX >"$EVAL_STATE/sims"
-  udid=$(simctl create screen-eval-iphone "$device_type" "$runtime")
-  echo "$udid" >"$EVAL_STATE/udid"
-  simctl bootstatus "$udid" -b >&2
-  simctl install "$udid" "$(cat "$EVAL_BIN/iphone-sim-app")" >&2
+  local runtime device_type udid set
+  read -r runtime device_type <"$EVAL_STATE/sim-choice" || return 1
+  [[ -n "$runtime" && -n "$device_type" ]] || { echo "iphone-sim: no simulator choice from build" >&2; return 1; }
+  if [[ -z "$(sims)" ]]; then
+    set=$(mktemp -d /tmp/iphsim.XXXXXX) || return 1
+    echo "$set" >"$EVAL_STATE/sims" || return 1
+  fi
+  udid=$(simctl create screen-eval-iphone "$device_type" "$runtime") || return 1
+  [[ -n "$udid" ]] || { echo "iphone-sim: simctl create printed no udid" >&2; return 1; }
+  simctl bootstatus "$udid" -b >&2 || return 1
+  simctl install "$udid" "$(cat "$EVAL_BIN/iphone-sim-app")" >&2 || return 1
+  echo "$udid" >"$EVAL_STATE/udid" || return 1
   echo "$udid"
+}
+
+# delete_sims: every simulator in the target's set, then the set itself (cmux-next-ios-sim.sh's cleanup).
+delete_sims() {
+  local set
+  set=$(sims)
+  [[ -n "$set" ]] || return 0
+  xcrun simctl --set "$set" shutdown all >/dev/null 2>&1 || true
+  xcrun simctl --set "$set" delete all >/dev/null 2>&1 || true
+  # Only the set this target made: a /tmp/iphsim.* directory.
+  [[ "$set" == /tmp/iphsim.* ]] && rm -rf "$set"
+  rm -f "$EVAL_STATE/sims" "$EVAL_STATE/udid"
+}
+
+# Two Macs: the viewer Mac would build and boot its own simulator, which nothing on the host Mac
+# could stop. Refused until that is designed; one Mac only.
+one_mac_only() {
+  if [[ -n "${EVAL_BIND:-}" || -n "${EVAL_PEER:-}" ]]; then
+    echo "iphone-sim: one Mac only (lan=/viewer-of= is not supported: the simulator runs beside the host)" >&2
+    exit 1
+  fi
 }
 
 # The marker's geometry as fractions of the frame, as the webrtc target computes it.
@@ -112,30 +141,28 @@ case "$verb" in
   caps) echo latency-only ;;
   build)
     [[ -z "${EVAL_PREBUILT:-}" ]] || { echo "iphone-sim: no prebuilt= mode (it builds the iPhone app)" >&2; exit 1; }
+    one_mac_only
     build_app
     ;;
-  host-start | host-stop)
+  host-start)
+    one_mac_only
     # The webrtc target's host, in this target's own state directory.
-    bash "$here/webrtc.sh" "$verb"
-    if [[ "$verb" == host-stop && -n "$(sims)" ]]; then
-      # The simulator lives from the first latency view to the host's stop: delete it and its set.
-      udid=$(cat "$EVAL_STATE/udid" 2>/dev/null || true)
-      if [[ -n "$udid" ]]; then
-        simctl shutdown "$udid" >/dev/null 2>&1 || true
-        simctl delete "$udid" >/dev/null 2>&1 || true
-      fi
-      rm -rf "$(sims)"
-      rm -f "$EVAL_STATE/sims" "$EVAL_STATE/udid"
-    fi
+    bash "$here/webrtc.sh" host-start
+    ;;
+  host-stop)
+    # Also the harness's exit trap: the simulator lives from the first latency view to here.
+    bash "$here/webrtc.sh" host-stop || true
+    delete_sims
     ;;
   latency-view)
     # latency-view INPUT SAMPLES RAW
+    one_mac_only
     input=$1 samples=$2 raw=$3
     kind=key
     [[ $input == pointer ]] && kind=click
     marker=$(fractions)
     link=$(grep -m1 -o 'cmux-vnc://pair[^ ]*' "$EVAL_STATE/host.log")
-    udid=$(ensure_sim)
+    udid=$(ensure_sim) || { echo "iphone-sim: could not make, boot or install the simulator" >&2; exit 1; }
     bundle=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$(cat "$EVAL_BIN/iphone-sim-app")/Info.plist")
     : >"$raw.app"
     SIMCTL_CHILD_CMUX_MOBILE_SS_LINK="$link" SIMCTL_CHILD_CMUX_MOBILE_SS_MARKER="$marker" \

@@ -43,14 +43,15 @@ public final class ScreenVideoView: UIView, @preconcurrency RTCVideoViewDelegate
         track?.track.remove(metal)
         track?.track.remove(tap)
         #if DEBUG
-        if let probe {
-            track?.track.remove(probe)
-            box.track.add(probe)
-        }
+        if let probe { track?.track.remove(probe) }
         #endif
         track = box
         box.track.add(metal)
         box.track.add(tap)
+        #if DEBUG
+        // Last, so reading the marker never delays the frame's hand-off to the renderer.
+        if let probe { box.track.add(probe) }
+        #endif
     }
 
     public func videoView(_ videoView: any RTCVideoRenderer, didChangeVideoSize size: CGSize) {
@@ -73,8 +74,9 @@ import MetalKit
 /// call to it unchanged. Before a draw that renders a new frame, it adds a presented handler to the
 /// drawable the renderer is about to present (`MTKView.currentDrawable` is this draw's one
 /// drawable), so the probe learns when that frame reached the display, not when it was decoded.
-/// The frame is `RTCMTLVideoView`'s `videoFrame`, new when its timestamp is not `lastFrameTimeNs`
-/// (the renderer's own skip test), read only when the view answers both.
+/// A draw renders a new frame when `RTCMTLVideoView`'s `videoFrame` is not `lastFrameTimeNs` (the
+/// renderer's own skip test); the frame drawn is `lastFrameTimeNs` after it. Both are read only
+/// when the view answers them.
 @MainActor
 private final class PresentHook: NSObject {
     private weak var original: (any MTKViewDelegate)?
@@ -98,12 +100,29 @@ private final class PresentHook: NSObject {
         view.delegate = self
     }
 
-    /// The frame this draw renders, or nil when it renders none (no frame, or the last one again).
-    func frameToDraw() -> Int64? {
+    /// Whether this draw renders a new frame (the renderer's own skip test).
+    /// Race: the decode thread can swap `videoFrame` between this read and the renderer's own, so
+    /// the frame is credited from `lastFrameTimeNs` after the draw, the one the renderer drew.
+    func drawsNewFrame() -> Bool {
         guard let video, let frame = video.value(forKey: "videoFrame") as? RTCVideoFrame,
-              frame.width > 0, frame.height > 0 else { return nil }
-        let last = (video.value(forKey: "lastFrameTimeNs") as? NSNumber)?.int64Value
-        return frame.timeStampNs == last ? nil : frame.timeStampNs
+              frame.width > 0, frame.height > 0 else { return false }
+        return frame.timeStampNs != lastDrawn()
+    }
+
+    func lastDrawn() -> Int64? {
+        (video?.value(forKey: "lastFrameTimeNs") as? NSNumber)?.int64Value
+    }
+}
+
+/// The timestamp of the frame a draw rendered: written on the main thread after the draw, read by
+/// Metal's presented handler, which runs after the drawable reaches the display.
+// crash-allow: `timeStampNs` is read and written only under `lock`.
+private final class DrawnFrame: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Int64?
+    var timeStampNs: Int64? {
+        get { lock.withLock { value } }
+        set { lock.withLock { value = newValue } }
     }
 }
 
@@ -113,16 +132,23 @@ extension PresentHook: @preconcurrency MTKViewDelegate {
     }
 
     func draw(in view: MTKView) {
-        if let timeStampNs = frameToDraw(), !view.bounds.isEmpty, let drawable = view.currentDrawable {
-            drawable.addPresentedHandler(Self.presentedHandler(probe: probe, timeStampNs: timeStampNs))
+        guard drawsNewFrame(), !view.bounds.isEmpty, let drawable = view.currentDrawable else {
+            original?.draw(in: view)
+            return
         }
+        // The handler goes on before the renderer presents; the frame it drew is known after.
+        let before = lastDrawn()
+        let drawn = DrawnFrame()
+        drawable.addPresentedHandler(Self.presentedHandler(probe: probe, drawn: drawn))
         original?.draw(in: view)
+        if let after = lastDrawn(), after != before { drawn.timeStampNs = after }
     }
 
     /// Made outside the main actor: Metal calls it on its own thread.
-    nonisolated private static func presentedHandler(probe: ScreenPresentProbe, timeStampNs: Int64)
+    nonisolated private static func presentedHandler(probe: ScreenPresentProbe, drawn: DrawnFrame)
         -> @Sendable (any MTLDrawable) -> Void {
         { presented in
+            guard let timeStampNs = drawn.timeStampNs else { return }
             probe.presented(timeStampNs: timeStampNs, presentedTime: presented.presentedTime,
                             callbackAt: CACurrentMediaTime())
         }

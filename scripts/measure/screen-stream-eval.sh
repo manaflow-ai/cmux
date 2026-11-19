@@ -235,8 +235,16 @@ echo "SCREEN-STREAM-EVAL-MACHINE $run"
 pids=()
 cleanup() {
   for pid in ${pids[@]+"${pids[@]}"}; do kill "$pid" 2>/dev/null || true; done
+  # A run cut short leaves the current target's host (and iphone-sim's simulator) running: its
+  # host-stop ends them. host-stop is a no-op for a host that already stopped.
+  if [[ -n "${script:-}" && -f "${script:-}" && -n "${EVAL_STATE:-}" ]]; then
+    bash "$script" host-stop >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
+# A signal ends the run through EXIT, so cleanup runs then too.
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 # results.json from whatever the targets wrote; blocked=REASON marks a run that measured nothing.
 finish() {
