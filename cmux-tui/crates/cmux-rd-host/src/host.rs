@@ -145,6 +145,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         // stream moving while that measurement is still unknown.
         frames_in_flight: 2,
         input_frame_now: opts.flag("input-frame-now"),
+        rtt_tail_probe: opts.flag("rtt-tail-probe"),
         max_width: opts
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))

@@ -2,7 +2,7 @@
 
 use cmux_rd_core::fec;
 use cmux_rd_core::packetize::{Packetizer, parity_for};
-use cmux_rd_core::reassembly::{FrameLoss, Reassembler};
+use cmux_rd_core::reassembly::{FrameLoss, NACK_RETRY_FLOOR_US, Reassembler};
 use cmux_rd_proto::{
     DatagramHeader, FRAME_PREFIX_LEN, FrameBody, HEADER_LEN, MAX_DATAGRAM_DEFAULT,
     MAX_DATAGRAM_VPC, REF_NONE, flags,
@@ -485,4 +485,81 @@ fn a_waiting_frame_is_dropped_one_microsecond_past_its_deadline() {
     assert!(r.tick(1_000 + deadline + 1).is_empty());
     assert_eq!(r.take_losses(), vec![FrameLoss::Incomplete { frame: 2 }]);
     assert!(r.need_recovery());
+}
+
+/// One lost shard per frame at 1% loss: a gap the viewer first sees after the
+/// frame's first NACK went out is asked for at once, not on the 50 ms retry of
+/// the earlier request (that wait was the ~45 ms a lost shard cost on the fleet).
+#[test]
+fn a_gap_exposed_after_the_frames_first_nack_is_requested_at_once() {
+    let mut p = Packetizer::new(0, 256);
+    let sent = p.packetize(1, flags::KEYFRAME, &body(1, 2500, true), 0).expect("packetize");
+    assert!(sent.datagrams.len() >= 9);
+    let mut r = Reassembler::new(200_000);
+    let push = |r: &mut Reassembler, i: usize, now: u64| {
+        let (h, payload) = DatagramHeader::decode(&sent.datagrams[i]).expect("decode");
+        r.push(&h, payload, now)
+    };
+    // Shard 1 is lost; shard 2 shows the gap.
+    push(&mut r, 0, 0);
+    push(&mut r, 2, 1_000);
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(5_000));
+    let first = r.take_nacks(5_000, 5_000, 50_000);
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].indexes, vec![1]);
+    // The frame keeps arriving; shard 6 is lost and shard 7 shows it at 9 ms.
+    for (i, now) in [(3, 6_000), (4, 7_000), (5, 8_000), (7, 9_000)] {
+        push(&mut r, i, now);
+    }
+    let due = r.next_nack_us(5_000, 50_000).expect("a gap waits");
+    assert!(due <= 9_000, "the late gap waits for no retry: due at {due} us, exposed at 9000 us");
+    let late = r.take_nacks(9_000, 5_000, 50_000);
+    assert_eq!(late.len(), 1);
+    assert_eq!(late[0].indexes, vec![6], "shard 1's request is not repeated before its retry");
+    // The rest of the frame arrives; each shard keeps its own retry clock.
+    for i in 8..sent.datagrams.len() {
+        push(&mut r, i, 10_000);
+    }
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(55_000));
+    assert!(r.take_nacks(54_999, 5_000, 50_000).is_empty());
+    assert_eq!(r.take_nacks(55_000, 5_000, 50_000)[0].indexes, vec![1]);
+    assert_eq!(r.next_nack_us(5_000, 50_000), Some(59_000));
+}
+
+/// With the RTT retry on, a lost repair is asked for again after a couple of
+/// measured repair round trips (floored), not after the caller's 50 ms; off, the
+/// retry stays the caller's cadence (today's behavior).
+#[test]
+fn rtt_nack_retry_follows_the_measured_repair_round_trip() {
+    for on in [false, true] {
+        let mut p = Packetizer::new(0, 256);
+        let mut r = Reassembler::new(1_000_000);
+        r.set_rtt_nack_retry(on);
+        let push = |r: &mut Reassembler, d: &[u8], now: u64| {
+            let (h, payload) = DatagramHeader::decode(d).expect("decode");
+            r.push(&h, payload, now)
+        };
+        // Frame 1 loses shard 1; its repair comes back 1 ms after the request.
+        let one = p.packetize(1, flags::KEYFRAME, &body(1, 1500, true), 0).expect("packetize");
+        push(&mut r, &one.datagrams[0], 0);
+        for d in &one.datagrams[2..] {
+            push(&mut r, d, 500);
+        }
+        assert_eq!(r.take_nacks(5_000, 5_000, 50_000)[0].indexes, vec![1]);
+        assert_eq!(push(&mut r, &one.datagrams[1], 6_000).len(), 1);
+        assert_eq!(r.repair_rtt_us(), Some(1_000));
+        // Frame 2 loses shard 1, and the repair of it too.
+        let two = p.packetize(2, 0, &body(2, 1500, false), 0).expect("packetize");
+        push(&mut r, &two.datagrams[0], 20_000);
+        for d in &two.datagrams[2..] {
+            push(&mut r, d, 20_500);
+        }
+        assert_eq!(r.take_nacks(25_000, 5_000, 50_000)[0].indexes, vec![1]);
+        let retry = if on { 25_000 + NACK_RETRY_FLOOR_US } else { 75_000 };
+        assert_eq!(r.next_nack_us(5_000, 50_000), Some(retry), "rtt retry {on}");
+        assert_eq!(r.take_nacks(retry, 5_000, 50_000)[0].indexes, vec![1]);
+        // The answer to a retried shard is ambiguous: no sample.
+        assert_eq!(push(&mut r, &two.datagrams[1], retry + 1_000).len(), 1);
+        assert_eq!(r.repair_rtt_us(), Some(1_000));
+    }
 }

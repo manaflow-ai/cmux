@@ -56,6 +56,9 @@ pub struct SessionCfg {
     /// After injected input, frames skip the frame-rate cap for a short window
     /// (`--input-frame-now 1`; the engine's `input_frame_now`).
     pub input_frame_now: bool,
+    /// Tail-loss probes wait a round trip, not a fixed 250 ms (`--rtt-tail-probe 1`;
+    /// the engine's `rtt_tail_probe`, design D6). Off by default.
+    pub rtt_tail_probe: bool,
     /// macOS: stream at most this many pixels wide (`--max-width`; the display's aspect is
     /// kept). Encode time grows with the pixel count (remote-desktop-mac-host.md section 6).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
@@ -266,6 +269,7 @@ impl MediaSession {
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
                 input_frame_now: cfg.input_frame_now,
+                rtt_tail_probe: cfg.rtt_tail_probe,
                 ..EngineConfig::default()
             },
             now_us(),
@@ -892,6 +896,7 @@ mod encode_off_loop_tests {
             upstream_record_max_bytes: 0,
             frames_in_flight: 2,
             input_frame_now: false,
+            rtt_tail_probe: false,
             max_width: None,
             capture: crate::capture_backend::CaptureBackend::default(),
         }
