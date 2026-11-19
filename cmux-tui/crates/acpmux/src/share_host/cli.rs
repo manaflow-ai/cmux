@@ -93,12 +93,7 @@ fn print_status(status: &Value) {
         println!("    {} {} for {}", field("sessionId"), field("scope"), field("viewerName"));
     }
     let helper = status.pointer("/helper/lastResolved/path").and_then(Value::as_str);
-    let bundle_id = status.pointer("/helper/lastResolved/bundleId").and_then(Value::as_str);
-    match (helper, bundle_id) {
-        (Some(path), Some(id)) => println!("  helper:  {path} ({id})"),
-        (Some(path), None) => println!("  helper:  {path}"),
-        (None, _) => println!("  helper:  none resolved yet"),
-    }
+    println!("  helper:  {}", helper.unwrap_or("none resolved yet"));
 }
 
 #[cfg(unix)]
