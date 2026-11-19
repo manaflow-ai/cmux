@@ -112,7 +112,7 @@ fn a_ticket_both_see_is_served_once_and_the_relay_says_by_whom() {
         {"id": "mac-viewer", "platform": "macos"},
         {"id": "phone", "platform": "ios"},
     ]}));
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let (tx, mut rx) = super::state::subscriber();
     shared.subscribe(tx);
     assert!(shared.app_attached());
     // A Mac viewer: the daemon serves it, and the app's copy says so.
@@ -968,12 +968,13 @@ fn a_running_unit_is_the_joins_only_when_cmux_rd_records_that_join() {
 fn a_subscriber_that_stops_reading_holds_bounded_bytes_and_is_dropped() {
     let home = tempfile::tempdir().unwrap();
     let shared = shared(home.path());
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let (tx, mut rx) = super::state::subscriber();
     shared.subscribe(tx);
     let text = "x".repeat(1024);
     for _ in 0..100_000 {
         shared.relay(&text);
     }
+    assert!(rx.held() <= super::state::SUBSCRIBER_BYTES);
     let mut held = 0usize;
     let mut ended = false;
     loop {

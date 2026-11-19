@@ -7,8 +7,9 @@ use cmux_hub_host::hub::Hub;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 /// The status JSON's schema.
 pub(crate) const SCHEMA: &str = "acpmux.share-host.status/1";
@@ -16,6 +17,72 @@ pub(crate) const SCHEMA: &str = "acpmux.share-host.status/1";
 /// The most push bytes an app channel holds unread. Pushes are a few KB; a channel past this
 /// has stopped reading and is dropped, so a stalled app costs this much and no more.
 pub(crate) const SUBSCRIBER_BYTES: usize = 4 << 20;
+
+/// A subscribed app channel's sending end, counting the push bytes queued for it and not yet
+/// taken by its connection (the byte-bounded inbox of `peer_dialer.rs`).
+pub(crate) struct Subscriber {
+    sender: UnboundedSender<String>,
+    held: Arc<AtomicUsize>,
+}
+
+/// The app connection's end of a [`Subscriber`].
+pub(crate) struct Pushes {
+    receiver: UnboundedReceiver<String>,
+    held: Arc<AtomicUsize>,
+}
+
+/// A new app channel: the end [`Shared::subscribe`] takes, and the connection's end. When the
+/// host drops the channel, the connection's end ends after what was queued, and the connection
+/// closes; the app's hub socket then reconnects and subscribes again.
+pub(crate) fn subscriber() -> (Subscriber, Pushes) {
+    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+    let held = Arc::new(AtomicUsize::new(0));
+    (Subscriber { sender, held: held.clone() }, Pushes { receiver, held })
+}
+
+impl Subscriber {
+    /// Queues `line`. False when the app is gone, or when it would hold more than
+    /// [`SUBSCRIBER_BYTES`] unread: then the channel is dropped instead of growing.
+    fn offer(&self, line: &str) -> bool {
+        let bytes = line.len();
+        let held = self.held.fetch_add(bytes, Ordering::Relaxed) + bytes;
+        if held > SUBSCRIBER_BYTES {
+            self.held.fetch_sub(bytes, Ordering::Relaxed);
+            tracing::warn!(
+                "{}: an app channel holds {held} push bytes unread; it is dropped",
+                super::LOG
+            );
+            return false;
+        }
+        if self.sender.send(line.to_owned()).is_err() {
+            self.held.fetch_sub(bytes, Ordering::Relaxed);
+            return false;
+        }
+        true
+    }
+}
+
+impl Pushes {
+    /// The next push; None once the host dropped this channel and it is drained.
+    pub(crate) async fn recv(&mut self) -> Option<String> {
+        let line = self.receiver.recv().await?;
+        self.held.fetch_sub(line.len(), Ordering::Relaxed);
+        Some(line)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn try_recv(&mut self) -> Result<String, tokio::sync::mpsc::error::TryRecvError> {
+        let line = self.receiver.try_recv()?;
+        self.held.fetch_sub(line.len(), Ordering::Relaxed);
+        Ok(line)
+    }
+
+    /// Push bytes queued for this channel and not yet taken.
+    #[cfg(test)]
+    pub(crate) fn held(&self) -> usize {
+        self.held.load(Ordering::Relaxed)
+    }
+}
 
 /// The link's state, as `share-host status` names it.
 #[derive(Debug, Clone, Default)]
@@ -48,7 +115,7 @@ pub(crate) struct Shared {
     pub home: PathBuf,
     hub: Mutex<Arc<Hub>>,
     link: Mutex<Link>,
-    subscribers: Mutex<Vec<UnboundedSender<String>>>,
+    subscribers: Mutex<Vec<Subscriber>>,
     pub app: Mutex<AppNotes>,
     /// The hub's devices: id -> platform.
     devices: Mutex<HashMap<String, String>>,
@@ -110,21 +177,22 @@ impl Shared {
     }
 
     /// A new app channel that gets every push.
-    pub(crate) fn subscribe(&self, sender: UnboundedSender<String>) {
-        lock(&self.subscribers).push(sender);
+    pub(crate) fn subscribe(&self, subscriber: Subscriber) {
+        lock(&self.subscribers).push(subscriber);
     }
 
     /// Whether an app is attached: a subscribed channel still open.
     pub(crate) fn app_attached(&self) -> bool {
         let mut subscribers = lock(&self.subscribers);
-        subscribers.retain(|s| !s.is_closed());
+        subscribers.retain(|s| !s.sender.is_closed());
         !subscribers.is_empty()
     }
 
-    /// Sends `text` (a push) to every subscribed app channel.
+    /// Sends `text` (a push) to every subscribed app channel. A channel that is closed, or holds
+    /// [`SUBSCRIBER_BYTES`] unread, is dropped.
     pub(crate) fn relay(&self, text: &str) {
         let line = json!({"event": "push", "text": text}).to_string();
-        lock(&self.subscribers).retain(|s| s.send(line.clone()).is_ok());
+        lock(&self.subscribers).retain(|s| s.offer(&line));
     }
 
     pub(crate) fn set_devices(&self, devices: &Value) {
