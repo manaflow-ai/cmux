@@ -3,15 +3,19 @@ import CmuxNextDesignTokens
 @testable import CmuxNextDesign
 import CmuxNextTestSupport
 import Foundation
+import ImageIO
 import Metal
 import Testing
+import UniformTypeIdentifiers
 
 /// Living wallpapers (ask-722b8b001e): shaders that draw the window's backdrop every frame and
 /// answer the pointer, listed in the picker beside the static and moving wallpapers.
 @MainActor @Suite(.serialized, .closesItsWindows) struct ShaderWallpaperTests {
     @Test func everyShaderIsAPickerChoiceTheSettingReadsBack() {
         let ids = BackdropCatalog.shaders.map(\.id)
-        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field"])
+        #expect(ids == ["shader:currents", "shader:ripples", "shader:aurora", "shader:field", "shader:mesh",
+                        "shader:contours", "shader:lava", "shader:caustics", "shader:cells", "shader:moire",
+                        "shader:truchet", "shader:halftone"])
         for choice in BackdropCatalog.shaders {
             #expect(BackdropSelection(id: choice.id) == choice, "\(choice.id) does not read back")
             #expect(choice.pickerCollection?.id == BackdropShader.collection)
@@ -55,6 +59,36 @@ import Testing
                         "\(shader) \(dark ? "dark" : "light") averages \(lightness.mean): the wrong appearance")
             }
         }
+    }
+
+    /// Writes every shader's light and dark still (640x400 PNG) for review, plus `stills.png`, one
+    /// sheet of them all (a row per shader, light then dark), so a CI step returning one file
+    /// returns every capture (`$CMUX_SHADER_STILLS_DIR`, else the repository's
+    /// `.build/artifacts/shader-stills/`, as the sign-in button's shots do).
+    @Test func everyShaderStillIsWrittenForReview() throws {
+        guard let renderer = BackdropShaderRenderer() else { return } // a host without Metal
+        let directory = ProcessInfo.processInfo.environment["CMUX_SHADER_STILLS_DIR"].map { URL(fileURLWithPath: $0) }
+            ?? URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../../../../.build/artifacts/shader-stills").standardized
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let width = 640, height = 400, shaders = BackdropShader.allCases
+        let sheet = try #require(CGContext(data: nil, width: width * 2, height: height * shaders.count, bitsPerComponent: 8,
+                                           bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                           bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        for (row, shader) in shaders.enumerated() {
+            for (column, dark) in [false, true].enumerated() {
+                let image = try #require(renderer.still(shader, width: width, height: height, dark: dark), "\(shader) drew no still")
+                try Self.writePNG(image, to: directory.appendingPathComponent("\(shader.rawValue)-\(dark ? "dark" : "light").png"))
+                sheet.draw(image, in: CGRect(x: column * width, y: (shaders.count - 1 - row) * height, width: width, height: height))
+            }
+        }
+        try Self.writePNG(try #require(sheet.makeImage()), to: directory.appendingPathComponent("stills.png"))
+    }
+
+    static func writePNG(_ image: CGImage, to url: URL) throws {
+        let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination), "\(url.lastPathComponent) was not written")
     }
 
     @Test func thePosterIsRenderedOnFirstDecodeOffTheMainThread() async throws {
