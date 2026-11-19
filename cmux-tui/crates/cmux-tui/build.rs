@@ -12,6 +12,20 @@ fn main() {
     // its own dependencies; drop the ones no kept symbol references.
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         println!("cargo:rustc-link-arg-bin=cmux-tui-host=-Wl,-dead_strip_dylibs");
+        // The release cmux-tui binary (the app's bin/cmux) exports no symbols. Thin LTO
+        // leaves every Rust function global, so the linker wrote an export trie of 62,020
+        // names (2.6 MB of nightly 4413904924501's bin/cmux) that nothing reads: no image
+        // loaded into it looks a symbol up in it (its dlsym calls all name system
+        // symbols), and it loads no plugins. The functions become local symbols;
+        // strip-release-bundle.sh keeps their names in Resources/cmux-tui-symbols.bin,
+        // as the app's executable (also -no_exported_symbols) keeps its own in
+        // cmux-symbols.bin. Apple's ld (the fast nightly client) and ld64.lld (the Linux
+        // cross build, scripts/ci/macos-cross.sh) both take the flag. Debug builds keep
+        // their exports: `dx` hot-patching (cmux-tui-hotpatch, a separate binary) and
+        // debuggers there resolve through them.
+        if std::env::var("PROFILE").as_deref() == Ok("release") {
+            println!("cargo:rustc-link-arg-bin=cmux-tui=-Wl,-no_exported_symbols");
+        }
     }
     browser_names();
 }
