@@ -569,6 +569,22 @@ impl Inner {
         self.push(MAIN, Class::Control, frame)
     }
 
+    /// Queue a keepalive ping unless the link is parked: `Ok(false)` when
+    /// parked. The check and the queueing hold the park's lock, as
+    /// [`Self::set_parked`] does, so a beat that fired before a park either
+    /// queues its ping ahead of the park's open or sends nothing; a ping
+    /// after the park would end the Mac's park while the phone sleeps.
+    fn send_keepalive(&self, frame: Frame) -> Result<bool, LinkError> {
+        let mut sent = Ok(false);
+        self.park.send_if_modified(|park| {
+            if !matches!(park, Park::Parked { .. }) {
+                sent = self.send_control(frame).map(|()| true);
+            }
+            false
+        });
+        sent
+    }
+
     fn received(&self) {
         *self.last_rx.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
     }
@@ -735,7 +751,8 @@ impl Link {
                         return;
                     }
                     let sent = Instant::now();
-                    let ping = link.ping();
+                    // Not sent if a park came since the check above.
+                    let ping = link.round_trip(true);
                     tokio::pin!(ping);
                     loop {
                         // Wait for the pong, but count any inbound frame as
@@ -925,6 +942,13 @@ impl Link {
 
     /// Round-trip one ping.
     pub async fn ping(&self) -> Result<Duration, LinkError> {
+        // Not a keepalive: always sent, so always a round trip.
+        self.round_trip(false).await.map(Option::unwrap_or_default)
+    }
+
+    /// Round-trip one ping; a `keepalive` ping is not sent while parked
+    /// (`Ok(None)`).
+    async fn round_trip(&self, keepalive: bool) -> Result<Option<Duration>, LinkError> {
         let nonce = self.inner.next_nonce.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.inner.pings.lock().unwrap_or_else(PoisonError::into_inner).insert(nonce, tx);
@@ -937,13 +961,20 @@ impl Link {
         }
         let _pending = Pending(&self.inner, nonce);
         let started = Instant::now();
-        self.inner.send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
+        let ping = Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec());
+        if keepalive {
+            if !self.inner.send_keepalive(ping)? {
+                return Ok(None);
+            }
+        } else {
+            self.inner.send_control(ping)?;
+        }
         let answered = rx
             .await
             .map_err(|_| LinkError::Closed(self.inner.closed_reason().unwrap_or_else(|| "closed".into())))?;
         let rtt = answered.saturating_duration_since(started);
         self.inner.rtt.send_replace(Some(rtt));
-        Ok(rtt)
+        Ok(Some(rtt))
     }
 
     /// Whether the link is alive, within `timeout`: `Ok(Some(rtt))` on the
@@ -1186,10 +1217,12 @@ async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
                     continue;
                 }
                 // The pinger waits one beat for its pong (the RTT it reports);
-                // any frame, the pong too, counts as the answer above.
+                // any frame, the pong too, counts as the answer above. It runs
+                // later than this check, maybe after a park: it sends nothing
+                // then.
                 let pinger = link.clone();
                 tokio::spawn(async move {
-                    let _ = tokio::time::timeout(interval, pinger.ping()).await;
+                    let _ = tokio::time::timeout(interval, pinger.round_trip(true)).await;
                 });
                 unanswered.get_or_insert(beat);
                 beat = crate::keepalive::next_beat(beat, interval);
