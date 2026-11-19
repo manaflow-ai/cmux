@@ -4,6 +4,7 @@
 //! only interprets the bounded settings overlay and returns deterministic
 //! projection mutations for the native view to apply mechanically.
 
+use crate::sidebar_row_layout::quote;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -67,6 +68,9 @@ pub struct Reply {
     /// Valid per-workspace target group ids and explicit order keys.
     pub workspace_groups: BTreeMap<String, String>,
     pub workspace_orders: BTreeMap<String, i64>,
+    /// The settings hide the selected workspace or its section, and only the selection keeps it
+    /// shown: the next selection change must plan again. Any other selection change needs no plan.
+    pub selection_spared: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -85,6 +89,7 @@ struct Plan {
     hidden_workspaces: Vec<String>,
     workspace_groups: BTreeMap<String, String>,
     workspace_orders: BTreeMap<String, i64>,
+    selection_spared: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -165,14 +170,16 @@ fn config(
             return (hidden, order, workspaces);
         }
         for (id, value) in entries {
-            let path = format!("sidebar.workspaces.{id}");
             if !valid_id(id) {
+                // An id past MAX_ID can be a pasted blob: say where, quoting it short.
+                let path = format!("sidebar.workspaces.{}", quote(id));
                 problems.push(Problem {
                     path,
                     why: "expected a non-empty workspace id of at most 128 characters".into(),
                 });
                 continue;
             }
+            let path = format!("sidebar.workspaces.{id}");
             let Some(fields) = value.as_object() else {
                 problems.push(Problem { path, why: "expected an object".into() });
                 continue;
@@ -304,6 +311,9 @@ fn plan(
         }
     }
     let selected_section = selected.and_then(|id| section_for_workspace.get(id)).cloned();
+    let mut selection_spared = selected.is_some_and(|id| {
+        section_for_workspace.contains_key(id) && workspaces.get(id).is_some_and(|w| w.hidden)
+    });
     let hidden_sections = input
         .iter()
         .take(input_len)
@@ -312,7 +322,11 @@ fn plan(
                 section.keys.iter().any(|candidate| candidate == key) || section.id == *key
             })
         })
-        .filter(|section| selected_section.as_deref() != Some(section.id.as_str()))
+        .filter(|section| {
+            let selected_here = selected_section.as_deref() == Some(section.id.as_str());
+            selection_spared |= selected_here;
+            !selected_here
+        })
         .map(|section| section.id.clone())
         .collect::<Vec<_>>();
     let hidden_section_set: BTreeSet<_> = hidden_sections.iter().cloned().collect();
@@ -392,7 +406,14 @@ fn plan(
         section_order.extend(chunk.into_iter().map(|section| section.id.clone()));
         start = end;
     }
-    Plan { section_order, hidden_sections, hidden_workspaces, workspace_groups, workspace_orders }
+    Plan {
+        section_order,
+        hidden_sections,
+        hidden_workspaces,
+        workspace_groups,
+        workspace_orders,
+        selection_spared,
+    }
 }
 
 pub fn respond(request: &Request) -> Reply {
@@ -422,6 +443,7 @@ pub fn respond(request: &Request) -> Reply {
             hidden_workspaces: Vec::new(),
             workspace_groups: BTreeMap::new(),
             workspace_orders: BTreeMap::new(),
+            selection_spared: false,
         };
     }
     let plan = plan(
@@ -442,6 +464,7 @@ pub fn respond(request: &Request) -> Reply {
         hidden_workspaces: plan.hidden_workspaces,
         workspace_groups: plan.workspace_groups,
         workspace_orders: plan.workspace_orders,
+        selection_spared: plan.selection_spared,
     }
 }
 

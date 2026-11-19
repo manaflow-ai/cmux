@@ -177,9 +177,9 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
             copy.run(&ledger, &|socket: &Path, local: &Path, remote: &str| {
                 if copy.seed_only {
-                    push_seed_only(socket, local, remote, &copy.subpath)
+                    push_seed_only(socket, local, remote, &copy.subpath, &copy.key)
                 } else {
-                    push(socket, local, remote, &copy.subpath)
+                    push(socket, local, remote, &copy.subpath, &copy.key)
                 }
             })
         }),
@@ -328,9 +328,15 @@ struct PlanRequest {
     /// `sm` is the platform's chat size. A larger one is never a warm spare: those are all `sm`.
     #[serde(default)]
     size: Option<String>,
-    /// The bytes the chat's folder or repository puts on the machine (`preflight`'s `estimate_bytes`), for a refusal.
+    /// The bytes the chat's folder or repository puts on the machine (`preflight`'s `estimate_bytes`), for a refusal
+    /// and a disk grown past the size's own (`disk_gib`).
     #[serde(default)]
     bytes: Option<u64>,
+    /// The largest size the account's plan gives, as the App read it (`cloudMachine.list` `plan.max_size`): with it a
+    /// size grows its disk (`disk_gib`, at most the plan's largest disk); none or a size off the ladder: not known, and
+    /// nothing grows.
+    #[serde(default)]
+    plan_max: Option<String>,
 }
 
 /// How `plan` asks the cmux platform for a workspace's machine: `ensure` with a credential.
@@ -489,6 +495,12 @@ fn plan_with_calls(
                     .as_ref()
                     .map(|_| request.key.to_lowercase()),
                 size: request.size.clone().filter(|_| larger_than_chat(request.size.as_deref())),
+                // Sent only with a size above the chat size (`body`).
+                disk_gib: preflight::grown_disk_gib(
+                    request.size.as_deref(),
+                    request.bytes,
+                    request.plan_max.as_deref(),
+                ),
             };
             let answer = if credential.0.is_empty() {
                 Err(crate::cli::PlatformCallError::Status { status: 401, code: "", facts: None })
@@ -525,6 +537,17 @@ fn plan_with_calls(
                             .unwrap_or(id),
                         disk_bytes: disk,
                     };
+                    // The plan's largest size asked grown for a folder no size within the plan holds, made at a
+                    // disk below its floor (a platform that ignores `disk_gib`): the plan's size refusal, with its
+                    // upgrade, as a start past the plan's sizes gets from the platform.
+                    if let Some(refusal) = preflight::outgrown_plan(
+                        ask.size.as_deref(),
+                        request.bytes,
+                        request.plan_max.as_deref(),
+                        &machine,
+                    ) {
+                        return refusal;
+                    }
                     if let Some(refusal) =
                         preflight::too_small(ask.size.as_deref(), request.bytes, &machine)
                     {
@@ -770,10 +793,16 @@ pub(super) struct Ensure {
     reservation_send_key: Option<String>,
     /// The ladder size the chat's folder needs, sent only above the chat size ([`ENSURE_SIZE_FIELD`]).
     size: Option<String>,
+    /// The disk in GiB the folder needs past that size's own ([`preflight::grown_disk_gib`], [`ENSURE_DISK_FIELD`]).
+    disk_gib: Option<u64>,
 }
 
 /// The ensure body's field for the machine's size (a ladder name; omitted for `sm`, so an older platform is unaffected).
 pub(super) const ENSURE_SIZE_FIELD: &str = "size";
+/// The ensure body's field for a disk grown past the size's own, in GiB (additive: a platform that does not know it
+/// ignores it and makes the size's own disk, which goes on while it holds the folder and the reserve, and is otherwise
+/// the plan's size refusal, [`preflight::outgrown_plan`]).
+pub(super) const ENSURE_DISK_FIELD: &str = "disk_gib";
 
 impl Ensure {
     fn of(flags: &Flags) -> Option<Self> {
@@ -814,6 +843,7 @@ impl Ensure {
             reservation_key: None,
             reservation_send_key: None,
             size: None,
+            disk_gib: None,
         })
     }
 
@@ -838,6 +868,9 @@ impl Ensure {
         }
         if let Some(size) = &self.size {
             body.set(ENSURE_SIZE_FIELD, json!(size));
+            if let Some(disk_gib) = self.disk_gib {
+                body.set(ENSURE_DISK_FIELD, json!(disk_gib));
+            }
         }
         body
     }
@@ -1154,24 +1187,84 @@ pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, Value> + 
 /// chat still sees the whole checkout. The send's copy counts as finished then
 /// ([`StartCopy::run`]): the chat may open in that folder, so a retry of the send
 /// never pushes over it. What a later delta builds on waits for the fill to be
-/// done (`seed_cli`'s record).
-fn push(socket: &Path, local: &Path, remote: &str, subpath: &str) -> Result<Value, Value> {
-    super::seed_cli::push(socket, local, remote, Some(subpath))
+/// done (`seed_cli`'s record). A folder outside git that the machine has nothing of
+/// takes the held copy (`seed_cli::held`), which answers at its head the same way.
+/// A projection goes before all of these ([`project_first`]).
+fn push(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    subpath: &str,
+    chat: &str,
+) -> Result<Value, Value> {
+    projected_or(
+        || project_first(socket, local, remote, chat),
+        || super::seed_cli::push(socket, local, remote, Some(subpath)),
+    )
+}
+
+/// The projection when `project` makes one, else `seed_or_copy`'s push: the head-first
+/// seed or held copy with the chat's subpath, which opens the chat at its head while the
+/// machine fills the rest, never the whole copy first. A machine without `projection-v1`
+/// (every one whose image predates it) takes that path.
+fn projected_or(
+    project: impl FnOnce() -> Option<Result<Value, Value>>,
+    seed_or_copy: impl FnOnce() -> anyhow::Result<super::seed_cli::Pushed>,
+) -> Result<Value, Value> {
+    if let Some(projected) = project() {
+        return projected;
+    }
+    seed_or_copy()
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
 
+/// An attached folder is projected when that is on, whatever its size or whether it is a git
+/// repository (sync_cli/project.rs); only a GitHub repository the person picked is cloned: the chat
+/// opens on all of it at once, its files read from this Mac on first use. None when it is not, and for any failure to project, so the
+/// caller seeds or copies as before (head first). Both pushes try it first: the App's first copy asks
+/// (`--on-seed-refusal ask`), and a folder its machine's disk cannot hold would end there,
+/// refused, before a projection that needs no room was tried.
+fn project_first(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    chat: &str,
+) -> Option<Result<Value, Value>> {
+    match super::sync_cli::project::start(socket, local, remote, chat) {
+        Ok(Ok(answer)) => {
+            Some(Ok(json!({"mode": "projected", "projected": answer.get("data").cloned()})))
+        }
+        Ok(Err(why)) => {
+            eprintln!(
+                "cmux link start-chat: {} is not projected ({why:?}); seeding or copying it",
+                local.display()
+            );
+            None
+        }
+        Err(error) => {
+            eprintln!(
+                "cmux link start-chat: projecting {} failed: {error:#}; seeding or copying it",
+                local.display()
+            );
+            None
+        }
+    }
+}
+
 /// [`push`] that never copies: a refused seed is `seed_refused`
-/// (`--on-seed-refusal ask`).
+/// (`--on-seed-refusal ask`). A projection is no copy: it is tried first, as in [`push`].
 fn push_seed_only(
     socket: &Path,
     local: &Path,
     remote: &str,
     subpath: &str,
+    chat: &str,
 ) -> Result<Value, Value> {
-    super::seed_cli::push_seed_only(socket, local, remote, Some(subpath))
-        .map(|pushed| pushed_fields(&pushed.json()))
-        .map_err(|error| super::seed_cli::failure(&error))
+    projected_or(
+        || project_first(socket, local, remote, chat),
+        || super::seed_cli::push_seed_only(socket, local, remote, Some(subpath)),
+    )
 }
 
 /// What the copy's answer carries of the push's own line: how it went
@@ -1481,19 +1574,14 @@ fn join(base: &str, name: &str) -> String {
     if base.ends_with('/') { format!("{base}{name}") } else { format!("{base}/{name}") }
 }
 
-/// A copied folder's name on a machine: its own name and a short hash
-/// (32-bit FNV-1a, low 24 bits) of where it is on this Mac, so two folders
-/// with one name never share a copy. The same name Move to Cloud gives
-/// (`CloudMoveFolder.remoteName`).
+/// A copied folder's name on a machine: its own name, as on this Mac. Two folders with one
+/// name never share a copy, as each copy has its own place (Move to Cloud, which has none,
+/// keeps its hashed name: `CloudMoveFolder.remoteName`).
 pub(super) fn remote_name(root: &str) -> String {
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in root.bytes() {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
+    // The folder's own name: each copy already has a place of its own (`fresh_place`), so the
+    // chat sees `cmuxterm-hq`, as on the Mac, not a name with a hash after it.
     let name = root.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-    let name = if name.is_empty() { "folder" } else { name };
-    format!("{name}-{:06x}", hash & 0x00ff_ffff)
+    if name.is_empty() { "folder".to_owned() } else { name.to_owned() }
 }
 
 /// `--flag value` pairs; a flag may repeat (`--work-root`).
