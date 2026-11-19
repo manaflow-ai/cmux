@@ -18,7 +18,7 @@ import QuartzCore
 /// the next pointer move over the window, key press in it or theme change, all events, never a poll.
 /// Coverage is sampled every 3 s while it runs or rests on coverage, as the video wallpaper does.
 ///
-/// The main thread only asks the scheduler, steps the pointer and packs the 144-byte Frame uniform;
+/// The main thread only asks the scheduler, steps the pointer and packs the Frame uniform;
 /// the drawable, the encode and the commit run on the render queue (``LiveWallpaperRenderer``),
 /// and the Metal program is built once per wallpaper off the main thread (``LiveWallpaperPrograms``).
 public final class BackdropLiveView: NSView {

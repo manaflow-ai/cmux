@@ -17,6 +17,14 @@ nonisolated struct LiveWallpaperColors: Sendable, Hashable {
         dark = tokens.isDark
     }
 
+    /// Colors already in linear light (tests, covers drawn in fixed colors).
+    init(ink: SIMD3<Float>, paper: SIMD3<Float>, accent: SIMD3<Float>, dark: Bool) {
+        self.ink = ink
+        self.paper = paper
+        self.accent = accent
+        self.dark = dark
+    }
+
     private static func linear(_ color: ThemeRGB) -> SIMD3<Float> {
         SIMD3(cmux_wallpaper_srgb_to_linear(Float(color.red)), cmux_wallpaper_srgb_to_linear(Float(color.green)),
               cmux_wallpaper_srgb_to_linear(Float(color.blue)))
@@ -28,7 +36,7 @@ nonisolated struct LiveWallpaperColors: Sendable, Hashable {
     }
 }
 
-/// One frame's values by name; ``packed()`` is the 36 floats of the 144-byte Frame uniform
+/// One frame's values by name; ``packed()`` is the Frame uniform (``floats`` floats)
 /// (`cmux_wallpaper_frame_pack`, the one packer the gallery and the cover renderer share).
 nonisolated struct LiveWallpaperFrame: Sendable {
     var time: Float = 0
@@ -50,7 +58,7 @@ nonisolated struct LiveWallpaperFrame: Sendable {
     var colors: LiveWallpaperColors
     var params: [Float] = []
 
-    /// The Frame uniform: 36 floats.
+    /// The Frame uniform: ``floats`` floats.
     // perf-hot: 0.05ms live-wallpaper-frame (every drawn live wallpaper frame packs its uniform)
     func packed() -> [Float] {
         var input = CmuxWallpaperFrameInput()
@@ -82,8 +90,9 @@ nonisolated struct LiveWallpaperFrame: Sendable {
         return out
     }
 
-    /// The Frame uniform's size in floats (nine `vec4<f32>`).
-    static let floats = 36
+    /// The Frame uniform's size in floats, from the library that packs it (`cmux_wallpaper_frame_floats`),
+    /// so the buffer always fits what `cmux_wallpaper_frame_pack` writes.
+    static let floats = Int(cmux_wallpaper_frame_floats())
 
     /// A still of `wallpaper` at `width` x `height` pixels: its `still` time and pointer, the pointer
     /// present and resting, in `colors`.

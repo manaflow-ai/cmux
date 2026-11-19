@@ -28,6 +28,20 @@ struct LiveWallpaperSelectionTests {
         #expect(selection.pickerCollection?.id == "live")
     }
 
+    /// The app speaks the linked library's ABI: a mismatch empties the first-party set without a
+    /// word (#45930 moved the library to 3 while the app still asked for 2), so it fails here.
+    @Test func theAppSpeaksTheLinkedLibrarysABI() {
+        #expect(LiveWallpaper.linkedABIVersion == LiveWallpaper.abiVersion)
+        #expect(!LiveWallpaper.firstParty.isEmpty)
+    }
+
+    /// The packed uniform is the size the library writes, so a Frame that grows cannot overrun it.
+    @Test func thePackedFrameIsTheLibrarysSize() {
+        let colors = LiveWallpaperColors(ink: SIMD3(1, 1, 1), paper: SIMD3(0, 0, 0), accent: SIMD3(0, 0, 1), dark: true)
+        #expect(LiveWallpaperFrame(colors: colors).packed().count == LiveWallpaperFrame.floats)
+        #expect(LiveWallpaperFrame.floats >= 36)
+    }
+
     /// The catalog lists the first-party set last, each as `live:<id>`.
     @Test func theCatalogEndsWithTheFirstPartySet() {
         let choices = LiveWallpaper.choices

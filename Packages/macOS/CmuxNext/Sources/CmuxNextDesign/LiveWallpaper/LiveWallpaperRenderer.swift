@@ -6,7 +6,7 @@ import QuartzCore
 
 /// Draws a live wallpaper's frames into its view's `CAMetalLayer`, off the main thread.
 ///
-/// The main thread only packs the 144-byte Frame uniform and hands it here; `nextDrawable` (which
+/// The main thread only packs the Frame uniform and hands it here; `nextDrawable` (which
 /// may wait for the compositor to give a drawable back), the encode and the commit run on one
 /// serial render queue shared by every window (``LiveWallpaperPrograms/renderQueue``). At most one
 /// frame of a view is in flight: a display link tick that finds the last frame still on the GPU
@@ -29,7 +29,7 @@ nonisolated final class LiveWallpaperRenderer: @unchecked Sendable {
         self.queue = queue
     }
 
-    /// Queues one frame of `uniform` (36 floats) at `drawableSize` pixels. False when the previous
+    /// Queues one frame of `uniform` (``LiveWallpaperFrame/floats`` floats) at `drawableSize` pixels. False when the previous
     /// frame is still in flight (nothing is queued). `completed` gets the frame's GPU time in
     /// milliseconds, or nil when it could not be drawn, on a thread of Metal's or the render queue.
     func draw(_ uniform: [Float], pipeline: LiveWallpaperPipeline, drawableSize: CGSize,
