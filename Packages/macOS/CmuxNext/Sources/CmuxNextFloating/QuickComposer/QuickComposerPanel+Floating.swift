@@ -18,7 +18,12 @@ extension QuickComposerPanel {
             let saved = frames.frame(onDisplay: FloatingChatFrames.display(screen))
             // Hidden (a tab moved here), it opens where the composer would.
             let near = isVisible ? frame : Self.placement(size: frame.size, in: screen.visibleFrame)
-            setFrame(FloatingChatFrames.placement(saved: saved, near: near, in: screen.visibleFrame), display: true, animate: isVisible)
+            let target = FloatingChatFrames.placement(saved: saved, near: near, in: screen.visibleFrame)
+            guard isVisible else { return setFrame(target, display: true) }
+            // Shown, it glides there on the run loop. `setFrame(_:display:animate: true)` ran AppKit's whole
+            // resize animation in a nested loop before it returned, holding the main thread for it
+            // (check-motion.sh, "blocking window animation").
+            Motion.overlays.animateTimed(.panel, in: contentView) { animator().setFrame(target, display: true) }
         } else {
             styleMask.remove(.resizable)
             level = .floating

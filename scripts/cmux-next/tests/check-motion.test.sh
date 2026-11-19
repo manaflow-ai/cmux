@@ -82,4 +82,20 @@ pass "an animator change inside a gate group" '        Motion.home.animate(.fade
 pass "the new escape with a reason" '        // motion: allow runs only inside the caller'"'"'s Motion.sidebar.animate group
         view.animator().alphaValue = 1'
 fail "the new escape without a reason" '        view.animator().alphaValue = 1 // motion: allow'
+# Blocking window animation: AppKit's animated setFrame and zoom run a nested loop that holds main.
+fail "an animated setFrame" '        setFrame(target, display: true, animate: true)'
+fail "an animated setFrame by a variable" '        window.setFrame(target, display: true, animate: isVisible)'
+fail "an animated setFrame across lines" '        setFrame(FloatingChatFrames.placement(saved: saved, near: near, in: visible),
+                 display: true,
+                 animate: isVisible)'
+fail "AppKit zoom on a window" '        window.zoom(nil)'
+fail "AppKit super zoom" '        override func zoom(_ sender: Any?) { super.zoom(sender) }'
+fail "AppKit performZoom" '        window.performZoom(nil)'
+pass "a setFrame that does not animate" '        setFrame(target, display: true, animate: false)'
+pass "a plain setFrame" '        setFrame(target, display: true)'
+pass "a gated animator setFrame" '        Motion.overlays.animateTimed(.panel, in: contentView) { animator().setFrame(target, display: true) }'
+pass "WindowZoom's own zoom" '        if !zoomState.zoom(self) { return }'
+pass "a reviewed zoom on a WindowZoom window" '        // motion: allow the receiver overrides zoom(_:) with WindowZoom
+        window.zoom(nil)'
+pass "the zoom selector" '        NSMenuItem(title: title, action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")'
 echo "check-motion.test: ok"

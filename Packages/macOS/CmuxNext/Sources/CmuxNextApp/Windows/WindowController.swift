@@ -493,7 +493,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
 
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
     private let zoomState = WindowZoom()
-    override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } }
+    override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } } // motion: allow full screen or no screen only
     override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
     func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
 
