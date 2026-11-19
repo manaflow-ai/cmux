@@ -101,9 +101,10 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "call-pitch",
     between: "two consecutive calls listed in a running turn's run (sent message lines, a command), centre to centre",
-    value: 26,
+    value: 22,
     tolerance: 0.5,
-    source: "22 line + grid base 4 between a run's calls (.cv-tools gap, #42247); Codex desktop 26",
+    source:
+      "the one-line pitch: a row's lines stack flush as rows do (.cv-tools, gap 0). #42247's 4 between them put a row's first line 26 over the next while the rest were 22 (Leo, 2026-11-16: \"why is the spacing different on the first thinking tool call?\")",
   },
   {
     id: "run-to-step",

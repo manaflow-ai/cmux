@@ -1723,7 +1723,12 @@ export function wokenGapLook(): "block" | "turn" | "tail" {
 /// "too much space in between here"). Right under a subagent's start line it opens nothing either:
 /// that line says the agent started it, so nothing under it reads as the subagent's words, and the
 /// reply keeps the run gap a reply has under any status line, whichever turn it came in (Leo,
-/// 2026-11-14: "the spacing after the subagent starting is inconsistent? it grows too big").
+/// 2026-11-14: "the spacing after the subagent starting is inconsistent? it grows too big"). Right
+/// under a received line (a background task's notice, another agent's message) it opens nothing
+/// either: that line is what the agent answers with the turn, its prompt, and a prompt is never
+/// tracked as the turn's row (direct.ts), so the run under it took the 32 turn gap where every other
+/// line in the group sits flush on the 22 pitch (Leo, 2026-11-16: "why is the background task space
+/// after so big"; test/agent-pane-worked-group-pitch-browser.test.ts).
 /// A tool row right under the ended turn's footer row opens nothing either (`wokenUnderFooter`): the
 /// footer already closes the turn above, and the turn gap over a muted tool row, with no prompt in
 /// it, left an empty band the hidden task line seemed to leave behind (Leo, 2026-11-15: "idk it
@@ -1735,6 +1740,7 @@ export const opensBackgroundTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined)
   prev !== undefined &&
   prev.kind !== WORKED &&
   prev.kind !== SUBAGENT_STARTED &&
+  !(prev.kind === "user" && !prev.received && isIncomingLine(prev.incoming?.kind)) &&
   prev.inBackground !== row.inBackground &&
   !(prev.kind === BACKGROUND_TURN && prev.background?.id === row.inBackground);
 /// A turn's "Worked for" line, or the running turn's "Working for" over its work (turns.ts
