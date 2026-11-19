@@ -133,6 +133,10 @@ pub struct TurnFold {
     /// made it go on in the same prompt: the post holds them first.
     answered: Vec<String>,
     ended: Option<Ended>,
+    /// Turns Claude Code ran on into after this one ended, to read messages
+    /// steered into it too late (acpmux `carried_turn.rs`): each is folded
+    /// as more of this turn.
+    carries: usize,
     /// The last raw Claude Code line came from one of its own subagents
     /// (Task/Agent): it is not timed, and its result and usage are not the turn's.
     in_subagent: bool,
@@ -227,6 +231,16 @@ impl TurnFold {
             self.last_seq = event.seq;
         }
         let mut out = Vec::new();
+        // The turn's result names the turn Claude Code runs on into, with a
+        // message steered in after its last answer (`carriedTo`): the turn
+        // goes on in it, so that message is answered in this turn.
+        if event.dir == "mux"
+            && event.kind == "turn_result"
+            && event.msg.get("carriedTo").is_some_and(|c| !c.is_null())
+        {
+            self.resume_carried();
+            return out;
+        }
         if self.ended.is_some() {
             return out;
         }
@@ -407,6 +421,26 @@ impl TurnFold {
             },
             _ => {}
         }
+    }
+
+    /// Claude Code runs on into a turn of its own with messages steered in
+    /// after this turn's last answer (`_meta.claude.carried` on the prompt's
+    /// answer, `carriedTo` on its `turn_result`): fold that turn as more of
+    /// this one. The answer so far is kept and posted first. Only a clean
+    /// end goes on; once per end, whichever sign comes first.
+    pub fn resume_carried(&mut self) {
+        if self.ended.as_ref().is_some_and(|e| e.error.is_none()) {
+            if let Some(text) = self.last_talk.take() {
+                self.answered.push(text);
+            }
+            self.ended = None;
+            self.carries += 1;
+        }
+    }
+
+    /// How many carried turns this fold went on into.
+    pub fn carries(&self) -> usize {
+        self.carries
     }
 
     /// The turn is over without a `turn_end` (the prompt failed or the
