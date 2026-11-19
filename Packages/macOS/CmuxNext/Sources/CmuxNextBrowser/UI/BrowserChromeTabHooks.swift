@@ -18,6 +18,7 @@ struct BrowserChromeTabHooks {
         chrome.pageInfoCommandRouter = state.pageInfoCommandRouter
         chrome.extensionMenuHandler = state.extensionMenuHandler
         chrome.onFocusModeBadgePress = state.onFocusModeBadgePress
+        chrome.cmuxModeKeys = state.cmuxModeKeys
         let bar = chrome.addressBar
         if let engine = state.suggestionEngine, engine !== bar.suggestionEngine { bar.suggestionEngine = engine }
         bar.tabKey = state.tabKey

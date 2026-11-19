@@ -1,10 +1,10 @@
 {
-  "caption": "Press ⌥⌘↩ in a web page for cmux mode, where cmux gets every shortcut.",
+  "caption": "Press ⌘⌥↩ in a web page for cmux mode, where cmux gets every shortcut.",
   "frameInterval": 0.25,
   "steps": [
     {"title": "Launch", "wait": 2},
     {"title": "A web page", "cmux": ["tab", "new-browser", "--url", "https://example.com"], "wait": 4},
-    {"title": "⌥⌘↩ in the page", "rpc": {"method": "debug.key", "params": {"key": "return", "modifiers": ["command", "option"]}}, "wait": 2.5, "clip": true},
+    {"title": "⌘⌥↩ in the page", "rpc": {"method": "debug.key", "params": {"key": "return", "modifiers": ["command", "option"]}}, "wait": 2.5, "clip": true},
     {"title": "End", "wait": 0.3}
   ],
   "crop": [0.2, 0.0, 0.6, 0.3]

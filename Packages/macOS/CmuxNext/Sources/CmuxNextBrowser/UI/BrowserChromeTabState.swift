@@ -40,6 +40,8 @@ public final class BrowserChromeTabState: Sendable {
     public var pageInfoCommandRouter: ((PageInfoCommand) -> Bool)? { didSet { chrome?.pageInfoCommandRouter = pageInfoCommandRouter } }
     public var extensionMenuHandler: (any ExtensionMenuHandling)? { didSet { chrome?.extensionMenuHandler = extensionMenuHandler } }
     public var onFocusModeBadgePress: (() -> Void)? { didSet { chrome?.onFocusModeBadgePress = onFocusModeBadgePress } }
+    /// The cmux mode toggle's keys (the badge's tooltip).
+    public var cmuxModeKeys: String? { didSet { chrome?.cmuxModeKeys = cmuxModeKeys } }
     public var history: (any BrowserHistoryStore)? {
         get { loads.history }
         set { loads.history = newValue }

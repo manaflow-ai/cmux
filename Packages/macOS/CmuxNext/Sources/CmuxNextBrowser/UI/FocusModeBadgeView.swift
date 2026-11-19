@@ -10,6 +10,8 @@ final class FocusModeBadgeView: NSView {
     private let glyph = NSImageView()
     /// Runs on click: the host leaves cmux mode.
     var onPress: (() -> Void)?
+    /// The cmux mode toggle's keys (⌘⌥↩) for the tooltip; nil when it has none.
+    var exitKeys: String? { didSet { if exitKeys != oldValue { show() } } }
     /// The text shown now (tests).
     var shownText: String { label.stringValue }
     /// The label's color now (tests).
@@ -56,7 +58,7 @@ final class FocusModeBadgeView: NSView {
 
     func show() {
         label.stringValue = Strings.cmuxModeActive
-        let help = Strings.cmuxModeExitHelp
+        let help = exitKeys.map { Strings.cmuxModeExitHelp(keys: BrowserCmuxModeNotice.commandFirst($0)) } ?? Strings.cmuxModeExitHelp
         themedToolTip = help
         setAccessibilityLabel(label.stringValue)
         setAccessibilityHelp(help)

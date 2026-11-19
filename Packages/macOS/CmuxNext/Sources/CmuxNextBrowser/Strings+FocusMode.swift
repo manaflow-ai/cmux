@@ -4,11 +4,15 @@ import Foundation
 // cmux shortcut.
 nonisolated extension Strings {
     static var cmuxModeActive: String {
-        String(localized: "browser.cmuxMode.active", defaultValue: "cmux Mode", bundle: .module)
+        String(localized: "browser.cmuxMode.active", defaultValue: "cmux mode", bundle: .module)
     }
-    /// The badge's tooltip: a click leaves cmux mode.
+    /// The badge's tooltip, as macOS says it for full screen ("Press Esc to exit full screen"): `keys` is the toggle (⌘⌥↩).
+    static func cmuxModeExitHelp(keys: String) -> String {
+        String(format: String(localized: "browser.cmuxMode.exit.helpWithKeys", defaultValue: "Press %@ to exit cmux mode", bundle: .module), keys)
+    }
+    /// The badge's tooltip when the toggle has no key.
     static var cmuxModeExitHelp: String {
-        String(localized: "browser.cmuxMode.exit.help", defaultValue: "Leave cmux mode: web pages get their shortcuts first again", bundle: .module)
+        String(localized: "browser.cmuxMode.exit.help", defaultValue: "Click to exit cmux mode", bundle: .module)
     }
     /// The one-time notice: `key` (⌘K) went to the page; `toggle` (⌘⌥↩) turns on cmux mode.
     static func cmuxModeNotice(key: String, toggle: String) -> String {
@@ -26,5 +30,14 @@ public nonisolated struct BrowserCmuxModeNotice: Equatable, Sendable {
         (self.key, self.toggle) = (key, toggle)
     }
 
-    public var message: String { Strings.cmuxModeNotice(key: key, toggle: toggle) }
+    public var message: String { Strings.cmuxModeNotice(key: key, toggle: Self.commandFirst(toggle)) }
+
+    /// `keys` with Command first (⌥⌘↩ reads ⌘⌥↩), as cmux mode's copy prints its keys (Lucas 2026-11-19: "Cmd Opt
+    /// Enter"). A menu still draws macOS's own order.
+    public static func commandFirst(_ keys: String) -> String {
+        guard let command = keys.firstIndex(of: "⌘"), command != keys.startIndex else { return keys }
+        var rest = keys
+        rest.remove(at: command)
+        return "⌘" + rest
+    }
 }

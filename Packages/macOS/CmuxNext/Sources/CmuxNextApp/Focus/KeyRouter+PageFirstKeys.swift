@@ -92,7 +92,6 @@ extension KeyRouter {
         }
     }
 
-    /// How long a page has to report a key unhandled before the notice reads it as kept: Chromium answers in a
-    /// frame or two.
+    /// How long a page has to report a key unhandled before the notice reads it as kept (Chromium: a frame or two).
     static var cmuxModeNoticeWait: Duration { .milliseconds(300) }
 }

@@ -27648,7 +27648,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Mode"
+            "value": "cmux mode"
           }
         },
         "ar": {
@@ -27744,7 +27744,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Modu"
+            "value": "cmux modu"
           }
         },
         "uk": {
@@ -27779,127 +27779,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Leave cmux mode: web pages get their shortcuts first again"
+            "value": "Click to exit cmux mode"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إنهاء وضع cmux: تحصل صفحات الويب على اختصاراتها أولًا مجددًا"
+            "value": "انقر للخروج من وضع cmux"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Napusti cmux način: web stranice ponovo prve dobijaju svoje prečice"
+            "value": "Kliknite da izađete iz cmux načina"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forlad cmux-tilstand: websider får deres genveje først igen"
+            "value": "Klik for at forlade cmux-tilstand"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-Modus verlassen: Webseiten erhalten ihre Kurzbefehle wieder zuerst"
+            "value": "Klicken, um den cmux-Modus zu verlassen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Salir del modo cmux: las páginas web vuelven a recibir primero sus atajos"
+            "value": "Haz clic para salir del modo cmux"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quitter le mode cmux : les pages web reçoivent de nouveau leurs raccourcis en premier"
+            "value": "Cliquez pour quitter le mode cmux"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esci dalla modalità cmux: le pagine web ricevono di nuovo per prime le loro scorciatoie"
+            "value": "Fai clic per uscire dalla modalità cmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux モードを終了：Web ページが再び自身のショートカットを先に受け取ります"
+            "value": "クリックして cmux モードを終了"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចាកចេញពីរបៀប cmux៖ ទំព័របណ្ដាញទទួលផ្លូវកាត់របស់ខ្លួនមុនម្ដងទៀត"
+            "value": "ចុចដើម្បីចាកចេញពីរបៀប cmux"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 모드 종료: 웹 페이지가 다시 자체 단축키를 먼저 받습니다"
+            "value": "클릭하여 cmux 모드 종료"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gå ut av cmux-modus: nettsider får snarveiene sine først igjen"
+            "value": "Klikk for å gå ut av cmux-modus"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opuść tryb cmux: strony internetowe znów jako pierwsze otrzymują swoje skróty"
+            "value": "Kliknij, aby wyjść z trybu cmux"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sair do modo cmux: as páginas da web voltam a receber seus atalhos primeiro"
+            "value": "Clique para sair do modo cmux"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Выйти из режима cmux: веб-страницы снова первыми получают свои сочетания клавиш"
+            "value": "Нажмите, чтобы выйти из режима cmux"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ออกจากโหมด cmux: หน้าเว็บจะได้รับคีย์ลัดของตัวเองก่อนอีกครั้ง"
+            "value": "คลิกเพื่อออกจากโหมด cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Modundan çık: web sayfaları kısayollarını yeniden ilk alır"
+            "value": "cmux modundan çıkmak için tıklayın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вийти з режиму cmux: вебсторінки знову першими отримують свої сполучення клавіш"
+            "value": "Натисніть, щоб вийти з режиму cmux"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thoát chế độ cmux: trang web lại nhận phím tắt của chúng trước"
+            "value": "Nhấp để thoát chế độ cmux"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "退出 cmux 模式：网页将再次优先获得其快捷键"
+            "value": "点按以退出 cmux 模式"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "離開 cmux 模式：網頁將再次優先取得其快捷鍵"
+            "value": "按一下以離開 cmux 模式"
           }
         }
       }
@@ -28031,6 +28031,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ 已傳送到網頁。按 %2$@ 進入 cmux 模式，cmux 將取得所有快捷鍵。"
+          }
+        }
+      }
+    },
+    "browser.cmuxMode.exit.helpWithKeys": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press %@ to exit cmux mode"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اضغط %@ للخروج من وضع cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pritisnite %@ da izađete iz cmux načina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryk på %@ for at forlade cmux-tilstand"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drücke %@, um den cmux-Modus zu verlassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsa %@ para salir del modo cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez sur %@ pour quitter le mode cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premi %@ per uscire dalla modalità cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を押すと cmux モードを終了します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចុច %@ ដើម្បីចាកចេញពីរបៀប cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 키를 눌러 cmux 모드 종료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trykk %@ for å gå ut av cmux-modus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naciśnij %@, aby wyjść z trybu cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressione %@ para sair do modo cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите %@, чтобы выйти из режима cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กด %@ เพื่อออกจากโหมด cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux modundan çıkmak için %@ tuşlarına basın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Натисніть %@, щоб вийти з режиму cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhấn %@ để thoát chế độ cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 %@ 退出 cmux 模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 %@ 離開 cmux 模式"
           }
         }
       }

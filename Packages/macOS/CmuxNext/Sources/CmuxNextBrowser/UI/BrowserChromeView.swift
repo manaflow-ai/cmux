@@ -48,6 +48,12 @@ public final class BrowserChromeView: NSView {
         }
     }
 
+    /// The cmux mode toggle's keys, for the badge's tooltip.
+    public var cmuxModeKeys: String? {
+        get { addressBar.focusModeBadgeView.exitKeys }
+        set { addressBar.focusModeBadgeView.exitKeys = newValue }
+    }
+
     /// A click on the cmux mode badge: the host leaves cmux mode.
     public var onFocusModeBadgePress: (() -> Void)? {
         get { addressBar.focusModeBadgeView.onPress }

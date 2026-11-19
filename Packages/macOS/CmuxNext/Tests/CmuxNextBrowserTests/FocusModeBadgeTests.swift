@@ -28,16 +28,30 @@ import Testing
         #expect(!chrome.addressBar.showsFocusModeBadge)
         chrome.showsFocusModeIndicator = true
         #expect(chrome.addressBar.showsFocusModeBadge)
-        #expect(chrome.addressBar.focusModeBadgeText == "cmux Mode")
+        #expect(chrome.addressBar.focusModeBadgeText == "cmux mode")
         chrome.showsFocusModeIndicator = false
         #expect(!chrome.addressBar.showsFocusModeBadge)
     }
 
-    /// The notice names the key the page got and the cmux mode toggle.
-    @Test func noticeNamesTheKeyAndTheToggle() {
+    /// The notice names the key the page got and the cmux mode toggle, Command first (Lucas 2026-11-19).
+    @Test func noticeNamesTheKeyAndTheToggleCommandFirst() {
         let message = BrowserCmuxModeNotice(key: "⌘K", toggle: "⌥⌘↩").message
         #expect(message.contains("⌘K"))
-        #expect(message.contains("⌥⌘↩"))
+        #expect(message.contains("⌘⌥↩"))
+        #expect(BrowserCmuxModeNotice.commandFirst("⌥⌘↩") == "⌘⌥↩")
+        #expect(BrowserCmuxModeNotice.commandFirst("⌘K") == "⌘K")
+        #expect(BrowserCmuxModeNotice.commandFirst("⌃⌥") == "⌃⌥")
+    }
+
+    /// The tooltip says how to leave, as macOS says it for full screen, with the toggle's keys Command first.
+    @Test func tooltipNamesTheToggle() {
+        let (chrome, window) = chrome()
+        defer { window.close() }
+        chrome.cmuxModeKeys = "⌥⌘↩"
+        chrome.showsFocusModeIndicator = true
+        #expect(chrome.addressBar.focusModeBadgeView.themedToolTip == "Press ⌘⌥↩ to exit cmux mode")
+        chrome.cmuxModeKeys = nil
+        #expect(chrome.addressBar.focusModeBadgeView.themedToolTip == "Click to exit cmux mode")
     }
 
     @Test func clickingBadgeAsksHostToLeave() {
